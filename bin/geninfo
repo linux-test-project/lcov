@@ -119,8 +119,8 @@ if ($version)
 }
 
 # Adjust test name if necessary
-$test_name .= "__".`uname -a`;
-$test_name =~ s/\W/_/g;
+#$test_name .= "__".`uname -a`;
+#$test_name =~ s/\W/_/g;
 
 # Check for directory name
 if (!@data_directory)
@@ -819,15 +819,15 @@ sub read_gcov_file($$)
 				push(@result, 0);
 				push(@result, $1);
 			}
-			elsif (/^branch\s+\d+\s+(\S+)\s+=\s+(\S+)$/)
+			elsif (/^branch/)
 			{
 				# Branch execution data
 				push(@branches, scalar(@result) / 3);
-				if ($1 eq "never")
+				if (/^branch \d+ never executed$/)
 				{
 					push(@branches, 0);
 				}
-				elsif ($2 eq "0%")
+				elsif (/^branch \d+ taken = 0%/)
 				{
 					push(@branches, 1);
 				}
