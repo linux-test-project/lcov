@@ -20,7 +20,7 @@ BIN_DIR := $(PREFIX)/usr/bin
 MAN_DIR := $(PREFIX)/usr/share/man
 TMP_DIR := /tmp/lcov-tmp.$(shell echo $$$$)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README CHANGES Makefile \
-	   $(wildcard rpm/*)
+	   $(wildcard rpm/*) lcovrc
 
 .PHONY: all info clean install uninstall rpms
 
@@ -45,6 +45,7 @@ install:
 	bin/install.sh man/geninfo.1 $(MAN_DIR)/man1/geninfo.1
 	bin/install.sh man/genpng.1 $(MAN_DIR)/man1/genpng.1
 	bin/install.sh man/gendesc.1 $(MAN_DIR)/man1/gendesc.1
+	bin/install.sh man/lcovrc.5 $(MAN_DIR)/man5/lcovrc.5
 	bin/install.sh lcovrc $(CFG_DIR)/lcovrc
 
 uninstall:
@@ -58,6 +59,7 @@ uninstall:
 	bin/install.sh --uninstall man/geninfo.1 $(MAN_DIR)/man1/geninfo.1
 	bin/install.sh --uninstall man/genpng.1 $(MAN_DIR)/man1/genpng.1
 	bin/install.sh --uninstall man/gendesc.1 $(MAN_DIR)/man1/gendesc.1
+	bin/install.sh --uninstall man/lcovrc.5 $(MAN_DIR)/man5/lcovrc.5
 	bin/install.sh --uninstall lcovrc $(CFG_DIR)/lcovrc
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
