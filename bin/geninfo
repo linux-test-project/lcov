@@ -213,7 +213,7 @@ $gcov_version = get_gcov_version();
 
 if ($gcov_version < $GCOV_VERSION_3_4_0)
 {
-	if ($compatibility eq $COMPAT_SLES9)
+	if (defined($compatibility) && $compatibility eq $COMPAT_SLES9)
 	{
 		$data_file_extension = ".da";
 		$graph_file_extension = ".bbg";
@@ -438,7 +438,7 @@ sub process_dafile($)
 	# information about functions and their source code positions.
 	if ($gcov_version < $GCOV_VERSION_3_4_0)
 	{
-		if ($compatibility eq $COMPAT_SLES9)
+		if (defined($compatibility) && $compatibility eq $COMPAT_SLES9)
 		{
 			%bb_content = read_sles9_bbg_file($bb_filename);
 		}
@@ -558,7 +558,7 @@ sub process_dafile($)
 		# gcov will happily create output even if there's no source code
 		# available - this interfers with checksum creation so we need
 		# to pull the emergency brake here.
-		if (! -r $source && ! $nochecksum)
+		if (defined($source) && ! -r $source && ! $nochecksum)
 		{
 			die("ERROR: could not read source file $source\n");
 		}
