@@ -997,7 +997,7 @@ sub read_gcov_file($)
 		{
 			chomp($_);
 
-			if (/^branch\s+\d+\s+(\S+)\s+(\S+)$/)
+			if (/^branch\s+\d+\s+(\S+)\s+(\S+)/)
 			{
 				# Branch execution data
 				push(@branches, scalar(@result) / 3);
@@ -1018,7 +1018,7 @@ sub read_gcov_file($)
 			{
 				# Function call return data
 			}
-			elsif (/^\s*([^:\s]+):\s*([^:\s]+):(.*)$/)
+			elsif (/^\s*([^:]+):\s*([^:]+):(.*)$/)
 			{
 				# <exec count>:<line number>:<source code>
 				if ($2 eq "0")
