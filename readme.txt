@@ -22,7 +22,7 @@ Contents
 1. Installing lcov
 ------------------
 
-The LCOV scripts may be downloaded as either a tar/zip-package from
+The LCOV scripts may be downloaded as either a .tar.gz-package from
 
   http://ltp.sourceforge.net/lcov.php
 
@@ -34,7 +34,7 @@ or via CVS (most recent version), e.g. by using the following commands:
 
   cvs -z3 -d:pserver:anonymous@cvs.LTP.sourceforge.net:/cvsroot/ltp export -D now utils
 
-You will then find the files in the utils/analysis/cat directory. Once you
+You will then find the files in the utils/analysis/lcov directory. Once you
 got the scripts on your machine, you might consider copying all .pl files into
 some directory in your shell's search path, e.g. by typing:
 
