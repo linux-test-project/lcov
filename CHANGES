@@ -24,6 +24,9 @@ geninfo:
 - Implemented new command line option '--nochecksum' to suppress generation
   of checksums
 - Added function to collect branch coverage data
+- Added function to specify whether links should be followed when capturing
+  coverage data
+- Added a workaround for a gcov problem with empty .da files
 
 lcov:
 - Fixed bug which would not correctly associate data sets with an empty
@@ -37,6 +40,8 @@ lcov:
 - Implemented new command line option '--diff' which allows converting
   coverage data from an older source code version by using a diff file
   to map line numbers
+- Added function to specify whether links should be followed when capturing
+  coverage data
 
 genpng:
 - Added support for the highlighting option of genhtml

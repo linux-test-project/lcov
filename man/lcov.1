@@ -1,4 +1,4 @@
-.TH lcov 1 "lcov 1.1" 2003-04-14 "User Manuals"
+.TH lcov 1 "lcov 1.1" 2003-12-19 "User Manuals"
 .SH NAME
 lcov - GCOV coverage tool extension
 .SH SYNOPSIS
@@ -10,6 +10,8 @@ lcov - GCOV coverage tool extension
 .RB [ \-q | \-\-quiet ]
 .RB [ \-z | \-\-zerocounters ]
 .RB [ \-c | \-\-capture ]
+.br
+.RB [ \-f | \-\-follow ]
 .br
 .RB [ \-t | \-\-test\-name
 .IR testname ]
@@ -126,6 +128,13 @@ option to capture counts for a user space program.
 
 Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
 at a time.
+.RE
+
+.BI "\-f "
+.br
+.BI "\-\-follow "
+.RS
+Follow links when searching for .da files.
 .RE
 
 .BI "\-t " testname

@@ -1,4 +1,4 @@
-.TH geninfo 1 "lcov 1.1" 2003-04-14 "User Manuals"
+.TH geninfo 1 "lcov 1.1" 2003-12-19 "User Manuals"
 .SH NAME
 geninfo - Generate tracefiles from .da files
 .SH SYNOPSIS
@@ -8,6 +8,8 @@ geninfo - Generate tracefiles from .da files
 .RS 8
 .br
 .RB [ \-q | \-\-quiet ]
+.RB [ \-f | \-\-follow ]
+.br
 .RB [ \-t | \-\-test\-name
 .IR test\-name ]
 .br
@@ -64,6 +66,13 @@ Do not print progress messages.
 
 Suppresses all informational progress output. When this switch is enabled,
 only error or warning messages are printed.
+.RE
+
+.B \-f
+.br
+.B \-\-follow
+.RS
+Follow links when searching .da files.
 .RE
 
 .BI "\-t " testname
