@@ -110,7 +110,6 @@ sub list();
 sub get_common_filename($$);
 sub read_diff($);
 sub diff();
-sub escape_shell($);
 sub system_no_output($@);
 
 sub info(@);
@@ -2127,40 +2126,6 @@ sub diff()
 	{
 		write_info_file(*STDOUT, $trace_data);
 	}
-}
-
-
-#
-# escape_shell(string)
-#
-# Escape characters in STRING which would be expanded by a command line
-# shell. Return the resulting string.
-#
-
-sub escape_shell($)
-{
-	my $string = $_[0];
-
-	# Escape characters which have a special meaning in shell context
-	$string =~ s/\\/\\\\/g;
-	$string =~ s/\|/\\\|/g;
-	$string =~ s/\$/\\\$/g;
-	$string =~ s/\*/\\\*/g;
-	$string =~ s/\"/\\\"/g;
-	$string =~ s/\'/\\\'/g;
-	$string =~ s/\~/\\\~/g;
-	$string =~ s/\;/\\\;/g;
-	$string =~ s/\&/\\\&/g;
-	$string =~ s/\(/\\\(/g;
-	$string =~ s/\)/\\\)/g;
-	$string =~ s/\</\\\</g;
-	$string =~ s/\>/\\\>/g;
-	$string =~ s/\[/\\\[/g;
-	$string =~ s/\]/\\\]/g;
-	$string =~ s/\!/\\\!/g;
-	$string =~ s/\`/\\\`/g;
-
-	return $string;
 }
 
 

@@ -109,7 +109,6 @@ sub combine_info_files($$);
 sub merge_checksums($$$);
 sub combine_info_entries($$$);
 sub apply_prefix($$);
-sub escape_regexp($);
 sub system_no_output($@);
 
 
@@ -552,11 +551,10 @@ sub process_dir($)
 	$base_dir = get_relative_base_path($rel_dir);
 
 	create_sub_dir($rel_dir);
-	$abs_dir = escape_regexp($abs_dir);
 
 	# Match filenames which specify files in this directory, not including
 	# sub-directories
-	foreach $filename (grep(/^$abs_dir\/[^\/]*$/,keys(%info_data)))
+	foreach $filename (grep(/^\Q$abs_dir\E\/[^\/]*$/,keys(%info_data)))
 	{
 		($lines_found, $lines_hit, $testdata) =
 			process_file($trunc_dir, $rel_dir, $filename);
@@ -3319,48 +3317,16 @@ sub apply_prefix($$)
 {
 	my $filename = $_[0];
 	my $prefix = $_[1];
-	my $clean_prefix = escape_regexp($prefix);
 
 	if (defined($prefix) && ($prefix ne ""))
 	{
-		if ($filename =~ /^$clean_prefix\/(.*)$/)
+		if ($filename =~ /^\Q$prefix\E\/(.*)$/)
 		{
 			return substr($filename, length($prefix) + 1);
 		}
 	}
 
 	return $filename;
-}
-
-
-#
-# escape_regexp(string)
-#
-# Escape special characters in STRING which would be incorrectly interpreted
-# in a PERL regular expression.
-#
-
-sub escape_regexp($)
-{
-	my $string = $_[0];
-	
-	# Escape special characters
-	$string =~ s/\\/\\\\/g;
-	$string =~ s/\^/\\\^/g;
-	$string =~ s/\$/\\\$/g;
-	$string =~ s/\./\\\./g;
-	$string =~ s/\|/\\\|/g;
-	$string =~ s/\(/\\\(/g;
-	$string =~ s/\)/\\\)/g;
-	$string =~ s/\[/\\\[/g;
-	$string =~ s/\]/\\\]/g;
-	$string =~ s/\*/\\\*/g;
-	$string =~ s/\?/\\\?/g;
-	$string =~ s/\{/\\\{/g;
-	$string =~ s/\}/\\\}/g;
-	$string =~ s/\+/\\\+/g;
-
-	return $string;
 }
 
 
