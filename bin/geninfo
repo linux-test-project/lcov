@@ -35,6 +35,7 @@
 #   2003-04-16 / Peter Oberparleiter: modified read_gcov so that it can also
 #                parse the new gcov format which is to be introduced in gcc 3.3
 #   2003-04-30 / Peter Oberparleiter: made info write to STDERR, not STDOUT
+#   2003-09-18 / Nigel Hinds: capture branch coverage data from GCOV
 #
 
 use strict;
@@ -70,6 +71,7 @@ our $quiet;
 our $help;
 our $output_filename;
 our $version;
+our @gcov_branches;	# Branch content of a .gcov file
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -323,7 +325,7 @@ sub process_dafile($)
 	# Change to directory containing .da files and apply GCOV
 	chdir($da_dir);
 	undef($!);
-	system("gcov ".escape_shell("$da_basename.c")." -o ".
+	system("gcov -b ".escape_shell("$da_basename.c")." -o ".
 	       escape_shell($object_dir)." >/dev/null");
 	$gcov_error = $!;
 
@@ -386,6 +388,7 @@ sub process_dafile($)
 			next;
 		}
 
+		@gcov_branches = ( );
 		@gcov_content = read_gcov_file($gcov_file);
 
 		# Skip empty files
@@ -436,6 +439,27 @@ sub process_dafile($)
 
 			# Remove already processed data from array
 			splice(@gcov_content,0,3);
+		}
+
+		#--
+		#-- BA: <code-line>, <branch-coverage>
+		#--
+		#-- print one BA line for every branch of a
+		#-- conditional.  <branch-coverage> values
+		#-- are:
+		#--     0 - not executed
+		#--     1 - executed but not taken
+		#--     2 - executed and taken
+		#--
+		while (@gcov_branches)
+		{
+			if ($gcov_branches[0])
+			{
+				printf(INFO_HANDLE "BA:%s,%s\n",
+					$gcov_branches[0],
+					$gcov_branches[1]);
+			}
+			splice(@gcov_branches,0,2);
 		}
 
 		# Write line statistics and section separator
@@ -606,10 +630,13 @@ sub read_gcov_file($)
 	my @result = ();
 	my $number;
 	my $format;
+	my @branch;
+	my $line_number;
 
 	open(INPUT, $_[0])
 		or die("ERROR: cannot read $_[0]!\n");
 
+	$line_number=0;
 	while (<INPUT>)
 	{
 		chomp($_);
@@ -633,13 +660,33 @@ sub read_gcov_file($)
 			# execution count
 			if (substr($_,0,2) eq "\t\t")
 			{
+				$line_number++;
 				# Lines without counts are not instrumented
 				push(@result,0);
 				push(@result,0);
 				push(@result,substr($_,2));
 			}
+
+			#-- extract branch coverage data from the .gcov file
+			elsif (substr($_,0,6) eq "branch")
+			{
+				@branch = split /[ ]+/;
+				push(@gcov_branches, $line_number);
+				if ($branch[2] eq "never")
+					{ push(@gcov_branches, 0); }
+				elsif ($branch[4] eq "0%")
+					{ push(@gcov_branches, 1); }
+				else
+					{ push(@gcov_branches, 2); }
+			}
+			elsif (substr($_,0,4) eq "call")
+			{
+				# ignore return values
+			}
 			else
 			{
+				$line_number++;
+
 				# Get actual number and remove blanks from
 				# either side
 				$number = (split(" ",substr($_, 0, 16)))[0];
