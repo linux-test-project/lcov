@@ -54,6 +54,7 @@
 #   2004-03-29 / Peter Oberparleiter: modified --diff option to better cope with
 #                ambiguous patch file entries, modified --capture option to use
 #                modprobe before insmod (needed for 2.6)
+#   2004-03-30 / Peter Oberparleiter: added --path option
 #
 
 use strict;
@@ -142,6 +143,7 @@ our $temp_dir_name;	# Name of temporary directory
 our $cwd = `pwd`;	# Current working directory
 our $to_file;		# If set, indicates that output is written to a file
 our $follow;		# If set, indicates that find shall follow links
+our $diff_path = "";	# Path removed from tracefile when applying diff
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 
@@ -174,7 +176,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"quiet" => \$quiet,
 		"help" => \$help,
 		"version" => \$version,
-		"follow" => \$follow
+		"follow" => \$follow,
+		"path=s" => \$diff_path
 		))
 {
 	print_usage(*STDERR);
@@ -194,6 +197,9 @@ if ($version)
 	print("$lcov_version\n");
 	exit(0);
 }
+
+# Normalize --path text
+$diff_path =~ s/\/$//;
 
 # Check for valid options
 check_options();
@@ -312,6 +318,7 @@ get coverage data for a user space program.
       --no-checksum               Do not calculate a checksum for each line
       --convert-filenames         Convert filenames when applying diff
       --strip DEPTH               Strip initial DEPTH directory levels in diff
+      --path PATH                 Strip PATH from tracefile when applying diff
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -1866,7 +1873,7 @@ sub get_line_hash($$$)
 	foreach (keys(%{$diff_data}))
 	{
 		# Try to match diff filename with filename
-		if ($filename =~ /$_$/)
+		if ($filename =~ /^\Q$diff_path\E\/$_$/)
 		{
 			if ($diff_name)
 			{

@@ -7,6 +7,7 @@ All:
 lcov:
 - Modified --diff function to better cope with ambiguous entries in patch files
 - Modified --capture option to use modprobe before insmod (needed for 2.6)
+- Added --path option required for --diff function
 
 
 Version 1.2:
