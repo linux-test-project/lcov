@@ -63,7 +63,6 @@ lcov:
   data for a particular set of files from a tracefile
 - Renamed '--reset' to '--zerocounters' to avoid a naming ambiguity with
   '--remove'
-- Fixed name of gcov kernel module (new package contains gcov-prof.c)
 - Changed name of gcov kernel directory from /proc/gcov to a global constant
   so that it may be changed easily when required in future versions
 - Information messages are now printed to STDERR instead of STDOUT

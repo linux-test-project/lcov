@@ -76,7 +76,7 @@ Change to the utils/analysis/lcov directory and type:
 ---------------------------------------------------
 Requirements: get and install the gcov-kernel package from
 
-  http://sourceforge.net/projects/lse
+  http://sourceforge.net/projects/ltp
 
 Copy the resulting gcov kernel module file to either the system wide modules
 directory or the same directory as the PERL scripts. As root, do the following:
