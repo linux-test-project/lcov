@@ -141,7 +141,7 @@ else
 	}
 }
 
-if (system_no_output(3, $gcov_tool, "--help") != 0)
+if (system_no_output(3, $gcov_tool, "--help") == -1)
 {
 	die("ERROR: need tool $gcov_tool!\n");
 }
@@ -351,13 +351,13 @@ sub process_dafile($)
 		$gcov_error = system_no_output(1, $gcov_tool, $da_basename.".c",
 					       "-o", $object_dir,
 					       "--preserve-paths",
-					       "--branch-probabilities");
+					       "-b");
 	}
 	else
 	{
 		$gcov_error = system_no_output(1, $gcov_tool, $da_basename.".c",
 					       "-o", $object_dir,
-					       "--branch-probabilities");
+					       "-b");
 	}
 
 	# Clean up link
