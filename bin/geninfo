@@ -62,6 +62,9 @@ our $GCOV_VERSION_3_3_0	= 0x30300;
 our $GCNO_FUNCTION_TAG	= 0x01000000;
 our $GCNO_LINES_TAG	= 0x01450000;
 our $GCNO_FILE_MAGIC	= 0x67636e6f;
+our $BBG_FILE_MAGIC	= 0x67626267;
+
+our $COMPAT_SLES9	= "sles9";
 
 # Prototypes
 sub print_usage(*);
@@ -76,6 +79,10 @@ sub read_gcov_header($);
 sub read_gcov_file($);
 sub read_bb_file($);
 sub read_string(*$);
+sub read_gcno_file($);
+sub read_gcno_string(*$);
+sub read_sles9_bbg_file($);
+sub read_sles9_bbg_string(*$);
 sub unpack_int32($$);
 sub info(@);
 sub get_gcov_version();
@@ -98,6 +105,8 @@ our $nochecksum;
 our $preserve_paths;
 our $adjust_testname = (`uname -m` =~ /^s390/); # Always on on s390
 our $config;		# Configuration file contents
+our $compatibility;	# Compatibility version flag - used to indicate
+			# non-standard GCOV data format versions
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -204,8 +213,16 @@ $gcov_version = get_gcov_version();
 
 if ($gcov_version < $GCOV_VERSION_3_4_0)
 {
-	$data_file_extension = ".da";
-	$graph_file_extension = ".bb";
+	if ($compatibility eq $COMPAT_SLES9)
+	{
+		$data_file_extension = ".da";
+		$graph_file_extension = ".bbg";
+	}
+	else
+	{
+		$data_file_extension = ".da";
+		$graph_file_extension = ".bb";
+	}
 }
 else
 {
@@ -421,7 +438,14 @@ sub process_dafile($)
 	# information about functions and their source code positions.
 	if ($gcov_version < $GCOV_VERSION_3_4_0)
 	{
-		%bb_content = read_bb_file($bb_filename);
+		if ($compatibility eq $COMPAT_SLES9)
+		{
+			%bb_content = read_sles9_bbg_file($bb_filename);
+		}
+		else
+		{
+			%bb_content = read_bb_file($bb_filename);
+		}
 	} 
 	else
 	{
@@ -1197,13 +1221,13 @@ sub read_gcno_file($)
 	binmode(INPUT);
 	
 	read(INPUT, $packed_word, 4) == 4
-		or die("Invalid gcno file format\n");
+		or die("ERROR: Invalid gcno file format\n");
 
 	$value = unpack_int32($packed_word, 0);
 	$endianness = !($value == $GCNO_FILE_MAGIC);
 
 	unpack_int32($packed_word, $endianness) == $GCNO_FILE_MAGIC
-		or die("gcno file magic does not match\n");
+		or die("ERROR: gcno file magic does not match\n");
 
 	seek(INPUT, 8, 1);
 
@@ -1315,6 +1339,177 @@ sub read_gcno_string(*$)
 
 
 #
+# read_sles9_bbg_file(bb_filename)
+#
+# Read .bbg file BB_FILENAME and return a hash containing the following
+# mapping:
+#
+#   filename -> comma-separated list of pairs (function name=starting
+#               line number) for each function found
+#
+# for each entry in the .bbg file. Filenames are absolute, i.e. relative
+# filenames are prefixed with bb_filename's path component.
+#
+# Die on error.
+#
+
+sub read_sles9_bbg_file($)
+{
+	my $bbg_filename = $_[0];
+	my %result;
+	my $filename;
+	my $function_name;
+	my $first_line;
+	my $lineno;
+	my $length;
+	my $cwd = `pwd`;
+	my $value;
+	my $endianness;
+	my $blocks;
+	chomp($cwd);
+	my $base_dir = get_dir(solve_relative_path($cwd, $bbg_filename));
+	my $packed_word;
+	local *INPUT;
+
+	open(INPUT, $bbg_filename)
+		or die("ERROR: cannot read $bbg_filename!\n");
+
+	binmode(INPUT);
+	
+	read(INPUT, $packed_word, 4) == 4
+		or die("ERROR: invalid bbg file format\n");
+
+	$value = unpack_int32($packed_word, 0);
+	$endianness = 1;
+
+	unpack_int32($packed_word, $endianness) == $BBG_FILE_MAGIC
+		or die("ERROR: bbg file magic does not match\n");
+
+	seek(INPUT, 4, 1);
+
+	# Read data in words of 4 bytes
+	while (read(INPUT, $packed_word, 4) == 4)
+	{
+		# Decode integer in intel byteorder
+		$value = unpack_int32($packed_word, $endianness);
+
+		# Get record length
+		read(INPUT, $packed_word, 4);
+		$length = unpack_int32($packed_word, $endianness);
+
+		if ($value == $GCNO_FUNCTION_TAG)
+		{
+			# Get function name
+			($value, $function_name) =
+				read_sles9_bbg_string(*INPUT, $endianness);
+
+			seek(INPUT, $length - $value * 4, 1);
+		}
+		elsif ($value == $GCNO_LINES_TAG)
+		{
+			# Get linenumber and filename
+
+			# Skip block number
+			seek(INPUT, 4, 1);
+			$length -= 4;
+
+			while ($length > 0)
+			{
+				read(INPUT, $packed_word, 4);
+				$lineno = unpack_int32($packed_word,
+						       $endianness);
+				$length -= 4;
+				if ($lineno != 0)
+				{
+					if (!defined($first_line))
+					{
+						$first_line = $lineno;
+					}
+					next;
+				}
+				($blocks, $value) =
+					read_sles9_bbg_string(
+						*INPUT, $endianness);
+				if (!defined($filename))
+				{
+					$filename = $value;
+				}
+				$length -= $blocks * 4;
+			}
+			# Got a complete data set?
+			if (defined($filename) && defined($function_name) &&
+			    defined($first_line))
+			{
+				$filename = solve_relative_path(
+						$base_dir, $filename);
+				# Add it to our result hash
+				if (defined($result{$filename}))
+				{
+					$result{$filename} .=
+						",$function_name=$first_line";
+				}
+				else
+				{
+					$result{$filename} =
+						"$function_name=$first_line";
+				}
+				$filename = undef;
+				$function_name = undef;
+				$first_line = undef;
+			}
+		}
+		else
+		{
+			# Skip other records
+			seek(INPUT, $length, 1);
+		}
+	}
+	close(INPUT);
+
+	if (!scalar(keys(%result)))
+	{
+		die("ERROR: no data found in $bbg_filename!\n");
+	}
+	return %result;
+}
+
+
+#
+# read_sles9_bbg_string(handle, endianness);
+#
+# Read a string in 4-byte chunks from HANDLE.
+#
+# Return (number of 4-byte chunks read, string).
+#
+
+sub read_sles9_bbg_string(*$)
+{
+	my $handle		= $_[0];
+	my $endianness		= $_[1];
+	my $length		= 0;
+	my $string		= "";
+	my $packed_word;
+	my $pad;
+
+	read($handle, $packed_word, 4) == 4
+		or die("ERROR: reading string\n");
+
+	$length = unpack_int32($packed_word, $endianness);
+	$pad = 4 - $length % 4;
+
+	if ($length == 0)
+	{
+		return (1, undef);
+	}
+
+	read($handle, $string, $length) ==
+		$length or die("ERROR: reading string\n");
+	seek($handle, $pad, 1);
+	
+	return(1 + ($length + $pad) / 4, $string);
+}
+
+#
 # unpack_int32(word, endianess)
 #
 # Interpret 4-byte binary string WORD as signed 32 bit integer in
@@ -1358,6 +1553,11 @@ sub get_gcov_version()
 			info("Found gcov version: $1.$2\n");
 			$result = $1 << 16 | $2 << 8;
 		}
+	}
+	if ($version_string =~ /suse/i && $result == 0x30303)
+	{
+		info("Using compatibility mode for SUSE GCC 3.3.3\n");
+		$compatibility = $COMPAT_SLES9;
 	}
 	return $result;
 }
