@@ -4,7 +4,7 @@ Version: 1.1
 Release: 1
 Copyright: GPL
 Group: Development/Tools
-URL: http://ltp.sourceforge.net/lcov.php
+URL: http://ltp.sourceforge.net/coverage/lcov.php
 Source0: http://ltp.sourceforge.net/coverage/tools/lcov-%{version}.tar.gz
 BuildRoot: /var/tmp/%{name}-%{version}-root
 BuildArch: noarch

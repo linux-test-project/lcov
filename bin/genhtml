@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 # Global constants
 our $title		= "LTP GCOV extension - code coverage report";
 our $lcov_version	= "LTP GCOV extension version 1.1";
-our $lcov_url		= "http://ltp.sourceforge.net/lcov.php";
+our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 
 # Specify coverage rate limits (in %) for classifying file entries
 # HI:   $hi_limit <= rate <= 100          graph color: green

@@ -53,7 +53,7 @@ Further README contents
 ------------------
 The LCOV package is available as either RPM or tarball from:
      
-  http://ltp.sourceforge.net/lcov.php
+  http://ltp.sourceforge.net/coverage/lcov.php
 
 To install the tarball, unpack it to a directory and run:
 
