@@ -1,3 +1,37 @@
+Version 1.4:
+============
+
+All:
+- Added configuration file support
+
+genhtml:
+- Fixed help text message
+- Fixed handling of special characters in file- and directory names
+- Added description of --css-file option to man page
+
+geninfo:
+- Added support for GCOV file format as used by GCC 3.3.3 on SUSE SLES9
+- Fixed error text message
+- Added check to abort processing if no source code file is available
+- Added workaround for a problem where geninfo could not find source code
+  files for a C++ project
+- Fixed 'branch'-statement parsing for GCC>=3.3 .gcov files
+- Fixed exec count-statement parsing for GCC>=3.3 .gcov files
+- Fixed .gcno-file parser (some lines were not counted as being instrumented)
+
+lcov:
+- Modified path for temporary files from '.' to '/tmp'
+- Fixed comments
+- Removed unused function 'escape_shell'
+
+lcovrc:
+- Introduced sample configuration file
+
+Makefile:
+- Added rule to install configuration file
+- Fixed installation path for man pages
+
+
 Version 1.3:
 ============
 
