@@ -43,10 +43,12 @@ genhtml:
 - Output directory is now created if it doesn't exist
 - Renamed "overview page" to "directory view page"
 - HTML output pages are now titled "LCOV" instead of "GCOV"
+- Information messages are now printed to STDERR instead of STDOUT
 
 geninfo:
 - Fixed bug which would not allow .info files to be generated in directories
   with names containing some special characters
+- Information messages are now printed to STDERR instead of STDOUT
 
 lcov:
 - Fixed bug which would cause lcov to fail when the tool is installed in
@@ -57,9 +59,14 @@ lcov:
   of a tracefile
 - Implemented new command line option '--extract' which allows extracting
   data for a particular set of files from a tracefile
+- Implemented new command line option '--remove' which allows removing
+  data for a particular set of files from a tracefile
+- Renamed '--reset' to '--zerocounters' to avoid a naming ambiguity with
+  '--remove'
 - Fixed name of gcov kernel module (new package contains gcov-prof.c)
 - Changed name of gcov kernel directory from /proc/gcov to a global constant
   so that it may be changed easily when required in future versions
+- Information messages are now printed to STDERR instead of STDOUT
 
 
 Version 1.0 (2002-09-05):

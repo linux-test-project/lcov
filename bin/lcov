@@ -44,6 +44,9 @@
 #                file system in a future version of the gcov-kernel patch
 #   2003-04-15 / Paul Larson: make info write to STDERR, not STDOUT
 #   2003-04-15 / Paul Larson: added --remove option
+#   2003-04-30 / Peter Oberparleiter: renamed --reset to --zerocounters
+#                to remove naming ambiguity with --remove
+#   2003-04-30 / Peter Oberparleiter: adjusted help text to include --remove
 #
 
 use strict;
@@ -141,7 +144,7 @@ if (!GetOptions("directory=s" => \@directory,
 		"capture" => \$capture,
 		"output-file=s" => \$output_filename,
 		"test-name=s" => \$test_name,
-		"reset" => \$reset,
+		"zerocounters" => \$reset,
 		"quiet" => \$quiet,
 		"help" => \$help,
 		"version" => \$version
@@ -307,7 +310,7 @@ get coverage data for a user space program.
   -h, --help                      Print this help, then exit
   -v, --version                   Print version number, then exit
   -q, --quiet                     Do not print progress messages
-  -r, --reset                     Reset all execution counts
+  -z, --zerocounters              Reset all execution counts to zero
   -c, --capture                   Capture coverage data
   -t, --test-name NAME            Specify test name to be stored with data
   -o, --output-file FILENAME      Write data to FILENAME instead of stdout
@@ -315,6 +318,7 @@ get coverage data for a user space program.
   -k, --kernel-directory KDIR     Capture kernel coverage data only from KDIR
   -a, --add-tracefile FILE        Add contents of tracefiles
   -e, --extract FILE PATTERN      Extract files matching PATTERN from FILE
+  -r, --remove FILE PATTERN       Remove files matching PATTERN from FILE
   -l, --list FILE                 List contents of tracefile FILE
 
 See $lcov_url for more information about this tool.

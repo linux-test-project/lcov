@@ -8,7 +8,7 @@ lcov - GCOV coverage tool extension
 .RS 5
 .br
 .RB [ \-q | \-\-quiet ]
-.RB [ \-r | \-\-reset ]
+.RB [ \-z | \-\-zerocounters ]
 .RB [ \-c | \-\-capture ]
 .br
 .RB [ \-t | \-\-test\-name
@@ -27,6 +27,9 @@ lcov - GCOV coverage tool extension
 .IR tracefile ]
 .br
 .RB [ \-e | \-\-extract
+.IR tracefile ]
+.br
+.RB [ \-r | \-\-remove
 .IR tracefile ]
 .br
 .RB [ \-l | \-\-list
@@ -93,11 +96,11 @@ progress messages to mess with coverage data which is also printed to
 the standard output.
 .RE
 
-.B \-r
+.B \-z
 .br
-.B \-\-reset
+.B \-\-zerocounters
 .RS
-Reset all execution counts.
+Reset all execution counts to zero.
 
 By default tries to reset kernel execution counts. Use the \-\-directory
 option to reset all counters of a user space program.
@@ -183,8 +186,8 @@ Specify several tracefiles using the \-a switch to combine the coverage data
 contained in these files by adding up execution counts for matching test and
 filename combinations.
 
-Note that this option will not work in conjunction with the \-r, \-c, \-e and \-l
-switches.
+Note that this option will not work in conjunction with the \-z, \-c, \-e, \-r
+and \-l switches.
 
 .RE
 .BI "\-e " tracefile
@@ -196,12 +199,33 @@ Extract data from
 
 Use this switch if you want to extract coverage data for only a particular
 set of files from a tracefile. Additional command line parameters will be
-interpreted as shell wildcard patterns. Every file entry in
+interpreted as shell wildcard patterns (note that they may need to be
+escaped accordingly to prevent the shell from expanding them first).
+Every file entry in
 .I tracefile
 which matches at least one of those patterns will be extracted.
 
-Note that this option will not work in conjunction with the \-r, \-c, \-l and \-a
-switches.
+Note that this option will not work in conjunction with the \-z, \-c, \-r, \-l
+and \-a switches.
+
+.RE
+.BI "\-r " tracefile
+.br
+.BI "\-\-remove " tracefile
+.RS
+Remove data from
+.IR tracefile .
+
+Use this switch if you want to remove coverage data for a particular
+set of files from a tracefile. Additional command line parameters will be
+interpreted as shell wildcard patterns (note that they may need to be
+escaped accordingly to prevent the shell from expanding them first).
+Every file entry in
+.I tracefile
+which matches at least one of those patterns will be removed.
+
+Note that this option will not work in conjunction with the \-z, \-c, \-e, \-l
+and \-a switches.
 
 .RE
 .BI "\-l " tracefile
@@ -211,8 +235,8 @@ switches.
 List the contents of the
 .IR tracefile .
 
-Note that this option will not work in conjunction with the \-r, \-c, \-e and \-a
-switches.
+Note that this option will not work in conjunction with the \-z, \-c, \-e, \-r
+and \-a switches.
 
 .RE
 .SH AUTHOR

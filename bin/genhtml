@@ -45,6 +45,7 @@
 #                a test name
 #   2003-04-10 / Peter Oberparleiter: extended fix by Mike to also cover
 #                other special characters
+#   2003-04-30 / Peter Oberparleiter: made info write to STDERR, not STDOUT
 #
 
 use strict;
@@ -2772,7 +2773,7 @@ sub info(@)
 	if (!$quiet)
 	{
 		# Print info string
-		printf(@_);
+		printf(STDERR @_);
 	}
 }
 
