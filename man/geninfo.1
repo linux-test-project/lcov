@@ -109,8 +109,23 @@ corresponding source code line. This checksum is used to prevent merging
 coverage data from incompatible source code versions. Use this option to
 suppress generating such checksums for tracefiles.
 
+This option can also be configured permanently using the configuration file
+option
+.IR geninfo_no_checksum .
+
 .RE
 .SH FILES
+
+.I /etc/lcovrc
+.RS
+The systemwide configuration file.
+.RE
+
+.I ~/.lcovrc
+.RS
+The per-user configuration file.
+.RE
+
 Following is a quick description of the tracefile format as used by
 .BR genhtml ", " geninfo " and " lcov .
 
@@ -163,6 +178,7 @@ with the directory in which the .bb file is found.
 Note also that symbolic links to the .bb file will be resolved so that the
 actual file path is used instead of the path to a link. This approach is
 necessary for the mechanism to work with the /proc/gcov files.
+
 .SH AUTHOR
 Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
 

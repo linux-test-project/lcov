@@ -55,6 +55,7 @@
 #                ambiguous patch file entries, modified --capture option to use
 #                modprobe before insmod (needed for 2.6)
 #   2004-03-30 / Peter Oberparleiter: added --path option
+#   2004-08-09 / Peter Oberparleiter: added configuration file support
 #
 
 use strict;
@@ -111,6 +112,8 @@ sub get_common_filename($$);
 sub read_diff($);
 sub diff();
 sub system_no_output($@);
+sub read_config($);
+sub apply_config($);
 
 sub info(@);
 sub unload_module($);
@@ -143,6 +146,7 @@ our $cwd = `pwd`;	# Current working directory
 our $to_file;		# If set, indicates that output is written to a file
 our $follow;		# If set, indicates that find shall follow links
 our $diff_path = "";	# Path removed from tracefile when applying diff
+our $config;		# Configuration file contents
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 
@@ -155,6 +159,27 @@ our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 if (! ($tool_dir =~ /^\/(.*)$/))
 {
 	$tool_dir = "$cwd/$tool_dir";
+}
+
+# Read configuration file if available
+if (-r $ENV{"HOME"}."/.lcovrc")
+{
+	$config = read_config($ENV{"HOME"}."/.lcovrc");
+}
+elsif (-r "/etc/lcovrc")
+{
+	$config = read_config("/etc/lcovrc");
+}
+
+if ($config)
+{
+	# Copy configuration file values to variables
+	apply_config({
+		"lcov_gcov_dir"		=> \$gcov_dir,
+		"lcov_insmod_tool"	=> \$insmod_tool,
+		"lcov_modprobe_tool"	=> \$modprobe_tool,
+		"lcov_rmmod_tool"	=> \$rmmod_tool,
+		"lcov_tmp_dir"		=> \$tmp_dir});
 }
 
 # Parse command line options
@@ -440,7 +465,7 @@ sub userspace_capture()
 #
 # kernel_reset()
 #
-# Reset kernel coverage
+# Reset kernel coverage.
 #
 # Die on error.
 #
@@ -612,15 +637,15 @@ sub check_and_load_kernel_module()
 	stat($insmod_tool);
 	if (!-x _)
 	{
-		die("ERROR: need insmod tool to access kernel coverage ".
-		    "data!\n");
+		die("ERROR: need insmod tool ($insmod_tool) to access kernel ".
+		    "coverage data!\n");
 	}
 	# Do we have access to the modprobe tool?
 	stat($modprobe_tool);
 	if (!-x _)
 	{
-		die("ERROR: need modprobe tool to access kernel coverage ".
-		    "data!\n");
+		die("ERROR: need modprobe tool ($modprobe_tool) to access ".
+		    "kernel coverage data!\n");
 	}
 
 	# Try some possibilities of where the gcov kernel module may be found
@@ -2168,4 +2193,76 @@ sub system_no_output($@)
 	($mode & 2) && open(STDERR, ">>&OLD_STDERR");
  
 	return $result;
+}
+
+
+#
+# read_config(filename)
+#
+# Read configuration file FILENAME and return a reference to a hash containing
+# all valid key=value pairs found.
+#
+
+sub read_config($)
+{
+	my $filename = $_[0];
+	my %result;
+	my $key;
+	my $value;
+	local *HANDLE;
+
+	if (!open(HANDLE, "<$filename"))
+	{
+		warn("WARNING: cannot read configuration file $filename\n");
+		return undef;
+	}
+	while (<HANDLE>)
+	{
+		chomp;
+		# Skip comments
+		s/#.*//;
+		# Remove leading blanks
+		s/^\s+//;
+		# Remove trailing blanks
+		s/\s+$//;
+		next unless length;
+		($key, $value) = split(/\s*=\s*/, $_, 2);
+		if (defined($key) && defined($value))
+		{
+			$result{$key} = $value;
+		}
+		else
+		{
+			warn("WARNING: malformed statement in line $. ".
+			     "of configuration file $filename\n");
+		}
+	}
+	close(HANDLE);
+	return \%result;
+}
+
+
+#
+# apply_config(REF)
+#
+# REF is a reference to a hash containing the following mapping:
+#
+#   key_string => var_ref
+#
+# where KEY_STRING is a keyword and VAR_REF is a reference to an associated
+# variable. If the global configuration hash CONFIG contains a value for
+# keyword KEY_STRING, VAR_REF will be assigned the value for that keyword. 
+#
+
+sub apply_config($)
+{
+	my $ref = $_[0];
+
+	foreach (keys(%{$ref}))
+	{
+		if (defined($config->{$_}))
+		{
+			${$ref->{$_}} = $config->{$_};
+		}
+	}
 }

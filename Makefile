@@ -15,6 +15,7 @@ VERSION := 1.1
 RELEASE := 1
 DATE    := $(shell date +%Y-%m-%d)
 
+CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/usr/bin
 MAN_DIR := $(PREFIX)/usr/share/man
 TMP_DIR := /tmp/lcov-tmp.$(shell echo $$$$)
@@ -44,6 +45,7 @@ install:
 	bin/install.sh man/geninfo.1 $(MAN_DIR)/man1/geninfo.1
 	bin/install.sh man/genpng.1 $(MAN_DIR)/man1/genpng.1
 	bin/install.sh man/gendesc.1 $(MAN_DIR)/man1/gendesc.1
+	bin/install.sh lcovrc $(CFG_DIR)/lcovrc
 
 uninstall:
 	bin/install.sh --uninstall bin/lcov $(BIN_DIR)/lcov
@@ -51,11 +53,12 @@ uninstall:
 	bin/install.sh --uninstall bin/geninfo $(BIN_DIR)/geninfo
 	bin/install.sh --uninstall bin/genpng $(BIN_DIR)/genpng
 	bin/install.sh --uninstall bin/gendesc $(BIN_DIR)/gendesc
-	bin/install.sh --uninstall man/lcov.1 $(MAN_DIR)/lcov.1
-	bin/install.sh --uninstall man/genhtml.1 $(MAN_DIR)/genhtml.1
-	bin/install.sh --uninstall man/geninfo.1 $(MAN_DIR)/geninfo.1
-	bin/install.sh --uninstall man/genpng.1 $(MAN_DIR)/genpng.1
-	bin/install.sh --uninstall man/gendesc.1 $(MAN_DIR)/gendesc.1
+	bin/install.sh --uninstall man/lcov.1 $(MAN_DIR)/man1/lcov.1
+	bin/install.sh --uninstall man/genhtml.1 $(MAN_DIR)/man1/genhtml.1
+	bin/install.sh --uninstall man/geninfo.1 $(MAN_DIR)/man1/geninfo.1
+	bin/install.sh --uninstall man/genpng.1 $(MAN_DIR)/man1/genpng.1
+	bin/install.sh --uninstall man/gendesc.1 $(MAN_DIR)/man1/gendesc.1
+	bin/install.sh --uninstall lcovrc $(CFG_DIR)/lcovrc
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm

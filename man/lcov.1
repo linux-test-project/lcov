@@ -300,8 +300,20 @@ By default, each line of coverage data is associated with a checksum of the
 corresponding source code line. This checksum is used to prevent merging
 coverage data from incompatible source code versions. Use this option to
 suppress generating such checksums for tracefiles.
-
 .RE
+
+.SH FILES
+
+.I /etc/lcovrc
+.RS
+The systemwide configuration file.
+.RE
+
+.I ~/.lcovrc
+.RS
+The per-user configuration file.
+.RE
+
 .SH AUTHOR
 Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
 

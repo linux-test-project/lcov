@@ -47,6 +47,7 @@
 #                other special characters
 #   2003-04-30 / Peter Oberparleiter: made info write to STDERR, not STDOUT
 #   2003-07-10 / Peter Oberparleiter: added line checksum support
+#   2004-08-09 / Peter Oberparleiter: added configuration file support
 #
 
 use strict;
@@ -110,6 +111,8 @@ sub merge_checksums($$$);
 sub combine_info_entries($$$);
 sub apply_prefix($$);
 sub system_no_output($@);
+sub read_config($);
+sub apply_config($);
 
 
 # HTML related prototypes
@@ -175,6 +178,7 @@ our $keep_descriptions;	# If set, do not remove unused test case descriptions
 our $no_sourceview;	# If set, do not create a source code view for each file
 our $highlight;		# If set, highlight lines covered by converted data only
 our $tab_size = 8;	# Number of spaces to use in place of tab
+our $config;		# Configuration file contents
 
 our $cwd = `pwd`;	# Current working directory
 chomp($cwd);
@@ -189,6 +193,33 @@ our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 if (! ($tool_dir =~ /^\/(.*)$/))
 {
 	$tool_dir = "$cwd/$tool_dir";
+}
+
+# Read configuration file if available
+if (-r $ENV{"HOME"}."/.lcovrc")
+{
+	$config = read_config($ENV{"HOME"}."/.lcovrc");
+}
+elsif (-r "/etc/lcovrc")
+{
+	$config = read_config("/etc/lcovrc");
+}
+
+if ($config)
+{
+	# Copy configuration file values to variables
+	apply_config({
+		"genhtml_css_file"		=> \$css_filename,
+		"genhtml_hi_limit"		=> \$hi_limit,
+		"genhtml_med_limit"		=> \$med_limit,
+		"genhtml_overview_width"	=> \$overview_width,
+		"genhtml_nav_resolution"	=> \$nav_resolution,
+		"genhtml_nav_offset"		=> \$nav_offset,
+		"genhtml_keep_descriptions"	=> \$keep_descriptions,
+		"genhtml_no_prefix"		=> \$no_prefix,
+		"genhtml_no_source"		=> \$no_sourceview,
+		"genhtml_num_spaces"		=> \$tab_size,
+		"genhtml_highlight"		=> \$highlight});
 }
 
 # Parse command line options
@@ -331,7 +362,7 @@ may also be a list of filenames.
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
   -t, --title TITLE                 Display TITLE in header of all pages
   -d, --description-file DESCFILE   Read test case descriptions from DESCFILE
-  -k, --keep-descriptions           Do not removed unused test descriptions
+  -k, --keep-descriptions           Do not remove unused test descriptions
   -c, --css-file CSSFILE            Use external style sheet file CSSFILE
   -p, --prefix PREFIX               Remove PREFIX from all directory names
       --no-prefix                   Do not remove prefix from directory names
@@ -3369,4 +3400,76 @@ sub system_no_output($@)
 	($mode & 2) && open(STDERR, ">>&OLD_STDERR");
  
 	return $result;
+}
+
+
+#
+# read_config(filename)
+#
+# Read configuration file FILENAME and return a reference to a hash containing
+# all valid key=value pairs found.
+#
+
+sub read_config($)
+{
+	my $filename = $_[0];
+	my %result;
+	my $key;
+	my $value;
+	local *HANDLE;
+
+	if (!open(HANDLE, "<$filename"))
+	{
+		warn("WARNING: cannot read configuration file $filename\n");
+		return undef;
+	}
+	while (<HANDLE>)
+	{
+		chomp;
+		# Skip comments
+		s/#.*//;
+		# Remove leading blanks
+		s/^\s+//;
+		# Remove trailing blanks
+		s/\s+$//;
+		next unless length;
+		($key, $value) = split(/\s*=\s*/, $_, 2);
+		if (defined($key) && defined($value))
+		{
+			$result{$key} = $value;
+		}
+		else
+		{
+			warn("WARNING: malformed statement in line $. ".
+			     "of configuration file $filename\n");
+		}
+	}
+	close(HANDLE);
+	return \%result;
+}
+
+
+#
+# apply_config(REF)
+#
+# REF is a reference to a hash containing the following mapping:
+#
+#   key_string => var_ref
+#
+# where KEY_STRING is a keyword and VAR_REF is a reference to an associated
+# variable. If the global configuration hash CONFIG contains a value for
+# keyword KEY_STRING, VAR_REF will be assigned the value for that keyword. 
+#
+
+sub apply_config($)
+{
+	my $ref = $_[0];
+
+	foreach (keys(%{$ref}))
+	{
+		if (defined($config->{$_}))
+		{
+			${$ref->{$_}} = $config->{$_};
+		}
+	}
 }

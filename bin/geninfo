@@ -43,6 +43,7 @@
 #   2004-01-03 / Laurent Deniel: Ignore empty .bb files
 #   2004-02-16 / Andreas Krebbel: Added support for .gcno/.gcda files and
 #                gcov versioning
+#   2004-08-09 / Peter Oberparleiter: added configuration file support
 #
 
 use strict;
@@ -79,6 +80,8 @@ sub unpack_int32($$);
 sub info(@);
 sub get_gcov_version();
 sub system_no_output($@);
+sub read_config($);
+sub apply_config($);
 
 # Global variables
 our $gcov_version;
@@ -93,6 +96,8 @@ our $version;
 our $follow;
 our $nochecksum;
 our $preserve_paths;
+our $adjust_testname = (`uname -m` =~ /^s390/); # Always on on s390
+our $config;		# Configuration file contents
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -104,6 +109,25 @@ chomp($cwd);
 
 # Register handler routine to be called when interrupted
 $SIG{"INT"} = \&int_handler;
+
+# Read configuration file if available
+if (-r $ENV{"HOME"}."/.lcovrc")
+{
+	$config = read_config($ENV{"HOME"}."/.lcovrc");
+}
+elsif (-r "/etc/lcovrc")
+{
+	$config = read_config("/etc/lcovrc");
+}
+
+if ($config)
+{
+	# Copy configuration file values to variables
+	apply_config({
+		"geninfo_gcov_tool"		=> \$gcov_tool,
+		"geninfo_adjust_testname"	=> \$adjust_testname,
+		"geninfo_no_checksum"		=> \$nochecksum});
+}
 
 # Parse command line options
 if (!GetOptions("test-name=s" => \$test_name,
@@ -136,7 +160,7 @@ if ($version)
 }
 
 # Adjust test name if necessary (standard for s390 architecture)
-if (`uname -m` =~ /^s390/)
+if ($adjust_testname)
 {
 	$test_name .= "__".`uname -a`;
 	$test_name =~ s/\W/_/g;
@@ -1408,4 +1432,76 @@ sub system_no_output($@)
 	($mode & 2) && open(STDERR, ">>&OLD_STDERR");
  
 	return $result;
+}
+
+
+#
+# read_config(filename)
+#
+# Read configuration file FILENAME and return a reference to a hash containing
+# all valid key=value pairs found.
+#
+
+sub read_config($)
+{
+	my $filename = $_[0];
+	my %result;
+	my $key;
+	my $value;
+	local *HANDLE;
+
+	if (!open(HANDLE, "<$filename"))
+	{
+		warn("WARNING: cannot read configuration file $filename\n");
+		return undef;
+	}
+	while (<HANDLE>)
+	{
+		chomp;
+		# Skip comments
+		s/#.*//;
+		# Remove leading blanks
+		s/^\s+//;
+		# Remove trailing blanks
+		s/\s+$//;
+		next unless length;
+		($key, $value) = split(/\s*=\s*/, $_, 2);
+		if (defined($key) && defined($value))
+		{
+			$result{$key} = $value;
+		}
+		else
+		{
+			warn("WARNING: malformed statement in line $. ".
+			     "of configuration file $filename\n");
+		}
+	}
+	close(HANDLE);
+	return \%result;
+}
+
+
+#
+# apply_config(REF)
+#
+# REF is a reference to a hash containing the following mapping:
+#
+#   key_string => var_ref
+#
+# where KEY_STRING is a keyword and VAR_REF is a reference to an associated
+# variable. If the global configuration hash CONFIG contains a value for
+# keyword KEY_STRING, VAR_REF will be assigned the value for that keyword. 
+#
+
+sub apply_config($)
+{
+	my $ref = $_[0];
+
+	foreach (keys(%{$ref}))
+	{
+		if (defined($config->{$_}))
+		{
+			${$ref->{$_}} = $config->{$_};
+		}
+	}
 }

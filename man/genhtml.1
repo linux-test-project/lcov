@@ -53,6 +53,16 @@ will be used to decompress it transparently.
 
 Note that all source code files have to be present and readable at the
 exact file system location they were compiled.
+
+Use option
+.I --css-file
+to modify layout and colors of the generated HTML output. Files are
+marked in different colors depending on the associated coverage rate. By
+default, the coverage limits for low, medium and high coverage are set to
+0-15%, 15-50% and 50-100% percent respectively. To change these
+values, use configuration file options
+.IR genhtml_hi_limit " and " genhtml_med_limit .
+
 .SH OPTIONS
 .B \-h
 .br
@@ -193,6 +203,10 @@ Do not remove unused test descriptions.
 Keep descriptions found in the description file even if the coverage data
 indicates that the associated test case did not cover any lines of code.
 
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_keep_descriptions .
+
 .RE
 .BI "\-c " css\-file
 .br
@@ -204,6 +218,10 @@ Use external style sheet file
 Using this option, an extra .css file may be specified which will replace
 the default one. This may be helpful if the default colors make your eyes want
 to jump out of their sockets :)
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_css_file .
 
 .RE
 .BI "\-p " prefix
@@ -231,12 +249,20 @@ Do not remove prefix from directory names.
 This switch will completely disable the prefix mechanism described in the
 previous section.
 
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_no_prefix .
+
 .RE
 .B \-\-no\-source
 .RS
 Do not create source code view.
 
 Use this switch if you don't want to get a source code view for each file.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_no_source .
 
 .RE
 .BI "\-\-num-spaces " spaces
@@ -247,6 +273,10 @@ spaces.
 
 Default value is 8.
 
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_num_spaces .
+
 .RE
 .B \-\-highlight
 .RS
@@ -256,6 +286,22 @@ Use this option in conjunction with the \-\-diff option of
 .B lcov
 to highlight those lines which were only covered in data sets which were
 converted from previous source code versions.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_highlight .
+
+.SH FILES
+
+.I /etc/lcovrc
+.RS
+The systemwide configuration file.
+.RE
+
+.I ~/.lcovrc
+.RS
+The per-user configuration file.
+.RE
 
 .SH AUTHOR
 Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
