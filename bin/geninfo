@@ -764,7 +764,7 @@ sub match_filename($@)
 
 	foreach (@list)
 	{
-		if (/\/\Q$filename\E$/)
+		if (/\/\Q$filename\E(.*)$/ && $1 eq "")
 		{
 			@result = (@result, $_);
 		}
