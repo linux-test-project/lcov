@@ -32,6 +32,8 @@
 #                         Megan Bock <mbock@us.ibm.com>
 #                         IBM Austin
 #   2002-09-05 / Peter Oberparleiter: implemented option that allows file list
+#   2003-04-16 / Peter Oberparleiter: modified read_gcov so that it can also
+#                parse the new gcov format which is to be introduced in gcc 3.3
 #
 
 use strict;
@@ -602,6 +604,7 @@ sub read_gcov_file($)
 {
 	my @result = ();
 	my $number;
+	my $format;
 
 	open(INPUT, $_[0])
 		or die("ERROR: cannot read $_[0]!\n");
@@ -609,27 +612,71 @@ sub read_gcov_file($)
 	while (<INPUT>)
 	{
 		chomp($_);
-		
-		# Leading chars of a line are either two tabs or the execution
-		# count
-		if (substr($_,0,2) eq "\t\t")
+
+		if (!defined($format))
 		{
-			# Lines without counts are not instrumented
-			push(@result,0);
-			push(@result,0);
-			push(@result,substr($_,2));
+			# Check the GCOV file format
+			if (/^\s+-:\s+0:/)
+			{
+				# Looks like gcc >= 3.3
+				$format = 2;
+			}
+			else
+			{
+				$format = 1;
+			}
 		}
-		else
+		if ($format == 1)
 		{
-			# Get actual number and remove blanks from either side
-			$number = (split(" ",substr($_, 0, 16)))[0];
+			# Leading chars of a line are either two tabs or the
+			# execution count
+			if (substr($_,0,2) eq "\t\t")
+			{
+				# Lines without counts are not instrumented
+				push(@result,0);
+				push(@result,0);
+				push(@result,substr($_,2));
+			}
+			else
+			{
+				# Get actual number and remove blanks from
+				# either side
+				$number = (split(" ",substr($_, 0, 16)))[0];
 
-			# Check for zero count which is indicated by ######
-			if ($number eq "######") { $number = 0;	}
+				# Check for zero count which is indicated
+				# by ######
+				if ($number eq "######") { $number = 0;	}
 
-			push(@result,1);
-			push(@result,$number);
-			push(@result,substr($_,16));
+				push(@result,1);
+				push(@result,$number);
+				push(@result,substr($_,16));
+			}
+		}
+		elsif (($format == 2) && (/^\s*([^:\s]+):\s*([^:\s]+):(.*)$/))
+		{
+			# <execution_count>:<line_number>:<source line text>
+			if ($2 eq "0")
+			{
+				# This line contains extra information - ignore
+			}
+			elsif ($1 eq "-")
+			{
+				# Not instrumented
+				push(@result,0);
+				push(@result,0);
+				push(@result,$3);
+			}
+			else
+			{
+				$number = $1;
+
+				# Check for zero count
+				if ($number eq "#####")	{ $number = 0; }
+
+				push(@result,1);
+				push(@result,$number);
+				push(@result,$3);
+			}
 		}
 	}
 
