@@ -1,17 +1,29 @@
 Version 1.2:
 ============
 
+All:
+- Added compatibility for gcc-3.3
+- Adjusted LCOV-URL (http://ltp.sourceforge.net/coverage/lcov.php)
+- Minor changes to whitespaces/line breaks/spelling
+- Modified call mechanism so that parameters for external commands are not
+  parsed by the shell mechanism anymore (no more problems with special
+  characters in paths/filenames)
+- Added checksumming mechanism: each tracefile now contains a checksum for
+  each instrumented line to detect incompatible data
+
 Makefile:
-- Added rule to build source rpm
+- Added rule to build source RPM
+- Changed install path for executables (/usr/local/bin -> /usr/bin)
 
 lcov.spec:
 - Modified to support building source rpms
 
+updateversion.pl:
+- Modified to include update of release number in spec file
+
 genhtml:
 - Fixed bug which would not correctly associate data sets with an empty
   test name (only necessary when using --show-details in genhtml)
-- Added checksumming mechanism: each tracefile now contains a checksum for
-  each instrumented line to detect incompatible data
 - Implemented new command line option '--nochecksum' to suppress generation
   of checksums
 - Implemented new command line option '--highlight' which highlights lines of
@@ -19,34 +31,39 @@ genhtml:
   lcov)
 
 geninfo:
-- Added checksumming mechanism: each tracefile now contains a checksum for
-  each instrumented line to detect incompatible data
+- Added workaround for a bug in gcov shipped with gcc-3.2 which aborts when
+  encountering empty .da files
+- Fixed geninfo so that it does not abort after encountering empty .bb files
+- Added function to collect branch coverage data
+- Added check for gcov tool
+- Added check for the '--preserve-paths' option of gcov; if available, this
+  will prevent losing .gcov files in some special cases (include files with
+  same name in different subdirectories)
+- Implemented new command line option '--follow' to control whether or not 
+  links should be followed while searching for .da files.
 - Implemented new command line option '--nochecksum' to suppress generation
   of checksums
-- Added function to collect branch coverage data
-- Added function to specify whether links should be followed when capturing
-  coverage data
-- Added a workaround for a gcov problem with empty .da files
 
 lcov:
 - Fixed bug which would not correctly associate data sets with an empty
   test name (only necessary when using --show-details in genhtml)
 - Cleaned up internal command line option check
-- Added info() output when reading tracefiles
-- Added checksumming mechanism: each tracefile now contains a checksum for
-  each instrumented line to detect incompatible data
+- Files are now processed in alphabetical order
+- Added message when reading tracefiles
 - Implemented new command line option '--nochecksum' to suppress generation
   of checksums
 - Implemented new command line option '--diff' which allows converting
   coverage data from an older source code version by using a diff file
   to map line numbers
-- Added function to specify whether links should be followed when capturing
-  coverage data
+- Implemented new command line option '--follow' to control whether or not 
+  links should be followed while searching for .da files.
 
 genpng:
 - Added support for the highlighting option of genhtml
 - Corrected tab to spaces conversion
-
+- Modified genpng to take number of spaces to use in place of tab as input
+  instead of replacement string
+  
 
 Version 1.1:
 ============

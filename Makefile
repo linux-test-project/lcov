@@ -15,8 +15,8 @@ VERSION := 1.1
 RELEASE := 1
 DATE    := $(shell date +%Y-%m-%d)
 
-BIN_DIR := $(PREFIX)/usr/local/bin
-MAN_DIR := $(PREFIX)/usr/share/man/man1
+BIN_DIR := $(PREFIX)/usr/bin
+MAN_DIR := $(PREFIX)/usr/share/man
 TMP_DIR := /tmp/lcov-tmp.$(shell echo $$$$)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README CHANGES Makefile \
 	   $(wildcard rpm/*)
@@ -39,11 +39,11 @@ install:
 	bin/install.sh bin/geninfo $(BIN_DIR)/geninfo
 	bin/install.sh bin/genpng $(BIN_DIR)/genpng
 	bin/install.sh bin/gendesc $(BIN_DIR)/gendesc
-	bin/install.sh man/lcov.1 $(MAN_DIR)/lcov.1
-	bin/install.sh man/genhtml.1 $(MAN_DIR)/genhtml.1
-	bin/install.sh man/geninfo.1 $(MAN_DIR)/geninfo.1
-	bin/install.sh man/genpng.1 $(MAN_DIR)/genpng.1
-	bin/install.sh man/gendesc.1 $(MAN_DIR)/gendesc.1
+	bin/install.sh man/lcov.1 $(MAN_DIR)/man1/lcov.1
+	bin/install.sh man/genhtml.1 $(MAN_DIR)/man1/genhtml.1
+	bin/install.sh man/geninfo.1 $(MAN_DIR)/man1/geninfo.1
+	bin/install.sh man/genpng.1 $(MAN_DIR)/man1/genpng.1
+	bin/install.sh man/gendesc.1 $(MAN_DIR)/man1/gendesc.1
 
 uninstall:
 	bin/install.sh --uninstall bin/lcov $(BIN_DIR)/lcov
