@@ -42,6 +42,8 @@
 #   2003-04-10 / Peter Oberparleiter: added $gcov_dir constant in anticipation
 #                of a possible move of the gcov kernel directory to another
 #                file system in a future version of the gcov-kernel patch
+#   2003-04-15 / Paul Larson: make info write to STDERR, not STDOUT
+#   2003-04-15 / Paul Larson: added --remove option
 #
 
 use strict;
@@ -86,6 +88,7 @@ sub combine_info_entries($$);
 sub combine_info_files($$);
 sub write_info_file(*$);
 sub extract();
+sub remove();
 sub list();
 sub escape_shell($);
 
@@ -102,6 +105,7 @@ our @kernel_directory;	# If set, captures only from specified kernel subdirs
 our @add_tracefile;	# If set, reads in and combines all files in list
 our $list;		# If set, list contents of tracefile
 our $extract;		# If set, extracts parts of tracefile
+our $remove;		# If set, removes parts of tracefile
 our $reset;		# If set, reset all coverage data to zero
 our $capture;		# If set, capture data
 our $output_filename;	# Name for file to write coverage data to
@@ -133,6 +137,7 @@ if (!GetOptions("directory=s" => \@directory,
 		"list=s" => \$list,
 		"kernel-directory=s" => \@kernel_directory,
 		"extract=s" => \$extract,
+		"remove=s" => \$remove,
 		"capture" => \$capture,
 		"output-file=s" => \$output_filename,
 		"test-name=s" => \$test_name,
@@ -160,7 +165,7 @@ if ($version)
 	exit(0);
 }
 
-if (@ARGV && !$extract)
+if (@ARGV && !($extract || $remove))
 {
 	print_usage(*STDERR);
 	exit(1);
@@ -204,7 +209,7 @@ if ($quiet)
 if ($reset)
 {
 	# Only one of these options is allowed at a time
-	if ($capture || @add_tracefile || $extract || $list)
+	if ($capture || @add_tracefile || $extract || $remove || $list)
 	{
 		die("ERROR: only one of -r, -c, -e, -a or -l allowed!\n");
 	}
@@ -222,7 +227,7 @@ if ($reset)
 elsif ($capture)
 {
 	# Only one of these options is allowed at a time
-	if (@add_tracefile || $extract || $list)
+	if (@add_tracefile || $extract || $remove || $list)
 	{
 		die("ERROR: only one of -r, -c, -e, -a or -l allowed!\n");
 	}
@@ -240,12 +245,21 @@ elsif ($capture)
 elsif (@add_tracefile)
 {
 	# Only one of these options is allowed at a time
-	if ($extract || $list)
+	if ($extract || $remove || $list)
 	{
 		die("ERROR: only one of -r, -c, -e, -a or -l allowed!\n");
 	}
 
 	add_traces();
+}
+elsif ($remove)
+{
+	# Only one of these options is allowed at a time
+	if ($extract ||$list)
+	{
+		die("ERROR: only one of -r, -c, -e, -a or -l allowed!\n");
+	}
+	remove();
 }
 elsif ($extract)
 {
@@ -472,7 +486,7 @@ sub info(@)
 	if (!$quiet)
 	{
 		# Print info string
-		printf(@_);
+		printf(STDERR @_);
 	}
 }
 
@@ -1210,6 +1224,57 @@ sub extract()
 	}
 }
 
+#
+# remove()
+#
+
+sub remove()
+{
+	my $data = read_info_file($remove);
+	my $filename;
+	my $match_found;
+	my $pattern;
+	my @pattern_list;
+	my $removed = 0;
+	local *INFO_HANDLE;
+
+	# Need perlreg expressions instead of shell pattern
+	@pattern_list = map({ transform_pattern($_); } @ARGV);
+
+	# Filter out files that match the pattern
+	foreach $filename (keys(%{$data}))
+	{
+		$match_found = 0;
+
+		foreach $pattern (@pattern_list)
+		{
+			$match_found ||= ($filename =~ (/$pattern$/));
+		}
+
+
+		if ($match_found)
+		{
+			delete($data->{$filename});
+			info("Removing $filename\n"),
+			$removed++;
+		}
+	}
+
+	# Write data
+	if ($to_file)
+	{
+		info("Deleted $removed files\n");
+		info("Writing data to $output_filename\n");
+		open(INFO_HANDLE, ">$output_filename")
+			or die("ERROR: cannot write to $output_filename!\n");
+		write_info_file(*INFO_HANDLE, $data);
+		close(*INFO_HANDLE);
+	}
+	else
+	{
+		write_info_file(*STDOUT, $data);
+	}
+}
 
 #
 # list()
