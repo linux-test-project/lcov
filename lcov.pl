@@ -28,6 +28,10 @@
 #                         IBM Lab Boeblingen
 #   2002-09-05 / Peter Oberparleiter: implemented --kernel-directory + multiple
 #                                     directories
+#   2003-03-07 / Paul Larson: Changed to make it work with the latest gcov 
+#				kernel patch.  This will break it with older
+#				gcov-kernel patches unless you change 
+#				the value of $gcovmod in this script
 #
 
 use strict;
@@ -38,6 +42,9 @@ use Getopt::Long;
 # Global constants
 our $version_info	= "LTP GCOV extension version 1.0";
 our $url		= "http://ltp.sourceforge.net/lcov.php";
+# Uncomment for older versions of gcov-kernel with gcov-proc.o as the module
+#our $gcovmod		= "gcov-proc";
+our $gcovmod		= "gcov-prof";
 
 # The location of the insmod tool
 our $insmod_tool	= "/sbin/insmod";
@@ -74,7 +81,7 @@ our $test_name = "";	# Test case name
 our $quiet = "";	# If set, suppress information messages
 our $help;		# Help option flag
 our $version;		# Version option flag
-our $need_unload;	# If set, unload gcov-proc module
+our $need_unload;	# If set, unload gcov-prof module
 our $temp_dir_name;	# Name of temporary directory
 our $cwd = `pwd`;	# Current working directory
 chomp($cwd);
@@ -210,7 +217,7 @@ sub print_usage(*)
 Usage: $tool_name [OPTIONS]
 
 Access GCOV code coverage data. By default, tries to access kernel coverage
-data (requires kernel module gcov-proc to be installed separately). Use the
+data (requires kernel module gcov-prof to be installed separately). Use the
 --directory option to get coverage data from a user space program.
 
   -h, --help                      Print this help, then exit
@@ -396,7 +403,7 @@ sub info(@)
 
 
 #
-# Check if kernel module gcov-proc.o is loaded. If it is, exit, if not, try
+# Check if kernel module gcov-prof.ko is loaded. If it is, exit, if not, try
 # to load it.
 #
 # Die on error.
@@ -408,7 +415,7 @@ sub check_and_load_kernel_module()
 	stat("/proc/gcov");
 	if (-r _) { return(); }
 
-	info("Load required kernel module gcov-proc.o\n");
+	info("Load required kernel module gcov-prof.ko\n");
 
 	# Do we have access to the insmod tool?
 	stat($insmod_tool);
@@ -418,7 +425,7 @@ sub check_and_load_kernel_module()
 	}
 
 	# Try to load module from system wide module directory /lib/modules
-	if (!system("$insmod_tool gcov-proc 2>/dev/null >/dev/null"))
+	if (!system("$insmod_tool $gcovmod 2>/dev/null >/dev/null"))
 	{
 		# Suceeded
 		$need_unload = 1;
@@ -426,7 +433,7 @@ sub check_and_load_kernel_module()
 	}
 
 	# Try to load module from tool directory
-	if (!system("$insmod_tool $tool_dir/gcov-proc.o 2>/dev/null ".
+	if (!system("$insmod_tool $tool_dir/$gcovmod.ko 2>/dev/null ".
 		    ">/dev/null"))
 	{
 		# Succeeded
@@ -440,14 +447,14 @@ sub check_and_load_kernel_module()
 		die("ERROR: need root to load kernel module!\n");
 	}
 
-	die("ERROR: cannot load required kernel module gcov-proc.o!\n");
+	die("ERROR: cannot load required kernel module $gcovmod.ko!\n");
 }
 
 
 #
 # unload_module()
 #
-# Unload the gcov-proc module.
+# Unload the gcov-prof module.
 #
 
 sub unload_module()
@@ -462,9 +469,9 @@ sub unload_module()
 		     "module still laoded!\n");
 	}
 
-	# Unload gcov-proc
-	system("$rmmod_tool gcov-proc 2>/dev/null")
-		and warn("WARNING: cannot unload kernel module gcov-proc!\n");
+	# Unload gcov-prof
+	system("$rmmod_tool gcov_prof 2>/dev/null")
+		and warn("WARNING: cannot unload kernel module $gcovmod!\n");
 }
 
 

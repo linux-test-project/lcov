@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (lcov) -
-- Last changes: 2002-09-05                      -
+- Last changes: 2003-03-07                      -
 -------------------------------------------------
 
 
@@ -49,7 +49,7 @@ Requirements: get and install the gcov-kernel package from
 
   http://sourceforge/projects/lse
 
-The resulting gcov-proc.o file should be located in the same directory as the
+The resulting gcov-prof.ko file should be located in the same directory as the
 PERL scripts. As root do the following:
 
   a) Resetting counters
@@ -58,7 +58,7 @@ PERL scripts. As root do the following:
 
   b) Capturing the current counter state to a file
 
-     lcov.pl --capture --output-filename kernel.info
+     lcov.pl --capture --output-file kernel.info
 
   c) Getting HTML output
 
@@ -101,9 +101,9 @@ Access GCOV code coverage data. By default, tries to access kernel coverage
 data. Use the --directory option to get coverage data from a user space
 program. Unless --output-file is used, coverage data is written to STDOUT.
 
-To access kernel coverage data, the gcov-proc kernel module is required.
+To access kernel coverage data, the gcov-prof kernel module is required.
 It may be obtained from http://sourceforge/projects/lse (files section,
-package "gcov-kernel"). For ease of use, once you have the gcov-proc.o file
+package "gcov-kernel"). For ease of use, once you have the gcov-prof.ko file
 compiled, copy it to the same directory as lcov.pl. Note that you will need
 root to access kernel coverage data.
 
@@ -494,5 +494,5 @@ Options:
 -------------------------
 
 Please email you questions or comments to the LTP Mailing list at
-ltp-list@lists.sourceforge.net
+ltp-coverage@lists.sourceforge.net
 
