@@ -1276,7 +1276,10 @@ sub read_gcno_file($)
 				{
 					$filename = solve_relative_path(
 							$base_dir, $filename);
-					$result{$filename} = "";
+					if (!defined($result{$filename}))
+					{
+						$result{$filename} = "";
+					}
 				}
 				$length -= $blocks;
 			}
