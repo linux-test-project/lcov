@@ -1557,7 +1557,8 @@ sub get_gcov_version()
 			$result = $1 << 16 | $2 << 8;
 		}
 	}
-	if ($version_string =~ /suse/i && $result == 0x30303)
+        if ($version_string =~ /suse/i && $result == 0x30303 ||
+            $version_string =~ /mandrake/i && $result == 0x30302)
 	{
 		info("Using compatibility mode for SUSE GCC 3.3.3\n");
 		$compatibility = $COMPAT_SLES9;
