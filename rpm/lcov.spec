@@ -1,0 +1,39 @@
+Summary: LTP GCOV extension code coverage tool
+Name: lcov
+Version: %{LCOV_VERSION}
+Release: %{LCOV_RELEASE}
+Copyright: GPL
+Group: Development/Tools
+URL: http://ltp.sourceforge.net/lcov.php
+Source0: http://ltp.sourceforge.net/coverage/tools/lcov-%{version}.tar.gz
+BuildRoot: /var/tmp/%{name}-%{version}-root
+BuildArch: noarch
+
+%description
+LCOV is an extension of GCOV, a GNU tool which provides information
+about what parts of a program are actually executed (i.e. "covered")
+while running a particular test case. The extension consists of a set
+of PERL scripts which build on the textual GCOV output to implement
+HTML output and support for large projects.
+
+%prep
+%setup -q -n lcov-%{version}
+
+%build
+exit 0
+
+%install
+make install PREFIX=$RPM_BUILD_ROOT
+
+%clean
+rm -rf $RPM_BUILD_ROOT
+
+%files
+%defattr(-,root,root)
+/usr
+
+%changelog
+* Mon Apr 7 2003 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
+- implemented variables for version/release
+* Fri Oct 8 2002 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
+- created initial spec file

@@ -17,9 +17,9 @@
 #   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 #
 #
-# gendesc.pl
+# gendesc
 #
-#   This script creates a description file as understood by genhtml.pl.
+#   This script creates a description file as understood by genhtml.
 #   Input file format:
 #
 #   For each test case:
@@ -41,8 +41,8 @@ use Getopt::Long;
 
 
 # Constants
-our $version_info	= "gendesc version 1.0";
-our $url		= "http://ltp.sourceforge.net/lcov.php";
+our $lcov_version	= "LTP GCOV extension version 1.1";
+our $lcov_url		= "http://ltp.sourceforge.net/lcov.php";
 
 
 # Prototypes
@@ -83,7 +83,7 @@ if ($help)
 # Check for version option
 if ($version)
 {
-	print($version_info."\n");
+	print($lcov_version."\n");
 	exit(0);
 }
 
@@ -114,13 +114,13 @@ sub print_usage(*)
 	print(HANDLE <<END_OF_USAGE)
 Usage: $tool_name [OPTIONS] INPUTFILE
 
-Convert a test case description file into a format as understood by genhtml.pl.
+Convert a test case description file into a format as understood by genhtml.
 
   -h, --help                        Print this help, then exit
   -v, --version                     Print version number, then exit
   -o, --output-filename FILENAME    Write description to FILENAME
 
-See $url for more information on this tool.
+See $lcov_url for more information about this tool.
 END_OF_USAGE
 	;
 }
@@ -130,7 +130,7 @@ END_OF_USAGE
 # gen_desc()
 #
 # Read text file INPUT_FILENAME and convert the contained description to a
-# format as understood by genhtml.pl, i.e.
+# format as understood by genhtml, i.e.
 #
 #    TN:<test name>
 #    TD:<test description>

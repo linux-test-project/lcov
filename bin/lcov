@@ -1,0 +1,1270 @@
+#!/usr/bin/perl -w
+#
+#   Copyright (c) International Business Machines  Corp., 2002
+#
+#   This program is free software;  you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or (at
+#   your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY;  without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.                 
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+#
+#
+# lcov
+#
+#   This is a wrapper script which provides a single interface for accessing
+#   LCOV coverage data.
+#
+#
+# History:
+#   2002-08-29 created by Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
+#                         IBM Lab Boeblingen
+#   2002-09-05 / Peter Oberparleiter: implemented --kernel-directory +
+#                multiple directories
+#   2002-10-16 / Peter Oberparleiter: implemented --add-tracefile option
+#   2002-10-17 / Peter Oberparleiter: implemented --extract option
+#   2002-11-04 / Peter Oberparleiter: implemented --list option
+#   2003-03-07 / Paul Larson: Changed to make it work with the latest gcov 
+#                kernel patch.  This will break it with older gcov-kernel
+#                patches unless you change the value of $gcovmod in this script
+#   2003-04-07 / Peter Oberparleiter: fixed bug which resulted in an error
+#                when trying to combine .info files containing data without
+#                a test name
+#   2003-04-10 / Peter Oberparleiter: extended Paul's change so that LCOV
+#                works both with the new and the old gcov-kernel patch
+#   2003-04-10 / Peter Oberparleiter: added $gcov_dir constant in anticipation
+#                of a possible move of the gcov kernel directory to another
+#                file system in a future version of the gcov-kernel patch
+#
+
+use strict;
+use File::Basename; 
+use Getopt::Long;
+
+
+# Global constants
+our $lcov_version	= "LTP GCOV extension version 1.1";
+our $lcov_url		= "http://ltp.sourceforge.net/lcov.php";
+
+# Names of the GCOV kernel module
+our @gcovmod = ("gcov-prof", "gcov-proc");
+
+# Directory containing gcov kernel files
+our $gcov_dir = "/proc/gcov";
+
+# The location of the insmod tool
+our $insmod_tool	= "/sbin/insmod";
+
+# The location of the rmmod tool
+our $rmmod_tool		= "/sbin/rmmod";
+
+# Where to create temporary directories
+our $tmp_dir		= ".";
+
+# How to prefix a temporary directory name
+our $tmp_prefix		= "tmpdir";
+
+
+# Prototypes
+sub print_usage(*);
+sub userspace_reset();
+sub userspace_capture();
+sub kernel_reset();
+sub kernel_capture();
+sub add_traces();
+sub read_info_file($);
+sub get_info_entry($);
+sub set_info_entry($$$$;$$);
+sub combine_info_entries($$);
+sub combine_info_files($$);
+sub write_info_file(*$);
+sub extract();
+sub list();
+sub escape_shell($);
+
+sub info(@);
+sub unload_module($);
+sub check_and_load_kernel_module();
+sub create_temp_dir();
+sub transform_pattern($);
+
+
+# Global variables & initialization
+our @directory;		# Specifies where to get coverage data from
+our @kernel_directory;	# If set, captures only from specified kernel subdirs
+our @add_tracefile;	# If set, reads in and combines all files in list
+our $list;		# If set, list contents of tracefile
+our $extract;		# If set, extracts parts of tracefile
+our $reset;		# If set, reset all coverage data to zero
+our $capture;		# If set, capture data
+our $output_filename;	# Name for file to write coverage data to
+our $test_name = "";	# Test case name
+our $quiet = "";	# If set, suppress information messages
+our $help;		# Help option flag
+our $version;		# Version option flag
+our $need_unload;	# If set, unload gcov kernel module
+our $temp_dir_name;	# Name of temporary directory
+our $cwd = `pwd`;	# Current working directory
+our $to_file;		# If set, indicates that output is written to a file
+chomp($cwd);
+our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
+
+# Add current working directory if $tool_dir is not already an absolute path
+if (! ($tool_dir =~ /^\/(.*)$/))
+{
+	$tool_dir = "$cwd/$tool_dir";
+}
+
+
+#
+# Code entry point
+#
+
+# Parse command line options
+if (!GetOptions("directory=s" => \@directory,
+		"add-tracefile=s" => \@add_tracefile,
+		"list=s" => \$list,
+		"kernel-directory=s" => \@kernel_directory,
+		"extract=s" => \$extract,
+		"capture" => \$capture,
+		"output-file=s" => \$output_filename,
+		"test-name=s" => \$test_name,
+		"reset" => \$reset,
+		"quiet" => \$quiet,
+		"help" => \$help,
+		"version" => \$version
+		))
+{
+	print_usage(*STDERR);
+	exit(1);
+}
+
+# Check for help option
+if ($help)
+{
+	print_usage(*STDOUT);
+	exit(0);
+}
+
+# Check for version option
+if ($version)
+{
+	print("$lcov_version\n");
+	exit(0);
+}
+
+if (@ARGV && !$extract)
+{
+	print_usage(*STDERR);
+	exit(1);
+}
+
+# Check for output filename
+$to_file = ($output_filename && ($output_filename ne "-"));
+
+if ($capture)
+{
+	if ($to_file)
+	{
+		$output_filename = "--output-filename $output_filename";
+	}
+	else
+	{
+		# Need to suppress progress messages when no output filename is
+		# specified because data will be written to STDOUT
+		$quiet = 1;
+
+		# Option that tells geninfo to write to stdout
+		$output_filename = "--output-filename -";
+	}
+}
+
+# Check for test name
+if ($test_name)
+{
+	$test_name = "--test-name $test_name";
+}
+
+
+# Check for quiet option
+if ($quiet)
+{
+	$quiet = "--quiet";
+}
+
+
+# Check for requested functionality
+if ($reset)
+{
+	# Only one of these options is allowed at a time
+	if ($capture || @add_tracefile || $extract || $list)
+	{
+		die("ERROR: only one of -r, -c, -e, -a or -l allowed!\n");
+	}
+
+	# Differentiate between user space and kernel reset
+	if (@directory)
+	{
+		userspace_reset();
+	}
+	else
+	{
+		kernel_reset();
+	}
+}
+elsif ($capture)
+{
+	# Only one of these options is allowed at a time
+	if (@add_tracefile || $extract || $list)
+	{
+		die("ERROR: only one of -r, -c, -e, -a or -l allowed!\n");
+	}
+
+	# Differentiate between user space and kernel 
+	if (@directory)
+	{
+		userspace_capture();
+	}
+	else
+	{
+		kernel_capture();
+	}
+}
+elsif (@add_tracefile)
+{
+	# Only one of these options is allowed at a time
+	if ($extract || $list)
+	{
+		die("ERROR: only one of -r, -c, -e, -a or -l allowed!\n");
+	}
+
+	add_traces();
+}
+elsif ($extract)
+{
+	# Only one of these options is allowed at a time
+	if ($list)
+	{
+		die("ERROR: only one of -r, -c, -e, -a or -l allowed!\n");
+	}
+	extract();
+}
+elsif ($list)
+{
+	list();
+}
+else
+{
+	print(STDERR
+	      "Need one of the options -r, -c, -e, -a or -l\n");
+	print_usage(*STDERR);
+	exit(2);
+}
+
+info("Done.\n");
+exit(0);
+
+
+#
+# print_usage(handle)
+#
+# Print usage information.
+#
+
+sub print_usage(*)
+{
+	local *HANDLE = $_[0];
+	my $tool_name = basename($0);
+
+	print(HANDLE <<END_OF_USAGE);
+Usage: $tool_name [OPTIONS]
+
+Use lcov to collect coverage data from either the currently running Linux
+kernel or from a user space application. Specify the --directory option to
+get coverage data for a user space program.
+
+  -h, --help                      Print this help, then exit
+  -v, --version                   Print version number, then exit
+  -q, --quiet                     Do not print progress messages
+  -r, --reset                     Reset all execution counts
+  -c, --capture                   Capture coverage data
+  -t, --test-name NAME            Specify test name to be stored with data
+  -o, --output-file FILENAME      Write data to FILENAME instead of stdout
+  -d, --directory DIR             Use .da files in DIR instead of kernel
+  -k, --kernel-directory KDIR     Capture kernel coverage data only from KDIR
+  -a, --add-tracefile FILE        Add contents of tracefiles
+  -e, --extract FILE PATTERN      Extract files matching PATTERN from FILE
+  -l, --list FILE                 List contents of tracefile FILE
+
+See $lcov_url for more information about this tool.
+END_OF_USAGE
+	;
+}
+
+
+#
+# userspace_reset()
+#
+# Reset coverage data found in DIRECTORY by deleting all contained .da files.
+#
+# Die on error.
+#
+
+sub userspace_reset()
+{
+	my $current_dir;
+	my @file_list;
+
+	foreach $current_dir (@directory)
+	{
+		info("Deleting all .da files in $current_dir and subdirectories\n");
+		@file_list =
+			`find $current_dir -follow -name \\*.da -type f 2>/dev/null`;
+		chomp(@file_list);
+		foreach (@file_list)
+		{
+			unlink($_) or die("ERROR: cannot remove file $_!\n");
+		}
+	}
+}
+
+
+#
+# userspace_capture()
+#
+# Capture coverage data found in DIRECTORY and write it to OUTPUT_FILENAME
+# if specified, otherwise to STDOUT.
+#
+# Die on error.
+#
+
+sub userspace_capture()
+{
+	my $file_list = join(" ", @directory);
+	info("Capturing coverage data from $file_list\n");
+	system(escape_shell("$tool_dir/geninfo $file_list ".
+	       "$output_filename ".
+	       "$test_name ".
+	       "$quiet")) and exit($? >> 8);
+}
+
+
+#
+# kernel_reset()
+#
+# Reset kernel coverage
+#
+# Die on error.
+#
+
+sub kernel_reset()
+{
+	check_and_load_kernel_module();
+
+	info("Resetting kernel execution counters\n");
+	system("echo \"0\" >$gcov_dir/vmlinux") and
+		die("ERROR: cannot write to $gcov_dir/vmlinux!\n");
+
+	# Unload module if we loaded it in the first place
+	if ($need_unload)
+	{
+		unload_module($need_unload);
+	}
+}
+
+
+#
+# kernel_capture()
+#
+# Capture kernel coverage data and write it to OUTPUT_FILENAME if specified,
+# otherwise stdout.
+#
+
+sub kernel_capture()
+{
+	check_and_load_kernel_module();
+
+	# Make sure the temporary directory is removed upon script termination
+	END
+	{
+		if ($temp_dir_name)
+		{
+			stat($temp_dir_name);
+			if (-r _)
+			{
+				info("Removing temporary directory ".
+				     "$temp_dir_name\n");
+
+				# Remove temporary directory
+				system("rm -rf $temp_dir_name")
+					and warn("WARNING: cannot remove ".
+						 "temporary directory ".
+						 "$temp_dir_name!\n");
+			}
+		}
+	}
+
+	# Get temporary directory
+	$temp_dir_name = create_temp_dir();
+
+	info("Copying kernel data to temporary directory $temp_dir_name\n");
+
+	if (!@kernel_directory)
+	{
+		# Copy files from gcov kernel directory
+		system("cp -dr $gcov_dir $temp_dir_name")
+			and die("ERROR: cannot copy files from $gcov_dir!\n");
+	}
+	else
+	{
+		# Prefix list of kernel sub-directories with the gcov kernel
+		# directory
+		my $file_list = join(" ", map {"$gcov_dir/$_";}
+				     @kernel_directory);
+
+		# Copy files from gcov kernel directory
+		system("cp -dr $file_list $temp_dir_name")
+			and die("ERROR: cannot copy files from $file_list!\n");
+	}
+
+	# Make directories writable
+	system("find $temp_dir_name -type d -exec chmod u+w \\{\\} \\;")
+		and die("ERROR: cannot modify access rights for ".
+			"$temp_dir_name!\n");
+
+	# Make directories writable
+	system("find $temp_dir_name -type f -exec chmod u+w \\{\\} \\;")
+		and die("ERROR: cannot modify access rights for ".
+			"$temp_dir_name!\n");
+
+	# Capture data
+	info("Capturing coverage data from $temp_dir_name\n");
+	system(escape_shell("$tool_dir/geninfo $temp_dir_name ".
+	       "$output_filename ".
+	       "$test_name ".
+	       "$quiet")) and exit($? >> 8);
+
+
+	# Unload module if we loaded it in the first place
+	if ($need_unload)
+	{
+		unload_module($need_unload);
+	}
+}
+
+
+#
+# info(printf_parameter)
+#
+# Use printf to write PRINTF_PARAMETER to stdout only when the $quiet flag
+# is not set.
+#
+
+sub info(@)
+{
+	if (!$quiet)
+	{
+		# Print info string
+		printf(@_);
+	}
+}
+
+
+#
+# Check if the gcov kernel module is loaded. If it is, exit, if not, try
+# to load it.
+#
+# Die on error.
+#
+
+sub check_and_load_kernel_module()
+{
+	my $module_name;
+
+	# Is it loaded already?
+	stat("$gcov_dir");
+	if (-r _) { return(); }
+
+	info("Loading required gcov kernel module.\n");
+
+	# Do we have access to the insmod tool?
+	stat($insmod_tool);
+	if (!-x _)
+	{
+		die("ERROR: cannot execute insmod tool at $insmod_tool!\n");
+	}
+
+	# Try some possibilities of where the gcov kernel module may be found
+	foreach $module_name (@gcovmod)
+	{
+		# Try to load module from system wide module directory
+		# /lib/modules
+		if (!system("$insmod_tool $module_name 2>/dev/null >/dev/null"))
+		{
+			# Succeeded
+			$need_unload = $module_name;
+			return();
+		}
+
+		# Try to load linux 2.5/2.6 module from tool directory
+		if (!system("$insmod_tool $tool_dir/$module_name.ko ".
+			    "2>/dev/null >/dev/null"))
+		{
+			# Succeeded
+			$need_unload = $module_name;
+			return();
+		}
+
+		# Try to load linux 2.4 module from tool directory
+		if (!system("$insmod_tool $tool_dir/$module_name.o ".
+			    "2>/dev/null >/dev/null"))
+		{
+			# Succeeded
+			$need_unload = $module_name;
+			return();
+		}
+	}
+
+	# Hm, loading failed - maybe we aren't root?
+	if ($> != 0)
+	{
+		die("ERROR: need root access to load kernel module!\n");
+	}
+
+	die("ERROR: cannot load required gcov kernel module!\n");
+}
+
+
+#
+# unload_module()
+#
+# Unload the gcov kernel module.
+#
+
+sub unload_module($)
+{
+	my $module = $_[0];
+
+	info("Unloading kernel module $module\n");
+
+	# Do we have access to the rmmod tool?
+	stat($rmmod_tool);
+	if (!-x _)
+	{
+		warn("WARNING: cannot execute rmmod tool at $rmmod_tool - ".
+		     "gcov module still loaded!\n");
+	}
+
+	# Unload gcov kernel module
+	system("$rmmod_tool $module 2>/dev/null")
+		and warn("WARNING: cannot unload gcov kernel module ".
+		         "$module!\n");
+}
+
+
+#
+# create_temp_dir()
+#
+# Create a temporary directory and return its path.
+#
+# Die on error.
+#
+
+sub create_temp_dir()
+{
+	my $dirname;
+	my $number = sprintf("%d", rand(1000));
+
+	# Endless loops are evil
+	while ($number++ < 1000)
+	{
+		$dirname = "$tmp_dir/$tmp_prefix$number";
+		stat($dirname);
+		if (-e _) { next; }
+
+		mkdir($dirname)
+			or die("ERROR: cannot create temporary directory ".
+			       "$dirname!\n");
+
+		return($dirname);
+	}
+
+	die("ERROR: cannot create temporary directory in $tmp_dir!\n");
+}
+
+
+#
+# read_info_file(info_filename)
+#
+# Read in the contents of the .info file specified by INFO_FILENAME. Data will
+# be returned as a reference to a hash containing the following mappings:
+#
+# %result: for each filename found in file -> \%data
+#
+# %data: "test"  -> \%testdata
+#        "sum"   -> \%sumcount
+#        "func"  -> \%funcdata
+#        "found" -> $lines_found (number of instrumented lines found in file)
+#	 "hit"   -> $lines_hit (number of executed lines in file)
+#
+# %testdata: name of test affecting this file -> \%testcount
+#
+# %testcount: line number -> execution count for a single test
+# %sumcount : line number -> execution count for all tests
+# %funcdata : line number -> name of function beginning at that line
+# 
+# Note that .info file sections referring to the same file and test name
+# will automatically be combined by adding all execution counts.
+#
+# Note that if INFO_FILENAME ends with ".gz", it is assumed that the file
+# is compressed using GZIP. If available, GUNZIP will be used to decompress
+# this file.
+#
+# Die on error
+#
+
+sub read_info_file($)
+{
+	my $tracefile = $_[0];		# Name of tracefile
+	my %result;			# Resulting hash: file -> data
+	my $data;			# Data handle for current entry
+	my $testdata;			#       "             "
+	my $testcount;			#       "             "
+	my $sumcount;			#       "             "
+	my $funcdata;			#       "             "
+	my $line;			# Current line read from .info file
+	my $testname;			# Current test name
+	my $filename;			# Current filename
+	my $hitcount;			# Count for lines hit
+	local *INFO_HANDLE;		# Filehandle for .info file
+
+	# Check if file exists and is readable
+	stat($_[0]);
+	if (!(-r _))
+	{
+		die("ERROR: cannot read file $_[0]!\n");
+	}
+
+	# Check if this is really a plain file
+	if (!(-f _))
+	{
+		die("ERROR: not a plain file: $_[0]!\n");
+	}
+
+	# Check for .gz extension
+	if ($_[0] =~ /^(.*)\.gz$/)
+	{
+		# Check for availability of GZIP tool
+		system("gunzip -h >/dev/null 2>/dev/null")
+			and die("ERROR: gunzip command not available!\n");
+
+		# Check integrity of compressed file
+		system("gunzip -t $_[0] >/dev/null 2>/dev/null")
+			and die("ERROR: integrity check failed for ".
+				"compressed file $_[0]!\n");
+
+		# Open compressed file
+		open(INFO_HANDLE, "gunzip -c $_[0]|")
+			or die("ERROR: cannot start gunzip to decompress ".
+			       "file $_[0]!\n");
+	}
+	else
+	{
+		# Open decompressed file
+		open(INFO_HANDLE, $_[0])
+			or die("ERROR: cannot read file $_[0]!\n");
+	}
+
+	$testname = "";
+	while (<INFO_HANDLE>)
+	{
+		chomp($_);
+		$line = $_;
+
+		# Switch statement
+		foreach ($line)
+		{
+			/^TN:(\w+)/ && do
+			{
+				# Test name information found
+				$testname = $1;
+				last;
+			};
+
+			/^[SK]F:(.*)/ && do
+			{
+				# Filename information found
+				# Retrieve data for new entry
+				$filename = $1;
+
+				$data = $result{$filename};
+				($testdata, $sumcount, $funcdata) =
+					get_info_entry($data);
+
+				if (defined($testname))
+				{
+					$testcount = $testdata->{$testname};
+				}
+				else
+				{
+					my %new_hash;
+					$testcount = \%new_hash;
+				}
+				last;
+			};
+
+			/^DA:(\d+),(\d+)/ && do
+			{
+				# Execution count found, add to structure
+				# Add summary counts
+				$sumcount->{$1} += $2;
+
+				# Add test-specific counts
+				if (defined($testname))
+				{
+					$testcount->{$1} += $2;
+				}
+				last;
+			};
+
+			/^FN:(\d+),([^,]+)/ && do
+			{
+				# Function data found, add to structure
+				$funcdata->{$1} = $2;
+				last;
+			};
+
+			/^end_of_record/ && do
+			{
+				# Found end of section marker
+				if ($filename)
+				{
+					# Store current section data
+					if (defined($testname))
+					{
+						$testdata->{$testname} =
+							$testcount;
+					}
+					set_info_entry($data, $testdata,
+						       $sumcount, $funcdata);
+					$result{$filename} = $data;
+				}
+
+			};
+
+			# default
+			last;
+		}
+	}
+	close(INFO_HANDLE);
+
+	# Calculate lines_found and lines_hit for each file
+	foreach $filename (keys(%result))
+	{
+		$data = $result{$filename};
+
+		($testdata, $sumcount, $funcdata) = get_info_entry($data);
+
+		$data->{"found"} = scalar(keys(%{$sumcount}));
+		$hitcount = 0;
+
+		foreach (keys(%{$sumcount}))
+		{
+			if ($sumcount->{$_} >0) { $hitcount++; }
+		}
+
+		$data->{"hit"} = $hitcount;
+
+		$result{$filename} = $data;
+	}
+
+	if (scalar(keys(%result)) == 0)
+	{
+		die("ERROR: No valid records found in tracefile $tracefile\n");
+	}
+
+	return(\%result);
+}
+
+
+#
+# get_info_entry(hash_ref)
+#
+# Retrieve data from an entry of the structure generated by read_info_file().
+# Return a list of references to hashes:
+# (test data hash ref, sum count hash ref, funcdata hash ref, lines found,
+#  lines hit)
+#
+
+sub get_info_entry($)
+{
+	my $testdata_ref = $_[0]->{"test"};
+	my $sumcount_ref = $_[0]->{"sum"};
+	my $funcdata_ref = $_[0]->{"func"};
+	my $lines_found  = $_[0]->{"found"};
+	my $lines_hit    = $_[0]->{"hit"};
+
+	return ($testdata_ref, $sumcount_ref, $funcdata_ref, $lines_found,
+	        $lines_hit);
+}
+
+
+#
+# set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref[,
+#                lines_found, lines_hit])
+#
+# Update the hash referenced by HASH_REF with the provided data references.
+#
+
+sub set_info_entry($$$$;$$)
+{
+	my $data_ref = $_[0];
+
+	$data_ref->{"test"} = $_[1];
+	$data_ref->{"sum"} = $_[2];
+	$data_ref->{"func"} = $_[3];
+
+	if (defined($_[4])) { $data_ref->{"found"} = $_[4]; }
+	if (defined($_[5])) { $data_ref->{"hit"} = $_[5]; }
+}
+
+
+#
+# add_counts(data1_ref, data2_ref)
+#
+# DATA1_REF and DATA2_REF are references to hashes containing a mapping
+#
+#   line number -> execution count
+#
+# Return a list (RESULT_REF, LINES_FOUND, LINES_HIT) where RESULT_REF
+# is a reference to a hash containing the combined mapping in which
+# execution counts are added.
+#
+
+sub add_counts($$)
+{
+	my %data1 = %{$_[0]};	# Hash 1
+	my %data2 = %{$_[1]};	# Hash 2
+	my %result;		# Resulting hash
+	my $line;		# Current line iteration scalar
+	my $data1_count;	# Count of line in hash1
+	my $data2_count;	# Count of line in hash2
+	my $found = 0;		# Total number of lines found
+	my $hit = 0;		# Number of lines with a count > 0
+
+	foreach $line (keys(%data1))
+	{
+		$data1_count = $data1{$line};
+		$data2_count = $data2{$line};
+
+		# Add counts if present in both hashes
+		if (defined($data2_count)) { $data1_count += $data2_count; }
+
+		# Store sum in %result
+		$result{$line} = $data1_count;
+
+		$found++;
+		if ($data1_count > 0) { $hit++; }
+	}
+
+	# Add lines unique to data2
+	foreach $line (keys(%data2))
+	{
+		# Skip lines already in data1
+		if (defined($data1{$line})) { next; }
+
+		# Copy count from data2
+		$result{$line} = $data2{$line};
+
+		$found++;
+		if ($result{$line} > 0) { $hit++; }
+	}
+
+	return (\%result, $found, $hit);
+}
+
+
+#
+# combine_info_entries(entry_ref1, entry_ref2)
+#
+# Combine .info data entry hashes referenced by ENTRY_REF1 and ENTRY_REF2.
+# Return reference to resulting hash.
+#
+
+sub combine_info_entries($$)
+{
+	my $entry1 = $_[0];	# Reference to hash containing first entry
+	my $testdata1;
+	my $sumcount1;
+	my $funcdata1;
+
+	my $entry2 = $_[1];	# Reference to hash containing second entry
+	my $testdata2;
+	my $sumcount2;
+	my $funcdata2;
+
+	my %result;		# Hash containing combined entry
+	my %result_testdata;
+	my $result_sumcount = {};
+	my %result_funcdata;
+	my $lines_found;
+	my $lines_hit;
+
+	my $testname;
+
+	# Retrieve data
+	($testdata1, $sumcount1, $funcdata1) = get_info_entry($entry1);
+	($testdata2, $sumcount2, $funcdata2) = get_info_entry($entry2);
+
+	# Combine funcdata
+	foreach (keys(%{$funcdata1}))
+	{
+		$result_funcdata{$_} = $funcdata1->{$_};
+	}
+
+	foreach (keys(%{$funcdata2}))
+	{
+		$result_funcdata{$_} = $funcdata2->{$_};
+	}
+	
+	# Combine testdata
+	foreach $testname (keys(%{$testdata1}))
+	{
+		if (defined($testdata2->{$testname}))
+		{
+			# testname is present in both entries, requires
+			# combination
+			($result_testdata{$testname}) =
+				add_counts($testdata1->{$testname},
+					   $testdata2->{$testname});
+		}
+		else
+		{
+			# testname only present in entry1, add to result
+			$result_testdata{$testname} = $testdata1->{$testname};
+		}
+
+		# update sum count hash
+		($result_sumcount, $lines_found, $lines_hit) =
+			add_counts($result_sumcount,
+				   $result_testdata{$testname});
+	}
+
+	foreach $testname (keys(%{$testdata2}))
+	{
+		# Skip testnames already covered by previous iteration
+		if (defined($testdata1->{$testname})) { next; }
+
+		# testname only present in entry2, add to result hash
+		$result_testdata{$testname} = $testdata2->{$testname};
+
+		# update sum count hash
+		($result_sumcount, $lines_found, $lines_hit) =
+			add_counts($result_sumcount,
+				   $result_testdata{$testname});
+	}
+	
+	# Calculate resulting sumcount
+
+	# Store result
+	set_info_entry(\%result, \%result_testdata, $result_sumcount,
+		       \%result_funcdata, $lines_found, $lines_hit);
+
+	return(\%result);
+}
+
+
+#
+# combine_info_files(info_ref1, info_ref2)
+#
+# Combine .info data in hashes referenced by INFO_REF1 and INFO_REF2. Return
+# reference to resulting hash.
+#
+
+sub combine_info_files($$)
+{
+	my %hash1 = %{$_[0]};
+	my %hash2 = %{$_[1]};
+	my $filename;
+
+	foreach $filename (keys(%hash2))
+	{
+		if ($hash1{$filename})
+		{
+			# Entry already exists in hash1, combine them
+			$hash1{$filename} =
+				combine_info_entries($hash1{$filename},
+						     $hash2{$filename});
+		}
+		else
+		{
+			# Entry is unique in both hashes, simply add to
+			# resulting hash
+			$hash1{$filename} = $hash2{$filename};
+		}
+	}
+
+	return(\%hash1);
+}
+
+
+#
+# add_traces()
+#
+
+sub add_traces()
+{
+	my $total_trace;
+	my $current_trace;
+	my $tracefile;
+	local *INFO_HANDLE;
+
+	info("Combining tracefiles.\n");
+
+	foreach $tracefile (@add_tracefile)
+	{
+		info("Reading tracefile $tracefile\n");
+		$current_trace = read_info_file($tracefile);
+		if ($total_trace)
+		{
+			$total_trace = combine_info_files($total_trace,
+							  $current_trace);
+		}
+		else
+		{
+			$total_trace = $current_trace;
+		}
+	}
+
+	# Write combined data
+	if ($to_file)
+	{
+		info("Writing data to $output_filename\n");
+		open(INFO_HANDLE, ">$output_filename")
+			or die("ERROR: cannot write to $output_filename!\n");
+		write_info_file(*INFO_HANDLE, $total_trace);
+		close(*INFO_HANDLE);
+	}
+	else
+	{
+		write_info_file(*STDOUT, $total_trace);
+	}
+}
+
+
+#
+# write_info_file(filehandle, data)
+#
+
+sub write_info_file(*$)
+{
+	local *INFO_HANDLE = $_[0];
+	my %data = %{$_[1]};
+	my $source_file;
+	my $entry;
+	my $testdata;
+	my $sumcount;
+	my $funcdata;
+	my $testname;
+	my $line;
+	my $testcount;
+	my $found;
+	my $hit;
+
+	foreach $source_file (keys(%data))
+	{
+		$entry = $data{$source_file};
+		($testdata, $sumcount, $funcdata) = get_info_entry($entry);
+
+		foreach $testname (keys(%{$testdata}))
+		{
+			$testcount = $testdata->{$testname};
+			$found = 0;
+			$hit   = 0;
+
+			print(INFO_HANDLE "TN:$testname\n");
+			print(INFO_HANDLE "SF:$source_file\n");
+
+			foreach $line (sort({$a <=> $b} keys(%{$funcdata})))
+			{
+				print(INFO_HANDLE "FN:$line,".
+				      $funcdata->{$line}."\n");
+			}
+
+			foreach $line (sort({$a <=> $b} keys(%{$testcount})))
+			{
+				print(INFO_HANDLE "DA:$line,".
+				      $testcount->{$line}."\n");
+				$found++;
+				if ($testcount->{$line} > 0)
+				{
+					$hit++;
+				}
+
+			}
+			print(INFO_HANDLE "LF:$found\n");
+			print(INFO_HANDLE "LH:$hit\n");
+			print(INFO_HANDLE "end_of_record\n");
+		}
+	}
+}
+
+
+#
+# transform_pattern(pattern)
+#
+# Transform shell wildcard expression to equivalent PERL regular expression.
+# Return transformed pattern.
+#
+
+sub transform_pattern($)
+{
+	my $pattern = $_[0];
+
+	# Escape special chars
+
+	$pattern =~ s/\\/\\\\/g;
+	$pattern =~ s/\//\\\//g;
+	$pattern =~ s/\^/\\\^/g;
+	$pattern =~ s/\$/\\\$/g;
+	$pattern =~ s/\(/\\\(/g;
+	$pattern =~ s/\)/\\\)/g;
+	$pattern =~ s/\[/\\\[/g;
+	$pattern =~ s/\]/\\\]/g;
+	$pattern =~ s/\{/\\\{/g;
+	$pattern =~ s/\}/\\\}/g;
+	$pattern =~ s/\./\\\./g;
+	$pattern =~ s/\,/\\\,/g;
+	$pattern =~ s/\|/\\\|/g;
+	$pattern =~ s/\+/\\\+/g;
+	$pattern =~ s/\!/\\\!/g;
+
+	# Transform ? => (.) and * => (.*)
+
+	$pattern =~ s/\*/\(\.\*\)/g;
+	$pattern =~ s/\?/\(\.\)/g;
+
+	return $pattern;
+}
+
+
+#
+# extract()
+#
+
+sub extract()
+{
+	my $data = read_info_file($extract);
+	my $filename;
+	my $keep;
+	my $pattern;
+	my @pattern_list;
+	my $extracted = 0;
+	local *INFO_HANDLE;
+
+	# Need perlreg expressions instead of shell pattern
+	@pattern_list = map({ transform_pattern($_); } @ARGV);
+
+	# Filter out files which do not match any pattern
+	foreach $filename (keys(%{$data}))
+	{
+		$keep = 0;
+
+		foreach $pattern (@pattern_list)
+		{
+			$keep ||= ($filename =~ (/^$pattern$/));
+		}
+
+
+		if (!$keep)
+		{
+			delete($data->{$filename});
+		}
+		else
+		{
+			info("Extracting $filename\n"),
+			$extracted++;
+		}
+	}
+
+	# Write extracted data
+	if ($to_file)
+	{
+		info("Extracted $extracted files\n");
+		info("Writing data to $output_filename\n");
+		open(INFO_HANDLE, ">$output_filename")
+			or die("ERROR: cannot write to $output_filename!\n");
+		write_info_file(*INFO_HANDLE, $data);
+		close(*INFO_HANDLE);
+	}
+	else
+	{
+		write_info_file(*STDOUT, $data);
+	}
+}
+
+
+#
+# list()
+#
+
+sub list()
+{
+	my $data = read_info_file($list);
+	my $filename;
+	my $found;
+	my $hit;
+	my $entry;
+
+	info("Listing contents of $list:\n");
+
+	# Filter out files which do not match any pattern
+	foreach $filename (keys(%{$data}))
+	{
+		$entry = $data->{$filename};
+		(undef, undef, undef, $found, $hit) = get_info_entry($entry);
+		printf("$filename: $hit of $found lines hit\n");
+	}
+}
+
+
+#
+# escape_shell(string)
+#
+# Escape characters in STRING which would be expanded by a command line
+# shell. Return the resulting string.
+#
+
+sub escape_shell($)
+{
+	my $string = $_[0];
+
+	# Escape characters which have a special meaning in shell context
+	$string =~ s/\\/\\\\/g;
+	$string =~ s/\|/\\\|/g;
+	$string =~ s/\$/\\\$/g;
+	$string =~ s/\*/\\\*/g;
+	$string =~ s/\"/\\\"/g;
+	$string =~ s/\'/\\\'/g;
+	$string =~ s/\~/\\\~/g;
+	$string =~ s/\;/\\\;/g;
+	$string =~ s/\&/\\\&/g;
+	$string =~ s/\(/\\\(/g;
+	$string =~ s/\)/\\\)/g;
+	$string =~ s/\</\\\</g;
+	$string =~ s/\>/\\\>/g;
+	$string =~ s/\[/\\\[/g;
+	$string =~ s/\]/\\\]/g;
+	$string =~ s/\!/\\\!/g;
+	$string =~ s/\`/\\\`/g;
+
+	return $string;
+
+}

@@ -17,11 +17,11 @@
 #   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 #
 #
-# genhtml.pl
+# genhtml
 #
 #   This script generates HTML output from .info files as created by the
-#   geninfo.pl script. Call it with --help to get information on available
-#   options.
+#   geninfo script. Call it with --help and refer to the genhtml man page
+#   to get information on usage and available options.
 #
 #
 # History:
@@ -32,10 +32,19 @@
 #                         IBM Austin
 #   2002-08-27 / Peter Oberparleiter: implemented frame view
 #   2002-08-29 / Peter Oberparleiter: implemented test description filtering
-#                                     so that by default only descriptions for
-#                                     test cases which actually hit some
-#                                     source lines are kept.
+#                so that by default only descriptions for test cases which
+#                actually hit some source lines are kept
 #   2002-09-05 / Peter Oberparleiter: implemented --no-sourceview
+#   2002-09-05 / Mike Kobler: One of my source file paths includes a "+" in
+#                the directory name.  I found that genhtml.pl died when it
+#                encountered it. I was able to fix the problem by modifying
+#                the string with the escape character before parsing it.
+#   2002-10-26 / Peter Oberparleiter: implemented --num-spaces
+#   2003-04-07 / Peter Oberparleiter: fixed bug which resulted in an error
+#                when trying to combine .info files containing data without
+#                a test name
+#   2003-04-10 / Peter Oberparleiter: extended fix by Mike to also cover
+#                other special characters
 #
 
 use strict;
@@ -44,10 +53,9 @@ use Getopt::Long;
 
 
 # Global constants
-our $tool_name		= "LTP GCOV extension";
-our $title		= "$tool_name - code coverage report";
-our $version_info	= "genhtml version 1.0";
-our $url		= "http://ltp.sourceforge.net/lcov.php";
+our $title		= "LTP GCOV extension - code coverage report";
+our $lcov_version	= "LTP GCOV extension version 1.1";
+our $lcov_url		= "http://ltp.sourceforge.net/lcov.php";
 
 # Specify coverage rate limits (in %) for classifying file entries
 # HI:   $hi_limit <= rate <= 100          graph color: green
@@ -55,10 +63,6 @@ our $url		= "http://ltp.sourceforge.net/lcov.php";
 # LO:          0  <= rate <  $med_limit   graph color: red
 our $hi_limit	= 50;
 our $med_limit	= 15;
-
-# When producing source code output, this constant controls the number of
-# spaces to use in place for a single tabulator mark
-our $tab_spaces = " "x4;
 
 # Width of overview image
 our $overview_width = 80;
@@ -73,6 +77,7 @@ our $nav_resolution = 4;
 # line in the window. This number specifies that offset in lines.
 our $nav_offset = 10;
 
+our $overview_title = "directory";
 
 # Data related prototypes
 sub print_usage(*);
@@ -80,7 +85,7 @@ sub gen_html();
 sub process_dir($);
 sub process_file($$$);
 sub info(@);
-sub read_infofile($);
+sub read_info_file($);
 sub get_info_entry($);
 sub set_info_entry($$$$;$$);
 sub get_prefix(@);
@@ -100,6 +105,7 @@ sub get_affecting_tests($);
 sub combine_info_files($$);
 sub combine_info_entries($$);
 sub apply_prefix($$);
+sub escape_regexp($);
 
 
 # HTML related prototypes
@@ -119,7 +125,7 @@ sub write_header_prolog(*$);
 sub write_header_line(*$$;$$);
 sub write_header_epilog(*$);
 
-sub write_file_table(*$$$);
+sub write_file_table(*$$$$);
 sub write_file_table_prolog(*$$);
 sub write_file_table_entry(*$$$$);
 sub write_file_table_detail_heading(*$$);
@@ -139,7 +145,7 @@ sub write_frameset(*$$$);
 sub write_overview_line(*$$$);
 sub write_overview(*$$$$);
 
-# External prototype (defined in genpng.pl)
+# External prototype (defined in genpng)
 sub gen_png($$$@);
 
 
@@ -163,10 +169,11 @@ our $no_prefix;		# If set, do not remove filename prefix
 our $frames;		# If set, use frames for source code view
 our $keep_descriptions;	# If set, do not remove unused test case descriptions
 our $no_sourceview;	# If set, do not create a source code view for each file
+our $tab_size = 8;	# Number of spaces to use in place of tab
 
 our $cwd = `pwd`;	# Current working directory
 chomp($cwd);
-our $tool_dir = dirname($0);	# Directory where genhtml.pl tool is installed
+our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 
 
 #
@@ -180,20 +187,21 @@ if (! ($tool_dir =~ /^\/(.*)$/))
 }
 
 # Parse command line options
-if (!GetOptions("output-directory=s" => \$output_directory,
-		"title=s" => \$test_title,
-		"description-file=s" => \$desc_filename,
-		"keep-descriptions" => \$keep_descriptions,
-		"css-file=s" => \$css_filename,
-		"baseline-file=s" => \$base_filename,
-		"prefix=s" => \$dir_prefix,
-		"no-prefix" => \$no_prefix,
-		"no-sourceview" => \$no_sourceview,
-		"show-details" => \$show_details,
-		"frames" => \$frames,
-		"quiet" => \$quiet,
-		"help" => \$help,
-		"version" => \$version
+if (!GetOptions("output-directory=s"	=> \$output_directory,
+		"title=s"		=> \$test_title,
+		"description-file=s"	=> \$desc_filename,
+		"keep-descriptions"	=> \$keep_descriptions,
+		"css-file=s"		=> \$css_filename,
+		"baseline-file=s"	=> \$base_filename,
+		"prefix=s"		=> \$dir_prefix,
+		"num-spaces=i"		=> \$tab_size,
+		"no-prefix"		=> \$no_prefix,
+		"no-sourceview"		=> \$no_sourceview,
+		"show-details"		=> \$show_details,
+		"frames"		=> \$frames,
+		"quiet"			=> \$quiet,
+		"help"			=> \$help,
+		"version"		=> \$version
 		))
 {
 	print_usage(*STDERR);
@@ -212,7 +220,7 @@ if ($help)
 # Check for version option
 if ($version)
 {
-	print($version_info."\n");
+	print($lcov_version."\n");
 	exit(0);
 }
 
@@ -249,6 +257,14 @@ if ($css_filename)
 	}
 }
 
+# Make sure tab_size is within valid range
+if ($tab_size < 1)
+{
+	print(STDERR "ERROR: invalid number of spaces specified: ".
+		     "$tab_size!\n");
+	exit(1);
+}
+
 # Issue a warning if --no-sourceview is enabled together with --frames
 if ($no_sourceview && $frames)
 {
@@ -259,8 +275,20 @@ if ($no_sourceview && $frames)
 
 if ($frames)
 {
-	# Include genpng.pl code needed for overview image generation
-	do("$tool_dir/genpng.pl");
+	# Include genpng code needed for overview image generation
+	do("$tool_dir/genpng");
+}
+
+# Make sure output_directory exists, create it if necessary
+if ($output_directory)
+{
+	stat($output_directory);
+
+	if (! -e _)
+	{
+		system("mkdir -p $output_directory")
+			and die("ERROR: cannot create directory $_!\n");
+	}
 }
 
 
@@ -302,8 +330,9 @@ may also be a list of filenames.
   -p, --prefix PREFIX               Remove PREFIX from all directory names
       --no-prefix                   Do not remove prefix from directory names
       --no-source                   Do not create source code view
+      --num-spaces NUM              Replace tabs with NUM spaces in source view
 
-See $url for more information on this tool.
+See $lcov_url for more information about this tool.
 END_OF_USAGE
 	;
 }
@@ -338,7 +367,7 @@ sub gen_html()
 	foreach (@info_filenames)
 	{
 		info("Reading data file $_\n");
-		%new_info = %{read_infofile($_)};
+		%new_info = %{read_info_file($_)};
 
 		# Combine %new_info with %info_data
 		%info_data = %{combine_info_files(\%info_data, \%new_info)};
@@ -351,7 +380,7 @@ sub gen_html()
 	{
 		# Read baseline file
 		info("Reading baseline file $base_filename\n");
-		%base_data = %{read_infofile($base_filename)};
+		%base_data = %{read_info_file($base_filename)};
 		info("Found %d entries.\n", scalar(keys(%base_data)));
 
 		# Apply baseline
@@ -371,7 +400,15 @@ sub gen_html()
 		# Get prefix common to most directories in list
 		$dir_prefix = get_prefix(@dir_list);
 
-		info("Found common filename prefix \"$dir_prefix\"\n");
+		if ($dir_prefix)
+		{
+			info("Found common filename prefix \"$dir_prefix\"\n");
+		}
+		else
+		{
+			info("No common filename prefix found!\n");
+			$no_prefix=1;
+		}
 	}
 	else
 	{
@@ -435,12 +472,12 @@ sub gen_html()
 	}
 
 	# Generate overview page
-	info("Writing overview page.\n");
+	info("Writing directory view page.\n");
 	open(*HTML_HANDLE, ">index.html")
 		or die("ERROR: cannot open index.html for writing!\n");
-	write_html_prolog(*HTML_HANDLE, "", "GCOV - $test_title");
+	write_html_prolog(*HTML_HANDLE, "", "LCOV - $test_title");
 	write_header(*HTML_HANDLE, 0, "", "", $overall_found, $overall_hit);
-	write_file_table(*HTML_HANDLE, "", \%overview, {});
+	write_file_table(*HTML_HANDLE, "", \%overview, {}, 0);
 	write_html_epilog(*HTML_HANDLE, "");
 	close(*HTML_HANDLE);
 
@@ -452,8 +489,16 @@ sub gen_html()
 					$overall_found, $overall_hit);
 	}
 
-	info("Overall coverage rate: %d of %d lines (%.1f%%)\n",
-	       $overall_hit, $overall_found, $overall_hit*100/$overall_found);
+	if ($overall_found == 0)
+	{
+		info("Warning: No lines found!\n");
+	}
+	else
+	{
+		info("Overall coverage rate: %d of %d lines (%.1f%%)\n",
+		     $overall_hit, $overall_found,
+		     $overall_hit*100/$overall_found);
+	}
 
 	chdir($cwd);
 }
@@ -499,10 +544,10 @@ sub process_dir($)
 	$base_dir = get_relative_base_path($rel_dir);
 
 	create_sub_dir($rel_dir);
+	$abs_dir = escape_regexp($abs_dir);
 
 	# Match filenames which specify files in this directory, not including
 	# sub-directories
-       $abs_dir =~ s/\+/\\\+/g; 
 	foreach $filename (grep(/^$abs_dir\/[^\/]*$/,keys(%info_data)))
 	{
 		($lines_found, $lines_hit, $testdata) =
@@ -543,10 +588,10 @@ sub process_dir($)
 		or die("ERROR: cannot open $rel_dir/index.html ".
 		       "for writing!\n");
 	write_html_prolog(*HTML_HANDLE, $base_dir,
-			  "GCOV - $test_title - $trunc_dir");
+			  "LCOV - $test_title - $trunc_dir");
 	write_header(*HTML_HANDLE, 1, $trunc_dir, $rel_dir, $overall_found,
 		     $overall_hit);
-	write_file_table(*HTML_HANDLE, $base_dir, \%overview, {});
+	write_file_table(*HTML_HANDLE, $base_dir, \%overview, {}, 1);
 	write_html_epilog(*HTML_HANDLE, $base_dir);
 	close(*HTML_HANDLE);
 
@@ -557,10 +602,10 @@ sub process_dir($)
 			or die("ERROR: cannot open $rel_dir/".
 			       "index-detail.html for writing!\n");
 		write_html_prolog(*HTML_HANDLE, $base_dir,
-				  "GCOV - $test_title - $trunc_dir");
+				  "LCOV - $test_title - $trunc_dir");
 		write_header(*HTML_HANDLE, 1, $trunc_dir, $rel_dir, $overall_found,
 			     $overall_hit);
-		write_file_table(*HTML_HANDLE, $base_dir, \%overview, \%testhash);
+		write_file_table(*HTML_HANDLE, $base_dir, \%overview, \%testhash, 1);
 		write_html_epilog(*HTML_HANDLE, $base_dir);
 		close(*HTML_HANDLE);
 	}
@@ -607,10 +652,10 @@ sub process_file($$$)
 	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.html")
 		or die("ERROR: cannot open $rel_dir/$base_name.gcov.html ".
 		       "for writing!\n");
-	$pagetitle = "GCOV - $test_title - $trunc_dir/$base_name";
+	$pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
 	write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
-	write_header(*HTML_HANDLE, 2, "$trunc_dir/$base_name", "$rel_dir/$base_name",
-		     $lines_found, $lines_hit);
+	write_header(*HTML_HANDLE, 2, "$trunc_dir/$base_name",
+		     "$rel_dir/$base_name", $lines_found, $lines_hit);
 	@source = write_source(*HTML_HANDLE, $filename, $sumcount);
 
 	write_html_epilog(*HTML_HANDLE, $base_dir, 1);
@@ -623,7 +668,7 @@ sub process_file($$$)
 	}
 
 	# Create overview png file
-	gen_png("$rel_dir/$base_name.gcov.png", $overview_width, $tab_spaces,
+	gen_png("$rel_dir/$base_name.gcov.png", $overview_width, " "x$tab_size,
 		@source);
 
 	# Create frameset page
@@ -648,7 +693,7 @@ sub process_file($$$)
 
 
 #
-# read_info(info_filename)
+# read_info_file(info_filename)
 #
 # Read in the contents of the .info file specified by INFO_FILENAME. Data will
 # be returned as a reference to a hash containing the following mappings:
@@ -677,8 +722,9 @@ sub process_file($$$)
 # Die on error
 #
 
-sub read_infofile($)
+sub read_info_file($)
 {
+	my $tracefile = $_[0];		# Name of tracefile
 	my %result;			# Resulting hash: file -> data
 	my $data;			# Data handle for current entry
 	my $testdata;			#       "             "
@@ -686,7 +732,6 @@ sub read_infofile($)
 	my $sumcount;			#       "             "
 	my $funcdata;			#       "             "
 	my $line;			# Current line read from .info file
-	my @lineargs;			# Result of split(",", $line)
 	my $testname;			# Current test name
 	my $filename;			# Current filename
 	my $hitcount;			# Count for lines hit
@@ -729,27 +774,27 @@ sub read_infofile($)
 			or die("ERROR: cannot read file $_[0]!\n");
 	}
 
+	$testname = "";
 	while (<INFO_HANDLE>)
 	{
 		chomp($_);
 		$line = $_;
-		@lineargs = split(",", substr($line, 3));
 
 		# Switch statement
 		foreach ($line)
 		{
-			/^TN:/ && do
+			/^TN:(\w+)/ && do
 			{
 				# Test name information found
-				$testname = substr($_, 3);
+				$testname = $1;
 				last;
 			};
 
-			/^[SK]F:/ && do
+			/^[SK]F:(.*)/ && do
 			{
 				# Filename information found
 				# Retrieve data for new entry
-				$filename = substr($_, 3);
+				$filename = $1;
 
 				$data = $result{$filename};
 				($testdata, $sumcount, $funcdata) =
@@ -767,26 +812,24 @@ sub read_infofile($)
 				last;
 			};
 
-			/^DA:/ && do
+			/^DA:(\d+),(\d+)/ && do
 			{
 				# Execution count found, add to structure
-
 				# Add summary counts
-				$sumcount->{$lineargs[0]} += $lineargs[1];
+				$sumcount->{$1} += $2;
 
 				# Add test-specific counts
 				if (defined($testname))
 				{
-					$testcount->{$lineargs[0]} +=
-						$lineargs[1];
+					$testcount->{$1} += $2;
 				}
 				last;
 			};
 
-			/^FN:/ && do
+			/^FN:(\d+),([^,]+)/ && do
 			{
 				# Function data found, add to structure
-				$funcdata->{$lineargs[0]} = $lineargs[1];
+				$funcdata->{$1} = $2;
 				last;
 			};
 
@@ -834,6 +877,11 @@ sub read_infofile($)
 		$result{$filename} = $data;
 	}
 
+	if (scalar(keys(%result)) == 0)
+	{
+		die("ERROR: No valid records found in tracefile $tracefile\n");
+	}
+
 	return(\%result);
 }
 
@@ -841,7 +889,7 @@ sub read_infofile($)
 #
 # get_info_entry(hash_ref)
 #
-# Retrieve data from an entry of the structure generated by read_infofile().
+# Retrieve data from an entry of the structure generated by read_info_file().
 # Return a list of references to hashes:
 # (test data hash ref, sum count hash ref, funcdata hash ref, lines found,
 #  lines hit)
@@ -899,7 +947,7 @@ sub get_prefix(@)
 	{
 		# Need explicit assignment to get a copy of $_ so that
 		# shortening the contained prefix does not affect the list
-		$current = $_;
+		$current = shorten_prefix($_);
 		while ($current = shorten_prefix($current))
 		{
 			# Skip rest if the remaining prefix has already been
@@ -953,6 +1001,7 @@ sub get_prefix(@)
 sub shorten_prefix($)
 {
 	my @list = split("/", $_[0]);
+
 	pop(@list);
 	return join("/", @list);
 }
@@ -1069,7 +1118,7 @@ sub read_testfile($)
 #
 # escape_html(STRING)
 #
-# Returna a copy of STRING in which all occurrences of HTML special characters
+# Return a copy of STRING in which all occurrences of HTML special characters
 # are escaped.
 #
 
@@ -1083,7 +1132,13 @@ sub escape_html($)
 	$string =~ s/</&lt;/g;		# < -> &lt;
 	$string =~ s/>/&gt;/g;		# > -> &gt;
 	$string =~ s/\"/&quot;/g;	# " -> &quot;
-	$string =~ s/\t/$tab_spaces/g;	# tab -> spaces
+
+	while ($string =~ /^([^\t]*)(\t)/)
+	{
+		my $replacement = " "x($tab_size - (length($1) % $tab_size));
+		$string =~ s/^([^\t]*)(\t)/$1$replacement/;
+	}
+
 	$string =~ s/\n/<br>/g;		# \n -> <br>
 
 	return $string;
@@ -1146,7 +1201,7 @@ sub write_description_file($$$)
 	open(HTML_HANDLE, ">descriptions.html")
 		or die("ERROR: cannot open descriptions.html for writing!\n");
 
-	write_html_prolog(*HTML_HANDLE, "", "GCOV - test case descriptions");
+	write_html_prolog(*HTML_HANDLE, "", "LCOV - test case descriptions");
 	write_header(*HTML_HANDLE, 3, "", "", $found, $hit);
 
 	write_test_table_prolog(*HTML_HANDLE,
@@ -2213,7 +2268,7 @@ sub write_html_epilog(*$;$)
 	write_html($_[0], <<END_OF_HTML)
 	  <table width="100%" border=0 cellspacing=0 cellpadding=0>
 	  <tr><td class="ruler"><img src="$_[1]glass.png" width=3 height=3 alt=""></td></tr>
-	  <tr><td class="versionInfo">Generator: <a href="$url"$break_code>$tool_name</a> ($version_info)</td></tr>
+	  <tr><td class="versionInfo">Generated by: <a href="$lcov_url"$break_code>$lcov_version</a></td></tr>
 	  </table>
 	  <br>
 
@@ -2358,8 +2413,8 @@ END_OF_HTML
 # lines_hit)
 #
 # Write a complete standard page header. TYPE may be (0, 1, 2, 3)
-# corresponding to (overview header, directory overview header, file header,
-# test case description header)
+# corresponding to (directory view header, file view header, source view
+# header, test case description header)
 #
 
 sub write_header(*$$$$$)
@@ -2393,13 +2448,13 @@ sub write_header(*$$$$$)
 	{
 		# Main overview
 		$base_dir = "";
-		$view = "overview";
+		$view = $overview_title;
 	}
 	elsif ($type == 1)
 	{
 		# Directory overview
 		$base_dir = get_relative_base_path($rel_filename);
-		$view = "<a href=\"$base_dir"."index.html\">overview</a> - ".
+		$view = "<a href=\"$base_dir"."index.html\">$overview_title</a> - ".
 			"$trunc_name";
 	}
 	elsif ($type == 2)
@@ -2415,14 +2470,14 @@ sub write_header(*$$$$$)
 			# Need to break frameset when clicking any of these
 			# links
 			$view = "<a href=\"$base_dir"."index.html\" ".
-				"target=\"_parent\">overview</a> - ".
+				"target=\"_parent\">$overview_title</a> - ".
 				"<a href=\"index.html\" target=\"_parent\">".
 				"$dir_name</a> - $base_name";
 		}
 		else
 		{
 			$view = "<a href=\"$base_dir"."index.html\">".
-				"overview</a> - ".
+				"$overview_title</a> - ".
 				"<a href=\"index.html\">".
 				"$dir_name</a> - $base_name";
 		}
@@ -2431,7 +2486,7 @@ sub write_header(*$$$$$)
 	{
 		# Test description header
 		$base_dir = "";
-		$view = "<a href=\"$base_dir"."index.html\">overview</a> - ".
+		$view = "<a href=\"$base_dir"."index.html\">$overview_title</a> - ".
 			"test case descriptions";
 	}
 
@@ -2487,7 +2542,7 @@ sub split_filename($)
 
 
 #
-# write_file_table(filehandle, base_dir, overview, testhash)
+# write_file_table(filehandle, base_dir, overview, testhash, fileview)
 #
 # Write a complete file table. OVERVIEW is a reference to a hash containing
 # the following mapping:
@@ -2500,13 +2555,17 @@ sub split_filename($)
 #   %testdata: name of test affecting this file -> \%testcount
 #   %testcount: line number -> execution count for a single test
 #
+# Heading of first column is "Filename" if FILEVIEW is true, "Directory name"
+# otherwise.
+#
 
-sub write_file_table(*$$$)
+sub write_file_table(*$$$$)
 {
 	local *HTML_HANDLE = $_[0];
 	my $base_dir = $_[1];
 	my %overview = %{$_[2]};
 	my %testhash = %{$_[3]};
+	my $fileview = $_[4];
 	my $filename;
 	my $bar_graph;
 	my $hit;
@@ -2540,7 +2599,9 @@ sub write_file_table(*$$$)
 		}
 	}
 
-	write_file_table_prolog(*HTML_HANDLE, "Filename", $coverage_heading);
+	write_file_table_prolog(*HTML_HANDLE,
+				$fileview ? "Filename" : "Directory&nbsp;name",
+				$coverage_heading);
 
 	foreach $filename (sort(keys(%overview)))
 	{
@@ -2921,8 +2982,11 @@ sub remove_unused_descriptions()
 	}
 
 	$after = scalar(keys(%test_description));
-	info("Removed ".($before - $after).
-	     " descriptions, $after remaining.\n");
+	if ($after < $before)
+	{
+		info("Removed ".($before - $after).
+		     " unused descriptions, $after remaining.\n");
+	}
 }
 
 
@@ -2945,7 +3009,7 @@ sub combine_info_entries($$)
 	my $sumcount2;
 	my $funcdata2;
 
-	my %result;		# Hash containg combined entry
+	my %result;		# Hash containing combined entry
 	my %result_testdata;
 	my $result_sumcount = {};
 	my %result_funcdata;
@@ -3059,13 +3123,48 @@ sub combine_info_files($$)
 
 sub apply_prefix($$)
 {
-	if (defined($_[1]) && ($_[1] ne ""))
+	my $filename = $_[0];
+	my $prefix = $_[1];
+	my $clean_prefix = escape_regexp($prefix);
+
+	if (defined($prefix) && ($prefix ne ""))
 	{
-		if ($_[0] =~ /^$_[1]\/(.*)$/)
+		if ($filename =~ /^$clean_prefix\/(.*)$/)
 		{
-			return $1;
+			return substr($filename, length($prefix) + 1);
 		}
 	}
 
-	return $_[0];
+	return $filename;
+}
+
+
+#
+# escape_regexp(string)
+#
+# Escape special characters in STRING which would be incorrectly interpreted
+# in a PERL regular expression.
+#
+
+sub escape_regexp($)
+{
+	my $string = $_[0];
+	
+	# Escape special characters
+	$string =~ s/\\/\\\\/g;
+	$string =~ s/\^/\\\^/g;
+	$string =~ s/\$/\\\$/g;
+	$string =~ s/\./\\\./g;
+	$string =~ s/\|/\\\|/g;
+	$string =~ s/\(/\\\(/g;
+	$string =~ s/\)/\\\)/g;
+	$string =~ s/\[/\\\[/g;
+	$string =~ s/\]/\\\]/g;
+	$string =~ s/\*/\\\*/g;
+	$string =~ s/\?/\\\?/g;
+	$string =~ s/\{/\\\{/g;
+	$string =~ s/\}/\\\}/g;
+	$string =~ s/\+/\\\+/g;
+
+	return $string;
 }

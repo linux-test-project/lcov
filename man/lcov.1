@@ -1,0 +1,226 @@
+.TH lcov 1 "lcov 1.1" 2003-04-14 "User Manuals"
+.SH NAME
+lcov - GCOV coverage tool extension
+.SH SYNOPSIS
+.B lcov
+.RB [ \-h | \-\-help ]
+.RB [ \-v | \-\-version ]
+.RS 5
+.br
+.RB [ \-q | \-\-quiet ]
+.RB [ \-r | \-\-reset ]
+.RB [ \-c | \-\-capture ]
+.br
+.RB [ \-t | \-\-test\-name
+.IR testname ]
+.br
+.RB [ \-o | \-\-output-file
+.IR filename ]
+.br
+.RB [ \-d | \-\-directory
+.IR directory ]
+.br
+.RB [ \-k | \-\-kernel-directory
+.IR directory ]
+.br
+.RB [ \-a | \-\-add-tracefile
+.IR tracefile ]
+.br
+.RB [ \-e | \-\-extract
+.IR tracefile ]
+.br
+.RB [ \-l | \-\-list
+.IR tracefile ]
+.br
+.SH DESCRIPTION
+.B lcov
+is an extension of GCOV, a GNU tool which provides information
+about what parts of a program are actually executed (i.e. "covered")
+during a particular test case. The extension consists of a set
+of PERL scripts which build on the textual GCOV output to implement
+HTML output and support for large projects.
+
+Use
+.B lcov
+to collect coverage data from either the currently running Linux kernel
+or from a user space application. To do this, you have to complete the
+following preparation steps:
+
+For Linux kernel coverage:
+.RS
+Download and install the "gcov\-kernel" package from
+.I http://sourceforge.net/projects/lse
+
+The resulting kernel module has to be installed either in the system wide
+kernel modules directory or in the same directory as the LCOV tool.
+Note that you will need root privileges to access kernel coverage data.
+
+.RE
+For user space application coverage:
+.RS
+Compile the application with GCC using the options
+"\-fprofile\-arcs" and "\-ftest\-coverage".
+.RE
+
+Please note that this man page refers to the output format of
+.B lcov
+as ".info file" or "tracefile" and that the output of GCOV
+is called ".da file".
+.SH OPTIONS
+
+.B \-h
+.br
+.B \-\-help
+.RS
+Print a short help text, then exit.
+.RE
+
+.B \-v
+.br
+.B \-\-version
+.RS
+Print version number, then exit.
+.RE
+
+.B \-q
+.br
+.B \-\-quiet
+.RS
+Do not print progress messages.
+
+This option is implied when no output filename is specified to prevent
+progress messages to mess with coverage data which is also printed to
+the standard output.
+.RE
+
+.B \-r
+.br
+.B \-\-reset
+.RS
+Reset all execution counts.
+
+By default tries to reset kernel execution counts. Use the \-\-directory
+option to reset all counters of a user space program.
+.RE
+
+.B \-c
+.br
+.B \-\-capture
+.RS
+Capture coverage data.
+
+By default captures the current kernel execution counts and writes the
+resulting coverage data to the standard output. Use the \-\-directory
+option to capture counts for a user space program.
+.RE
+
+.BI "\-t " testname
+.br
+.BI "\-\-test\-name " testname
+.RS
+Specify test name to be stored in the tracefile.
+
+This name helps distinguish coverage results in cases where data from
+more than one test case is merged into a single file (i.e. by
+simply concatenation the respective tracefiles). 
+
+Valid characters for
+.I testname
+are alphanumerics plus "_".
+
+.RE
+
+.BI "\-o " filename
+.br
+.BI "\-\-output\-file " filename
+.RS
+Write data to FILENAME instead of stdout.
+
+Specify "\-" as a filename to use the standard output. But that would be
+pointless, wouldn't it? :)
+.RE
+
+.BI "\-d " directory
+.br
+.BI "\-\-directory " directory
+.RS
+Use .da files in
+.I directory
+instead of kernel.
+
+If you want to work on coverage data for a user space program, use this
+option to specify the location where the program was compiled (that's
+where the counter files ending with .da will be stored).
+
+Make sure that the resulting kernel module is copied either to the system
+wide kernel module directory or to the directory which also holds the LCOV
+tools. Note that you may specify more than one directory, all of which will be
+processed sequentially.
+.RE
+
+.BI "\-k " kernel\-directory
+.br
+.BI "\-\-kernel\-directory " kernel\-directory
+.RS
+Capture kernel coverage data only from
+.IR kernel\-directory .
+
+Use this option if you don't want to get coverage data for all of the
+kernel, but only for specific subdirectories.
+
+Note that you may specify more than one directory, all of which will be
+processed sequentially.
+.RE
+
+.BI "\-a " tracefile
+.br
+.BI "\-\-add\-tracefile " tracefile
+.RS
+Add contents of
+.IR tracefile .
+
+Specify several tracefiles using the \-a switch to combine the coverage data
+contained in these files by adding up execution counts for matching test and
+filename combinations.
+
+Note that this option will not work in conjunction with the \-r, \-c, \-e and \-l
+switches.
+
+.RE
+.BI "\-e " tracefile
+.br
+.BI "\-\-extract " tracefile
+.RS
+Extract data from
+.IR tracefile .
+
+Use this switch if you want to extract coverage data for only a particular
+set of files from a tracefile. Additional command line parameters will be
+interpreted as shell wildcard patterns. Every file entry in
+.I tracefile
+which matches at least one of those patterns will be extracted.
+
+Note that this option will not work in conjunction with the \-r, \-c, \-l and \-a
+switches.
+
+.RE
+.BI "\-l " tracefile
+.br
+.BI "\-\-list " tracefile
+.RS
+List the contents of the
+.IR tracefile .
+
+Note that this option will not work in conjunction with the \-r, \-c, \-e and \-a
+switches.
+
+.RE
+.SH AUTHOR
+Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
+
+.SH SEE ALSO
+.BR genhtml (1),
+.BR geninfo (1),
+.BR genpng (1),
+.BR gendesc (1),
+.BR gcov (1)

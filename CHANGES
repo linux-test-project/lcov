@@ -1,0 +1,69 @@
+Version 1.1:
+============
+
+- Added CHANGES file
+- Added Makefile implementing the following targets:
+  * install    : install LCOV scripts and man pages
+  * uninstall  : revert previous installation
+  * dist       : create lcov.tar.gz file and lcov.rpm file
+  * clean      : clean up example directory, remove .tar and .rpm files
+- Added man pages for all scripts
+- Added example program to demonstrate the use of LCOV with a userspace
+  application
+- Implemented RPM build process
+- New directory structure:
+  * bin        : contains all executables
+  * example    : contains a userspace example for LCOV
+  * man        : contains man pages
+  * rpm        : contains files required for the RPM build process
+- LCOV-scripts are now in bin/
+- Removed .pl-extension from LCOV-script files
+- Renamed readme.txt to README
+
+README:
+- Adjusted mailing list address to ltp-coverage@lists.sourceforge.net
+- Fixed incorrect parameter '--output-filename' in example LCOV call
+- Removed tool descriptions and turned them into man pages
+- Installation instructions now refer to RPM and tarball
+
+descriptions.tests:
+- Fixed some spelling errors
+
+genhtml:
+- Fixed bug which resulted in an error when trying to combine .info files
+  containing data without a test name
+- Fixed bug which would not correctly handle data files in directories
+  with names containing some special characters ('+', etc.)
+- Added check for empty tracefiles to prevent division-by-zeros
+- Implemented new command line option --num-spaces / the number of spaces
+  which replace a tab in source code view is now user defined
+- Fixed tab expansion so that in source code view, a tab doesn't produce a
+  fixed number of spaces, but as many spaces as are needed to advance to the
+  next tab position
+- Output directory is now created if it doesn't exist
+- Renamed "overview page" to "directory view page"
+- HTML output pages are now titled "LCOV" instead of "GCOV"
+
+geninfo:
+- Fixed bug which would not allow .info files to be generated in directories
+  with names containing some special characters
+
+lcov:
+- Fixed bug which would cause lcov to fail when the tool is installed in
+  a path with a name containing some special characters
+- Implemented new command line option '--add-tracefile' which allows the
+  combination of data from several tracefiles
+- Implemented new command line option '--list' which lists the contents
+  of a tracefile
+- Implemented new command line option '--extract' which allows extracting
+  data for a particular set of files from a tracefile
+- Fixed name of gcov kernel module (new package contains gcov-prof.c)
+- Changed name of gcov kernel directory from /proc/gcov to a global constant
+  so that it may be changed easily when required in future versions
+
+
+Version 1.0 (2002-09-05):
+=========================
+
+- Initial version
+

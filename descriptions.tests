@@ -6,7 +6,7 @@ exit01
 	Check that exit returns the correct values to the waiting parent
 exit02  
 	Check that exit flushes output file buffers and closes files upon
-	exitting
+	exiting
 wait02
 	Basic test for wait(2) system call. 
 wait401  
@@ -22,7 +22,7 @@ waitpid02
 	Check that when a child kills itself by generating an integer zero
 	divide exception, the waiting parent is correctly notified.
 waitpid03  
-	Check that parent waits unitl specific child has returned.
+	Check that parent waits until specific child has returned.
 waitpid04  
 	test to check the error conditions in waitpid sys call
 waitpid05  
@@ -93,7 +93,7 @@ fcntl15
 
 fcntl16  
 
-	Additional file locking test cases for checking proper notifictaion
+	Additional file locking test cases for checking proper notification
 	of processes on lock change
 
 fcntl17  
@@ -189,7 +189,7 @@ sendfile02
 
 sendfile03  
 
-	Testcase to test that sendfile(2) system call returns appropriete
+	Testcase to test that sendfile(2) system call returns appropriate
 	errnos on error.
 
 fork01
@@ -217,7 +217,7 @@ fork09
 	Check that child has access to a full set of files.
 fork10  
 	Check inheritance of file descriptor by children, they
-	should all be refering to the same file.
+	should all be referring to the same file.
 fork11  
 	Test that parent gets a pid from each child when doing wait
 vfork01  
@@ -255,7 +255,7 @@ getitimer03
 	with an incorrect first argument.
 
 setitimer01
-	check that a resonable setitimer() call succeeds.
+	check that a reasonable setitimer() call succeeds.
 
 
 setitimer02
@@ -340,20 +340,20 @@ mmstress
 mmap1
 
 	Test the LINUX memory manager. The program is aimed at
-	stressing the memory manager by simultanious map/unmap/read
+	stressing the memory manager by simultaneous map/unmap/read
 	by light weight processes, the test is scheduled to run for
-	a mininum of 24 hours.
+	a minimum of 24 hours.
 
 mmap2
 
 	Test the LINUX memory manager. The program is aimed at
-	stressing the memory manager by repeaded map/write/unmap of a
+	stressing the memory manager by repeated map/write/unmap of a
 	of a large gb size file.
 
 mmap3
 
 	Test the LINUX memory manager. The program is aimed at
-	stressing the memory manager by repeaded map/write/unmap
+	stressing the memory manager by repeated map/write/unmap
 	of file/memory of random size (maximum 1GB) this is done by
 	multiple processes.
 
@@ -455,7 +455,7 @@ mremap03
 	Verify that, 
 	mremap() fails when used to expand the existing virtual memory mapped 
 	region to the requested size, if there already exists mappings that
-	cover the whole address space requsted or the old address specified was
+	cover the whole address space requested or the old address specified was
 	not mapped.
 
 mremap04  
@@ -660,13 +660,13 @@ symlink03
 
 symlink04  
 
-	Verify that, symlink will succeed to creat a symbolic link of an existing
+	Verify that, symlink will succeed to create a symbolic link of an existing
 	object name path.
 
 
 symlink05  
 
-	Verify that, symlink will succeed to creat a symbolic link of an
+	Verify that, symlink will succeed to create a symbolic link of an
 	non-existing object name path.
 
 
@@ -786,7 +786,7 @@ mkdir01
 mkdir02  
 
 	This test will verify that new directory created
-	by mkdir(2) inherites the group ID from the parent
+	by mkdir(2) inherits the group ID from the parent
 	directory and S_ISGID bit, if the S_ISGID bit is set
 	in the parent directory.
 
@@ -907,7 +907,7 @@ access04
 
 access05  
 
-	Verify that access() succeeds to check the existance of a file if
+	Verify that access() succeeds to check the existence of a file if
 	search access is permitted on the pathname of the specified file.
 
 access06
@@ -974,7 +974,7 @@ sem01
 sem02
 	The application creates several threads using pthread_create().
 	One thread performs a semop() with the SEM_UNDO flag set. The
-	change in sempaphore value performed by that semop should be
+	change in semaphore value performed by that semop should be
 	"undone" only when the last pthread exits.
 
 
@@ -1001,7 +1001,7 @@ semctl05
 
 semget01
 
-	test that semget() correclty creates a semaphore set
+	test that semget() correctly creates a semaphore set
 
 semget02 
 
@@ -1724,7 +1724,7 @@ pread01
 
 	Verify the functionality of pread() by writing known data using pwrite()
 	to the file at various specified offsets and later read from the file from
-	various specified offsets, comparing the data read aganist the data 
+	various specified offsets, comparing the data read against the data 
 	written.
 
 pread02  
@@ -1738,7 +1738,7 @@ pwrite01
 
 	Verify the functionality of pwrite() by writing known data using pwrite()
 	to the file at various specified offsets and later read from the file from
-	various specified offsets, comparing the data written aganist the data
+	various specified offsets, comparing the data written against the data
 	read using read().
 
 pwrite02  
@@ -1840,7 +1840,7 @@ disktest
 	the running environment which allows for a quick start of IO generation.
 	However, Disktest has  a  large  number  of command line options which can
 	be used to adapt the test for a variety of uses including data integrity,
-	medium integraty, performance, and  simple application simulation.
+	medium integrity, performance, and  simple application simulation.
 
 
 
@@ -1898,7 +1898,7 @@ time-schedule
 trace_sched
 	This utility spawns N tasks, each task sets its priority 
 	by making a system call to the scheduler. The thread 
-	fun ction reads the priority that tbe schedular sets for 
+	function reads the priority that the scheduler sets for 
 	this task and also reads from /proc the processor this 
 	task last executed on the information that is gathered 
 	by the thread function may be in real-time. Its only an 
@@ -2020,7 +2020,7 @@ sem01
 sem02
 	The application creates several threads using pthread_create().
 	One thread performs a semop() with the SEM_UNDO flag set. The
-	change in sempaphore value performed by that semop should be
+	change in semaphore value performed by that semop should be
 	"undone" only when the last pthread exits.
 
 
@@ -2047,7 +2047,7 @@ semctl05
 
 semget01
 
-	test that semget() correclty creates a semaphore set
+	test that semget() correctly creates a semaphore set
 
 semget02 
 
@@ -2139,7 +2139,7 @@ shmget05
 shmat1
 
 	Test the LINUX memory manager. The program is aimed at
-	stressing the memory manager by repeaded shmat/write/read/
+	stressing the memory manager by repeated shmat/write/read/
 	shmatd of file/memory of random size (maximum 1000 * 4096)
 	done by multiple processes.
 
@@ -2232,7 +2232,7 @@ kill03
 
 kill04  
 
-	Test case to check that kill() fails when passed a non-existant pid.
+	Test case to check that kill() fails when passed a non-existent pid.
 
 kill05  
 
@@ -2266,9 +2266,9 @@ mallocstress
 
 	This program is designed to stress the VMM by doing repeated  */
 	mallocs and frees, with out using the swap space. This is     */
-	achived by spawnning N threads with repeatedly malloc and free*/
+	achieved by spawning N threads with repeatedly malloc and free*/
 	a memory of size M. The stress can be increased by increasing */
-	the number of repetations over the default number using the   */
+	the number of repetitions over the default number using the   */
 	-l [num] option.
 
 clisrv
@@ -2660,7 +2660,7 @@ setregid01
 setregid02  
 
 	Test that setregid() fails and sets the proper errno values when a
-	non-root user attemps to change the real or effective group id to a 
+	non-root user attempts to change the real or effective group id to a 
 	value other than the current gid or the current effective gid. 
 
 setregid03  
@@ -2699,13 +2699,13 @@ setreuid02
 
 setreuid03  
 
-	Test setreuid() when executed by an unpriviledged user.
+	Test setreuid() when executed by an unprivileged user.
 
 
 setreuid04  
 
 	Test that root can change the real and effective uid to an
-	unpriviledged user.
+	unprivileged user.
 
 setreuid05  
 

@@ -17,7 +17,7 @@
 #   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 #
 #
-# genpng.pl
+# genpng
 #
 #   This script creates an overview PNG image of a source code file by
 #   representing each source code character by a single pixel.
@@ -35,8 +35,8 @@ use Getopt::Long;
 
 
 # Constants
-our $genpng_version	= "genpng version 1.0";
-our $url		= "http://ltp.sourceforge.net/lcov.php";
+our $lcov_version	= "LTP GCOV extension version 1.1";
+our $lcov_url		= "http://ltp.sourceforge.net/lcov.php";
 
 
 # Prototypes
@@ -95,7 +95,7 @@ if (!caller)
 	# Check for version flag
 	if ($version)
 	{
-		print("$genpng_version\n");
+		print("$lcov_version\n");
 		exit(0);
 	}
 
@@ -141,7 +141,7 @@ or .gcov file format.
   -w, --width WIDTH                 Set width of output image to WIDTH pixel
   -o, --output-filename FILENAME    Write image to FILENAME
 
-See $url for more information on this tool.
+See $lcov_url for more information about this tool.
 END_OF_USAGE
 	;
 }
