@@ -40,6 +40,7 @@
 #   2003-09-18 / Nigel Hinds: capture branch coverage data from GCOV
 #   2003-12-11 / Laurent Deniel: added --follow option
 #                workaround gcov (<= 3.2.x) bug with empty .da files
+#   2004-01-03 / Laurent Deniel: Ignore empty .bb files
 #
 
 use strict;
@@ -345,6 +346,13 @@ sub process_dafile($)
 	while (readlink($bb_filename))
 	{
 		$bb_filename = readlink($bb_filename);
+	}
+
+	# Ignore empty .bb file (e.g. source file with no statement)
+	if (-z $bb_filename)
+	{
+		warn("WARNING: empty $bb_filename (skipped)\n");
+		return;
 	}
 
 	# Read contents of .bb file into hash. We need it later to find out
