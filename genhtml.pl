@@ -502,6 +502,7 @@ sub process_dir($)
 
 	# Match filenames which specify files in this directory, not including
 	# sub-directories
+       $abs_dir =~ s/\+/\\\+/g; 
 	foreach $filename (grep(/^$abs_dir\/[^\/]*$/,keys(%info_data)))
 	{
 		($lines_found, $lines_hit, $testdata) =
