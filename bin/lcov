@@ -661,6 +661,8 @@ sub read_info_file($)
 	my $testname;			# Current test name
 	my $filename;			# Current filename
 	my $hitcount;			# Count for lines hit
+	my $count;			# Execution count of current line
+	my $negative;			# If set, warn about negative counts
 	local *INFO_HANDLE;		# Filehandle for .info file
 
 	# Check if file exists and is readable
@@ -738,16 +740,22 @@ sub read_info_file($)
 				last;
 			};
 
-			/^DA:(\d+),(\d+)/ && do
+			/^DA:(\d+),(-?\d+)/ && do
 			{
+				# Fix negative counts
+				$count = $2 < 0 ? 0 : $2;
+				if ($2 < 0)
+				{
+					$negative = 1;
+				}
 				# Execution count found, add to structure
 				# Add summary counts
-				$sumcount->{$1} += $2;
+				$sumcount->{$1} += $count;
 
 				# Add test-specific counts
 				if (defined($testname))
 				{
-					$testcount->{$1} += $2;
+					$testcount->{$1} += $count;
 				}
 				last;
 			};
@@ -806,6 +814,11 @@ sub read_info_file($)
 	if (scalar(keys(%result)) == 0)
 	{
 		die("ERROR: No valid records found in tracefile $tracefile\n");
+	}
+	if ($negative)
+	{
+		warn("WARNING: Negative counts found in tracefile ".
+		     "$tracefile\n");
 	}
 
 	return(\%result);
