@@ -51,6 +51,9 @@
 #   2003-07-03 / Peter Oberparleiter: added line checksum support, added
 #                --no-checksum
 #   2003-12-11 / Laurent Deniel: added --follow option
+#   2004-03-29 / Peter Oberparleiter: modified --diff option to better cope with
+#                ambiguous patch file entries, modified --capture option to use
+#                modprobe before insmod (needed for 2.6)
 #
 
 use strict;
@@ -70,6 +73,9 @@ our $gcov_dir = "/proc/gcov";
 
 # The location of the insmod tool
 our $insmod_tool	= "/sbin/insmod";
+
+# The location of the modprobe tool
+our $modprobe_tool	= "/sbin/modprobe";
 
 # The location of the rmmod tool
 our $rmmod_tool		= "/sbin/rmmod";
@@ -603,13 +609,20 @@ sub check_and_load_kernel_module()
 		die("ERROR: need insmod tool to access kernel coverage ".
 		    "data!\n");
 	}
+	# Do we have access to the modprobe tool?
+	stat($modprobe_tool);
+	if (!-x _)
+	{
+		die("ERROR: need modprobe tool to access kernel coverage ".
+		    "data!\n");
+	}
 
 	# Try some possibilities of where the gcov kernel module may be found
 	foreach $module_name (@gcovmod)
 	{
 		# Try to load module from system wide module directory
 		# /lib/modules
-		if (system_no_output(3, $insmod_tool, $module_name) == 0)
+		if (system_no_output(3, $modprobe_tool, $module_name) == 0)
 		{
 			# Succeeded
 			$need_unload = $module_name;
@@ -1847,6 +1860,8 @@ sub get_line_hash($$$)
 	my $new_path;
 	my $diff_name;
 	my $common;
+	my $old_depth;
+	my $new_depth;
 
 	foreach (keys(%{$diff_data}))
 	{
@@ -1855,10 +1870,25 @@ sub get_line_hash($$$)
 		{
 			if ($diff_name)
 			{
-				die("ERROR: diff file contains ambiguous ".
-				    "entries for $filename\n");
+				# Two files match, choose the more specific one
+				# (the one with more path components)
+				$old_depth = ($diff_name =~ tr/\///);
+				$new_depth = (tr/\///);
+				if ($old_depth == $new_depth)
+				{
+					die("ERROR: diff file contains ".
+					    "ambiguous entries for ".
+					    "$filename\n");
+				}
+				elsif ($new_depth > $old_depth)
+				{
+					$diff_name = $_;
+				}
 			}
-			$diff_name = $_;
+			else
+			{
+				$diff_name = $_;
+			}
 		};
 	}
 	if ($diff_name)

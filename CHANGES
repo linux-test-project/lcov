@@ -1,3 +1,14 @@
+Version 1.3:
+============
+
+All:
+- Added compatibility for gcc-3.4
+
+lcov:
+- Modified --diff function to better cope with ambiguous entries in patch files
+- Modified --capture option to use modprobe before insmod (needed for 2.6)
+
+
 Version 1.2:
 ============
 
