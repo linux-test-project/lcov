@@ -32,6 +32,7 @@ rm -rf $RPM_BUILD_ROOT
 %files
 %defattr(-,root,root)
 /usr
+/etc
 
 %changelog
 * Mon Jul 14 2003 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.con)
