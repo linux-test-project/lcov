@@ -31,7 +31,8 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root)
-/usr
+/usr/bin
+/usr/share
 /etc
 
 %changelog
