@@ -49,7 +49,8 @@ output: example descriptions test_noargs test_2_to_2000 test_overflow
 	@echo
 	$(GENHTML) trace_noargs.info trace_args.info trace_overflow.info \
 		   --output-directory output --title "Basic example" \
-		   --show-details --description-file descriptions $(FRAMES)
+		   --show-details --description-file descriptions $(FRAMES) \
+		   --legend
 	@echo
 	@echo '*'
 	@echo '* See '`pwd`/output/index.html

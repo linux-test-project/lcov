@@ -36,6 +36,7 @@ genhtml - Generate HTML view from LCOV coverage data files
 .IR num ]
 .RB [ \-\-highlight ]
 .br
+.RB [ \-\-legend ]
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -290,6 +291,18 @@ converted from previous source code versions.
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_highlight .
+
+.RE
+.B \-\-legend
+.RS
+Include color legend in HTML output.
+
+Use this option to include a legend explaining the meaning of color coding
+in the resulting HTML output.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_legend .
 
 .SH FILES
 

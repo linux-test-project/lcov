@@ -50,6 +50,10 @@ genhtml_num_spaces = 8
 # option of genhtml)
 genhtml_highlight = 0
 
+# Include color legend in HTML output if non-zero (same as --legend option of
+# genhtml)
+genhtml_legend = 0
+
 # Location of the gcov tool (used by geninfo)
 #geninfo_gcov_tool = gcov
 

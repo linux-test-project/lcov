@@ -48,6 +48,8 @@
 #   2003-04-30 / Peter Oberparleiter: made info write to STDERR, not STDOUT
 #   2003-07-10 / Peter Oberparleiter: added line checksum support
 #   2004-08-09 / Peter Oberparleiter: added configuration file support
+#   2005-03-04 / Cal Pierog: added legend to HTML output, fixed coloring of
+#                "good coverage" background
 #
 
 use strict;
@@ -118,6 +120,9 @@ sub apply_config($);
 # HTML related prototypes
 sub escape_html($);
 sub get_bar_graph_code($$$);
+sub classify_coverage_rate($);
+sub get_png_for_coverage_rate($);
+sub coverage_rate_helper($);
 
 sub write_png_files();
 sub write_css_file();
@@ -131,6 +136,7 @@ sub write_header(*$$$$$);
 sub write_header_prolog(*$);
 sub write_header_line(*$$;$$);
 sub write_header_epilog(*$);
+sub write_header_legend(*$);
 
 sub write_file_table(*$$$$);
 sub write_file_table_prolog(*$$);
@@ -177,6 +183,7 @@ our $frames;		# If set, use frames for source code view
 our $keep_descriptions;	# If set, do not remove unused test case descriptions
 our $no_sourceview;	# If set, do not create a source code view for each file
 our $highlight;		# If set, highlight lines covered by converted data only
+our $legend;		# If set, include legend in output
 our $tab_size = 8;	# Number of spaces to use in place of tab
 our $config;		# Configuration file contents
 
@@ -219,7 +226,8 @@ if ($config)
 		"genhtml_no_prefix"		=> \$no_prefix,
 		"genhtml_no_source"		=> \$no_sourceview,
 		"genhtml_num_spaces"		=> \$tab_size,
-		"genhtml_highlight"		=> \$highlight});
+		"genhtml_highlight"		=> \$highlight,
+		"genhtml_legend"		=> \$legend});
 }
 
 # Parse command line options
@@ -236,6 +244,7 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"show-details"		=> \$show_details,
 		"frames"		=> \$frames,
 		"highlight"		=> \$highlight,
+		"legend"		=> \$legend,
 		"quiet"			=> \$quiet,
 		"help|h"		=> \$help,
 		"version"		=> \$version
@@ -369,6 +378,7 @@ may also be a list of filenames.
       --no-source                   Do not create source code view
       --num-spaces NUM              Replace tabs with NUM spaces in source view
       --highlight                   Highlight lines with converted-only data
+      --legend                      Include color legend in HTML output
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -1556,6 +1566,30 @@ sub write_css_file()
 	}
 
 
+	/* All views: header legend item format */
+	td.legendItem
+	{
+	  text-align:      right;
+	  padding-right:   6px;
+	  padding-top:     10px;
+	  padding-bottom:  2px;
+	  font-family:     sans-serif;
+	  font-weight:     bold;
+	}
+
+
+	/* All views: header legend item value format */
+	td.legendValue
+	{
+	  text-align:      left;
+	  padding-top:     10px;
+	  padding-bottom:  2px;
+	  color:           #000000;
+	  font-family:     sans-serif;
+	  font-weight:     bold;
+	}
+
+
 	/* All views: color of horizontal ruler */
 	td.ruler
 	{
@@ -1621,7 +1655,7 @@ sub write_css_file()
 	  text-align:       right;
 	  padding-left:     10px;
 	  padding-right:    10px;
-	  background-color: #DAE7FE;
+	  background-color: #A7FC9D;
 	  font-weight:      bold;
 	}
 
@@ -1633,7 +1667,18 @@ sub write_css_file()
 	  text-align:       right;
 	  padding-left:     10px;
 	  padding-right:    10px;
-	  background-color: #DAE7FE;
+	  background-color: #A7FC9D;
+	}
+
+
+	/* Directory view/File view (all): legend entry for high coverage
+	   rate */
+	span.coverLegendHi
+	{
+	  text-align:       center;
+	  padding-left:     10px;
+	  padding-right:    10px;
+	  background-color: #A7FC9D;
 	}
 
 
@@ -1660,6 +1705,20 @@ sub write_css_file()
 	}
 
 
+	/* Directory view/File view (all): legend entry for medium coverage
+	   rate */
+	span.coverLegendMed
+	{
+	  text-align:       center;
+	  padding-left:     10px;
+	  padding-right:    10px;
+	  margin-top:       5px;
+	  margin-bottom:    5px;
+	  margin-right:     2px;
+	  background-color: #FFEA20;
+	}
+
+
 	/* Directory view/File view (all): percentage entry for files with
 	   low coverage rate */
 	td.coverPerLo
@@ -1679,6 +1738,18 @@ sub write_css_file()
 	  text-align:       right;
 	  padding-left:     10px;
 	  padding-right:    10px;
+	  background-color: #FF0000;
+	}
+
+
+	/* Directory view/File view (all): legend entry for low coverage
+	   rate */
+	span.coverLegendLo
+	{
+	  text-align:       center;
+	  padding-left:     10px;
+	  padding-right:    10px;
+	  margin-right:     2px;
 	  background-color: #FF0000;
 	}
 
@@ -1794,9 +1865,31 @@ sub write_css_file()
 	}
 
 
+	/* Source code view: format for Cov legend */
+	span.LegendCov
+	{
+	  text-align:       center;
+	  padding-left:     10px;
+	  padding-right:    10px;
+	  margin-right:     2px;
+	  background-color: #CAD7FE;
+	}
+
+
 	/* Source code view: format for lines which were not executed */
 	span.lineNoCov
 	{
+	  background-color: #FF6230;
+	}
+
+
+	/* Source code view: format for NoCov legend */
+	span.LegendNoCov
+	{
+	  text-align:       center;
+	  padding-left:     10px;
+	  padding-right:    10px;
+	  margin-right:     2px;
 	  background-color: #FF6230;
 	}
 
@@ -1805,6 +1898,16 @@ sub write_css_file()
 	   previous version */
 	span.lineDiffCov
 	{
+	  background-color: #B5F7AF;
+	}
+
+
+	/* Source code view: format for DiffCov legend */
+	span.LegendDiffCov
+	{
+	  text-align:       center;
+	  padding-left:     10px;
+	  padding-right:    10px;
 	  background-color: #B5F7AF;
 	}
 END_OF_CSS
@@ -1847,9 +1950,7 @@ sub get_bar_graph_code($$$)
 	$remainder	= sprintf("%d", 100-$width);
 
 	# Decide which .png file to use
-	if ($rate < $med_limit)		{ $png_name = "ruby.png"; }
-	elsif ($rate < $hi_limit)	{ $png_name = "amber.png"; }
-	else				{ $png_name = "emerald.png"; }
+	$png_name = get_png_for_coverage_rate($rate);
 
 	if ($width == 0)
 	{
@@ -1883,6 +1984,41 @@ END_OF_HTML
 	return($graph_code);
 }
 
+
+#
+# classify_coverage_rate(coverage_rate)
+#
+# Return the clasification ("Lo"|"Med"|"Hi") of a given coverage rate
+#
+sub classify_coverage_rate($)
+{
+	my @pair = coverage_rate_helper($_[0]);
+	return $pair[0];
+}
+
+#
+# get_png_for_coverage_rate(coverage_rate)
+#
+# Return the name of the png corresponding to the given coverage rate
+#
+sub get_png_for_coverage_rate($)
+{
+	my @pair = coverage_rate_helper($_[0]);
+	return $pair[1];
+}
+
+#
+# coverage_rate_helper(coverage_rate)
+#
+# Does the work for "classify_coverage_rate" and "get_png_for_coverage_rate".
+#
+sub coverage_rate_helper($)
+{
+	my $rate = $_[0];
+	if ($rate < $med_limit)		{ return(("Lo","ruby.png")); }
+	elsif ($rate < $hi_limit)	{ return(("Med","amber.png")); }
+	else				{ return(("Hi","emerald.png")); }
+}
 
 #
 # write_html(filehandle, html_code)
@@ -2041,6 +2177,82 @@ END_OF_HTML
 
 
 #
+# write_header_legend(filehandle, type)
+#
+# Write a legend describing the coloring of the code coverage.
+#
+
+sub write_header_legend(*$)
+{
+	my $type = $_[1]; # type of page being generated
+	my $legend_body;
+
+	# main summary or subdirectory summary
+	if ($type == 0 or $type == 1) 
+	{ 
+		$legend_body = (<<END_OF_HTML)
+            <span class="coverLegendLo">
+              <b>Low:</b> 0% to $med_limit%
+            </span>
+            <span class="coverLegendMed">
+              <b>Medium:</b> $med_limit% to $hi_limit%
+            </span>
+            <span class="coverLegendHi">
+              <b>High:</b> $hi_limit% to 100%
+            </span>
+END_OF_HTML
+        ;
+	}
+
+	# source code
+	elsif ($type == 2)
+	{
+		my $legend_highlight;
+
+		$legend_highlight = "";
+		if ($highlight)
+		{
+			$legend_highlight = (<<END_OF_HTML)
+            <span class="legendDiffCov">
+              converted-only
+            </span>
+END_OF_HTML
+	;
+		}
+		$legend_body = (<<END_OF_HTML)
+            <span class="legendNoCov">
+              not executed
+            </span>
+            <span class="legendCov">
+              executed
+            </span>
+$legend_highlight
+END_OF_HTML
+        ;
+	}
+
+	# description file  ($type == 3)
+	else { return(); }
+
+
+ 	# *************************************************************
+
+ 	write_html($_[0], <<END_OF_HTML)
+	        <tr>
+	          <td class="legendItem" width="20%">Legend:</td>
+	          <td class="legendValue" width="80%" colspan=4>
+$legend_body
+		  </td>
+	        </tr>
+END_OF_HTML
+ 	;
+	return();
+
+	# *************************************************************
+}
+
+
+#
 # write_file_table_prolog(filehandle, left_heading, right_heading)
 #
 # Write heading for file table.
@@ -2090,10 +2302,8 @@ sub write_file_table_entry(*$$$$)
 	{
 		$rate = $_[4] * 100 / $_[3];
 		$rate_string = sprintf("%.1f", $rate)."&nbsp;%";
-
-		if ($rate < $med_limit)		{ $classification = "Lo"; }
-		elsif ($rate < $hi_limit)	{ $classification = "Med"; }
-		else				{ $classification = "Hi"; }
+		
+		$classification = classify_coverage_rate($rate);
 	}
 	else
 	{
@@ -2674,6 +2884,10 @@ sub write_header(*$$$$$)
 			  "Instrumented&nbsp;lines", $lines_found);
 	write_header_line(*HTML_HANDLE, "Code&nbsp;covered", $rate,
 			  "Executed&nbsp;lines", $lines_hit);
+	if ($legend)
+	{
+		write_header_legend(*HTML_HANDLE, $type);
+	}
 	write_header_epilog(*HTML_HANDLE, $base_dir);
 }
 
