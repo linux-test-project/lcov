@@ -83,7 +83,7 @@ directory or the same directory as the PERL scripts. As root, do the following:
 
   a) Resetting counters
 
-     lcov --reset
+     lcov --zerocounters
 
   b) Capturing the current coverage state to a file
 
@@ -104,7 +104,7 @@ Requirements: compile the program in question using GCC with the options
 
   a) Resetting counters
 
-     lcov --directory appdir --reset
+     lcov --directory appdir --zerocounters
 
   b) Capturing the current coverage state to a file (works only after the
      application has been started and stopped at least once)
