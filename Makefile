@@ -21,7 +21,7 @@ TMP_DIR := /tmp/lcov-tmp.$(shell echo $$$$)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README CHANGES Makefile \
 	   $(wildcard rpm/*)
 
-.PHONY: all info clean install uninstall
+.PHONY: all info clean install uninstall rpms
 
 all: info
 
@@ -30,7 +30,7 @@ info:
 
 clean:
 	rm -f lcov-*.tar.gz
-	rm -f lcov-*.noarch.rpm
+	rm -f lcov-*.rpm
 	make -C example clean
 
 install:
@@ -57,27 +57,36 @@ uninstall:
 	bin/install.sh --uninstall man/genpng.1 $(MAN_DIR)/genpng.1
 	bin/install.sh --uninstall man/gendesc.1 $(MAN_DIR)/gendesc.1
 
-dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm
+dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
+      lcov-$(VERSION)-$(RELEASE).src.rpm
 
 lcov-$(VERSION).tar.gz: $(FILES)
 	mkdir $(TMP_DIR)
 	mkdir $(TMP_DIR)/lcov-$(VERSION)
 	cp -r * $(TMP_DIR)/lcov-$(VERSION)
 	make -C $(TMP_DIR)/lcov-$(VERSION) clean
-	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(DATE)
+	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(DATE) \
+			     $(RELEASE)
 	cd $(TMP_DIR) ; \
 	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION)
 	mv $(TMP_DIR)/lcov-$(VERSION).tar.gz .
 	rm -rf $(TMP_DIR)
 
-lcov-$(VERSION)-$(RELEASE).noarch.rpm: lcov-$(VERSION).tar.gz
+lcov-$(VERSION)-$(RELEASE).noarch.rpm: rpms
+lcov-$(VERSION)-$(RELEASE).src.rpm: rpms
+
+rpms: lcov-$(VERSION).tar.gz
 	mkdir $(TMP_DIR)
 	mkdir $(TMP_DIR)/BUILD
 	mkdir $(TMP_DIR)/RPMS
 	mkdir $(TMP_DIR)/SOURCES
+	mkdir $(TMP_DIR)/SRPMS
 	cp lcov-$(VERSION).tar.gz $(TMP_DIR)/SOURCES
+	cd $(TMP_DIR)/BUILD ; \
+	tar xfz $(TMP_DIR)/SOURCES/lcov-$(VERSION).tar.gz \
+		lcov-$(VERSION)/rpm/lcov.spec
 	rpmbuild --define '_topdir $(TMP_DIR)' \
-		 --define 'LCOV_VERSION $(VERSION)' \
-		 --define 'LCOV_RELEASE $(RELEASE)' -bb rpm/lcov.spec
+		 -ba $(TMP_DIR)/BUILD/lcov-$(VERSION)/rpm/lcov.spec
 	mv $(TMP_DIR)/RPMS/noarch/lcov-$(VERSION)-$(RELEASE).noarch.rpm .
+	mv $(TMP_DIR)/SRPMS/lcov-$(VERSION)-$(RELEASE).src.rpm .
 	rm -rf $(TMP_DIR)

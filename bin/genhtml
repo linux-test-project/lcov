@@ -10,7 +10,7 @@
 #   This program is distributed in the hope that it will be useful, but
 #   WITHOUT ANY WARRANTY;  without even the implied warranty of
 #   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-#   General Public License for more details.                 
+#   General Public License for more details. 
 #
 #   You should have received a copy of the GNU General Public License
 #   along with this program;  if not, write to the Free Software
@@ -46,11 +46,13 @@
 #   2003-04-10 / Peter Oberparleiter: extended fix by Mike to also cover
 #                other special characters
 #   2003-04-30 / Peter Oberparleiter: made info write to STDERR, not STDOUT
+#   2003-07-10 / Peter Oberparleiter: added line checksum support
 #
 
 use strict;
 use File::Basename; 
 use Getopt::Long;
+use Digest::MD5 qw(md5_base64);
 
 
 # Global constants
@@ -88,7 +90,7 @@ sub process_file($$$);
 sub info(@);
 sub read_info_file($);
 sub get_info_entry($);
-sub set_info_entry($$$$;$$);
+sub set_info_entry($$$$$;$$);
 sub get_prefix(@);
 sub shorten_prefix($);
 sub get_dir_list(@);
@@ -104,9 +106,11 @@ sub remove_unused_descriptions();
 sub get_found_and_hit($);
 sub get_affecting_tests($);
 sub combine_info_files($$);
-sub combine_info_entries($$);
+sub merge_checksums($$$);
+sub combine_info_entries($$$);
 sub apply_prefix($$);
 sub escape_regexp($);
+sub system_no_output($@);
 
 
 # HTML related prototypes
@@ -137,9 +141,9 @@ sub write_test_table_prolog(*$);
 sub write_test_table_entry(*$$);
 sub write_test_table_epilog(*);
 
-sub write_source($$$);
+sub write_source($$$$$);
 sub write_source_prolog(*);
-sub write_source_line(*$$$);
+sub write_source_line(*$$$$);
 sub write_source_epilog(*);
 
 sub write_frameset(*$$$);
@@ -170,6 +174,7 @@ our $no_prefix;		# If set, do not remove filename prefix
 our $frames;		# If set, use frames for source code view
 our $keep_descriptions;	# If set, do not remove unused test case descriptions
 our $no_sourceview;	# If set, do not create a source code view for each file
+our $highlight;		# If set, highlight lines covered by converted data only
 our $tab_size = 8;	# Number of spaces to use in place of tab
 
 our $cwd = `pwd`;	# Current working directory
@@ -200,8 +205,9 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"no-sourceview"		=> \$no_sourceview,
 		"show-details"		=> \$show_details,
 		"frames"		=> \$frames,
+		"highlight"		=> \$highlight,
 		"quiet"			=> \$quiet,
-		"help"			=> \$help,
+		"help|h"		=> \$help,
 		"version"		=> \$version
 		))
 {
@@ -287,7 +293,7 @@ if ($output_directory)
 
 	if (! -e _)
 	{
-		system("mkdir -p $output_directory")
+		system("mkdir", "-p", $output_directory)
 			and die("ERROR: cannot create directory $_!\n");
 	}
 }
@@ -332,6 +338,7 @@ may also be a list of filenames.
       --no-prefix                   Do not remove prefix from directory names
       --no-source                   Do not create source code view
       --num-spaces NUM              Replace tabs with NUM spaces in source view
+      --highlight                   Highlight lines with converted-only data
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -531,7 +538,7 @@ sub process_dir($)
 	if (!$no_prefix)
 	{
 		# Match directory name beginning with $dir_prefix
-	        $rel_dir = apply_prefix($rel_dir, $dir_prefix);
+		$rel_dir = apply_prefix($rel_dir, $dir_prefix);
 	}
 
 	$trunc_dir = $rel_dir;
@@ -604,15 +611,74 @@ sub process_dir($)
 			       "index-detail.html for writing!\n");
 		write_html_prolog(*HTML_HANDLE, $base_dir,
 				  "LCOV - $test_title - $trunc_dir");
-		write_header(*HTML_HANDLE, 1, $trunc_dir, $rel_dir, $overall_found,
+		write_header(*HTML_HANDLE, 1, $trunc_dir, $rel_dir,
+			     $overall_found,
 			     $overall_hit);
-		write_file_table(*HTML_HANDLE, $base_dir, \%overview, \%testhash, 1);
+		write_file_table(*HTML_HANDLE, $base_dir, \%overview,
+				 \%testhash, 1);
 		write_html_epilog(*HTML_HANDLE, $base_dir);
 		close(*HTML_HANDLE);
 	}
 
 	# Calculate resulting line counts
 	return ($overall_found, $overall_hit);
+}
+
+
+#
+# get_converted_lines(testdata)
+#
+# Return hash of line numbers of those lines which were only covered in
+# converted data sets.
+#
+
+sub get_converted_lines($)
+{
+	my $testdata = $_[0];
+	my $testcount;
+	my %converted;
+	my %nonconverted;
+	my $hash;
+	my $testcase;
+	my $line;
+	my %result;
+
+
+	# Get a hash containing line numbers with positive counts both for
+	# converted and original data sets
+	foreach $testcase (keys(%{$testdata}))
+	{
+		# Check to see if this is a converted data set
+		if ($testcase =~ /,diff$/)
+		{
+			$hash = \%converted;
+		}
+		else
+		{
+			$hash = \%nonconverted;
+		}
+
+		$testcount = $testdata->{$testcase};
+		# Add lines with a positive count to hash
+		foreach $line (keys%{$testcount})
+		{
+			if ($testcount->{$line} > 0)
+			{
+				$hash->{$line} = 1;
+			}
+		}
+	}
+
+	# Combine both hashes to resulting list
+	foreach $line (keys(%converted))
+	{
+		if (!defined($nonconverted{$line}))
+		{
+			$result{$line} = 1;
+		}
+	}
+
+	return \%result;
 }
 
 
@@ -633,14 +699,16 @@ sub process_file($$$)
 	my $testcount;
 	my $sumcount;
 	my $funcdata;
+	my $checkdata;
 	my $lines_found;
 	my $lines_hit;
+	my $converted;
 	my @source;
 	my $pagetitle;
 	local *HTML_HANDLE;
 
-	($testdata, $sumcount, $funcdata, $lines_found, $lines_hit) =
-		get_info_entry($info_data{$filename});
+	($testdata, $sumcount, $funcdata, $checkdata, $lines_found,
+		$lines_hit) = get_info_entry($info_data{$filename});
 
 	# Return after this point in case user asked us not to generate
 	# source code view
@@ -649,6 +717,7 @@ sub process_file($$$)
 		return ($lines_found, $lines_hit, $testdata);
 	}
 
+	$converted = get_converted_lines($testdata);
 	# Generate source code view for this file
 	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.html")
 		or die("ERROR: cannot open $rel_dir/$base_name.gcov.html ".
@@ -657,7 +726,8 @@ sub process_file($$$)
 	write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
 	write_header(*HTML_HANDLE, 2, "$trunc_dir/$base_name",
 		     "$rel_dir/$base_name", $lines_found, $lines_hit);
-	@source = write_source(*HTML_HANDLE, $filename, $sumcount);
+	@source = write_source(*HTML_HANDLE, $filename, $sumcount, $checkdata,
+			       $converted);
 
 	write_html_epilog(*HTML_HANDLE, $base_dir, 1);
 	close(*HTML_HANDLE);
@@ -669,7 +739,7 @@ sub process_file($$$)
 	}
 
 	# Create overview png file
-	gen_png("$rel_dir/$base_name.gcov.png", $overview_width, " "x$tab_size,
+	gen_png("$rel_dir/$base_name.gcov.png", $overview_width, $tab_size,
 		@source);
 
 	# Create frameset page
@@ -706,12 +776,14 @@ sub process_file($$$)
 #        "func"  -> \%funcdata
 #        "found" -> $lines_found (number of instrumented lines found in file)
 #	 "hit"   -> $lines_hit (number of executed lines in file)
+#        "check" -> \%checkdata
 #
 # %testdata: name of test affecting this file -> \%testcount
 #
 # %testcount: line number -> execution count for a single test
 # %sumcount : line number -> execution count for all tests
 # %funcdata : line number -> name of function beginning at that line
+# %checkdata: line number -> checksum of source code line
 # 
 # Note that .info file sections referring to the same file and test name
 # will automatically be combined by adding all execution counts.
@@ -720,7 +792,7 @@ sub process_file($$$)
 # is compressed using GZIP. If available, GUNZIP will be used to decompress
 # this file.
 #
-# Die on error
+# Die on error.
 #
 
 sub read_info_file($)
@@ -732,12 +804,14 @@ sub read_info_file($)
 	my $testcount;			#       "             "
 	my $sumcount;			#       "             "
 	my $funcdata;			#       "             "
+	my $checkdata;			#       "             "
 	my $line;			# Current line read from .info file
 	my $testname;			# Current test name
 	my $filename;			# Current filename
 	my $hitcount;			# Count for lines hit
 	my $count;			# Execution count of current line
 	my $negative;			# If set, warn about negative counts
+	my $checksum;			# Checksum of current line
 	local *INFO_HANDLE;		# Filehandle for .info file
 
 	# Check if file exists and is readable
@@ -754,14 +828,14 @@ sub read_info_file($)
 	}
 
 	# Check for .gz extension
-	if ($_[0] =~ /^(.*)\.gz$/)
+	if ($_[0] =~ /\.gz$/)
 	{
 		# Check for availability of GZIP tool
-		system("gunzip -h >/dev/null 2>/dev/null")
+		system_no_output(1, "gunzip", "-h")
 			and die("ERROR: gunzip command not available!\n");
 
 		# Check integrity of compressed file
-		system("gunzip -t $_[0] >/dev/null 2>/dev/null")
+		system_no_output(1, "gunzip", "-t", $_[0])
 			and die("ERROR: integrity check failed for ".
 				"compressed file $_[0]!\n");
 
@@ -786,10 +860,10 @@ sub read_info_file($)
 		# Switch statement
 		foreach ($line)
 		{
-			/^TN:(\w+)/ && do
+			/^TN:(\w*(,\w+)?)/ && do
 			{
 				# Test name information found
-				$testname = $1;
+				$testname = defined($1) ? $1 : "";
 				last;
 			};
 
@@ -800,7 +874,7 @@ sub read_info_file($)
 				$filename = $1;
 
 				$data = $result{$filename};
-				($testdata, $sumcount, $funcdata) =
+				($testdata, $sumcount, $funcdata, $checkdata) =
 					get_info_entry($data);
 
 				if (defined($testname))
@@ -815,7 +889,7 @@ sub read_info_file($)
 				last;
 			};
 
-			/^DA:(\d+),(-?\d+)/ && do
+			/^DA:(\d+),(-?\d+)(,[^,\s]+)?/ && do
 			{
 				# Fix negative counts
 				$count = $2 < 0 ? 0 : $2;
@@ -831,6 +905,22 @@ sub read_info_file($)
 				if (defined($testname))
 				{
 					$testcount->{$1} += $count;
+				}
+
+				# Store line checksum if available
+				if (defined($3))
+				{
+					$checksum = substr($3, 1);
+
+					# Does it match a previous definition
+					if (defined($checkdata->{$1}) &&
+					    ($checkdata->{$1} ne $checksum))
+					{
+						die("ERROR: checksum mismatch ".
+						    "at $filename:$1\n");
+					}
+
+					$checkdata->{$1} = $checksum;
 				}
 				last;
 			};
@@ -854,7 +944,8 @@ sub read_info_file($)
 							$testcount;
 					}
 					set_info_entry($data, $testdata,
-						       $sumcount, $funcdata);
+						       $sumcount, $funcdata,
+						       $checkdata);
 					$result{$filename} = $data;
 				}
 
@@ -878,7 +969,7 @@ sub read_info_file($)
 
 		foreach (keys(%{$sumcount}))
 		{
-			if ($sumcount->{$_} >0) { $hitcount++; }
+			if ($sumcount->{$_} > 0) { $hitcount++; }
 		}
 
 		$data->{"hit"} = $hitcount;
@@ -888,11 +979,11 @@ sub read_info_file($)
 
 	if (scalar(keys(%result)) == 0)
 	{
-		die("ERROR: No valid records found in tracefile $tracefile\n");
+		die("ERROR: no valid records found in tracefile $tracefile\n");
 	}
 	if ($negative)
 	{
-		warn("WARNING: Negative counts found in tracefile ".
+		warn("WARNING: negative counts found in tracefile ".
 		     "$tracefile\n");
 	}
 
@@ -905,8 +996,8 @@ sub read_info_file($)
 #
 # Retrieve data from an entry of the structure generated by read_info_file().
 # Return a list of references to hashes:
-# (test data hash ref, sum count hash ref, funcdata hash ref, lines found,
-#  lines hit)
+# (test data hash ref, sum count hash ref, funcdata hash ref, checkdata hash
+#  ref, lines found, lines hit)
 #
 
 sub get_info_entry($)
@@ -914,31 +1005,33 @@ sub get_info_entry($)
 	my $testdata_ref = $_[0]->{"test"};
 	my $sumcount_ref = $_[0]->{"sum"};
 	my $funcdata_ref = $_[0]->{"func"};
-	my $lines_found  = $_[0]->{"found"};
-	my $lines_hit    = $_[0]->{"hit"};
+	my $checkdata_ref = $_[0]->{"check"};
+	my $lines_found = $_[0]->{"found"};
+	my $lines_hit = $_[0]->{"hit"};
 
-	return ($testdata_ref, $sumcount_ref, $funcdata_ref, $lines_found,
-	        $lines_hit);
+	return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
+		$lines_found, $lines_hit);
 }
 
 
 #
-# set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref[,
-#                lines_found, lines_hit])
+# set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref,
+#                checkdata_ref[,lines_found, lines_hit])
 #
 # Update the hash referenced by HASH_REF with the provided data references.
 #
 
-sub set_info_entry($$$$;$$)
+sub set_info_entry($$$$$;$$)
 {
 	my $data_ref = $_[0];
 
 	$data_ref->{"test"} = $_[1];
 	$data_ref->{"sum"} = $_[2];
 	$data_ref->{"func"} = $_[3];
+	$data_ref->{"check"} = $_[4];
 
-	if (defined($_[4])) { $data_ref->{"found"} = $_[4]; }
-	if (defined($_[5])) { $data_ref->{"hit"} = $_[5]; }
+	if (defined($_[5])) { $data_ref->{"found"} = $_[5]; }
+	if (defined($_[6])) { $data_ref->{"hit"} = $_[6]; }
 }
 
 
@@ -1188,7 +1281,7 @@ sub get_date_string()
 
 sub create_sub_dir($)
 {
-	system("mkdir -p $_[0]")
+	system("mkdir", "-p" ,$_[0])
 		and die("ERROR: cannot create directory $_!\n");
 }
 
@@ -1358,8 +1451,8 @@ sub write_css_file()
 	if ($css_filename)
 	{
 		# Simply copy that file
-		system("cp $css_filename gcov.css 2>/dev/null")
-			and die("ERROR: Cannot copy file $css_filename!\n");
+		system("cp", $css_filename, "gcov.css")
+			and die("ERROR: cannot copy file $css_filename!\n");
 		return;
 	}
 
@@ -1676,6 +1769,14 @@ sub write_css_file()
 	span.lineNoCov
 	{
 	  background-color: #FF6230;
+	}
+
+
+	/* Source code view: format for lines which were executed only in a
+	   previous version */
+	span.lineDiffCov
+	{
+	  background-color: #B5F7AF;
 	}
 END_OF_CSS
 	;
@@ -2032,6 +2133,11 @@ sub write_file_table_detail_entry(*$$$)
 		$rate = "undefined";
 	}
 
+	if ($name =~ /^(.*),diff$/)
+	{
+		$name = $1." (converted)";
+	}
+
 	if ($name eq "")
 	{
 		$name = "<span style=\"font-style:italic\">&lt;unnamed&gt;</span>";
@@ -2177,13 +2283,13 @@ END_OF_HTML
 
 
 #
-# write_source_line(filehandle, line_num, source, hit_count)
+# write_source_line(filehandle, line_num, source, hit_count, converted)
 #
 # Write formatted source code line. Return a line in a format as needed
 # by gen_png()
 #
 
-sub write_source_line(*$$$)
+sub write_source_line(*$$$$)
 {
 	my $source_format;
 	my $count;
@@ -2201,6 +2307,12 @@ sub write_source_line(*$$$)
 	{
 		$result		= $_[3];
 		$source_format	= '<span class="lineNoCov">';
+		$count		= sprintf("%15d", $_[3]);
+	}
+	elsif ($_[4] && defined($highlight))
+	{
+		$result		= "*".$_[3];
+		$source_format	= '<span class="lineDiffCov">';
 		$count		= sprintf("%15d", $_[3]);
 	}
 	else
@@ -2468,8 +2580,8 @@ sub write_header(*$$$$$)
 	{
 		# Directory overview
 		$base_dir = get_relative_base_path($rel_filename);
-		$view = "<a href=\"$base_dir"."index.html\">$overview_title</a> - ".
-			"$trunc_name";
+		$view = "<a href=\"$base_dir"."index.html\">".
+			"$overview_title</a> - $trunc_name";
 	}
 	elsif ($type == 2)
 	{
@@ -2500,8 +2612,8 @@ sub write_header(*$$$$$)
 	{
 		# Test description header
 		$base_dir = "";
-		$view = "<a href=\"$base_dir"."index.html\">$overview_title</a> - ".
-			"test case descriptions";
+		$view = "<a href=\"$base_dir"."index.html\">".
+			"$overview_title</a> - test case descriptions";
 	}
 
 	# Prepare text for "test" field
@@ -2733,7 +2845,8 @@ sub get_affecting_tests($)
 
 
 #
-# write_source(filehandle, source_filename, count_data)
+# write_source(filehandle, source_filename, count_data, checksum_data,
+#              converted_data)
 #
 # Write an HTML view of a source code file. Returns a list containing
 # data as needed by gen_png().
@@ -2741,7 +2854,7 @@ sub get_affecting_tests($)
 # Die on error.
 #
 
-sub write_source($$$)
+sub write_source($$$$$)
 {
 	local *HTML_HANDLE = $_[0];
 	local *SOURCE_HANDLE;
@@ -2749,6 +2862,8 @@ sub write_source($$$)
 	my %count_data;
 	my $line_number;
 	my @result;
+	my $checkdata = $_[3];
+	my $converted = $_[4];
 
 	if ($_[2])
 	{
@@ -2763,9 +2878,19 @@ sub write_source($$$)
 	for ($line_number = 1; <SOURCE_HANDLE> ; $line_number++)
 	{
 		chomp($_);
+
+		# Source code matches coverage data?
+		if (defined($checkdata->{$line_number}) &&
+		    ($checkdata->{$line_number} ne md5_base64($_)))
+		{
+			die("ERROR: checksum mismatch  at $source_filename:".
+			    "$line_number\n");
+		}
+
 		push (@result,
 		      write_source_line(HTML_HANDLE, $line_number,
-					$_, $count_data{$line_number}));
+					$_, $count_data{$line_number},
+					$converted->{$line_number}));
 	}
 
 	close(SOURCE_HANDLE);
@@ -2786,7 +2911,7 @@ sub info(@)
 	if (!$quiet)
 	{
 		# Print info string
-		printf(STDERR @_);
+		printf(@_);
 	}
 }
 
@@ -2898,9 +3023,11 @@ sub apply_baseline($$)
 	my $data;
 	my $data_testdata;
 	my $data_funcdata;
+	my $data_checkdata;
 	my $data_count;
 	my $base;
 	my $base_testdata;
+	my $base_checkdata;
 	my $base_count;
 	my $sumcount;
 	my $found;
@@ -2913,9 +3040,13 @@ sub apply_baseline($$)
 		$base = $base_hash{$filename};
 
 		# Get set entries for data and baseline
-		($data_testdata, undef, $data_funcdata) =
+		($data_testdata, undef, $data_funcdata, $data_checkdata) =
 			get_info_entry($data);
-		($base_testdata, $base_count) = get_info_entry($base);
+		($base_testdata, $base_count, undef, $base_checkdata) =
+			get_info_entry($base);
+
+		# Check for compatible checksums
+		merge_checksums($data_checkdata, $base_checkdata, $filename);
 
 		# Sumcount has to be calculated anew
 		$sumcount = {};
@@ -2951,7 +3082,7 @@ sub apply_baseline($$)
 
 		# Write back resulting entry
 		set_info_entry($data, $data_testdata, $sumcount,
-			       $data_funcdata, $found, $hit);
+			       $data_funcdata, $data_checkdata, $found, $hit);
 
 		$data_hash{$filename} = $data;
 	}
@@ -3005,23 +3136,64 @@ sub remove_unused_descriptions()
 
 
 #
-# combine_info_entries(entry_ref1, entry_ref2)
+# merge_checksums(ref1, ref2, filename)
+#
+# REF1 and REF2 are references to hashes containing a mapping
+#
+#   line number -> checksum
+#
+# Merge checksum lists defined in REF1 and REF2 and return reference to
+# resulting hash. Die if a checksum for a line is defined in both hashes
+# but does not match.
+#
+
+sub merge_checksums($$$)
+{
+	my $ref1 = $_[0];
+	my $ref2 = $_[1];
+	my $filename = $_[2];
+	my %result;
+	my $line;
+
+	foreach $line (keys(%{$ref1}))
+	{
+		if (defined($ref2->{$line}) &&
+		    ($ref1->{$line} ne $ref2->{$line}))
+		{
+			die("ERROR: checksum mismatch at $filename:$line\n");
+		}
+		$result{$line} = $ref1->{$line};
+	}
+
+	foreach $line (keys(%{$ref2}))
+	{
+		$result{$line} = $ref2->{$line};
+	}
+
+	return \%result;
+}
+
+
+#
+# combine_info_entries(entry_ref1, entry_ref2, filename)
 #
 # Combine .info data entry hashes referenced by ENTRY_REF1 and ENTRY_REF2.
 # Return reference to resulting hash.
 #
 
-sub combine_info_entries($$)
+sub combine_info_entries($$$)
 {
 	my $entry1 = $_[0];	# Reference to hash containing first entry
 	my $testdata1;
 	my $sumcount1;
 	my $funcdata1;
+	my $checkdata1;
 
 	my $entry2 = $_[1];	# Reference to hash containing second entry
 	my $testdata2;
 	my $sumcount2;
 	my $funcdata2;
+	my $checkdata2;
 
 	my %result;		# Hash containing combined entry
 	my %result_testdata;
@@ -3031,10 +3203,16 @@ sub combine_info_entries($$)
 	my $lines_hit;
 
 	my $testname;
+	my $filename = $_[2];
 
 	# Retrieve data
-	($testdata1, $sumcount1, $funcdata1) = get_info_entry($entry1);
-	($testdata2, $sumcount2, $funcdata2) = get_info_entry($entry2);
+	($testdata1, $sumcount1, $funcdata1, $checkdata1) =
+		get_info_entry($entry1);
+	($testdata2, $sumcount2, $funcdata2, $checkdata2) =
+		get_info_entry($entry2);
+
+	# Merge checksums
+	$checkdata1 = merge_checksums($checkdata1, $checkdata2, $filename);
 
 	# Combine funcdata
 	foreach (keys(%{$funcdata1}))
@@ -3088,7 +3266,8 @@ sub combine_info_entries($$)
 
 	# Store result
 	set_info_entry(\%result, \%result_testdata, $result_sumcount,
-		       \%result_funcdata, $lines_found, $lines_hit);
+		       \%result_funcdata, $checkdata1, $lines_found,
+		       $lines_hit);
 
 	return(\%result);
 }
@@ -3114,7 +3293,8 @@ sub combine_info_files($$)
 			# Entry already exists in hash1, combine them
 			$hash1{$filename} =
 				combine_info_entries($hash1{$filename},
-						     $hash2{$filename});
+						     $hash2{$filename},
+						     $filename);
 		}
 		else
 		{
@@ -3181,4 +3361,46 @@ sub escape_regexp($)
 	$string =~ s/\+/\\\+/g;
 
 	return $string;
+}
+
+
+#
+# system_no_output(mode, parameters)
+#
+# Call an external program using PARAMETERS while suppressing depending on
+# the value of MODE:
+#
+#   MODE & 1: suppress STDOUT
+#   MODE & 2: suppress STDERR
+#
+# Return 0 on success, non-zero otherwise.
+#
+
+sub system_no_output($@)
+{
+	my $mode = shift;
+	my $result;
+	local *OLD_STDERR;
+	local *OLD_STDOUT;
+
+	# Save old stdout and stderr handles
+	($mode & 1) && open(OLD_STDOUT, ">>&STDOUT");
+	($mode & 2) && open(OLD_STDERR, ">>&STDERR");
+
+	# Redirect to /dev/null
+	($mode & 1) && open(STDOUT, ">/dev/null");
+	($mode & 2) && open(STDERR, ">/dev/null");
+ 
+	system(@_);
+	$result = $?;
+
+	# Close redirected handles
+	($mode & 1) && close(STDOUT);
+	($mode & 2) && close(STDERR);
+
+	# Restore old handles
+	($mode & 1) && open(STDOUT, ">>&OLD_STDOUT");
+	($mode & 2) && open(STDERR, ">>&OLD_STDERR");
+ 
+	return $result;
 }

@@ -14,16 +14,16 @@ lcov - GCOV coverage tool extension
 .RB [ \-t | \-\-test\-name
 .IR testname ]
 .br
-.RB [ \-o | \-\-output-file
+.RB [ \-o | \-\-output\-file
 .IR filename ]
 .br
 .RB [ \-d | \-\-directory
 .IR directory ]
 .br
-.RB [ \-k | \-\-kernel-directory
+.RB [ \-k | \-\-kernel\-directory
 .IR directory ]
 .br
-.RB [ \-a | \-\-add-tracefile
+.RB [ \-a | \-\-add\-tracefile
 .IR tracefile ]
 .br
 .RB [ \-e | \-\-extract
@@ -34,6 +34,11 @@ lcov - GCOV coverage tool extension
 .br
 .RB [ \-l | \-\-list
 .IR tracefile ]
+.br
+.RB [ \-\-diff
+.IR "tracefile diff" ]
+.br
+.RB [ \-\-no\-checksum ]
 .br
 .SH DESCRIPTION
 .B lcov
@@ -52,7 +57,7 @@ following preparation steps:
 For Linux kernel coverage:
 .RS
 Download and install the "gcov\-kernel" package from
-.I http://sourceforge.net/projects/lse
+.I http://sourceforge.net/projects/ltp
 
 The resulting kernel module has to be installed either in the system wide
 kernel modules directory or in the same directory as the LCOV tool.
@@ -104,6 +109,9 @@ Reset all execution counts to zero.
 
 By default tries to reset kernel execution counts. Use the \-\-directory
 option to reset all counters of a user space program.
+
+Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
+at a time.
 .RE
 
 .B \-c
@@ -115,6 +123,9 @@ Capture coverage data.
 By default captures the current kernel execution counts and writes the
 resulting coverage data to the standard output. Use the \-\-directory
 option to capture counts for a user space program.
+
+Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
+at a time.
 .RE
 
 .BI "\-t " testname
@@ -186,8 +197,11 @@ Specify several tracefiles using the \-a switch to combine the coverage data
 contained in these files by adding up execution counts for matching test and
 filename combinations.
 
-Note that this option will not work in conjunction with the \-z, \-c, \-e, \-r
-and \-l switches.
+Note that due to the way data is stored in tracefiles, the resulting file may
+be smaller in size than the original ones.
+
+Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
+at a time.
 
 .RE
 .BI "\-e " tracefile
@@ -205,8 +219,8 @@ Every file entry in
 .I tracefile
 which matches at least one of those patterns will be extracted.
 
-Note that this option will not work in conjunction with the \-z, \-c, \-r, \-l
-and \-a switches.
+Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
+at a time.
 
 .RE
 .BI "\-r " tracefile
@@ -224,8 +238,8 @@ Every file entry in
 .I tracefile
 which matches at least one of those patterns will be removed.
 
-Note that this option will not work in conjunction with the \-z, \-c, \-e, \-l
-and \-a switches.
+Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
+at a time.
 
 .RE
 .BI "\-l " tracefile
@@ -235,8 +249,48 @@ and \-a switches.
 List the contents of the
 .IR tracefile .
 
-Note that this option will not work in conjunction with the \-z, \-c, \-e, \-r
-and \-a switches.
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
+at a time.
+
+.RE
+.BI "\-\-diff " "tracefile difffile"
+.RS
+Convert coverage data in
+.I tracefile
+using source code diff file
+.IR difffile .
+
+Use this option if you want to merge coverage data from different source code
+levels of a program, e.g. when you have data taken from an older version
+and want to combine it with data from a more current version.
+.B lcov
+will try to map source code lines between those versions and adjust the coverage
+data respectively.
+.I difffile
+needs to be in unified format, i.e. it has to be created using the '\-u' option
+of the
+.B diff
+tool.
+
+Note that lines which are not present in the old version will not be counted
+as instrumented, therefore tracefiles resulting from this operation should
+not be interpreted individually but together with other tracefiles taken
+from the newer version. Also keep in mind that converted coverage data should
+only be used for overview purposes as the process itself introduces a loss
+of accuracy.
+
+Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
+at a time.
+
+.RE
+.B "\-\-no\-checksum"
+.RS
+Do not generate checksum data when writing tracefiles.
+
+By default, each line of coverage data is associated with a checksum of the
+corresponding source code line. This checksum is used to prevent merging
+coverage data from incompatible source code versions. Use this option to
+suppress generating such checksums for tracefiles.
 
 .RE
 .SH AUTHOR

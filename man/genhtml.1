@@ -34,6 +34,7 @@ genhtml - Generate HTML view from LCOV coverage data files
 .RB [ \-\-no\-source ]
 .RB [ \-\-num-spaces
 .IR num ]
+.RB [ \-\-highlight ]
 .br
 .IR tracefile(s)
 .RE
@@ -245,6 +246,16 @@ Replace tabs in source view with
 spaces.
 
 Default value is 8.
+
+.RE
+.B \-\-highlight
+.RS
+Highlight lines with converted-only coverage data.
+
+Use this option in conjunction with the \-\-diff option of
+.B lcov
+to highlight those lines which were only covered in data sets which were
+converted from previous source code versions.
 
 .SH AUTHOR
 Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>

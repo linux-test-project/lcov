@@ -1,7 +1,7 @@
 Summary: LTP GCOV extension code coverage tool
 Name: lcov
-Version: %{LCOV_VERSION}
-Release: %{LCOV_RELEASE}
+Version: 1.1
+Release: 1
 Copyright: GPL
 Group: Development/Tools
 URL: http://ltp.sourceforge.net/lcov.php
@@ -23,6 +23,7 @@ HTML output and support for large projects.
 exit 0
 
 %install
+rm -rf $RPM_BUILD_ROOT
 make install PREFIX=$RPM_BUILD_ROOT
 
 %clean
@@ -33,6 +34,9 @@ rm -rf $RPM_BUILD_ROOT
 /usr
 
 %changelog
+* Mon Jul 14 2003 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.con)
+- removed variables for version/release to support source rpm building
+- added initial rm command in install section
 * Mon Apr 7 2003 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - implemented variables for version/release
 * Fri Oct 8 2002 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)

@@ -14,6 +14,8 @@ geninfo - Generate tracefiles from .da files
 .RB [ \-o | \-\-output\-filename
 .IR output\-filename ]
 .br
+.RB [ \-\-no\-checksum ]
+.br
 .I directory
 .SH DESCRIPTION
 .B geninfo 
@@ -87,6 +89,17 @@ Write all data to
 If you want to have all data written to a single file (for easier
 handling), use this option to specify the respective filename. By default,
 one tracefile will be created for each processed .da file.
+
+.RE
+.B "\-\-no\-checksum"
+.RS
+Do not generate checksum data when writing tracefiles.
+ 
+By default, each line of coverage data is associated with a checksum of the
+corresponding source code line. This checksum is used to prevent merging
+coverage data from incompatible source code versions. Use this option to
+suppress generating such checksums for tracefiles.
+
 .RE
 .SH FILES
 Following is a quick description of the tracefile format as used by
@@ -112,7 +125,12 @@ source file:
 Then there is a list of execution counts for each instrumented line
 (i.e. a line which resulted in executable code):
 
-  DA:<line number>,<execution count>
+  DA:<line number>,<execution count>[,<checksum>]
+
+Note that there may be an optional checksum present for each instrumented
+line. The current
+.B geninfo
+implementation uses an MD5 hash as checksumming algorithm.
 
 At the end of a section, there is a summary about how many lines
 were found and how many were actually instrumented:

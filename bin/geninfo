@@ -35,34 +35,38 @@
 #   2003-04-16 / Peter Oberparleiter: modified read_gcov so that it can also
 #                parse the new gcov format which is to be introduced in gcc 3.3
 #   2003-04-30 / Peter Oberparleiter: made info write to STDERR, not STDOUT
+#   2003-07-03 / Peter Oberparleiter: added line checksum support, added
+#                --no-checksum
 #   2003-09-18 / Nigel Hinds: capture branch coverage data from GCOV
 #
 
 use strict;
 use File::Basename; 
 use Getopt::Long;
+use Digest::MD5 qw(md5_base64);
 
 
 # Constants
 our $lcov_version	= "LTP GCOV extension version 1.1";
 our $lcov_url		= "http://ltp.sourceforge.net/lcov.php";
-
+our $gcov_tool		= "gcov";
 
 # Prototypes
 sub print_usage(*);
 sub gen_info($);
 sub process_dafile($);
 sub match_filename($@);
+sub solve_ambiguous_match($$$);
 sub split_filename($);
-sub get_absolute_path($$);
+sub solve_relative_path($$);
 sub get_dir($);
-sub normalize_path($);
-sub read_gcov_file($);
+sub read_gcov_header($);
+sub read_gcov_file($$);
 sub read_bb_file($);
 sub read_string(*$);
 sub unpack_int32($);
 sub info(@);
-sub escape_shell($);
+sub system_no_output($@);
 
 # Global variables
 our @data_directory;
@@ -71,7 +75,8 @@ our $quiet;
 our $help;
 our $output_filename;
 our $version;
-our @gcov_branches;	# Branch content of a .gcov file
+our $nochecksum;
+our $preserve_paths;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -87,6 +92,7 @@ $SIG{"INT"} = \&int_handler;
 # Parse command line options
 if (!GetOptions("test-name=s" => \$test_name,
 		"output-filename=s" => \$output_filename,
+		"no-checksum" => \$nochecksum,
 		"version" =>\$version,
 		"quiet" => \$quiet,
 		"help" => \$help
@@ -112,6 +118,10 @@ if ($version)
 	exit(0);
 }
 
+# Adjust test name if necessary
+$test_name .= "__".`uname -a`;
+$test_name =~ s/\W/_/g;
+
 # Check for directory name
 if (!@data_directory)
 {
@@ -131,30 +141,32 @@ else
 	}
 }
 
-# Check output filename
-if ($output_filename)
+if (system_no_output(3, $gcov_tool, "--help") != 0)
 {
-	if ($output_filename eq "-")
-	{
-		# Turn of progress messages because STDOUT is needed for
-		# data output
-		$quiet = 1;
-	}
-	else
-	{
-		# Initially create output filename, data is appended
-		# for each .da file processed
-		local *DUMMY_HANDLE;
-		open(DUMMY_HANDLE, ">$output_filename")
-			or die("ERROR: cannot create $output_filename!\n");
-		close(DUMMY_HANDLE);
+	die("ERROR: need tool $gcov_tool!\n");
+}
 
-		# Make $output_filename an absolute path because we're going
-		# to change directories while processing files
-		if (!($output_filename =~ /^\/(.*)$/))
-		{
-			$output_filename = $cwd."/".$output_filename;
-		}
+# Check for availability of --preserve-paths option of gcov
+if (`$gcov_tool --help` =~ /--preserve-paths/)
+{
+	$preserve_paths = "--preserve-paths";
+}
+
+# Check output filename
+if (defined($output_filename) && ($output_filename ne "-"))
+{
+	# Initially create output filename, data is appended
+	# for each .da file processed
+	local *DUMMY_HANDLE;
+	open(DUMMY_HANDLE, ">$output_filename")
+		or die("ERROR: cannot create $output_filename!\n");
+	close(DUMMY_HANDLE);
+
+	# Make $output_filename an absolute path because we're going
+	# to change directories while processing files
+	if (!($output_filename =~ /^\/(.*)$/))
+	{
+		$output_filename = $cwd."/".$output_filename;
 	}
 }
 
@@ -192,6 +204,7 @@ sequentially.
   -q, --quiet                       Do not print progress messages
   -t, --test-name NAME              Use test case name NAME for resulting data
   -o, --output-filename OUTFILE     Write data only to OUTFILE
+  -n, --no-checksum                 Do not calculate checksum for each line
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -240,7 +253,7 @@ sub gen_info($)
 
 	@file_list = `find $directory -follow -name \\*.da -type f 2>/dev/null`;
 	chomp(@file_list);
-	@file_list or die("ERROR: No .da files found in $directory!\n");
+	@file_list or die("ERROR: no .da files found in $directory!\n");
 
 	info("Found %d data files in %s\n", $#file_list+1, $directory);
 
@@ -271,15 +284,23 @@ sub process_dafile($)
 	my $source_filename;	# Name of a source code file
 	my $gcov_file;		# Name of a .gcov file
 	my @gcov_content;	# Content of a .gcov file
+	my @gcov_branches;	# Branch content of a .gcov file
 	my @gcov_list;		# List of generated .gcov files
 	my $line_number;	# Line number count
 	my $lines_hit;		# Number of instrumented lines hit
 	my $lines_found;	# Number of instrumented lines found
+	my $format;		# gcov file format
+	my $source;		# gcov source header information
+	my $object;		# gcov object header information
+	my @matches;		# List of absolute paths matching filename
+	my @unprocessed;	# List of unprocessed source code files
+	my @result;
+	my $index;
 	local *INFO_HANDLE;
 
 	# Get path to .da file in absolute and normalized form (begins with /,
 	# contains no more ../ or ./)
-	$da_filename = normalize_path(get_absolute_path($_[0], $cwd));
+	$da_filename = solve_relative_path($cwd, $_[0]);
 
 	# Get directory and basename of .da file
 	($da_dir, $da_basename) = split_filename($da_filename);
@@ -316,18 +337,28 @@ sub process_dafile($)
 	if ($object_dir ne $da_dir)
 	{
 		# Need to create link to .da file in $object_dir
-		system("ln -s ".escape_shell("$da_filename ".
-					     "$object_dir/$da_basename.da"))
+		system("ln", "-s", $da_filename, "$object_dir/$da_basename.da")
 			and die ("ERROR: cannot create link $object_dir/".
 				 "$da_basename.da!\n");
 	}
 
 	# Change to directory containing .da files and apply GCOV
-	chdir($da_dir);
-	undef($!);
-	system("gcov -b ".escape_shell("$da_basename.c")." -o ".
-	       escape_shell($object_dir)." >/dev/null");
-	$gcov_error = $!;
+	chdir($object_dir);
+
+	# Execute gcov command and suppress standard output
+	if ($preserve_paths)
+	{
+		$gcov_error = system_no_output(1, $gcov_tool, $da_basename.".c",
+					       "-o", $object_dir,
+					       "--preserve-paths",
+					       "--branch-probabilities");
+	}
+	else
+	{
+		$gcov_error = system_no_output(1, $gcov_tool, $da_basename.".c",
+					       "-o", $object_dir,
+					       "--branch-probabilities");
+	}
 
 	# Clean up link
 	if ($object_dir ne $da_dir)
@@ -374,29 +405,60 @@ sub process_dafile($)
 
 	# Traverse the list of generated .gcov files and combine them into a
 	# single .info file
+	@unprocessed = keys(%bb_content);
 	foreach $gcov_file (@gcov_list)
 	{
-		$source_filename =
-			match_filename($gcov_file, keys(%bb_content));
+		($format, $source, $object) = read_gcov_header($gcov_file);
+
+		if ($source)
+		{
+			$source = solve_relative_path($object_dir, $source);
+		}
+		@matches = match_filename(defined($source) ? $source :
+					  $gcov_file, keys(%bb_content));
 
 		# Skip files that are not mentioned in the .bb file
-		if (!$source_filename)
+		if (!@matches)
 		{
 			warn("WARNING: cannot find an entry for ".
-			     $gcov_file." in .bb file, skipping file!");
+			     $gcov_file." in .bb file, skipping file!\n");
 			unlink($gcov_file);
 			next;
 		}
 
-		@gcov_branches = ( );
-		@gcov_content = read_gcov_file($gcov_file);
+		# Read in contents of gcov file
+		@result = read_gcov_file($gcov_file, $format);
+		@gcov_content = @{$result[0]};
+		@gcov_branches = @{$result[1]};
 
 		# Skip empty files
 		if (!@gcov_content)
 		{
-			warn("WARNING: skipping empty file ".$gcov_file);
+			warn("WARNING: skipping empty file ".$gcov_file."\n");
 			unlink($gcov_file);
 			next;
+		}
+
+		if (scalar(@matches) == 1)
+		{
+			# Just one match
+			$source_filename = $matches[0];
+		}
+		else
+		{
+			# Try to solve the ambiguity
+			$source_filename = solve_ambiguous_match($gcov_file,
+						\@matches, \@gcov_content);
+		}
+
+		# Remove processed file from list
+		for ($index = scalar(@unprocessed) - 1; $index >= 0; $index--)
+		{
+			if ($unprocessed[$index] eq $source_filename)
+			{
+				splice(@unprocessed, $index, 1);
+				last;
+			}
 		}
 
 		# Write absolute path of source file
@@ -429,8 +491,10 @@ sub process_dafile($)
 			if ($gcov_content[0])
 			{
 				$lines_found++;
-				printf(INFO_HANDLE "DA:%s,%s\n",
-				       $line_number, $gcov_content[1]);
+				printf(INFO_HANDLE "DA:".$line_number.",".
+				       $gcov_content[1].($nochecksum ? "" :
+				       ",". md5_base64($gcov_content[2])).
+				       "\n");
 
 				# Increase $lines_hit in case of an execution
 				# count>0
@@ -456,8 +520,8 @@ sub process_dafile($)
 			if ($gcov_branches[0])
 			{
 				printf(INFO_HANDLE "BA:%s,%s\n",
-					$gcov_branches[0],
-					$gcov_branches[1]);
+				       $gcov_branches[0],
+				       $gcov_branches[1]);
 			}
 			splice(@gcov_branches,0,2);
 		}
@@ -471,6 +535,16 @@ sub process_dafile($)
 		unlink($gcov_file);
 	}
 
+	# Check for files which show up in the .bb file but were never
+	# processed
+	if (@unprocessed && @gcov_list)
+	{
+		foreach (@unprocessed)
+		{
+			warn("WARNING: no data found for $_\n");
+		}
+	}
+
 	if (!($output_filename && ($output_filename eq "-")))
 	{
 		close(INFO_HANDLE);
@@ -482,29 +556,124 @@ sub process_dafile($)
 
 
 #
+# solve_relative_path(path, dir)
+#
+# Solve relative path components of DIR which, if not absolute, resides in PATH.
+#
+
+sub solve_relative_path($$)
+{
+	my $path = $_[0];
+	my $dir = $_[1];
+	my $result;
+
+	$result = $dir;
+	# Prepend path if not absolute
+	if ($dir =~ /^[^\/]/)
+	{
+		$result = "$path/$result";
+	}
+
+	# Remove //
+	$result =~ s/\/\//\//g;
+
+	# Remove .
+	$result =~ s/\/\.\//\//g;
+
+	# Solve ..
+	while ($result =~ s/\/[^\/]+\/\.\.\//\//)
+	{
+	}
+
+	# Remove preceding ..
+	$result =~ s/^\/\.\.\//\//g;
+
+	return $result;
+}
+
+
+#
 # match_filename(gcov_filename, list)
 #
-# Return the absolute path to the source code file corresponding to the given
-# GCOV_FILENAME by matching the basename part with the LIST of absolute paths
-# extracted from the .bb file.
+# Return a list of those entries of LIST which match the relative filename
+# GCOV_FILENAME.
 #
 
 sub match_filename($@)
 {
-	# Get path components of first argument and remove it so that @_
-	# refers to the LIST argument
-	my @gcov_components = split_filename(shift);
+	my $filename = shift;
+	my @list = @_;
+	my @result;
 
-	foreach (@_)
+	$filename =~ s/^(.*).gcov$/$1/;
+
+	if ($filename =~ /^\/(.*)$/)
 	{
-		if (join(".", (split_filename($_))[1, 2]) eq
-		    $gcov_components[1])
+		$filename = "$1";
+	}
+
+	foreach (@list)
+	{
+		if (/\/$filename$/)
 		{
-			return($_);
+			@result = (@result, $_);
+		}
+	}
+	return @result;
+}
+
+
+#
+# solve_ambiguous_match(rel_filename, matches_ref, gcov_content_ref)
+#
+# Try to solve ambiguous matches of mapping (gcov file) -> (source code) file
+# by comparing source code provided in the GCOV file with that of the files
+# in MATCHES. REL_FILENAME identifies the relative filename of the gcov
+# file.
+# 
+# Return the one real match or die if there is none.
+#
+
+sub solve_ambiguous_match($$$)
+{
+	my $rel_name = $_[0];
+	my $matches = $_[1];
+	my $content = $_[2];
+	my $filename;
+	my $index;
+	my $no_match;
+	local *SOURCE;
+
+	# Check the list of matches
+	foreach $filename (@$matches)
+	{
+
+		# Compare file contents
+		open(SOURCE, $filename)
+			or die("ERROR: cannot read $filename!\n");
+
+		$no_match = 0;
+		for ($index = 2; <SOURCE>; $index += 3)
+		{
+			chomp;
+
+			if ($_ ne @$content[$index])
+			{
+				$no_match = 1;
+				last;
+			}
+		}
+
+		close(SOURCE);
+
+		if (!$no_match)
+		{
+			info("Solved source file ambiguity for $rel_name\n");
+			return $filename;
 		}
 	}
 
-	return("");
+	die("ERROR: could not match gcov data for $rel_name!\n");
 }
 
 
@@ -526,21 +695,6 @@ sub split_filename($)
 
 
 #
-# get_absolute_path(filename, path)
-#
-# Return FILENAME as absolute path where PATH is used as parent directory if
-# FILENAME is not already absolute.
-#
-
-sub get_absolute_path($$)
-{
-	if (substr($_[0], 0, 1) eq "/") { return($_[0]); }
-
-	return($_[1]."/".$_[0]);
-}
-
-
-#
 # get_dir(filename);
 #
 # Return the directory component of a given FILENAME.
@@ -556,180 +710,211 @@ sub get_dir($)
 
 
 #
-# normalize_path(path)
+# read_gcov_header(gcov_filename)
 #
-# Return the normalized form of the provided PATH. Normalization includes:
+# Parse file GCOV_FILENAME and return a list containing the following
+# information:
 #
-#     1) removal of trailing '/'s
-#     2) removal of adjacent '//'s
-#     3) removal of './'
-#     4) removal of '../' if possible
+#   (format, source, object)
+#
+# where:
+#
+# format: 0 for gcc version < 3.3 format
+#         1 for gcc version >= 3.3 format
+# source: complete relative path of the source code file (gcc >= 3.3 only)
+# object: name of associated .bb file
+#
+# Die on error.
 #
 
-sub normalize_path($)
+sub read_gcov_header($)
 {
-	my @components = split("/", $_[0]);
-	my $absolute = !$components[0];
-	my $i;
+	my $format;
+	my $source;
+	my $object;
+	local *INPUT;
 
-	for ($i=0; $i<scalar(@components); $i++)
+	open(INPUT, $_[0])
+		or die("ERROR: cannot read $_[0]!\n");
+
+	$format = 0;
+	while (<INPUT>)
 	{
-		# Check for //s and ./s
-		if (!$components[$i] or $components[$i] eq ".")
+		chomp($_);
+
+		if (/^\s+-:\s+0:Source:(.*)$/)
 		{
-			# Remove
-			splice(@components,$i,1);
-			$i--;
+			# Source: header entry
+			$source = $1;
+			$format = 1;
 		}
-		elsif ($components[$i] eq "..")
+		elsif (/^\s+-:\s+0:Object:(.*)$/)
 		{
-			# Found ../, check for beginning of path
-			if ($i>0)
-			{
-				# Check whether parent component was an
-				# unresolvable ../
-				if ($components[$i-1] ne "..")
-				{
-					# Remove ../ and previous component
-					splice(@components,$i-1,2);
-					$i-=2;
-				}
-			}
-			else
-			{
-				# ../s at beginning of path may only be
-				# removed when this is an absolute path
-				if ($absolute)
-				{
-					splice(@components,$i,1);
-					$i--;
-				}
-			}
+			# Object: header entry
+			$object = $1;
+			$format = 1;
+		}
+		elsif (/^\s+-:\s+0:/)
+		{
+			# unrecognized header entry
+			$format = 1;
+		}
+		else
+		{
+			last;
 		}
 	}
 
-	return(($absolute ? "/" : "").join("/",@components));
+	close(INPUT);
+
+	return ($format, $source, $object);
 }
 
 
 #
-# read_gcov_file(gcov_filename)
+# read_gcov_file(gcov_filename, format)
 #
-# Parse file GCOV_FILENAME (.gcov file format) and return a list of 3 elements
+# Parse file GCOV_FILENAME (.gcov file format) and return the list:
+# (reference to gcov_content, reference to gcov_branch)
+#
+# gcov_content is a list of 3 elements
 # (flag, count, source) for each source code line:
 #
 # $result[($line_number-1)*3+0] = instrumentation flag for line $line_number
 # $result[($line_number-1)*3+1] = execution count for line $line_number
 # $result[($line_number-1)*3+2] = source code text for line $line_number
 #
+# gcov_branch is a list of 2 elements
+# (linenumber, branch result) for each branch
+#
+# FORMAT specifies the expected gcov file format (0 for gcc < 3.3, 1 for
+# gcc >= 3.3).
+#
 # Die on error.
 #
 
-sub read_gcov_file($)
+sub read_gcov_file($$)
 {
+	my $filename = $_[0];
+	my $format = $_[1];
 	my @result = ();
+	my @branches = ();
 	my $number;
-	my $format;
-	my @branch;
-	my $line_number;
+	local *INPUT;
 
-	open(INPUT, $_[0])
-		or die("ERROR: cannot read $_[0]!\n");
+	open(INPUT, $filename)
+		or die("ERROR: cannot read $filename!\n");
 
-	$line_number=0;
-	while (<INPUT>)
+	if ($format == 0)
 	{
-		chomp($_);
-
-		if (!defined($format))
+		# Expect gcov format as used in gcc < 3.3
+		while (<INPUT>)
 		{
-			# Check the GCOV file format
-			if (/^\s+-:\s+0:/)
-			{
-				# Looks like gcc >= 3.3
-				$format = 2;
-			}
-			else
-			{
-				$format = 1;
-			}
-		}
-		if ($format == 1)
-		{
-			# Leading chars of a line are either two tabs or the
-			# execution count
-			if (substr($_,0,2) eq "\t\t")
-			{
-				$line_number++;
-				# Lines without counts are not instrumented
-				push(@result,0);
-				push(@result,0);
-				push(@result,substr($_,2));
-			}
+			chomp($_);
 
-			#-- extract branch coverage data from the .gcov file
-			elsif (substr($_,0,6) eq "branch")
+			if (/^\t\t(.*)$/)
 			{
-				@branch = split /[ ]+/;
-				push(@gcov_branches, $line_number);
-				if ($branch[2] eq "never")
-					{ push(@gcov_branches, 0); }
-				elsif ($branch[4] eq "0%")
-					{ push(@gcov_branches, 1); }
+				# Uninstrumented line
+				push(@result, 0);
+				push(@result, 0);
+				push(@result, $1);
+			}
+			elsif (/^branch\s+\d+\s+(\S+)\s+=\s+(\S+)$/)
+			{
+				# Branch execution data
+				push(@branches, scalar(@result) / 3);
+				if ($1 eq "never")
+				{
+					push(@branches, 0);
+				}
+				elsif ($2 eq "0%")
+				{
+					push(@branches, 1);
+				}
 				else
-					{ push(@gcov_branches, 2); }
+				{
+					push(@branches, 2);
+				}
 			}
-			elsif (substr($_,0,4) eq "call")
+			elsif (/^call/)
 			{
-				# ignore return values
+				# Function call return data
 			}
 			else
 			{
-				$line_number++;
-
-				# Get actual number and remove blanks from
-				# either side
+				# Source code execution data
 				$number = (split(" ",substr($_, 0, 16)))[0];
 
 				# Check for zero count which is indicated
 				# by ######
 				if ($number eq "######") { $number = 0;	}
 
-				push(@result,1);
-				push(@result,$number);
-				push(@result,substr($_,16));
+				push(@result, 1);
+				push(@result, $number);
+				push(@result, substr($_, 16));
 			}
 		}
-		elsif (($format == 2) && (/^\s*([^:\s]+):\s*([^:\s]+):(.*)$/))
+	}
+	elsif ($format == 1)
+	{
+		# Expect gcov format as used in gcc >= 3.3
+		while (<INPUT>)
 		{
-			# <execution_count>:<line_number>:<source line text>
-			if ($2 eq "0")
-			{
-				# This line contains extra information - ignore
-			}
-			elsif ($1 eq "-")
-			{
-				# Not instrumented
-				push(@result,0);
-				push(@result,0);
-				push(@result,$3);
-			}
-			else
-			{
-				$number = $1;
+			chomp($_);
 
-				# Check for zero count
-				if ($number eq "#####")	{ $number = 0; }
+			if (/^branch\s+\d+\s+(\S+)\s+(\S+)$/)
+			{
+				# Branch execution data
+				push(@branches, scalar(@result) / 3);
+				if ($1 eq "never")
+				{
+					push(@branches, 0);
+				}
+				elsif ($2 eq "0%")
+				{
+					push(@branches, 1);
+				}
+				else
+				{
+					push(@branches, 2);
+				}
+			}
+			elsif (/^call/)
+			{
+				# Function call return data
+			}
+			elsif (/^\s*([^:\s]+):\s*([^:\s]+):(.*)$/)
+			{
+				# <exec count>:<line number>:<source code>
+				if ($2 eq "0")
+				{
+					# Extra data
+				}
+				elsif ($1 eq "-")
+				{
+					# Uninstrumented line
+					push(@result, 0);
+					push(@result, 0);
+					push(@result, $3);
+				}
+				else
+				{
+					# Source code execution data
+					$number = $1;
 
-				push(@result,1);
-				push(@result,$number);
-				push(@result,$3);
+					# Check for zero count
+					if ($number eq "#####")	{ $number = 0; }
+
+					push(@result, 1);
+					push(@result, $number);
+					push(@result, $3);
+				}
 			}
 		}
 	}
 
 	close(INPUT);
-	return(@result);
+	return(\@result, \@branches);
 }
 
 
@@ -756,8 +941,8 @@ sub read_bb_file($)
 	my $function_name;
 	my $cwd			= `pwd`;
 	chomp($cwd);
-	my $base_dir		= get_dir(normalize_path(get_absolute_path(
-							$bb_filename, $cwd)));
+	my $base_dir		= get_dir(solve_relative_path(
+						$cwd, $bb_filename));
 	my $minus_one		= sprintf("%d",0x80000001);
 	my $minus_two		= sprintf("%d",0x80000002);
 	my $value;
@@ -784,8 +969,7 @@ sub read_bb_file($)
 					    "$bb_filename!\n");
 
 			# Make path absolute
-			$filename = normalize_path(get_absolute_path(
-					$filename, $base_dir));
+			$filename = solve_relative_path($base_dir, $filename);
 
 			# Insert into hash if not yet present.
 			# This is necessary because functions declared as
@@ -888,7 +1072,15 @@ sub info(@)
 	if (!$quiet)
 	{
 		# Print info string
-		printf(STDERR @_);
+		if (defined($output_filename) && ($output_filename eq "-"))
+		{
+			# Don't interfer with the .info output to STDOUT
+			printf(STDERR @_);
+		}
+		else
+		{
+			printf(@_);
+		}
 	}
 }
 
@@ -908,35 +1100,42 @@ sub int_handler()
 
 
 #
-# escape_shell(string)
+# system_no_output(mode, parameters)
 #
-# Escape characters in STRING which would be expanded by a command line
-# shell. Return the resulting string.
+# Call an external program using PARAMETERS while suppressing depending on
+# the value of MODE:
+#
+#   MODE & 1: suppress STDOUT
+#   MODE & 2: suppress STDERR
+#
+# Return 0 on success, non-zero otherwise.
 #
 
-sub escape_shell($)
+sub system_no_output($@)
 {
-	my $string = $_[0];
+	my $mode = shift;
+	my $result;
+	local *OLD_STDERR;
+	local *OLD_STDOUT;
 
-	# Escape characters which have a special meaning in shell context
-	$string =~ s/\\/\\\\/g;
-	$string =~ s/\|/\\\|/g;
-	$string =~ s/\$/\\\$/g;
-	$string =~ s/\*/\\\*/g;
-	$string =~ s/\"/\\\"/g;
-	$string =~ s/\'/\\\'/g;
-	$string =~ s/\~/\\\~/g;
-	$string =~ s/\;/\\\;/g;
-	$string =~ s/\&/\\\&/g;
-	$string =~ s/\(/\\\(/g;
-	$string =~ s/\)/\\\)/g;
-	$string =~ s/\</\\\</g;
-	$string =~ s/\>/\\\>/g;
-	$string =~ s/\[/\\\[/g;
-	$string =~ s/\]/\\\]/g;
-	$string =~ s/\!/\\\!/g;
-	$string =~ s/\`/\\\`/g;
+	# Save old stdout and stderr handles
+	($mode & 1) && open(OLD_STDOUT, ">>&STDOUT");
+	($mode & 2) && open(OLD_STDERR, ">>&STDERR");
 
-	return $string;
+	# Redirect to /dev/null
+	($mode & 1) && open(STDOUT, ">/dev/null");
+	($mode & 2) && open(STDERR, ">/dev/null");
+ 
+	system(@_);
+	$result = $?;
 
+	# Close redirected handles
+	($mode & 1) && close(STDOUT);
+	($mode & 2) && close(STDERR);
+
+	# Restore old handles
+	($mode & 1) && open(STDOUT, ">>&OLD_STDOUT");
+	($mode & 2) && open(STDERR, ">>&OLD_STDERR");
+ 
+	return $result;
 }
