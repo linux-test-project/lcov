@@ -452,7 +452,7 @@ sub process_dafile($)
 		# Need to rename empty data file to workaround
 	        # gcov <= 3.2.x bug (Abort)
 		system_no_output(3, "mv", "$da_filename", "$da_filename.ori")
-			and die ("ERROR: cannot rename $da_filename");
+			and die ("ERROR: cannot rename $da_filename\n");
 	}
 
 	# Execute gcov command and suppress standard output
@@ -530,6 +530,15 @@ sub process_dafile($)
 		{
 			$source = solve_relative_path($object_dir, $source);
 		}
+
+		# gcov will happily create output even if there's no source code
+		# available - this interfers with checksum creation so we need
+		# to pull the emergency brake here.
+		if (! -r $source && ! $nochecksum)
+		{
+			die("ERROR: could not read source file $source\n");
+		}
+
 		@matches = match_filename(defined($source) ? $source :
 					  $gcov_file, keys(%bb_content));
 

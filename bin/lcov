@@ -83,7 +83,7 @@ our $modprobe_tool	= "/sbin/modprobe";
 our $rmmod_tool		= "/sbin/rmmod";
 
 # Where to create temporary directories
-our $tmp_dir		= ".";
+our $tmp_dir		= "/tmp";
 
 # How to prefix a temporary directory name
 our $tmp_prefix		= "tmpdir";
