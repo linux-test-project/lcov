@@ -64,7 +64,7 @@ our $GCNO_LINES_TAG	= 0x01450000;
 our $GCNO_FILE_MAGIC	= 0x67636e6f;
 our $BBG_FILE_MAGIC	= 0x67626267;
 
-our $COMPAT_SLES9	= "sles9";
+our $COMPAT_HAMMER	= "hammer";
 
 # Prototypes
 sub print_usage(*);
@@ -81,8 +81,8 @@ sub read_bb_file($);
 sub read_string(*$);
 sub read_gcno_file($);
 sub read_gcno_string(*$);
-sub read_sles9_bbg_file($);
-sub read_sles9_bbg_string(*$);
+sub read_hammer_bbg_file($);
+sub read_hammer_bbg_string(*$);
 sub unpack_int32($$);
 sub info(@);
 sub get_gcov_version();
@@ -213,7 +213,7 @@ $gcov_version = get_gcov_version();
 
 if ($gcov_version < $GCOV_VERSION_3_4_0)
 {
-	if (defined($compatibility) && $compatibility eq $COMPAT_SLES9)
+	if (defined($compatibility) && $compatibility eq $COMPAT_HAMMER)
 	{
 		$data_file_extension = ".da";
 		$graph_file_extension = ".bbg";
@@ -438,9 +438,9 @@ sub process_dafile($)
 	# information about functions and their source code positions.
 	if ($gcov_version < $GCOV_VERSION_3_4_0)
 	{
-		if (defined($compatibility) && $compatibility eq $COMPAT_SLES9)
+		if (defined($compatibility) && $compatibility eq $COMPAT_HAMMER)
 		{
-			%bb_content = read_sles9_bbg_file($bb_filename);
+			%bb_content = read_hammer_bbg_file($bb_filename);
 		}
 		else
 		{
@@ -615,14 +615,17 @@ sub process_dafile($)
 		printf(INFO_HANDLE "SF:%s\n", $source_filename);
 
 		# Write function-related information
-		foreach (split(",",$bb_content{$source_filename}))
+		if (defined($bb_content{$source_filename}))
 		{
-			# Write "line_number,function_name" for each function.
-			# Note that $_ contains this information in the form
-			# "function_name=line_number" so that the order of
-			# elements has to be reversed.
-			printf(INFO_HANDLE "FN:%s\n",
-			       join(",", (split("=", $_))[1,0]));
+			foreach (split(",",$bb_content{$source_filename}))
+			{
+				# Write "line_number,function_name" for each function.
+				# Note that $_ contains this information in the form
+				# "function_name=line_number" so that the order of
+				# elements has to be reversed.
+				printf(INFO_HANDLE "FN:%s\n",
+				       join(",", (split("=", $_))[1,0]));
+			}
 		}
 
 		# Reset line counters
@@ -1342,7 +1345,7 @@ sub read_gcno_string(*$)
 
 
 #
-# read_sles9_bbg_file(bb_filename)
+# read_hammer_bbg_file(bb_filename)
 #
 # Read .bbg file BB_FILENAME and return a hash containing the following
 # mapping:
@@ -1356,7 +1359,7 @@ sub read_gcno_string(*$)
 # Die on error.
 #
 
-sub read_sles9_bbg_file($)
+sub read_hammer_bbg_file($)
 {
 	my $bbg_filename = $_[0];
 	my %result;
@@ -1379,21 +1382,22 @@ sub read_sles9_bbg_file($)
 
 	binmode(INPUT);
 	
+	# Read magic
 	read(INPUT, $packed_word, 4) == 4
 		or die("ERROR: invalid bbg file format\n");
 
-	$value = unpack_int32($packed_word, 0);
 	$endianness = 1;
 
 	unpack_int32($packed_word, $endianness) == $BBG_FILE_MAGIC
 		or die("ERROR: bbg file magic does not match\n");
 
+	# Skip version
 	seek(INPUT, 4, 1);
 
 	# Read data in words of 4 bytes
 	while (read(INPUT, $packed_word, 4) == 4)
 	{
-		# Decode integer in intel byteorder
+		# Get record tag
 		$value = unpack_int32($packed_word, $endianness);
 
 		# Get record length
@@ -1404,14 +1408,15 @@ sub read_sles9_bbg_file($)
 		{
 			# Get function name
 			($value, $function_name) =
-				read_sles9_bbg_string(*INPUT, $endianness);
+				read_hammer_bbg_string(*INPUT, $endianness);
+			$filename = undef;
+			$first_line = undef;
 
 			seek(INPUT, $length - $value * 4, 1);
 		}
 		elsif ($value == $GCNO_LINES_TAG)
 		{
 			# Get linenumber and filename
-
 			# Skip block number
 			seek(INPUT, 4, 1);
 			$length -= 4;
@@ -1431,34 +1436,44 @@ sub read_sles9_bbg_file($)
 					next;
 				}
 				($blocks, $value) =
-					read_sles9_bbg_string(
+					read_hammer_bbg_string(
 						*INPUT, $endianness);
-				if (!defined($filename))
+				# Add all filenames to result list
+				if (defined($value))
 				{
-					$filename = $value;
+					$value = solve_relative_path(
+							$base_dir, $value);
+					if (!defined($result{$value}))
+					{
+						$result{$value} = undef;
+					}
+					if (!defined($filename))
+					{
+						$filename = $value;
+					}
 				}
 				$length -= $blocks * 4;
-			}
-			# Got a complete data set?
-			if (defined($filename) && defined($function_name) &&
-			    defined($first_line))
-			{
-				$filename = solve_relative_path(
-						$base_dir, $filename);
-				# Add it to our result hash
-				if (defined($result{$filename}))
+
+				# Got a complete data set?
+				if (defined($filename) &&
+				    defined($first_line) &&
+				    defined($function_name))
 				{
-					$result{$filename} .=
+					# Add it to our result hash
+					if (defined($result{$filename}))
+					{
+						$result{$filename} .=
 						",$function_name=$first_line";
-				}
-				else
-				{
-					$result{$filename} =
+					}
+					else
+					{
+						$result{$filename} =
 						"$function_name=$first_line";
+					}
+					$function_name = undef;
+					$filename = undef;
+					$first_line = undef;
 				}
-				$filename = undef;
-				$function_name = undef;
-				$first_line = undef;
 			}
 		}
 		else
@@ -1478,14 +1493,14 @@ sub read_sles9_bbg_file($)
 
 
 #
-# read_sles9_bbg_string(handle, endianness);
+# read_hammer_bbg_string(handle, endianness);
 #
 # Read a string in 4-byte chunks from HANDLE.
 #
 # Return (number of 4-byte chunks read, string).
 #
 
-sub read_sles9_bbg_string(*$)
+sub read_hammer_bbg_string(*$)
 {
 	my $handle		= $_[0];
 	my $endianness		= $_[1];
@@ -1508,7 +1523,7 @@ sub read_sles9_bbg_string(*$)
 	read($handle, $string, $length) ==
 		$length or die("ERROR: reading string\n");
 	seek($handle, $pad, 1);
-	
+
 	return(1 + ($length + $pad) / 4, $string);
 }
 
@@ -1560,8 +1575,8 @@ sub get_gcov_version()
         if ($version_string =~ /suse/i && $result == 0x30303 ||
             $version_string =~ /mandrake/i && $result == 0x30302)
 	{
-		info("Using compatibility mode for SUSE GCC 3.3.3\n");
-		$compatibility = $COMPAT_SLES9;
+		info("Using compatibility mode for GCC 3.3 (hammer)\n");
+		$compatibility = $COMPAT_HAMMER;
 	}
 	return $result;
 }
