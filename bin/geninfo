@@ -375,6 +375,7 @@ sub process_dafile($)
 	my %bb_content;		# Contents of graph file
 	my $gcov_error;		# Error code of gcov tool
 	my $object_dir;		# Directory containing all object files
+	my $source_dir;		# Directory containing all source files
 	my $source_filename;	# Name of a source code file
 	my $gcov_file;		# Name of a .gcov file
 	my @gcov_content;	# Content of a .gcov file
@@ -399,6 +400,14 @@ sub process_dafile($)
 	# Get directory and basename of data file
 	($da_dir, $da_basename) = split_filename($da_filename);
 
+        # avoid files from .libs dirs
+        if ($da_dir =~ m/(.*)\/.libs$/) {
+                $source_dir = $1;
+        }
+        else {
+        	$source_dir = $da_dir;
+        }
+
 	# Check for writable $da_dir (gcov will try to write files there)
 	stat($da_dir);
 	if (!-w _)
@@ -416,8 +425,7 @@ sub process_dafile($)
 	}
 
 	# Construct name of graph file
-	$bb_filename = $da_dir."/".$da_basename.$graph_file_extension;
-
+	$bb_filename = $source_dir."/".$da_basename.$graph_file_extension;
 
 	# Find out the real location of graph file in case we're just looking at
 	# a link
@@ -456,7 +464,7 @@ sub process_dafile($)
 	# from $da_dir if the graph file is just a link to the "real" object
 	# file location. We need to apply GCOV with using that directory to
 	# ensure that all relative #include-files are found as well.
-	($object_dir) = split_filename($bb_filename);
+        ($object_dir) = split_filename($da_filename);
 
 	# Is the data file in the same directory with all the other files?
 	if ($object_dir ne $da_dir)
@@ -469,7 +477,7 @@ sub process_dafile($)
 	}
 
 	# Change to directory containing data files and apply GCOV
-	chdir($object_dir);
+        chdir($source_dir);
 
 	if ($da_renamed)
 	{
@@ -482,6 +490,7 @@ sub process_dafile($)
 	# Execute gcov command and suppress standard output
 	if ($preserve_paths)
 	{
+                print "Calling $gcov_tool $da_basename.c -o $object_dir -b\n";
 		$gcov_error = system_no_output(1, $gcov_tool, $da_basename.".c",
 					       "-o", $object_dir,
 					       "--preserve-paths",
@@ -489,6 +498,7 @@ sub process_dafile($)
 	}
 	else
 	{
+                print "Calling $gcov_tool $da_basename.c -o $object_dir -b\n";
 		$gcov_error = system_no_output(1, $gcov_tool, $da_basename.".c",
 					       "-o", $object_dir,
 					       "-b");
@@ -552,7 +562,7 @@ sub process_dafile($)
 
 		if ($source)
 		{
-			$source = solve_relative_path($object_dir, $source);
+			$source = solve_relative_path($source_dir, $source);
 		}
 
 		# gcov will happily create output even if there's no source code
