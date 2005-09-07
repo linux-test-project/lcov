@@ -146,6 +146,7 @@ our $cwd = `pwd`;	# Current working directory
 our $to_file;		# If set, indicates that output is written to a file
 our $follow;		# If set, indicates that find shall follow links
 our $diff_path = "";	# Path removed from tracefile when applying diff
+our $base_directory;	# Base directory (cwd of gcc during compilation)
 our $config;		# Configuration file contents
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
@@ -201,7 +202,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"help" => \$help,
 		"version" => \$version,
 		"follow" => \$follow,
-		"path=s" => \$diff_path
+		"path=s" => \$diff_path,
+		"base-directory=s" => \$base_directory
 		))
 {
 	print_usage(*STDERR);
@@ -455,6 +457,10 @@ sub userspace_capture()
 	if ($nochecksum)
 	{
 		@param = (@param, "--no-checksum");
+	}
+	if ($base_directory)
+	{
+		@param = (@param, "--base-directory", $base_directory);
 	}
 
 	system(@param);

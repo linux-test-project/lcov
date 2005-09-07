@@ -77,11 +77,11 @@ sub solve_relative_path($$);
 sub get_dir($);
 sub read_gcov_header($);
 sub read_gcov_file($);
-sub read_bb_file($);
+sub read_bb_file($$);
 sub read_string(*$);
-sub read_gcno_file($);
+sub read_gcno_file($$);
 sub read_gcno_string(*$);
-sub read_hammer_bbg_file($);
+sub read_hammer_bbg_file($$);
 sub read_hammer_bbg_string(*$);
 sub unpack_int32($$);
 sub info(@);
@@ -99,6 +99,7 @@ our $test_name = "";
 our $quiet;
 our $help;
 our $output_filename;
+our $base_directory;
 our $version;
 our $follow;
 our $nochecksum;
@@ -142,6 +143,7 @@ if ($config)
 if (!GetOptions("test-name=s" => \$test_name,
 		"output-filename=s" => \$output_filename,
 		"no-checksum" => \$nochecksum,
+		"base-directory=s" => \$base_directory,
 		"version" =>\$version,
 		"quiet" => \$quiet,
 		"help" => \$help,
@@ -173,6 +175,12 @@ if ($adjust_testname)
 {
 	$test_name .= "__".`uname -a`;
 	$test_name =~ s/\W/_/g;
+}
+
+# Make sure base_directory contains an absolute path specification
+if ($base_directory)
+{
+	$base_directory = solve_relative_path($cwd, $base_directory);
 }
 
 # Check for follow option
@@ -375,7 +383,6 @@ sub process_dafile($)
 	my %bb_content;		# Contents of graph file
 	my $gcov_error;		# Error code of gcov tool
 	my $object_dir;		# Directory containing all object files
-	my $source_dir;		# Directory containing all source files
 	my $source_filename;	# Name of a source code file
 	my $gcov_file;		# Name of a .gcov file
 	my @gcov_content;	# Content of a .gcov file
@@ -388,6 +395,7 @@ sub process_dafile($)
 	my $object;		# gcov object header information
 	my @matches;		# List of absolute paths matching filename
 	my @unprocessed;	# List of unprocessed source code files
+	my $base_dir;		# Base directory for current file
 	my @result;
 	my $index;
 	my $da_renamed;		# If data file is to be renamed
@@ -402,10 +410,7 @@ sub process_dafile($)
 
         # avoid files from .libs dirs
         if ($da_dir =~ m/(.*)\/.libs$/) {
-                $source_dir = $1;
-        }
-        else {
-        	$source_dir = $da_dir;
+                $da_dir = $1;
         }
 
 	# Check for writable $da_dir (gcov will try to write files there)
@@ -424,14 +429,27 @@ sub process_dafile($)
 		$da_renamed = 0;
 	}
 
+	# Construct base_dir for current file
+	if ($base_directory)
+	{
+		$base_dir = $base_directory;
+	}
+	else
+	{
+		$base_dir = $da_dir;
+	}
+
 	# Construct name of graph file
-	$bb_filename = $source_dir."/".$da_basename.$graph_file_extension;
+	$bb_filename = $da_dir."/".$da_basename.$graph_file_extension;
 
 	# Find out the real location of graph file in case we're just looking at
 	# a link
 	while (readlink($bb_filename))
 	{
+		my $last_dir = dirname($bb_filename);
+
 		$bb_filename = readlink($bb_filename);
+		$bb_filename = solve_relative_path($last_dir, $bb_filename);
 	}
 
 	# Ignore empty graph file (e.g. source file with no statement)
@@ -448,25 +466,26 @@ sub process_dafile($)
 	{
 		if (defined($compatibility) && $compatibility eq $COMPAT_HAMMER)
 		{
-			%bb_content = read_hammer_bbg_file($bb_filename);
+			%bb_content = read_hammer_bbg_file($bb_filename,
+							   $base_dir);
 		}
 		else
 		{
-			%bb_content = read_bb_file($bb_filename);
+			%bb_content = read_bb_file($bb_filename, $base_dir);
 		}
 	} 
 	else
 	{
-		%bb_content = read_gcno_file($bb_filename);
+		%bb_content = read_gcno_file($bb_filename, $base_dir);
 	} 
 
 	# Set $object_dir to real location of object files. This may differ
 	# from $da_dir if the graph file is just a link to the "real" object
-	# file location. We need to apply GCOV with using that directory to
-	# ensure that all relative #include-files are found as well.
-        ($object_dir) = split_filename($da_filename);
+	# file location.
+	$object_dir = dirname($bb_filename);
 
-	# Is the data file in the same directory with all the other files?
+	# Is the data file in a different directory? (this happens e.g. with
+	# the gcov-kernel patch)
 	if ($object_dir ne $da_dir)
 	{
 		# Need to create link to data file in $object_dir
@@ -477,7 +496,7 @@ sub process_dafile($)
 	}
 
 	# Change to directory containing data files and apply GCOV
-        chdir($source_dir);
+        chdir($base_dir);
 
 	if ($da_renamed)
 	{
@@ -490,16 +509,14 @@ sub process_dafile($)
 	# Execute gcov command and suppress standard output
 	if ($preserve_paths)
 	{
-                print "Calling $gcov_tool $da_basename.c -o $object_dir -b\n";
-		$gcov_error = system_no_output(1, $gcov_tool, $da_basename.".c",
+		$gcov_error = system_no_output(1, $gcov_tool, $da_filename,
 					       "-o", $object_dir,
 					       "--preserve-paths",
 					       "-b");
 	}
 	else
 	{
-                print "Calling $gcov_tool $da_basename.c -o $object_dir -b\n";
-		$gcov_error = system_no_output(1, $gcov_tool, $da_basename.".c",
+		$gcov_error = system_no_output(1, $gcov_tool, $da_filename,
 					       "-o", $object_dir,
 					       "-b");
 	}
@@ -562,7 +579,7 @@ sub process_dafile($)
 
 		if ($source)
 		{
-			$source = solve_relative_path($source_dir, $source);
+			$source = solve_relative_path($base_dir, $source);
 		}
 
 		# gcov will happily create output even if there's no source code
@@ -1067,7 +1084,7 @@ sub read_gcov_file($)
 
 
 #
-# read_bb_file(bb_filename)
+# read_bb_file(bb_filename, base_dir)
 #
 # Read .bb file BB_FILENAME and return a hash containing the following
 # mapping:
@@ -1076,21 +1093,18 @@ sub read_gcov_file($)
 #               line number) for each function found
 #
 # for each entry in the .bb file. Filenames are absolute, i.e. relative
-# filenames are prefixed with bb_filename's path component.
+# filenames are prefixed with BASE_DIR.
 #
 # Die on error.
 #
 
-sub read_bb_file($)
+sub read_bb_file($$)
 {
 	my $bb_filename		= $_[0];
+	my $base_dir = $_[1];
 	my %result;
 	my $filename;
 	my $function_name;
-	my $cwd			= `pwd`;
-	chomp($cwd);
-	my $base_dir		= get_dir(solve_relative_path(
-					  $cwd, $bb_filename));
 	my $minus_one		= sprintf("%d", 0x80000001);
 	my $minus_two		= sprintf("%d", 0x80000002);
 	my $value;
@@ -1196,7 +1210,7 @@ sub read_string(*$)
 
 
 #
-# read_gcno_file(bb_filename)
+# read_gcno_file(bb_filename, base_dir)
 #
 # Read .gcno file BB_FILENAME and return a hash containing the following
 # mapping:
@@ -1205,26 +1219,23 @@ sub read_string(*$)
 #               line number) for each function found
 #
 # for each entry in the .gcno file. Filenames are absolute, i.e. relative
-# filenames are prefixed with bb_filename's path component.
+# filenames are prefixed with BASE_DIR.
 #
 # Die on error.
 #
 
-sub read_gcno_file($)
+sub read_gcno_file($$)
 {
 	my $gcno_filename	= $_[0];
+	my $base_dir = $_[1];
 	my %result;
 	my $filename;
 	my $function_name;
 	my $lineno;
 	my $length;
-	my $cwd			= `pwd`;
 	my $value;
 	my $endianness;
 	my $blocks;
-	chomp($cwd);
-	my $base_dir		= get_dir(solve_relative_path(
-						$cwd, $gcno_filename));
 	my $packed_word;
 	local *INPUT;
 
@@ -1355,7 +1366,7 @@ sub read_gcno_string(*$)
 
 
 #
-# read_hammer_bbg_file(bb_filename)
+# read_hammer_bbg_file(bb_filename, base_dir)
 #
 # Read .bbg file BB_FILENAME and return a hash containing the following
 # mapping:
@@ -1364,26 +1375,24 @@ sub read_gcno_string(*$)
 #               line number) for each function found
 #
 # for each entry in the .bbg file. Filenames are absolute, i.e. relative
-# filenames are prefixed with bb_filename's path component.
+# filenames are prefixed with BASE_DIR.
 #
 # Die on error.
 #
 
-sub read_hammer_bbg_file($)
+sub read_hammer_bbg_file($$)
 {
 	my $bbg_filename = $_[0];
+	my $base_dir = $_[1];
 	my %result;
 	my $filename;
 	my $function_name;
 	my $first_line;
 	my $lineno;
 	my $length;
-	my $cwd = `pwd`;
 	my $value;
 	my $endianness;
 	my $blocks;
-	chomp($cwd);
-	my $base_dir = get_dir(solve_relative_path($cwd, $bbg_filename));
 	my $packed_word;
 	local *INPUT;
 
