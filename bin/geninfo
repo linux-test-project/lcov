@@ -408,11 +408,6 @@ sub process_dafile($)
 	# Get directory and basename of data file
 	($da_dir, $da_basename) = split_filename($da_filename);
 
-        # avoid files from .libs dirs
-        if ($da_dir =~ m/(.*)\/.libs$/) {
-                $da_dir = $1;
-        }
-
 	# Check for writable $da_dir (gcov will try to write files there)
 	stat($da_dir);
 	if (!-w _)
@@ -1001,7 +996,7 @@ sub read_gcov_file($)
 					push(@branches, 2);
 				}
 			}
-			elsif (/^call/)
+			elsif (/^call/ || /^function/)
 			{
 				# Function call return data
 			}
