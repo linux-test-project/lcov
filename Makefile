@@ -11,8 +11,8 @@
 #   - clean:     remove all generated files
 #
 
-VERSION := 1.1
-RELEASE := 1
+VERSION := 1.5
+RELEASE := pre1
 DATE    := $(shell date +%Y-%m-%d)
 
 CFG_DIR := $(PREFIX)/etc
