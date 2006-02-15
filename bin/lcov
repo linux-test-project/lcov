@@ -801,6 +801,7 @@ sub read_info_file($)
 	my $hitcount;			# Count for lines hit
 	my $count;			# Execution count of current line
 	my $negative;			# If set, warn about negative counts
+	my $changed_testname;		# If set, warn about changed testname
 	my $checksum;			# Checksum of current line
 	local *INFO_HANDLE;		# Filehandle for .info file
 
@@ -852,10 +853,14 @@ sub read_info_file($)
 		# Switch statement
 		foreach ($line)
 		{
-			/^TN:(\w*(,\w+)?)/ && do
+			/^TN:([^,]*)/ && do
 			{
 				# Test name information found
 				$testname = defined($1) ? $1 : "";
+				if ($testname =~ s/\W/_/g)
+				{
+					$changed_testname = 1;
+				}
 				last;
 			};
 
@@ -992,6 +997,11 @@ sub read_info_file($)
 	{
 		warn("WARNING: negative counts found in tracefile ".
 		     "$tracefile\n");
+	}
+	if ($changed_testname)
+	{
+		warn("WARNING: invalid characters removed from testname in ".
+		     "tracefile $tracefile\n");
 	}
 
 	return(\%result);

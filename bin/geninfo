@@ -170,6 +170,12 @@ if ($version)
 	exit(0);
 }
 
+# Make sure test names only contain valid characters
+if ($test_name =~ s/\W/_/g)
+{
+	warn("WARNING: invalid characters removed from testname!\n");
+}
+
 # Adjust test name if necessary (standard for s390 architecture)
 if ($adjust_testname)
 {

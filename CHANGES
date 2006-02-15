@@ -1,9 +1,16 @@
 Version:
 ========
 
+genhtml:
+- Added check for invalid characters in test names
+
 geninfo:
 - Renamed sles9 compatibility mode to hammer compatibility mode
 - Fixed bbg file reading in hammer compatibility mode
+- Added check for invalid characters in test names
+
+lcov:
+- Added check for invalid characters in test names
 
 
 Version 1.4:
