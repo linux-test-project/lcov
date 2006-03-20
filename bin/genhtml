@@ -50,6 +50,12 @@
 #   2004-08-09 / Peter Oberparleiter: added configuration file support
 #   2005-03-04 / Cal Pierog: added legend to HTML output, fixed coloring of
 #                "good coverage" background
+#   2006-03-18 / Marcus Boerger: added --custom-intro, --custom-outro and
+#                overwrite --no-prefix if --prefix is present
+#   2006-03-20 / Peter Oberparleiter: changes to custom_* function (rename
+#                to html_prolog/_epilog, minor modifications to implementation),
+#                changed prefix/noprefix handling to be consistent with current
+#                logic
 #
 
 use strict;
@@ -115,6 +121,8 @@ sub apply_prefix($$);
 sub system_no_output($@);
 sub read_config($);
 sub apply_config($);
+sub get_html_prolog($);
+sub get_html_epilog($);
 
 
 # HTML related prototypes
@@ -186,6 +194,10 @@ our $highlight;		# If set, highlight lines covered by converted data only
 our $legend;		# If set, include legend in output
 our $tab_size = 8;	# Number of spaces to use in place of tab
 our $config;		# Configuration file contents
+our $html_prolog_file;	# Custom HTML prolog file (up to and including <body>)
+our $html_epilog_file;	# Custom HTML epilog file (from </body> onwards)
+our $html_prolog;	# Actual HTML prolog
+our $html_epilog;	# Actual HTML epilog
 
 our $cwd = `pwd`;	# Current working directory
 chomp($cwd);
@@ -227,7 +239,10 @@ if ($config)
 		"genhtml_no_source"		=> \$no_sourceview,
 		"genhtml_num_spaces"		=> \$tab_size,
 		"genhtml_highlight"		=> \$highlight,
-		"genhtml_legend"		=> \$legend});
+		"genhtml_legend"		=> \$legend,
+		"genhtml_html_prolog"		=> \$html_prolog_file,
+		"genhtml_html_epilog"		=> \$html_epilog_file
+		});
 }
 
 # Parse command line options
@@ -247,7 +262,9 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"legend"		=> \$legend,
 		"quiet"			=> \$quiet,
 		"help|h"		=> \$help,
-		"version"		=> \$version
+		"version"		=> \$version,
+		"html-prolog=s"		=> \$html_prolog_file,
+		"html-epilog=s"		=> \$html_epilog_file
 		))
 {
 	print_usage(*STDERR);
@@ -311,12 +328,24 @@ if ($tab_size < 1)
 	exit(1);
 }
 
+# Get HTML prolog and epilog
+$html_prolog = get_html_prolog($html_prolog_file);
+$html_epilog = get_html_epilog($html_epilog_file);
+
 # Issue a warning if --no-sourceview is enabled together with --frames
-if ($no_sourceview && $frames)
+if ($no_sourceview && defined($frames))
 {
 	warn("WARNING: option --frames disabled because --no-sourceview ".
 	     "was specified!\n");
 	$frames = undef;
+}
+
+# Issue a warning if --no-prefix is enabled together with --prefix
+if ($no_prefix && defined($dir_prefix))
+{
+	warn("WARNING: option --prefix disabled because --no-prefix was ".
+	     "specified!\n");
+	$dir_prefix = undef;
 }
 
 if ($frames)
@@ -336,7 +365,6 @@ if ($output_directory)
 			and die("ERROR: cannot create directory $_!\n");
 	}
 }
-
 
 # Do something
 gen_html();
@@ -362,23 +390,30 @@ Usage: $executable_name [OPTIONS] INFOFILE(S)
 Create HTML output for coverage data found in INFOFILE. Note that INFOFILE
 may also be a list of filenames.
 
+Misc:
   -h, --help                        Print this help, then exit
   -v, --version                     Print version number, then exit
   -q, --quiet                       Do not print progress messages
-  -s, --show-details                Generate detailed directory view
-  -f, --frames                      Use HTML frames for source code view
-  -b, --baseline-file BASEFILE      Use BASEFILE as baseline file
+
+Operation:
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
-  -t, --title TITLE                 Display TITLE in header of all pages
+  -s, --show-details                Generate detailed directory view
   -d, --description-file DESCFILE   Read test case descriptions from DESCFILE
   -k, --keep-descriptions           Do not remove unused test descriptions
-  -c, --css-file CSSFILE            Use external style sheet file CSSFILE
+  -b, --baseline-file BASEFILE      Use BASEFILE as baseline file
   -p, --prefix PREFIX               Remove PREFIX from all directory names
       --no-prefix                   Do not remove prefix from directory names
+
+HTML output:
+  -f, --frames                      Use HTML frames for source code view
+  -t, --title TITLE                 Display TITLE in header of all pages
+  -c, --css-file CSSFILE            Use external style sheet file CSSFILE
       --no-source                   Do not create source code view
       --num-spaces NUM              Replace tabs with NUM spaces in source view
       --highlight                   Highlight lines with converted-only data
       --legend                      Include color legend in HTML output
+      --html-prolog FILE            Use FILE as HTML prolog for generated pages
+      --html-epilog FILE            Use FILE as HTML epilog for generated pages
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -1035,7 +1070,7 @@ sub read_info_file($)
 	{
 		warn("WARNING: invalid characters removed from testname in ".
 		     "tracefile $tracefile\n");
-        }
+	}
 
 	return(\%result);
 }
@@ -1277,7 +1312,7 @@ sub read_testfile($)
 	{
 		warn("WARNING: invalid characters removed from testname in ".
 		     "descriptions file $_[0]\n");
-        }
+	}
 
 	return \%result;
 }
@@ -2072,28 +2107,15 @@ sub write_html(*$)
 
 sub write_html_prolog(*$$)
 {
+	my $basedir = $_[1];
 	my $pagetitle = $_[2];
+	my $prolog;
 
+	$prolog = $html_prolog;
+	$prolog =~ s/\@pagetitle\@/$pagetitle/g;
+	$prolog =~ s/\@basedir\@/$basedir/g;
 
-	# *************************************************************
-
-	write_html($_[0], <<END_OF_HTML)
-	<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
-
-	<html lang="en">
-
-	<head>
-	  <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
-	  <title>$pagetitle</title>
-	  <link rel="stylesheet" type="text/css" href="$_[1]gcov.css">
-	</head>
-
-	<body>
-
-END_OF_HTML
-	;
-
-	# *************************************************************
+	write_html($_[0], $prolog);
 }
 
 
@@ -2643,7 +2665,9 @@ END_OF_HTML
 
 sub write_html_epilog(*$;$)
 {
+	my $basedir = $_[1];
 	my $break_code = "";
+	my $epilog;
 
 	if (defined($_[2]))
 	{
@@ -2658,13 +2682,13 @@ sub write_html_epilog(*$;$)
 	  <tr><td class="versionInfo">Generated by: <a href="$lcov_url"$break_code>$lcov_version</a></td></tr>
 	  </table>
 	  <br>
-
-	</body>
-	</html>
 END_OF_HTML
 	;
 
-	# *************************************************************
+	$epilog = $html_epilog;
+	$epilog =~ s/\@basedir\@/$basedir/g;
+
+	write_html($_[0], $epilog);
 }
 
 
@@ -3708,4 +3732,89 @@ sub apply_config($)
 			${$ref->{$_}} = $config->{$_};
 		}
 	}
+}
+
+
+#
+# get_html_prolog(FILENAME)
+#
+# If FILENAME is defined, return contents of file. Otherwise return default
+# HTML prolog. Die on error.
+#
+
+sub get_html_prolog($)
+{
+	my $filename = $_[0];
+	my $result = "";
+
+	if (defined($filename))
+	{
+		local *HANDLE;
+
+		open(HANDLE, "<".$filename)
+			or die("ERROR: cannot open html prolog $filename!\n");
+		while (<HANDLE>)
+		{
+			$result .= $_;
+		}
+		close(HANDLE);
+	}
+	else
+	{
+		$result = <<END_OF_HTML
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+  <title>\@pagetitle\@</title>
+  <link rel="stylesheet" type="text/css" href="\@basedir\@gcov.css">
+</head>
+
+<body>
+
+END_OF_HTML
+		;
+	}
+
+	return $result;
+}
+
+
+#
+# get_html_epilog(FILENAME)
+#
+# If FILENAME is defined, return contents of file. Otherwise return default
+# HTML epilog. Die on error.
+#
+sub get_html_epilog($)
+{
+	my $filename = $_[0];
+	my $result = "";
+
+	if (defined($filename))
+	{
+		local *HANDLE;
+
+		open(HANDLE, "<".$filename)
+			or die("ERROR: cannot open html epilog $filename!\n");
+		while (<HANDLE>)
+		{
+			$result .= $_;
+		}
+		close(HANDLE);
+	}
+	else
+	{
+		$result = <<END_OF_HTML
+
+</body>
+</html>
+END_OF_HTML
+		;
+	}
+
+	return $result;
+
 }

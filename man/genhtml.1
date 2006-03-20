@@ -37,6 +37,11 @@ genhtml - Generate HTML view from LCOV coverage data files
 .RB [ \-\-highlight ]
 .br
 .RB [ \-\-legend ]
+.RB [ \-\-html-prolog
+.IR prolog-file ]
+.br
+.RB [ \-\-html-epilog
+.IR epilog-file ]
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -306,6 +311,50 @@ in the resulting HTML output.
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_legend .
+
+.RE
+.BI "\-\-html-prolog " prolog-file
+.RS
+Read customized HTML prolog from 
+.IR prolog-file .
+
+Use this option to replace the default HTML prolog (the initial part of the
+HTML source code leading up to and including the <body> tag) with the contents
+of
+.IR prolog-file .
+Within the prolog text, the following words will be replaced when a page is generated:
+
+.B "@pagetitle@"
+.br
+The title of the page.
+
+.B "@basedir@"
+.br
+A relative path leading to the base directory (e.g. for locating css-files).
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_html_prolog .
+
+.RE
+.BI "\-\-html-epilog " epilog-file
+.RS
+Read customized HTML epilog from 
+.IR epilog-file .
+
+Use this option to replace the default HTML epilog (the final part of the HTML
+source including </body>) with the contents of
+.IR epilog-file .
+
+Within the epilog text, the following words will be replaced when a page is generated:
+
+.B "@basedir@"
+.br
+A relative path leading to the base directory (e.g. for locating css-files).
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_html_epilog .
 
 .SH FILES
 

@@ -54,6 +54,14 @@ genhtml_highlight = 0
 # genhtml)
 genhtml_legend = 0
 
+# Use FILE as HTML prolog for generated pages (same as --html-prolog option of
+# genhtml)
+#genhtml_html_prolog = FILE
+
+# Use FILE as HTML epilog for generated pages (same as --html-epilog option of
+# genhtml)
+#genhtml_html_epilog = FILE
+
 # Location of the gcov tool (used by geninfo)
 #geninfo_gcov_tool = gcov
 
