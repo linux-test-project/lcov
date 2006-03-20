@@ -62,6 +62,10 @@ genhtml_legend = 0
 # genhtml)
 #genhtml_html_epilog = FILE
 
+# Use custom filename extension for pages (same as --html-extension option of
+# genhtml)
+#html_extension = html
+
 # Location of the gcov tool (used by geninfo)
 #geninfo_gcov_tool = gcov
 

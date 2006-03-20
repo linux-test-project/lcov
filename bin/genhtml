@@ -56,6 +56,7 @@
 #                to html_prolog/_epilog, minor modifications to implementation),
 #                changed prefix/noprefix handling to be consistent with current
 #                logic
+#   2006-03-20 / Peter Oberparleiter: added --html-extension option
 #
 
 use strict;
@@ -198,6 +199,7 @@ our $html_prolog_file;	# Custom HTML prolog file (up to and including <body>)
 our $html_epilog_file;	# Custom HTML epilog file (from </body> onwards)
 our $html_prolog;	# Actual HTML prolog
 our $html_epilog;	# Actual HTML epilog
+our $html_ext = "html";	# Extension for generated HTML files
 
 our $cwd = `pwd`;	# Current working directory
 chomp($cwd);
@@ -241,7 +243,8 @@ if ($config)
 		"genhtml_highlight"		=> \$highlight,
 		"genhtml_legend"		=> \$legend,
 		"genhtml_html_prolog"		=> \$html_prolog_file,
-		"genhtml_html_epilog"		=> \$html_epilog_file
+		"genhtml_html_epilog"		=> \$html_epilog_file,
+		"genthml_html_extension"	=> \$html_ext
 		});
 }
 
@@ -264,7 +267,8 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"help|h"		=> \$help,
 		"version"		=> \$version,
 		"html-prolog=s"		=> \$html_prolog_file,
-		"html-epilog=s"		=> \$html_epilog_file
+		"html-epilog=s"		=> \$html_epilog_file,
+		"html-extension=s"	=> \$html_ext
 		))
 {
 	print_usage(*STDERR);
@@ -414,6 +418,7 @@ HTML output:
       --legend                      Include color legend in HTML output
       --html-prolog FILE            Use FILE as HTML prolog for generated pages
       --html-epilog FILE            Use FILE as HTML epilog for generated pages
+      --html-extension EXT          Use EXT as filename extension for pages
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -542,11 +547,11 @@ sub gen_html()
 		# Generate name for directory overview HTML page
 		if ($dir_name =~ /^\/(.*)$/)
 		{
-			$link_name = substr($dir_name, 1)."/index.html";
+			$link_name = substr($dir_name, 1)."/index.$html_ext";
 		}
 		else
 		{
-			$link_name = $dir_name."/index.html";
+			$link_name = $dir_name."/index.$html_ext";
 		}
 
 		$overview{$dir_name} = "$lines_found,$lines_hit,$link_name";
@@ -556,8 +561,8 @@ sub gen_html()
 
 	# Generate overview page
 	info("Writing directory view page.\n");
-	open(*HTML_HANDLE, ">index.html")
-		or die("ERROR: cannot open index.html for writing!\n");
+	open(*HTML_HANDLE, ">index.$html_ext")
+		or die("ERROR: cannot open index.$html_ext for writing!\n");
 	write_html_prolog(*HTML_HANDLE, "", "LCOV - $test_title");
 	write_header(*HTML_HANDLE, 0, "", "", $overall_found, $overall_hit);
 	write_file_table(*HTML_HANDLE, "", \%overview, {}, 0);
@@ -649,14 +654,14 @@ sub process_dir($)
 			# Link to frameset page
 			$overview{$base_name} =
 				"$lines_found,$lines_hit,".
-				"$base_name.gcov.frameset.html";
+				"$base_name.gcov.frameset.$html_ext";
 		}
 		else
 		{
 			# Link directory to source code view page
 			$overview{$base_name} =
 				"$lines_found,$lines_hit,".
-				"$base_name.gcov.html";
+				"$base_name.gcov.$html_ext";
 		}
 
 		$testhash{$base_name} = $testdata;
@@ -666,8 +671,8 @@ sub process_dir($)
 	}
 
 	# Generate directory overview page (without details)
-	open(*HTML_HANDLE, ">$rel_dir/index.html")
-		or die("ERROR: cannot open $rel_dir/index.html ".
+	open(*HTML_HANDLE, ">$rel_dir/index.$html_ext")
+		or die("ERROR: cannot open $rel_dir/index.$html_ext ".
 		       "for writing!\n");
 	write_html_prolog(*HTML_HANDLE, $base_dir,
 			  "LCOV - $test_title - $trunc_dir");
@@ -680,9 +685,9 @@ sub process_dir($)
 	if ($show_details)
 	{
 		# Generate directory overview page including details
-		open(*HTML_HANDLE, ">$rel_dir/index-detail.html")
+		open(*HTML_HANDLE, ">$rel_dir/index-detail.$html_ext")
 			or die("ERROR: cannot open $rel_dir/".
-			       "index-detail.html for writing!\n");
+			       "index-detail.$html_ext for writing!\n");
 		write_html_prolog(*HTML_HANDLE, $base_dir,
 				  "LCOV - $test_title - $trunc_dir");
 		write_header(*HTML_HANDLE, 1, $trunc_dir, $rel_dir,
@@ -793,8 +798,8 @@ sub process_file($$$)
 
 	$converted = get_converted_lines($testdata);
 	# Generate source code view for this file
-	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.html")
-		or die("ERROR: cannot open $rel_dir/$base_name.gcov.html ".
+	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.$html_ext")
+		or die("ERROR: cannot open $rel_dir/$base_name.gcov.$html_ext ".
 		       "for writing!\n");
 	$pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
 	write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
@@ -817,17 +822,17 @@ sub process_file($$$)
 		@source);
 
 	# Create frameset page
-	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.frameset.html")
+	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.frameset.$html_ext")
 		or die("ERROR: cannot open ".
-		       "$rel_dir/$base_name.gcov.frameset.html".
+		       "$rel_dir/$base_name.gcov.frameset.$html_ext".
 		       " for writing!\n");
 	write_frameset(*HTML_HANDLE, $base_dir, $base_name, $pagetitle);
 	close(*HTML_HANDLE);
 
 	# Write overview frame
-	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.overview.html")
+	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.overview.$html_ext")
 		or die("ERROR: cannot open ".
-		       "$rel_dir/$base_name.gcov.overview.html".
+		       "$rel_dir/$base_name.gcov.overview.$html_ext".
 		       " for writing!\n");
 	write_overview(*HTML_HANDLE, $base_dir, $base_name, $pagetitle,
 		       scalar(@source));
@@ -1401,8 +1406,9 @@ sub write_description_file($$$)
 	my $test_name;
 	local *HTML_HANDLE;
 
-	open(HTML_HANDLE, ">descriptions.html")
-		or die("ERROR: cannot open descriptions.html for writing!\n");
+	open(HTML_HANDLE, ">descriptions.$html_ext")
+		or die("ERROR: cannot open descriptions.$html_ext for ".
+		       "writing!\n");
 
 	write_html_prolog(*HTML_HANDLE, "", "LCOV - test case descriptions");
 	write_header(*HTML_HANDLE, 3, "", "", $found, $hit);
@@ -2715,8 +2721,8 @@ sub write_frameset(*$$$)
 	</head>
 
 	<frameset cols="$frame_width,*">
-	  <frame src="$_[2].gcov.overview.html" name="overview">
-	  <frame src="$_[2].gcov.html" name="source">
+	  <frame src="$_[2].gcov.overview.$html_ext" name="overview">
+	  <frame src="$_[2].gcov.$html_ext" name="source">
 	  <noframes>
 	    <center>Frames not supported by your browser!<br></center>
 	  </noframes>
@@ -2744,7 +2750,7 @@ sub write_overview_line(*$$$)
 	# *************************************************************
 
 	write_html($_[0], <<END_OF_HTML)
-	    <area shape="rect" coords="0,$y1,$x2,$y2" href="$_[1].gcov.html#$_[3]" target="source" alt="overview">
+	    <area shape="rect" coords="0,$y1,$x2,$y2" href="$_[1].gcov.$html_ext#$_[3]" target="source" alt="overview">
 END_OF_HTML
 	;
 
@@ -2807,7 +2813,7 @@ END_OF_HTML
 	  </map>
 
 	  <center>
-	  <a href="$_[2].gcov.html#top" target="source">Top</a><br><br>
+	  <a href="$_[2].gcov.$html_ext#top" target="source">Top</a><br><br>
 	  <img src="$_[2].gcov.png" width=$overview_width height=$max_line alt="Overview" border=0 usemap="#overview">
 	  </center>
 	</body>
@@ -2865,7 +2871,7 @@ sub write_header(*$$$$$)
 	{
 		# Directory overview
 		$base_dir = get_relative_base_path($rel_filename);
-		$view = "<a href=\"$base_dir"."index.html\">".
+		$view = "<a href=\"$base_dir"."index.$html_ext\">".
 			"$overview_title</a> - $trunc_name";
 	}
 	elsif ($type == 2)
@@ -2880,16 +2886,16 @@ sub write_header(*$$$$$)
 		{
 			# Need to break frameset when clicking any of these
 			# links
-			$view = "<a href=\"$base_dir"."index.html\" ".
+			$view = "<a href=\"$base_dir"."index.$html_ext\" ".
 				"target=\"_parent\">$overview_title</a> - ".
-				"<a href=\"index.html\" target=\"_parent\">".
+				"<a href=\"index.$html_ext\" target=\"_parent\">".
 				"$dir_name</a> - $base_name";
 		}
 		else
 		{
-			$view = "<a href=\"$base_dir"."index.html\">".
+			$view = "<a href=\"$base_dir"."index.$html_ext\">".
 				"$overview_title</a> - ".
-				"<a href=\"index.html\">".
+				"<a href=\"index.$html_ext\">".
 				"$dir_name</a> - $base_name";
 		}
 	}
@@ -2897,7 +2903,7 @@ sub write_header(*$$$$$)
 	{
 		# Test description header
 		$base_dir = "";
-		$view = "<a href=\"$base_dir"."index.html\">".
+		$view = "<a href=\"$base_dir"."index.$html_ext\">".
 			"$overview_title</a> - test case descriptions";
 	}
 
@@ -2911,13 +2917,13 @@ sub write_header(*$$$$$)
 		{
 			# Need to break frameset when clicking this link
 			$test .= " ( <a href=\"$base_dir".
-				 "descriptions.html\" target=\"_parent\">".
+				 "descriptions.$html_ext\" target=\"_parent\">".
 				 "view test case descriptions</a> )";
 		}
 		else
 		{
 			$test .= " ( <a href=\"$base_dir".
-				 "descriptions.html\">".
+				 "descriptions.$html_ext\">".
 				 "view test case descriptions</a> )";
 		}
 	}
@@ -3001,7 +3007,7 @@ sub write_file_table(*$$$$)
 			# This is the detail list, provide link to standard
 			# list
 			$coverage_heading .= " ( <a class=\"detail\" href=\"".
-					     "index.html\">hide ".
+					     "index.$html_ext\">hide ".
 					     "details</a> )";
 		}
 		else
@@ -3009,7 +3015,7 @@ sub write_file_table(*$$$$)
 			# This is the standard list, provide link to detail
 			# list
 			$coverage_heading .= " ( <a class=\"detail\" href=\"".
-					     "index-detail.html\">show ".
+					     "index-detail.$html_ext\">show ".
 					     "details</a> )";
 		}
 	}
@@ -3057,7 +3063,7 @@ sub write_file_table(*$$$$)
 			if ($test_description{$testname})
 			{
 				$testname = "<a href=\"$base_dir".
-					    "descriptions.html#$testname\">".
+					    "descriptions.$html_ext#$testname\">".
 					    "$testname</a>";
 			}
 

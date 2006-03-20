@@ -42,6 +42,9 @@ genhtml - Generate HTML view from LCOV coverage data files
 .br
 .RB [ \-\-html-epilog
 .IR epilog-file ]
+.RB [ \-\-html-extension
+.IR extension ]
+.br
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -355,6 +358,21 @@ A relative path leading to the base directory (e.g. for locating css-files).
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_html_epilog .
+
+.RE
+.BI "\-\-html-extension " extension
+.RS
+
+Use customized filename extension for generated HTML pages.
+
+This option is useful in situations where different filename extensions
+are required to render the resulting pages correctly (e.g. php). Note that
+a '.' will be inserted between the filename and the extension specified by
+this option.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_html_extension .
 
 .SH FILES
 
