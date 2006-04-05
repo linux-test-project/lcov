@@ -304,6 +304,7 @@ sequentially.
   -o, --output-filename OUTFILE     Write data only to OUTFILE
   -f, --follow                      Follow links when searching .da/.gcda files
   -n, --no-checksum                 Do not calculate checksum for each line
+  -b, --base-directory DIR          Use DIR as base directory for relative paths
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE

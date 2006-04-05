@@ -37,6 +37,9 @@ lcov - GCOV coverage tool extension
 .RB [ \-l | \-\-list
 .IR tracefile ]
 .br
+.RB [ \-b | \-\-base-directory
+.IR directory ]
+.br
 .RB [ \-\-diff
 .IR "tracefile diff" ]
 .br
@@ -259,6 +262,28 @@ List the contents of the
 
 Only one of  \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
 at a time.
+
+.RE
+.BI "\-b " directory
+.br
+.BI "\-\-base-directory " directory
+.RS
+.RI "Use " directory
+as base directory for relative paths.
+
+Use this option to specify the base directory of a build-environment
+when lcov produces error messages like:
+
+.RS
+ERROR: could not read source file /home/user/project/subdir1/subdir2/subdir1/subdir2/file.c
+.RE
+
+In this example, use /home/user/project as base directory.
+
+This option is required when using lcov on projects built with libtool or
+similar build environments that work with a base directory, i.e. environments,
+where the current working directory when invoking a compiler is not the same
+directory in which the source code file is located.
 
 .RE
 .BI "\-\-diff " "tracefile difffile"

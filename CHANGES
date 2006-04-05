@@ -3,14 +3,23 @@ Version:
 
 genhtml:
 - Added check for invalid characters in test names
+- Added --legend option
+- Added --html-prolog option
+- Added --html-epilog option
+- Added --html-extension option
+- Added warning when specifying --no-prefix and --prefix
+- Reworked help text to make it more readable
 
 geninfo:
-- Renamed sles9 compatibility mode to hammer compatibility mode
+- Renamed 'sles9' compatibility mode to 'hammer' compatibility mode
+- Added support for manrake gcc 3.3.2
 - Fixed bbg file reading in hammer compatibility mode
 - Added check for invalid characters in test names
+- Added --base-directory option
 
 lcov:
 - Added check for invalid characters in test names
+- Added --base-directory option
 
 
 Version 1.4:

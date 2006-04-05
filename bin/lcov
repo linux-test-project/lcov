@@ -340,6 +340,7 @@ get coverage data for a user space program.
   -e, --extract FILE PATTERN      Extract files matching PATTERN from FILE
   -r, --remove FILE PATTERN       Remove files matching PATTERN from FILE
   -l, --list FILE                 List contents of tracefile FILE
+  -b, --base-directory DIR        Use DIR as base directory for relative paths
       --diff FILE DIFF            Transform tracefile FILE according to DIFF
       --no-checksum               Do not calculate a checksum for each line
       --convert-filenames         Convert filenames when applying diff
