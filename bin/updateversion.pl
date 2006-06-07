@@ -15,7 +15,6 @@ our $directory = $ARGV[0];
 our $version = $ARGV[1];
 our $date = $ARGV[2];
 our $release = $ARGV[3];
-our $year = (split("-", $date))[0];
 
 our @filelist = ("bin/gendesc", "bin/genhtml", "bin/geninfo",  "bin/genpng",
 		 "bin/lcov", "man/gendesc.1", "man/genhtml.1",
@@ -28,9 +27,6 @@ our @version_pattern = ('(LTP GCOV extension version )(\d+\.\d+)',
 
 our @date_pattern = ('(\.TH \w+ \d+ \"\w+ \d+.\d+" )(\d+-\d+-\d+)',
 		     '(Last\s+changes:\s+)(\d+-\d+-\d+)');
-
-our @year_pattern = ('(Copyright.*2002)(.*)');
-
 
 our @release_pattern = ('(Release:\s*)(\d+)');
 
@@ -128,11 +124,6 @@ sub replace($)
 		foreach $pattern (@release_pattern)
 		{
 			$line =~ s/$pattern/$1$release/g;
-		}
-
-		foreach $pattern (@year_pattern)
-		{
-			$line =~ s/$pattern/$1,$year/g;
 		}
 
 		print(OUT $line);

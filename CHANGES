@@ -21,9 +21,6 @@ lcov:
 - Added check for invalid characters in test names
 - Added --base-directory option
 
-updateversion.pl:
-- Modified to include update of copyright statement
-
 
 Version 1.4:
 ============
