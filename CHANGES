@@ -1,5 +1,5 @@
-Version:
-========
+Version 1.5:
+============
 
 genhtml:
 - Added check for invalid characters in test names
@@ -12,7 +12,7 @@ genhtml:
 
 geninfo:
 - Renamed 'sles9' compatibility mode to 'hammer' compatibility mode
-- Added support for manrake gcc 3.3.2
+- Added support for mandrake gcc 3.3.2
 - Fixed bbg file reading in hammer compatibility mode
 - Added check for invalid characters in test names
 - Added --base-directory option
@@ -20,6 +20,9 @@ geninfo:
 lcov:
 - Added check for invalid characters in test names
 - Added --base-directory option
+
+updateversion.pl:
+- Modified to include update of copyright statement
 
 
 Version 1.4:

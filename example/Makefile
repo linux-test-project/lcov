@@ -30,7 +30,7 @@ endif
 all: output
 
 example: example.o iterate.o gauss.o
-	$(CC) example.o iterate.o gauss.o -o example
+	$(CC) example.o iterate.o gauss.o -o example -lgcov
 
 example.o: example.c iterate.h gauss.h
 	$(CC) $(CFLAGS) -c example.c -o example.o
@@ -93,5 +93,6 @@ test_overflow:
 	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "test_overflow"
 
 clean:
-	rm -rf *.o *.bb *.bbg *.da *.info output example descriptions
+	rm -rf *.o *.bb *.bbg *.da *.gcno *.gcda *.info output example \
+	descriptions
 
