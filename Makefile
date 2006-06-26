@@ -11,7 +11,7 @@
 #   - clean:     remove all generated files
 #
 
-VERSION := 1.5
+VERSION := 1.6
 RELEASE := pre1
 DATE    := $(shell date +%Y-%m-%d)
 
