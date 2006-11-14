@@ -544,12 +544,12 @@ sub kernel_capture()
 	{
 		# Prefix list of kernel sub-directories with the gcov kernel
 		# directory
-		my $file_list = join(" ", map {"$gcov_dir/$_";}
-				     @kernel_directory);
+		@kernel_directory = map("$gcov_dir/$_", @kernel_directory);
 
 		# Copy files from gcov kernel directory
-		system("cp", "-dr", $file_list, $temp_dir_name)
-			and die("ERROR: cannot copy files from $file_list!\n");
+		system("cp", "-dr", @kernel_directory, $temp_dir_name)
+			and die("ERROR: cannot copy files from ".
+				join(" ", @kernel_directory)."!\n");
 	}
 
 	# Make directories writable
