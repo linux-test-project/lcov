@@ -104,6 +104,7 @@ our $version;
 our $follow;
 our $nochecksum;
 our $preserve_paths;
+our $compat_libtool;
 our $adjust_testname = (`uname -m` =~ /^s390/); # Always on on s390
 our $config;		# Configuration file contents
 our $compatibility;	# Compatibility version flag - used to indicate
@@ -147,7 +148,8 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"version" =>\$version,
 		"quiet" => \$quiet,
 		"help" => \$help,
-		"follow" => \$follow
+		"follow" => \$follow,
+		"compat_libtool" => \$compat_libtool
 		))
 {
 	print_usage(*STDERR);
@@ -305,6 +307,7 @@ sequentially.
   -f, --follow                      Follow links when searching .da/.gcda files
   -n, --no-checksum                 Do not calculate checksum for each line
   -b, --base-directory DIR          Use DIR as base directory for relative paths
+      --compat_libtool              Assume libtool environment
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -385,6 +388,7 @@ sub process_dafile($)
 
 	my $da_filename;	# Name of data file to process
 	my $da_dir;		# Directory of data file
+	my $source_dir;		# Directory of source file
 	my $da_basename;	# data filename without ".da/.gcda" extension
 	my $bb_filename;	# Name of respective graph file
 	my %bb_content;		# Contents of graph file
@@ -415,11 +419,11 @@ sub process_dafile($)
 	# Get directory and basename of data file
 	($da_dir, $da_basename) = split_filename($da_filename);
 
-	# Check for writable $da_dir (gcov will try to write files there)
-	stat($da_dir);
-	if (!-w _)
-	{
-		die("ERROR: cannot write to directory $da_dir!\n");
+	# avoid files from .libs dirs 	 
+	if ($compat_libtool && $da_dir =~ m/(.*)\/\.libs$/) {
+		$source_dir = $1;
+	} else {
+		$source_dir = $da_dir;
 	}
 
 	if (-z $da_filename)
@@ -438,7 +442,14 @@ sub process_dafile($)
 	}
 	else
 	{
-		$base_dir = $da_dir;
+		$base_dir = $source_dir;
+	}
+
+	# Check for writable $base_dir (gcov will try to write files there)
+	stat($base_dir);
+	if (!-w _)
+	{
+		die("ERROR: cannot write to directory $base_dir!\n");
 	}
 
 	# Construct name of graph file
