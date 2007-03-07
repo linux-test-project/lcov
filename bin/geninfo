@@ -66,6 +66,9 @@ our $BBG_FILE_MAGIC	= 0x67626267;
 
 our $COMPAT_HAMMER	= "hammer";
 
+our $ERROR_GCOV		= 0;
+our $ERROR_SOURCE	= 1;
+
 # Prototypes
 sub print_usage(*);
 sub gen_info($);
@@ -105,10 +108,12 @@ our $follow;
 our $nochecksum;
 our $preserve_paths;
 our $compat_libtool;
-our $adjust_testname = (`uname -m` =~ /^s390/); # Always on on s390
+our $adjust_testname;
 our $config;		# Configuration file contents
 our $compatibility;	# Compatibility version flag - used to indicate
 			# non-standard GCOV data format versions
+our @ignore_errors;	# List of errors to ignore (parameter)
+our @ignore;		# List of errors to ignore (array)
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -149,7 +154,9 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"quiet" => \$quiet,
 		"help" => \$help,
 		"follow" => \$follow,
-		"compat_libtool" => \$compat_libtool
+		"compat-libtool" => \$compat_libtool,
+		"gcov-tool=s" => \$gcov_tool,
+		"ignore-errors=s" => \@ignore_errors
 		))
 {
 	print_usage(*STDERR);
@@ -178,7 +185,7 @@ if ($test_name =~ s/\W/_/g)
 	warn("WARNING: invalid characters removed from testname!\n");
 }
 
-# Adjust test name if necessary (standard for s390 architecture)
+# Adjust test name to include uname output if requested
 if ($adjust_testname)
 {
 	$test_name .= "__".`uname -a`;
@@ -217,6 +224,31 @@ else
 		{
 			die("ERROR: cannot read $_!\n");
 		}
+	}
+}
+
+if (@ignore_errors)
+{
+	my @expanded;
+	my $error;
+
+	# Expand comma-separated entries
+	foreach (@ignore_errors) {
+		if (/,/)
+		{
+			push(@expanded, split(",", $_));
+		}
+		else
+		{
+			push(@expanded, $_);
+		}
+	}
+
+	foreach (@expanded)
+	{
+		/^gcov$/ && do { $ignore[$ERROR_GCOV] = 1; next; } ;
+		/^source$/ && do { $ignore[$ERROR_SOURCE] = 1; next; };
+		die("ERROR: unknown argument for --ignore-errors: $_\n");
 	}
 }
 
@@ -307,7 +339,9 @@ sequentially.
   -f, --follow                      Follow links when searching .da/.gcda files
   -n, --no-checksum                 Do not calculate checksum for each line
   -b, --base-directory DIR          Use DIR as base directory for relative paths
-      --compat_libtool              Assume libtool environment
+      --compat-libtool              Assume libtool environment
+      --gcov-tool TOOL              Specify gcov tool location
+      --ignore-errors ERROR         Continue after ERROR (gcov, source)
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -546,7 +580,15 @@ sub process_dafile($)
 		unlink($object_dir."/".$da_basename.$data_file_extension);
 	}
 
-	$gcov_error and die("ERROR: GCOV failed for $da_filename!\n");
+	if ($gcov_error)
+	{
+		if ($ignore[$ERROR_GCOV])
+		{
+			warn("WARNING: GCOV failed for $da_filename!\n");
+			return;
+		}
+		die("ERROR: GCOV failed for $da_filename!\n");
+	}
 
 	# Collect data from resulting .gcov files and create .info file
 	@gcov_list = glob("*.gcov");
@@ -589,6 +631,10 @@ sub process_dafile($)
 	foreach $gcov_file (@gcov_list)
 	{
 		($source, $object) = read_gcov_header($gcov_file);
+		if (!defined($source))
+		{
+			next;
+		}
 
 		if ($source)
 		{
@@ -600,6 +646,12 @@ sub process_dafile($)
 		# to pull the emergency brake here.
 		if (defined($source) && ! -r $source && ! $nochecksum)
 		{
+			if ($ignore[$ERROR_SOURCE])
+			{
+				warn("WARNING: could not read source file ".
+				     "$source\n");
+				next;
+			}
 			die("ERROR: could not read source file $source\n");
 		}
 
@@ -924,8 +976,15 @@ sub read_gcov_header($)
 	my $object;
 	local *INPUT;
 
-	open(INPUT, $_[0])
-		or die("ERROR: cannot read $_[0]!\n");
+	if (!open(INPUT, $_[0]))
+	{
+		if ($ignore_errors[$ERROR_GCOV])
+		{
+			warn("WARNING: cannot read $_[0]!\n");
+			return (undef,undef);
+		}
+		die("ERROR: cannot read $_[0]!\n");
+	}
 
 	while (<INPUT>)
 	{

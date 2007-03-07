@@ -148,6 +148,8 @@ our $follow;		# If set, indicates that find shall follow links
 our $diff_path = "";	# Path removed from tracefile when applying diff
 our $base_directory;	# Base directory (cwd of gcc during compilation)
 our $compat_libtool;	# Specify to work with libtool build environment
+our $gcov_tool;
+our $ignore_errors;
 our $config;		# Configuration file contents
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
@@ -205,7 +207,9 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"follow" => \$follow,
 		"path=s" => \$diff_path,
 		"base-directory=s" => \$base_directory,
-		"compat_libtool" => \$compat_libtool
+		"compat-libtool" => \$compat_libtool,
+		"gcov-tool=s" => \$gcov_tool,
+		"ignore-errors=s" => \$ignore_errors
 		))
 {
 	print_usage(*STDERR);
@@ -328,27 +332,34 @@ Use lcov to collect coverage data from either the currently running Linux
 kernel or from a user space application. Specify the --directory option to
 get coverage data for a user space program.
 
+Misc:
   -h, --help                      Print this help, then exit
   -v, --version                   Print version number, then exit
   -q, --quiet                     Do not print progress messages
+
+Operation:
   -z, --zerocounters              Reset all execution counts to zero
   -c, --capture                   Capture coverage data
+  -a, --add-tracefile FILE        Add contents of tracefiles
+  -e, --extract FILE PATTERN      Extract files matching PATTERN from FILE
+  -r, --remove FILE PATTERN       Remove files matching PATTERN from FILE
+  -l, --list FILE                 List contents of tracefile FILE
+
+Options:
   -t, --test-name NAME            Specify test name to be stored with data
   -o, --output-file FILENAME      Write data to FILENAME instead of stdout
   -d, --directory DIR             Use .da files in DIR instead of kernel
   -f, --follow                    Follow links when searching .da files
   -k, --kernel-directory KDIR     Capture kernel coverage data only from KDIR
-  -a, --add-tracefile FILE        Add contents of tracefiles
-  -e, --extract FILE PATTERN      Extract files matching PATTERN from FILE
-  -r, --remove FILE PATTERN       Remove files matching PATTERN from FILE
-  -l, --list FILE                 List contents of tracefile FILE
   -b, --base-directory DIR        Use DIR as base directory for relative paths
       --diff FILE DIFF            Transform tracefile FILE according to DIFF
       --no-checksum               Do not calculate a checksum for each line
       --convert-filenames         Convert filenames when applying diff
       --strip DEPTH               Strip initial DEPTH directory levels in diff
       --path PATH                 Strip PATH from tracefile when applying diff
-      --compat_libtool            Assume libtool environment
+      --compat-libtool            Assume libtool environment
+      --gcov-tool TOOL            Specify gcov tool location
+      --ignore-errors ERROR       Continue after ERROR (gcov, source)
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -468,7 +479,15 @@ sub userspace_capture()
 	}
 	if ($compat_libtool)
 	{
-		@param = (@param, "--compat_libtool");
+		@param = (@param, "--compat-libtool");
+	}
+	if ($gcov_tool)
+	{
+		@param = (@param, "--gcov-tool", $gcov_tool);
+	}
+	if ($ignore_errors)
+	{
+		@param = (@param, "--ignore-errors", $ignore_errors);
 	}
 
 	system(@param);
@@ -593,6 +612,10 @@ sub kernel_capture()
 	if ($nochecksum)
 	{
 		@param = (@param, "--no-checksum");
+	}
+	if ($gcov_tool)
+	{
+		@param = (@param, "--gcov-tool", $gcov_tool);
 	}
 	system(@param) and exit($? >> 8);
 
