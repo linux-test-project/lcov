@@ -344,6 +344,7 @@ Operation:
   -e, --extract FILE PATTERN      Extract files matching PATTERN from FILE
   -r, --remove FILE PATTERN       Remove files matching PATTERN from FILE
   -l, --list FILE                 List contents of tracefile FILE
+      --diff FILE DIFF            Transform tracefile FILE according to DIFF
 
 Options:
   -t, --test-name NAME            Specify test name to be stored with data
@@ -352,7 +353,6 @@ Options:
   -f, --follow                    Follow links when searching .da files
   -k, --kernel-directory KDIR     Capture kernel coverage data only from KDIR
   -b, --base-directory DIR        Use DIR as base directory for relative paths
-      --diff FILE DIFF            Transform tracefile FILE according to DIFF
       --no-checksum               Do not calculate a checksum for each line
       --convert-filenames         Convert filenames when applying diff
       --strip DEPTH               Strip initial DEPTH directory levels in diff
