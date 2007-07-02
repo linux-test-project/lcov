@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-#   Copyright (c) International Business Machines  Corp., 2002
+#   Copyright (c) International Business Machines  Corp., 2002,2007
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -105,9 +105,11 @@ our $output_filename;
 our $base_directory;
 our $version;
 our $follow;
-our $nochecksum;
+our $checksum;
+our $no_checksum;
 our $preserve_paths;
 our $compat_libtool;
+our $no_compat_libtool;
 our $adjust_testname;
 our $config;		# Configuration file contents
 our $compatibility;	# Compatibility version flag - used to indicate
@@ -142,25 +144,51 @@ if ($config)
 	apply_config({
 		"geninfo_gcov_tool"		=> \$gcov_tool,
 		"geninfo_adjust_testname"	=> \$adjust_testname,
-		"geninfo_no_checksum"		=> \$nochecksum});
+		"geninfo_checksum"		=> \$checksum,
+		"geninfo_no_checksum"		=> \$no_checksum, # deprecated
+		"geninfo_compat_libtool"	=> \$compat_libtool});
+
+	# Merge options
+	if (defined($no_checksum))
+	{
+		$checksum = ($no_checksum ? 0 : 1);
+		$no_checksum = undef;
+	}
 }
 
 # Parse command line options
 if (!GetOptions("test-name=s" => \$test_name,
 		"output-filename=s" => \$output_filename,
-		"no-checksum" => \$nochecksum,
+		"checksum" => \$checksum,
+		"no-checksum" => \$no_checksum,
 		"base-directory=s" => \$base_directory,
 		"version" =>\$version,
 		"quiet" => \$quiet,
 		"help" => \$help,
 		"follow" => \$follow,
 		"compat-libtool" => \$compat_libtool,
+		"no-compat-libtool" => \$no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@ignore_errors
 		))
 {
 	print_usage(*STDERR);
 	exit(1);
+}
+else
+{
+	# Merge options
+	if (defined($no_checksum))
+	{
+		$checksum = ($no_checksum ? 0 : 1);
+		$no_checksum = undef;
+	}
+
+	if (defined($no_compat_libtool))
+	{
+		$compat_libtool = ($no_compat_libtool ? 0 : 1);
+		$no_compat_libtool = undef;
+	}
 }
 
 @data_directory = @ARGV;
@@ -206,6 +234,29 @@ if ($follow)
 else
 {
 	$follow = "";
+}
+
+# Determine checksum mode
+if (defined($checksum))
+{
+	# Normalize to boolean
+	$checksum = ($checksum ? 1 : 0);
+}
+else
+{
+	# Default is off
+	$checksum = 0;
+}
+
+# Determine libtool compatibility mode
+if (defined($compat_libtool))
+{
+	$compat_libtool = ($compat_libtool? 1 : 0);
+}
+else
+{
+	# Default is on
+	$compat_libtool = 1;
 }
 
 # Check for directory name
@@ -337,9 +388,9 @@ sequentially.
   -t, --test-name NAME              Use test case name NAME for resulting data
   -o, --output-filename OUTFILE     Write data only to OUTFILE
   -f, --follow                      Follow links when searching .da/.gcda files
-  -n, --no-checksum                 Do not calculate checksum for each line
   -b, --base-directory DIR          Use DIR as base directory for relative paths
-      --compat-libtool              Assume libtool environment
+      --(no-)checksum               Enable (disable) line checksumming
+      --(no-)compat-libtool         Enable (disable) libtool compatibility mode
       --gcov-tool TOOL              Specify gcov tool location
       --ignore-errors ERROR         Continue after ERROR (gcov, source)
 
@@ -644,7 +695,7 @@ sub process_dafile($)
 		# gcov will happily create output even if there's no source code
 		# available - this interfers with checksum creation so we need
 		# to pull the emergency brake here.
-		if (defined($source) && ! -r $source && ! $nochecksum)
+		if (defined($source) && ! -r $source && $checksum)
 		{
 			if ($ignore[$ERROR_SOURCE])
 			{
@@ -737,8 +788,8 @@ sub process_dafile($)
 			{
 				$lines_found++;
 				printf(INFO_HANDLE "DA:".$line_number.",".
-				       $gcov_content[1].($nochecksum ? "" :
-				       ",". md5_base64($gcov_content[2])).
+				       $gcov_content[1].($checksum ?
+				       ",". md5_base64($gcov_content[2]) : "").
 				       "\n");
 
 				# Increase $lines_hit in case of an execution

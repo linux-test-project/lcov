@@ -45,7 +45,8 @@ Further README contents
   bin/install.sh     - Internal tool (takes care of un-/installing)
   descriptions.tests - Test descriptions for the LTP suite, use with gendesc
   man                - Directory containing man pages for included tools
-  example            - Directory containing example to demonstrate LCOV
+  example            - Directory containing an example to demonstrate LCOV
+  lcovrc             - LCOV configuration file
   Makefile           - Makefile providing 'install' and 'uninstall' targets
 
 

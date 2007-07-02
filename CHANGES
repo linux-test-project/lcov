@@ -1,3 +1,36 @@
+Version 1.6:
+============
+
+geninfo:
+- Added libtool compatibility patch by thomas@apestaart.org (default is on)
+- Added --compat-libtool option to enable libtool compatibility mode
+- Added --no-compat-libtool option to disable libtool compatibility mode
+- Changed default for line checksumming to off
+- Added --checksum option to enable line checksumming
+- Added --gcov-tool option
+- Added --ignore-errors option
+- Removed s390 specific test case modification in geninfo
+- Added --checksum option
+- Checksumming is now off by default
+
+lcov:
+- Added libtool compatibility patch by thomas@apestaart.org
+- Added --compat-libtool option to enable libtool compatibility mode
+- Added --no-compat-libtool option to disable libtool compatibility mode
+- Added --checksum option to enable line checksumming
+- Added --gcov-tool option
+- Added --ignore-errors option
+- Restructured help text
+
+lcovrc:
+- Added geninfo_compat_libtool option
+- Removed geninfo_no_checksum option from example lcovrc
+- Added geninfo_checksum option
+
+README:
+- Added description of lcovrc file
+
+
 Version 1.5:
 ============
 

@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-#   Copyright (c) International Business Machines  Corp., 2002
+#   Copyright (c) International Business Machines  Corp., 2002,2007
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -137,7 +137,6 @@ our $test_name = "";	# Test case name
 our $quiet = "";	# If set, suppress information messages
 our $help;		# Help option flag
 our $version;		# Version option flag
-our $nochecksum ="";	# If set, don't calculate a checksum for each line
 our $convert_filenames;	# If set, convert filenames when applying diff
 our $strip;		# If set, strip leading directories when applying diff
 our $need_unload;	# If set, unload gcov kernel module
@@ -147,7 +146,10 @@ our $to_file;		# If set, indicates that output is written to a file
 our $follow;		# If set, indicates that find shall follow links
 our $diff_path = "";	# Path removed from tracefile when applying diff
 our $base_directory;	# Base directory (cwd of gcc during compilation)
-our $compat_libtool;	# Specify to work with libtool build environment
+our $checksum;		# If set, calculate a checksum for each line
+our $no_checksum;	# If set, don't calculate a checksum for each line
+our $compat_libtool;	# If set, indicates that libtool mode is to be enabled
+our $no_compat_libtool;	# If set, indicates that libtool mode is to be disabled
 our $gcov_tool;
 our $ignore_errors;
 our $config;		# Configuration file contents
@@ -194,7 +196,6 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"extract=s" => \$extract,
 		"remove=s" => \$remove,
 		"diff=s" => \$diff,
-		"no-checksum" => \$nochecksum,
 		"convert-filenames" => \$convert_filenames,
 		"strip=i" => \$strip,
 		"capture|c" => \$capture,
@@ -207,13 +208,31 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"follow" => \$follow,
 		"path=s" => \$diff_path,
 		"base-directory=s" => \$base_directory,
+		"checksum" => \$checksum,
+		"no-checksum" => \$no_checksum,
 		"compat-libtool" => \$compat_libtool,
+		"no-compat-libtool" => \$no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \$ignore_errors
 		))
 {
 	print_usage(*STDERR);
 	exit(1);
+}
+else
+{
+	# Merge options
+	if (defined($no_checksum))
+	{
+		$checksum = ($no_checksum ? 0 : 1);
+		$no_checksum = undef;
+	}
+
+	if (defined($no_compat_libtool))
+	{
+		$compat_libtool = ($no_compat_libtool ? 0 : 1);
+		$no_compat_libtool = undef;
+	}
 }
 
 # Check for help option
@@ -353,11 +372,11 @@ Options:
   -f, --follow                    Follow links when searching .da files
   -k, --kernel-directory KDIR     Capture kernel coverage data only from KDIR
   -b, --base-directory DIR        Use DIR as base directory for relative paths
-      --no-checksum               Do not calculate a checksum for each line
       --convert-filenames         Convert filenames when applying diff
       --strip DEPTH               Strip initial DEPTH directory levels in diff
       --path PATH                 Strip PATH from tracefile when applying diff
-      --compat-libtool            Assume libtool environment
+      --(no-)checksum             Enable (disable) line checksumming
+      --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
       --ignore-errors ERROR       Continue after ERROR (gcov, source)
 
@@ -469,15 +488,26 @@ sub userspace_capture()
 	{
 		@param = (@param, "--quiet");
 	}
-	if ($nochecksum)
+	if (defined($checksum))
 	{
-		@param = (@param, "--no-checksum");
+		if ($checksum)
+		{
+			@param = (@param, "--checksum");
+		}
+		else
+		{
+			@param = (@param, "--no-checksum");
+		}
 	}
 	if ($base_directory)
 	{
 		@param = (@param, "--base-directory", $base_directory);
 	}
-	if ($compat_libtool)
+	if ($no_compat_libtool)
+	{
+		@param = (@param, "--no-compat-libtool");
+	}
+	elsif ($compat_libtool)
 	{
 		@param = (@param, "--compat-libtool");
 	}
@@ -609,9 +639,16 @@ sub kernel_capture()
 	{
 		@param = (@param, "--quiet");
 	}
-	if ($nochecksum)
+	if (defined($checksum))
 	{
-		@param = (@param, "--no-checksum");
+		if ($checksum)
+		{
+			@param = (@param, "--checksum");
+		}
+		else
+		{
+			@param = (@param, "--no-checksum");
+		}
 	}
 	if ($gcov_tool)
 	{
@@ -833,7 +870,7 @@ sub read_info_file($)
 	my $count;			# Execution count of current line
 	my $negative;			# If set, warn about negative counts
 	my $changed_testname;		# If set, warn about changed testname
-	my $checksum;			# Checksum of current line
+	my $line_checksum;		# Checksum of current line
 	local *INFO_HANDLE;		# Filehandle for .info file
 
 	info("Reading tracefile $tracefile\n");
@@ -938,17 +975,18 @@ sub read_info_file($)
 				# Store line checksum if available
 				if (defined($3))
 				{
-					$checksum = substr($3, 1);
+					$line_checksum = substr($3, 1);
 
 					# Does it match a previous definition
 					if (defined($checkdata->{$1}) &&
-					    ($checkdata->{$1} ne $checksum))
+					    ($checkdata->{$1} ne
+					     $line_checksum))
 					{
 						die("ERROR: checksum mismatch ".
 						    "at $filename:$1\n");
 					}
 
-					$checkdata->{$1} = $checksum;
+					$checkdata->{$1} = $line_checksum;
 				}
 				last;
 			};
@@ -1438,7 +1476,7 @@ sub write_info_file(*$)
 				print(INFO_HANDLE "DA:$line,".
 				      $testcount->{$line}.
 				      (defined($checkdata->{$line}) &&
-				       !$nochecksum ?
+				       $checksum ?
 				       ",".$checkdata->{$line} : "")."\n");
 				$found++;
 				if ($testcount->{$line} > 0)

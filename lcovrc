@@ -22,13 +22,13 @@ genhtml_overview_width = 80
 # difference in lines between the position a user selected from the overview
 # and the position the source code window is scrolled to (used by --frames
 # option of genhtml)
-genhtml_nav_resolution = 4;
+genhtml_nav_resolution = 4
 
 # Clicking a line in the overview image should show the source code view at
 # a position a bit further up so that the requested line is not the first
 # line in the window. This number specifies that offset in lines (used by
 # --frames option of genhtml)
-genhtml_nav_offset = 10;
+genhtml_nav_offset = 10
 
 # Do not remove unused test descriptions if non-zero (same as
 # --keep-descriptions option of genhtml)
@@ -72,9 +72,13 @@ genhtml_legend = 0
 # Adjust test names to include operating system information if non-zero
 #geninfo_adjust_testname = 0
 
-# Do not calculate a checksum for each line if non-zero (same as --no-checksum
-# option of geninfo)
-geninfo_no_checksum = 0
+# Calculate checksum for each source code line if non-zero (same as --checksum
+# option of geninfo if non-zero, same as --no-checksum if zero)
+#geninfo_checksum = 1
+
+# Enable libtool compatibility mode if non-zero (same as --compat-libtool option
+# of geninfo if non-zero, same as --no-compat-libtool if zero)
+#geninfo_compat_libtool = 0
 
 # Directory containing gcov kernel files
 lcov_gcov_dir = /proc/gcov
