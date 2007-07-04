@@ -9,9 +9,9 @@ geninfo:
 - Added --checksum option to enable line checksumming
 - Added --gcov-tool option
 - Added --ignore-errors option
-- Removed s390 specific test case modification in geninfo
+- Removed automatic test name modification on s390
 - Added --checksum option
-- Checksumming is now off by default
+- Updated man page
 
 lcov:
 - Added libtool compatibility patch by thomas@apestaart.org
@@ -20,12 +20,15 @@ lcov:
 - Added --checksum option to enable line checksumming
 - Added --gcov-tool option
 - Added --ignore-errors option
-- Restructured help text
+- Updated help text
+- Updated man page
+- Fixed lcov not working when -k is specified more than once
 
 lcovrc:
 - Added geninfo_compat_libtool option
-- Removed geninfo_no_checksum option from example lcovrc
 - Added geninfo_checksum option
+- Removed geninfo_no_checksum option from example lcovrc
+- Updated man page
 
 README:
 - Added description of lcovrc file

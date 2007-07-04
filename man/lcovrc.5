@@ -61,12 +61,12 @@ genhtml_overview_width = 80
 
 # Resolution of overview navigation
 .br
-genhtml_nav_resolution = 4;
+genhtml_nav_resolution = 4
 .br
 
 # Offset for source code navigation
 .br
-genhtml_nav_offset = 10;
+genhtml_nav_offset = 10
 .br
 
 # Do not remove unused test descriptions if non-zero
@@ -99,6 +99,21 @@ genhtml_highlight = 0
 genhtml_legend = 0
 .br
 
+# Include HTML file at start of HTML output
+.br
+#genhtml_html_prolog = prolog.html
+.br
+
+# Include HTML file at end of HTML output
+.br
+#genhtml_html_epilog = epilog.html
+.br
+
+# Use custom HTML file extension
+.br
+#genhtml_html_extension = html
+.br
+
 # Location of the gcov tool
 .br
 #geninfo_gcov_tool = gcov
@@ -109,9 +124,14 @@ genhtml_legend = 0
 #geninfo_adjust_testname = 0
 .br
 
-# Do not calculate a checksum for each line if non-zero
+# Calculate a checksum for each line if non-zero
 .br
-geninfo_no_checksum = 0
+geninfo_checksum = 0
+.br
+
+# Enable libtool compatibility mode if non-zero
+.br
+geninfo_compat_libtool = 0
 .br
 
 # Directory containing gcov kernel files
@@ -310,6 +330,43 @@ This option corresponds to the \-\-legend option of
 Default is 0.
 .PP
 
+.BR genhtml_html_prolog " ="
+.I filename
+.IP
+If set, include the contents of the specified file at the beginning of HTML
+output.
+
+This option corresponds to the \-\-html\-prolog option of
+.BR genhtml .
+.br
+
+Default is to use no extra prolog.
+.PP
+
+.BR genhtml_html_epilog " ="
+.I filename
+.IP
+If set, include the contents of the specified file at the end of HTML output.
+
+This option corresponds to the \-\-html\-epilog option of
+.BR genhtml .
+.br
+
+Default is to use no extra epilog.
+.PP
+
+.BR genhtml_html_extension " ="
+.I extension
+.IP
+If set, use the specified string as filename extension for generated HTML files.
+
+This option corresponds to the \-\-html\-extension option of
+.BR genhtml .
+.br
+
+Default extension is "html".
+.PP
+
 .BR geninfo_gcov_tool " ="
 .I path_to_gcov
 .IP
@@ -331,19 +388,37 @@ when capturing coverage data.
 Default is 0.
 .PP
 
-.BR geninfo_no_checksum " ="
+.BR geninfo_checksum " ="
 .IR 0 | 1
 .IP
-If non-zero, do not create source code checksums when capturing coverage data.
+If non-zero, generate source code checksums when capturing coverage data.
 Checksums are useful to prevent merging coverage data from incompatible
-source code versions.
+source code versions but checksum generation increases the size of coverage
+files and the time used to generate those files.
 .br
 
-This option corresponds to the \-\-no\-checksum command line option of
+This option corresponds to the \-\-checksum and \-\-no\-checksum command line
+option of
 .BR geninfo .
 .br
 
 Default is 0.
+.PP
+
+.BR geninfo_compat_libtool " ="
+.IR 0 | 1
+.IP
+If non-zero, enable libtool compatibility mode. When libtool compatibility
+mode is enabled, lcov will assume that the source code relating to a .da file
+located in a directory named ".libs" can be found in its parent directory.
+.br
+
+This option corresponds to the \-\-compat\-libtool and \-\-no\-compat\-libtool
+command line option of
+.BR geninfo .
+.br
+
+Default is 1.
 .PP
 
 .BR lcov_gcov_dir " ="

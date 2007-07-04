@@ -378,7 +378,7 @@ Options:
       --(no-)checksum             Enable (disable) line checksumming
       --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
-      --ignore-errors ERROR       Continue after ERROR (gcov, source)
+      --ignore-errors ERRORS      Continue after ERRORS (gcov, source)
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE

@@ -64,9 +64,9 @@ genhtml_legend = 0
 
 # Use custom filename extension for pages (same as --html-extension option of
 # genhtml)
-#html_extension = html
+#genhtml_html_extension = html
 
-# Location of the gcov tool (used by geninfo)
+# Location of the gcov tool (same as --gcov-info option of geninfo)
 #geninfo_gcov_tool = gcov
 
 # Adjust test names to include operating system information if non-zero
