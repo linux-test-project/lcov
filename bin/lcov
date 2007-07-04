@@ -440,12 +440,12 @@ sub userspace_reset()
 		if ($follow)
 		{
 			@file_list =
-				`find $current_dir -follow -name \\*.da -type f 2>/dev/null`;
+				`find $current_dir -follow -name \\*\\.da -o -name \\*\\.gcda -type f 2>/dev/null`;
 		}
 		else
 		{
 			@file_list =
-				`find $current_dir -name \\*.da -type f 2>/dev/null`;
+				`find $current_dir -name \\*\\.da -o -name \\*\\.gcda -type f 2>/dev/null`;
 		}
 		chomp(@file_list);
 		foreach (@file_list)

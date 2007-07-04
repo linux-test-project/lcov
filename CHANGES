@@ -23,6 +23,7 @@ lcov:
 - Updated help text
 - Updated man page
 - Fixed lcov not working when -k is specified more than once
+- Fixed lcov not deleting .gcda files when specifiying -z and -d
 
 lcovrc:
 - Added geninfo_compat_libtool option
