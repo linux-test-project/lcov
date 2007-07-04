@@ -1,26 +1,36 @@
-.TH geninfo 1 "lcov 1.1" 2003-12-19 "User Manuals"
+.TH geninfo 1 "lcov 1.1" 2003\-12\-19 "User Manuals"
 .SH NAME
-geninfo - Generate tracefiles from .da files
+geninfo \- Generate tracefiles from .da files
 .SH SYNOPSIS
 .B geninfo
 .RB [ \-h | \-\-help ]
 .RB [ \-v | \-\-version ]
-.RS 8
-.br
 .RB [ \-q | \-\-quiet ]
-.RB [ \-f | \-\-follow ]
 .br
+.RS 8
 .RB [ \-t | \-\-test\-name
 .IR test\-name ]
 .br
 .RB [ \-o | \-\-output\-filename
-.IR output\-filename ]
+.IR filename ]
+.RB [ \-f | \-\-follow ]
 .br
-.RB [ \-\-no\-checksum ]
-.RB [ \-b | \-\-base-directory
+.RB [ \-b | \-\-base\-directory
 .IR directory ]
 .br
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
+.br
+.RB [ \-\-compat\-libtool ]
+.RB [ \-\-no\-compat\-libtool ]
+.br
+.RB [ \-\-gcov\-tool
+.IR tool  ]
+.RB [ \-\-ignore\-errors
+.IR errors  ]
+.br
 .I directory
+.RE
 .SH DESCRIPTION
 .B geninfo 
 converts all GCOV coverage data files found in 
@@ -46,6 +56,94 @@ is called from within
 .BR lcov ,
 so that there is usually no need to call it directly.
 .SH OPTIONS
+
+.B \-b
+.I directory
+.br
+.B \-\-base\-directory
+.I directory
+.br
+.RS
+.RI "Use " directory
+as base directory for relative paths.
+
+Use this option to specify the base directory of a build\-environment
+when geninfo produces error messages like:
+
+.RS
+ERROR: could not read source file /home/user/project/subdir1/subdir2/subdir1/subdir2/file.c
+.RE
+
+In this example, use /home/user/project as base directory.
+
+This option is required when using geninfo on projects built with libtool or
+similar build environments that work with a base directory, i.e. environments,
+where the current working directory when invoking the compiler is not the same
+directory in which the source code file is located.
+
+Note that this option will not work in environments where multiple base
+directories are used. In that case repeat the geninfo call for each base
+directory while using the \-\-ignore\-errors option to prevent geninfo from
+exiting when the first source code file could not be found. This way you can
+get partial coverage information for each base directory which can then be
+combined using the \-a option.
+.RE
+
+.B \-\-checksum
+.br
+.B \-\-no\-checksum
+.br
+.RS
+Specify whether to generate checksum data when writing tracefiles.
+
+Use \-\-checksum to enable checksum generation or \-\-no\-checksum to
+disable it. Checksum generation is
+.B disabled
+by default.
+
+When checksum generation is enabled, a checksum will be generated for each
+source code line and stored along with the coverage data. This checksum will
+be used to prevent attempts to combine coverage data from different source
+code versions.
+
+If you don't work with different source code versions, disable this option
+to speed up coverage data processing and to reduce the size of tracefiles.
+.RE
+
+.B \-\-compat\-libtool
+.br
+.B \-\-no\-compat\-libtool
+.br
+.RS
+Specify whether to enable libtool compatibility mode.
+
+Use \-\-compat\-libtool to enable libtool compatibility mode or \-\-no\-compat\-libtool
+to disable it. The libtool compatibility mode is
+.B enabled
+by default.
+
+When libtool compatibility mode is enabled, geninfo will assume that the source
+code relating to a .da file located in a directory named ".libs" can be
+found in its parent directory.
+
+If you have directories named ".libs" in your build environment but don't use
+libtool, disable this option to prevent problems when capturing coverage data.
+.RE
+
+.B \-f
+.br
+.B \-\-follow
+.RS
+Follow links when searching .da files.
+.RE
+
+.B \-\-gcov\-tool
+.I tool
+.br
+.RS
+Specify the location of the gcov tool.
+.RE
+
 .B \-h
 .br
 .B \-\-help
@@ -53,11 +151,35 @@ so that there is usually no need to call it directly.
 Print a short help text, then exit.
 .RE
 
-.B \-v
+.B \-\-ignore\-errors
+.I errors
 .br
-.B \-\-version
 .RS
-Print version number, then exit.
+Specify a list of errors after which to continue processing.
+
+Use this option to specify a list of one or more classes of errors after which
+geninfo should continue processing instead of aborting.
+
+.I errors
+can be a comma\-separated list of the following keywords:
+
+.B gcov:
+the gcov tool returned with a non\-zero return code.
+
+.B source:
+the source code file for a data set could not be found.
+.RE
+
+.BI "\-o " output\-filename
+.br
+.BI "\-\-output\-filename " output\-filename
+.RS
+Write all data to
+.IR output\-filename .
+
+If you want to have all data written to a single file (for easier
+handling), use this option to specify the respective filename. By default,
+one tracefile will be created for each processed .da file.
 .RE
 
 .B \-q
@@ -68,13 +190,6 @@ Do not print progress messages.
 
 Suppresses all informational progress output. When this switch is enabled,
 only error or warning messages are printed.
-.RE
-
-.B \-f
-.br
-.B \-\-follow
-.RS
-Follow links when searching .da files.
 .RE
 
 .BI "\-t " testname
@@ -91,70 +206,30 @@ simply concatenating the respective tracefiles) in which case a test
 name can be used to differentiate between data from each test case.
 .RE
 
-.BI "\-o " output\-filename
+.B \-v
 .br
-.BI "\-\-output\-filename " output\-filename
+.B \-\-version
 .RS
-Write all data to
-.IR output\-filename .
-
-If you want to have all data written to a single file (for easier
-handling), use this option to specify the respective filename. By default,
-one tracefile will be created for each processed .da file.
-
-.RE
-.B "\-\-no\-checksum"
-.RS
-Do not generate checksum data when writing tracefiles.
- 
-By default, each line of coverage data is associated with a checksum of the
-corresponding source code line. This checksum is used to prevent merging
-coverage data from incompatible source code versions. Use this option to
-suppress generating such checksums for tracefiles.
-
-This option can also be configured permanently using the configuration file
-option
-.IR geninfo_no_checksum .
-
-.RE
-.BI "\-b " directory
-.br
-.BI "\-\-base-directory " directory
-.RS
-.RI "Use " directory
-as base directory for relative paths.
-
-Use this option to specify the base directory of a build-environment
-when lcov produces error messages like:
-
-.RS
-ERROR: could not read source file /home/user/project/subdir1/subdir2/subdir1/subdir2/file.c
+Print version number, then exit.
 .RE
 
-In this example, use /home/user/project as base directory.
 
-This option is required when using lcov on projects built with libtool or
-similar build environments that work with a base directory, i.e. environments,
-where the current working directory when invoking a compiler is not the same
-directory in which the source code file is located.
-
-.RE
 .SH FILES
 
 .I /etc/lcovrc
 .RS
-The systemwide configuration file.
+The system\-wide configuration file.
 .RE
 
 .I ~/.lcovrc
 .RS
-The per-user configuration file.
+The per\-user configuration file.
 .RE
 
 Following is a quick description of the tracefile format as used by
 .BR genhtml ", " geninfo " and " lcov .
 
-A tracefile is made up of several human-readable lines of text,
+A tracefile is made up of several human\-readable lines of text,
 divided into sections. If available, a tracefile begins with the
 .I testname
 which is stored in the following format:
@@ -184,7 +259,7 @@ implementation uses an MD5 hash as checksumming algorithm.
 At the end of a section, there is a summary about how many lines
 were found and how many were actually instrumented:
 
-  LH:<number of lines with a non-zero execution count>
+  LH:<number of lines with a non\-zero execution count>
   LF:<number of instrumented lines>
 
 Each sections ends with:
