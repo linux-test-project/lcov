@@ -152,6 +152,7 @@ our $compat_libtool;	# If set, indicates that libtool mode is to be enabled
 our $no_compat_libtool;	# If set, indicates that libtool mode is to be disabled
 our $gcov_tool;
 our $ignore_errors;
+our $initial;
 our $config;		# Configuration file contents
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
@@ -213,7 +214,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"compat-libtool" => \$compat_libtool,
 		"no-compat-libtool" => \$no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
-		"ignore-errors=s" => \$ignore_errors
+		"ignore-errors=s" => \$ignore_errors,
+		"initial|i" => \$initial
 		))
 {
 	print_usage(*STDERR);
@@ -271,6 +273,16 @@ if ($capture)
 	{
 		# Option that tells geninfo to write to stdout
 		$output_filename = "-";
+	}
+}
+else
+{
+	if ($initial)
+	{
+		print(STDERR "Option --initial is only valid when capturing ".
+		      "data (-c)\n");
+		print_usage(*STDERR);
+		exit(2);
 	}
 }
 
@@ -366,6 +378,7 @@ Operation:
       --diff FILE DIFF            Transform tracefile FILE according to DIFF
 
 Options:
+  -i, --initial                   Capture initial zero coverage data
   -t, --test-name NAME            Specify test name to be stored with data
   -o, --output-file FILENAME      Write data to FILENAME instead of stdout
   -d, --directory DIR             Use .da files in DIR instead of kernel
@@ -407,14 +420,14 @@ sub check_options()
 	
 	if ($i == 0)
 	{
-		print(STDERR "Need one of the options -z, -c, -e, -a, -r, -l ".
-			     "or --diff\n");
+		print(STDERR "Need one of the options -z, -c, -a, -e, -r, ".
+			     "-l or --diff\n");
 		print_usage(*STDERR);
 		exit(2);
 	}
 	elsif ($i > 1)
 	{
-		die("ERROR: only one of -z, -c, -e, -a, -r, -l or ".
+		die("ERROR: only one of -z, -c, -a, -e, -r, -l or ".
 		    "--diff allowed!\n");
 	}
 }
@@ -518,6 +531,10 @@ sub userspace_capture()
 	if ($ignore_errors)
 	{
 		@param = (@param, "--ignore-errors", $ignore_errors);
+	}
+	if ($initial)
+	{
+		@param = (@param, "--initial");
 	}
 
 	system(@param);
@@ -650,9 +667,29 @@ sub kernel_capture()
 			@param = (@param, "--no-checksum");
 		}
 	}
+	if ($base_directory)
+	{
+		@param = (@param, "--base-directory", $base_directory);
+	}
+	if ($no_compat_libtool)
+	{
+		@param = (@param, "--no-compat-libtool");
+	}
+	elsif ($compat_libtool)
+	{
+		@param = (@param, "--compat-libtool");
+	}
 	if ($gcov_tool)
 	{
 		@param = (@param, "--gcov-tool", $gcov_tool);
+	}
+	if ($ignore_errors)
+	{
+		@param = (@param, "--ignore-errors", $ignore_errors);
+	}
+	if ($initial)
+	{
+		@param = (@param, "--initial");
 	}
 	system(@param) and exit($? >> 8);
 

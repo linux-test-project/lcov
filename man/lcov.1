@@ -26,6 +26,7 @@ lcov \- GCOV coverage tool extension
 .RB [ \-\-diff
 .IR "tracefile diff" ]
 .br
+.RB [ \-i | \-\-initial ]
 .RB [ \-t | \-\-test\-name
 .IR testname ]
 .br
@@ -340,6 +341,47 @@ the gcov tool returned with a non\-zero return code.
 
 .B source:
 the source code file for a data set could not be found.
+.RE
+
+.B \-i
+.br
+.B \-\-initial
+.RS
+Capture initial zero coverage data.
+
+Run lcov with \-c and this option on the directories containing .bb, .bbg
+or .gcno files before running any test case. The result is a "baseline"
+coverage data file that contains zero coverage for every instrumented line.
+Combine this data file (using lcov \-a) with coverage data files captured
+after a test run to ensure that the percentage of total lines covered is
+correct even when not all source code files were loaded during the test.
+
+Recommended procedure when capturing data for a test case:
+
+1. create baseline coverage data file
+.RS
+# lcov -c -i -d appdir -o app_base.info
+.br
+
+.RE
+2. perform test
+.RS
+# appdir/test
+.br
+
+.RE
+3. create test coverage data file
+.RS
+# lcov -c -d appdir -o app_test.info
+.br
+
+.RE
+4. combine baseline and test coverage data
+.RS
+# lcov -a app_base.info -a app_test.info -o app_total.info
+.br
+
+.RE
 .RE
 
 .B \-k

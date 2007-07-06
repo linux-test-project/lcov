@@ -9,6 +9,7 @@ geninfo:
 - Added --checksum option to enable line checksumming
 - Added --gcov-tool option
 - Added --ignore-errors option
+- Added --initial option to generate zero coverage from graph files
 - Removed automatic test name modification on s390
 - Added --checksum option
 - Updated man page
@@ -20,6 +21,7 @@ lcov:
 - Added --checksum option to enable line checksumming
 - Added --gcov-tool option
 - Added --ignore-errors option
+- Added --initial option to generate zero coverage from graph files
 - Updated help text
 - Updated man page
 - Fixed lcov not working when -k is specified more than once

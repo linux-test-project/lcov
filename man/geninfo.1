@@ -8,6 +8,7 @@ geninfo \- Generate tracefiles from .da files
 .RB [ \-q | \-\-quiet ]
 .br
 .RS 8
+.RB [ \-i | \-\-initial ]
 .RB [ \-t | \-\-test\-name
 .IR test\-name ]
 .br
@@ -168,6 +169,20 @@ the gcov tool returned with a non\-zero return code.
 
 .B source:
 the source code file for a data set could not be found.
+.RE
+
+.B \-i
+.br
+.B \-\-initial
+.RS
+Capture initial zero coverage data.
+
+Run geninfo with this option on the directories containing .bb, .bbg or .gcno
+files before running any test case. The result is a "baseline" coverage data
+file that contains zero coverage for every instrumented line. Combine this
+data file (using lcov \-a) with coverage data files captured after a test
+run to ensure that the percentage of total lines covered is correct even
+when not all source code files were loaded during the test.
 .RE
 
 .BI "\-o " output\-filename
