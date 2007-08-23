@@ -12,7 +12,7 @@
 #
 
 VERSION := 1.6
-RELEASE := pre1
+RELEASE := 1
 DATE    := $(shell date +%Y-%m-%d)
 
 CFG_DIR := $(PREFIX)/etc
