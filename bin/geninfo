@@ -119,6 +119,8 @@ our $compatibility;	# Compatibility version flag - used to indicate
 our @ignore_errors;	# List of errors to ignore (parameter)
 our @ignore;		# List of errors to ignore (array)
 our $initial;
+our $norecursion;
+our $maxdepth;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -173,7 +175,8 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"no-compat-libtool" => \$no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@ignore_errors,
-		"initial|i" => \$initial
+		"initial|i" => \$initial,
+		"norecursion" => \$norecursion
 		))
 {
 	print_usage(*STDERR);
@@ -261,6 +264,16 @@ else
 {
 	# Default is on
 	$compat_libtool = 1;
+}
+
+# Determine max depth for recursion
+if (defined($norecursion))
+{
+	$maxdepth = "-maxdepth 1";
+}
+else
+{
+	$maxdepth = "";
 }
 
 # Check for directory name
@@ -458,7 +471,7 @@ sub gen_info($)
 		info("Scanning $directory for $data_file_extension ".
 		     "files ...\n");	
 
-		@file_list = `find $directory $follow -name \\*$data_file_extension -type f 2>/dev/null`;
+		@file_list = `find $directory $maxdepth $follow -name \\*$data_file_extension -type f 2>/dev/null`;
 		chomp(@file_list);
 		@file_list or die("ERROR: no $data_file_extension files found ".
 				  "in $directory!\n");
@@ -1952,7 +1965,7 @@ sub gen_initial_info($)
 		info("Scanning $directory for $graph_file_extension ".
 		     "files ...\n");	
 
-		@file_list = `find $directory $follow -name \\*$graph_file_extension -type f 2>/dev/null`;
+		@file_list = `find $directory $maxdepth $follow -name \\*$graph_file_extension -type f 2>/dev/null`;
 		chomp(@file_list);
 		@file_list or die("ERROR: no $graph_file_extension files ".
 				  "found in $directory!\n");

@@ -153,6 +153,8 @@ our $no_compat_libtool;	# If set, indicates that libtool mode is to be disabled
 our $gcov_tool;
 our $ignore_errors;
 our $initial;
+our $norecursion;
+our $maxdepth;
 our $config;		# Configuration file contents
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
@@ -215,7 +217,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"no-compat-libtool" => \$no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \$ignore_errors,
-		"initial|i" => \$initial
+		"initial|i" => \$initial,
+		"norecursion" => \$norecursion
 		))
 {
 	print_usage(*STDERR);
@@ -253,6 +256,24 @@ if ($version)
 
 # Normalize --path text
 $diff_path =~ s/\/$//;
+
+if ($follow)
+{
+	$follow = "-follow";
+}
+else
+{
+	$follow = "";
+}
+
+if ($norecursion)
+{
+	$maxdepth = "-maxdepth 1";
+}
+else
+{
+	$maxdepth = "";
+}
 
 # Check for valid options
 check_options();
@@ -338,12 +359,6 @@ elsif ($diff)
 
 info("Done.\n");
 exit(0);
-
-# Check for follow option
-if ($follow)
-{
-	$follow = "--follow";
-}
 
 #
 # print_usage(handle)
@@ -448,18 +463,9 @@ sub userspace_reset()
 
 	foreach $current_dir (@directory)
 	{
-		info("Deleting all .da files in $current_dir and ".
-		     "subdirectories\n");
-		if ($follow)
-		{
-			@file_list =
-				`find $current_dir -follow -name \\*\\.da -o -name \\*\\.gcda -type f 2>/dev/null`;
-		}
-		else
-		{
-			@file_list =
-				`find $current_dir -name \\*\\.da -o -name \\*\\.gcda -type f 2>/dev/null`;
-		}
+		info("Deleting all .da files in $current_dir".
+		     ($norecursion?"\n":" and subdirectories\n"));
+		@file_list = `find $current_dir $maxdepth $follow -name \\*\\.da -o -name \\*\\.gcda -type f 2>/dev/null`;
 		chomp(@file_list);
 		foreach (@file_list)
 		{
@@ -535,6 +541,10 @@ sub userspace_capture()
 	if ($initial)
 	{
 		@param = (@param, "--initial");
+	}
+	if ($norecursion)
+	{
+		@param = (@param, "--norecursion");
 	}
 
 	system(@param);
