@@ -1539,11 +1539,24 @@ sub read_gcno_string(*$)
 		return (1, undef);
 	}
 
-	read($handle, $packed_word, 4 * $number_of_blocks) ==
-		4 * $number_of_blocks or die("ERROR: reading string\n");
-	
+	if (read($handle, $packed_word, 4 * $number_of_blocks) !=
+	     4 * $number_of_blocks)
+	{
+		my $msg = "invalid string size ".(4 * $number_of_blocks)." in ".
+			  "gcno file at position ".tell($handle)."\n";
+		if ($ignore[$ERROR_SOURCE])
+		{
+			warn("WARNING: $msg");
+			return (1, undef);
+		}
+		else
+		{
+			die("ERROR: $msg");
+		}
+	}
+
 	$string = $string . $packed_word;
-	
+
 	# Remove trailing nil bytes
 	$/="\0";
 	while (chomp($string)) {};
