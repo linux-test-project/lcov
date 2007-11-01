@@ -1478,6 +1478,7 @@ sub read_gcno_file($$)
 					}
 					next;
 				}
+				last if ($length == 0);
 				($blocks, $string) =
 					read_gcno_string(*INPUT, $endianness);
 				if (defined($string))
