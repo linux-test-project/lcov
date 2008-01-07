@@ -1300,6 +1300,7 @@ sub read_bb_file($$)
 			$function_name = read_string(*INPUT, $minus_two)
 				 or die("ERROR: incomplete function ".
 					"name in $bb_filename!\n");
+			$function_name =~ s/\W/_/g;
 		}
 		elsif ($value > 0)
 		{
@@ -1433,6 +1434,7 @@ sub read_gcno_file($$)
 			seek(INPUT, 12, 1);
 			(undef, $function_name) =
 				read_gcno_string(*INPUT, $endianness);
+			$function_name =~ s/\W/_/g;
 			(undef, $filename) =
 				read_gcno_string(*INPUT, $endianness);
 			$filename = solve_relative_path($base_dir, $filename);
@@ -1631,6 +1633,7 @@ sub read_hammer_bbg_file($$)
 			# Get function name
 			($value, $function_name) =
 				read_hammer_bbg_string(*INPUT, $endianness);
+			$function_name =~ s/\W/_/g;
 			$filename = undef;
 			$first_line = undef;
 
