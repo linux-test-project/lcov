@@ -114,6 +114,11 @@ genhtml_legend = 0
 #genhtml_html_extension = html
 .br
 
+# Compress all generated html files with gzip.
+.br
+#genhtml_html_gzip = 1
+.br
+
 # Location of the gcov tool
 .br
 #geninfo_gcov_tool = gcov
@@ -365,6 +370,18 @@ This option corresponds to the \-\-html\-extension option of
 .br
 
 Default extension is "html".
+.PP
+
+.BR genhtml_html_gzip " ="
+.IR 0 | 1
+.IP
+If set, compress all html files using gzip.
+
+This option corresponds to the \-\-html\-gzip option of
+.BR genhtml .
+.br
+
+Default extension is 0.
 .PP
 
 .BR geninfo_gcov_tool " ="

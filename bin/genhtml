@@ -95,6 +95,7 @@ our $overview_title = "directory";
 # Data related prototypes
 sub print_usage(*);
 sub gen_html();
+sub html_create($$);
 sub process_dir($);
 sub process_file($$$);
 sub info(@);
@@ -134,6 +135,7 @@ sub get_png_for_coverage_rate($);
 sub coverage_rate_helper($);
 
 sub write_png_files();
+sub write_htaccess_file();
 sub write_css_file();
 sub write_description_file($$$);
 
@@ -200,6 +202,7 @@ our $html_epilog_file;	# Custom HTML epilog file (from </body> onwards)
 our $html_prolog;	# Actual HTML prolog
 our $html_epilog;	# Actual HTML epilog
 our $html_ext = "html";	# Extension for generated HTML files
+our $html_gzip = 0;	# Compress with gzip
 
 our $cwd = `pwd`;	# Current working directory
 chomp($cwd);
@@ -244,7 +247,8 @@ if ($config)
 		"genhtml_legend"		=> \$legend,
 		"genhtml_html_prolog"		=> \$html_prolog_file,
 		"genhtml_html_epilog"		=> \$html_epilog_file,
-		"genthml_html_extension"	=> \$html_ext
+		"genhtml_html_extension"	=> \$html_ext,
+		"genhtml_html_gzip"		=> \$html_gzip,
 		});
 }
 
@@ -268,7 +272,8 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"version"		=> \$version,
 		"html-prolog=s"		=> \$html_prolog_file,
 		"html-epilog=s"		=> \$html_epilog_file,
-		"html-extension=s"	=> \$html_ext
+		"html-extension=s"	=> \$html_ext,
+		"html-gzip"		=> \$html_gzip,
 		))
 {
 	print_usage(*STDERR);
@@ -419,6 +424,7 @@ HTML output:
       --html-prolog FILE            Use FILE as HTML prolog for generated pages
       --html-epilog FILE            Use FILE as HTML epilog for generated pages
       --html-extension EXT          Use EXT as filename extension for pages
+      --html-gzip                   Use gzip to compress HTML
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -530,6 +536,12 @@ sub gen_html()
 	write_css_file();
 	write_png_files();
 
+	if ($html_gzip)
+	{
+		info("Writing .htaccess file.\n");
+		write_htaccess_file();
+	}
+
 	info("Generating output.\n");
 
 	# Process each subdirectory and collect overview information
@@ -561,8 +573,7 @@ sub gen_html()
 
 	# Generate overview page
 	info("Writing directory view page.\n");
-	open(*HTML_HANDLE, ">index.$html_ext")
-		or die("ERROR: cannot open index.$html_ext for writing!\n");
+	html_create(*HTML_HANDLE, "index.$html_ext");
 	write_html_prolog(*HTML_HANDLE, "", "LCOV - $test_title");
 	write_header(*HTML_HANDLE, 0, "", "", $overall_found, $overall_hit);
 	write_file_table(*HTML_HANDLE, "", \%overview, {}, 0);
@@ -589,6 +600,28 @@ sub gen_html()
 	}
 
 	chdir($cwd);
+}
+
+#
+# html_create(handle, filename)
+#
+
+sub html_create($$)
+{
+	my $handle = $_[0];
+	my $filename = $_[1];
+
+	if ($html_gzip)
+	{
+		open($handle, "|gzip -c >$filename")
+			or die("ERROR: cannot open $filename for writing ".
+			       "(gzip)!\n");
+	}
+	else
+	{
+		open($handle, ">$filename")
+			or die("ERROR: cannot open $filename for writing!\n");
+	}
 }
 
 
@@ -670,10 +703,8 @@ sub process_dir($)
 		$overall_hit	+= $lines_hit;
 	}
 
-	# Generate directory overview page (without details)
-	open(*HTML_HANDLE, ">$rel_dir/index.$html_ext")
-		or die("ERROR: cannot open $rel_dir/index.$html_ext ".
-		       "for writing!\n");
+	# Generate directory overview page (without details)	
+	html_create(*HTML_HANDLE, "$rel_dir/index.$html_ext");
 	write_html_prolog(*HTML_HANDLE, $base_dir,
 			  "LCOV - $test_title - $trunc_dir");
 	write_header(*HTML_HANDLE, 1, $trunc_dir, $rel_dir, $overall_found,
@@ -685,9 +716,7 @@ sub process_dir($)
 	if ($show_details)
 	{
 		# Generate directory overview page including details
-		open(*HTML_HANDLE, ">$rel_dir/index-detail.$html_ext")
-			or die("ERROR: cannot open $rel_dir/".
-			       "index-detail.$html_ext for writing!\n");
+		html_create(*HTML_HANDLE, "$rel_dir/index-detail.$html_ext");
 		write_html_prolog(*HTML_HANDLE, $base_dir,
 				  "LCOV - $test_title - $trunc_dir");
 		write_header(*HTML_HANDLE, 1, $trunc_dir, $rel_dir,
@@ -798,9 +827,7 @@ sub process_file($$$)
 
 	$converted = get_converted_lines($testdata);
 	# Generate source code view for this file
-	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.$html_ext")
-		or die("ERROR: cannot open $rel_dir/$base_name.gcov.$html_ext ".
-		       "for writing!\n");
+	html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.$html_ext");
 	$pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
 	write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
 	write_header(*HTML_HANDLE, 2, "$trunc_dir/$base_name",
@@ -822,18 +849,14 @@ sub process_file($$$)
 		@source);
 
 	# Create frameset page
-	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.frameset.$html_ext")
-		or die("ERROR: cannot open ".
-		       "$rel_dir/$base_name.gcov.frameset.$html_ext".
-		       " for writing!\n");
+	html_create(*HTML_HANDLE,
+		    "$rel_dir/$base_name.gcov.frameset.$html_ext");
 	write_frameset(*HTML_HANDLE, $base_dir, $base_name, $pagetitle);
 	close(*HTML_HANDLE);
 
 	# Write overview frame
-	open(*HTML_HANDLE, ">$rel_dir/$base_name.gcov.overview.$html_ext")
-		or die("ERROR: cannot open ".
-		       "$rel_dir/$base_name.gcov.overview.$html_ext".
-		       " for writing!\n");
+	html_create(*HTML_HANDLE,
+		    "$rel_dir/$base_name.gcov.overview.$html_ext");
 	write_overview(*HTML_HANDLE, $base_dir, $base_name, $pagetitle,
 		       scalar(@source));
 	close(*HTML_HANDLE);
@@ -1406,10 +1429,7 @@ sub write_description_file($$$)
 	my $test_name;
 	local *HTML_HANDLE;
 
-	open(HTML_HANDLE, ">descriptions.$html_ext")
-		or die("ERROR: cannot open descriptions.$html_ext for ".
-		       "writing!\n");
-
+	html_create(*HTML_HANDLE,"descriptions.$html_ext");
 	write_html_prolog(*HTML_HANDLE, "", "LCOV - test case descriptions");
 	write_header(*HTML_HANDLE, 3, "", "", $found, $hit);
 
@@ -1425,7 +1445,7 @@ sub write_description_file($$$)
 	write_test_table_epilog(*HTML_HANDLE);
 	write_html_epilog(*HTML_HANDLE, "");
 
-	close(HTML_HANDLE);
+	close(*HTML_HANDLE);
 }
 
 
@@ -1535,6 +1555,28 @@ sub write_png_files()
 		print(PNG_HANDLE map(chr,@{$data{$_}}));
 		close(PNG_HANDLE);
 	}
+}
+
+
+#
+# write_htaccess_file()
+#
+
+sub write_htaccess_file()
+{
+	local *HTACCESS_HANDLE;
+	my $htaccess_data;
+
+	open(*HTACCESS_HANDLE, ">.htaccess")
+		or die("ERROR: cannot open .htaccess for writing!\n");
+
+	$htaccess_data = (<<"END_OF_HTACCESS")
+AddEncoding x-gzip .html
+END_OF_HTACCESS
+	;
+
+	print(HTACCESS_HANDLE $htaccess_data);
+	close(*HTACCESS_HANDLE);
 }
 
 

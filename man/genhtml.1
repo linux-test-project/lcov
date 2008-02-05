@@ -45,6 +45,7 @@ genhtml - Generate HTML view from LCOV coverage data files
 .RB [ \-\-html-extension
 .IR extension ]
 .br
+.RB [ \-\-html-gzip ]
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -373,7 +374,23 @@ this option.
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_html_extension .
+.RE
 
+.B \-\-html\-gzip
+.RS
+
+Compress all generated html files with gzip and add a .htaccess file specifying
+gzip-encoding in the root output directory.
+
+Use this option if you want to save space on your webserver. Requires a
+webserver with .htaccess support and a browser with support for gzip
+compressed html.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_html_gzip .
+
+.RE
 .SH FILES
 
 .I /etc/lcovrc

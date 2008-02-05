@@ -66,6 +66,9 @@ genhtml_legend = 0
 # genhtml)
 #genhtml_html_extension = html
 
+# Compress all generated html files with gzip.
+#genhtml_html_gzip = 1
+
 # Location of the gcov tool (same as --gcov-info option of geninfo)
 #geninfo_gcov_tool = gcov
 
