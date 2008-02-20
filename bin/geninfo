@@ -710,12 +710,8 @@ sub process_dafile($)
 	foreach $gcov_file (@gcov_list)
 	{
 		($source, $object) = read_gcov_header($gcov_file);
-		if (!defined($source))
-		{
-			next;
-		}
 
-		if ($source)
+		if (defined($source))
 		{
 			$source = solve_relative_path($base_dir, $source);
 		}
