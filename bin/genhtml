@@ -3376,6 +3376,12 @@ sub apply_baseline($$)
 		$data = $data_hash{$filename};
 		$base = $base_hash{$filename};
 
+		# Skip data entries for which no base entry exists
+		if (!defined($base))
+		{
+			next;
+		}
+
 		# Get set entries for data and baseline
 		($data_testdata, undef, $data_funcdata, $data_checkdata) =
 			get_info_entry($data);
