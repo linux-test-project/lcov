@@ -153,7 +153,7 @@ our $no_compat_libtool;	# If set, indicates that libtool mode is to be disabled
 our $gcov_tool;
 our $ignore_errors;
 our $initial;
-our $norecursion;
+our $no_recursion = 0;
 our $maxdepth;
 our $config;		# Configuration file contents
 chomp($cwd);
@@ -218,7 +218,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \$ignore_errors,
 		"initial|i" => \$initial,
-		"norecursion" => \$norecursion
+		"no-recursion" => \$no_recursion
 		))
 {
 	print_usage(*STDERR);
@@ -266,7 +266,7 @@ else
 	$follow = "";
 }
 
-if ($norecursion)
+if ($no_recursion)
 {
 	$maxdepth = "-maxdepth 1";
 }
@@ -407,6 +407,7 @@ Options:
       --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
       --ignore-errors ERRORS      Continue after ERRORS (gcov, source)
+      --no-recursion              Exlude subdirectories from processing
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
@@ -464,7 +465,7 @@ sub userspace_reset()
 	foreach $current_dir (@directory)
 	{
 		info("Deleting all .da files in $current_dir".
-		     ($norecursion?"\n":" and subdirectories\n"));
+		     ($no_recursion?"\n":" and subdirectories\n"));
 		@file_list = `find $current_dir $maxdepth $follow -name \\*\\.da -o -name \\*\\.gcda -type f 2>/dev/null`;
 		chomp(@file_list);
 		foreach (@file_list)
@@ -542,9 +543,9 @@ sub userspace_capture()
 	{
 		@param = (@param, "--initial");
 	}
-	if ($norecursion)
+	if ($no_recursion)
 	{
-		@param = (@param, "--norecursion");
+		@param = (@param, "--no-recursion");
 	}
 
 	system(@param);

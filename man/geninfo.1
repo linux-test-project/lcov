@@ -30,6 +30,7 @@ geninfo \- Generate tracefiles from .da files
 .RB [ \-\-ignore\-errors
 .IR errors  ]
 .br
+.RB [ \-\-no\-recursion ]
 .I directory
 .RE
 .SH DESCRIPTION
@@ -183,6 +184,13 @@ file that contains zero coverage for every instrumented line. Combine this
 data file (using lcov \-a) with coverage data files captured after a test
 run to ensure that the percentage of total lines covered is correct even
 when not all source code files were loaded during the test.
+.RE
+
+.B \-\-no\-recursion
+.br
+.RS
+Use this option if you want to get coverage data for the specified directory
+only without processing subdirectories.
 .RE
 
 .BI "\-o " output\-filename

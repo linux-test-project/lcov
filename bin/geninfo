@@ -119,7 +119,7 @@ our $compatibility;	# Compatibility version flag - used to indicate
 our @ignore_errors;	# List of errors to ignore (parameter)
 our @ignore;		# List of errors to ignore (array)
 our $initial;
-our $norecursion;
+our $no_recursion = 0;
 our $maxdepth;
 
 our $cwd = `pwd`;
@@ -176,7 +176,7 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@ignore_errors,
 		"initial|i" => \$initial,
-		"norecursion" => \$norecursion
+		"no-recursion" => \$no_recursion
 		))
 {
 	print_usage(*STDERR);
@@ -267,7 +267,7 @@ else
 }
 
 # Determine max depth for recursion
-if (defined($norecursion))
+if ($no_recursion)
 {
 	$maxdepth = "-maxdepth 1";
 }
@@ -421,6 +421,7 @@ sequentially.
       --(no-)compat-libtool         Enable (disable) libtool compatibility mode
       --gcov-tool TOOL              Specify gcov tool location
       --ignore-errors ERROR         Continue after ERROR (gcov, source)
+      --no-recursion                Exlude subdirectories from processing
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE

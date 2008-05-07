@@ -61,6 +61,7 @@ lcov \- GCOV coverage tool extension
 .RB [ \-\-ignore\-errors
 .IR errors ]
 .br
+.RB [ \-\-no\-recursion ]
 .SH DESCRIPTION
 .B lcov
 is an extension of GCOV, a GNU tool which provides information
@@ -412,6 +413,13 @@ List the contents of the
 
 Only one of  \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
 at a time.
+.RE
+
+.B \-\-no\-recursion
+.br
+.RS
+Use this option if you want to get coverage data for the specified directory
+only without processing subdirectories.
 .RE
 
 .B \-o
