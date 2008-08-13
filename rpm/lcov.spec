@@ -1,4 +1,4 @@
-Summary: LTP GCOV extension code coverage tool
+Summary: A graphical GCOV front-end
 Name: lcov
 Version: 1.1
 Release: 1
@@ -10,11 +10,10 @@ BuildRoot: /var/tmp/%{name}-%{version}-root
 BuildArch: noarch
 
 %description
-LCOV is an extension of GCOV, a GNU tool which provides information
-about what parts of a program are actually executed (i.e. "covered")
-while running a particular test case. The extension consists of a set
-of PERL scripts which build on the textual GCOV output to implement
-HTML output and support for large projects.
+LCOV is a graphical front-end for GCC's coverage testing tool gcov. It collects
+gcov data for multiple source files and creates HTML pages containing the
+source code annotated with coverage information. It also adds overview pages
+for easy navigation within the file structure.
 
 %prep
 %setup -q -n lcov-%{version}
@@ -36,9 +35,11 @@ rm -rf $RPM_BUILD_ROOT
 /etc
 
 %changelog
-* Mon Aug 20 2007 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.con)
+* Wed Aug 13 2008 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
+- changed description + summary text
+* Mon Aug 20 2007 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - fixed "Copyright" tag
-* Mon Jul 14 2003 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.con)
+* Mon Jul 14 2003 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - removed variables for version/release to support source rpm building
 - added initial rm command in install section
 * Mon Apr 7 2003 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)

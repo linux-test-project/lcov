@@ -1,5 +1,5 @@
 #
-# Makefile for the LTP GCOV extension (LCOV)
+# Makefile for LCOV
 #
 # Make targets:
 #   - install:   install LCOV tools and man pages on the system
