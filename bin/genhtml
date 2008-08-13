@@ -57,6 +57,11 @@
 #                changed prefix/noprefix handling to be consistent with current
 #                logic
 #   2006-03-20 / Peter Oberparleiter: added --html-extension option
+#   2008-07-14 / Tom Zoerner: added --function-coverage command line option;
+#                added function table to source file page
+#   2008-08-13 / Peter Oberparleiter: modified function coverage
+#                implementation (now enabled per default),
+#                introduced sorting option (enabled per default)
 #
 
 use strict;
@@ -74,8 +79,14 @@ our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 # HI:   $hi_limit <= rate <= 100          graph color: green
 # MED: $med_limit <= rate <  $hi_limit    graph color: orange
 # LO:          0  <= rate <  $med_limit   graph color: red
+
+# For line coverage
 our $hi_limit	= 50;
 our $med_limit	= 15;
+
+# For function coverage
+our $fn_hi_limit	= 90;
+our $fn_med_limit	= 75;
 
 # Width of overview image
 our $overview_width = 80;
@@ -90,6 +101,11 @@ our $nav_resolution = 4;
 # line in the window. This number specifies that offset in lines.
 our $nav_offset = 10;
 
+# Clicking on a function name should show the source code at a position a
+# few lines before the first line of code of that function. This number
+# specifies that offset in lines.
+our $func_offset = 2;
+
 our $overview_title = "directory";
 
 # Data related prototypes
@@ -101,7 +117,7 @@ sub process_file($$$);
 sub info(@);
 sub read_info_file($);
 sub get_info_entry($);
-sub set_info_entry($$$$$;$$);
+sub set_info_entry($$$$$$$;$$$$);
 sub get_prefix(@);
 sub shorten_prefix($);
 sub get_dir_list(@);
@@ -115,7 +131,7 @@ sub add_counts($$);
 sub apply_baseline($$);
 sub remove_unused_descriptions();
 sub get_found_and_hit($);
-sub get_affecting_tests($);
+sub get_affecting_tests($$);
 sub combine_info_files($$);
 sub merge_checksums($$$);
 sub combine_info_entries($$$);
@@ -130,39 +146,36 @@ sub get_html_epilog($);
 # HTML related prototypes
 sub escape_html($);
 sub get_bar_graph_code($$$);
-sub classify_coverage_rate($);
-sub get_png_for_coverage_rate($);
-sub coverage_rate_helper($);
 
 sub write_png_files();
 sub write_htaccess_file();
 sub write_css_file();
-sub write_description_file($$$);
+sub write_description_file($$$$$);
+sub write_function_rable(*$$$);
 
 sub write_html(*$);
 sub write_html_prolog(*$$);
 sub write_html_epilog(*$;$);
 
-sub write_header(*$$$$$);
+sub write_header(*$$$$$$$$);
 sub write_header_prolog(*$);
-sub write_header_line(*$$;$$);
+sub write_header_line(*$@);
 sub write_header_epilog(*$);
-sub write_header_legend(*$);
 
-sub write_file_table(*$$$$);
-sub write_file_table_prolog(*$$);
-sub write_file_table_entry(*$$$$);
-sub write_file_table_detail_heading(*$$);
-sub write_file_table_detail_entry(*$$$);
+sub write_file_table(*$$$$$$);
+sub write_file_table_prolog(*$$$);
+sub write_file_table_entry(*$$$$$$$);
+sub write_file_table_detail_heading(*$$$);
+sub write_file_table_detail_entry(*$$$$$);
 sub write_file_table_epilog(*);
 
 sub write_test_table_prolog(*$);
 sub write_test_table_entry(*$$);
 sub write_test_table_epilog(*);
 
-sub write_source($$$$$);
+sub write_source($$$$$$);
 sub write_source_prolog(*);
-sub write_source_line(*$$$$);
+sub write_source_line(*$$$$$);
 sub write_source_epilog(*);
 
 sub write_frameset(*$$$);
@@ -190,6 +203,10 @@ our $help;		# Help option flag
 our $version;		# Version option flag
 our $show_details;	# If set, generate detailed directory view
 our $no_prefix;		# If set, do not remove filename prefix
+our $func_coverage = 1;	# If set, generate function coverage statistics
+our $no_func_coverage;	# Disable func_coverage
+our $sort = 1;		# If set, provide directory listings with sorted entries
+our $no_sort;		# Disable sort
 our $frames;		# If set, use frames for source code view
 our $keep_descriptions;	# If set, do not remove unused test case descriptions
 our $no_sourceview;	# If set, do not create a source code view for each file
@@ -203,6 +220,11 @@ our $html_prolog;	# Actual HTML prolog
 our $html_epilog;	# Actual HTML epilog
 our $html_ext = "html";	# Extension for generated HTML files
 our $html_gzip = 0;	# Compress with gzip
+our @fileview_sortlist;
+our @fileview_sortname = ("", "-sort-l", "-sort-f");
+our @funcview_sortlist;
+our @rate_name = ("Lo", "Med", "Hi");
+our @rate_png = ("ruby.png", "amber.png", "emerald.png");
 
 our $cwd = `pwd`;	# Current working directory
 chomp($cwd);
@@ -249,6 +271,10 @@ if ($config)
 		"genhtml_html_epilog"		=> \$html_epilog_file,
 		"genhtml_html_extension"	=> \$html_ext,
 		"genhtml_html_gzip"		=> \$html_gzip,
+		"genhtml_function_hi_limit"	=> \$fn_hi_limit,
+		"genhtml_function_med_limit"	=> \$fn_med_limit,
+		"genhtml_function_coverage"	=> \$func_coverage,
+		"genhtml_sort"			=> \$sort,
 		});
 }
 
@@ -274,6 +300,8 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"html-epilog=s"		=> \$html_epilog_file,
 		"html-extension=s"	=> \$html_ext,
 		"html-gzip"		=> \$html_gzip,
+		"no-function-coverage"	=> \$no_func_coverage,
+		"no-sort"		=> \$no_sort,
 		))
 {
 	print_usage(*STDERR);
@@ -357,6 +385,24 @@ if ($no_prefix && defined($dir_prefix))
 	$dir_prefix = undef;
 }
 
+# Merge function coverage options
+if ($no_func_coverage) {
+	$func_coverage = 0;
+}
+
+# Merge sort options
+if ($no_sort) {
+	$sort = 0;
+}
+
+if ($sort) {
+	@fileview_sortlist = (0, 1, 2);
+	@funcview_sortlist = (0, 1);
+} else {
+	@fileview_sortlist = (0);
+	@funcview_sortlist = (0);
+}
+
 if ($frames)
 {
 	# Include genpng code needed for overview image generation
@@ -412,6 +458,7 @@ Operation:
   -b, --baseline-file BASEFILE      Use BASEFILE as baseline file
   -p, --prefix PREFIX               Remove PREFIX from all directory names
       --no-prefix                   Do not remove prefix from directory names
+      --no-function-coverage        Disable function coverage data display
 
 HTML output:
   -f, --frames                      Use HTML frames for source code view
@@ -425,10 +472,30 @@ HTML output:
       --html-epilog FILE            Use FILE as HTML epilog for generated pages
       --html-extension EXT          Use EXT as filename extension for pages
       --html-gzip                   Use gzip to compress HTML
+      --no-sort                     Do not provide views sorted by coverage
 
 See $lcov_url for more information about this tool.
 END_OF_USAGE
 	;
+}
+
+
+#
+# get_rate(found, hit)
+#
+# Return a relative value for the specified found&hit values
+# which is used for sorting the corresponding entries in a
+# file list.
+#
+
+sub get_rate($$)
+{
+	my ($found, $hit) = @_;
+
+	if ($found == 0) {
+		return 10000;
+	}
+	return int($hit * 1000 / $found) * 10 + 2 - (1 / $found);
 }
 
 
@@ -450,8 +517,12 @@ sub gen_html()
 	my %base_data;
 	my $lines_found;
 	my $lines_hit;
+	my $fn_found;
+	my $fn_hit;
 	my $overall_found = 0;
 	my $overall_hit = 0;
+	my $total_fn_found = 0;
+	my $total_fn_hit = 0;
 	my $dir_name;
 	my $link_name;
 	my @dir_list;
@@ -460,7 +531,6 @@ sub gen_html()
 	# Read in all specified .info files
 	foreach (@info_filenames)
 	{
-		info("Reading data file $_\n");
 		%new_info = %{read_info_file($_)};
 
 		# Combine %new_info with %info_data
@@ -547,7 +617,8 @@ sub gen_html()
 	# Process each subdirectory and collect overview information
 	foreach $dir_name (@dir_list)
 	{
-		($lines_found, $lines_hit) = process_dir($dir_name);
+		($lines_found, $lines_hit, $fn_found, $fn_hit)
+			= process_dir($dir_name);
 
 		# Remove prefix if applicable
 		if (!$no_prefix && $dir_prefix)
@@ -566,40 +637,64 @@ sub gen_html()
 			$link_name = $dir_name."/index.$html_ext";
 		}
 
-		$overview{$dir_name} = "$lines_found,$lines_hit,$link_name";
+		$overview{$dir_name} = [$lines_found, $lines_hit, $fn_found,
+					$fn_hit, $link_name,
+					get_rate($lines_found, $lines_hit),
+					get_rate($fn_found, $fn_hit)];
 		$overall_found	+= $lines_found;
 		$overall_hit	+= $lines_hit;
+		$total_fn_found	+= $fn_found;
+		$total_fn_hit	+= $fn_hit;
 	}
 
 	# Generate overview page
 	info("Writing directory view page.\n");
-	html_create(*HTML_HANDLE, "index.$html_ext");
-	write_html_prolog(*HTML_HANDLE, "", "LCOV - $test_title");
-	write_header(*HTML_HANDLE, 0, "", "", $overall_found, $overall_hit);
-	write_file_table(*HTML_HANDLE, "", \%overview, {}, 0);
-	write_html_epilog(*HTML_HANDLE, "");
-	close(*HTML_HANDLE);
+
+	# Create sorted pages
+	foreach (@fileview_sortlist) {
+		write_dir_page($fileview_sortname[$_], ".", "", $test_title,
+			       undef, $overall_found, $overall_hit,
+			       $total_fn_found, $total_fn_hit, \%overview,
+			       {}, {}, 0, $_);
+	}
 
 	# Check if there are any test case descriptions to write out
 	if (%test_description)
 	{
 		info("Writing test case description file.\n");
 		write_description_file( \%test_description,
-					$overall_found, $overall_hit);
-	}
-
-	if ($overall_found == 0)
-	{
-		info("Warning: No lines found!\n");
-	}
-	else
-	{
-		info("Overall coverage rate: %d of %d lines (%.1f%%)\n",
-		     $overall_hit, $overall_found,
-		     $overall_hit*100/$overall_found);
+					$overall_found, $overall_hit,
+					$total_fn_found, $total_fn_hit);
 	}
 
 	chdir($cwd);
+
+	info("Overall coverage rate:\n");
+
+	if ($overall_found == 0)
+	{
+		info("  lines......: no data found\n");
+		return;
+	}
+	info("  lines......: %.1f%% (%d of %d lines)\n",
+	     $overall_hit * 100 / $overall_found, $overall_hit,
+	     $overall_found,);
+
+	if ($func_coverage)
+	{
+		if ($total_fn_found == 0)
+		{
+			info("  functions..: no data found\n");
+		}
+		else
+		{
+			info("  functions..: %.1f%% (%d of %d functions)\n",
+			     $total_fn_hit * 100 / $total_fn_found,
+			     $total_fn_hit, $total_fn_found);
+
+		}
+	}
+
 }
 
 #
@@ -624,6 +719,27 @@ sub html_create($$)
 	}
 }
 
+sub write_dir_page($$$$$$$$$$$$$$)
+{
+	my ($name, $rel_dir, $base_dir, $title, $trunc_dir, $overall_found,
+	    $overall_hit, $total_fn_found, $total_fn_hit, $overview,
+	    $testhash, $testfnchash, $view_type, $sort_type) = @_;
+
+	# Generate directory overview page including details
+	html_create(*HTML_HANDLE, "$rel_dir/index$name.$html_ext");
+	if (!defined($trunc_dir)) {
+		$trunc_dir = "";
+	}
+	write_html_prolog(*HTML_HANDLE, $base_dir, "LCOV - $title$trunc_dir");
+	write_header(*HTML_HANDLE, $view_type, $trunc_dir, $rel_dir,
+		     $overall_found, $overall_hit, $total_fn_found,
+		     $total_fn_hit, $sort_type);
+	write_file_table(*HTML_HANDLE, $base_dir, $overview, $testhash,
+			 $testfnchash, $view_type, $sort_type);
+	write_html_epilog(*HTML_HANDLE, $base_dir);
+	close(*HTML_HANDLE);
+}
+
 
 #
 # process_dir(dir_name)
@@ -639,12 +755,19 @@ sub process_dir($)
 	my %overview;
 	my $lines_found;
 	my $lines_hit;
+	my $fn_found;
+	my $fn_hit;
 	my $overall_found=0;
 	my $overall_hit=0;
+	my $total_fn_found=0;
+	my $total_fn_hit=0;
 	my $base_name;
 	my $extension;
 	my $testdata;
 	my %testhash;
+	my $testfncdata;
+	my %testfnchash;
+	my @sort_list;
 	local *HTML_HANDLE;
 
 	# Remove prefix if applicable
@@ -670,66 +793,58 @@ sub process_dir($)
 	# sub-directories
 	foreach $filename (grep(/^\Q$abs_dir\E\/[^\/]*$/,keys(%info_data)))
 	{
-		($lines_found, $lines_hit, $testdata) =
-			process_file($trunc_dir, $rel_dir, $filename);
+		my $page_link;
+		my $func_link;
+
+		($lines_found, $lines_hit, $fn_found, $fn_hit, $testdata,
+		 $testfncdata) = process_file($trunc_dir, $rel_dir, $filename);
 
 		$base_name = basename($filename);
 
-		if ($no_sourceview)
-		{
-			# User asked as not to create source code view, do not
-			# provide a page link
-			$overview{$base_name} =
-				"$lines_found,$lines_hit";
-		}
-		elsif ($frames)
-		{
+		if ($no_sourceview) {
+			$page_link = "";
+		} elsif ($frames) {
 			# Link to frameset page
-			$overview{$base_name} =
-				"$lines_found,$lines_hit,".
-				"$base_name.gcov.frameset.$html_ext";
-		}
-		else
-		{
+			$page_link = "$base_name.gcov.frameset.$html_ext";
+		} else {
 			# Link directory to source code view page
-			$overview{$base_name} =
-				"$lines_found,$lines_hit,".
-				"$base_name.gcov.$html_ext";
+			$page_link = "$base_name.gcov.$html_ext";
 		}
+		$overview{$base_name} = [$lines_found, $lines_hit, $fn_found,
+					 $fn_hit, $page_link,
+					 get_rate($lines_found, $lines_hit),
+					 get_rate($fn_found, $fn_hit)];
 
 		$testhash{$base_name} = $testdata;
+		$testfnchash{$base_name} = $testfncdata;
 
 		$overall_found	+= $lines_found;
 		$overall_hit	+= $lines_hit;
+
+		$total_fn_found += $fn_found;
+		$total_fn_hit   += $fn_hit;
 	}
 
-	# Generate directory overview page (without details)	
-	html_create(*HTML_HANDLE, "$rel_dir/index.$html_ext");
-	write_html_prolog(*HTML_HANDLE, $base_dir,
-			  "LCOV - $test_title - $trunc_dir");
-	write_header(*HTML_HANDLE, 1, $trunc_dir, $rel_dir, $overall_found,
-		     $overall_hit);
-	write_file_table(*HTML_HANDLE, $base_dir, \%overview, {}, 1);
-	write_html_epilog(*HTML_HANDLE, $base_dir);
-	close(*HTML_HANDLE);
-
-	if ($show_details)
-	{
+	# Create sorted pages
+	foreach (@fileview_sortlist) {
+		# Generate directory overview page (without details)	
+		write_dir_page($fileview_sortname[$_], $rel_dir, $base_dir,
+			       $test_title, $trunc_dir, $overall_found,
+			       $overall_hit, $total_fn_found, $total_fn_hit,
+			       \%overview, {}, {}, 1, $_);
+		if (!$show_details) {
+			next;
+		}
 		# Generate directory overview page including details
-		html_create(*HTML_HANDLE, "$rel_dir/index-detail.$html_ext");
-		write_html_prolog(*HTML_HANDLE, $base_dir,
-				  "LCOV - $test_title - $trunc_dir");
-		write_header(*HTML_HANDLE, 1, $trunc_dir, $rel_dir,
-			     $overall_found,
-			     $overall_hit);
-		write_file_table(*HTML_HANDLE, $base_dir, \%overview,
-				 \%testhash, 1);
-		write_html_epilog(*HTML_HANDLE, $base_dir);
-		close(*HTML_HANDLE);
+		write_dir_page("-detail".$fileview_sortname[$_], $rel_dir,
+			       $base_dir, $test_title, $trunc_dir,
+			       $overall_found, $overall_hit, $total_fn_found,
+			       $total_fn_hit, \%overview, \%testhash,
+			       \%testfnchash, 1, $_);
 	}
 
 	# Calculate resulting line counts
-	return ($overall_found, $overall_hit);
+	return ($overall_found, $overall_hit, $total_fn_found, $total_fn_hit);
 }
 
 
@@ -790,6 +905,35 @@ sub get_converted_lines($)
 }
 
 
+sub write_function_page($$$$$$$$$$$$$$)
+{
+	my ($base_dir, $rel_dir, $trunc_dir, $base_name, $title,
+	    $lines_found, $lines_hit, $fn_found, $fn_hit,
+	    $sumcount, $funcdata, $sumfnccount, $testfncdata, $sort_type) = @_;
+	my $pagetitle;
+	my $filename;
+
+	# Generate function table for this file
+	if ($sort_type == 0) {
+		$filename = "$rel_dir/$base_name.func.$html_ext";
+	} else {
+		$filename = "$rel_dir/$base_name.func-sort-c.$html_ext";
+	}
+	html_create(*HTML_HANDLE, $filename);
+	$pagetitle = "LCOV - $title - $trunc_dir/$base_name - functions";
+	write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
+	write_header(*HTML_HANDLE, 4, "$trunc_dir/$base_name",
+		     "$rel_dir/$base_name", $lines_found, $lines_hit,
+		     $fn_found, $fn_hit, $sort_type);
+	write_function_table(*HTML_HANDLE, "$base_name.gcov.$html_ext",
+			     $sumcount, $funcdata,
+			     $sumfnccount, $testfncdata, $base_name,
+			     $base_dir, $sort_type);
+	write_html_epilog(*HTML_HANDLE, $base_dir, 1);
+	close(*HTML_HANDLE);
+}
+
+
 #
 # process_file(trunc_dir, rel_dir, filename)
 #
@@ -808,21 +952,27 @@ sub process_file($$$)
 	my $sumcount;
 	my $funcdata;
 	my $checkdata;
+	my $testfncdata;
+	my $sumfnccount;
 	my $lines_found;
 	my $lines_hit;
+	my $fn_found;
+	my $fn_hit;
 	my $converted;
 	my @source;
 	my $pagetitle;
 	local *HTML_HANDLE;
 
-	($testdata, $sumcount, $funcdata, $checkdata, $lines_found,
-		$lines_hit) = get_info_entry($info_data{$filename});
+	($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
+	 $sumfnccount, $lines_found, $lines_hit, $fn_found, $fn_hit)
+		= get_info_entry($info_data{$filename});
 
 	# Return after this point in case user asked us not to generate
 	# source code view
 	if ($no_sourceview)
 	{
-		return ($lines_found, $lines_hit, $testdata);
+		return ($lines_found, $lines_hit,
+			$fn_found, $fn_hit, $testdata);
 	}
 
 	$converted = get_converted_lines($testdata);
@@ -831,17 +981,31 @@ sub process_file($$$)
 	$pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
 	write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
 	write_header(*HTML_HANDLE, 2, "$trunc_dir/$base_name",
-		     "$rel_dir/$base_name", $lines_found, $lines_hit);
+		     "$rel_dir/$base_name", $lines_found, $lines_hit,
+		     $fn_found, $fn_hit, 0);
 	@source = write_source(*HTML_HANDLE, $filename, $sumcount, $checkdata,
-			       $converted);
+			       $converted, $funcdata);
 
 	write_html_epilog(*HTML_HANDLE, $base_dir, 1);
 	close(*HTML_HANDLE);
 
+	if ($func_coverage) {
+		# Create function tables
+		foreach (@funcview_sortlist) {
+			write_function_page($base_dir, $rel_dir, $trunc_dir,
+					    $base_name, $test_title,
+					    $lines_found, $lines_hit,
+					    $fn_found, $fn_hit, $sumcount,
+					    $funcdata, $sumfnccount,
+					    $testfncdata, $_);
+		}
+	}
+
 	# Additional files are needed in case of frame output
 	if (!$frames)
 	{
-		return ($lines_found, $lines_hit, $testdata);
+		return ($lines_found, $lines_hit,
+			$fn_found, $fn_hit, $testdata);
 	}
 
 	# Create overview png file
@@ -861,7 +1025,8 @@ sub process_file($$$)
 		       scalar(@source));
 	close(*HTML_HANDLE);
 
-	return ($lines_found, $lines_hit, $testdata);
+	return ($lines_found, $lines_hit, $fn_found, $fn_hit, $testdata,
+		$testfncdata);
 }
 
 
@@ -879,13 +1044,18 @@ sub process_file($$$)
 #        "found" -> $lines_found (number of instrumented lines found in file)
 #	 "hit"   -> $lines_hit (number of executed lines in file)
 #        "check" -> \%checkdata
+#        "testfnc" -> \%testfncdata
+#        "sumfnc"  -> \%sumfnccount
 #
-# %testdata: name of test affecting this file -> \%testcount
+# %testdata   : name of test affecting this file -> \%testcount
+# %testfncdata: name of test affecting this file -> \%testfnccount
 #
-# %testcount: line number -> execution count for a single test
-# %sumcount : line number -> execution count for all tests
-# %funcdata : line number -> name of function beginning at that line
-# %checkdata: line number -> checksum of source code line
+# %testcount   : line number   -> execution count for a single test
+# %testfnccount: function name -> execution count for a single test
+# %sumcount    : line number   -> execution count for all tests
+# %sumfnccount : function name -> execution count for all tests
+# %funcdata    : function name -> line number
+# %checkdata   : line number   -> checksum of source code line
 # 
 # Note that .info file sections referring to the same file and test name
 # will automatically be combined by adding all execution counts.
@@ -907,6 +1077,9 @@ sub read_info_file($)
 	my $sumcount;			#       "             "
 	my $funcdata;			#       "             "
 	my $checkdata;			#       "             "
+	my $testfncdata;
+	my $testfnccount;
+	my $sumfnccount;
 	my $line;			# Current line read from .info file
 	my $testname;			# Current test name
 	my $filename;			# Current filename
@@ -914,8 +1087,10 @@ sub read_info_file($)
 	my $count;			# Execution count of current line
 	my $negative;			# If set, warn about negative counts
 	my $changed_testname;		# If set, warn about changed testname
-	my $checksum;			# Checksum of current line
+	my $line_checksum;		# Checksum of current line
 	local *INFO_HANDLE;		# Filehandle for .info file
+
+	info("Reading data file $tracefile\n");
 
 	# Check if file exists and is readable
 	stat($_[0]);
@@ -934,7 +1109,7 @@ sub read_info_file($)
 	if ($_[0] =~ /\.gz$/)
 	{
 		# Check for availability of GZIP tool
-		system_no_output(1, "gunzip", "-h")
+		system_no_output(1, "gunzip" ,"-h")
 			and die("ERROR: gunzip command not available!\n");
 
 		# Check integrity of compressed file
@@ -944,12 +1119,12 @@ sub read_info_file($)
 
 		# Open compressed file
 		open(INFO_HANDLE, "gunzip -c $_[0]|")
-			or die("ERROR: cannot start gunzip to uncompress ".
+			or die("ERROR: cannot start gunzip to decompress ".
 			       "file $_[0]!\n");
 	}
 	else
 	{
-		# Open uncompressed file
+		# Open decompressed file
 		open(INFO_HANDLE, $_[0])
 			or die("ERROR: cannot read file $_[0]!\n");
 	}
@@ -971,7 +1146,6 @@ sub read_info_file($)
 				{
 					$changed_testname = 1;
 				}
-
 				last;
 			};
 
@@ -982,17 +1156,19 @@ sub read_info_file($)
 				$filename = $1;
 
 				$data = $result{$filename};
-				($testdata, $sumcount, $funcdata, $checkdata) =
+				($testdata, $sumcount, $funcdata, $checkdata,
+				 $testfncdata, $sumfnccount) =
 					get_info_entry($data);
 
 				if (defined($testname))
 				{
 					$testcount = $testdata->{$testname};
+					$testfnccount = $testfncdata->{$testname};
 				}
 				else
 				{
-					my %new_hash;
-					$testcount = \%new_hash;
+					$testcount = {};
+					$testfnccount = {};
 				}
 				last;
 			};
@@ -1018,17 +1194,18 @@ sub read_info_file($)
 				# Store line checksum if available
 				if (defined($3))
 				{
-					$checksum = substr($3, 1);
+					$line_checksum = substr($3, 1);
 
 					# Does it match a previous definition
 					if (defined($checkdata->{$1}) &&
-					    ($checkdata->{$1} ne $checksum))
+					    ($checkdata->{$1} ne
+					     $line_checksum))
 					{
 						die("ERROR: checksum mismatch ".
 						    "at $filename:$1\n");
 					}
 
-					$checkdata->{$1} = $checksum;
+					$checkdata->{$1} = $line_checksum;
 				}
 				last;
 			};
@@ -1036,10 +1213,34 @@ sub read_info_file($)
 			/^FN:(\d+),([^,]+)/ && do
 			{
 				# Function data found, add to structure
-				$funcdata->{$1} = $2;
+				$funcdata->{$2} = $1;
+
+				# Also initialize function call data
+				if (!defined($sumfnccount->{$2})) {
+					$sumfnccount->{$2} = 0;
+				}
+				if (defined($testname))
+				{
+					if (!defined($testfnccount->{$2})) {
+						$testfnccount->{$2} = 0;
+					}
+				}
 				last;
 			};
 
+			/^FNDA:(\d+),([^,]+)/ && do
+			{
+				# Function call count found, add to structure
+				# Add summary counts
+				$sumfnccount->{$2} += $1;
+
+				# Add test-specific counts
+				if (defined($testname))
+				{
+					$testfnccount->{$2} += $1;
+				}
+				last;
+			};
 			/^end_of_record/ && do
 			{
 				# Found end of section marker
@@ -1050,13 +1251,17 @@ sub read_info_file($)
 					{
 						$testdata->{$testname} =
 							$testcount;
-					}
+						$testfncdata->{$testname} =
+							$testfnccount;
+					}	
+
 					set_info_entry($data, $testdata,
 						       $sumcount, $funcdata,
-						       $checkdata);
+						       $checkdata, $testfncdata,
+						       $sumfnccount);
 					$result{$filename} = $data;
+					last;
 				}
-
 			};
 
 			# default
@@ -1070,7 +1275,25 @@ sub read_info_file($)
 	{
 		$data = $result{$filename};
 
-		($testdata, $sumcount, $funcdata) = get_info_entry($data);
+		($testdata, $sumcount, undef, undef, $testfncdata,
+		 $sumfnccount) = get_info_entry($data);
+
+		# Filter out empty files
+		if (scalar(keys(%{$sumcount})) == 0)
+		{
+			delete($result{$filename});
+			next;
+		}
+		# Filter out empty test cases
+		foreach $testname (keys(%{$testdata}))
+		{
+			if (!defined($testdata->{$testname}) ||
+			    scalar(keys(%{$testdata->{$testname}})) == 0)
+			{
+				delete($testdata->{$testname});
+				delete($testfncdata->{$testname});
+			}
+		}
 
 		$data->{"found"} = scalar(keys(%{$sumcount}));
 		$hitcount = 0;
@@ -1082,7 +1305,16 @@ sub read_info_file($)
 
 		$data->{"hit"} = $hitcount;
 
-		$result{$filename} = $data;
+		# Get found/hit values for function call data
+		$data->{"f_found"} = scalar(keys(%{$sumfnccount}));
+		$hitcount = 0;
+
+		foreach (keys(%{$sumfnccount})) {
+			if ($sumfnccount->{$_} > 0) {
+				$hitcount++;
+			}
+		}
+		$data->{"f_hit"} = $hitcount;
 	}
 
 	if (scalar(keys(%result)) == 0)
@@ -1110,7 +1342,8 @@ sub read_info_file($)
 # Retrieve data from an entry of the structure generated by read_info_file().
 # Return a list of references to hashes:
 # (test data hash ref, sum count hash ref, funcdata hash ref, checkdata hash
-#  ref, lines found, lines hit)
+#  ref, testfncdata hash ref, sumfnccount hash ref, lines found, lines hit,
+#  functions found, functions hit)
 #
 
 sub get_info_entry($)
@@ -1119,22 +1352,28 @@ sub get_info_entry($)
 	my $sumcount_ref = $_[0]->{"sum"};
 	my $funcdata_ref = $_[0]->{"func"};
 	my $checkdata_ref = $_[0]->{"check"};
+	my $testfncdata = $_[0]->{"testfnc"};
+	my $sumfnccount = $_[0]->{"sumfnc"};
 	my $lines_found = $_[0]->{"found"};
 	my $lines_hit = $_[0]->{"hit"};
+	my $fn_found = $_[0]->{"f_found"};
+	my $fn_hit = $_[0]->{"f_hit"};
 
 	return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
-		$lines_found, $lines_hit);
+		$testfncdata, $sumfnccount, $lines_found, $lines_hit,
+		$fn_found, $fn_hit);
 }
 
 
 #
 # set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref,
-#                checkdata_ref[,lines_found, lines_hit])
+#                checkdata_ref, testfncdata_ref, sumfcncount_ref[,lines_found,
+#                lines_hit, f_found, f_hit])
 #
 # Update the hash referenced by HASH_REF with the provided data references.
 #
 
-sub set_info_entry($$$$$;$$)
+sub set_info_entry($$$$$$$;$$$$)
 {
 	my $data_ref = $_[0];
 
@@ -1142,9 +1381,343 @@ sub set_info_entry($$$$$;$$)
 	$data_ref->{"sum"} = $_[2];
 	$data_ref->{"func"} = $_[3];
 	$data_ref->{"check"} = $_[4];
+	$data_ref->{"testfnc"} = $_[5];
+	$data_ref->{"sumfnc"} = $_[6];
 
-	if (defined($_[5])) { $data_ref->{"found"} = $_[5]; }
-	if (defined($_[6])) { $data_ref->{"hit"} = $_[6]; }
+	if (defined($_[7])) { $data_ref->{"found"} = $_[7]; }
+	if (defined($_[8])) { $data_ref->{"hit"} = $_[8]; }
+	if (defined($_[9])) { $data_ref->{"f_found"} = $_[9]; }
+	if (defined($_[10])) { $data_ref->{"f_hit"} = $_[10]; }
+}
+
+
+#
+# add_counts(data1_ref, data2_ref)
+#
+# DATA1_REF and DATA2_REF are references to hashes containing a mapping
+#
+#   line number -> execution count
+#
+# Return a list (RESULT_REF, LINES_FOUND, LINES_HIT) where RESULT_REF
+# is a reference to a hash containing the combined mapping in which
+# execution counts are added.
+#
+
+sub add_counts($$)
+{
+	my %data1 = %{$_[0]};	# Hash 1
+	my %data2 = %{$_[1]};	# Hash 2
+	my %result;		# Resulting hash
+	my $line;		# Current line iteration scalar
+	my $data1_count;	# Count of line in hash1
+	my $data2_count;	# Count of line in hash2
+	my $found = 0;		# Total number of lines found
+	my $hit = 0;		# Number of lines with a count > 0
+
+	foreach $line (keys(%data1))
+	{
+		$data1_count = $data1{$line};
+		$data2_count = $data2{$line};
+
+		# Add counts if present in both hashes
+		if (defined($data2_count)) { $data1_count += $data2_count; }
+
+		# Store sum in %result
+		$result{$line} = $data1_count;
+
+		$found++;
+		if ($data1_count > 0) { $hit++; }
+	}
+
+	# Add lines unique to data2
+	foreach $line (keys(%data2))
+	{
+		# Skip lines already in data1
+		if (defined($data1{$line})) { next; }
+
+		# Copy count from data2
+		$result{$line} = $data2{$line};
+
+		$found++;
+		if ($result{$line} > 0) { $hit++; }
+	}
+
+	return (\%result, $found, $hit);
+}
+
+
+#
+# merge_checksums(ref1, ref2, filename)
+#
+# REF1 and REF2 are references to hashes containing a mapping
+#
+#   line number -> checksum
+#
+# Merge checksum lists defined in REF1 and REF2 and return reference to
+# resulting hash. Die if a checksum for a line is defined in both hashes
+# but does not match.
+#
+
+sub merge_checksums($$$)
+{
+	my $ref1 = $_[0];
+	my $ref2 = $_[1];
+	my $filename = $_[2];
+	my %result;
+	my $line;
+
+	foreach $line (keys(%{$ref1}))
+	{
+		if (defined($ref2->{$line}) &&
+		    ($ref1->{$line} ne $ref2->{$line}))
+		{
+			die("ERROR: checksum mismatch at $filename:$line\n");
+		}
+		$result{$line} = $ref1->{$line};
+	}
+
+	foreach $line (keys(%{$ref2}))
+	{
+		$result{$line} = $ref2->{$line};
+	}
+
+	return \%result;
+}
+
+
+#
+# merge_func_data(funcdata1, funcdata2, filename)
+#
+
+sub merge_func_data($$$)
+{
+	my ($funcdata1, $funcdata2, $filename) = @_;
+	my %result;
+	my $func;
+
+	%result = %{$funcdata1};
+
+	foreach $func (keys(%{$funcdata2})) {
+		my $line1 = $result{$func};
+		my $line2 = $funcdata2->{$func};
+
+		if (defined($line1) && ($line1 != $line2)) {
+			warn("WARNING: function data mismatch at ".
+			     "$filename:$line2\n");
+			next;
+		}
+		$result{$func} = $line2;
+	}
+
+	return \%result;
+}
+
+
+#
+# add_fnccount(fnccount1, fnccount2)
+#
+# Add function call count data. Return list (fnccount_added, f_found, f_hit)
+#
+
+sub add_fnccount($$)
+{
+	my ($fnccount1, $fnccount2) = @_;
+	my %result;
+	my $fn_found;
+	my $fn_hit;
+	my $function;
+
+	%result = %{$fnccount1};
+	foreach $function (keys(%{$fnccount2})) {
+		$result{$function} += $fnccount2->{$function};
+	}
+	$fn_found = scalar(keys(%result));
+	$fn_hit = 0;
+	foreach $function (keys(%result)) {
+		if ($result{$function} > 0) {
+			$fn_hit++;
+		}
+	}
+
+	return (\%result, $fn_found, $fn_hit);
+}
+
+#
+# add_testfncdata(testfncdata1, testfncdata2)
+#
+# Add function call count data for several tests. Return reference to
+# added_testfncdata.
+#
+
+sub add_testfncdata($$)
+{
+	my ($testfncdata1, $testfncdata2) = @_;
+	my %result;
+	my $testname;
+
+	foreach $testname (keys(%{$testfncdata1})) {
+		if (defined($testfncdata2->{$testname})) {
+			my $fnccount;
+
+			# Function call count data for this testname exists
+			# in both data sets: add
+			($fnccount) = add_fnccount(
+				$testfncdata1->{$testname},
+				$testfncdata2->{$testname});
+			$result{$testname} = $fnccount;
+			next;
+		}
+		# Function call count data for this testname is unique to
+		# data set 1: copy
+		$result{$testname} = $testfncdata1->{$testname};
+	}
+
+	# Add count data for testnames unique to data set 2
+	foreach $testname (keys(%{$testfncdata2})) {
+		if (!defined($result{$testname})) {
+			$result{$testname} = $testfncdata2->{$testname};
+		}
+	}
+	return \%result;
+}
+
+#
+# combine_info_entries(entry_ref1, entry_ref2, filename)
+#
+# Combine .info data entry hashes referenced by ENTRY_REF1 and ENTRY_REF2.
+# Return reference to resulting hash.
+#
+
+sub combine_info_entries($$$)
+{
+	my $entry1 = $_[0];	# Reference to hash containing first entry
+	my $testdata1;
+	my $sumcount1;
+	my $funcdata1;
+	my $checkdata1;
+	my $testfncdata1;
+	my $sumfnccount1;
+
+	my $entry2 = $_[1];	# Reference to hash containing second entry
+	my $testdata2;
+	my $sumcount2;
+	my $funcdata2;
+	my $checkdata2;
+	my $testfncdata2;
+	my $sumfnccount2;
+
+	my %result;		# Hash containing combined entry
+	my %result_testdata;
+	my $result_sumcount = {};
+	my $result_funcdata;
+	my $result_testfncdata;
+	my $result_sumfnccount;
+	my $lines_found;
+	my $lines_hit;
+	my $fn_found;
+	my $fn_hit;
+
+	my $testname;
+	my $filename = $_[2];
+
+	# Retrieve data
+	($testdata1, $sumcount1, $funcdata1, $checkdata1, $testfncdata1,
+	 $sumfnccount1) = get_info_entry($entry1);
+	($testdata2, $sumcount2, $funcdata2, $checkdata2, $testfncdata2,
+	 $sumfnccount2) = get_info_entry($entry2);
+
+	# Merge checksums
+	$checkdata1 = merge_checksums($checkdata1, $checkdata2, $filename);
+
+	# Combine funcdata
+	$result_funcdata = merge_func_data($funcdata1, $funcdata2, $filename);
+
+	# Combine function call count data
+	$result_testfncdata = add_testfncdata($testfncdata1, $testfncdata2);
+	($result_sumfnccount, $fn_found, $fn_hit) =
+		add_fnccount($sumfnccount1, $sumfnccount2);
+	
+	# Combine testdata
+	foreach $testname (keys(%{$testdata1}))
+	{
+		if (defined($testdata2->{$testname}))
+		{
+			# testname is present in both entries, requires
+			# combination
+			($result_testdata{$testname}) =
+				add_counts($testdata1->{$testname},
+					   $testdata2->{$testname});
+		}
+		else
+		{
+			# testname only present in entry1, add to result
+			$result_testdata{$testname} = $testdata1->{$testname};
+		}
+
+		# update sum count hash
+		($result_sumcount, $lines_found, $lines_hit) =
+			add_counts($result_sumcount,
+				   $result_testdata{$testname});
+	}
+
+	foreach $testname (keys(%{$testdata2}))
+	{
+		# Skip testnames already covered by previous iteration
+		if (defined($testdata1->{$testname})) { next; }
+
+		# testname only present in entry2, add to result hash
+		$result_testdata{$testname} = $testdata2->{$testname};
+
+		# update sum count hash
+		($result_sumcount, $lines_found, $lines_hit) =
+			add_counts($result_sumcount,
+				   $result_testdata{$testname});
+	}
+	
+	# Calculate resulting sumcount
+
+	# Store result
+	set_info_entry(\%result, \%result_testdata, $result_sumcount,
+		       $result_funcdata, $checkdata1, $result_testfncdata,
+		       $result_sumfnccount, $lines_found, $lines_hit,
+		       $fn_found, $fn_hit);
+
+	return(\%result);
+}
+
+
+#
+# combine_info_files(info_ref1, info_ref2)
+#
+# Combine .info data in hashes referenced by INFO_REF1 and INFO_REF2. Return
+# reference to resulting hash.
+#
+
+sub combine_info_files($$)
+{
+	my %hash1 = %{$_[0]};
+	my %hash2 = %{$_[1]};
+	my $filename;
+
+	foreach $filename (keys(%hash2))
+	{
+		if ($hash1{$filename})
+		{
+			# Entry already exists in hash1, combine them
+			$hash1{$filename} =
+				combine_info_entries($hash1{$filename},
+						     $hash2{$filename},
+						     $filename);
+		}
+		else
+		{
+			# Entry is unique in both hashes, simply add to
+			# resulting hash
+			$hash1{$filename} = $hash2{$filename};
+		}
+	}
+
+	return(\%hash1);
 }
 
 
@@ -1411,7 +1984,8 @@ sub create_sub_dir($)
 
 
 #
-# write_description_file(descriptions, overall_found, overall_hit)
+# write_description_file(descriptions, overall_found, overall_hit,
+#                        total_fn_found, total_fn_hit)
 #
 # Write HTML file containing all test case descriptions. DESCRIPTIONS is a
 # reference to a hash containing a mapping
@@ -1421,17 +1995,20 @@ sub create_sub_dir($)
 # Die on error.
 #
 
-sub write_description_file($$$)
+sub write_description_file($$$$$)
 {
 	my %description = %{$_[0]};
 	my $found = $_[1];
 	my $hit = $_[2];
+	my $fn_found = $_[3];
+	my $fn_hit = $_[4];
 	my $test_name;
 	local *HTML_HANDLE;
 
 	html_create(*HTML_HANDLE,"descriptions.$html_ext");
 	write_html_prolog(*HTML_HANDLE, "", "LCOV - test case descriptions");
-	write_header(*HTML_HANDLE, 3, "", "", $found, $hit);
+	write_header(*HTML_HANDLE, 3, "", "", $found, $hit, $fn_found,
+		     $fn_hit, 0);
 
 	write_test_table_prolog(*HTML_HANDLE,
 			 "Test case descriptions - alphabetical list");
@@ -1494,8 +2071,8 @@ sub write_png_files()
 		 0x00, 0x00, 0x00, 0xa2, 0x7a, 0xda, 0x7e, 0x00, 0x00, 0x00, 
 		 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x60, 0x00, 
 	  	 0x00, 0x00, 0x02, 0x00, 0x01, 0xe5, 0x27, 0xde, 0xfc, 0x00, 
-  		 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 
-  		 0x82];
+		 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 
+		 0x82];
 	$data{"emerald.png"} =
 		[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 
 		 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 
@@ -1546,7 +2123,19 @@ sub write_png_files()
 		 0x54, 0x78, 0x9c, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 
 		 0x01, 0x48, 0xaf, 0xa4, 0x71, 0x00, 0x00, 0x00, 0x00, 0x49, 
 		 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
-
+	$data{"updown.png"} =
+		[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 
+		 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x0a, 
+		 0x00, 0x00, 0x00, 0x0e, 0x08, 0x06, 0x00, 0x00, 0x00, 0x16, 
+		 0xa3, 0x8d, 0xab, 0x00, 0x00, 0x00, 0x3c, 0x49, 0x44, 0x41, 
+		 0x54, 0x28, 0xcf, 0x63, 0x60, 0x40, 0x03, 0xff, 0xa1, 0x00, 
+		 0x5d, 0x9c, 0x11, 0x5d, 0x11, 0x8a, 0x24, 0x23, 0x23, 0x23, 
+		 0x86, 0x42, 0x6c, 0xa6, 0x20, 0x2b, 0x66, 0xc4, 0xa7, 0x08, 
+		 0x59, 0x31, 0x23, 0x21, 0x45, 0x30, 0xc0, 0xc4, 0x30, 0x60, 
+		 0x80, 0xfa, 0x6e, 0x24, 0x3e, 0x78, 0x48, 0x0a, 0x70, 0x62, 
+		 0xa2, 0x90, 0x81, 0xd8, 0x44, 0x01, 0x00, 0xe9, 0x5c, 0x2f, 
+		 0xf5, 0xe2, 0x9d, 0x0f, 0xf9, 0x00, 0x00, 0x00, 0x00, 0x49, 
+		 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82] if ($sort);
 	foreach (keys(%data))
 	{
 		open(PNG_HANDLE, ">".$_)
@@ -1610,409 +2199,483 @@ sub write_css_file()
 	/* All views: initial background and text color */
 	body
 	{
-	  color:            #000000;
+	  color: #000000;
 	  background-color: #FFFFFF;
 	}
-
-
+	
 	/* All views: standard link format*/
 	a:link
 	{
-	  color:           #284FA8;
+	  color: #284FA8;
 	  text-decoration: underline;
 	}
-
-
+	
 	/* All views: standard link - visited format */
 	a:visited
 	{
-	  color:           #00CB40;
+	  color: #00CB40;
 	  text-decoration: underline;
 	}
-
-
+	
 	/* All views: standard link - activated format */
 	a:active
 	{
-	  color:           #FF0040;
+	  color: #FF0040;
 	  text-decoration: underline;
 	}
-
-
+	
 	/* All views: main title format */
 	td.title
 	{
-	  text-align:     center;
+	  text-align: center;
 	  padding-bottom: 10px;
-	  font-family:    sans-serif;
-	  font-size:      20pt;
-	  font-style:     italic;
-	  font-weight:    bold;
+	  font-family: sans-serif;
+	  font-size: 20pt;
+	  font-style: italic;
+	  font-weight: bold;
 	}
-
-
+	
 	/* All views: header item format */
 	td.headerItem
 	{
-	  text-align:    right;
+	  text-align: right;
 	  padding-right: 6px;
-	  font-family:   sans-serif;
-	  font-weight:   bold;
+	  font-family: sans-serif;
+	  font-weight: bold;
+	  vertical-align: top;
+	  white-space: nowrap;
 	}
-
-
+	
 	/* All views: header item value format */
 	td.headerValue
 	{
-	  text-align:  left;
-	  color:       #284FA8;
+	  text-align: left;
+	  color: #284FA8;
 	  font-family: sans-serif;
 	  font-weight: bold;
+	  white-space: nowrap;
 	}
 
-
-	/* All views: header legend item format */
-	td.legendItem
+	/* All views: header item coverage table heading */
+	td.headerCovTableHead
 	{
-	  text-align:      right;
-	  padding-right:   6px;
-	  padding-top:     10px;
-	  padding-bottom:  2px;
-	  font-family:     sans-serif;
-	  font-weight:     bold;
+	  text-align: center;
+	  padding-right: 6px;
+	  padding-left: 6px;
+	  padding-bottom: 0px;
+	  font-family: sans-serif;
+	  font-size: 80%;
+	  white-space: nowrap;
 	}
-
-
-	/* All views: header legend item value format */
-	td.legendValue
+	
+	/* All views: header item coverage table entry */
+	td.headerCovTableEntry
 	{
-	  text-align:      left;
-	  padding-top:     10px;
-	  padding-bottom:  2px;
-	  color:           #000000;
-	  font-family:     sans-serif;
-	  font-weight:     bold;
+	  text-align: right;
+	  color: #284FA8;
+	  font-family: sans-serif;
+	  font-weight: bold;
+	  white-space: nowrap;
+	  padding-left: 12px;
+	  padding-right: 4px;
+	  background-color: #DAE7FE;
+	}
+	
+	/* All views: header item coverage table entry for high coverage rate */
+	td.headerCovTableEntryHi
+	{
+	  text-align: right;
+	  color: #000000;
+	  font-family: sans-serif;
+	  font-weight: bold;
+	  white-space: nowrap;
+	  padding-left: 12px;
+	  padding-right: 4px;
+	  background-color: #A7FC9D;
+	}
+	
+	/* All views: header item coverage table entry for medium coverage rate */
+	td.headerCovTableEntryMed
+	{
+	  text-align: right;
+	  color: #000000;
+	  font-family: sans-serif;
+	  font-weight: bold;
+	  white-space: nowrap;
+	  padding-left: 12px;
+	  padding-right: 4px;
+	  background-color: #FFEA20;
+	}
+	
+	/* All views: header item coverage table entry for ow coverage rate */
+	td.headerCovTableEntryLo
+	{
+	  text-align: right;
+	  color: #000000;
+	  font-family: sans-serif;
+	  font-weight: bold;
+	  white-space: nowrap;
+	  padding-left: 12px;
+	  padding-right: 4px;
+	  background-color: #FF0000;
+	}
+	
+	/* All views: header legend item for legend entry */
+	td.headerItemLeg
+	{
+	  text-align: right;
+	  padding-right: 6px;
+	  font-family: sans-serif;
+	  font-weight: bold;
+	  vertical-align: bottom;
+	  white-space: nowrap;
 	}
 
-
+	/* All views: header legend value for legend entry */
+	td.headerValueLeg
+	{
+	  text-align: left;
+	  color: #000000;
+	  font-family: sans-serif;
+	  font-size: 80%;
+	  white-space: nowrap;
+	  padding-top: 4px;
+	}
+	
 	/* All views: color of horizontal ruler */
 	td.ruler
 	{
 	  background-color: #6688D4;
 	}
-
-
+	
 	/* All views: version string format */
 	td.versionInfo
 	{
-	  text-align:   center;
-	  padding-top:  2px;
-	  font-family:  sans-serif;
-	  font-style:   italic;
+	  text-align: center;
+	  padding-top: 2px;
+	  font-family: sans-serif;
+	  font-style: italic;
 	}
-
-
+	
 	/* Directory view/File view (all)/Test case descriptions:
 	   table headline format */
 	td.tableHead
 	{
-	  text-align:       center;
-	  color:            #FFFFFF;
+	  text-align: center;
+	  color: #FFFFFF;
 	  background-color: #6688D4;
-	  font-family:      sans-serif;
-	  font-size:        120%;
-	  font-weight:      bold;
+	  font-family: sans-serif;
+	  font-size: 120%;
+	  font-weight: bold;
+	  white-space: nowrap;
+	  padding-left: 4px;
+	  padding-right: 4px;
 	}
 
-
+	span.tableHeadSort
+	{
+	  padding-right: 4px;
+	}
+	
 	/* Directory view/File view (all): filename entry format */
 	td.coverFile
 	{
-	  text-align:       left;
-	  padding-left:     10px;
-	  padding-right:    20px; 
-	  color:            #284FA8;
+	  text-align: left;
+	  padding-left: 10px;
+	  padding-right: 20px; 
+	  color: #284FA8;
 	  background-color: #DAE7FE;
-	  font-family:      monospace;
+	  font-family: monospace;
 	}
-
-
+	
 	/* Directory view/File view (all): bar-graph entry format*/
 	td.coverBar
 	{
-	  padding-left:     10px;
-	  padding-right:    10px;
+	  padding-left: 10px;
+	  padding-right: 10px;
 	  background-color: #DAE7FE;
 	}
-
-
+	
 	/* Directory view/File view (all): bar-graph outline color */
 	td.coverBarOutline
 	{
 	  background-color: #000000;
 	}
-
-
+	
 	/* Directory view/File view (all): percentage entry for files with
 	   high coverage rate */
 	td.coverPerHi
 	{
-	  text-align:       right;
-	  padding-left:     10px;
-	  padding-right:    10px;
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px;
 	  background-color: #A7FC9D;
-	  font-weight:      bold;
+	  font-weight: bold;
 	}
-
-
+	
 	/* Directory view/File view (all): line count entry for files with
 	   high coverage rate */
 	td.coverNumHi
 	{
-	  text-align:       right;
-	  padding-left:     10px;
-	  padding-right:    10px;
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px;
 	  background-color: #A7FC9D;
+	  white-space: nowrap;
 	}
-
-
+	
 	/* Directory view/File view (all): legend entry for high coverage
 	   rate */
 	span.coverLegendHi
 	{
-	  text-align:       center;
-	  padding-left:     10px;
-	  padding-right:    10px;
+	  padding-left: 10px;
+	  padding-right: 10px;
+	  padding-bottom: 2px;
 	  background-color: #A7FC9D;
 	}
-
-
+	
 	/* Directory view/File view (all): percentage entry for files with
 	   medium coverage rate */
 	td.coverPerMed
 	{
-	  text-align:       right;
-	  padding-left:     10px;
-	  padding-right:    10px;
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px;
 	  background-color: #FFEA20;
-	  font-weight:      bold;
+	  font-weight: bold;
 	}
-
-
+	
 	/* Directory view/File view (all): line count entry for files with
 	   medium coverage rate */
 	td.coverNumMed
 	{
-	  text-align:       right;
-	  padding-left:     10px;
-	  padding-right:    10px;
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px;
 	  background-color: #FFEA20;
+	  white-space: nowrap;
 	}
-
-
+	
 	/* Directory view/File view (all): legend entry for medium coverage
 	   rate */
 	span.coverLegendMed
 	{
-	  text-align:       center;
-	  padding-left:     10px;
-	  padding-right:    10px;
-	  margin-top:       5px;
-	  margin-bottom:    5px;
-	  margin-right:     2px;
+	  padding-left: 10px;
+	  padding-right: 10px;
+	  padding-bottom: 2px;
 	  background-color: #FFEA20;
 	}
-
-
+	
 	/* Directory view/File view (all): percentage entry for files with
 	   low coverage rate */
 	td.coverPerLo
 	{
-	  text-align:       right;
-	  padding-left:     10px;
-	  padding-right:    10px;
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px;
 	  background-color: #FF0000;
-	  font-weight:      bold;
+	  font-weight: bold;
 	}
-
-
+	
 	/* Directory view/File view (all): line count entry for files with
 	   low coverage rate */
 	td.coverNumLo
 	{
-	  text-align:       right;
-	  padding-left:     10px;
-	  padding-right:    10px;
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px;
 	  background-color: #FF0000;
+	  white-space: nowrap;
 	}
-
-
+	
 	/* Directory view/File view (all): legend entry for low coverage
 	   rate */
 	span.coverLegendLo
 	{
-	  text-align:       center;
-	  padding-left:     10px;
-	  padding-right:    10px;
-	  margin-right:     2px;
+	  padding-left: 10px;
+	  padding-right: 10px;
+	  padding-bottom: 2px;
 	  background-color: #FF0000;
 	}
-
-
+	
 	/* File view (all): "show/hide details" link format */
 	a.detail:link
 	{
 	  color: #B8D0FF;
 	}
-
-
+	
 	/* File view (all): "show/hide details" link - visited format */
 	a.detail:visited
 	{
 	  color: #B8D0FF;
 	}
-
-
+	
 	/* File view (all): "show/hide details" link - activated format */
 	a.detail:active
 	{
 	  color: #FFFFFF;
 	}
-
-
+	
 	/* File view (detail): test name table headline format */
 	td.testNameHead
 	{
-	  text-align:       right;
-	  padding-right:    10px;
+	  text-align: right;
+	  padding-right: 10px;
 	  background-color: #DAE7FE;
-	  font-family:      sans-serif;
-	  font-weight:      bold;
+	  font-family: sans-serif;
+	  font-weight: bold;
 	}
-
-
+	
 	/* File view (detail): test lines table headline format */
 	td.testLinesHead
 	{
-	  text-align:       center;
+	  text-align: center;
 	  background-color: #DAE7FE;
-	  font-family:      sans-serif;
-	  font-weight:      bold;
+	  font-family: sans-serif;
+	  font-weight: bold;
 	}
-
-
+	
 	/* File view (detail): test name entry */
 	td.testName
 	{
-	  text-align:       right;
-	  padding-right:    10px;
+	  text-align: right;
+	  padding-right: 10px;
 	  background-color: #DAE7FE;
 	}
-
-
+	
 	/* File view (detail): test percentage entry */
 	td.testPer
 	{
-	  text-align:       right;
-	  padding-left:     10px;
-	  padding-right:    10px; 
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px; 
 	  background-color: #DAE7FE;
 	}
-
-
+	
 	/* File view (detail): test lines count entry */
 	td.testNum
 	{
-	  text-align:       right;
-	  padding-left:     10px;
-	  padding-right:    10px; 
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px; 
 	  background-color: #DAE7FE;
 	}
-
-
+	
 	/* Test case descriptions: test name format*/
 	dt
 	{
 	  font-family: sans-serif;
 	  font-weight: bold;
 	}
-
-
+	
 	/* Test case descriptions: description table body */
 	td.testDescription
 	{
-	  padding-top:      10px;
-	  padding-left:     30px;
-	  padding-bottom:   10px;
-	  padding-right:    30px;
+	  padding-top: 10px;
+	  padding-left: 30px;
+	  padding-bottom: 10px;
+	  padding-right: 30px;
 	  background-color: #DAE7FE;
 	}
+	
+	/* Source code view: function entry */
+	td.coverFn
+	{
+	  text-align: left;
+	  padding-left: 10px;
+	  padding-right: 20px; 
+	  color: #284FA8;
+	  background-color: #DAE7FE;
+	  font-family: monospace;
+	}
 
+	/* Source code view: function entry zero count*/
+	td.coverFnLo
+	{
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px;
+	  background-color: #FF0000;
+	  font-weight: bold;
+	}
 
+	/* Source code view: function entry nonzero count*/
+	td.coverFnHi
+	{
+	  text-align: right;
+	  padding-left: 10px;
+	  padding-right: 10px;
+	  background-color: #DAE7FE;
+	  font-weight: bold;
+	}
+
+	/* Source code view: source code format */
 	/* Source code view: source code format */
 	pre.source
 	{
 	  font-family: monospace;
 	  white-space: pre;
 	}
-
+	
 	/* Source code view: line number format */
 	span.lineNum
 	{
 	  background-color: #EFE383;
 	}
-
-
+	
 	/* Source code view: format for lines which were executed */
+	td.lineCov,
 	span.lineCov
 	{
 	  background-color: #CAD7FE;
 	}
-
-
+	
 	/* Source code view: format for Cov legend */
-	span.LegendCov
+	span.coverLegendCov
 	{
-	  text-align:       center;
-	  padding-left:     10px;
-	  padding-right:    10px;
-	  margin-right:     2px;
+	  padding-left: 10px;
+	  padding-right: 10px;
+	  padding-bottom: 2px;
 	  background-color: #CAD7FE;
 	}
-
-
+	
 	/* Source code view: format for lines which were not executed */
+	td.lineNoCov,
 	span.lineNoCov
 	{
 	  background-color: #FF6230;
 	}
-
-
+	
 	/* Source code view: format for NoCov legend */
-	span.LegendNoCov
+	span.coverLegendNoCov
 	{
-	  text-align:       center;
-	  padding-left:     10px;
-	  padding-right:    10px;
-	  margin-right:     2px;
-	  background-color: #FF6230;
+	  padding-left: 10px;
+	  padding-right: 10px;
+	  padding-bottom: 2px;
+	  background-color: #FF0000;
 	}
-
-
+	
+	/* Source code view (function table): standard link - visited format */
+	td.lineNoCov > a:visited,
+	td.lineCov > a:visited
+	{  
+	  color: black;
+	  text-decoration: underline;
+	}  
+	
 	/* Source code view: format for lines which were executed only in a
 	   previous version */
 	span.lineDiffCov
 	{
 	  background-color: #B5F7AF;
 	}
-
-
+	
 	/* Source code view: format for DiffCov legend */
 	span.LegendDiffCov
 	{
-	  text-align:       center;
-	  padding-left:     10px;
-	  padding-right:    10px;
+	  text-align: center;
+	  padding-left: 10px;
+	  padding-right: 10px;
 	  background-color: #B5F7AF;
 	}
 END_OF_CSS
@@ -2055,7 +2718,8 @@ sub get_bar_graph_code($$$)
 	$remainder	= sprintf("%d", 100-$width);
 
 	# Decide which .png file to use
-	$png_name = get_png_for_coverage_rate($rate);
+	$png_name = $rate_png[classify_rate($_[1], $_[2], $med_limit,
+					    $hi_limit)];
 
 	if ($width == 0)
 	{
@@ -2089,41 +2753,29 @@ END_OF_HTML
 	return($graph_code);
 }
 
+#
+# sub classify_rate(found, hit, med_limit, high_limit)
+#
+# Return 0 for low rate, 1 for medium rate and 2 for hi rate.
+#
 
-#
-# classify_coverage_rate(coverage_rate)
-#
-# Return the clasification ("Lo"|"Med"|"Hi") of a given coverage rate
-#
-sub classify_coverage_rate($)
+sub classify_rate($$$$)
 {
-	my @pair = coverage_rate_helper($_[0]);
-	return $pair[0];
+	my ($found, $hit, $med, $hi) = @_;
+	my $rate;
+
+	if ($found == 0) {
+		return 2;
+	}
+	$rate = $hit * 100 / $found;
+	if ($rate < $med) {
+		return 0;
+	} elsif ($rate < $hi) {
+		return 1;
+	}
+	return 2;
 }
 
-#
-# get_png_for_coverage_rate(coverage_rate)
-#
-# Return the name of the png corresponding to the given coverage rate
-#
-sub get_png_for_coverage_rate($)
-{
-	my @pair = coverage_rate_helper($_[0]);
-	return $pair[1];
-}
-
-#
-# coverage_rate_helper(coverage_rate)
-#
-# Does the work for "classify_coverage_rate" and "get_png_for_coverage_rate".
-#
-sub coverage_rate_helper($)
-{
-	my $rate = $_[0];
-	if ($rate < $med_limit)		{ return(("Lo","ruby.png")); }
-	elsif ($rate < $hi_limit)	{ return(("Med","amber.png")); }
-	else				{ return(("Hi","emerald.png")); }
-}
 
 #
 # write_html(filehandle, html_code)
@@ -2193,53 +2845,103 @@ END_OF_HTML
 
 
 #
-# write_header_line(filehandle, item1, value1, [item2, value2])
+# write_header_line(filehandle, type, additional params..)
 #
-# Write a header line, containing of either one or two pairs "header item"
-# and "header value".
+# Write a header line.
 #
 
-sub write_header_line(*$$;$$)
+sub write_header_line(*$@)
 {
-	my $item1 = $_[1];
-	my $value1 = $_[2];
+	my $HANDLE = shift;
+	my $type = shift;
+	my @args = @_;
 
-	# Use GOTO to prevent indenting HTML with more than one tabs
-	if (scalar(@_) > 3) { goto two_items }
+	# Reduce indentation by using gotos
+	if ($type eq 0) {
+		goto header;
+	} elsif ($type eq 1) {
+		goto body;
+	} elsif ($type eq 2) {
+		goto legend_dir;
+	} elsif ($type eq 3) {
+		goto legend_source;
+	} elsif ($type eq 4) {
+		goto half_body;
+	}
 
+header:
 	# *************************************************************
-
-	write_html($_[0], <<END_OF_HTML)
-	        <tr>
-	          <td class="headerItem" width="20%">$item1:</td>
-	          <td class="headerValue" width="80%" colspan=4>$value1</td>
-	        </tr>
-END_OF_HTML
-	;
-
-	return();
-
-	# *************************************************************
-
-
-two_items:
-	my $item2 = $_[3];
-	my $value2 = $_[4];
-
-
-	# *************************************************************
-
-	write_html($_[0], <<END_OF_HTML)
+	write_html($HANDLE, <<END_OF_HTML);
         <tr>
-          <td class="headerItem" width="20%">$item1:</td>
-          <td class="headerValue" width="20%">$value1</td>
-          <td width="20%"></td>
-          <td class="headerItem" width="20%">$item2:</td>
-          <td class="headerValue" width="20%">$value2</td>
+          <td width="5%"></td>
+          <td width="10%" class="headerItem">$args[0]</td>
+          <td width="35%" class="headerValue">$args[1]</td>
+          <td width="10%"></td>
+          <td width="10%" class="headerCovTableHead">$args[2]</td>
+          <td width="10%" class="headerCovTableHead">$args[3]</td>
+          <td width="15%" class="headerCovTableHead">$args[4]</td>
+          <td width="5%"></td>
         </tr>
 END_OF_HTML
-	;
+	# *************************************************************
+	return;
 
+body:
+	# *************************************************************
+	write_html($HANDLE, <<END_OF_HTML);
+        <tr>
+          <td></td>
+          <td class="headerItem">$args[0]</td>
+          <td class="headerValue">$args[1]</td>
+          <td class="headerItem">$args[2]</td>
+          <td class="headerCovTableEntry">$args[3]</td>
+          <td class="headerCovTableEntry">$args[4]</td>
+          <td class="headerCovTableEntry$args[5]">$args[6]</td>
+        </tr>
+END_OF_HTML
+	# *************************************************************
+	return;
+
+half_body:
+	# *************************************************************
+	write_html($HANDLE, <<END_OF_HTML);
+        <tr>
+          <td></td>
+          <td class="headerItem">$args[0]</td>
+          <td class="headerValue">$args[1]</td>
+        </tr>
+END_OF_HTML
+	# *************************************************************
+	return;
+
+legend_dir:
+	# *************************************************************
+	write_html($HANDLE, <<END_OF_HTML);
+        <tr>
+          <td></td>
+          <td class="headerItemLeg">$args[0]</td>
+          <td class="headerValueLeg">
+$args[1]          </td>
+          <td></td>
+          <td class="headerValueLeg" colspan=3>
+$args[2]          </td>
+        </tr>
+END_OF_HTML
+	# *************************************************************
+	return;
+
+legend_source:
+	# *************************************************************
+	write_html($HANDLE, <<END_OF_HTML);
+        <tr>
+          <td></td>
+          <td class="headerItem">$args[0]</td>
+          <td class="headerValueLeg" colspan=5>
+            <span class="coverLegendNoCov">$args[1]</span>
+            <span class="coverLegendCov">$args[2]</span>
+          </td>
+        </tr>
+END_OF_HTML
 	# *************************************************************
 }
 
@@ -2255,6 +2957,7 @@ sub write_header_epilog(*$)
 	# *************************************************************
 
 	write_html($_[0], <<END_OF_HTML)
+                <tr><td><img src="$_[1]glass.png" width=3 height=3 alt=""></td></tr>
 	        </table>
 	      </td>
 	    </tr>
@@ -2269,94 +2972,44 @@ END_OF_HTML
 
 
 #
-# write_header_legend(filehandle, type)
-#
-# Write a legend describing the coloring of the code coverage.
-#
-
-sub write_header_legend(*$)
-{
-	my $type = $_[1]; # type of page being generated
-	my $legend_body;
-
-	# main summary or subdirectory summary
-	if ($type == 0 or $type == 1) 
-	{ 
-		$legend_body = (<<END_OF_HTML)
-            <span class="coverLegendLo">
-              <b>Low:</b> 0% to $med_limit%
-            </span>
-            <span class="coverLegendMed">
-              <b>Medium:</b> $med_limit% to $hi_limit%
-            </span>
-            <span class="coverLegendHi">
-              <b>High:</b> $hi_limit% to 100%
-            </span>
-END_OF_HTML
-        ;
-	}
-
-	# source code
-	elsif ($type == 2)
-	{
-		my $legend_highlight;
-
-		$legend_highlight = "";
-		if ($highlight)
-		{
-			$legend_highlight = (<<END_OF_HTML)
-            <span class="legendDiffCov">
-              converted-only
-            </span>
-END_OF_HTML
-	;
-		}
-		$legend_body = (<<END_OF_HTML)
-            <span class="legendNoCov">
-              not executed
-            </span>
-            <span class="legendCov">
-              executed
-            </span>
-$legend_highlight
-END_OF_HTML
-        ;
-	}
-
-	# description file  ($type == 3)
-	else { return(); }
-
-
- 	# *************************************************************
-
- 	write_html($_[0], <<END_OF_HTML)
-	        <tr>
-	          <td class="legendItem" width="20%">Legend:</td>
-	          <td class="legendValue" width="80%" colspan=4>
-$legend_body
-		  </td>
-	        </tr>
-END_OF_HTML
- 	;
-	return();
-
-	# *************************************************************
-}
-
-
-#
-# write_file_table_prolog(filehandle, left_heading, right_heading)
+# write_file_table_prolog(filehandle, file_heading, lines_heading, func_heading)
 #
 # Write heading for file table.
 #
 
-sub write_file_table_prolog(*$$)
+sub write_file_table_prolog(*$$$)
 {
 	# *************************************************************
 
-	write_html($_[0], <<END_OF_HTML)
+        if ($func_coverage)
+        {
+                write_html($_[0], <<END_OF_HTML)
 	  <center>
-	  <table width="80%" cellpadding=2 cellspacing=1 border=0>
+	  <table width="80%" cellpadding=1 cellspacing=1 border=0>
+
+	    <tr>
+	      <td width="45%"><br></td>
+	      <td width="15%"></td>
+	      <td width="10%"></td>
+	      <td width="10%"></td>
+	      <td width="10%"></td>
+	      <td width="10%"></td>
+	    </tr>
+
+	    <tr>
+	      <td class="tableHead">$_[1]</td>
+	      <td class="tableHead" colspan=3>$_[2]</td>
+	      <td class="tableHead" colspan=2>$_[3]</td>
+	    </tr>
+
+END_OF_HTML
+                ;
+        }
+        else
+        {
+                write_html($_[0], <<END_OF_HTML)
+	  <center>
+	  <table width="80%" cellpadding=1 cellspacing=1 border=0>
 
 	    <tr>
 	      <td width="50%"><br></td>
@@ -2371,7 +3024,8 @@ sub write_file_table_prolog(*$$)
 	    </tr>
 
 END_OF_HTML
-	;
+                ;
+        }
 
 	# *************************************************************
 }
@@ -2379,43 +3033,85 @@ END_OF_HTML
 
 #
 # write_file_table_entry(filehandle, cover_filename, cover_bar_graph,
-#                        cover_found, cover_hit)
+#                        cover_found, cover_hit, fn_found, fn_hit,
+#			 page_link, func_link)
 #
 # Write an entry of the file table.
 #
 
-sub write_file_table_entry(*$$$$)
+sub write_file_table_entry(*$$$$$$$)
 {
+	local *HANDLE = shift;
+	my ($filename, $bar_graph, $found, $hit, $fn_found, $fn_hit,
+	    $page_link) = @_;
 	my $rate;
 	my $rate_string;
-	my $classification = "Lo";
+	my $funcs_string;
+	my $class_lines = "Lo";
+	my $class_funcs = "Hi";
+	my $file_code;
 
-	if ($_[3]>0)
+	# Add link to source if provided
+	if (defined($page_link) && $page_link ne "") {
+		$file_code = "<a href=\"$page_link\">$filename</a>";
+	} else {
+		$file_code = $filename;
+	}
+
+	# Get line coverage rate
+	if ($found > 0)
 	{
-		$rate = $_[4] * 100 / $_[3];
+		$rate = $hit * 100 / $found;
 		$rate_string = sprintf("%.1f", $rate)."&nbsp;%";
 		
-		$classification = classify_coverage_rate($rate);
+		$class_lines = $rate_name[classify_rate($found, $hit,
+					  $med_limit, $hi_limit)];
 	}
 	else
 	{
-		$rate_string = "undefined";
+		$rate_string = "-";
+	}
+
+	# Get function coverage rate
+	if ($fn_found > 0)
+	{
+		$rate = $fn_hit * 100 / $fn_found;
+		$class_funcs = $rate_name[classify_rate($fn_found, $fn_hit,
+					  $fn_med_limit, $fn_hi_limit)];
+		$funcs_string = sprintf("%.1f", $rate)."&nbsp;%";		
+	}
+	else
+	{
+		# Define 0 of 0 functions as 100%
+		$rate = 100;
+		$funcs_string = "-";
 	}
 
 	# *************************************************************
 
-	write_html($_[0], <<END_OF_HTML)
+	write_html(*HANDLE, <<END_OF_HTML)
 	    <tr>
-	      <td class="coverFile">$_[1]</td>
+	      <td class="coverFile">$file_code</td>
 	      <td class="coverBar" align="center">
-	        $_[2]
+	        $bar_graph
 	      </td>
-	      <td class="coverPer$classification">$rate_string</td>
-	      <td class="coverNum$classification">$_[4]&nbsp;/&nbsp;$_[3]&nbsp;lines</td>
-	    </tr>
-
+	      <td class="coverPer$class_lines">$rate_string</td>
+	      <td class="coverNum$class_lines">$hit / $found</td>
 END_OF_HTML
 	;
+
+        if ($func_coverage)
+        {
+                write_html(*HANDLE, <<END_OF_HTML)
+	      <td class="coverPer$class_funcs">$funcs_string</td>
+	      <td class="coverNum$class_funcs">$fn_hit / $fn_found</td>
+END_OF_HTML
+	        ;
+        }
+        write_html(*HANDLE, <<END_OF_HTML)
+	    </tr>
+END_OF_HTML
+        ;
 
 	# *************************************************************
 }
@@ -2427,14 +3123,21 @@ END_OF_HTML
 # Write heading for detail section in file table.
 #
 
-sub write_file_table_detail_heading(*$$)
+sub write_file_table_detail_heading(*$$$)
 {
-	# *************************************************************
+        my $func_rows = "";
 
+        if ($func_coverage)
+        {
+                $func_rows = "<td class=\"testLinesHead\" colspan=2>$_[3]</td>";
+        }
+
+	# *************************************************************
 	write_html($_[0], <<END_OF_HTML)
 	    <tr>
 	      <td class="testNameHead" colspan=2>$_[1]</td>
 	      <td class="testLinesHead" colspan=2>$_[2]</td>
+              $func_rows
 	    </tr>
 
 END_OF_HTML
@@ -2445,14 +3148,16 @@ END_OF_HTML
 
 
 #
-# write_file_table_detail_entry(filehandle, test_name, cover_found, cover_hit)
+# write_file_table_detail_entry(filehandle, test_name,
+#               cover_found, cover_hit, func_found, func_hit)
 #
 # Write entry for detail section in file table.
 #
 
-sub write_file_table_detail_entry(*$$$)
+sub write_file_table_detail_entry(*$$$$$)
 {
 	my $rate;
+	my $func_rate;
 	my $name = $_[1];
 	
 	if ($_[2]>0)
@@ -2461,7 +3166,16 @@ sub write_file_table_detail_entry(*$$$)
 	}
 	else
 	{
-		$rate = "undefined";
+		$rate = "-";
+	}
+
+	if ($_[4]>0)
+	{
+		$func_rate = sprintf("%.1f", $_[5]*100/$_[4])."&nbsp;%";
+	}
+	else
+	{
+		$func_rate = "-";
 	}
 
 	if ($name =~ /^(.*),diff$/)
@@ -2481,10 +3195,21 @@ sub write_file_table_detail_entry(*$$$)
 	      <td class="testName" colspan=2>$name</td>
 	      <td class="testPer">$rate</td>
 	      <td class="testNum">$_[3]&nbsp;/&nbsp;$_[2]&nbsp;lines</td>
+END_OF_HTML
+	;
+        if ($func_coverage)
+        {
+                write_html($_[0], <<END_OF_HTML)
+	      <td class="testPer">$func_rate</td>
+	      <td class="testNum">$_[5]&nbsp;/&nbsp;$_[4]</td>
+END_OF_HTML
+	        ;
+        }
+        write_html($_[0], <<END_OF_HTML)
 	    </tr>
 
 END_OF_HTML
-	;
+        ;
 
 	# *************************************************************
 }
@@ -2614,13 +3339,14 @@ END_OF_HTML
 
 
 #
-# write_source_line(filehandle, line_num, source, hit_count, converted)
+# write_source_line(filehandle, line_num, source, hit_count, converted,
+#                   add_anchor)
 #
 # Write formatted source code line. Return a line in a format as needed
 # by gen_png()
 #
 
-sub write_source_line(*$$$$)
+sub write_source_line(*$$$$$)
 {
 	my $source_format;
 	my $count;
@@ -2657,7 +3383,7 @@ sub write_source_line(*$$$$)
 
 	# Write out a line number navigation anchor every $nav_resolution
 	# lines if necessary
-	if ($frames && (($_[1] - 1) % $nav_resolution == 0))
+	if ($_[5])
 	{
 		$anchor_start	= "<a name=\"$_[1]\">";
 		$anchor_end	= "</a>";
@@ -2867,16 +3593,62 @@ END_OF_HTML
 }
 
 
+# rate_to_col(found, hit)
 #
-# write_header(filehandle, type, trunc_file_name, rel_file_name, lines_found,
-# lines_hit)
-#
-# Write a complete standard page header. TYPE may be (0, 1, 2, 3)
-# corresponding to (directory view header, file view header, source view
-# header, test case description header)
+# Return Lo, Med or Hi, depending on the coverage rate.
 #
 
-sub write_header(*$$$$$)
+sub rate_to_col($$)
+{
+	my ($found, $hit) = @_;
+	my $rate;
+
+	if ($found == 0) {
+		return "Hi";
+	}
+	$rate = 100 * $hit / $found;
+	if ($rate < $med_limit) {
+		return "Lo";
+	} elsif ($rate < $hi_limit) {
+		return "Med";
+	}
+	return "Hi";
+}
+
+# format_rate(found, hit)
+#
+# Return formatted percent string for coverage rate.
+#
+
+sub format_rate($$)
+{	
+	return $_[0] == 0 ? "-" : sprintf("%.1f", $_[1] * 100 / $_[0])." %";
+}
+
+sub get_legend_code($$$)
+{
+	my ($text, $med, $hi) = @_;
+	my $result;
+
+	$result = <<EOF;
+	            $text<br>
+	            <span class="coverLegendLo">0% to $med%</span>
+	            <span class="coverLegendMed">$med% to $hi%</span>
+	            <span class="coverLegendHi">$hi% to 100%</span>
+EOF
+	return $result;
+}
+
+#
+# write_header(filehandle, type, trunc_file_name, rel_file_name, lines_found,
+# lines_hit, funcs_found, funcs_hit, sort_type)
+#
+# Write a complete standard page header. TYPE may be (0, 1, 2, 3, 4)
+# corresponding to (directory view header, file view header, source view
+# header, test case description header, function view header)
+#
+
+sub write_header(*$$$$$$$$)
 {
 	local *HTML_HANDLE = $_[0];
 	my $type = $_[1];
@@ -2884,21 +3656,13 @@ sub write_header(*$$$$$)
 	my $rel_filename = $_[3];
 	my $lines_found = $_[4];
 	my $lines_hit = $_[5];
+	my $fn_found = $_[6];
+	my $fn_hit = $_[7];
+	my $sort_type = $_[8];
 	my $base_dir;
 	my $view;
 	my $test;
-	my $rate;
 	my $base_name;
-
-	# Calculate coverage rate
-	if ($lines_found>0)
-	{
-		$rate = sprintf("%.1f", $lines_hit * 100 / $lines_found)." %";
-	}
-	else
-	{
-		$rate = "-";
-	}
 
 	$base_name = basename($rel_filename);
 
@@ -2916,12 +3680,10 @@ sub write_header(*$$$$$)
 		$view = "<a href=\"$base_dir"."index.$html_ext\">".
 			"$overview_title</a> - $trunc_name";
 	}
-	elsif ($type == 2)
+	elsif ($type == 2 || $type == 4)
 	{
 		# File view
 		my $dir_name = dirname($rel_filename);
-
-		
 
 		$base_dir = get_relative_base_path($dir_name);
 		if ($frames)
@@ -2940,6 +3702,15 @@ sub write_header(*$$$$$)
 				"<a href=\"index.$html_ext\">".
 				"$dir_name</a> - $base_name";
 		}
+
+		# Add function suffix
+		if ($func_coverage) {
+			if ($type == 2) {
+				$view .= " (source / <a href=\"$base_name.func.$html_ext\">functions</a>)";
+			} elsif ($type == 4) {
+				$view .= " (<a href=\"$base_name.gcov.$html_ext\">source</a> / functions)";
+			}
+		}
 	}
 	elsif ($type == 3)
 	{
@@ -2955,32 +3726,59 @@ sub write_header(*$$$$$)
 	# Append link to test description page if available
 	if (%test_description && ($type != 3))
 	{
-		if ($frames && ($type == 2))
+		if ($frames && ($type == 2 || $type == 4))
 		{
 			# Need to break frameset when clicking this link
 			$test .= " ( <a href=\"$base_dir".
 				 "descriptions.$html_ext\" target=\"_parent\">".
-				 "view test case descriptions</a> )";
+				 "view descriptions</a> )";
 		}
 		else
 		{
 			$test .= " ( <a href=\"$base_dir".
 				 "descriptions.$html_ext\">".
-				 "view test case descriptions</a> )";
+				 "view descriptions</a> )";
 		}
 	}
 
 	# Write header
 	write_header_prolog(*HTML_HANDLE, $base_dir);
-	write_header_line(*HTML_HANDLE, "Current&nbsp;view", $view);
-	write_header_line(*HTML_HANDLE, "Test", $test);
-	write_header_line(*HTML_HANDLE, "Date", $date,
-			  "Instrumented&nbsp;lines", $lines_found);
-	write_header_line(*HTML_HANDLE, "Code&nbsp;covered", $rate,
-			  "Executed&nbsp;lines", $lines_hit);
-	if ($legend)
-	{
-		write_header_legend(*HTML_HANDLE, $type);
+	write_header_line(*HTML_HANDLE, 0, "Current view:", $view,
+			  "Found", "Hit", "Coverage");
+	write_header_line(*HTML_HANDLE, 1, "Test:", $test, "Lines:",
+			  $lines_found, $lines_hit,
+			  $rate_name[classify_rate($lines_found, $lines_hit,
+						   $med_limit, $hi_limit)],
+			  format_rate($lines_found, $lines_hit));
+	if ($func_coverage) {
+		write_header_line(*HTML_HANDLE, 1, "Date:", $date, "Functions:",
+				  $fn_found, $fn_hit,
+				  $rate_name[classify_rate($fn_found,
+							   $fn_hit,
+							   $fn_med_limit,
+							   $fn_hi_limit)],
+				  format_rate($fn_found, $fn_hit));
+	} else {
+		write_header_line(*HTML_HANDLE, 4, "Date:", $date);
+	}
+	if ($legend) {
+		if ($type == 0 || $type == 1) {
+			my $line_code = get_legend_code("Line coverage:",
+						$med_limit, $hi_limit);
+			my $func_code = "";
+
+			if ($func_coverage) {
+				$func_code = get_legend_code(
+						"Function coverage:",
+						$fn_med_limit,
+						$fn_hi_limit);
+			}
+			write_header_line(*HTML_HANDLE, 2, "Colors:",
+				$line_code, $func_code);
+		} elsif ($type == 2 || $type == 4) {
+			write_header_line(*HTML_HANDLE, 3, "Colors:",
+					  "not hit", "hit");
+		}
 	}
 	write_header_epilog(*HTML_HANDLE, $base_dir);
 }
@@ -3003,14 +3801,126 @@ sub split_filename($)
 		$extension);
 }
 
+#
+# get_sorted_keys(hash_ref, sort_type)
+#
+
+sub get_sorted_keys($$)
+{
+	my ($hash, $type) = @_;
+
+	if ($type == 0) {
+		# Sort by name
+		return sort(keys(%{$hash}));
+	} elsif ($type == 1) {
+		# Sort by line coverage
+		return sort({$hash->{$b}[5] <=> $hash->{$a}[5]} keys(%{$hash}));
+	} elsif ($type == 2) {
+		# Sort by function coverage;
+		return sort({$hash->{$b}[6] <=> $hash->{$a}[6]}	keys(%{$hash}));
+	}
+}
+
+sub get_sort_code($$$)
+{
+	my ($link, $alt, $base) = @_;
+	my $png;
+	my $link_start;
+	my $link_end;
+
+	if (!defined($link)) {
+		$png = "glass.png";
+		$link_start = "";
+		$link_end = "";
+	} else {
+		$png = "updown.png";
+		$link_start = '<a href="'.$link.'">';
+		$link_end = "</a>";
+	}
+
+	return ' <span class="tableHeadSort">'.$link_start.
+	       '<img src="'.$base.$png.'" width=10 height=14 '.
+	       'alt="'.$alt.'" title="'.$alt.'" border=0>'.$link_end.'</span>';
+}
+
+sub get_file_code($$$$)
+{
+	my ($type, $text, $sort_button, $base) = @_;
+	my $result = $text;
+	my $link;
+
+	if ($sort_button) {
+		if ($type == 1) {
+			$link = "index.$html_ext";
+		} else {
+			$link = "index-detail.$html_ext";
+		}
+	}
+	$result .= get_sort_code($link, "Sort by name", $base);
+
+	return $result;
+}
+
+sub get_line_code($$$$$)
+{
+	my ($type, $sort_type, $text, $sort_button, $base) = @_;
+	my $result = $text;
+	my $sort_link;
+
+	if ($type == 1) {
+		# Just text
+		if ($sort_button) {
+			$sort_link = "index-sort-l.$html_ext";
+		}
+	} elsif ($type == 2) {
+		# Text + link to detail view
+		$result .= ' ( <a class="detail" href="index-detail'.
+			   $fileview_sortname[$sort_type].'.'.$html_ext.
+			   '">show details</a> )';
+		if ($sort_button) {
+			$sort_link = "index-sort-l.$html_ext";
+		}
+	} else {
+		# Text + link to standard view
+		$result .= ' ( <a class="detail" href="index'.
+			   $fileview_sortname[$sort_type].'.'.$html_ext.
+			   '">hide details</a> )';
+		if ($sort_button) {
+			$sort_link = "index-detail-sort-l.$html_ext";
+		}
+	}
+	# Add sort button
+	$result .= get_sort_code($sort_link, "Sort by line coverage", $base);
+
+	return $result;
+}
+
+sub get_func_code($$$$)
+{
+	my ($type, $text, $sort_button, $base) = @_;
+	my $result = $text;
+	my $link;
+
+	if ($sort_button) {
+		if ($type == 1) {
+			$link = "index-sort-f.$html_ext";
+		} else {
+			$link = "index-detail-sort-f.$html_ext";
+		}
+	}
+	$result .= get_sort_code($link, "Sort by function coverage", $base);
+	return $result;
+}
 
 #
-# write_file_table(filehandle, base_dir, overview, testhash, fileview)
+# write_file_table(filehandle, base_dir, overview, testhash, testfnchash,
+#                  fileview, sort_type)
 #
 # Write a complete file table. OVERVIEW is a reference to a hash containing
 # the following mapping:
 #
-#   filename -> "lines_found,lines_hit,page_link"
+#   filename -> "lines_found,lines_hit,funcs_found,funcs_hit,page_link,
+#		 func_link"
 #
 # TESTHASH is a reference to the following hash:
 #
@@ -3022,83 +3932,89 @@ sub split_filename($)
 # otherwise.
 #
 
-sub write_file_table(*$$$$)
+sub write_file_table(*$$$$$$)
 {
 	local *HTML_HANDLE = $_[0];
 	my $base_dir = $_[1];
-	my %overview = %{$_[2]};
-	my %testhash = %{$_[3]};
-	my $fileview = $_[4];
+	my $overview = $_[2];
+	my $testhash = $_[3];
+	my $testfnchash = $_[4];
+	my $fileview = $_[5];
+	my $sort_type = $_[6];
 	my $filename;
 	my $bar_graph;
 	my $hit;
 	my $found;
+	my $fn_found;
+	my $fn_hit;
 	my $page_link;
 	my $testname;
 	my $testdata;
+	my $testfncdata;
 	my $testcount;
+	my $testfnccount;
 	my %affecting_tests;
-	my $coverage_heading = "Coverage";
+	my $line_code = "";
+	my $func_code;
+	my $file_code;
 
-	# Provide a link to details/non-detail list if this is directory
-	# overview and we are supposed to create a detail view
+	# Determine HTML code for column headings
 	if (($base_dir ne "") && $show_details)
 	{
-		if (%testhash)
-		{
-			# This is the detail list, provide link to standard
-			# list
-			$coverage_heading .= " ( <a class=\"detail\" href=\"".
-					     "index.$html_ext\">hide ".
-					     "details</a> )";
-		}
-		else
-		{
-			# This is the standard list, provide link to detail
-			# list
-			$coverage_heading .= " ( <a class=\"detail\" href=\"".
-					     "index-detail.$html_ext\">show ".
-					     "details</a> )";
-		}
+		my $detailed = keys(%{$testhash});
+
+		$file_code = get_file_code($detailed ? 2 : 1,
+					$fileview ? "Filename" : "Directory",
+					$sort && $sort_type != 0, $base_dir);
+		$line_code = get_line_code($detailed ? 3 : 2, $sort_type,
+					"Line Coverage",
+					$sort && $sort_type != 1, $base_dir);
+		$func_code = get_func_code($detailed ? 2 : 1, "Functions",
+					$sort && $sort_type != 2, $base_dir);
+	} else {
+		$file_code = get_file_code(1,
+					$fileview ? "Filename" : "Directory",
+					$sort && $sort_type != 0, $base_dir);
+		$line_code = get_line_code(1, $sort_type, "Line Coverage",
+					$sort && $sort_type != 1, $base_dir);
+		$func_code = get_func_code(1, "Functions",
+					$sort && $sort_type != 2, $base_dir);
 	}
 
-	write_file_table_prolog(*HTML_HANDLE,
-				$fileview ? "Filename" : "Directory&nbsp;name",
-				$coverage_heading);
+	write_file_table_prolog(*HTML_HANDLE, $file_code, $line_code,
+				$func_code);
 
-	foreach $filename (sort(keys(%overview)))
+	foreach $filename (get_sorted_keys($overview, $sort_type))
 	{
-		($found, $hit, $page_link) = split(",", $overview{$filename});
+		($found, $hit, $fn_found, $fn_hit, $page_link)
+			= @{$overview->{$filename}};
 		$bar_graph = get_bar_graph_code($base_dir, $found, $hit);
 
-		$testdata = $testhash{$filename};
-
-		# Add anchor tag in case a page link is provided
-		if ($page_link)
-		{
-			$filename = "<a href=\"$page_link\">$filename</a>";
-		}
+		$testdata = $testhash->{$filename};
+		$testfncdata = $testfnchash->{$filename};
 
 		write_file_table_entry(*HTML_HANDLE, $filename, $bar_graph,
-				       $found, $hit);
+				       $found, $hit, $fn_found, $fn_hit,
+				       $page_link);
 
 		# Check whether we should write test specific coverage
 		# as well
 		if (!($show_details && $testdata)) { next; }
 
 		# Filter out those tests that actually affect this file
-		%affecting_tests = %{ get_affecting_tests($testdata) };
+		%affecting_tests = %{ get_affecting_tests($testdata,
+					$testfncdata) };
 
 		# Does any of the tests affect this file at all?
 		if (!%affecting_tests) { next; }
 
 		# Write test details for this entry
 		write_file_table_detail_heading(*HTML_HANDLE, "Test name",
-						"Lines hit");
+						"Lines hit", "Functions hit");
 
 		foreach $testname (keys(%affecting_tests))
 		{
-			($found, $hit) =
+			($found, $hit, $fn_found, $fn_hit) =
 				split(",", $affecting_tests{$testname});
 
 			# Insert link to description of available
@@ -3110,7 +4026,7 @@ sub write_file_table(*$$$$)
 			}
 
 			write_file_table_detail_entry(*HTML_HANDLE, $testname,
-				$found, $hit);
+				$found, $hit, $fn_found, $fn_hit);
 		}
 	}
 
@@ -3147,33 +4063,63 @@ sub get_found_and_hit($)
 
 
 #
-# get_affecting_tests(hashref)
+# get_func_found_and_hit(sumfnccount)
+#
+# Return (f_found, f_hit) for sumfnccount
+#
+
+sub get_func_found_and_hit($)
+{
+	my ($sumfnccount) = @_;
+	my $function;
+	my $fn_found;
+	my $fn_hit;
+
+	$fn_found = scalar(keys(%{$sumfnccount}));
+	$fn_hit = 0;
+	foreach $function (keys(%{$sumfnccount})) {
+		if ($sumfnccount->{$function} > 0) {
+			$fn_hit++;
+		}
+	}
+	return ($fn_found, $fn_hit);
+}
+
+
+#
+# get_affecting_tests(testdata, testfncdata)
 #
 # HASHREF contains a mapping filename -> (linenumber -> exec count). Return
 # a hash containing mapping filename -> "lines found, lines hit" for each
 # filename which has a nonzero hit count.
 #
 
-sub get_affecting_tests($)
+sub get_affecting_tests($$)
 {
-	my %hash = %{$_[0]};
+	my $testdata = $_[0];
+	my $testfncdata = $_[1];
 	my $testname;
 	my $testcount;
+	my $testfnccount;
 	my %result;
 	my $found;
 	my $hit;
+	my $fn_found;
+	my $fn_hit;
 
-	foreach $testname (keys(%hash))
+	foreach $testname (keys(%{$testdata}))
 	{
 		# Get (line number -> count) hash for this test case
-		$testcount = $hash{$testname};
+		$testcount = $testdata->{$testname};
+		$testfnccount = $testfncdata->{$testname};
 
 		# Calculate sum
 		($found, $hit) = get_found_and_hit($testcount);
+		($fn_found, $fn_hit) = get_func_found_and_hit($testfnccount);
 
 		if ($hit>0)
 		{
-			$result{$testname} = "$found,$hit";
+			$result{$testname} = "$found,$hit,$fn_found,$fn_hit";
 		}
 	}
 
@@ -3181,9 +4127,21 @@ sub get_affecting_tests($)
 }
 
 
+sub get_hash_reverse($)
+{
+	my ($hash) = @_;
+	my %result;
+
+	foreach (keys(%{$hash})) {
+		$result{$hash->{$_}} = $_;
+	}
+
+	return \%result;
+}
+
 #
 # write_source(filehandle, source_filename, count_data, checksum_data,
-#              converted_data)
+#              converted_data, func_data)
 #
 # Write an HTML view of a source code file. Returns a list containing
 # data as needed by gen_png().
@@ -3191,7 +4149,7 @@ sub get_affecting_tests($)
 # Die on error.
 #
 
-sub write_source($$$$$)
+sub write_source($$$$$$)
 {
 	local *HTML_HANDLE = $_[0];
 	local *SOURCE_HANDLE;
@@ -3201,6 +4159,9 @@ sub write_source($$$$$)
 	my @result;
 	my $checkdata = $_[3];
 	my $converted = $_[4];
+	my $funcdata  = $_[5];
+	my $datafunc = get_hash_reverse($funcdata);
+	my $add_anchor;
 
 	if ($_[2])
 	{
@@ -3224,15 +4185,150 @@ sub write_source($$$$$)
 			    "$line_number\n");
 		}
 
+		$add_anchor = 0;
+		if ($frames) {
+			if (($line_number - 1) % $nav_resolution == 0) {
+				$add_anchor = 1;
+			}
+		}
+		if ($func_coverage) {
+			if ($line_number == 1) {
+				$add_anchor = 1;
+			} elsif (defined($datafunc->{$line_number +
+						     $func_offset})) {
+				$add_anchor = 1;
+			}
+		}
 		push (@result,
 		      write_source_line(HTML_HANDLE, $line_number,
 					$_, $count_data{$line_number},
-					$converted->{$line_number}));
+					$converted->{$line_number},
+					$add_anchor));
 	}
 
 	close(SOURCE_HANDLE);
 	write_source_epilog(*HTML_HANDLE);
 	return(@result);
+}
+
+
+sub funcview_get_func_code($$$)
+{
+	my ($name, $base, $type) = @_;
+	my $result;
+	my $link;
+
+	if ($sort && $type == 1) {
+		$link = "$name.func.$html_ext";
+	}
+	$result = "Function Name";
+	$result .= get_sort_code($link, "Sort by function name", $base);
+
+	return $result;
+}
+
+sub funcview_get_count_code($$$)
+{
+	my ($name, $base, $type) = @_;
+	my $result;
+	my $link;
+
+	if ($sort && $type == 0) {
+		$link = "$name.func-sort-c.$html_ext";
+	}
+	$result = "Hit count";
+	$result .= get_sort_code($link, "Sort by hit count", $base);
+
+	return $result;
+}
+
+#
+# funcview_get_sorted(funcdata, sumfncdata, sort_type)
+#
+# Depending on the value of sort_type, return a list of functions sorted
+# by name (type 0) or by the associated call count (type 1).
+#
+
+sub funcview_get_sorted($$$)
+{
+	my ($funcdata, $sumfncdata, $type) = @_;
+
+	if ($type == 0) {
+		return sort(keys(%{$funcdata}));
+	}
+	return sort({$sumfncdata->{$b} <=> $sumfncdata->{$a}}
+		    keys(%{$sumfncdata}));
+}
+
+#
+# write_function_table(filehandle, source_file, sumcount, funcdata,
+#		       sumfnccount, testfncdata)
+#
+# Write an HTML table listing all functions in a source file, including
+# also function call counts and line coverages inside of each function.
+#
+# Die on error.
+#
+
+sub write_function_table(*$$$$$$$$)
+{
+	local *HTML_HANDLE = $_[0];
+	my $source = $_[1];
+	my $sumcount = $_[2];
+	my $funcdata = $_[3];
+	my $sumfncdata = $_[4];
+	my $testfncdata = $_[5];
+	my $name = $_[6];
+	my $base = $_[7];
+	my $type = $_[8];
+	my $func;
+	my $func_code;
+	my $count_code;
+
+	# Get HTML code for headings
+	$func_code = funcview_get_func_code($name, $base, $type);
+	$count_code = funcview_get_count_code($name, $base, $type);
+	write_html(*HTML_HANDLE, <<END_OF_HTML)
+	  <center>
+	  <table width="60%" cellpadding=1 cellspacing=1 border=0>
+	    <tr><td><br></td></tr>
+	    <tr>
+	      <td width="80%" class="tableHead">$func_code</td>
+	      <td width="20%" class="tableHead">$count_code</td>
+	    </tr>
+END_OF_HTML
+	;
+	
+	# Get a sorted table
+	foreach $func (funcview_get_sorted($funcdata, $sumfncdata, $type)) {
+		my $startline = $funcdata->{$func} - $func_offset;
+		my $name = escape_html($func);
+		my $count = $sumfncdata->{$name};
+		my $countstyle;
+
+		if ($startline < 1) {
+			$startline = 1;
+		}
+		if ($count == 0) {
+			$countstyle = "coverFnLo";
+		} else {
+			$countstyle = "coverFnHi";
+		}
+
+		write_html(*HTML_HANDLE, <<END_OF_HTML)
+	    <tr>
+              <td class="coverFn"><a href="$source#$startline">$name</a></td>
+              <td class="$countstyle">$count</td>
+            </tr>
+END_OF_HTML
+                ;
+	}
+	write_html(*HTML_HANDLE, <<END_OF_HTML)
+	  </table>
+	  <br>
+	  </center>
+END_OF_HTML
+	;
 }
 
 
@@ -3290,57 +4386,43 @@ sub subtract_counts($$)
 
 
 #
-# add_counts(data1_ref, data2_ref)
+# subtract_fnccounts(data, base)
 #
-# DATA1_REF and DATA2_REF are references to hashes containing a mapping
-#
-#   line number -> execution count
-#
-# Return a list (RESULT_REF, LINES_FOUND, LINES_HIT) where RESULT_REF
-# is a reference to a hash containing the combined mapping in which
-# execution counts are added.
+# Subtract function call counts found in base from those in data.
+# Return (data, f_found, f_hit).
 #
 
-sub add_counts($$)
+sub subtract_fnccounts($$)
 {
-	my %data1 = %{$_[0]};	# Hash 1
-	my %data2 = %{$_[1]};	# Hash 2
-	my %result;		# Resulting hash
-	my $line;		# Current line iteration scalar
-	my $data1_count;	# Count of line in hash1
-	my $data2_count;	# Count of line in hash2
-	my $found = 0;		# Total number of lines found
-	my $hit = 0;		# Number of lines with a count > 0
+	my %data = %{$_[0]};
+	my %base = %{$_[1]};
+	my $func;
+	my $data_count;
+	my $base_count;
+	my $fn_hit = 0;
+	my $fn_found = 0;
 
-	foreach $line (keys(%data1))
-	{
-		$data1_count = $data1{$line};
-		$data2_count = $data2{$line};
+	foreach $func (keys(%data)) {
+		$fn_found++;
+		$data_count = $data{$func};
+		$base_count = $base{$func};
 
-		# Add counts if present in both hashes
-		if (defined($data2_count)) { $data1_count += $data2_count; }
+		if (defined($base_count)) {
+			$data_count -= $base_count;
 
-		# Store sum in %result
-		$result{$line} = $data1_count;
+			# Make sure we don't get negative numbers
+			if ($data_count < 0) {
+				$data_count = 0;
+			}
+		}
 
-		$found++;
-		if ($data1_count > 0) { $hit++; }
+		$data{$func} = $data_count;
+		if ($data_count > 0) {
+			$fn_hit++;
+		}
 	}
 
-	# Add lines unique to data2
-	foreach $line (keys(%data2))
-	{
-		# Skip lines already in data1
-		if (defined($data1{$line})) { next; }
-
-		# Copy count from data2
-		$result{$line} = $data2{$line};
-
-		$found++;
-		if ($result{$line} > 0) { $hit++; }
-	}
-
-	return (\%result, $found, $hit);
+	return (\%data, $fn_found, $fn_hit);
 }
 
 
@@ -3361,14 +4443,19 @@ sub apply_baseline($$)
 	my $data_testdata;
 	my $data_funcdata;
 	my $data_checkdata;
+	my $data_testfncdata;
 	my $data_count;
+	my $data_testfnccount;
 	my $base;
-	my $base_testdata;
 	my $base_checkdata;
+	my $base_sumfnccount;
 	my $base_count;
 	my $sumcount;
+	my $sumfnccount;
 	my $found;
 	my $hit;
+	my $fn_found;
+	my $fn_hit;
 
 	foreach $filename (keys(%data_hash))
 	{
@@ -3383,49 +4470,58 @@ sub apply_baseline($$)
 		}
 
 		# Get set entries for data and baseline
-		($data_testdata, undef, $data_funcdata, $data_checkdata) =
-			get_info_entry($data);
-		($base_testdata, $base_count, undef, $base_checkdata) =
-			get_info_entry($base);
+		($data_testdata, undef, $data_funcdata, $data_checkdata,
+		 $data_testfncdata) = get_info_entry($data);
+		(undef, $base_count, undef, $base_checkdata, undef,
+		 $base_sumfnccount) = get_info_entry($base);
 
 		# Check for compatible checksums
 		merge_checksums($data_checkdata, $base_checkdata, $filename);
 
-		# Sumcount has to be calculated anew
+		# sumcount has to be calculated anew
 		$sumcount = {};
+		$sumfnccount = {};
 
 		# For each test case, subtract test specific counts
 		foreach $testname (keys(%{$data_testdata}))
 		{
 			# Get counts of both data and baseline
 			$data_count = $data_testdata->{$testname};
-
-			$hit = 0;
+			$data_testfnccount = $data_testfncdata->{$testname};
 
 			($data_count, undef, $hit) =
 				subtract_counts($data_count, $base_count);
+			($data_testfnccount) =
+				subtract_fnccounts($data_testfnccount,
+						   $base_sumfnccount);
 
 			# Check whether this test case did hit any line at all
 			if ($hit > 0)
 			{
 				# Write back resulting hash
 				$data_testdata->{$testname} = $data_count;
+				$data_testfncdata->{$testname} =
+					$data_testfnccount;
 			}
 			else
 			{
 				# Delete test case which did not impact this
 				# file
 				delete($data_testdata->{$testname});
+				delete($data_testfncdata->{$testname});
 			}
 
 			# Add counts to sum of counts
 			($sumcount, $found, $hit) =
 				add_counts($sumcount, $data_count);
+			($sumfnccount, $fn_found, $fn_hit) =
+				add_fnccounts($sumfnccount, $data_testfnccount);
 		}
 
 		# Write back resulting entry
-		set_info_entry($data, $data_testdata, $sumcount,
-			       $data_funcdata, $data_checkdata, $found, $hit);
+		set_info_entry($data, $data_testdata, $sumcount, $data_funcdata,
+			       $data_checkdata, $data_testfncdata, $sumfnccount,
+			       $found, $hit, $fn_found, $fn_hit);
 
 		$data_hash{$filename} = $data;
 	}
@@ -3479,179 +4575,6 @@ sub remove_unused_descriptions()
 
 
 #
-# merge_checksums(ref1, ref2, filename)
-#
-# REF1 and REF2 are references to hashes containing a mapping
-#
-#   line number -> checksum
-#
-# Merge checksum lists defined in REF1 and REF2 and return reference to
-# resulting hash. Die if a checksum for a line is defined in both hashes
-# but does not match.
-#
-
-sub merge_checksums($$$)
-{
-	my $ref1 = $_[0];
-	my $ref2 = $_[1];
-	my $filename = $_[2];
-	my %result;
-	my $line;
-
-	foreach $line (keys(%{$ref1}))
-	{
-		if (defined($ref2->{$line}) &&
-		    ($ref1->{$line} ne $ref2->{$line}))
-		{
-			die("ERROR: checksum mismatch at $filename:$line\n");
-		}
-		$result{$line} = $ref1->{$line};
-	}
-
-	foreach $line (keys(%{$ref2}))
-	{
-		$result{$line} = $ref2->{$line};
-	}
-
-	return \%result;
-}
-
-
-#
-# combine_info_entries(entry_ref1, entry_ref2, filename)
-#
-# Combine .info data entry hashes referenced by ENTRY_REF1 and ENTRY_REF2.
-# Return reference to resulting hash.
-#
-
-sub combine_info_entries($$$)
-{
-	my $entry1 = $_[0];	# Reference to hash containing first entry
-	my $testdata1;
-	my $sumcount1;
-	my $funcdata1;
-	my $checkdata1;
-
-	my $entry2 = $_[1];	# Reference to hash containing second entry
-	my $testdata2;
-	my $sumcount2;
-	my $funcdata2;
-	my $checkdata2;
-
-	my %result;		# Hash containing combined entry
-	my %result_testdata;
-	my $result_sumcount = {};
-	my %result_funcdata;
-	my $lines_found;
-	my $lines_hit;
-
-	my $testname;
-	my $filename = $_[2];
-
-	# Retrieve data
-	($testdata1, $sumcount1, $funcdata1, $checkdata1) =
-		get_info_entry($entry1);
-	($testdata2, $sumcount2, $funcdata2, $checkdata2) =
-		get_info_entry($entry2);
-
-	# Merge checksums
-	$checkdata1 = merge_checksums($checkdata1, $checkdata2, $filename);
-
-	# Combine funcdata
-	foreach (keys(%{$funcdata1}))
-	{
-		$result_funcdata{$_} = $funcdata1->{$_};
-	}
-
-	foreach (keys(%{$funcdata2}))
-	{
-		$result_funcdata{$_} = $funcdata2->{$_};
-	}
-	
-	# Combine testdata
-	foreach $testname (keys(%{$testdata1}))
-	{
-		if (defined($testdata2->{$testname}))
-		{
-			# testname is present in both entries, requires
-			# combination
-			($result_testdata{$testname}) =
-				add_counts($testdata1->{$testname},
-					   $testdata2->{$testname});
-		}
-		else
-		{
-			# testname only present in entry1, add to result
-			$result_testdata{$testname} = $testdata1->{$testname};
-		}
-
-		# update sum count hash
-		($result_sumcount, $lines_found, $lines_hit) =
-			add_counts($result_sumcount,
-				   $result_testdata{$testname});
-	}
-
-	foreach $testname (keys(%{$testdata2}))
-	{
-		# Skip testnames already covered by previous iteration
-		if (defined($testdata1->{$testname})) { next; }
-
-		# testname only present in entry2, add to result hash
-		$result_testdata{$testname} = $testdata2->{$testname};
-
-		# update sum count hash
-		($result_sumcount, $lines_found, $lines_hit) =
-			add_counts($result_sumcount,
-				   $result_testdata{$testname});
-	}
-	
-	# Calculate resulting sumcount
-
-	# Store result
-	set_info_entry(\%result, \%result_testdata, $result_sumcount,
-		       \%result_funcdata, $checkdata1, $lines_found,
-		       $lines_hit);
-
-	return(\%result);
-}
-
-
-#
-# combine_info_files(info_ref1, info_ref2)
-#
-# Combine .info data in hashes referenced by INFO_REF1 and INFO_REF2. Return
-# reference to resulting hash.
-#
-
-sub combine_info_files($$)
-{
-	my %hash1 = %{$_[0]};
-	my %hash2 = %{$_[1]};
-	my $filename;
-
-	foreach $filename (keys(%hash2))
-	{
-		if ($hash1{$filename})
-		{
-			# Entry already exists in hash1, combine them
-			$hash1{$filename} =
-				combine_info_entries($hash1{$filename},
-						     $hash2{$filename},
-						     $filename);
-		}
-		else
-		{
-			# Entry is unique in both hashes, simply add to
-			# resulting hash
-			$hash1{$filename} = $hash2{$filename};
-		}
-	}
-
-	return(\%hash1);
-}
-
-
-#
 # apply_prefix(filename, prefix)
 #
 # If FILENAME begins with PREFIX, remove PREFIX from FILENAME and return
@@ -3701,7 +4624,7 @@ sub system_no_output($@)
 	# Redirect to /dev/null
 	($mode & 1) && open(STDOUT, ">/dev/null");
 	($mode & 2) && open(STDERR, ">/dev/null");
- 
+
 	system(@_);
 	$result = $?;
 
@@ -3712,7 +4635,7 @@ sub system_no_output($@)
 	# Restore old handles
 	($mode & 1) && open(STDOUT, ">>&OLD_STDOUT");
 	($mode & 2) && open(STDERR, ">>&OLD_STDERR");
- 
+
 	return $result;
 }
 

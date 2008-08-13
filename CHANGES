@@ -1,3 +1,29 @@
+geninfo:
+- Added function coverage data collection patch by Tom Zoerner
+- Updated man page
+
+genhtml:
+- Added function coverage data display patch by Tom Zoerner
+- Added sorting option in HTLM output
+- Added --no-function-coverage to disable function coverage display
+- Added --no-sort to disable sorting
+- Updated man page
+
+lcov:
+- Added support for function coverage data for adding/diffing tracefiles
+- Updated man page
+
+lcovrc:
+- Added genhtml_function_hi_limit
+- Added genhtml_function_med_limit
+- Added genhtml_function_coverage
+- Added genhtml_sort
+- Updated man page
+
+Makefile:
+- Updated info text
+
+
 Version 1.6:
 ============
 

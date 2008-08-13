@@ -269,6 +269,16 @@ source file:
 
   FN:<line number of function start>,<function name>
 
+Next, there is a list of execution counts for each instrumented function:
+
+  FNDA:<execution count>,<function name>
+
+This list is followed by two lines containing the number of functions found
+and hit:
+
+  FNF:<number of functions found>
+  FNH:<number of function hit>
+
 Then there is a list of execution counts for each instrumented line
 (i.e. a line which resulted in executable code):
 

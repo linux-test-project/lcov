@@ -44,6 +44,9 @@
 #   2004-02-16 / Andreas Krebbel: Added support for .gcno/.gcda files and
 #                gcov versioning
 #   2004-08-09 / Peter Oberparleiter: added configuration file support
+#   2008-07-14 / Tom Zoerner: added --function-coverage command line option
+#   2008-08-13 / Peter Oberparleiter: modified function coverage
+#                implementation (now enabled per default)
 #
 
 use strict;
@@ -176,7 +179,7 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@ignore_errors,
 		"initial|i" => \$initial,
-		"no-recursion" => \$no_recursion
+		"no-recursion" => \$no_recursion,
 		))
 {
 	print_usage(*STDERR);
@@ -422,8 +425,9 @@ sequentially.
       --gcov-tool TOOL              Specify gcov tool location
       --ignore-errors ERROR         Continue after ERROR (gcov, source)
       --no-recursion                Exlude subdirectories from processing
+      --function-coverage           Capture function call counts
 
-See $lcov_url for more information about this tool.
+For more information, see: $lcov_url
 END_OF_USAGE
 	;
 }
@@ -512,10 +516,13 @@ sub process_dafile($)
 	my $gcov_file;		# Name of a .gcov file
 	my @gcov_content;	# Content of a .gcov file
 	my @gcov_branches;	# Branch content of a .gcov file
+	my @gcov_functions;	# Function calls of a .gcov file
 	my @gcov_list;		# List of generated .gcov files
 	my $line_number;	# Line number count
 	my $lines_hit;		# Number of instrumented lines hit
 	my $lines_found;	# Number of instrumented lines found
+	my $funcs_hit;		# Number of instrumented functions hit
+	my $funcs_found;	# Number of instrumented functions found
 	my $source;		# gcov source header information
 	my $object;		# gcov object header information
 	my @matches;		# List of absolute paths matching filename
@@ -748,6 +755,7 @@ sub process_dafile($)
 		@result = read_gcov_file($gcov_file);
 		@gcov_content = @{$result[0]};
 		@gcov_branches = @{$result[1]};
+		@gcov_functions = @{$result[2]};
 
 		# Skip empty files
 		if (!@gcov_content)
@@ -789,11 +797,36 @@ sub process_dafile($)
 			{
 				my ($fn, $line) = split("=", $_);
 
-				if ($fn ne "")
-				{
-					print(INFO_HANDLE "FN:$line,$fn\n");
+				if ($fn eq "") {
+					next;
 				}
+
+				# Normalize function name
+				$fn =~ s/\W/_/g;
+
+				print(INFO_HANDLE "FN:$line,$fn\n");
 			}
+		}
+
+		#--
+		#-- FNDA: <call-count>, <function-name>
+		#-- FNF: overall count of functions
+		#-- FNH: overall count of functions with non-zero call count
+		#--
+		$funcs_found = 0;
+		$funcs_hit = 0;
+		while (@gcov_functions)
+		{
+			printf(INFO_HANDLE "FNDA:%s,%s\n",
+				       $gcov_functions[0],
+				       $gcov_functions[1]);
+				$funcs_found++;
+			$funcs_hit++ if $gcov_functions[0];
+			splice(@gcov_functions,0,2);
+		}
+		if ($funcs_found > 0) {
+			printf(INFO_HANDLE "FNF:%s\n", $funcs_found);
+			printf(INFO_HANDLE "FNH:%s\n", $funcs_hit);
 		}
 
 		# Reset line counters
@@ -1092,7 +1125,7 @@ sub read_gcov_header($)
 # read_gcov_file(gcov_filename)
 #
 # Parse file GCOV_FILENAME (.gcov file format) and return the list:
-# (reference to gcov_content, reference to gcov_branch)
+# (reference to gcov_content, reference to gcov_branch, reference to gcov_func)
 #
 # gcov_content is a list of 3 elements
 # (flag, count, source) for each source code line:
@@ -1104,6 +1137,9 @@ sub read_gcov_header($)
 # gcov_branch is a list of 2 elements
 # (linenumber, branch result) for each branch
 #
+# gcov_func is a list of 2 elements
+# (number of calls, function name) for each function
+#
 # Die on error.
 #
 
@@ -1112,6 +1148,7 @@ sub read_gcov_file($)
 	my $filename = $_[0];
 	my @result = ();
 	my @branches = ();
+	my @functions = ();
 	my $number;
 	local *INPUT;
 
@@ -1192,6 +1229,10 @@ sub read_gcov_file($)
 					push(@branches, 2);
 				}
 			}
+			elsif (/^function\s+(\S+)\s+called\s+(\d+)/)
+			{
+				push(@functions, $2, $1);
+			}
 			elsif (/^call/)
 			{
 				# Function call return data
@@ -1227,7 +1268,7 @@ sub read_gcov_file($)
 	}
 
 	close(INPUT);
-	return(\@result, \@branches);
+	return(\@result, \@branches, \@functions);
 }
 
 
@@ -2076,8 +2117,11 @@ sub process_graphfile($)
 	{
 		my %lines;
 		my $count = 0;
+		my @functions;
 
 		print(INFO_HANDLE "SF:$filename\n");
+
+		# Write function related data
 		foreach (split(",",$graph_data{$filename}))
 		{
 			my ($fn, $line) = split("=", $_);
@@ -2085,12 +2129,22 @@ sub process_graphfile($)
 			if ($fn eq "")
 			{
 				$lines{$line} = "";
+				next;
 			}
-			else
-			{
-				print(INFO_HANDLE "FN:$line,$fn\n");
-			}
+
+			# Normalize function name
+			$fn =~ s/\W/_/g;
+
+			print(INFO_HANDLE "FN:$line,$fn\n");
+			push(@functions, $fn);
 		}
+		foreach (@functions) {
+			print(INFO_HANDLE "FNDA:$_,0\n");
+		}
+		print(INFO_HANDLE "FNF:".scalar(@functions)."\n");
+		print(INFO_HANDLE "FNH:0\n");
+
+		# Write line related data
 		foreach (sort {$a <=> $b } keys(%lines))
 		{
 			print(INFO_HANDLE "DA:$_,0\n");

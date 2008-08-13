@@ -47,11 +47,18 @@ section 'OPTIONS' below.
 #genhtml_css_file = gcov.css
 .br
 
-# Coverage rate limits
+# Coverage rate limits for line coverage
 .br
 genhtml_hi_limit = 50
 .br
 genhtml_med_limit = 15
+.br
+
+# Coverage rate limits for function coverage
+.br
+genhtml_function_hi_limit = 90
+.br
+genhtml_function_med_limit = 75
 .br
 
 # Width of overview image
@@ -117,6 +124,16 @@ genhtml_legend = 0
 # Compress all generated html files with gzip.
 .br
 #genhtml_html_gzip = 1
+.br
+
+# Include sorted overview pages
+.br
+genhtml_sort = 1
+.br
+
+# Include function coverage data display
+.br
+genhtml_function_coverage = 1
 .br
 
 # Location of the gcov tool
@@ -188,11 +205,18 @@ By default, a standard CSS file is generated.
 .br
 .BR genhtml_med_limit " ="
 .I med_limit
+.br
+.BR genhtml_function_med_limit " ="
+.I hi_limit
+.br
+.BR genhtml_function_med_limit " ="
+.I med_limit
 .IP
 Specify coverage rate limits for classifying file entries. Use this option to
-modify the coverage rates (in percent) at which a result is classified as
-high, medium or low coverage. This classification affects the color of the
-corresponding entries on the overview pages of the HTML output:
+modify the coverage rates (in percent) for line or function coverage at which
+a result is classified as high, medium or low coverage. This classification
+affects the color of the corresponding entries on the overview pages of the
+HTML output:
 .br
 
 High:   hi_limit  <= rate <= 100        default color: green
@@ -202,7 +226,8 @@ Medium: med_limit <= rate < hi_limit    default color: orange
 Low:    0         <= rate < med_limit   default color: red
 .br
 
-Defaults are 50 and 15 respectively.
+Defaults are 50 and 15 percent for line coverage and 90 and 75 percent for
+function coverage.
 .PP
 
 .BR genhtml_overview_width " ="
@@ -382,6 +407,35 @@ This option corresponds to the \-\-html\-gzip option of
 .br
 
 Default extension is 0.
+.PP
+
+.BR genhtml_sort " ="
+.IR 0 | 1
+.IP
+If non-zero, create overview pages sorted by coverage rates when generating
+HTML output using
+.BR genhtml .
+.br
+
+This option can be set to 0 by using the \-\-no\-sort option of
+.BR genhtml .
+.br
+
+Default is 1.
+.PP
+
+.BR genhtml_function_coverage " ="
+.IR 0 | 1
+.IP
+If non-zero, include function coverage data when generating HTML output using
+.BR genhtml .
+.br
+
+This option can be set to 0 by using the \-\-no\-function\-coverage option of
+.BR genhtml .
+.br
+
+Default is 1.
 .PP
 
 .BR geninfo_gcov_tool " ="

@@ -27,7 +27,10 @@ FILES   := $(wildcard bin/*) $(wildcard man/*) README CHANGES Makefile \
 all: info
 
 info:
-	@echo try "'make install'", "'make uninstall'" or "'make dist'"
+	@echo "Available make targets:"
+	@echo "  install   : install binaries and man pages in PREFIX (default /)"
+	@echo "  uninstall : delete binaries and man pages from PREFIX (default /)"
+	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
 
 clean:
 	rm -f lcov-*.tar.gz

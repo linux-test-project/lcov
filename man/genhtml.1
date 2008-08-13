@@ -46,6 +46,9 @@ genhtml - Generate HTML view from LCOV coverage data files
 .IR extension ]
 .br
 .RB [ \-\-html-gzip ]
+.RB [ \-\-no\-sort ]
+.RB [ \-\-no\-function\-coverage ]
+.br
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -389,6 +392,28 @@ compressed html.
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_html_gzip .
+
+.RE
+.B \-\-no\-sort
+.RS
+Remove sorted views from output.
+
+Use this switch if you don't want overview pages sorted by coverage rate.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_sort .
+
+.RE
+.B \-\-no\-function\-coverage
+.RS
+Remove function coverage data display from output.
+
+Use this switch if you don't want function coverage data to be displayed.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_function_coverage .
 
 .RE
 .SH FILES

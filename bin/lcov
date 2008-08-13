@@ -56,6 +56,7 @@
 #                modprobe before insmod (needed for 2.6)
 #   2004-03-30 / Peter Oberparleiter: added --path option
 #   2004-08-09 / Peter Oberparleiter: added configuration file support
+#   2008-08-13 / Peter Oberparleiter: added function coverage support
 #
 
 use strict;
@@ -99,7 +100,7 @@ sub kernel_capture();
 sub add_traces();
 sub read_info_file($);
 sub get_info_entry($);
-sub set_info_entry($$$$$;$$);
+sub set_info_entry($$$$$$$;$$$$);
 sub add_counts($$);
 sub merge_checksums($$$);
 sub combine_info_entries($$$);
@@ -409,7 +410,7 @@ Options:
       --ignore-errors ERRORS      Continue after ERRORS (gcov, source)
       --no-recursion              Exlude subdirectories from processing
 
-See $lcov_url for more information about this tool.
+For more information, see: $lcov_url
 END_OF_USAGE
 	;
 }
@@ -883,13 +884,18 @@ sub create_temp_dir()
 #        "found" -> $lines_found (number of instrumented lines found in file)
 #	 "hit"   -> $lines_hit (number of executed lines in file)
 #        "check" -> \%checkdata
+#        "testfnc" -> \%testfncdata
+#        "sumfnc"  -> \%sumfnccount
 #
-# %testdata: name of test affecting this file -> \%testcount
+# %testdata   : name of test affecting this file -> \%testcount
+# %testfncdata: name of test affecting this file -> \%testfnccount
 #
-# %testcount: line number -> execution count for a single test
-# %sumcount : line number -> execution count for all tests
-# %funcdata : line number -> name of function beginning at that line
-# %checkdata: line number -> checksum of source code line
+# %testcount   : line number   -> execution count for a single test
+# %testfnccount: function name -> execution count for a single test
+# %sumcount    : line number   -> execution count for all tests
+# %sumfnccount : function name -> execution count for all tests
+# %funcdata    : function name -> line number
+# %checkdata   : line number   -> checksum of source code line
 # 
 # Note that .info file sections referring to the same file and test name
 # will automatically be combined by adding all execution counts.
@@ -911,6 +917,9 @@ sub read_info_file($)
 	my $sumcount;			#       "             "
 	my $funcdata;			#       "             "
 	my $checkdata;			#       "             "
+	my $testfncdata;
+	my $testfnccount;
+	my $sumfnccount;
 	my $line;			# Current line read from .info file
 	my $testname;			# Current test name
 	my $filename;			# Current filename
@@ -987,17 +996,19 @@ sub read_info_file($)
 				$filename = $1;
 
 				$data = $result{$filename};
-				($testdata, $sumcount, $funcdata, $checkdata) =
+				($testdata, $sumcount, $funcdata, $checkdata,
+				 $testfncdata, $sumfnccount) =
 					get_info_entry($data);
 
 				if (defined($testname))
 				{
 					$testcount = $testdata->{$testname};
+					$testfnccount = $testfncdata->{$testname};
 				}
 				else
 				{
-					my %new_hash;
-					$testcount = \%new_hash;
+					$testcount = {};
+					$testfnccount = {};
 				}
 				last;
 			};
@@ -1042,10 +1053,34 @@ sub read_info_file($)
 			/^FN:(\d+),([^,]+)/ && do
 			{
 				# Function data found, add to structure
-				$funcdata->{$1} = $2;
+				$funcdata->{$2} = $1;
+
+				# Also initialize function call data
+				if (!defined($sumfnccount->{$2})) {
+					$sumfnccount->{$2} = 0;
+				}
+				if (defined($testname))
+				{
+					if (!defined($testfnccount->{$2})) {
+						$testfnccount->{$2} = 0;
+					}
+				}
 				last;
 			};
 
+			/^FNDA:(\d+),([^,]+)/ && do
+			{
+				# Function call count found, add to structure
+				# Add summary counts
+				$sumfnccount->{$2} += $1;
+
+				# Add test-specific counts
+				if (defined($testname))
+				{
+					$testfnccount->{$2} += $1;
+				}
+				last;
+			};
 			/^end_of_record/ && do
 			{
 				# Found end of section marker
@@ -1056,10 +1091,14 @@ sub read_info_file($)
 					{
 						$testdata->{$testname} =
 							$testcount;
+						$testfncdata->{$testname} =
+							$testfnccount;
 					}	
+
 					set_info_entry($data, $testdata,
 						       $sumcount, $funcdata,
-						       $checkdata);
+						       $checkdata, $testfncdata,
+						       $sumfnccount);
 					$result{$filename} = $data;
 					last;
 				}
@@ -1071,25 +1110,28 @@ sub read_info_file($)
 	}
 	close(INFO_HANDLE);
 
-	# Calculate lines_found and lines_hit for each file
+	# Calculate hit and found values for lines and functions of each file
 	foreach $filename (keys(%result))
 	{
 		$data = $result{$filename};
 
-		($testdata, $sumcount, $funcdata) = get_info_entry($data);
+		($testdata, $sumcount, undef, undef, $testfncdata,
+		 $sumfnccount) = get_info_entry($data);
 
-		# Filter out empty test cases
+		# Filter out empty files
 		if (scalar(keys(%{$sumcount})) == 0)
 		{
 			delete($result{$filename});
 			next;
 		}
+		# Filter out empty test cases
 		foreach $testname (keys(%{$testdata}))
 		{
 			if (!defined($testdata->{$testname}) ||
 			    scalar(keys(%{$testdata->{$testname}})) == 0)
 			{
 				delete($testdata->{$testname});
+				delete($testfncdata->{$testname});
 			}
 		}
 
@@ -1103,7 +1145,16 @@ sub read_info_file($)
 
 		$data->{"hit"} = $hitcount;
 
-		$result{$filename} = $data;
+		# Get found/hit values for function call data
+		$data->{"f_found"} = scalar(keys(%{$sumfnccount}));
+		$hitcount = 0;
+
+		foreach (keys(%{$sumfnccount})) {
+			if ($sumfnccount->{$_} > 0) {
+				$hitcount++;
+			}
+		}
+		$data->{"f_hit"} = $hitcount;
 	}
 
 	if (scalar(keys(%result)) == 0)
@@ -1131,7 +1182,8 @@ sub read_info_file($)
 # Retrieve data from an entry of the structure generated by read_info_file().
 # Return a list of references to hashes:
 # (test data hash ref, sum count hash ref, funcdata hash ref, checkdata hash
-#  ref, lines found, lines hit)
+#  ref, testfncdata hash ref, sumfnccount hash ref, lines found, lines hit,
+#  functions found, functions hit)
 #
 
 sub get_info_entry($)
@@ -1140,22 +1192,28 @@ sub get_info_entry($)
 	my $sumcount_ref = $_[0]->{"sum"};
 	my $funcdata_ref = $_[0]->{"func"};
 	my $checkdata_ref = $_[0]->{"check"};
+	my $testfncdata = $_[0]->{"testfnc"};
+	my $sumfnccount = $_[0]->{"sumfnc"};
 	my $lines_found = $_[0]->{"found"};
 	my $lines_hit = $_[0]->{"hit"};
+	my $f_found = $_[0]->{"f_found"};
+	my $f_hit = $_[0]->{"f_hit"};
 
 	return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
-		$lines_found, $lines_hit);
+		$testfncdata, $sumfnccount, $lines_found, $lines_hit,
+		$f_found, $f_hit);
 }
 
 
 #
 # set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref,
-#                checkdata_ref[,lines_found, lines_hit])
+#                checkdata_ref, testfncdata_ref, sumfcncount_ref[,lines_found,
+#                lines_hit, f_found, f_hit])
 #
 # Update the hash referenced by HASH_REF with the provided data references.
 #
 
-sub set_info_entry($$$$$;$$)
+sub set_info_entry($$$$$$$;$$$$)
 {
 	my $data_ref = $_[0];
 
@@ -1163,9 +1221,13 @@ sub set_info_entry($$$$$;$$)
 	$data_ref->{"sum"} = $_[2];
 	$data_ref->{"func"} = $_[3];
 	$data_ref->{"check"} = $_[4];
+	$data_ref->{"testfnc"} = $_[5];
+	$data_ref->{"sumfnc"} = $_[6];
 
-	if (defined($_[5])) { $data_ref->{"found"} = $_[5]; }
-	if (defined($_[6])) { $data_ref->{"hit"} = $_[6]; }
+	if (defined($_[7])) { $data_ref->{"found"} = $_[7]; }
+	if (defined($_[8])) { $data_ref->{"hit"} = $_[8]; }
+	if (defined($_[9])) { $data_ref->{"f_found"} = $_[9]; }
+	if (defined($_[10])) { $data_ref->{"f_hit"} = $_[10]; }
 }
 
 
@@ -1264,51 +1326,100 @@ sub merge_checksums($$$)
 
 
 #
-# merge_func_data(ref1, ref2, filename)
+# merge_func_data(funcdata1, funcdata2, filename)
 #
 
 sub merge_func_data($$$)
 {
-	my $ref1 = $_[0];
-	my $ref2 = $_[1];
-	my $filename = $_[2];
+	my ($funcdata1, $funcdata2, $filename) = @_;
 	my %result;
-	my %ignore;
-	my $line1;
-	my $line2;
+	my $func;
 
-	# Check for mismatch
-	foreach $line1 (keys(%{$ref1}))
-	{
-		foreach $line2 (keys(%{$ref2}))
-		{
-			if (($ref1->{$line1} eq $ref2->{$line2}) &&
-			    ($line1 != $line2))
-			{
-				warn("WARNING: function data mismatch at ".
-				     "$filename:$ref1->{$line1}\n");
-				$ignore{$line2} = 1;
-			}
+	%result = %{$funcdata1};
+
+	foreach $func (keys(%{$funcdata2})) {
+		my $line1 = $result{$func};
+		my $line2 = $funcdata2->{$func};
+
+		if (defined($line1) && ($line1 != $line2)) {
+			warn("WARNING: function data mismatch at ".
+			     "$filename:$line2\n");
+			next;
 		}
-	}
-
-	# Merge
-	foreach (keys(%{$ref1}))
-	{
-		$result{$_} = $ref1->{$_};
-	}
-
-	foreach (keys(%{$ref2}))
-	{
-		if (!$ignore{$_})
-		{
-			$result{$_} = $ref2->{$_};
-		}
+		$result{$func} = $line2;
 	}
 
 	return \%result;
 }
 
+
+#
+# add_fnccount(fnccount1, fnccount2)
+#
+# Add function call count data. Return list (fnccount_added, f_found, f_hit)
+#
+
+sub add_fnccount($$)
+{
+	my ($fnccount1, $fnccount2) = @_;
+	my %result;
+	my $f_found;
+	my $f_hit;
+	my $function;
+
+	%result = %{$fnccount1};
+	foreach $function (keys(%{$fnccount2})) {
+		$result{$function} += $fnccount2->{$function};
+	}
+	$f_found = scalar(keys(%result));
+	$f_hit = 0;
+	foreach $function (keys(%result)) {
+		if ($result{$function} > 0) {
+			$f_hit++;
+		}
+	}
+
+	return (\%result, $f_found, $f_hit);
+}
+
+#
+# add_testfncdata(testfncdata1, testfncdata2)
+#
+# Add function call count data for several tests. Return reference to
+# added_testfncdata.
+#
+
+sub add_testfncdata($$)
+{
+	my ($testfncdata1, $testfncdata2) = @_;
+	my %result;
+	my $testname;
+
+	foreach $testname (keys(%{$testfncdata1})) {
+		if (defined($testfncdata2->{$testname})) {
+			my $fnccount;
+
+			# Function call count data for this testname exists
+			# in both data sets: merge
+			($fnccount) = add_fnccount(
+				$testfncdata1->{$testname},
+				$testfncdata2->{$testname});
+			$result{$testname} = $fnccount;
+			next;
+		}
+		# Function call count data for this testname is unique to
+		# data set 1: copy
+		$result{$testname} = $testfncdata1->{$testname};
+	}
+
+	# Add count data for testnames unique to data set 2
+	foreach $testname (keys(%{$testfncdata2})) {
+		if (!defined($result{$testname})) {
+			$result{$testname} = $testfncdata2->{$testname};
+		}
+	}
+	return \%result;
+}
 
 #
 # combine_info_entries(entry_ref1, entry_ref2, filename)
@@ -1324,34 +1435,47 @@ sub combine_info_entries($$$)
 	my $sumcount1;
 	my $funcdata1;
 	my $checkdata1;
+	my $testfncdata1;
+	my $sumfnccount1;
 
 	my $entry2 = $_[1];	# Reference to hash containing second entry
 	my $testdata2;
 	my $sumcount2;
 	my $funcdata2;
 	my $checkdata2;
+	my $testfncdata2;
+	my $sumfnccount2;
 
 	my %result;		# Hash containing combined entry
 	my %result_testdata;
 	my $result_sumcount = {};
 	my $result_funcdata;
+	my $result_testfncdata;
+	my $result_sumfnccount;
 	my $lines_found;
 	my $lines_hit;
+	my $f_found;
+	my $f_hit;
 
 	my $testname;
 	my $filename = $_[2];
 
 	# Retrieve data
-	($testdata1, $sumcount1, $funcdata1, $checkdata1) =
-		get_info_entry($entry1);
-	($testdata2, $sumcount2, $funcdata2, $checkdata2) =
-		get_info_entry($entry2);
+	($testdata1, $sumcount1, $funcdata1, $checkdata1, $testfncdata1,
+	 $sumfnccount1) = get_info_entry($entry1);
+	($testdata2, $sumcount2, $funcdata2, $checkdata2, $testfncdata2,
+	 $sumfnccount2) = get_info_entry($entry2);
 
 	# Merge checksums
 	$checkdata1 = merge_checksums($checkdata1, $checkdata2, $filename);
 
 	# Combine funcdata
 	$result_funcdata = merge_func_data($funcdata1, $funcdata2, $filename);
+
+	# Combine function call count data
+	$result_testfncdata = add_testfncdata($testfncdata1, $testfncdata2);
+	($result_sumfnccount, $f_found, $f_hit) =
+		add_fnccount($sumfnccount1, $sumfnccount2);
 	
 	# Combine testdata
 	foreach $testname (keys(%{$testdata1}))
@@ -1394,8 +1518,9 @@ sub combine_info_entries($$$)
 
 	# Store result
 	set_info_entry(\%result, \%result_testdata, $result_sumcount,
-		       $result_funcdata, $checkdata1, $lines_found,
-		       $lines_hit);
+		       $result_funcdata, $checkdata1, $result_testfncdata,
+		       $result_sumfnccount, $lines_found, $lines_hit,
+		       $f_found, $f_hit);
 
 	return(\%result);
 }
@@ -1493,32 +1618,52 @@ sub write_info_file(*$)
 	my $sumcount;
 	my $funcdata;
 	my $checkdata;
+	my $testfncdata;
+	my $sumfnccount;
 	my $testname;
 	my $line;
+	my $func;
 	my $testcount;
+	my $testfnccount;
 	my $found;
 	my $hit;
+	my $f_found;
+	my $f_hit;
 
 	foreach $source_file (keys(%data))
 	{
 		$entry = $data{$source_file};
-		($testdata, $sumcount, $funcdata, $checkdata) =
-			get_info_entry($entry);
+		($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
+		 $sumfnccount) = get_info_entry($entry);
 		foreach $testname (keys(%{$testdata}))
 		{
 			$testcount = $testdata->{$testname};
+			$testfnccount = $testfncdata->{$testname};
 			$found = 0;
 			$hit   = 0;
 
 			print(INFO_HANDLE "TN:$testname\n");
 			print(INFO_HANDLE "SF:$source_file\n");
 
-			foreach $line (sort({$a <=> $b} keys(%{$funcdata})))
+			# Write function related data
+			foreach $func (
+				sort({$funcdata->{$a} <=> $funcdata->{$b}}
+				keys(%{$funcdata})))
 			{
-				print(INFO_HANDLE "FN:$line,".
-				      $funcdata->{$line}."\n");
+				print(INFO_HANDLE "FN:".$funcdata->{$func}.
+				      ",$func\n");
 			}
+			foreach $func (keys(%{$testfnccount})) {
+				print(INFO_HANDLE "FNDA:".
+				      $testfnccount->{$func}.
+				      ",$func\n");
+			}
+			($f_found, $f_hit) =
+				get_func_found_and_hit($testfnccount);
+			print(INFO_HANDLE "FNF:$f_found\n");
+			print(INFO_HANDLE "FNH:$f_hit\n");
 
+			# Write line related data
 			foreach $line (sort({$a <=> $b} keys(%{$testcount})))
 			{
 				print(INFO_HANDLE "DA:$line,".
@@ -1706,7 +1851,7 @@ sub list()
 	foreach $filename (sort(keys(%{$data})))
 	{
 		$entry = $data->{$filename};
-		(undef, undef, undef, undef, $found, $hit) =
+		(undef, undef, undef, undef, undef, undef, $found, $hit) =
 			get_info_entry($entry);
 		printf("$filename: $hit of $found lines hit\n");
 	}
@@ -1993,7 +2138,7 @@ sub apply_diff($$)
 	# Transform all other lines which come after the last diff entry
 	foreach (sort({$a <=> $b} keys(%{$count_data})))
 	{
-		if ($_ < $last_old)
+		if ($_ <= $last_old)
 		{
 			# Skip lines which were covered by line hash
 			next;
@@ -2007,9 +2152,69 @@ sub apply_diff($$)
 
 
 #
+# get_hash_max(hash_ref)
+#
+# Return the highest integer key from hash.
+#
+
+sub get_hash_max($)
+{
+	my ($hash) = @_;
+	my $max;
+
+	foreach (keys(%{$hash})) {
+		if (!defined($max)) {
+			$max = $_;
+		} elsif ($hash->{$_} > $max) {
+			$max = $_;
+		}
+	}
+	return $max;
+}
+
+sub get_hash_reverse($)
+{
+	my ($hash) = @_;
+	my %result;
+
+	foreach (keys(%{$hash})) {
+		$result{$hash->{$_}} = $_;
+	}
+
+	return \%result;
+}
+
+#
+# apply_diff_to_funcdata(funcdata, line_hash)
+#
+
+sub apply_diff_to_funcdata($$)
+{
+	my ($funcdata, $linedata) = @_;
+	my $last_new = get_hash_max($linedata);
+	my $last_old = $linedata->{$last_new};
+	my $func;
+	my %result;
+	my $line_diff = get_hash_reverse($linedata);
+
+	foreach $func (keys(%{$funcdata})) {
+		my $line = $funcdata->{$func};
+
+		if (defined($line_diff->{$line})) {
+			$result{$func} = $line_diff->{$line};
+		} elsif ($line > $last_old) {
+			$result{$func} = $line + $last_new - $last_old;
+		}
+	}
+
+	return \%result;
+}
+
+
+#
 # get_line_hash($filename, $diff_data, $path_data)
 #
-# Find line hash in DIFF_DATA which matches FILENAME. On succes, return list
+# Find line hash in DIFF_DATA which matches FILENAME. On success, return list
 # line hash. or undef in case of no match. Die if more than one line hashes in
 # DIFF_DATA match.
 #
@@ -2143,6 +2348,63 @@ sub convert_paths($$)
 	}
 }
 
+#
+# sub adjust_fncdata(funcdata, testfncdata, sumfnccount)
+#
+# Remove function call count data from testfncdata and sumfnccount which
+# is no longer present in funcdata.
+#
+
+sub adjust_fncdata($$$)
+{
+	my ($funcdata, $testfncdata, $sumfnccount) = @_;
+	my $testname;
+	my $func;
+	my $f_found;
+	my $f_hit;
+
+	# Remove count data in testfncdata for functions which are no longer
+	# in funcdata
+	foreach $testname (%{$testfncdata}) {
+		my $fnccount = $testfncdata->{$testname};
+
+		foreach $func (%{$fnccount}) {
+			if (!defined($funcdata->{$func})) {
+				delete($fnccount->{$func});
+			}
+		}
+	}
+	# Remove count data in sumfnccount for functions which are no longer
+	# in funcdata
+	foreach $func (%{$sumfnccount}) {
+		if (!defined($funcdata->{$func})) {
+			delete($sumfnccount->{$func});
+		}
+	}
+}
+
+#
+# get_func_found_and_hit(sumfnccount)
+#
+# Return (f_found, f_hit) for sumfnccount
+#
+
+sub get_func_found_and_hit($)
+{
+	my ($sumfnccount) = @_;
+	my $function;
+	my $f_found;
+	my $f_hit;
+
+	$f_found = scalar(keys(%{$sumfnccount}));
+	$f_hit = 0;
+	foreach $function (keys(%{$sumfnccount})) {
+		if ($sumfnccount->{$function} > 0) {
+			$f_hit++;
+		}
+	}
+	return ($f_found, $f_hit);
+}
 
 #
 # diff()
@@ -2165,8 +2427,12 @@ sub diff()
 	my $sumcount;
 	my $funcdata;
 	my $checkdata;
+	my $testfncdata;
+	my $sumfnccount;
 	my $found;
 	my $hit;
+	my $f_found;
+	my $f_hit;
 	my $converted = 0;
 	my $unchanged = 0;
 	local *INFO_HANDLE;
@@ -2198,8 +2464,8 @@ sub diff()
 		}
 		info("Converting $filename\n");
 		$entry = $trace_data->{$filename};
-		($testdata, $sumcount, $funcdata, $checkdata) =
-			get_info_entry($entry);
+		($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
+		 $sumfnccount) = get_info_entry($entry);
 		# Convert test data
 		foreach $testname (keys(%{$testdata}))
 		{
@@ -2209,6 +2475,7 @@ sub diff()
 			if (scalar(keys(%{$testdata->{$testname}})) == 0)
 			{
 				delete($testdata->{$testname});
+				delete($testfncdata->{$testname});
 			}
 		}
 		# Rename test data to indicate conversion
@@ -2227,16 +2494,29 @@ sub diff()
 					$testdata->{$testname},
 					$testdata->{$testname.",diff"});
 				delete($testdata->{$testname.",diff"});
+				# Add function call counts
+				($testfncdata->{$testname}) = add_fnccount(
+					$testfncdata->{$testname},
+					$testfncdata->{$testname.",diff"});
+				delete($testfncdata->{$testname.",diff"});
 			}
+			# Move test data to new testname
 			$testdata->{$testname.",diff"} = $testdata->{$testname};
 			delete($testdata->{$testname});
+			# Move function call count data to new testname
+			$testfncdata->{$testname.",diff"} =
+				$testfncdata->{$testname};
+			delete($testfncdata->{$testname});
 		}
 		# Convert summary of test data
 		$sumcount = apply_diff($sumcount, $line_hash);
 		# Convert function data
-		$funcdata = apply_diff($funcdata, $line_hash);
+		$funcdata = apply_diff_to_funcdata($funcdata, $line_hash);
 		# Convert checksum data
 		$checkdata = apply_diff($checkdata, $line_hash);
+		# Convert function call count data
+		adjust_fncdata($funcdata, $testfncdata, $sumfnccount);
+		($f_found, $f_hit) = get_func_found_and_hit($sumfnccount);
 		# Update found/hit numbers
 		$found = 0;
 		$hit = 0;
@@ -2252,7 +2532,8 @@ sub diff()
 		{
 			# Store converted entry
 			set_info_entry($entry, $testdata, $sumcount, $funcdata,
-				       $checkdata, $found, $hit);
+				       $checkdata, $testfncdata, $sumfnccount,
+				       $found, $hit, $f_found, $f_hit);
 		}
 		else
 		{
