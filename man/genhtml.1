@@ -1,6 +1,6 @@
-.TH genhtml 1 "lcov 1.1" 2003-04-14 "User Manuals"
+.TH genhtml 1 "LCOV 1.1" 2003\-04\-14 "User Manuals"
 .SH NAME
-genhtml - Generate HTML view from LCOV coverage data files
+genhtml \- Generate HTML view from LCOV coverage data files
 .SH SYNOPSIS
 .B genhtml
 .RB [ \-h | \-\-help ]
@@ -8,14 +8,14 @@ genhtml - Generate HTML view from LCOV coverage data files
 .RS 8
 .br
 .RB [ \-q | \-\-quiet ]
-.RB [ \-s | \-\-show-details ]
+.RB [ \-s | \-\-show\-details ]
 .RB [ \-f | \-\-frames ]
 .br
 .RB [ \-b | \-\-baseline\-file  ]
 .IR baseline\-file
 .br
 .RB [ \-o | \-\-output\-directory
-.IR output-directory ]
+.IR output\-directory ]
 .br
 .RB [ \-t | \-\-title
 .IR title ]
@@ -32,20 +32,20 @@ genhtml - Generate HTML view from LCOV coverage data files
 .RB [ \-\-no\-prefix ]
 .br
 .RB [ \-\-no\-source ]
-.RB [ \-\-num-spaces
+.RB [ \-\-num\-spaces
 .IR num ]
 .RB [ \-\-highlight ]
 .br
 .RB [ \-\-legend ]
-.RB [ \-\-html-prolog
-.IR prolog-file ]
+.RB [ \-\-html\-prolog
+.IR prolog\-file ]
 .br
-.RB [ \-\-html-epilog
-.IR epilog-file ]
-.RB [ \-\-html-extension
+.RB [ \-\-html\-epilog
+.IR epilog\-file ]
+.RB [ \-\-html\-extension
 .IR extension ]
 .br
-.RB [ \-\-html-gzip ]
+.RB [ \-\-html\-gzip ]
 .RB [ \-\-no\-sort ]
 .RB [ \-\-no\-function\-coverage ]
 .br
@@ -68,11 +68,11 @@ Note that all source code files have to be present and readable at the
 exact file system location they were compiled.
 
 Use option
-.I --css-file
+.I \--css\-file
 to modify layout and colors of the generated HTML output. Files are
 marked in different colors depending on the associated coverage rate. By
 default, the coverage limits for low, medium and high coverage are set to
-0-15%, 15-50% and 50-100% percent respectively. To change these
+0\-15%, 15\-50% and 50\-100% percent respectively. To change these
 values, use configuration file options
 .IR genhtml_hi_limit " and " genhtml_med_limit .
 
@@ -157,13 +157,13 @@ the result is zero.
 .BI "\-\-output\-directory " output\-directory
 .RS
 Create files in 
-.I output-directory.
+.I output\-directory.
 
 Use this option to tell 
 .B genhtml
 to write the resulting files to a directory other than
 the current one. If 
-.I output-directory
+.I output\-directory
 does not exist, it will be created.
 
 It is advisable to use this option since depending on the
@@ -229,7 +229,7 @@ option
 .BI "\-\-css\-file " css\-file
 .RS
 Use external style sheet file
-.IR css-file .
+.IR css\-file .
 
 Using this option, an extra .css file may be specified which will replace
 the default one. This may be helpful if the default colors make your eyes want
@@ -281,7 +281,7 @@ option
 .IR genhtml_no_source .
 
 .RE
-.BI "\-\-num-spaces " spaces
+.BI "\-\-num\-spaces " spaces
 .RS
 Replace tabs in source view with
 .I num
@@ -296,7 +296,7 @@ option
 .RE
 .B \-\-highlight
 .RS
-Highlight lines with converted-only coverage data.
+Highlight lines with converted\-only coverage data.
 
 Use this option in conjunction with the \-\-diff option of
 .B lcov
@@ -320,15 +320,15 @@ option
 .IR genhtml_legend .
 
 .RE
-.BI "\-\-html-prolog " prolog-file
+.BI "\-\-html\-prolog " prolog\-file
 .RS
 Read customized HTML prolog from 
-.IR prolog-file .
+.IR prolog\-file .
 
 Use this option to replace the default HTML prolog (the initial part of the
 HTML source code leading up to and including the <body> tag) with the contents
 of
-.IR prolog-file .
+.IR prolog\-file .
 Within the prolog text, the following words will be replaced when a page is generated:
 
 .B "@pagetitle@"
@@ -337,34 +337,34 @@ The title of the page.
 
 .B "@basedir@"
 .br
-A relative path leading to the base directory (e.g. for locating css-files).
+A relative path leading to the base directory (e.g. for locating css\-files).
 
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_html_prolog .
 
 .RE
-.BI "\-\-html-epilog " epilog-file
+.BI "\-\-html\-epilog " epilog\-file
 .RS
 Read customized HTML epilog from 
-.IR epilog-file .
+.IR epilog\-file .
 
 Use this option to replace the default HTML epilog (the final part of the HTML
 source including </body>) with the contents of
-.IR epilog-file .
+.IR epilog\-file .
 
 Within the epilog text, the following words will be replaced when a page is generated:
 
 .B "@basedir@"
 .br
-A relative path leading to the base directory (e.g. for locating css-files).
+A relative path leading to the base directory (e.g. for locating css\-files).
 
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_html_epilog .
 
 .RE
-.BI "\-\-html-extension " extension
+.BI "\-\-html\-extension " extension
 .RS
 
 Use customized filename extension for generated HTML pages.
@@ -383,7 +383,7 @@ option
 .RS
 
 Compress all generated html files with gzip and add a .htaccess file specifying
-gzip-encoding in the root output directory.
+gzip\-encoding in the root output directory.
 
 Use this option if you want to save space on your webserver. Requires a
 webserver with .htaccess support and a browser with support for gzip
@@ -425,7 +425,7 @@ The system\-wide configuration file.
 
 .I ~/.lcovrc
 .RS
-The per-user configuration file.
+The per\-user configuration file.
 .RE
 
 .SH AUTHOR

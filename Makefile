@@ -13,7 +13,6 @@
 
 VERSION := 1.7
 RELEASE := pre1
-DATE    := $(shell date +%Y-%m-%d)
 
 CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/usr/bin
@@ -72,9 +71,9 @@ lcov-$(VERSION).tar.gz: $(FILES)
 	mkdir $(TMP_DIR)
 	mkdir $(TMP_DIR)/lcov-$(VERSION)
 	cp -r * $(TMP_DIR)/lcov-$(VERSION)
+	find $(TMP_DIR)/lcov-$(VERSION) -name CVS -type d | xargs rm -rf
 	make -C $(TMP_DIR)/lcov-$(VERSION) clean
-	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(DATE) \
-			     $(RELEASE)
+	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(RELEASE)
 	cd $(TMP_DIR) ; \
 	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION)
 	mv $(TMP_DIR)/lcov-$(VERSION).tar.gz .

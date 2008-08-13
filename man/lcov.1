@@ -1,6 +1,6 @@
-.TH lcov 1 "lcov 1.1" 2003\-12\-19 "User Manuals"
+.TH lcov 1 "LCOV 1.1" 2003\-12\-19 "User Manuals"
 .SH NAME
-lcov \- a graphical GCOV front-end
+lcov \- a graphical GCOV front\-end
 .SH SYNOPSIS
 .B lcov
 .RB [ \-h | \-\-help ]
@@ -64,7 +64,7 @@ lcov \- a graphical GCOV front-end
 .RB [ \-\-no\-recursion ]
 .SH DESCRIPTION
 .B lcov
-is a graphical front-end for GCC's coverage testing tool gcov. It collects
+is a graphical front\-end for GCC's coverage testing tool gcov. It collects
 gcov data for multiple source files and creates HTML pages containing the
 source code annotated with coverage information. It also adds overview pages
 for easy navigation within the file structure.
@@ -79,7 +79,7 @@ you have to complete the following preparation steps:
 
 For Linux kernel coverage:
 .RS
-Follow the installation instructions for the gcov-kernel patch:
+Follow the installation instructions for the gcov\-kernel patch:
 .I http://ltp.sourceforge.net/coverage/gcov.php
 
 .RE
@@ -358,7 +358,7 @@ Recommended procedure when capturing data for a test case:
 
 1. create baseline coverage data file
 .RS
-# lcov -c -i -d appdir -o app_base.info
+# lcov \-c \-i \-d appdir \-o app_base.info
 .br
 
 .RE
@@ -370,13 +370,13 @@ Recommended procedure when capturing data for a test case:
 .RE
 3. create test coverage data file
 .RS
-# lcov -c -d appdir -o app_test.info
+# lcov \-c \-d appdir \-o app_test.info
 .br
 
 .RE
 4. combine baseline and test coverage data
 .RS
-# lcov -a app_base.info -a app_test.info -o app_total.info
+# lcov \-a app_base.info \-a app_test.info \-o app_total.info
 .br
 
 .RE
