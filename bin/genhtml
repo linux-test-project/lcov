@@ -396,8 +396,12 @@ if ($no_sort) {
 }
 
 if ($sort) {
-	@fileview_sortlist = (0, 1, 2);
 	@funcview_sortlist = (0, 1);
+	if ($func_coverage) {
+		@fileview_sortlist = (0, 1, 2);
+	} else {
+		@fileview_sortlist = (0, 1);
+	}
 } else {
 	@fileview_sortlist = (0);
 	@funcview_sortlist = (0);
