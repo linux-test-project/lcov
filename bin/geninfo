@@ -427,7 +427,7 @@ sequentially.
       --no-recursion                Exlude subdirectories from processing
       --function-coverage           Capture function call counts
 
-For more information, see: $lcov_url
+For more information see: $lcov_url
 END_OF_USAGE
 	;
 }

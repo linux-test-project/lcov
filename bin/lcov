@@ -410,7 +410,7 @@ Options:
       --ignore-errors ERRORS      Continue after ERRORS (gcov, source)
       --no-recursion              Exlude subdirectories from processing
 
-For more information, see: $lcov_url
+For more information see: $lcov_url
 END_OF_USAGE
 	;
 }

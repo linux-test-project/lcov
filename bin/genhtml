@@ -300,12 +300,24 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"html-epilog=s"		=> \$html_epilog_file,
 		"html-extension=s"	=> \$html_ext,
 		"html-gzip"		=> \$html_gzip,
+		"function-coverage"	=> \$func_coverage,
 		"no-function-coverage"	=> \$no_func_coverage,
+		"sort"			=> \$sort,
 		"no-sort"		=> \$no_sort,
 		))
 {
 	print_usage(*STDERR);
 	exit(1);
+} else {
+	# Merge options
+	if ($no_func_coverage) {
+		$func_coverage = 0;
+	}
+
+	# Merge sort options
+	if ($no_sort) {
+		$sort = 0;
+	}
 }
 
 @info_filenames = @ARGV;
@@ -385,16 +397,6 @@ if ($no_prefix && defined($dir_prefix))
 	$dir_prefix = undef;
 }
 
-# Merge function coverage options
-if ($no_func_coverage) {
-	$func_coverage = 0;
-}
-
-# Merge sort options
-if ($no_sort) {
-	$sort = 0;
-}
-
 if ($sort) {
 	@funcview_sortlist = (0, 1);
 	if ($func_coverage) {
@@ -462,7 +464,7 @@ Operation:
   -b, --baseline-file BASEFILE      Use BASEFILE as baseline file
   -p, --prefix PREFIX               Remove PREFIX from all directory names
       --no-prefix                   Do not remove prefix from directory names
-      --no-function-coverage        Disable function coverage data display
+      --(no-)function-coverage      Enable (disable) function coverage display
 
 HTML output:
   -f, --frames                      Use HTML frames for source code view
@@ -476,9 +478,9 @@ HTML output:
       --html-epilog FILE            Use FILE as HTML epilog for generated pages
       --html-extension EXT          Use EXT as filename extension for pages
       --html-gzip                   Use gzip to compress HTML
-      --no-sort                     Do not provide views sorted by coverage
+      --(no-)sort                   Enable (disable) sorted coverage views
 
-See $lcov_url for more information about this tool.
+For more information see: $lcov_url
 END_OF_USAGE
 	;
 }

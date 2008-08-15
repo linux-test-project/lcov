@@ -141,7 +141,7 @@ or .gcov file format.
   -w, --width WIDTH                 Set width of output image to WIDTH pixel
   -o, --output-filename FILENAME    Write image to FILENAME
 
-See $lcov_url for more information about this tool.
+For more information see: $lcov_url
 END_OF_USAGE
 	;
 }

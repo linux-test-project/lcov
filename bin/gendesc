@@ -120,7 +120,7 @@ Convert a test case description file into a format as understood by genhtml.
   -v, --version                     Print version number, then exit
   -o, --output-filename FILENAME    Write description to FILENAME
 
-See $lcov_url for more information about this tool.
+For more information see: $lcov_url
 END_OF_USAGE
 	;
 }

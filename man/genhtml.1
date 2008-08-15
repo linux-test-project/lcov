@@ -46,7 +46,10 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .IR extension ]
 .br
 .RB [ \-\-html\-gzip ]
+.RB [ \-\-sort ]
 .RB [ \-\-no\-sort ]
+.br
+.RB [ \-\-function\-coverage ]
 .RB [ \-\-no\-function\-coverage ]
 .br
 .IR tracefile(s)
@@ -394,22 +397,41 @@ option
 .IR genhtml_html_gzip .
 
 .RE
+.B \-\-sort
+.br
 .B \-\-no\-sort
 .RS
-Remove sorted views from output.
+Specify whether to include sorted views of file and directory overviews.
 
-Use this switch if you don't want overview pages sorted by coverage rate.
+Use \-\-sort to include sorted views or \-\-no\-sort to not include them.
+Sorted views are
+.B enabled
+by default.
+
+When sorted views are enabled, each overview page will contain links to
+views of that page sorted by coverage rate.
 
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_sort .
 
 .RE
+.B \-\-function\-coverage
+.br
 .B \-\-no\-function\-coverage
 .RS
-Remove function coverage data display from output.
+Specify whether to display function coverage summaries in HTML output.
 
-Use this switch if you don't want function coverage data to be displayed.
+Use \-\-function\-coverage to enable function coverage summaries or
+\-\-no\-function\-coverage to disable it. Function coverage summaries are
+.B enabled
+by default
+
+When function coverage summaries are enabled, each overview page will contain
+the number of functions found and hit per file or directory, together with
+the resulting coverage rate. In addition, each source code view will contain
+a link to a page which lists all functions found in that file plus the
+respective call count for those functions.
 
 This option can also be configured permanently using the configuration file
 option
