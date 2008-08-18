@@ -3820,10 +3820,10 @@ sub get_sorted_keys($$)
 		return sort(keys(%{$hash}));
 	} elsif ($type == 1) {
 		# Sort by line coverage
-		return sort({$hash->{$b}[5] <=> $hash->{$a}[5]} keys(%{$hash}));
+		return sort({$hash->{$a}[5] <=> $hash->{$b}[5]} keys(%{$hash}));
 	} elsif ($type == 2) {
 		# Sort by function coverage;
-		return sort({$hash->{$b}[6] <=> $hash->{$a}[6]}	keys(%{$hash}));
+		return sort({$hash->{$a}[6] <=> $hash->{$b}[6]}	keys(%{$hash}));
 	}
 }
 
