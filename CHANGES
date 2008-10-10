@@ -1,6 +1,8 @@
 geninfo:
 - Added function coverage data collection patch by Tom Zoerner
 - Updated man page
+- Fixed geninfo not working with directory names containing spaces (reported
+  by Jeff Connelly)
 
 genhtml:
 - Added function coverage data display patch by Tom Zoerner
@@ -12,6 +14,8 @@ genhtml:
 lcov:
 - Added support for function coverage data for adding/diffing tracefiles
 - Updated man page
+- Fixed lcov -z not working with directory names containing spaces (reported
+  by Jeff Connelly)
 
 lcovrc:
 - Added genhtml_function_hi_limit

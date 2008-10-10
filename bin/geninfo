@@ -476,7 +476,7 @@ sub gen_info($)
 		info("Scanning $directory for $data_file_extension ".
 		     "files ...\n");	
 
-		@file_list = `find $directory $maxdepth $follow -name \\*$data_file_extension -type f 2>/dev/null`;
+		@file_list = `find "$directory" $maxdepth $follow -name \\*$data_file_extension -type f 2>/dev/null`;
 		chomp(@file_list);
 		@file_list or die("ERROR: no $data_file_extension files found ".
 				  "in $directory!\n");
@@ -2020,7 +2020,7 @@ sub gen_initial_info($)
 		info("Scanning $directory for $graph_file_extension ".
 		     "files ...\n");	
 
-		@file_list = `find $directory $maxdepth $follow -name \\*$graph_file_extension -type f 2>/dev/null`;
+		@file_list = `find "$directory" $maxdepth $follow -name \\*$graph_file_extension -type f 2>/dev/null`;
 		chomp(@file_list);
 		@file_list or die("ERROR: no $graph_file_extension files ".
 				  "found in $directory!\n");
