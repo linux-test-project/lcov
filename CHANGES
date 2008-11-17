@@ -2,6 +2,7 @@ Version 1.7:
 ============
 
 gendesc:
+- Updated error and warning messages
 - Updated man page
 
 genhtml:
@@ -15,6 +16,7 @@ genhtml:
   dnozay@vmware.com)
 - Fixed problem when using --baseline-file on coverage data files that
   contain data for files not found in the baseline file
+- Updated error and warning messages
 - Updated man page
 
 geninfo:
@@ -26,9 +28,11 @@ geninfo:
 - Fixed "ERROR: reading string" problem with gcc 4.1
 - Fixed problem with function names that contain non-alphanumerical characters
 - Fixed problem with gcc versions before 3.3
+- Updated error and warning messages
 - Updated man page
 
 genpng:
+- Updated error and warning messages
 - Updated man page
 
 lcov:
@@ -37,6 +41,7 @@ lcov:
   while scanning for gcov data files
 - Fixed lcov -z not working with directory names containing spaces (reported
   by Jeff Connelly)
+- Updated error and warning messages
 - Updated man page
 
 lcov.spec:

@@ -67,6 +67,7 @@ use Getopt::Long;
 # Global constants
 our $lcov_version	= "LCOV version 1.1";
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
+our $tool_name		= basename($0);
 
 # Names of the GCOV kernel module
 our @gcovmod = ("gcov-prof", "gcov-proc");
@@ -115,12 +116,13 @@ sub diff();
 sub system_no_output($@);
 sub read_config($);
 sub apply_config($);
-
 sub info(@);
 sub unload_module($);
 sub check_and_load_kernel_module();
 sub create_temp_dir();
 sub transform_pattern($);
+sub warn_handler($);
+sub die_handler($);
 
 
 # Global variables & initialization
@@ -165,6 +167,9 @@ our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 # Code entry point
 #
 
+$SIG{__WARN__} = \&warn_handler;
+$SIG{__DIE__} = \&die_handler;
+
 # Add current working directory if $tool_dir is not already an absolute path
 if (! ($tool_dir =~ /^\/(.*)$/))
 {
@@ -207,7 +212,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"test-name=s" => \$test_name,
 		"zerocounters" => \$reset,
 		"quiet" => \$quiet,
-		"help" => \$help,
+		"help|?" => \$help,
 		"version" => \$version,
 		"follow" => \$follow,
 		"path=s" => \$diff_path,
@@ -222,7 +227,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"no-recursion" => \$no_recursion
 		))
 {
-	print_usage(*STDERR);
+	print(STDERR "Use $tool_name --help to get usage information\n");
 	exit(1);
 }
 else
@@ -251,7 +256,7 @@ if ($help)
 # Check for version option
 if ($version)
 {
-	print("$lcov_version\n");
+	print("$tool_name: $lcov_version\n");
 	exit(0);
 }
 
@@ -282,8 +287,8 @@ check_options();
 # Only --extract, --remove and --diff allow unnamed parameters
 if (@ARGV && !($extract || $remove || $diff))
 {
-	print_usage(*STDERR);
-	exit(1);
+	die("Extra parameter found\n".
+	    "Use $tool_name --help to get usage information\n");
 }
 
 # Check for output filename
@@ -301,10 +306,8 @@ else
 {
 	if ($initial)
 	{
-		print(STDERR "Option --initial is only valid when capturing ".
-		      "data (-c)\n");
-		print_usage(*STDERR);
-		exit(2);
+		die("Option --initial is only valid when capturing data (-c)\n".
+		    "Use $tool_name --help to get usage information\n");
 	}
 }
 
@@ -353,7 +356,8 @@ elsif ($diff)
 {
 	if (scalar(@ARGV) != 1)
 	{
-		die("ERROR: option --diff requires one additional argument!\n");
+		die("ERROR: option --diff requires one additional argument!\n".
+		    "Use $tool_name --help to get usage information\n");
 	}
 	diff();
 }
@@ -370,7 +374,6 @@ exit(0);
 sub print_usage(*)
 {
 	local *HANDLE = $_[0];
-	my $tool_name = basename($0);
 
 	print(HANDLE <<END_OF_USAGE);
 Usage: $tool_name [OPTIONS]
@@ -437,15 +440,15 @@ sub check_options()
 	
 	if ($i == 0)
 	{
-		print(STDERR "Need one of the options -z, -c, -a, -e, -r, ".
-			     "-l or --diff\n");
-		print_usage(*STDERR);
-		exit(2);
+		die("Need one of the options -z, -c, -a, -e, -r, -l or ".
+		    "--diff\n".
+		    "Use $tool_name --help to get usage information\n");
 	}
 	elsif ($i > 1)
 	{
 		die("ERROR: only one of -z, -c, -a, -e, -r, -l or ".
-		    "--diff allowed!\n");
+		    "--diff allowed!\n".
+		    "Use $tool_name --help to get usage information\n");
 	}
 }
 
@@ -2679,4 +2682,18 @@ sub apply_config($)
 			${$ref->{$_}} = $config->{$_};
 		}
 	}
+}
+
+sub warn_handler($)
+{
+	my ($msg) = @_;
+
+	warn("$tool_name: $msg");
+}
+
+sub die_handler($)
+{
+	my ($msg) = @_;
+
+	die("$tool_name: $msg");
 }

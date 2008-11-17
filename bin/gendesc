@@ -43,11 +43,14 @@ use Getopt::Long;
 # Constants
 our $lcov_version	= "LCOV version 1.1";
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
+our $tool_name		= basename($0);
 
 
 # Prototypes
 sub print_usage(*);
 sub gen_desc();
+sub warn_handler($);
+sub die_handler($);
 
 
 # Global variables
@@ -61,13 +64,16 @@ our $input_filename;
 # Code entry point
 #
 
+$SIG{__WARN__} = \&warn_handler;
+$SIG{__DIE__} = \&die_handler;
+
 # Parse command line options
 if (!GetOptions("output-filename=s" => \$output_filename,
 		"version" =>\$version,
-		"help" => \$help
+		"help|?" => \$help
 		))
 {
-	print_usage(*STDERR);
+	print(STDERR "Use $tool_name --help to get usage information\n");
 	exit(1);
 }
 
@@ -83,7 +89,7 @@ if ($help)
 # Check for version option
 if ($version)
 {
-	print($lcov_version."\n");
+	print("$tool_name: $lcov_version\n");
 	exit(0);
 }
 
@@ -91,9 +97,8 @@ if ($version)
 # Check for input filename
 if (!$input_filename)
 {
-	print(STDERR "No input filename specified\n");
-	print_usage(*STDERR);
-	exit(1);
+	die("No input filename specified\n".
+	    "Use $tool_name --help to get usage information\n");
 }
 
 # Do something
@@ -109,7 +114,6 @@ gen_desc();
 sub print_usage(*)
 {
 	local *HANDLE = $_[0];
-	my $tool_name = basename($0);
 
 	print(HANDLE <<END_OF_USAGE)
 Usage: $tool_name [OPTIONS] INPUTFILE
@@ -202,4 +206,18 @@ sub gen_desc()
 	}
 
 	close(INPUT_HANDLE);
+}
+
+sub warn_handler($)
+{
+	my ($msg) = @_;
+
+	warn("$tool_name: $msg");
+}
+
+sub die_handler($)
+{
+	my ($msg) = @_;
+
+	die("$tool_name: $msg");
 }

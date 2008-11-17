@@ -74,6 +74,7 @@ use Digest::MD5 qw(md5_base64);
 our $title		= "LCOV - code coverage report";
 our $lcov_version	= "LCOV version 1.1";
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
+our $tool_name		= basename($0);
 
 # Specify coverage rate limits (in %) for classifying file entries
 # HI:   $hi_limit <= rate <= 100          graph color: green
@@ -235,6 +236,9 @@ our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 # Code entry point
 #
 
+$SIG{__WARN__} = \&warn_handler;
+$SIG{__DIE__} = \&die_handler;
+
 # Add current working directory if $tool_dir is not already an absolute path
 if (! ($tool_dir =~ /^\/(.*)$/))
 {
@@ -294,7 +298,7 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"highlight"		=> \$highlight,
 		"legend"		=> \$legend,
 		"quiet"			=> \$quiet,
-		"help|h"		=> \$help,
+		"help|h|?"		=> \$help,
 		"version"		=> \$version,
 		"html-prolog=s"		=> \$html_prolog_file,
 		"html-epilog=s"		=> \$html_epilog_file,
@@ -306,7 +310,7 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"no-sort"		=> \$no_sort,
 		))
 {
-	print_usage(*STDERR);
+	print(STDERR "Use $tool_name --help to get usage information\n");
 	exit(1);
 } else {
 	# Merge options
@@ -332,16 +336,15 @@ if ($help)
 # Check for version option
 if ($version)
 {
-	print($lcov_version."\n");
+	print("$tool_name: $lcov_version\n");
 	exit(0);
 }
 
 # Check for info filename
 if (!@info_filenames)
 {
-	print(STDERR "No filename specified\n");
-	print_usage(*STDERR);
-	exit(1);
+	die("No filename specified\n".
+	    "Use $tool_name --help to get usage information\n");
 }
 
 # Generate a title if none is specified
@@ -443,10 +446,9 @@ exit(0);
 sub print_usage(*)
 {
 	local *HANDLE = $_[0];
-	my $executable_name = basename($0);
 
 	print(HANDLE <<END_OF_USAGE);
-Usage: $executable_name [OPTIONS] INFOFILE(S)
+Usage: $tool_name [OPTIONS] INFOFILE(S)
 
 Create HTML output for coverage data found in INFOFILE. Note that INFOFILE
 may also be a list of filenames.
@@ -4800,4 +4802,18 @@ END_OF_HTML
 
 	return $result;
 
+}
+
+sub warn_handler($)
+{
+	my ($msg) = @_;
+
+	warn("$tool_name: $msg");
+}
+
+sub die_handler($)
+{
+	my ($msg) = @_;
+
+	die("$tool_name: $msg");
 }

@@ -59,6 +59,7 @@ use Digest::MD5 qw(md5_base64);
 our $lcov_version	= "LCOV version 1.1";
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
+our $tool_name		= basename($0);
 
 our $GCOV_VERSION_3_4_0	= 0x30400;
 our $GCOV_VERSION_3_3_0	= 0x30300;
@@ -97,6 +98,8 @@ sub read_config($);
 sub apply_config($);
 sub gen_initial_info($);
 sub process_graphfile($);
+sub warn_handler($);
+sub die_handler($);
 
 # Global variables
 our $gcov_version;
@@ -135,6 +138,8 @@ chomp($cwd);
 
 # Register handler routine to be called when interrupted
 $SIG{"INT"} = \&int_handler;
+$SIG{__WARN__} = \&warn_handler;
+$SIG{__DIE__} = \&die_handler;
 
 # Read configuration file if available
 if (-r $ENV{"HOME"}."/.lcovrc")
@@ -172,7 +177,7 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"base-directory=s" => \$base_directory,
 		"version" =>\$version,
 		"quiet" => \$quiet,
-		"help" => \$help,
+		"help|?" => \$help,
 		"follow" => \$follow,
 		"compat-libtool" => \$compat_libtool,
 		"no-compat-libtool" => \$no_compat_libtool,
@@ -182,7 +187,7 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"no-recursion" => \$no_recursion,
 		))
 {
-	print_usage(*STDERR);
+	print(STDERR "Use $tool_name --help to get usage information\n");
 	exit(1);
 }
 else
@@ -213,7 +218,7 @@ if ($help)
 # Check for version option
 if ($version)
 {
-	print($lcov_version."\n");
+	print("$tool_name: $lcov_version\n");
 	exit(0);
 }
 
@@ -282,9 +287,8 @@ else
 # Check for directory name
 if (!@data_directory)
 {
-	print(STDERR "No directory specified\n");
-	print_usage(*STDERR);
-	exit(1);
+	die("No directory specified\n".
+	    "Use $tool_name --help to get usage information\n");
 }
 else
 {
@@ -403,7 +407,6 @@ exit(0);
 sub print_usage(*)
 {
 	local *HANDLE = $_[0];
-	my $tool_name = basename($0);
 
 	print(HANDLE <<END_OF_USAGE);
 Usage: $tool_name [OPTIONS] DIRECTORY
@@ -2158,4 +2161,18 @@ sub process_graphfile($)
 	{
 		close(INFO_HANDLE);
 	}
+}
+
+sub warn_handler($)
+{
+	my ($msg) = @_;
+
+	warn("$tool_name: $msg");
+}
+
+sub die_handler($)
+{
+	my ($msg) = @_;
+
+	die("$tool_name: $msg");
 }
