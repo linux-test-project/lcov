@@ -1,21 +1,46 @@
-geninfo:
-- Added function coverage data collection patch by Tom Zoerner
+Version 1.7:
+============
+
+gendesc:
 - Updated man page
-- Fixed geninfo not working with directory names containing spaces (reported
-  by Jeff Connelly)
 
 genhtml:
-- Added function coverage data display patch by Tom Zoerner
-- Added sorting option in HTLM output
+- Added function coverage data display patch by tomzo@nefkom.net (default is on)
+- Added --function-coverage to enable function coverage display
 - Added --no-function-coverage to disable function coverage display
+- Added sorting option in HTLM output (default is on)
+- Added --sort to enable sorting
 - Added --no-sort to disable sorting
+- Added --html-gzip to create gzip-compressed HTML output (patch by
+  dnozay@vmware.com)
+- Fixed problem when using --baseline-file on coverage data files that
+  contain data for files not found in the baseline file
+- Updated man page
+
+geninfo:
+- Added function coverage data collection patch by tomzo@nefkom.net
+- Added more verbose output when a "ERROR: reading string" error occurs
+  (patch by scott.heavner@philips.com)
+- Fixed geninfo not working with directory names containing spaces (reported
+  by jeffconnelly@users.sourceforge.net)
+- Fixed "ERROR: reading string" problem with gcc 4.1
+- Fixed problem with function names that contain non-alphanumerical characters
+- Fixed problem with gcc versions before 3.3
+- Updated man page
+
+genpng:
 - Updated man page
 
 lcov:
 - Added support for function coverage data for adding/diffing tracefiles
-- Updated man page
+- Added --no-recursion option to disable recursion into sub-directories
+  while scanning for gcov data files
 - Fixed lcov -z not working with directory names containing spaces (reported
   by Jeff Connelly)
+- Updated man page
+
+lcov.spec:
+- Updated of description and title information
 
 lcovrc:
 - Added genhtml_function_hi_limit
