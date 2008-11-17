@@ -11,8 +11,8 @@
 #   - clean:     remove all generated files
 #
 
-VERSION := 1.7
-RELEASE := 1
+VERSION := 1.8
+RELEASE := pre1
 
 CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/usr/bin
