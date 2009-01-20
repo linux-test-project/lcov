@@ -4185,6 +4185,9 @@ sub write_source($$$$$$)
 	{
 		chomp($_);
 
+		# Also remove CR from line-end
+		s/\r$//g;
+
 		# Source code matches coverage data?
 		if (defined($checkdata->{$line_number}) &&
 		    ($checkdata->{$line_number} ne md5_base64($_)))
