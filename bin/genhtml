@@ -4186,7 +4186,7 @@ sub write_source($$$$$$)
 		chomp($_);
 
 		# Also remove CR from line-end
-		s/\r$//g;
+		s/\015$//;
 
 		# Source code matches coverage data?
 		if (defined($checkdata->{$line_number}) &&
