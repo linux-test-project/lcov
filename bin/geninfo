@@ -1014,6 +1014,9 @@ sub solve_ambiguous_match($$$)
 		{
 			chomp;
 
+			# Also remove CR from line-end
+			s/\015$//;
+
 			if ($_ ne @$content[$index])
 			{
 				$no_match = 1;
@@ -1102,6 +1105,9 @@ sub read_gcov_header($)
 	{
 		chomp($_);
 
+		# Also remove CR from line-end
+		s/\015$//;
+
 		if (/^\s+-:\s+0:Source:(.*)$/)
 		{
 			# Source: header entry
@@ -1165,6 +1171,9 @@ sub read_gcov_file($)
 		{
 			chomp($_);
 
+			# Also remove CR from line-end
+			s/\015$//;
+
 			if (/^\t\t(.*)$/)
 			{
 				# Uninstrumented line
@@ -1214,6 +1223,9 @@ sub read_gcov_file($)
 		while (<INPUT>)
 		{
 			chomp($_);
+
+			# Also remove CR from line-end
+			s/\015$//;
 
 			if (/^branch\s+\d+\s+(\S+)\s+(\S+)/)
 			{
