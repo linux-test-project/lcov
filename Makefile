@@ -37,18 +37,18 @@ clean:
 	make -C example clean
 
 install:
-	bin/install.sh bin/lcov $(BIN_DIR)/lcov
-	bin/install.sh bin/genhtml $(BIN_DIR)/genhtml
-	bin/install.sh bin/geninfo $(BIN_DIR)/geninfo
-	bin/install.sh bin/genpng $(BIN_DIR)/genpng
-	bin/install.sh bin/gendesc $(BIN_DIR)/gendesc
-	bin/install.sh man/lcov.1 $(MAN_DIR)/man1/lcov.1
-	bin/install.sh man/genhtml.1 $(MAN_DIR)/man1/genhtml.1
-	bin/install.sh man/geninfo.1 $(MAN_DIR)/man1/geninfo.1
-	bin/install.sh man/genpng.1 $(MAN_DIR)/man1/genpng.1
-	bin/install.sh man/gendesc.1 $(MAN_DIR)/man1/gendesc.1
-	bin/install.sh man/lcovrc.5 $(MAN_DIR)/man5/lcovrc.5
-	bin/install.sh lcovrc $(CFG_DIR)/lcovrc
+	bin/install.sh bin/lcov $(BIN_DIR)/lcov -m 755
+	bin/install.sh bin/genhtml $(BIN_DIR)/genhtml -m 755
+	bin/install.sh bin/geninfo $(BIN_DIR)/geninfo -m 755
+	bin/install.sh bin/genpng $(BIN_DIR)/genpng -m 755
+	bin/install.sh bin/gendesc $(BIN_DIR)/gendesc -m 755
+	bin/install.sh man/lcov.1 $(MAN_DIR)/man1/lcov.1 -m 644
+	bin/install.sh man/genhtml.1 $(MAN_DIR)/man1/genhtml.1 -m 644
+	bin/install.sh man/geninfo.1 $(MAN_DIR)/man1/geninfo.1 -m 644
+	bin/install.sh man/genpng.1 $(MAN_DIR)/man1/genpng.1 -m 644
+	bin/install.sh man/gendesc.1 $(MAN_DIR)/man1/gendesc.1 -m 644
+	bin/install.sh man/lcovrc.5 $(MAN_DIR)/man5/lcovrc.5 -m 644
+	bin/install.sh lcovrc $(CFG_DIR)/lcovrc -m 644
 
 uninstall:
 	bin/install.sh --uninstall bin/lcov $(BIN_DIR)/lcov

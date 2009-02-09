@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# install.sh [--uninstall] sourcefile targetfile
+# install.sh [--uninstall] sourcefile targetfile [install options]
 #
 
 
@@ -9,15 +9,17 @@ if test "x$1" == "x--uninstall" ; then
   UNINSTALL=true
   SOURCE=$2
   TARGET=$3
+  shift 3
 else
   UNINSTALL=false
   SOURCE=$1
   TARGET=$2
+  shift 2
 fi
 
 # Check usage
 if test -z "$SOURCE" || test -z "$TARGET" ; then
-  echo Usage: install.sh [--uninstall] source target >&2
+  echo Usage: install.sh [--uninstall] source target [install options] >&2
   exit 1
 fi
 
@@ -30,8 +32,9 @@ do_install()
 {
   local SOURCE=$1
   local TARGET=$2
+  local PARAMS=$3
 
-  install -D $SOURCE $TARGET
+  install -p -D $PARAMS $SOURCE $TARGET
 }
 
 
@@ -62,7 +65,7 @@ do_uninstall()
 if $UNINSTALL ; then
   do_uninstall $SOURCE $TARGET
 else
-  do_install $SOURCE $TARGET
+  do_install $SOURCE $TARGET "$*"
 fi
 
 exit 0
