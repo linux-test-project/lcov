@@ -177,7 +177,7 @@ if (! ($tool_dir =~ /^\/(.*)$/))
 }
 
 # Read configuration file if available
-if (-r $ENV{"HOME"}."/.lcovrc")
+if (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
 {
 	$config = read_config($ENV{"HOME"}."/.lcovrc");
 }
