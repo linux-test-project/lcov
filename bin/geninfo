@@ -820,12 +820,13 @@ sub process_dafile($)
 		$funcs_hit = 0;
 		while (@gcov_functions)
 		{
-			printf(INFO_HANDLE "FNDA:%s,%s\n",
-				       $gcov_functions[0],
-				       $gcov_functions[1]);
-				$funcs_found++;
-			$funcs_hit++ if $gcov_functions[0];
-			splice(@gcov_functions,0,2);
+			my $count = shift(@gcov_functions);
+			my $fn = shift(@gcov_functions);
+
+			$fn =~ s/\W/_/g;
+			printf(INFO_HANDLE "FNDA:$count,$fn\n");
+			$funcs_found++;
+			$funcs_hit++ if ($count > 0);
 		}
 		if ($funcs_found > 0) {
 			printf(INFO_HANDLE "FNF:%s\n", $funcs_found);
