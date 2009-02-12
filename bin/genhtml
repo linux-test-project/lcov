@@ -1503,7 +1503,9 @@ sub merge_func_data($$$)
 	my %result;
 	my $func;
 
-	%result = %{$funcdata1};
+	if (defined($funcdata1)) {
+		%result = %{$funcdata1};
+	}
 
 	foreach $func (keys(%{$funcdata2})) {
 		my $line1 = $result{$func};
@@ -1535,7 +1537,9 @@ sub add_fnccount($$)
 	my $fn_hit;
 	my $function;
 
-	%result = %{$fnccount1};
+	if (defined($fnccount1)) {
+		%result = %{$fnccount1};
+	}
 	foreach $function (keys(%{$fnccount2})) {
 		$result{$function} += $fnccount2->{$function};
 	}
