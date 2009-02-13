@@ -221,6 +221,7 @@ our $html_prolog;	# Actual HTML prolog
 our $html_epilog;	# Actual HTML epilog
 our $html_ext = "html";	# Extension for generated HTML files
 our $html_gzip = 0;	# Compress with gzip
+our $demangle_cpp = 0;	# Demangle C++ function names
 our @fileview_sortlist;
 our @fileview_sortname = ("", "-sort-l", "-sort-f");
 our @funcview_sortlist;
@@ -285,7 +286,7 @@ if ($config)
 # Parse command line options
 if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"title=s"		=> \$test_title,
-		"description-file=s"	=> \$desc_filename,
+		"description-file|d=s"	=> \$desc_filename,
 		"keep-descriptions"	=> \$keep_descriptions,
 		"css-file=s"		=> \$css_filename,
 		"baseline-file=s"	=> \$base_filename,
@@ -419,6 +420,15 @@ if ($frames)
 	do("$tool_dir/genpng");
 }
 
+# Ensure that the c++filt tool is available when using --demangle-cpp
+if ($demangle_cpp)
+{
+	if (system_no_output(3, "c++filt", "--version")) {
+		die("ERROR: could not find c++filt tool needed for ".
+		    "--demangle-cpp\n");
+	}
+}
+
 # Make sure output_directory exists, create it if necessary
 if ($output_directory)
 {
@@ -482,6 +492,7 @@ HTML output:
       --html-extension EXT          Use EXT as filename extension for pages
       --html-gzip                   Use gzip to compress HTML
       --(no-)sort                   Enable (disable) sorted coverage views
+      --demangle-cpp                Demangle C++ function names
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -4319,10 +4330,17 @@ END_OF_HTML
 	# Get a sorted table
 	foreach $func (funcview_get_sorted($funcdata, $sumfncdata, $type)) {
 		my $startline = $funcdata->{$func} - $func_offset;
-		my $name = escape_html($func);
+		my $name = $func;
 		my $count = $sumfncdata->{$name};
 		my $countstyle;
 
+		# Demangle C++ function names if requested
+		if ($demangle_cpp) {
+			$name = `c++filt "$name"`;
+			chomp($name);
+		}
+		# Escape any remaining special characters
+		$name = escape_html($name);
 		if ($startline < 1) {
 			$startline = 1;
 		}

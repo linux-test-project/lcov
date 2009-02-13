@@ -52,6 +52,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-function\-coverage ]
 .RB [ \-\-no\-function\-coverage ]
 .br
+.RB [ \-\-demangle\-cpp ]
+.br
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -438,6 +440,15 @@ option
 .IR genhtml_function_coverage .
 
 .RE
+.B \-\-demangle\-cpp
+.RS
+Specify whether to demangle C++ function names.
+
+Use this option if you want to convert C++ internal function names to
+human readable format for display on the HTML function overview page.
+This option requires that the c++filt tool is installed (see
+.BR c++filt (1)).
+
 .SH FILES
 
 .I /etc/lcovrc
