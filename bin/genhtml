@@ -308,6 +308,7 @@ if (!GetOptions("output-directory=s"	=> \$output_directory,
 		"no-function-coverage"	=> \$no_func_coverage,
 		"sort"			=> \$sort,
 		"no-sort"		=> \$no_sort,
+		"demangle-cpp"		=> \$demangle_cpp,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -4277,7 +4278,8 @@ sub funcview_get_sorted($$$)
 
 #
 # write_function_table(filehandle, source_file, sumcount, funcdata,
-#		       sumfnccount, testfncdata)
+#		       sumfnccount, testfncdata, base_name, base_dir,
+#		       sort_type)
 #
 # Write an HTML table listing all functions in a source file, including
 # also function call counts and line coverages inside of each function.
