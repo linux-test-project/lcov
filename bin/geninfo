@@ -98,6 +98,7 @@ sub read_config($);
 sub apply_config($);
 sub gen_initial_info($);
 sub process_graphfile($);
+sub filter_fn_name($);
 sub warn_handler($);
 sub die_handler($);
 
@@ -805,7 +806,7 @@ sub process_dafile($)
 				}
 
 				# Normalize function name
-				$fn =~ s/\W/_/g;
+				$fn = filter_fn_name($fn);
 
 				print(INFO_HANDLE "FN:$line,$fn\n");
 			}
@@ -823,7 +824,7 @@ sub process_dafile($)
 			my $count = shift(@gcov_functions);
 			my $fn = shift(@gcov_functions);
 
-			$fn =~ s/\W/_/g;
+			$fn = filter_fn_name($fn);
 			printf(INFO_HANDLE "FNDA:$count,$fn\n");
 			$funcs_found++;
 			$funcs_hit++ if ($count > 0);
@@ -1354,7 +1355,7 @@ sub read_bb_file($$)
 			$function_name = read_string(*INPUT, $minus_two)
 				 or die("ERROR: incomplete function ".
 					"name in $bb_filename!\n");
-			$function_name =~ s/\W/_/g;
+			$function_name = filter_fn_name($function_name);
 		}
 		elsif ($value > 0)
 		{
@@ -1488,7 +1489,7 @@ sub read_gcno_file($$)
 			seek(INPUT, 12, 1);
 			(undef, $function_name) =
 				read_gcno_string(*INPUT, $endianness);
-			$function_name =~ s/\W/_/g;
+			$function_name = filter_fn_name($function_name);
 			(undef, $filename) =
 				read_gcno_string(*INPUT, $endianness);
 			$filename = solve_relative_path($base_dir, $filename);
@@ -1687,7 +1688,7 @@ sub read_hammer_bbg_file($$)
 			# Get function name
 			($value, $function_name) =
 				read_hammer_bbg_string(*INPUT, $endianness);
-			$function_name =~ s/\W/_/g;
+			$function_name = filter_fn_name($function_name);
 			$filename = undef;
 			$first_line = undef;
 
@@ -2149,7 +2150,7 @@ sub process_graphfile($)
 			}
 
 			# Normalize function name
-			$fn =~ s/\W/_/g;
+			$fn = filter_fn_name($fn);
 
 			print(INFO_HANDLE "FN:$line,$fn\n");
 			push(@functions, $fn);
@@ -2174,6 +2175,16 @@ sub process_graphfile($)
 	{
 		close(INFO_HANDLE);
 	}
+}
+
+sub filter_fn_name($)
+{
+	my ($fn) = @_;
+
+	# Remove characters used internally as function name delimiters
+	$fn =~ s/[,=]/_/g;
+
+	return $fn;
 }
 
 sub warn_handler($)
