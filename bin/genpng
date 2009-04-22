@@ -45,8 +45,8 @@ sub gen_png($$$@);
 sub check_and_load_module($);
 sub genpng_print_usage(*);
 sub genpng_process_file($$$$);
-sub warn_handler($);
-sub die_handler($);
+sub genpng_warn_handler($);
+sub genpng_die_handler($);
 
 
 #
@@ -75,8 +75,8 @@ if (!caller)
 	my $help;
 	my $version;
 
-	$SIG{__WARN__} = \&warn_handler;
-	$SIG{__DIE__} = \&die_handler;
+	$SIG{__WARN__} = \&genpng_warn_handler;
+	$SIG{__DIE__} = \&genpng_die_handler;
 
 	# Parse command line options
 	if (!GetOptions("tab-size=i" => \$tab_size,
@@ -366,14 +366,14 @@ sub gen_png($$$@)
 	close(PNG_HANDLE);
 }
 
-sub warn_handler($)
+sub genpng_warn_handler($)
 {
 	my ($msg) = @_;
 
 	warn("$tool_name: $msg");
 }
 
-sub die_handler($)
+sub genpng_die_handler($)
 {
 	my ($msg) = @_;
 
