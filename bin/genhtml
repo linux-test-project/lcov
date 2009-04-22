@@ -4329,6 +4329,11 @@ END_OF_HTML
 	
 	# Get a sorted table
 	foreach $func (funcview_get_sorted($funcdata, $sumfncdata, $type)) {
+		if (!defined($funcdata->{$func}))
+		{
+			next;
+		}
+
 		my $startline = $funcdata->{$func} - $func_offset;
 		my $name = $func;
 		my $count = $sumfncdata->{$name};
