@@ -1931,16 +1931,98 @@ sub list()
 	my $found;
 	my $hit;
 	my $entry;
+	my $fn_found;
+	my $fn_hit;
+	my $total_found = 0;
+	my $total_hit = 0;
+	my $fn_total_found = 0;
+	my $fn_total_hit = 0;
+	my $fncov = 0;
+	my $prefix;
+	my $strlen = 0;
+	my $format;
+	my $barlen;
+	my $rate;
+	my $fnrate;
 
-	info("Listing contents of $list:\n");
+	# Get prefix, longest filename length and function coverage flag
+	foreach $filename (keys(%{$data})) {
+		$entry = $data->{$filename};
+		(undef, undef, undef, undef, undef, undef, $found, $hit,
+		 $fn_found, $fn_hit) = get_info_entry($entry);
 
-	# List all files
+		# Is there function data available?
+		if (defined($fn_found) || defined($fn_hit)) {
+			$fncov = 1;
+		}
+		if (length($filename) > $strlen) {
+			$strlen = length($filename);
+		}
+		# Find longest common prefix
+		if (!defined($prefix)) {
+			$prefix = dirname($filename);
+			next;
+		}
+		while (($prefix ne "/") && (!($filename =~ /^\Q$prefix\E/))) {
+			$prefix = dirname($prefix);
+		}
+	}
+	# Print header
+	if ($prefix ne "/") {
+		info("Common directory: $prefix\n");
+		$strlen -= length($prefix) + 1;
+	}
+	if ($fncov) {
+		$format = " %-".$strlen."s    %6s  %6s  %6s  %5s\n";
+		$barlen = 36 + $strlen;
+		printf($format, "", "Line", "Func", "", "");
+		printf($format, "Filename", "Rate", "Rate", "Lines", "Funcs");
+	} else {
+		$format = " %-".$strlen."s    %6s  %6s\n";
+		$barlen = 20 + $strlen;
+		printf($format, "", "Line", "");
+		printf($format, "Filename", "Rate", "Lines");
+	}
+	print(("="x$barlen)."\n");
+	# Print per file information
 	foreach $filename (sort(keys(%{$data})))
 	{
 		$entry = $data->{$filename};
-		(undef, undef, undef, undef, undef, undef, $found, $hit) =
-			get_info_entry($entry);
-		printf("$filename: $hit of $found lines hit\n");
+
+		(undef, undef, undef, undef, undef, undef, $found, $hit,
+		 $fn_found, $fn_hit) = get_info_entry($entry);
+		if (!defined($fn_found) || !defined($fn_hit)) {
+			$fn_found = 0;
+			$fn_hit = 0;
+		}
+		if ($fncov) {
+		}
+		$total_found += $found;
+		$total_hit += $hit;
+		$fn_total_found += $fn_found;
+		$fn_total_hit += $fn_hit;
+		$filename =~ s/^\Q$prefix\/\E//;
+		$rate = sprintf("%.1f%%", $found > 0 ? 100 * $hit / $found : 0);
+		if ($fncov) {
+			$fnrate = sprintf("%.1f%%", $fn_found > 0 ?
+					  100 * $fn_hit / $fn_found : 0);
+			printf($format, $filename, $rate, $fnrate, $found,
+			       $fn_found);
+		} else {
+			printf($format, $filename, $rate, $found);
+		}
+	}
+	print(("-"x$barlen)."\n");
+	# Show totals
+	$rate = sprintf("%.1f%%", $total_found > 0 ?
+			100 * $total_hit / $total_found : 0);
+	if ($fncov) {
+		$fnrate = sprintf("%.1f%%", $fn_total_found > 0 ?
+			  100 * $fn_total_hit / $fn_total_found : 0);
+		printf($format, "Total", $rate, $fnrate, $total_found,
+		       $fn_total_found);
+	} else {
+		printf($format, "Total", $rate, $total_found);
 	}
 }
 
