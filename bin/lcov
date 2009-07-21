@@ -60,7 +60,8 @@
 #
 
 use strict;
-use File::Basename; 
+use File::Basename;
+use File::Path;
 use Getopt::Long;
 
 
@@ -73,7 +74,7 @@ our $tool_name		= basename($0);
 our @gcovmod = ("gcov-prof", "gcov-proc");
 
 # Directory containing gcov kernel files
-our $gcov_dir = "/proc/gcov";
+our $gcov_dir;
 
 # The location of the insmod tool
 our $insmod_tool	= "/sbin/insmod";
@@ -311,6 +312,18 @@ else
 	}
 }
 
+# Determine kernel directory for gcov data
+if (!@directory && ($capture || $reset)) {
+	if (!defined($gcov_dir)) {
+		if (-d "/sys/kernel/debug/gcov") {
+			$gcov_dir = "/sys/kernel/debug/gcov";
+		} elsif (-d "/proc/gcov") {
+			$gcov_dir = "/proc/gcov";
+			check_and_load_kernel_module();
+		}
+	}
+}
+
 # Check for requested functionality
 if ($reset)
 {
@@ -360,6 +373,12 @@ elsif ($diff)
 		    "Use $tool_name --help to get usage information\n");
 	}
 	diff();
+}
+
+# Unload module if we loaded it in the first place
+if ($need_unload)
+{
+	unload_module($need_unload);
 }
 
 info("Done.\n");
@@ -568,21 +587,100 @@ sub userspace_capture()
 sub kernel_reset()
 {
 	local *HANDLE;
-	check_and_load_kernel_module();
+	my $reset_file;
 
 	info("Resetting kernel execution counters\n");
-	open(HANDLE, ">$gcov_dir/vmlinux") or
-		die("ERROR: cannot write to $gcov_dir/vmlinux!\n");
+	if (-e "$gcov_dir/vmlinux") {
+		$reset_file = "$gcov_dir/vmlinux";
+	} elsif (-e "$gcov_dir/reset") {
+		$reset_file = "$gcov_dir/reset";
+	} else {
+		die("ERROR: no reset control found in $gcov_dir\n");
+	}
+	open(HANDLE, ">$reset_file") or
+		die("ERROR: cannot write to $reset_file!\n");
 	print(HANDLE "0");
 	close(HANDLE);
-
-	# Unload module if we loaded it in the first place
-	if ($need_unload)
-	{
-		unload_module($need_unload);
-	}
 }
 
+
+#
+# lcov_copy_single(from, to)
+# 
+# Copy single regular file FROM to TO without checking its size. This is
+# required to work with seq_file-generated files.
+#
+#
+sub lcov_copy_single($$)
+{
+	my ($from, $to) = @_;
+	my $content;
+	local $/;
+	local *HANDLE;
+
+	open(HANDLE, "<$from") or die("ERROR: cannot read $from: $!\n");
+	$content = <HANDLE>;
+	close(HANDLE);
+	open(HANDLE, ">$to") or die("ERROR: cannot write $from: $!\n");
+	if (defined($content)) {
+		print(HANDLE $content);
+	}
+	close(HANDLE);
+}
+
+
+#
+# lcov_copy(from, to, subdirs)
+# 
+# Copy all specified SUBDIRS and files from directory FROM to directory TO. For
+# regular files, copy file contents without checking its size. This is required
+# to work with seq_file-generated files.
+#
+
+sub lcov_copy($$;@)
+{
+	my ($from, $to, @subdirs) = @_;
+	my $dirname;
+	my $entry;
+	local *DIR;
+
+	foreach $dirname (@subdirs) {
+		if (!-d "$to/$dirname") {
+			mkpath("$to/$dirname") or
+				die("ERROR: cannot create directory ".
+				    "$to/$dirname: $!\n");
+		}
+		opendir(DIR, "$from/$dirname") ||
+			die("ERROR: cannot open $from/$dirname: $!\n");
+		foreach $entry (readdir(DIR)) {
+			my $absentry = "$from/$dirname/$entry";
+
+			if (($entry eq ".") || ($entry eq "..")) {
+				next;
+			}
+			if (-d $absentry) {
+				# Copy sub-directory
+				push(@subdirs, "$dirname/$entry");
+			} elsif (-l $absentry) {
+				# Copy symbolic link
+				my $link = readlink($absentry);
+
+				if (!defined($link)) {
+					die("ERROR: cannot read link ".
+					    "$absentry: $!\n");
+				}
+				symlink($link, "$to/$dirname/$entry") or
+					die("ERROR: cannot create link ".
+					    "$to/$dirname/$entry: $!\n");
+			} elsif (!-d $absentry) {
+				# Copy file
+				lcov_copy_single("$from/$dirname/$entry",
+						 "$to/$dirname/$entry");
+			}
+		}
+		closedir(DIR);
+	}
+}
 
 #
 # kernel_capture()
@@ -594,8 +692,6 @@ sub kernel_reset()
 sub kernel_capture()
 {
 	my @param;
-
-	check_and_load_kernel_module();
 
 	# Make sure the temporary directory is removed upon script termination
 	END
@@ -624,20 +720,11 @@ sub kernel_capture()
 
 	if (!@kernel_directory)
 	{
-		# Copy files from gcov kernel directory
-		system("cp", "-dr", $gcov_dir, $temp_dir_name)
-			and die("ERROR: cannot copy files from $gcov_dir!\n");
+		lcov_copy($gcov_dir, $temp_dir_name, "");
 	}
 	else
 	{
-		# Prefix list of kernel sub-directories with the gcov kernel
-		# directory
-		@kernel_directory = map("$gcov_dir/$_", @kernel_directory);
-
-		# Copy files from gcov kernel directory
-		system("cp", "-dr", @kernel_directory, $temp_dir_name)
-			and die("ERROR: cannot copy files from ".
-				join(" ", @kernel_directory)."!\n");
+		lcov_copy($gcov_dir, $temp_dir_name, @kernel_directory);
 	}
 
 	# Make directories writable
@@ -707,13 +794,6 @@ sub kernel_capture()
 		@param = (@param, "--initial");
 	}
 	system(@param) and exit($? >> 8);
-
-
-	# Unload module if we loaded it in the first place
-	if ($need_unload)
-	{
-		unload_module($need_unload);
-	}
 }
 
 

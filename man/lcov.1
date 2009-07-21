@@ -393,9 +393,11 @@ Capture kernel coverage data only from
 .IR subdirectory .
 
 Use this option if you don't want to get coverage data for all of the
-kernel, but only for specific subdirectories.
+kernel, but only for specific subdirectories. This option may be specified
+more than once.
 
-Note that you may specify this option more than once.
+Note that you may need to specify the full path to the kernel subdirectory
+depending on the version of the kernel gcov support.
 .RE
 
 .B \-l
