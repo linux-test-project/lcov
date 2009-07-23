@@ -125,6 +125,9 @@ sub transform_pattern($);
 sub warn_handler($);
 sub die_handler($);
 
+# Constants
+our $GCOV_KERNEL_PROC	= 0;
+our $GCOV_KERNEL_2631	= 1;
 
 # Global variables & initialization
 our @directory;		# Specifies where to get coverage data from
@@ -159,6 +162,7 @@ our $ignore_errors;
 our $initial;
 our $no_recursion = 0;
 our $maxdepth;
+our $gcov_kernel = 0;	# Kernel gcov-infrastructure version
 our $config;		# Configuration file contents
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
@@ -321,6 +325,9 @@ if (!@directory && ($capture || $reset)) {
 			$gcov_dir = "/proc/gcov";
 			check_and_load_kernel_module();
 		}
+	}
+	if (-e "$gcov_dir/reset") {
+		$gcov_kernel = $GCOV_KERNEL_2631;
 	}
 }
 
@@ -682,6 +689,41 @@ sub lcov_copy($$;@)
 	}
 }
 
+sub get_kernel_obj_dir()
+{
+	my $marker = "kernel/gcov/base.gcno";
+	my @subdirs = ( "" );
+	my $dirname;
+	local *DIR;
+
+	foreach $dirname (@subdirs) {
+		my $absdirname = "$gcov_dir/$dirname";
+		my $entry;
+
+		if (-l "$absdirname/$marker") {
+			my $link = readlink("$absdirname/$marker");
+
+			if (!defined($link)) {
+				die("ERROR: could not read ".
+				    "$absdirname/$marker\n");
+			}
+			return dirname(dirname(dirname($link)));
+		}
+		opendir(DIR, $absdirname) or
+			die("ERROR: could not open $absdirname\n");
+		foreach $entry (readdir(DIR)) {
+			if (($entry eq ".") || ($entry eq "..")) {
+				next;
+			}
+			if (-d "$absdirname/$entry") {
+				push(@subdirs, "$dirname/$entry");
+			}
+		}
+		closedir(DIR);
+	}
+	die("ERROR: please use -b to specify the kernel build directory\n");
+}
+
 #
 # kernel_capture()
 #
@@ -768,6 +810,13 @@ sub kernel_capture()
 		{
 			@param = (@param, "--no-checksum");
 		}
+	}
+	if ($gcov_kernel == $GCOV_KERNEL_2631) {
+		# Base directory needs to point to kernel obj tree
+		if (!defined($base_directory)) {
+			$base_directory = get_kernel_obj_dir();
+		}
+		info("Found kernel build directory at $base_directory\n");
 	}
 	if ($base_directory)
 	{
