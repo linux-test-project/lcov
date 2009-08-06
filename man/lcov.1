@@ -3,65 +3,132 @@
 lcov \- a graphical GCOV front\-end
 .SH SYNOPSIS
 .B lcov
-.RB [ \-h | \-\-help ]
-.RB [ \-v | \-\-version ]
-.RB [ \-q | \-\-quiet ]
+.BR \-c | \-\-capture
 .RS 5
-.br
-.RB [ \-z | \-\-zerocounters ]
-.RB [ \-c | \-\-capture ]
-.br
-.RB [ \-a | \-\-add\-tracefile
-.IR tracefile ]
-.br
-.RB [ \-e | \-\-extract
-.IR tracefile ]
-.br
-.RB [ \-r | \-\-remove
-.IR tracefile ]
-.br
-.RB [ \-l | \-\-list
-.IR tracefile ]
-.br
-.RB [ \-\-diff
-.IR "tracefile diff" ]
-.br
-.RB [ \-i | \-\-initial ]
-.RB [ \-t | \-\-test\-name
-.IR testname ]
-.br
-.RB [ \-o | \-\-output\-file
-.IR filename ]
 .br
 .RB [ \-d | \-\-directory
 .IR directory ]
-.br
-.RB [ \-f | \-\-follow ]
-.br
 .RB [ \-k | \-\-kernel\-directory
 .IR directory ]
 .br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.RB [ \-t | \-\-test\-name
+.IR testname ]
+.br
 .RB [ \-b | \-\-base\-directory
 .IR directory ]
+.RB [ \-i | \-\-initial ]
+.RB [ \-\-gcov\-tool
+.IR tool ]
+.br
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
+.RB [ \-\-no\-recursion ]
+.RB [ \-f | \-\-follow ]
+.br
+.RB [ \-\-compat\-libtool ]
+.RB [ \-\-no\-compat\-libtool ]
+.RB [ \-\-ignore\-errors
+.IR errors ]
+.br
+.RB [ \-\-to\-package
+.IR package ]
+.RB [ \-\-from\-package
+.IR package ]
+.RB [ \-q | \-\-quiet ]
+.br
+.RE
+
+.B lcov
+.BR \-z | \-\-zerocounters
+.RS 5
+.br
+.RB [ \-d | \-\-directory
+.IR directory ]
+.RB [ \-\-no\-recursion ]
+.RB [ \-f | \-\-follow ]
+.br
+.RB [ \-q | \-\-quiet ]
+.br
+.RE
+
+.B lcov
+.BR \-l | \-\-list
+.I tracefile
+.RS 5
+.br
+.RB [ \-q | \-\-quiet ]
+.br
+.RE
+
+.B lcov
+.BR \-a | \-\-add\-tracefile
+.I tracefile
+.RS 5
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
+.br
+.RB [ \-q | \-\-quiet ]
+.br
+.RE
+
+.B lcov
+.BR \-e | \-\-extract
+.I tracefile pattern
+.RS 5
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
+.br
+.RB [ \-q | \-\-quiet ]
+.RE
+
+.B lcov
+.BR \-r | \-\-remove
+.I tracefile pattern
+.RS 5
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
+.br
+.RB [ \-q | \-\-quiet ]
+.br
+.RE
+
+.B lcov
+.BR \-\-diff
+.IR "tracefile diff"
+.RS 5
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
 .br
 .RB [ \-\-convert\-filenames ]
 .RB [ \-\-strip
 .IR depth ]
 .RB [ \-\-path
 .IR path ]
+.RB [ \-q | \-\-quiet ]
 .br
-.RB [ \-\-checksum ]
-.RB [ \-\-no\-checksum ]
+.RE
+
+.B lcov
+.RB [ \-h | \-\-help ]
+.RB [ \-v | \-\-version ]
+.RS 5
 .br
-.RB [ \-\-compat\-libtool ]
-.RB [ \-\-no\-compat\-libtool ]
-.br
-.RB [ \-\-gcov\-tool
-.IR tool ]
-.RB [ \-\-ignore\-errors
-.IR errors ]
-.br
-.RB [ \-\-no\-recursion ]
+.RE
+
 .SH DESCRIPTION
 .B lcov
 is a graphical front\-end for GCC's coverage testing tool gcov. It collects
@@ -79,8 +146,10 @@ you have to complete the following preparation steps:
 
 For Linux kernel coverage:
 .RS
-Follow the installation instructions for the gcov\-kernel patch:
+Follow the setup instructions for the gcov\-kernel infrastructure:
 .I http://ltp.sourceforge.net/coverage/gcov.php
+.br
+
 
 .RE
 For user space application coverage:
@@ -307,6 +376,19 @@ at a time.
 Follow links when searching for .da files.
 .RE
 
+.B \-\-from\-package
+.I package
+.br
+.RS
+Use .da files in
+.I package
+instead of kernel or directory.
+
+Use this option if you have separate machines for build and test and
+want to perform the .info file creation on the build machine. See
+\-\-to\-package for more information.
+.RE
+
 .B \-\-gcov\-tool
 .I tool
 .br
@@ -511,6 +593,46 @@ into a combined tracefile (see option \-a).
 
 Valid test names can consist of letters, decimal digits and the underscore
 character ("_").
+.RE
+
+.B \-\-to\-package
+.I package
+.br
+.RS
+Store .da files for later processing.
+
+Use this option if you have separate machines for build and test and
+want to perform the .info file creation on the build machine. To do this,
+follow these steps:
+
+On the test machine:
+.RS
+.br
+\- run the test
+.br
+\- run lcov \-c [\-d directory] \-\-to-package
+.I file
+.br
+\- copy
+.I file
+to the build machine
+.RE
+.br
+
+On the build machine:
+.RS
+.br
+\- run lcov \-c \-\-from-package
+.I file
+[\-o and other options]
+.RE
+.br
+
+This works for both kernel and user space coverage data. Note that you might
+have to specify the path to the build directory using \-b with
+either \-\-to\-package or \-\-from-package. Note also that the package data
+must be converted to a .info file before recompiling the program or it will
+become invalid.
 .RE
 
 .B \-v

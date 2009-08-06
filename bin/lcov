@@ -62,7 +62,12 @@
 use strict;
 use File::Basename;
 use File::Path;
+use File::Find;
+use File::Temp qw /tempdir/;
+use File::Spec::Functions qw /abs2rel canonpath catdir catfile 
+			      file_name_is_absolute rootdir splitdir/;
 use Getopt::Long;
+use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
@@ -86,11 +91,14 @@ our $modprobe_tool	= "/sbin/modprobe";
 our $rmmod_tool		= "/sbin/rmmod";
 
 # Where to create temporary directories
-our $tmp_dir		= "/tmp";
+our $tmp_dir;
 
-# How to prefix a temporary directory name
-our $tmp_prefix		= "tmpdir";
-
+# Constants
+our $GKV_PROC = 0;	# gcov-kernel data in /proc via external patch
+our $GKV_SYS = 1;	# gcov-kernel data in /sys via vanilla 2.6.31+
+our @GKV_NAME = ( "external", "upstream" );
+our $pkg_gkv_file = ".gcov_kernel_version";
+our $pkg_build_file = ".build_directory";
 
 # Prototypes
 sub print_usage(*);
@@ -99,6 +107,8 @@ sub userspace_reset();
 sub userspace_capture();
 sub kernel_reset();
 sub kernel_capture();
+sub kernel_capture_initial();
+sub package_capture();
 sub add_traces();
 sub read_info_file($);
 sub get_info_entry($);
@@ -124,10 +134,8 @@ sub create_temp_dir();
 sub transform_pattern($);
 sub warn_handler($);
 sub die_handler($);
-
-# Constants
-our $GCOV_KERNEL_PROC	= 0;
-our $GCOV_KERNEL_2631	= 1;
+sub abort_handler($);
+sub temp_cleanup();
 
 # Global variables & initialization
 our @directory;		# Specifies where to get coverage data from
@@ -161,11 +169,13 @@ our $gcov_tool;
 our $ignore_errors;
 our $initial;
 our $no_recursion = 0;
+our $to_package;
+our $from_package;
 our $maxdepth;
-our $gcov_kernel = 0;	# Kernel gcov-infrastructure version
 our $config;		# Configuration file contents
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
+our @temp_dirs;
 
 
 #
@@ -174,6 +184,8 @@ our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 
 $SIG{__WARN__} = \&warn_handler;
 $SIG{__DIE__} = \&die_handler;
+$SIG{'INT'} = \&abort_handler;
+$SIG{'QUIT'} = \&abort_handler;
 
 # Add current working directory if $tool_dir is not already an absolute path
 if (! ($tool_dir =~ /^\/(.*)$/))
@@ -229,7 +241,9 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \$ignore_errors,
 		"initial|i" => \$initial,
-		"no-recursion" => \$no_recursion
+		"no-recursion" => \$no_recursion,
+		"to-package=s" => \$to_package,
+		"from-package=s" => \$from_package,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -292,7 +306,7 @@ check_options();
 # Only --extract, --remove and --diff allow unnamed parameters
 if (@ARGV && !($extract || $remove || $diff))
 {
-	die("Extra parameter found\n".
+	die("Extra parameter found: '".join(" ", @ARGV)."'\n".
 	    "Use $tool_name --help to get usage information\n");
 }
 
@@ -307,17 +321,11 @@ if ($capture)
 		$output_filename = "-";
 	}
 }
-else
-{
-	if ($initial)
-	{
-		die("Option --initial is only valid when capturing data (-c)\n".
-		    "Use $tool_name --help to get usage information\n");
-	}
-}
 
 # Determine kernel directory for gcov data
-if (!@directory && ($capture || $reset)) {
+if (!$from_package && !@directory && ($capture || $reset)) {
+	# User wants to work with kernel data on this machine - determine
+	# gcov_dir if not specified
 	if (!defined($gcov_dir)) {
 		if (-d "/sys/kernel/debug/gcov") {
 			$gcov_dir = "/sys/kernel/debug/gcov";
@@ -326,8 +334,8 @@ if (!@directory && ($capture || $reset)) {
 			check_and_load_kernel_module();
 		}
 	}
-	if (-e "$gcov_dir/reset") {
-		$gcov_kernel = $GCOV_KERNEL_2631;
+	if (!defined($gcov_dir) && !defined($from_package)) {
+		die("ERROR: no gcov kernel support found\n");
 	}
 }
 
@@ -346,14 +354,21 @@ if ($reset)
 }
 elsif ($capture)
 {
-	# Differentiate between user space and kernel 
-	if (@directory)
-	{
+	# Capture source can be user space, kernel or package
+	if ($from_package) {
+		package_capture();
+	} elsif (@directory) {
 		userspace_capture();
-	}
-	else
-	{
-		kernel_capture();
+	} else {
+		if ($initial) {
+			if (defined($to_package)) {
+				die("ERROR: --initial cannot be used together ".
+				    "with --to-package\n");
+			}
+			kernel_capture_initial();
+		} else {
+			kernel_capture();
+		}
 	}
 }
 elsif (@add_tracefile)
@@ -387,6 +402,8 @@ if ($need_unload)
 {
 	unload_module($need_unload);
 }
+
+temp_cleanup();
 
 info("Done.\n");
 exit(0);
@@ -438,6 +455,8 @@ Options:
       --gcov-tool TOOL            Specify gcov tool location
       --ignore-errors ERRORS      Continue after ERRORS (gcov, source)
       --no-recursion              Exlude subdirectories from processing
+      --to-package FILENAME       Store unprocessed coverage data in FILENAME
+      --from-package FILENAME     Capture from unprocessed data in FILENAME
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -509,77 +528,31 @@ sub userspace_reset()
 #
 # userspace_capture()
 #
-# Capture coverage data found in DIRECTORY and write it to OUTPUT_FILENAME
-# if specified, otherwise to STDOUT.
+# Capture coverage data found in DIRECTORY and write it to a package (if
+# TO_PACKAGE specified) or to OUTPUT_FILENAME or STDOUT.
 #
 # Die on error.
 #
 
 sub userspace_capture()
 {
-	my @param;
-	my $file_list = join(" ", @directory);
+	my $dir;
+	my $build;
 
-	info("Capturing coverage data from $file_list\n");
-	@param = ("$tool_dir/geninfo", @directory);
-	if ($output_filename)
-	{
-		@param = (@param, "--output-filename", $output_filename);
+	if (!defined($to_package)) {
+		lcov_geninfo(@directory);
+		return;
 	}
-	if ($test_name)
-	{
-		@param = (@param, "--test-name", $test_name);
+	if (scalar(@directory) != 1) {
+		die("ERROR: -d may be specified only once with --to-package\n");
 	}
-	if ($follow)
-	{
-		@param = (@param, "--follow");
+	$dir = $directory[0];
+	if (defined($base_directory)) {
+		$build = $base_directory;
+	} else {
+		$build = $dir;
 	}
-	if ($quiet)
-	{
-		@param = (@param, "--quiet");
-	}
-	if (defined($checksum))
-	{
-		if ($checksum)
-		{
-			@param = (@param, "--checksum");
-		}
-		else
-		{
-			@param = (@param, "--no-checksum");
-		}
-	}
-	if ($base_directory)
-	{
-		@param = (@param, "--base-directory", $base_directory);
-	}
-	if ($no_compat_libtool)
-	{
-		@param = (@param, "--no-compat-libtool");
-	}
-	elsif ($compat_libtool)
-	{
-		@param = (@param, "--compat-libtool");
-	}
-	if ($gcov_tool)
-	{
-		@param = (@param, "--gcov-tool", $gcov_tool);
-	}
-	if ($ignore_errors)
-	{
-		@param = (@param, "--ignore-errors", $ignore_errors);
-	}
-	if ($initial)
-	{
-		@param = (@param, "--initial");
-	}
-	if ($no_recursion)
-	{
-		@param = (@param, "--no-recursion");
-	}
-
-	system(@param);
-	exit($? >> 8);
+	create_package($to_package, $dir, $build);
 }
 
 
@@ -615,7 +588,8 @@ sub kernel_reset()
 # lcov_copy_single(from, to)
 # 
 # Copy single regular file FROM to TO without checking its size. This is
-# required to work with seq_file-generated files.
+# required to work with special files generated by the kernel
+# seq_file-interface.
 #
 #
 sub lcov_copy_single($$)
@@ -635,6 +609,81 @@ sub lcov_copy_single($$)
 	close(HANDLE);
 }
 
+#
+# lcov_find(dir, function, data[, extension, ...)])
+#
+# Search DIR for files and directories whose name matches PATTERN and run
+# FUNCTION for each match. If not pattern is specified, match all names.
+#
+# FUNCTION has the following prototype:
+#   function(dir, relative_name, data)
+#
+# Where:
+#   dir: the base directory for this search
+#   relative_name: the name relative to the base directory of this entry
+#   data: the DATA variable passed to lcov_find
+#
+sub lcov_find($$$;@)
+{
+	my ($dir, $fn, $data, @pattern) = @_;
+	my $result;
+	my $_fn = sub {
+		my $filename = $File::Find::name;
+
+		if (defined($result)) {
+			return;
+		}		
+		$filename = abs2rel($filename, $dir);
+		foreach (@pattern) {
+			if ($filename =~ /$_/) {
+				goto ok;
+			}
+		}
+		return;
+	ok:
+		$result = &$fn($dir, $filename, $data);
+	};
+	if (scalar(@pattern) == 0) {
+		@pattern = ".*";
+	}
+	find( { wanted => $_fn, no_chdir => 1 }, $dir);
+
+	return $result;
+}
+
+#
+# lcov_copy_fn(from, rel, to)
+#
+# Copy directories, files and links from/rel to to/rel.
+#
+
+sub lcov_copy_fn($$$)
+{
+	my ($from, $rel, $to) = @_;
+	my $absfrom = canonpath(catfile($from, $rel));
+	my $absto = canonpath(catfile($to, $rel));
+
+	if (-d) {
+		if (! -d $absto) {
+			mkpath($absto) or
+				die("ERROR: cannot create directory $absto\n");
+			chmod(0700, $absto);
+		}
+	} elsif (-l) {
+		# Copy symbolic link
+		my $link = readlink($absfrom);
+
+		if (!defined($link)) {
+			die("ERROR: cannot read link $absfrom: $!\n");
+		}
+		symlink($link, $absto) or
+			die("ERROR: cannot create link $absto: $!\n");
+	} else {
+		lcov_copy_single($absfrom, $absto);
+		chmod(0600, $absto);
+	}
+	return undef;
+}
 
 #
 # lcov_copy(from, to, subdirs)
@@ -647,143 +696,29 @@ sub lcov_copy_single($$)
 sub lcov_copy($$;@)
 {
 	my ($from, $to, @subdirs) = @_;
-	my $dirname;
-	my $entry;
-	local *DIR;
+	my @pattern;
 
-	foreach $dirname (@subdirs) {
-		if (!-d "$to/$dirname") {
-			mkpath("$to/$dirname") or
-				die("ERROR: cannot create directory ".
-				    "$to/$dirname: $!\n");
-		}
-		opendir(DIR, "$from/$dirname") ||
-			die("ERROR: cannot open $from/$dirname: $!\n");
-		foreach $entry (readdir(DIR)) {
-			my $absentry = "$from/$dirname/$entry";
-
-			if (($entry eq ".") || ($entry eq "..")) {
-				next;
-			}
-			if (-d $absentry) {
-				# Copy sub-directory
-				push(@subdirs, "$dirname/$entry");
-			} elsif (-l $absentry) {
-				# Copy symbolic link
-				my $link = readlink($absentry);
-
-				if (!defined($link)) {
-					die("ERROR: cannot read link ".
-					    "$absentry: $!\n");
-				}
-				symlink($link, "$to/$dirname/$entry") or
-					die("ERROR: cannot create link ".
-					    "$to/$dirname/$entry: $!\n");
-			} elsif (!-d $absentry) {
-				# Copy file
-				lcov_copy_single("$from/$dirname/$entry",
-						 "$to/$dirname/$entry");
-			}
-		}
-		closedir(DIR);
+	foreach (@subdirs) {
+		push(@pattern, "^$_");
 	}
-}
-
-sub get_kernel_obj_dir()
-{
-	my $marker = "kernel/gcov/base.gcno";
-	my @subdirs = ( "" );
-	my $dirname;
-	local *DIR;
-
-	foreach $dirname (@subdirs) {
-		my $absdirname = "$gcov_dir/$dirname";
-		my $entry;
-
-		if (-l "$absdirname/$marker") {
-			my $link = readlink("$absdirname/$marker");
-
-			if (!defined($link)) {
-				die("ERROR: could not read ".
-				    "$absdirname/$marker\n");
-			}
-			return dirname(dirname(dirname($link)));
-		}
-		opendir(DIR, $absdirname) or
-			die("ERROR: could not open $absdirname\n");
-		foreach $entry (readdir(DIR)) {
-			if (($entry eq ".") || ($entry eq "..")) {
-				next;
-			}
-			if (-d "$absdirname/$entry") {
-				push(@subdirs, "$dirname/$entry");
-			}
-		}
-		closedir(DIR);
-	}
-	die("ERROR: please use -b to specify the kernel build directory\n");
+	lcov_find($from, \&lcov_copy_fn, $to, @pattern);
 }
 
 #
-# kernel_capture()
+# lcov_geninfo(directory)
 #
-# Capture kernel coverage data and write it to OUTPUT_FILENAME if specified,
-# otherwise stdout.
+# Call geninfo for the specified directory and with the parameters specified
+# at the command line.
 #
 
-sub kernel_capture()
+sub lcov_geninfo(@)
 {
+	my (@dir) = @_;
 	my @param;
 
-	# Make sure the temporary directory is removed upon script termination
-	END
-	{
-		if ($temp_dir_name)
-		{
-			stat($temp_dir_name);
-			if (-r _)
-			{
-				info("Removing temporary directory ".
-				     "$temp_dir_name\n");
-
-				# Remove temporary directory
-				system("rm", "-rf", $temp_dir_name)
-					and warn("WARNING: cannot remove ".
-						 "temporary directory ".
-						 "$temp_dir_name!\n");
-			}
-		}
-	}
-
-	# Get temporary directory
-	$temp_dir_name = create_temp_dir();
-
-	info("Copying kernel data to temporary directory $temp_dir_name\n");
-
-	if (!@kernel_directory)
-	{
-		lcov_copy($gcov_dir, $temp_dir_name, "");
-	}
-	else
-	{
-		lcov_copy($gcov_dir, $temp_dir_name, @kernel_directory);
-	}
-
-	# Make directories writable
-	system("find", $temp_dir_name, "-type", "d", "-exec", "chmod", "u+w",
-	       "{}", ";")
-		and die("ERROR: cannot modify access rights for ".
-			"$temp_dir_name!\n");
-
-	# Make files writable
-	system("find", $temp_dir_name, "-type", "f", "-exec", "chmod", "u+w",
-	       "{}", ";")
-		and die("ERROR: cannot modify access rights for ".
-			"$temp_dir_name!\n");
-
 	# Capture data
-	info("Capturing coverage data from $temp_dir_name\n");
-	@param = ("$tool_dir/geninfo", $temp_dir_name);
+	info("Capturing coverage data from ".join(" ", @dir)."\n");
+	@param = ("$tool_dir/geninfo", @dir);
 	if ($output_filename)
 	{
 		@param = (@param, "--output-filename", $output_filename);
@@ -810,13 +745,6 @@ sub kernel_capture()
 		{
 			@param = (@param, "--no-checksum");
 		}
-	}
-	if ($gcov_kernel == $GCOV_KERNEL_2631) {
-		# Base directory needs to point to kernel obj tree
-		if (!defined($base_directory)) {
-			$base_directory = get_kernel_obj_dir();
-		}
-		info("Found kernel build directory at $base_directory\n");
 	}
 	if ($base_directory)
 	{
@@ -845,6 +773,434 @@ sub kernel_capture()
 	system(@param) and exit($? >> 8);
 }
 
+#
+# read_file(filename)
+#
+# Return the contents of the file defined by filename.
+#
+
+sub read_file($)
+{
+	my ($filename) = @_;
+	my $content;
+	local $\;
+	local *HANDLE;
+
+	open(HANDLE, "<$filename") || return undef;
+	$content = <HANDLE>;
+	close(HANDLE);
+
+	return $content;
+}
+
+#
+# get_package(package_file)
+#
+# Unpack unprocessed coverage data files from package_file to a temporary
+# directory and return directory name, build directory and gcov kernel version
+# as found in package.
+#
+
+sub get_package($)
+{
+	my ($file) = @_;
+	my $dir = create_temp_dir();
+	my $gkv;
+	my $build;
+	my $cwd = getcwd();
+	my $count;
+	local *HANDLE;
+
+	info("Reading package $file:\n");
+	info("  data directory .......: $dir\n");
+	$file = abs_path($file);
+	chdir($dir);
+	open(HANDLE, "tar xvfz $file 2>/dev/null|")
+		or die("ERROR: could not process package $file\n");
+	while (<HANDLE>) {
+		if (/\.da$/ || /\.gcda$/) {
+			$count++;
+		}
+	}
+	close(HANDLE);
+	$build = read_file("$dir/$pkg_build_file");
+	if (defined($build)) {
+		info("  build directory ......: $build\n");
+	}
+	$gkv = read_file("$dir/$pkg_gkv_file");
+	if (defined($gkv)) {
+		$gkv = int($gkv);
+		if ($gkv != $GKV_PROC && $gkv != $GKV_SYS) {
+			die("ERROR: unsupported gcov kernel version found ".
+			    "($gkv)\n");
+		}
+		info("  content type .........: kernel data\n");
+		info("  gcov kernel version ..: %s\n", $GKV_NAME[$gkv]);
+	} else {
+		info("  content type .........: application data\n");
+	}
+	info("  data files ...........: $count\n");
+	chdir($cwd);
+
+	return ($dir, $build, $gkv);
+}
+
+#
+# write_file(filename, $content)
+#
+# Create a file named filename and write the specified content to it.
+#
+
+sub write_file($$)
+{
+	my ($filename, $content) = @_;
+	local *HANDLE;
+
+	open(HANDLE, ">$filename") || return 0;
+	print(HANDLE $content);
+	close(HANDLE) || return 0;
+
+	return 1;
+}
+
+# count_package_data(filename)
+#
+# Count the number of coverage data files in the specified package file.
+#
+
+sub count_package_data($)
+{
+	my ($filename) = @_;
+	local *HANDLE;
+	my $count = 0;
+
+	open(HANDLE, "tar tfz $filename|") or return undef;
+	while (<HANDLE>) {
+		if (/\.da$/ || /\.gcda$/) {
+			$count++;
+		}
+	}
+	close(HANDLE);
+	return $count;
+}
+
+#
+# create_package(package_file, source_directory, build_directory[,
+# 		 kernel_gcov_version])
+#
+# Store unprocessed coverage data files from source_directory to package_file.
+#
+
+sub create_package($$$;$)
+{
+	my ($file, $dir, $build, $gkv) = @_;
+	my $cwd = getcwd();
+
+	# Print information about the package
+	info("Creating package $file:\n");
+	info("  data directory .......: $dir\n");
+
+	# Handle build directory
+	if (defined($build)) {
+		info("  build directory ......: $build\n");
+		write_file("$dir/$pkg_build_file", $build)
+			or die("ERROR: could not write to ".
+			       "$dir/$pkg_build_file\n");
+	}
+
+	# Handle gcov kernel version data
+	if (defined($gkv)) {
+		info("  content type .........: kernel data\n");
+		info("  gcov kernel version ..: %s\n", $GKV_NAME[$gkv]);
+		write_file("$dir/$pkg_gkv_file", $gkv)
+			or die("ERROR: could not write to ".
+			       "$dir/$pkg_gkv_file\n");
+	} else {
+		info("  content type .........: application data\n");
+	}
+
+	# Create package
+	$file = abs_path($file);
+	chdir($dir);
+	system("tar cfz $file .")
+		and die("ERROR: could not create package $file\n");
+
+	# Show number of data files
+	if (!$quiet) {
+		my $count = count_package_data($file);
+
+		if (defined($count)) {
+			info("  data files ...........: $count\n");
+		}
+	}
+	chdir($cwd);
+}
+
+sub get_gcov_kernel_version($)
+{
+	my ($dir) = @_;
+
+	if (-e "$dir/reset") {
+		return $GKV_SYS;
+	} elsif (-e "$dir/vmlinux") {
+		return $GKV_PROC;
+	}
+	die("ERROR: unsupported gcov kernel version found\n");
+}
+
+sub find_link_fn($$$)
+{
+	my ($from, $rel, $filename) = @_;
+	my $absfile = catfile($from, $rel, $filename);
+
+	if (-l $absfile) {
+		return $absfile;
+	}
+	return undef;
+}
+
+#
+# get_base(dir)
+#
+# Return (BASE, OBJ), where
+#  - BASE: is the path to the kernel base directory relative to dir
+#  - OBJ: is the absolute path to the kernel build directory
+#
+
+sub get_base($)
+{
+	my ($dir) = @_;
+	my $marker = "kernel/gcov/base.gcno";
+	my $markerfile;
+	my $sys;
+	my $obj;
+	my $link;
+
+	$markerfile = lcov_find($dir, \&find_link_fn, $marker);
+	if (!defined($markerfile)) {
+		return (undef, undef);
+	}
+
+	# sys base is parent of parent of markerfile.
+	$sys = abs2rel(dirname(dirname(dirname($markerfile))), $dir);
+
+	# obj base is parent of parent of markerfile link target.
+	$link = readlink($markerfile);
+	if (!defined($link)) {
+		die("ERROR: could not read $markerfile\n");
+	}
+	$obj = dirname(dirname(dirname($link)));
+
+	return ($sys, $obj);
+}
+
+#
+# apply_base_dir(data_dir, base_dir, build_dir, @directories)
+#
+# Make entries in @directories relative to data_dir.
+#
+
+sub apply_base_dir($$$@)
+{
+	my ($data, $base, $build, @dirs) = @_;
+	my $dir;
+	my @result;
+
+	foreach $dir (@dirs) {
+		# Is directory path relative to data directory?
+		if (-d catdir($data, $dir)) {
+			push(@result, $dir);
+			next;
+		}
+		# Relative to the auto-detected base-directory?
+		if (defined($base)) {
+			if (-d catdir($data, $base, $dir)) {
+				push(@result, catdir($base, $dir));
+				next;
+			}
+		}
+		# Relative to the specified base-directory?
+		if (defined($base_directory)) {
+			if (file_name_is_absolute($base_directory)) {
+				$base = abs2rel($base_directory, rootdir());
+			} else {
+				$base = $base_directory;
+			}
+			if (-d catdir($data, $base, $dir)) {
+				push(@result, catdir($base, $dir));
+				next;
+			}
+		}
+		# Relative to the build directory?
+		if (defined($build)) {
+			if (file_name_is_absolute($build)) {
+				$base = abs2rel($build, rootdir());
+			} else {
+				$base = $build;
+			}
+			if (-d catdir($data, $base, $dir)) {
+				push(@result, catdir($base, $dir));
+				next;
+			}
+		}
+		die("ERROR: subdirectory $dir not found\n".
+		    "Please use -b to specify the correct directory\n");
+	}
+	return @result;
+}
+
+#
+# copy_gcov_dir(dir, [@subdirectories])
+#
+# Create a temporary directory and copy all or, if specified, only some
+# subdirectories from dir to that directory. Return the name of the temporary
+# directory.
+#
+
+sub copy_gcov_dir($;@)
+{
+	my ($data, @dirs) = @_;
+	my $tempdir = create_temp_dir();
+
+	info("Copying data to temporary directory $tempdir\n");
+	lcov_copy($data, $tempdir, @dirs);
+
+	return $tempdir;
+}
+
+#
+# kernel_capture_initial
+#
+# Capture initial kernel coverage data, i.e. create a coverage data file from
+# static graph files which contains zero coverage data for all instrumented
+# lines.
+#
+
+sub kernel_capture_initial()
+{
+	my $build;
+	my $source;
+
+	if (defined($base_directory)) {
+		$build = $base_directory;
+		$source = "specified";
+	} else {
+		(undef, $build) = get_base($gcov_dir);
+		if (!defined($build)) {
+			die("ERROR: could not auto-detect build directory.\n".
+			    "Please use -b to specify the build directory\n");
+		}
+		$source = "auto-detected";
+	}
+	info("Using $build as kernel build directory ($source)\n");
+	# Build directory needs to be passed to geninfo
+	$base_directory = $build;
+	lcov_geninfo($build);
+}
+
+#
+# kernel_capture_from_dir(directory, gcov_kernel_version, build)
+#
+# Perform the actual kernel coverage capturing from the specified directory
+# assuming that the data was copied from the specified gcov kernel version.
+#
+
+sub kernel_capture_from_dir($$$)
+{
+	my ($dir, $gkv, $build) = @_;
+
+	# Create package or coverage file
+	if (defined($to_package)) {
+		create_package($to_package, $dir, $build, $gkv);
+	} else {
+		# Build directory needs to be passed to geninfo
+		$base_directory = $build;
+		lcov_geninfo($dir);
+	}
+}
+
+#
+# adjust_kernel_dir(dir, build)
+#
+# Adjust directories specified with -k so that they point to the directory
+# relative to DIR. Return the build directory if specified or the auto-
+# detected build-directory.
+#
+
+sub adjust_kernel_dir($$)
+{
+	my ($dir, $build) = @_;
+	my ($sys_base, $build_auto) = get_base($dir);
+
+	if (!defined($build)) {
+		$build = $build_auto;
+	}
+	if (!defined($build)) {
+		die("ERROR: could not auto-detect build directory.\n".
+		    "Please use -b to specify the build directory\n");
+	}
+	# Make @kernel_directory relative to sysfs base
+	if (@kernel_directory) {
+		@kernel_directory = apply_base_dir($dir, $sys_base, $build,
+						   @kernel_directory);
+	}
+	return $build;
+}
+
+sub kernel_capture()
+{
+	my $data_dir;
+	my $gkv;
+	my $build = $base_directory;
+
+	$gkv = get_gcov_kernel_version($gcov_dir);
+	if ($gkv == $GKV_SYS) {
+		$build = adjust_kernel_dir($gcov_dir, $build);
+	}
+	info("Found kernel coverage data at $gcov_dir:\n");
+	$data_dir = copy_gcov_dir($gcov_dir, @kernel_directory);
+	kernel_capture_from_dir($data_dir, $gkv, $build);
+}
+
+#
+# package_capture()
+#
+# Capture coverage data from a package of unprocessed coverage data files
+# as generated by lcov --to-package.
+#
+
+sub package_capture()
+{
+	my $dir;
+	my $build;
+	my $gkv;
+
+	($dir, $build, $gkv) = get_package($from_package);
+
+	# Check for build directory
+	if (defined($base_directory)) {
+		if (defined($build)) {
+			info("Using build directory specified by -b.\n");
+		}
+		$build = $base_directory;
+	}
+
+	# Do the actual capture
+	if (defined($gkv)) {
+		if ($gkv == $GKV_SYS) {
+			$build = adjust_kernel_dir($dir, $build);
+		}
+		if (@kernel_directory) {
+			$dir = copy_gcov_dir($dir, @kernel_directory);	
+		}
+		kernel_capture_from_dir($dir, $gkv, $build);
+	} else {
+		# Build directory needs to be passed to geninfo
+		$base_directory = $build;
+		lcov_geninfo($dir);
+	}
+}
+
 
 #
 # info(printf_parameter)
@@ -860,11 +1216,11 @@ sub info(@)
 		# Print info string
 		if ($to_file)
 		{
-			print(@_)
+			printf(@_)
 		}
 		else
 		{
-			# Don't interfer with the .info output to STDOUT
+			# Don't interfere with the .info output to STDOUT
 			printf(STDERR @_);
 		}
 	}
@@ -981,24 +1337,19 @@ sub unload_module($)
 
 sub create_temp_dir()
 {
-	my $dirname;
-	my $number = sprintf("%d", rand(1000));
+	my $dir;
 
-	# Endless loops are evil
-	while ($number++ < 1000)
-	{
-		$dirname = "$tmp_dir/$tmp_prefix$number";
-		stat($dirname);
-		if (-e _) { next; }
-
-		mkdir($dirname)
-			or die("ERROR: cannot create temporary directory ".
-			       "$dirname!\n");
-
-		return($dirname);
+	if (defined($tmp_dir)) {
+		$dir = tempdir(DIR => $tmp_dir, CLEANUP => 1);
+	} else {
+		$dir = tempdir(CLEANUP => 1);
 	}
+	if (!defined($dir)) {
+		die("ERROR: cannot create temporary directory\n");
+	}
+	push(@temp_dirs, $dir);
 
-	die("ERROR: cannot create temporary directory in $tmp_dir!\n");
+	return $dir;
 }
 
 
@@ -1970,6 +2321,40 @@ sub remove()
 
 
 #
+# get_common_prefix(min_dir, filenames)
+#
+# Return the longest path prefix shared by all filenames. MIN_DIR specifies
+# the minimum number of directories that a filename may have after removing
+# the prefix.
+#
+
+sub get_common_prefix($@)
+{
+	my ($min_dir, @files) = @_;
+	my $file;
+	my @prefix;
+	my $i;
+
+	foreach $file (@files) {
+		my @comp = splitdir($file);
+
+		if (!@prefix) {
+			@prefix = @comp;
+			next;
+		}
+		for ($i = 0; $i < scalar(@comp) && $i < scalar(@prefix); $i++) {
+			if ($comp[$i] ne $prefix[$i] ||
+			    ((scalar(@comp) - ($i + 1)) <= $min_dir)) {
+				delete(@prefix[$i..scalar(@prefix)]);
+				last;
+			}
+		}
+	}
+
+	return catdir(@prefix);
+}
+
+#
 # list()
 #
 
@@ -1994,7 +2379,9 @@ sub list()
 	my $rate;
 	my $fnrate;
 
-	# Get prefix, longest filename length and function coverage flag
+	# Get common file path prefix
+	$prefix = get_common_prefix(1, keys(%{$data}));
+	# Get longest filename length and function coverage flag
 	foreach $filename (keys(%{$data})) {
 		$entry = $data->{$filename};
 		(undef, undef, undef, undef, undef, undef, $found, $hit,
@@ -2007,17 +2394,9 @@ sub list()
 		if (length($filename) > $strlen) {
 			$strlen = length($filename);
 		}
-		# Find longest common prefix
-		if (!defined($prefix)) {
-			$prefix = dirname($filename);
-			next;
-		}
-		while (($prefix ne "/") && (!($filename =~ /^\Q$prefix\E/))) {
-			$prefix = dirname($prefix);
-		}
 	}
 	# Print header
-	if ($prefix ne "/") {
+	if (length($prefix) > 0) {
 		info("Common directory: $prefix\n");
 		$strlen -= length($prefix) + 1;
 	}
@@ -2044,17 +2423,23 @@ sub list()
 			$fn_found = 0;
 			$fn_hit = 0;
 		}
-		if ($fncov) {
-		}
 		$total_found += $found;
 		$total_hit += $hit;
 		$fn_total_found += $fn_found;
 		$fn_total_hit += $fn_hit;
 		$filename =~ s/^\Q$prefix\/\E//;
-		$rate = sprintf("%.1f%%", $found > 0 ? 100 * $hit / $found : 0);
+		if ($found == 0) {
+			$rate = "-";
+		} else {
+			$rate = sprintf("%.1f%%", 100 * $hit / $found);
+		}
 		if ($fncov) {
-			$fnrate = sprintf("%.1f%%", $fn_found > 0 ?
-					  100 * $fn_hit / $fn_found : 0);
+			if ($fn_found == 0) {
+				$fnrate = "-";
+			} else {
+				$fnrate = sprintf("%.1f%%",
+						  100 * $fn_hit / $fn_found);
+			}
 			printf($format, $filename, $rate, $fnrate, $found,
 			       $fn_found);
 		} else {
@@ -2903,6 +3288,7 @@ sub warn_handler($)
 {
 	my ($msg) = @_;
 
+	temp_cleanup();
 	warn("$tool_name: $msg");
 }
 
@@ -2910,5 +3296,23 @@ sub die_handler($)
 {
 	my ($msg) = @_;
 
+	temp_cleanup();
 	die("$tool_name: $msg");
+}
+
+sub abort_handler($)
+{
+	temp_cleanup();
+	exit(1);
+}
+
+sub temp_cleanup()
+{
+	if (@temp_dirs) {
+		info("Removing temporary directories.\n");
+		foreach (@temp_dirs) {
+			rmtree($_);
+		}
+		@temp_dirs = ();
+	}
 }

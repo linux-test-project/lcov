@@ -51,6 +51,7 @@
 
 use strict;
 use File::Basename; 
+use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir/;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 
@@ -76,7 +77,7 @@ our $ERROR_SOURCE	= 1;
 # Prototypes
 sub print_usage(*);
 sub gen_info($);
-sub process_dafile($);
+sub process_dafile($$);
 sub match_filename($@);
 sub solve_ambiguous_match($$$);
 sub split_filename($);
@@ -97,7 +98,7 @@ sub system_no_output($@);
 sub read_config($);
 sub apply_config($);
 sub gen_initial_info($);
-sub process_graphfile($);
+sub process_graphfile($$);
 sub filter_fn_name($);
 sub warn_handler($);
 sub die_handler($);
@@ -436,6 +437,39 @@ END_OF_USAGE
 	;
 }
 
+#
+# get_common_prefix(min_dir, filenames)
+#
+# Return the longest path prefix shared by all filenames. MIN_DIR specifies
+# the minimum number of directories that a filename may have after removing
+# the prefix.
+#
+
+sub get_common_prefix($@)
+{
+	my ($min_dir, @files) = @_;
+	my $file;
+	my @prefix;
+	my $i;
+
+	foreach $file (@files) {
+		my @comp = splitdir($file);
+
+		if (!@prefix) {
+			@prefix = @comp;
+			next;
+		}
+		for ($i = 0; $i < scalar(@comp) && $i < scalar(@prefix); $i++) {
+			if ($comp[$i] ne $prefix[$i] ||
+			    ((scalar(@comp) - ($i + 1)) <= $min_dir)) {
+				delete(@prefix[$i..scalar(@prefix)]);
+				last;
+			}
+		}
+	}
+
+	return catdir(@prefix);
+}
 
 #
 # gen_info(directory)
@@ -474,6 +508,7 @@ sub gen_info($)
 {
 	my $directory = $_[0];
 	my @file_list;
+	my $prefix;
 
 	if (-d $directory)
 	{
@@ -484,30 +519,31 @@ sub gen_info($)
 		chomp(@file_list);
 		@file_list or die("ERROR: no $data_file_extension files found ".
 				  "in $directory!\n");
+		$prefix = get_common_prefix(1, @file_list);
 		info("Found %d data files in %s\n", $#file_list+1, $directory);
 	}
 	else
 	{
 		@file_list = ($directory);
+		$prefix = "";
 	}
 
 	# Process all files in list
-	foreach (@file_list) { process_dafile($_); }
+	foreach (@file_list) { process_dafile($_, $prefix); }
 }
 
 
 #
-# process_dafile(da_filename)
+# process_dafile(da_filename, dir)
 #
 # Create a .info file for a single data file.
 #
 # Die on error.
 #
 
-sub process_dafile($)
+sub process_dafile($$)
 {
-	info("Processing %s\n", $_[0]);
-
+	my ($file, $dir) = @_;
 	my $da_filename;	# Name of data file to process
 	my $da_dir;		# Directory of data file
 	my $source_dir;		# Directory of source file
@@ -537,9 +573,10 @@ sub process_dafile($)
 	my $da_renamed;		# If data file is to be renamed
 	local *INFO_HANDLE;
 
+	info("Processing %s\n", abs2rel($file, $dir));
 	# Get path to data file in absolute and normalized form (begins with /,
 	# contains no more ../ or ./)
-	$da_filename = solve_relative_path($cwd, $_[0]);
+	$da_filename = solve_relative_path($cwd, $file);
 
 	# Get directory and basename of data file
 	($da_dir, $da_basename) = split_filename($da_filename);
@@ -2031,6 +2068,7 @@ sub gen_initial_info($)
 {
 	my $directory = $_[0];
 	my @file_list;
+	my $prefix;
 
 	if (-d $directory)
 	{
@@ -2041,20 +2079,23 @@ sub gen_initial_info($)
 		chomp(@file_list);
 		@file_list or die("ERROR: no $graph_file_extension files ".
 				  "found in $directory!\n");
+		$prefix = get_common_prefix(1, @file_list);
 		info("Found %d graph files in %s\n", $#file_list+1, $directory);
 	}
 	else
 	{
 		@file_list = ($directory);
+		$prefix = "";
 	}
 
 	# Process all files in list
-	foreach (@file_list) { process_graphfile($_); }
+	foreach (@file_list) { process_graphfile($_, $prefix); }
 }
 
-sub process_graphfile($)
+sub process_graphfile($$)
 {
-	my $graph_filename = $_[0];
+	my ($file, $dir) = @_;
+	my $graph_filename = $file;
 	my $graph_dir;
 	my $graph_basename;
 	my $source_dir;
@@ -2063,7 +2104,7 @@ sub process_graphfile($)
 	my $filename;
 	local *INFO_HANDLE;
 
-	info("Processing $_[0]\n");
+	info("Processing %s\n", abs2rel($file, $dir));
 
 	# Get path to data file in absolute and normalized form (begins with /,
 	# contains no more ../ or ./)
