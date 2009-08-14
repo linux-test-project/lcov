@@ -794,6 +794,12 @@ sub process_dafile($$)
 
 		# Read in contents of gcov file
 		@result = read_gcov_file($gcov_file);
+		if (!defined($result[0])) {
+			warn("WARNING: skipping unreadable file ".
+			     $gcov_file."\n");
+			unlink($gcov_file);
+			next;
+		}
 		@gcov_content = @{$result[0]};
 		@gcov_branches = @{$result[1]};
 		@gcov_functions = @{$result[2]};
@@ -1200,8 +1206,14 @@ sub read_gcov_file($)
 	my $number;
 	local *INPUT;
 
-	open(INPUT, $filename)
-		or die("ERROR: cannot read $filename!\n");
+	if (!open(INPUT, $filename)) {
+		if ($ignore_errors[$ERROR_GCOV])
+		{
+			warn("WARNING: cannot read $filename!\n");
+			return (undef, undef, undef);
+		}
+		die("ERROR: cannot read $filename!\n");
+	}
 
 	if ($gcov_version < $GCOV_VERSION_3_3_0)
 	{
