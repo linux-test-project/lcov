@@ -172,6 +172,7 @@ our $no_recursion = 0;
 our $to_package;
 our $from_package;
 our $maxdepth;
+our $no_markers;
 our $config;		# Configuration file contents
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
@@ -244,6 +245,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"no-recursion" => \$no_recursion,
 		"to-package=s" => \$to_package,
 		"from-package=s" => \$from_package,
+		"no-markers" => \$no_markers,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -457,6 +459,7 @@ Options:
       --no-recursion              Exlude subdirectories from processing
       --to-package FILENAME       Store unprocessed coverage data in FILENAME
       --from-package FILENAME     Capture from unprocessed data in FILENAME
+      --no-markers                Ignore exclusion markers in source code
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -769,6 +772,10 @@ sub lcov_geninfo(@)
 	if ($initial)
 	{
 		@param = (@param, "--initial");
+	}
+	if ($no_markers)
+	{
+		@param = (@param, "--no-markers");
 	}
 	system(@param) and exit($? >> 8);
 }
@@ -2335,6 +2342,9 @@ sub get_common_prefix($@)
 	my @prefix;
 	my $i;
 
+	if (scalar(@files) == 1) {
+		return "";
+	}
 	foreach $file (@files) {
 		my @comp = splitdir($file);
 

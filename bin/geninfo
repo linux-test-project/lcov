@@ -74,6 +74,10 @@ our $COMPAT_HAMMER	= "hammer";
 our $ERROR_GCOV		= 0;
 our $ERROR_SOURCE	= 1;
 
+our $EXCL_START = "LCOV_EXCL_START";
+our $EXCL_STOP = "LCOV_EXCL_STOP";
+our $EXCL_LINE = "LCOV_EXCL_LINE";
+
 # Prototypes
 sub print_usage(*);
 sub gen_info($);
@@ -129,6 +133,7 @@ our @ignore;		# List of errors to ignore (array)
 our $initial;
 our $no_recursion = 0;
 our $maxdepth;
+our $no_markers = 0;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -187,6 +192,7 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"ignore-errors=s" => \@ignore_errors,
 		"initial|i" => \$initial,
 		"no-recursion" => \$no_recursion,
+		"no-markers" => \$no_markers,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -431,6 +437,7 @@ sequentially.
       --ignore-errors ERROR         Continue after ERROR (gcov, source)
       --no-recursion                Exlude subdirectories from processing
       --function-coverage           Capture function call counts
+      --no-markers                  Ignore exclusion markers in source code
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -1204,6 +1211,8 @@ sub read_gcov_file($)
 	my @branches = ();
 	my @functions = ();
 	my $number;
+	my $exclude_flag = 0;
+	my $exclude_line = 0;
 	local *INPUT;
 
 	if (!open(INPUT, $filename)) {
@@ -1225,15 +1234,11 @@ sub read_gcov_file($)
 			# Also remove CR from line-end
 			s/\015$//;
 
-			if (/^\t\t(.*)$/)
+			if (/^branch/)
 			{
-				# Uninstrumented line
-				push(@result, 0);
-				push(@result, 0);
-				push(@result, $1);
-			}
-			elsif (/^branch/)
-			{
+				if ($exclude_line) {
+					next;
+				}
 				# Branch execution data
 				push(@branches, scalar(@result) / 3);
 				if (/^branch \d+ never executed$/)
@@ -1255,15 +1260,42 @@ sub read_gcov_file($)
 			}
 			else
 			{
+				# Check for exclusion markers
+				if (!$no_markers) {
+					if (/$EXCL_STOP/) {
+						$exclude_flag = 0;
+					} elsif (/$EXCL_START/) {
+						$exclude_flag = 1;
+					}
+					if (/$EXCL_LINE/ || $exclude_flag) {
+						$exclude_line = 1;
+					} else {
+						$exclude_line = 0;
+					}
+				}
 				# Source code execution data
+				if (/^\t\t(.*)$/)
+				{
+					# Uninstrumented line
+					push(@result, 0);
+					push(@result, 0);
+					push(@result, $1);
+					next;
+				}
 				$number = (split(" ",substr($_, 0, 16)))[0];
 
 				# Check for zero count which is indicated
 				# by ######
 				if ($number eq "######") { $number = 0;	}
 
-				push(@result, 1);
-				push(@result, $number);
+				if ($exclude_line) {
+					# Register uninstrumented line instead
+					push(@result, 0);
+					push(@result, 0);
+				} else {
+					push(@result, 1);
+					push(@result, $number);
+				}
 				push(@result, substr($_, 16));
 			}
 		}
@@ -1280,6 +1312,9 @@ sub read_gcov_file($)
 
 			if (/^branch\s+\d+\s+(\S+)\s+(\S+)/)
 			{
+				if ($exclude_line) {
+					next;
+				}
 				# Branch execution data
 				push(@branches, scalar(@result) / 3);
 				if ($1 eq "never")
@@ -1297,6 +1332,9 @@ sub read_gcov_file($)
 			}
 			elsif (/^function\s+(\S+)\s+called\s+(\d+)/)
 			{
+				if ($exclude_line) {
+					next;
+				}
 				push(@functions, $2, $1);
 			}
 			elsif (/^call/)
@@ -1305,35 +1343,56 @@ sub read_gcov_file($)
 			}
 			elsif (/^\s*([^:]+):\s*([^:]+):(.*)$/)
 			{
+				my ($count, $line, $code) = ($1, $2, $3);
+
+				# Check for exclusion markers
+				if (!$no_markers) {
+					if (/$EXCL_STOP/) {
+						$exclude_flag = 0;
+					} elsif (/$EXCL_START/) {
+						$exclude_flag = 1;
+					}
+					if (/$EXCL_LINE/ || $exclude_flag) {
+						$exclude_line = 1;
+					} else {
+						$exclude_line = 0;
+					}
+				}
 				# <exec count>:<line number>:<source code>
-				if ($2 eq "0")
+				if ($line eq "0")
 				{
 					# Extra data
 				}
-				elsif ($1 eq "-")
+				elsif ($count eq "-")
 				{
 					# Uninstrumented line
 					push(@result, 0);
 					push(@result, 0);
-					push(@result, $3);
+					push(@result, $code);
 				}
 				else
 				{
-					# Source code execution data
-					$number = $1;
-
-					# Check for zero count
-					if ($number eq "#####")	{ $number = 0; }
-
-					push(@result, 1);
-					push(@result, $number);
-					push(@result, $3);
+					if ($exclude_line) {
+						push(@result, 0);
+						push(@result, 0);
+					} else {
+						# Check for zero count
+						if ($count eq "#####") {
+							$count = 0;
+						}
+						push(@result, 1);
+						push(@result, $count);
+					}
+					push(@result, $code);
 				}
 			}
 		}
 	}
 
 	close(INPUT);
+	if ($exclude_flag) {
+		warn("WARNING: unterminated exclusion section in $filename\n");
+	}
 	return(\@result, \@branches, \@functions);
 }
 

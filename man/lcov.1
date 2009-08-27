@@ -38,6 +38,8 @@ lcov \- a graphical GCOV front\-end
 .IR package ]
 .RB [ \-q | \-\-quiet ]
 .br
+.RB [ \-\-no\-markers ]
+.br
 .RE
 
 .B lcov
@@ -494,6 +496,15 @@ List the contents of the
 
 Only one of  \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
 at a time.
+.RE
+
+.B \-\-no\-markers
+.br
+.RS
+Use this option if you want to get coverage data without regard to exclusion
+markers in the source code file. See
+.BR "geninfo " (1)
+for details on exclusion markers.
 .RE
 
 .B \-\-no\-recursion
