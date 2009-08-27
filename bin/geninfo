@@ -854,6 +854,21 @@ sub process_dafile($$)
 				if ($fn eq "") {
 					next;
 				}
+				# Remove excluded functions
+				if (!$no_markers) {
+					my $gfn;
+					my $found = 0;
+
+					foreach $gfn (@gcov_functions) {
+						if ($gfn eq $fn) {
+							$found = 1;
+							last;
+						}
+					}
+					if (!$found) {
+						next;
+					}
+				}
 
 				# Normalize function name
 				$fn = filter_fn_name($fn);
