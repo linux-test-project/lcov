@@ -456,7 +456,7 @@ Options:
       --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
       --ignore-errors ERRORS      Continue after ERRORS (gcov, source)
-      --no-recursion              Exlude subdirectories from processing
+      --no-recursion              Exclude subdirectories from processing
       --to-package FILENAME       Store unprocessed coverage data in FILENAME
       --from-package FILENAME     Capture from unprocessed data in FILENAME
       --no-markers                Ignore exclusion markers in source code
