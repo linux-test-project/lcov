@@ -98,7 +98,7 @@ genhtml_function_coverage = 1
 #geninfo_compat_libtool = 0
 
 # Directory containing gcov kernel files
-lcov_gcov_dir = /proc/gcov
+# lcov_gcov_dir = /proc/gcov
 
 # Location of the insmod tool
 lcov_insmod_tool = /sbin/insmod
