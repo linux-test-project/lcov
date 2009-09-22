@@ -556,6 +556,7 @@ sub process_dafile($$)
 	my $source_dir;		# Directory of source file
 	my $da_basename;	# data filename without ".da/.gcda" extension
 	my $bb_filename;	# Name of respective graph file
+	my $bb_basename;	# Basename of the original graph file
 	my %bb_content;		# Contents of graph file
 	my $gcov_error;		# Error code of gcov tool
 	my $object_dir;		# Directory containing all object files
@@ -575,6 +576,7 @@ sub process_dafile($$)
 	my @matches;		# List of absolute paths matching filename
 	my @unprocessed;	# List of unprocessed source code files
 	my $base_dir;		# Base directory for current file
+	my @tmp_links;		# Temporary links to be cleaned up
 	my @result;
 	my $index;
 	my $da_renamed;		# If data file is to be renamed
@@ -622,7 +624,8 @@ sub process_dafile($$)
 	}
 
 	# Construct name of graph file
-	$bb_filename = $da_dir."/".$da_basename.$graph_file_extension;
+	$bb_basename = $da_basename.$graph_file_extension;
+	$bb_filename = "$da_dir/$bb_basename";
 
 	# Find out the real location of graph file in case we're just looking at
 	# a link
@@ -675,6 +678,17 @@ sub process_dafile($$)
 		       "$object_dir/$da_basename$data_file_extension")
 			and die ("ERROR: cannot create link $object_dir/".
 				 "$da_basename$data_file_extension!\n");
+		push(@tmp_links,
+		     "$object_dir/$da_basename$data_file_extension");
+		# Need to create link to graph file if basename of link
+		# and file are different (CONFIG_MODVERSION compat)
+		if ((basename($bb_filename) ne $bb_basename) &&
+		    (! -e "$object_dir/$bb_basename")) {
+			symlink($bb_filename, "$object_dir/$bb_basename") or
+				warn("WARNING: cannot create link ".
+				     "$object_dir/$bb_basename\n");
+			push(@tmp_links, "$object_dir/$bb_basename");
+		}
 	}
 
 	# Change to directory containing data files and apply GCOV
@@ -709,10 +723,9 @@ sub process_dafile($$)
 			and die ("ERROR: cannot rename $da_filename.ori");
 	}
 
-	# Clean up link
-	if ($object_dir ne $da_dir)
-	{
-		unlink($object_dir."/".$da_basename.$data_file_extension);
+	# Clean up temporary links
+	foreach (@tmp_links) {
+		unlink($_);
 	}
 
 	if ($gcov_error)
