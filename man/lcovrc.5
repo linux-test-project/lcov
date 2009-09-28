@@ -161,21 +161,6 @@ geninfo_compat_libtool = 0
 lcov_gcov_dir = /proc/gcov
 .br
 
-# Location of the insmod tool
-.br
-lcov_insmod_tool = /sbin/insmod
-.br
-
-# Location of the modprobe tool
-.br
-lcov_modprobe_tool = /sbin/modprobe
-.br
-
-# Location of the rmmod tool
-.br
-lcov_rmmod_tool = /sbin/rmmod
-.br
-
 # Location for temporary directories
 .br
 lcov_tmp_dir = /tmp
@@ -495,37 +480,11 @@ Default is 1.
 .BR lcov_gcov_dir " ="
 .I path_to_kernel_coverage_data
 .IP
-Specify the path to the directory where kernel coverage data can be found.
+Specify the path to the directory where kernel coverage data can be found
+or leave undefined for auto-detection.
 .br
 
-Default is '/proc/gcov'.
-.PP
-
-.BR lcov_insmod_tool " ="
-.I path_to_insmod
-.IP
-Specify the location of the insmod tool used to load kernel modules.
-.br
-
-Default is '/sbin/insmod'.
-.PP
-
-.BR lcov_modprobe_tool " ="
-.I path_to_modprobe
-.IP
-Specify the location of the modprobe tool used to load kernel modules.
-.br
-
-Default is '/sbin/modprobe'.
-.PP
-
-.BR lcov_rmmod_tool " ="
-.I path_to_rmmod
-.IP
-Specify the location of the rmmod tool used to unload kernel modules.
-.br
-
-Default is '/sbin/rmmod'.
+Default is auto-detection.
 .PP
 
 .BR lcov_tmp_dir " ="

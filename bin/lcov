@@ -75,20 +75,8 @@ our $lcov_version	= "LCOV version 1.8";
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
-# Names of the GCOV kernel module
-our @gcovmod = ("gcov-prof", "gcov-proc");
-
 # Directory containing gcov kernel files
 our $gcov_dir;
-
-# The location of the insmod tool
-our $insmod_tool	= "/sbin/insmod";
-
-# The location of the modprobe tool
-our $modprobe_tool	= "/sbin/modprobe";
-
-# The location of the rmmod tool
-our $rmmod_tool		= "/sbin/rmmod";
 
 # Where to create temporary directories
 our $tmp_dir;
@@ -128,14 +116,13 @@ sub system_no_output($@);
 sub read_config($);
 sub apply_config($);
 sub info(@);
-sub unload_module($);
-sub check_and_load_kernel_module();
 sub create_temp_dir();
 sub transform_pattern($);
 sub warn_handler($);
 sub die_handler($);
 sub abort_handler($);
 sub temp_cleanup();
+sub setup_gkv();
 
 # Global variables & initialization
 our @directory;		# Specifies where to get coverage data from
@@ -154,7 +141,6 @@ our $help;		# Help option flag
 our $version;		# Version option flag
 our $convert_filenames;	# If set, convert filenames when applying diff
 our $strip;		# If set, strip leading directories when applying diff
-our $need_unload;	# If set, unload gcov kernel module
 our $temp_dir_name;	# Name of temporary directory
 our $cwd = `pwd`;	# Current working directory
 our $to_file;		# If set, indicates that output is written to a file
@@ -177,6 +163,7 @@ our $config;		# Configuration file contents
 chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 our @temp_dirs;
+our $gcov_gkv;		# gcov kernel support version found on machine
 
 
 #
@@ -209,9 +196,6 @@ if ($config)
 	# Copy configuration file values to variables
 	apply_config({
 		"lcov_gcov_dir"		=> \$gcov_dir,
-		"lcov_insmod_tool"	=> \$insmod_tool,
-		"lcov_modprobe_tool"	=> \$modprobe_tool,
-		"lcov_rmmod_tool"	=> \$rmmod_tool,
 		"lcov_tmp_dir"		=> \$tmp_dir});
 }
 
@@ -326,19 +310,7 @@ if ($capture)
 
 # Determine kernel directory for gcov data
 if (!$from_package && !@directory && ($capture || $reset)) {
-	# User wants to work with kernel data on this machine - determine
-	# gcov_dir if not specified
-	if (!defined($gcov_dir)) {
-		if (-d "/sys/kernel/debug/gcov") {
-			$gcov_dir = "/sys/kernel/debug/gcov";
-		} elsif (-d "/proc/gcov") {
-			$gcov_dir = "/proc/gcov";
-			check_and_load_kernel_module();
-		}
-	}
-	if (!defined($gcov_dir) && !defined($from_package)) {
-		die("ERROR: no gcov kernel support found\n");
-	}
+	($gcov_gkv, $gcov_dir) = setup_gkv();
 }
 
 # Check for requested functionality
@@ -397,12 +369,6 @@ elsif ($diff)
 		    "Use $tool_name --help to get usage information\n");
 	}
 	diff();
-}
-
-# Unload module if we loaded it in the first place
-if ($need_unload)
-{
-	unload_module($need_unload);
 }
 
 temp_cleanup();
@@ -943,18 +909,6 @@ sub create_package($$$;$)
 	chdir($cwd);
 }
 
-sub get_gcov_kernel_version($)
-{
-	my ($dir) = @_;
-
-	if (-e "$dir/reset") {
-		return $GKV_SYS;
-	} elsif (-e "$dir/vmlinux") {
-		return $GKV_PROC;
-	}
-	die("ERROR: unsupported gcov kernel version found\n");
-}
-
 sub find_link_fn($$$)
 {
 	my ($from, $rel, $filename) = @_;
@@ -1157,16 +1111,13 @@ sub adjust_kernel_dir($$)
 sub kernel_capture()
 {
 	my $data_dir;
-	my $gkv;
 	my $build = $base_directory;
 
-	$gkv = get_gcov_kernel_version($gcov_dir);
-	if ($gkv == $GKV_SYS) {
+	if ($gcov_gkv == $GKV_SYS) {
 		$build = adjust_kernel_dir($gcov_dir, $build);
 	}
-	info("Found kernel coverage data at $gcov_dir:\n");
 	$data_dir = copy_gcov_dir($gcov_dir, @kernel_directory);
-	kernel_capture_from_dir($data_dir, $gkv, $build);
+	kernel_capture_from_dir($data_dir, $gcov_gkv, $build);
 }
 
 #
@@ -1231,106 +1182,6 @@ sub info(@)
 			printf(STDERR @_);
 		}
 	}
-}
-
-
-#
-# Check if the gcov kernel module is loaded. If it is, exit, if not, try
-# to load it.
-#
-# Die on error.
-#
-
-sub check_and_load_kernel_module()
-{
-	my $module_name;
-
-	# Is it loaded already?
-	stat("$gcov_dir");
-	if (-r _) { return(); }
-
-	info("Loading required gcov kernel module.\n");
-
-	# Do we have access to the insmod tool?
-	stat($insmod_tool);
-	if (!-x _)
-	{
-		die("ERROR: need insmod tool ($insmod_tool) to access kernel ".
-		    "coverage data!\n");
-	}
-	# Do we have access to the modprobe tool?
-	stat($modprobe_tool);
-	if (!-x _)
-	{
-		die("ERROR: need modprobe tool ($modprobe_tool) to access ".
-		    "kernel coverage data!\n");
-	}
-
-	# Try some possibilities of where the gcov kernel module may be found
-	foreach $module_name (@gcovmod)
-	{
-		# Try to load module from system wide module directory
-		# /lib/modules
-		if (system_no_output(3, $modprobe_tool, $module_name) == 0)
-		{
-			# Succeeded
-			$need_unload = $module_name;
-			return();
-		}
-
-		# Try to load linux 2.5/2.6 module from tool directory
-		if (system_no_output(3, $insmod_tool,
-				      "$tool_dir/$module_name.ko") == 0)
-		{
-			# Succeeded
-			$need_unload = $module_name;
-			return();
-		}
-
-		# Try to load linux 2.4 module from tool directory
-		if (system_no_output(3, $insmod_tool,
-				     "$tool_dir/$module_name.o") == 0)
-		{
-			# Succeeded
-			$need_unload = $module_name;
-			return();
-		}
-	}
-
-	# Hm, loading failed - maybe we aren't root?
-	if ($> != 0)
-	{
-		die("ERROR: need root access to load kernel module!\n");
-	}
-
-	die("ERROR: cannot load required gcov kernel module!\n");
-}
-
-
-#
-# unload_module()
-#
-# Unload the gcov kernel module.
-#
-
-sub unload_module($)
-{
-	my $module = $_[0];
-
-	info("Unloading kernel module $module\n");
-
-	# Do we have access to the rmmod tool?
-	stat($rmmod_tool);
-	if (!-x _)
-	{
-		warn("WARNING: cannot execute rmmod tool at $rmmod_tool - ".
-		     "gcov module still loaded!\n");
-	}
-
-	# Unload gcov kernel module
-	system_no_output(1, $rmmod_tool, $module)
-		and warn("WARNING: cannot unload gcov kernel module ".
-		         "$module!\n");
 }
 
 
@@ -3324,5 +3175,89 @@ sub temp_cleanup()
 			rmtree($_);
 		}
 		@temp_dirs = ();
+	}
+}
+
+sub setup_gkv_sys()
+{
+	system_no_output(3, "mount", "-t", "debugfs", "nodev",
+			 "/sys/kernel/debug");
+}
+
+sub setup_gkv_proc()
+{
+	if (system_no_output(3, "modprobe", "gcov_proc")) {
+		system_no_output(3, "modprobe", "gcov_prof");
+	}
+}
+
+sub check_gkv_sys($)
+{
+	my ($dir) = @_;
+
+	if (-e "$dir/reset") {
+		return 1;
+	}
+	return 0;
+}
+
+sub check_gkv_proc($)
+{
+	my ($dir) = @_;
+
+	if (-e "$dir/vmlinux") {
+		return 1;
+	}
+	return 0;
+}
+
+sub setup_gkv()
+{
+	my $dir;
+	my $sys_dir = "/sys/kernel/debug/gcov";
+	my $proc_dir = "/proc/gcov";
+	my @todo;
+
+	if (!defined($gcov_dir)) {
+		info("Auto-detecting gcov kernel support.\n");
+		@todo = ( "cs", "cp", "ss", "cs", "sp", "cp" );
+	} elsif ($gcov_dir =~ /proc/) {
+		info("Checking gcov kernel support at $gcov_dir ".
+		     "(user-specified).\n");
+		@todo = ( "cp", "sp", "cp", "cs", "ss", "cs");
+	} else {
+		info("Checking gcov kernel support at $gcov_dir ".
+		     "(user-specified).\n");
+		@todo = ( "cs", "ss", "cs", "cp", "sp", "cp", );
+	}
+	foreach (@todo) {
+		if ($_ eq "cs") {
+			# Check /sys
+			$dir = defined($gcov_dir) ? $gcov_dir : $sys_dir;
+			if (check_gkv_sys($dir)) {
+				info("Found ".$GKV_NAME[$GKV_SYS]." gcov ".
+				     "kernel support at $dir\n");
+				return ($GKV_SYS, $dir);
+			}
+		} elsif ($_ eq "cp") {
+			# Check /proc
+			$dir = defined($gcov_dir) ? $gcov_dir : $proc_dir;
+			if (check_gkv_proc($dir)) {
+				info("Found ".$GKV_NAME[$GKV_PROC]." gcov ".
+				     "kernel support at $dir\n");
+				return ($GKV_PROC, $dir);
+			}
+		} elsif ($_ eq "ss") {
+			# Setup /sys
+			setup_gkv_sys();
+		} elsif ($_ eq "sp") {
+			# Setup /proc
+			setup_gkv_proc();
+		}
+	}
+	if (defined($gcov_dir)) {
+		die("ERROR: could not find gcov kernel data at $gcov_dir\n");
+	} else {
+		die("ERROR: no gcov kernel data found\n");
 	}
 }
