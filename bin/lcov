@@ -164,6 +164,7 @@ chomp($cwd);
 our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 our @temp_dirs;
 our $gcov_gkv;		# gcov kernel support version found on machine
+our $opt_derive_func_data;
 
 
 #
@@ -230,6 +231,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"to-package=s" => \$to_package,
 		"from-package=s" => \$from_package,
 		"no-markers" => \$no_markers,
+		"derive-func-data" => \$opt_derive_func_data,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -426,6 +428,7 @@ Options:
       --to-package FILENAME       Store unprocessed coverage data in FILENAME
       --from-package FILENAME     Capture from unprocessed data in FILENAME
       --no-markers                Ignore exclusion markers in source code
+      --derive-func-data          Generate function data from line data
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -742,6 +745,10 @@ sub lcov_geninfo(@)
 	if ($no_markers)
 	{
 		@param = (@param, "--no-markers");
+	}
+	if ($opt_derive_func_data)
+	{
+		@param = (@param, "--derive-func-data");
 	}
 	system(@param) and exit($? >> 8);
 }

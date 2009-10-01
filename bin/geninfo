@@ -135,6 +135,7 @@ our $initial;
 our $no_recursion = 0;
 our $maxdepth;
 our $no_markers = 0;
+our $opt_derive_func_data = 0;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -194,6 +195,7 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"initial|i" => \$initial,
 		"no-recursion" => \$no_recursion,
 		"no-markers" => \$no_markers,
+		"derive-func-data" => \$opt_derive_func_data,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -439,6 +441,7 @@ sequentially.
       --no-recursion                Exclude subdirectories from processing
       --function-coverage           Capture function call counts
       --no-markers                  Ignore exclusion markers in source code
+      --derive-func-data            Generate function data from line data
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -541,6 +544,82 @@ sub gen_info($)
 	foreach (@file_list) { process_dafile($_, $prefix); }
 }
 
+
+sub derive_data($$$)
+{
+	my ($contentdata, $funcdata, $bbdata) = @_;
+	my @gcov_content = @{$contentdata};
+	my @gcov_functions = @{$funcdata};
+	my %fn_count;
+	my %ln_fn;
+	my $line;
+	my $maxline;
+	my %fn_name;
+
+	if (!defined($bbdata)) {
+		warn("WARNING: no function data available to derive from\n");
+		return @gcov_functions;
+	}
+
+	# First add existing function data
+	while (@gcov_functions) {
+		my $count = shift(@gcov_functions);
+		my $fn = shift(@gcov_functions);
+
+		$fn_count{$fn} = $count;
+	}
+
+	# Create line -> function mapping
+	foreach (split(",", $bbdata)) {
+		my ($fn, $line) = split("=", $_);
+
+		if ($fn eq "") {
+			next;
+		}
+		$ln_fn{$line} = $fn;
+		$fn_name{$fn} = 1;
+	}
+
+	# Convert line coverage data to function data
+	$maxline = scalar(@gcov_content) / 3;
+	for ($line = 1; $line <= $maxline; $line++) {
+		my $instr = $gcov_content[($line - 1) * 3];
+		my $count = $gcov_content[($line - 1) * 3 + 1];
+		my $fn = $ln_fn{$line};
+
+		if (!defined($fn)) {
+			# No function at this line
+			next;
+		}
+		if ($instr eq 0) {
+			# No code generated for this line
+			next;
+		}
+
+		# Check for mismatch
+		if (defined($fn_count{$fn}) && ($fn_count{$fn} != $count)) {
+			warn("WARNING: derived and actual count differs for ".
+			     "function $fn ($count != $fn_count{$fn})\n");
+		} else {
+			$fn_count{$fn} = $count;
+		}
+	}
+
+	# Check if we got data for all functions
+	foreach (keys(%fn_name)) {
+		if (defined($fn_count{$_})) {
+			next;
+		}
+		warn("WARNING: no derived data found for function $_\n");
+	}
+
+	# Convert hash to list in @gcov_functions format
+	foreach (sort(keys(%fn_count))) {
+		push(@gcov_functions, $fn_count{$_}, $_);
+	}
+
+	return @gcov_functions;
+}
 
 #
 # process_dafile(da_filename, dir)
@@ -858,6 +937,14 @@ sub process_dafile($$)
 
 		# Write absolute path of source file
 		printf(INFO_HANDLE "SF:%s\n", $source_filename);
+
+		# If requested, derive function coverage data from
+		# line coverage data of the first line of a function
+		if ($opt_derive_func_data) {
+			@gcov_functions =
+				derive_data(\@gcov_content, \@gcov_functions,
+					    $bb_content{$source_filename});
+		}
 
 		# Write function-related information
 		if (defined($bb_content{$source_filename}))
