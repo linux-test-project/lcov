@@ -51,7 +51,8 @@
 
 use strict;
 use File::Basename; 
-use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir/;
+use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
+			      splitpath/;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 
@@ -460,7 +461,8 @@ sub get_common_prefix($@)
 	my $i;
 
 	foreach $file (@files) {
-		my @comp = splitdir($file);
+		my ($v, $d, $f) = splitpath($file);
+		my @comp = splitdir($d);
 
 		if (!@prefix) {
 			@prefix = @comp;
@@ -1488,9 +1490,15 @@ sub read_bb_file($$)
 		elsif ($value == $minus_two)
 		{
 			# Function name follows
-			$function_name = read_string(*INPUT, $minus_two)
-				 or die("ERROR: incomplete function ".
+			$function_name = read_string(*INPUT, $minus_two);
+			if (!defined($function_name)) {
+				 die("ERROR: incomplete function ".
 					"name in $bb_filename!\n");
+			}
+			# Cope with empty function name
+			if ($function_name eq "") {
+				next;
+			}
 			$function_name = filter_fn_name($function_name);
 		}
 		elsif ($value > 0)
@@ -1561,7 +1569,7 @@ sub read_string(*$)
 
 		$string = $string.$packed_word;
 	}
-	return("");
+	return undef;
 }
 
 

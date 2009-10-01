@@ -65,7 +65,7 @@ use File::Path;
 use File::Find;
 use File::Temp qw /tempdir/;
 use File::Spec::Functions qw /abs2rel canonpath catdir catfile 
-			      file_name_is_absolute rootdir splitdir/;
+			      file_name_is_absolute rootdir splitdir splitpath/;
 use Getopt::Long;
 use Cwd qw /abs_path getcwd/;
 
@@ -2197,7 +2197,8 @@ sub get_common_prefix($@)
 		return "";
 	}
 	foreach $file (@files) {
-		my @comp = splitdir($file);
+		my ($v, $d, $f) = splitpath($file);
+		my @comp = splitdir($d);
 
 		if (!@prefix) {
 			@prefix = @comp;
