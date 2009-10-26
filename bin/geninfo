@@ -52,7 +52,7 @@
 use strict;
 use File::Basename; 
 use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
-			      splitpath/;
+			      splitpath rel2abs/;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 
@@ -74,6 +74,7 @@ our $COMPAT_HAMMER	= "hammer";
 
 our $ERROR_GCOV		= 0;
 our $ERROR_SOURCE	= 1;
+our $ERROR_GRAPH	= 2;
 
 our $EXCL_START = "LCOV_EXCL_START";
 our $EXCL_STOP = "LCOV_EXCL_STOP";
@@ -90,13 +91,6 @@ sub solve_relative_path($$);
 sub get_dir($);
 sub read_gcov_header($);
 sub read_gcov_file($);
-sub read_bb_file($$);
-sub read_string(*$);
-sub read_gcno_file($$);
-sub read_gcno_string(*$);
-sub read_hammer_bbg_file($$);
-sub read_hammer_bbg_string(*$);
-sub unpack_int32($$);
 sub info(@);
 sub get_gcov_version();
 sub system_no_output($@);
@@ -107,6 +101,31 @@ sub process_graphfile($$);
 sub filter_fn_name($);
 sub warn_handler($);
 sub die_handler($);
+sub graph_print($);
+sub graph_error($$);
+sub graph_expect($);
+sub graph_read(*$;$);
+sub graph_skip(*$;$);
+sub sort_uniq(@);
+sub graph_cleanup($);
+sub graph_find_base($);
+sub graph_from_bb($$$);
+sub graph_add_order($$$);
+sub read_bb_word(*;$);
+sub read_bb_value(*;$);
+sub read_bb_string(*$);
+sub read_bb($$);
+sub read_bbg_word(*;$);
+sub read_bbg_value(*;$);
+sub read_bbg_string(*);
+sub read_bbg_lines_record(*$$$$$$);
+sub read_bbg($$);
+sub read_gcno_word(*;$);
+sub read_gcno_value(*$;$);
+sub read_gcno_string(*$);
+sub read_gcno_lines_record(*$$$$$$$);
+sub read_gcno_function_record(*$$$$);
+sub read_gcno($$);
 
 # Global variables
 our $gcov_version;
@@ -136,6 +155,7 @@ our $no_recursion = 0;
 our $maxdepth;
 our $no_markers = 0;
 our $opt_derive_func_data = 0;
+our $debug = 0;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -196,6 +216,7 @@ if (!GetOptions("test-name=s" => \$test_name,
 		"no-recursion" => \$no_recursion,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
+		"debug" => \$debug,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -334,6 +355,7 @@ if (@ignore_errors)
 	{
 		/^gcov$/ && do { $ignore[$ERROR_GCOV] = 1; next; } ;
 		/^source$/ && do { $ignore[$ERROR_SOURCE] = 1; next; };
+		/^graph$/ && do { $ignore[$ERROR_GRAPH] = 1; next; };
 		die("ERROR: unknown argument for --ignore-errors: $_\n");
 	}
 }
@@ -437,7 +459,7 @@ sequentially.
       --(no-)checksum               Enable (disable) line checksumming
       --(no-)compat-libtool         Enable (disable) libtool compatibility mode
       --gcov-tool TOOL              Specify gcov tool location
-      --ignore-errors ERROR         Continue after ERROR (gcov, source)
+      --ignore-errors ERROR         Continue after ERROR (gcov, source, graph)
       --no-recursion                Exclude subdirectories from processing
       --function-coverage           Capture function call counts
       --no-markers                  Ignore exclusion markers in source code
@@ -555,6 +577,8 @@ sub derive_data($$$)
 	my $line;
 	my $maxline;
 	my %fn_name;
+	my $fn;
+	my $count;
 
 	if (!defined($bbdata)) {
 		warn("WARNING: no function data available to derive from\n");
@@ -563,59 +587,48 @@ sub derive_data($$$)
 
 	# First add existing function data
 	while (@gcov_functions) {
-		my $count = shift(@gcov_functions);
-		my $fn = shift(@gcov_functions);
+		$count = shift(@gcov_functions);
+		$fn = shift(@gcov_functions);
 
 		$fn_count{$fn} = $count;
 	}
 
-	# Create line -> function mapping
-	foreach (split(",", $bbdata)) {
-		my ($fn, $line) = split("=", $_);
+	# Convert line coverage data to function data
+	foreach $fn (keys(%{$bbdata})) {
+		my $line_data = $bbdata->{$fn};
+		my $line;
 
 		if ($fn eq "") {
 			next;
 		}
-		$ln_fn{$line} = $fn;
-		$fn_name{$fn} = 1;
+		# Find the lowest line count for this function
+		$count = 0;
+		foreach $line (@$line_data) {
+			my $lcount = $gcov_content[ ( $line - 1 ) * 3 + 1 ];
+
+			if (($lcount > 0) &&
+			    (($count == 0) || ($lcount < $count))) {
+				$count = $lcount;
+			}
+		}
+		$fn_count{$fn} = $count;
 	}
 
-	# Convert line coverage data to function data
-	$maxline = scalar(@gcov_content) / 3;
-	for ($line = 1; $line <= $maxline; $line++) {
-		my $instr = $gcov_content[($line - 1) * 3];
-		my $count = $gcov_content[($line - 1) * 3 + 1];
-		my $fn = $ln_fn{$line};
-
-		if (!defined($fn)) {
-			# No function at this line
-			next;
-		}
-		if ($instr eq 0) {
-			# No code generated for this line
-			next;
-		}
-
-		# Check for mismatch
-		if (defined($fn_count{$fn}) && ($fn_count{$fn} != $count)) {
-			warn("WARNING: derived and actual count differs for ".
-			     "function $fn ($count != $fn_count{$fn})\n");
-		} else {
-			$fn_count{$fn} = $count;
-		}
-	}
 
 	# Check if we got data for all functions
-	foreach (keys(%fn_name)) {
-		if (defined($fn_count{$_})) {
+	foreach $fn (keys(%fn_name)) {
+		if ($fn eq "") {
 			next;
 		}
-		warn("WARNING: no derived data found for function $_\n");
+		if (defined($fn_count{$fn})) {
+			next;
+		}
+		warn("WARNING: no derived data found for function $fn\n");
 	}
 
 	# Convert hash to list in @gcov_functions format
-	foreach (sort(keys(%fn_count))) {
-		push(@gcov_functions, $fn_count{$_}, $_);
+	foreach $fn (sort(keys(%fn_count))) {
+		push(@gcov_functions, $fn_count{$fn}, $fn);
 	}
 
 	return @gcov_functions;
@@ -638,7 +651,7 @@ sub process_dafile($$)
 	my $da_basename;	# data filename without ".da/.gcda" extension
 	my $bb_filename;	# Name of respective graph file
 	my $bb_basename;	# Basename of the original graph file
-	my %bb_content;		# Contents of graph file
+	my $graph;		# Contents of graph file
 	my $gcov_error;		# Error code of gcov tool
 	my $object_dir;		# Directory containing all object files
 	my $source_filename;	# Name of a source code file
@@ -732,17 +745,16 @@ sub process_dafile($$)
 	{
 		if (defined($compatibility) && $compatibility eq $COMPAT_HAMMER)
 		{
-			%bb_content = read_hammer_bbg_file($bb_filename,
-							   $base_dir);
+			$graph = read_bbg($bb_filename, $base_dir);
 		}
 		else
 		{
-			%bb_content = read_bb_file($bb_filename, $base_dir);
+			$graph = read_bb($bb_filename, $base_dir);
 		}
 	} 
 	else
 	{
-		%bb_content = read_gcno_file($bb_filename, $base_dir);
+		$graph = read_gcno($bb_filename, $base_dir);
 	} 
 
 	# Set $object_dir to real location of object files. This may differ
@@ -856,8 +868,8 @@ sub process_dafile($$)
 
 	# Traverse the list of generated .gcov files and combine them into a
 	# single .info file
-	@unprocessed = keys(%bb_content);
-	foreach $gcov_file (@gcov_list)
+	@unprocessed = keys(%{$graph});
+	foreach $gcov_file (sort(@gcov_list))
 	{
 		($source, $object) = read_gcov_header($gcov_file);
 
@@ -881,7 +893,7 @@ sub process_dafile($$)
 		}
 
 		@matches = match_filename(defined($source) ? $source :
-					  $gcov_file, keys(%bb_content));
+					  $gcov_file, keys(%{$graph}));
 
 		# Skip files that are not mentioned in the graph file
 		if (!@matches)
@@ -943,16 +955,22 @@ sub process_dafile($$)
 		if ($opt_derive_func_data) {
 			@gcov_functions =
 				derive_data(\@gcov_content, \@gcov_functions,
-					    $bb_content{$source_filename});
+					    $graph->{$source_filename});
 		}
 
 		# Write function-related information
-		if (defined($bb_content{$source_filename}))
+		if (defined($graph->{$source_filename}))
 		{
-			foreach (split(",",$bb_content{$source_filename}))
-			{
-				my ($fn, $line) = split("=", $_);
+			my $fn_data = $graph->{$source_filename};
+			my $fn;
 
+			foreach $fn (sort
+				{$fn_data->{$a}->[0] <=> $fn_data->{$b}->[0]}
+				keys(%{$fn_data})) {
+				my $ln_data = $fn_data->{$fn};
+				my $line = $ln_data->[0];
+
+				# Skip empty function
 				if ($fn eq "") {
 					next;
 				}
@@ -997,8 +1015,8 @@ sub process_dafile($$)
 			$funcs_hit++ if ($count > 0);
 		}
 		if ($funcs_found > 0) {
-			printf(INFO_HANDLE "FNF:%s\n", $funcs_found);
 			printf(INFO_HANDLE "FNH:%s\n", $funcs_hit);
+			printf(INFO_HANDLE "FNF:%s\n", $funcs_found);
 		}
 
 		# Reset line counters
@@ -1053,8 +1071,8 @@ sub process_dafile($$)
 		}
 
 		# Write line statistics and section separator
-		printf(INFO_HANDLE "LF:%s\n", $lines_found);
 		printf(INFO_HANDLE "LH:%s\n", $lines_hit);
+		printf(INFO_HANDLE "LF:%s\n", $lines_found);
 		print(INFO_HANDLE "end_of_record\n");
 
 		# Remove .gcov file after processing
@@ -1515,556 +1533,6 @@ sub read_gcov_file($)
 
 
 #
-# read_bb_file(bb_filename, base_dir)
-#
-# Read .bb file BB_FILENAME and return a hash containing the following
-# mapping:
-#
-#   filename -> comma-separated list of pairs (function name=starting
-#               line number) to indicate the starting line of a function or
-#               =name to indicate an instrumented line
-#
-# for each entry in the .bb file. Filenames are absolute, i.e. relative
-# filenames are prefixed with BASE_DIR.
-#
-# Die on error.
-#
-
-sub read_bb_file($$)
-{
-	my $bb_filename		= $_[0];
-	my $base_dir = $_[1];
-	my %result;
-	my $filename;
-	my $function_name;
-	my $minus_one		= sprintf("%d", 0x80000001);
-	my $minus_two		= sprintf("%d", 0x80000002);
-	my $value;
-	my $packed_word;
-	local *INPUT;
-
-	open(INPUT, $bb_filename)
-		or die("ERROR: cannot read $bb_filename!\n");
-
-	binmode(INPUT);
-
-	# Read data in words of 4 bytes
-	while (read(INPUT, $packed_word, 4) == 4)
-	{
-		# Decode integer in intel byteorder
-		$value = unpack_int32($packed_word, 0);
-
-		# Note: the .bb file format is documented in GCC info pages
-		if ($value == $minus_one)
-		{
-			# Filename follows
-			$filename = read_string(*INPUT, $minus_one)
-				or die("ERROR: incomplete filename in ".
-				       "$bb_filename!\n");
-
-			# Make path absolute
-			$filename = solve_relative_path($base_dir, $filename);
-
-			# Insert into hash if not yet present.
-			# This is necessary because functions declared as
-			# "inline" are not listed as actual functions in
-			# .bb files
-			if (!$result{$filename})
-			{
-				$result{$filename}="";
-			}
-		}
-		elsif ($value == $minus_two)
-		{
-			# Function name follows
-			$function_name = read_string(*INPUT, $minus_two);
-			if (!defined($function_name)) {
-				 die("ERROR: incomplete function ".
-					"name in $bb_filename!\n");
-			}
-			# Cope with empty function name
-			if ($function_name eq "") {
-				next;
-			}
-			$function_name = filter_fn_name($function_name);
-		}
-		elsif ($value > 0)
-		{
-			if (defined($filename))
-			{
-				$result{$filename} .=
-					($result{$filename} ? "," : "").
-					"=$value";
-			}
-			else
-			{
-				warn("WARNING: unassigned line".
-				     " number in .bb file ".
-				     "$bb_filename\n");
-			}
-			if ($function_name)
-			{
-				# Got a full entry filename, funcname, lineno
-				# Add to resulting hash
-
-				$result{$filename}.=
-				  ($result{$filename} ? "," : "").
-				  join("=",($function_name,$value));
-				undef($function_name);
-			}
-		}
-	}
-	close(INPUT);
-
-	if (!scalar(keys(%result)))
-	{
-		die("ERROR: no data found in $bb_filename!\n");
-	}
-	return %result;
-}
-
-
-#
-# read_string(handle, delimiter);
-#
-# Read and return a string in 4-byte chunks from HANDLE until DELIMITER
-# is found.
-#
-# Return empty string on error.
-#
-
-sub read_string(*$)
-{
-	my $HANDLE	= $_[0];
-	my $delimiter	= $_[1];
-	my $string	= "";
-	my $packed_word;
-	my $value;
-
-	while (read($HANDLE,$packed_word,4) == 4)
-	{
-		$value = unpack_int32($packed_word, 0);
-
-		if ($value == $delimiter)
-		{
-			# Remove trailing nil bytes
-			$/="\0";
-			while (chomp($string)) {};
-			$/="\n";
-			return($string);
-		}
-
-		$string = $string.$packed_word;
-	}
-	return undef;
-}
-
-
-#
-# read_gcno_file(bb_filename, base_dir)
-#
-# Read .gcno file BB_FILENAME and return a hash containing the following
-# mapping:
-#
-#   filename -> comma-separated list of pairs (function name=starting
-#               line number) to indicate the starting line of a function or
-#               =name to indicate an instrumented line
-#
-# for each entry in the .gcno file. Filenames are absolute, i.e. relative
-# filenames are prefixed with BASE_DIR.
-#
-# Die on error.
-#
-
-sub read_gcno_file($$)
-{
-	my $gcno_filename	= $_[0];
-	my $base_dir = $_[1];
-	my %result;
-	my $filename;
-	my $function_name;
-	my $lineno;
-	my $length;
-	my $value;
-	my $endianness;
-	my $blocks;
-	my $packed_word;
-	my $string;
-	local *INPUT;
-
-	open(INPUT, $gcno_filename)
-		or die("ERROR: cannot read $gcno_filename!\n");
-
-	binmode(INPUT);
-	
-	read(INPUT, $packed_word, 4) == 4
-		or die("ERROR: Invalid gcno file format\n");
-
-	$value = unpack_int32($packed_word, 0);
-	$endianness = !($value == $GCNO_FILE_MAGIC);
-
-	unpack_int32($packed_word, $endianness) == $GCNO_FILE_MAGIC
-		or die("ERROR: gcno file magic does not match\n");
-
-	seek(INPUT, 8, 1);
-
-	# Read data in words of 4 bytes
-	while (read(INPUT, $packed_word, 4) == 4)
-	{
-		# Decode integer in intel byteorder
-		$value = unpack_int32($packed_word, $endianness);
-
-		if ($value == $GCNO_FUNCTION_TAG)
-		{
-			# skip length, ident and checksum
-			seek(INPUT, 12, 1);
-			(undef, $function_name) =
-				read_gcno_string(*INPUT, $endianness);
-			$function_name = filter_fn_name($function_name);
-			(undef, $filename) =
-				read_gcno_string(*INPUT, $endianness);
-			$filename = solve_relative_path($base_dir, $filename);
-
-			read(INPUT, $packed_word, 4);
-			$lineno = unpack_int32($packed_word, $endianness);
-
-			$result{$filename}.=
-			    ($result{$filename} ? "," : "").
-				join("=",($function_name,$lineno));
-		}
-		elsif ($value == $GCNO_LINES_TAG)
-		{
-			# Check for names of files containing inlined code
-			# included in this file
-			read(INPUT, $packed_word, 4);
-			$length = unpack_int32($packed_word, $endianness);
-			if ($length > 0)
-			{
-				# Block number
-				read(INPUT, $packed_word, 4);
-				$length--;
-			}
-			while ($length > 0)
-			{
-				read(INPUT, $packed_word, 4);
-				$lineno = unpack_int32($packed_word,
-						       $endianness);
-				$length--;
-				if ($lineno != 0)
-				{
-					if (defined($filename))
-					{
-						$result{$filename} .=
-							($result{$filename} ? "," : "").
-							"=$lineno";
-					}
-					else
-					{
-						warn("WARNING: unassigned line".
-						     " number in .gcno file ".
-						     "$gcno_filename\n");
-					}
-					next;
-				}
-				last if ($length == 0);
-				($blocks, $string) =
-					read_gcno_string(*INPUT, $endianness);
-				if (defined($string))
-				{
-					$filename = $string;
-				}
-				if ($blocks > 1)
-				{
-					$filename = solve_relative_path(
-							$base_dir, $filename);
-					if (!defined($result{$filename}))
-					{
-						$result{$filename} = "";
-					}
-				}
-				$length -= $blocks;
-			}
-		}
-		else
-		{
-			read(INPUT, $packed_word, 4);
-			$length = unpack_int32($packed_word, $endianness);
-			seek(INPUT, 4 * $length, 1);
-		}
-	}
-	close(INPUT);
-
-	if (!scalar(keys(%result)))
-	{
-		die("ERROR: no data found in $gcno_filename!\n");
-	}
-	return %result;
-}
-
-
-#
-# read_gcno_string(handle, endianness);
-#
-# Read a string in 4-byte chunks from HANDLE.
-#
-# Return (number of 4-byte chunks read, string).
-#
-
-sub read_gcno_string(*$)
-{
-	my $handle		= $_[0];
-	my $endianness		= $_[1];
-	my $number_of_blocks	= 0;
-	my $string		= "";
-	my $packed_word;
-
-	read($handle, $packed_word, 4) == 4
-		or die("ERROR: reading string\n");
-
-	$number_of_blocks = unpack_int32($packed_word, $endianness);
-
-	if ($number_of_blocks == 0)
-	{
-		return (1, undef);
-	}
-
-	if (read($handle, $packed_word, 4 * $number_of_blocks) !=
-	     4 * $number_of_blocks)
-	{
-		my $msg = "invalid string size ".(4 * $number_of_blocks)." in ".
-			  "gcno file at position ".tell($handle)."\n";
-		if ($ignore[$ERROR_SOURCE])
-		{
-			warn("WARNING: $msg");
-			return (1, undef);
-		}
-		else
-		{
-			die("ERROR: $msg");
-		}
-	}
-
-	$string = $string . $packed_word;
-
-	# Remove trailing nil bytes
-	$/="\0";
-	while (chomp($string)) {};
-	$/="\n";
-
-	return(1 + $number_of_blocks, $string);
-}
-
-
-#
-# read_hammer_bbg_file(bb_filename, base_dir)
-#
-# Read .bbg file BB_FILENAME and return a hash containing the following
-# mapping:
-#
-#   filename -> comma-separated list of pairs (function name=starting
-#               line number) to indicate the starting line of a function or
-#               =name to indicate an instrumented line
-#
-# for each entry in the .bbg file. Filenames are absolute, i.e. relative
-# filenames are prefixed with BASE_DIR.
-#
-# Die on error.
-#
-
-sub read_hammer_bbg_file($$)
-{
-	my $bbg_filename = $_[0];
-	my $base_dir = $_[1];
-	my %result;
-	my $filename;
-	my $function_name;
-	my $first_line;
-	my $lineno;
-	my $length;
-	my $value;
-	my $endianness;
-	my $blocks;
-	my $packed_word;
-	local *INPUT;
-
-	open(INPUT, $bbg_filename)
-		or die("ERROR: cannot read $bbg_filename!\n");
-
-	binmode(INPUT);
-	
-	# Read magic
-	read(INPUT, $packed_word, 4) == 4
-		or die("ERROR: invalid bbg file format\n");
-
-	$endianness = 1;
-
-	unpack_int32($packed_word, $endianness) == $BBG_FILE_MAGIC
-		or die("ERROR: bbg file magic does not match\n");
-
-	# Skip version
-	seek(INPUT, 4, 1);
-
-	# Read data in words of 4 bytes
-	while (read(INPUT, $packed_word, 4) == 4)
-	{
-		# Get record tag
-		$value = unpack_int32($packed_word, $endianness);
-
-		# Get record length
-		read(INPUT, $packed_word, 4);
-		$length = unpack_int32($packed_word, $endianness);
-
-		if ($value == $GCNO_FUNCTION_TAG)
-		{
-			# Get function name
-			($value, $function_name) =
-				read_hammer_bbg_string(*INPUT, $endianness);
-			$function_name = filter_fn_name($function_name);
-			$filename = undef;
-			$first_line = undef;
-
-			seek(INPUT, $length - $value * 4, 1);
-		}
-		elsif ($value == $GCNO_LINES_TAG)
-		{
-			# Get linenumber and filename
-			# Skip block number
-			seek(INPUT, 4, 1);
-			$length -= 4;
-
-			while ($length > 0)
-			{
-				read(INPUT, $packed_word, 4);
-				$lineno = unpack_int32($packed_word,
-						       $endianness);
-				$length -= 4;
-				if ($lineno != 0)
-				{
-					if (!defined($first_line))
-					{
-						$first_line = $lineno;
-					}
-					if (defined($filename))
-					{
-						$result{$filename} .=
-							($result{$filename} ? "," : "").
-							"=$lineno";
-					}
-					else
-					{
-						warn("WARNING: unassigned line".
-						     " number in .bbg file ".
-						     "$bbg_filename\n");
-					}
-					next;
-				}
-				($blocks, $value) =
-					read_hammer_bbg_string(
-						*INPUT, $endianness);
-				# Add all filenames to result list
-				if (defined($value))
-				{
-					$value = solve_relative_path(
-							$base_dir, $value);
-					if (!defined($result{$value}))
-					{
-						$result{$value} = undef;
-					}
-					if (!defined($filename))
-					{
-						$filename = $value;
-					}
-				}
-				$length -= $blocks * 4;
-
-				# Got a complete data set?
-				if (defined($filename) &&
-				    defined($first_line) &&
-				    defined($function_name))
-				{
-					# Add it to our result hash
-					if (defined($result{$filename}))
-					{
-						$result{$filename} .=
-						",$function_name=$first_line";
-					}
-					else
-					{
-						$result{$filename} =
-						"$function_name=$first_line";
-					}
-					$function_name = undef;
-					$filename = undef;
-					$first_line = undef;
-				}
-			}
-		}
-		else
-		{
-			# Skip other records
-			seek(INPUT, $length, 1);
-		}
-	}
-	close(INPUT);
-
-	if (!scalar(keys(%result)))
-	{
-		die("ERROR: no data found in $bbg_filename!\n");
-	}
-	return %result;
-}
-
-
-#
-# read_hammer_bbg_string(handle, endianness);
-#
-# Read a string in 4-byte chunks from HANDLE.
-#
-# Return (number of 4-byte chunks read, string).
-#
-
-sub read_hammer_bbg_string(*$)
-{
-	my $handle		= $_[0];
-	my $endianness		= $_[1];
-	my $length		= 0;
-	my $string		= "";
-	my $packed_word;
-	my $pad;
-
-	read($handle, $packed_word, 4) == 4
-		or die("ERROR: reading string\n");
-
-	$length = unpack_int32($packed_word, $endianness);
-	$pad = 4 - $length % 4;
-
-	if ($length == 0)
-	{
-		return (1, undef);
-	}
-
-	read($handle, $string, $length) ==
-		$length or die("ERROR: reading string\n");
-	seek($handle, $pad, 1);
-
-	return(1 + ($length + $pad) / 4, $string);
-}
-
-#
-# unpack_int32(word, endianness)
-#
-# Interpret 4-byte binary string WORD as signed 32 bit integer in
-# endian encoding defined by ENDIANNESS (0=little, 1=big) and return its
-# value.
-#
-
-sub unpack_int32($$)
-{
-	return sprintf("%d", unpack($_[1] ? "N" : "V",$_[0]));
-}
-
-
-#
 # Get the GCOV tool version. Return an integer number which represents the
 # GCOV version. Version numbers can be compared using standard integer
 # operations.
@@ -2294,7 +1762,8 @@ sub process_graphfile($$)
 	my $graph_basename;
 	my $source_dir;
 	my $base_dir;
-	my %graph_data;
+	my $graph;
+	my $instr;
 	my $filename;
 	local *INFO_HANDLE;
 
@@ -2328,17 +1797,16 @@ sub process_graphfile($$)
 	{
 		if (defined($compatibility) && $compatibility eq $COMPAT_HAMMER)
 		{
-			%graph_data = read_hammer_bbg_file($graph_filename,
-							   $base_dir);
+			($instr, $graph) = read_bbg($graph_filename, $base_dir);
 		}
 		else
 		{
-			%graph_data = read_bb_file($graph_filename, $base_dir);
+			($instr, $graph) = read_bb($graph_filename, $base_dir);
 		}
 	} 
 	else
 	{
-		%graph_data = read_gcno_file($graph_filename, $base_dir);
+		($instr, $graph) = read_gcno($graph_filename, $base_dir);
 	}
 
 	# Check whether we're writing to a single file
@@ -2365,45 +1833,45 @@ sub process_graphfile($$)
 
 	# Write test name
 	printf(INFO_HANDLE "TN:%s\n", $test_name);
-	foreach $filename (keys(%graph_data))
+	foreach $filename (sort(keys(%{$instr})))
 	{
-		my %lines;
-		my $count = 0;
-		my @functions;
+		my $funcdata = $graph->{$filename};
+		my $line;
+		my $linedata;
 
 		print(INFO_HANDLE "SF:$filename\n");
 
-		# Write function related data
-		foreach (split(",",$graph_data{$filename}))
-		{
-			my ($fn, $line) = split("=", $_);
+		if (defined($funcdata)) {
+			my @functions = sort {$funcdata->{$a}->[0] <=>
+					      $funcdata->{$b}->[0]}
+					     keys(%{$funcdata});
+			my $func;
 
-			if ($fn eq "")
-			{
-				$lines{$line} = "";
-				next;
+			# Gather list of instrumented lines and functions
+			foreach $func (@functions) {
+				$linedata = $funcdata->{$func};
+
+				# Print function name and starting line
+				print(INFO_HANDLE "FN:".$linedata->[0].
+				      ",".filter_fn_name($func)."\n");
 			}
-
-			# Normalize function name
-			$fn = filter_fn_name($fn);
-
-			print(INFO_HANDLE "FN:$line,$fn\n");
-			push(@functions, $fn);
+			# Print zero function coverage data
+			foreach $func (@functions) {
+				print(INFO_HANDLE "FNDA:0,".
+				      filter_fn_name($func)."\n");
+			}
+			# Print function summary
+			print(INFO_HANDLE "FNH:0\n");
+			print(INFO_HANDLE "FNF:".scalar(@functions)."\n");
 		}
-		foreach (@functions) {
-			print(INFO_HANDLE "FNDA:$_,0\n");
+		# Print zero line coverage data
+		foreach $line (@{$instr->{$filename}}) {
+			print(INFO_HANDLE "DA:$line,0\n");
 		}
-		print(INFO_HANDLE "FNF:".scalar(@functions)."\n");
-		print(INFO_HANDLE "FNH:0\n");
-
-		# Write line related data
-		foreach (sort {$a <=> $b } keys(%lines))
-		{
-			print(INFO_HANDLE "DA:$_,0\n");
-			$count++;
-		}
+		# Print line summary
 		print(INFO_HANDLE "LH:0\n");
-		print(INFO_HANDLE "LF:$count\n");
+		print(INFO_HANDLE "LF:".scalar(@{$instr->{$filename}})."\n");
+
 		print(INFO_HANDLE "end_of_record\n");
 	}
 	if (!($output_filename && ($output_filename eq "-")))
@@ -2434,4 +1902,875 @@ sub die_handler($)
 	my ($msg) = @_;
 
 	die("$tool_name: $msg");
+}
+
+#
+# graph_print(graph)
+#
+# Print the information in graph.
+#
+
+sub graph_print($)
+{
+	my ($graph) = @_;
+	my $filename;
+
+	foreach $filename (sort(keys(%{$graph}))) {
+		my $fn_list = $graph->{$filename};
+		my $function;
+
+		print("$filename:\n");
+		foreach $function (sort(keys(%{$fn_list}))) {
+			my $line_list = $fn_list->{$function};
+			my $line;
+
+			print("  $function:\n");
+			foreach $line (@{$line_list}) {
+				print("    $line\n");
+			}
+		}
+	}
+}
+
+#
+# graph_error(filename, message)
+#
+# Print message about error in graph file. If ignore_graph_error is set, return.
+# Otherwise abort.
+#
+
+sub graph_error($$)
+{
+	my ($filename, $msg) = @_;
+
+	if ($ignore[$ERROR_GRAPH]) {
+		warn("WARNING: $filename: $msg - skipping\n");
+		return;
+	}
+	die("ERROR: $filename: $msg\n");
+}
+
+#
+# graph_expect(description)
+#
+# If debug is set to a non-zero value, print the specified description of what
+# is expected to be read next from the graph file.
+#
+
+sub graph_expect($)
+{
+	my ($msg) = @_;
+
+	if (!$debug || !defined($msg)) {
+		return;
+	}
+
+	print(STDERR "DEBUG: expecting $msg\n");
+}
+
+#
+# graph_read(handle, bytes[, description])
+#
+# Read and return the specified number of bytes from handle. Return undef
+# if the number of bytes could not be read.
+#
+
+sub graph_read(*$;$)
+{
+	my ($handle, $length, $desc) = @_;
+	my $data;
+	my $result;
+
+	graph_expect($desc);
+	$result = read($handle, $data, $length);
+	if ($debug) {
+		my $ascii = "";
+		my $hex = "";
+		my $i;
+
+		print(STDERR "DEBUG: read($length)=$result: ");
+		for ($i = 0; $i < length($data); $i++) {
+			my $c = substr($data, $i, 1);;
+			my $n = ord($c);
+
+			$hex .= sprintf("%02x ", $n);
+			if ($n >= 32 && $n <= 127) {
+				$ascii .= $c;
+			} else {
+				$ascii .= ".";
+			}
+		}
+		print(STDERR "$hex |$ascii|");
+		print(STDERR "\n");
+	}
+	if ($result != $length) {
+		return undef;
+	}
+	return $data;
+}
+
+#
+# graph_skip(handle, bytes[, description])
+#
+# Read and discard the specified number of bytes from handle. Return non-zero
+# if bytes could be read, zero otherwise.
+#
+
+sub graph_skip(*$;$)
+{
+	my ($handle, $length, $desc) = @_;
+
+	if (defined(graph_read($handle, $length, $desc))) {
+		return 1;
+	}
+	return 0;
+}
+
+#
+# sort_uniq(list)
+#
+# Return list in numerically ascending order and without duplicate entries.
+#
+
+sub sort_uniq(@)
+{
+	my (@list) = @_;
+	my %hash;
+
+	foreach (@list) {
+		$hash{$_} = 1;
+	}
+	return sort { $a <=> $b } keys(%hash);
+}
+
+#
+# graph_cleanup(graph)
+#
+# Remove entries for functions with no lines. Remove duplicate line numbers.
+# Sort list of line numbers numerically ascending.
+#
+
+sub graph_cleanup($)
+{
+	my ($graph) = @_;
+	my $filename;
+
+	foreach $filename (keys(%{$graph})) {
+		my $per_file = $graph->{$filename};
+		my $function;
+
+		foreach $function (keys(%{$per_file})) {
+			my $lines = $per_file->{$function};
+
+			if (scalar(@$lines) == 0) {
+				# Remove empty function
+				delete($per_file->{$function});
+				next;
+			}
+			# Normalize list
+			$per_file->{$function} = [ sort_uniq(@$lines) ];
+		}
+		if (scalar(keys(%{$per_file})) == 0) {
+			# Remove empty file
+			delete($graph->{$filename});
+		}
+	}
+}
+
+#
+# graph_find_base(bb)
+#
+# Try to identify the filename which is the base source file for the
+# specified bb data.
+#
+
+sub graph_find_base($)
+{
+	my ($bb) = @_;
+	my %file_count;
+	my $basefile;
+	my $file;
+	my $func;
+	my $filedata;
+	my $count;
+	my $num;
+
+	# Identify base name for this bb data.
+	foreach $func (keys(%{$bb})) {
+		$filedata = $bb->{$func};
+
+		foreach $file (keys(%{$filedata})) {
+			$count = $file_count{$file};
+
+			# Count file occurrence
+			$file_count{$file} = defined($count) ? $count + 1 : 1;
+		}
+	}
+	$count = 0;
+	$num = 0;
+	foreach $file (keys(%file_count)) {
+		if ($file_count{$file} > $count) {
+			# The file that contains code for the most functions
+			# is likely the base file
+			$count = $file_count{$file};
+			$num = 1;
+			$basefile = $file;
+		} elsif ($file_count{$file} == $count) {
+			# If more than one file could be the basefile, we
+			# don't have a basefile
+			$basefile = undef;
+		}
+	}
+
+	return $basefile;
+}
+
+#
+# graph_from_bb(bb, fileorder, bb_filename)
+#
+# Convert data from bb to the graph format and list of instrumented lines.
+# Returns (instr, graph).
+#
+# bb         : function name -> file data
+#            : undef -> file order
+# file data  : filename -> line data
+# line data  : [ line1, line2, ... ]
+#
+# file order : function name -> [ filename1, filename2, ... ]
+#
+# graph         : file name -> function data
+# function data : function name -> line data
+# line data     : [ line1, line2, ... ]
+#
+# instr     : filename -> line data
+# line data : [ line1, line2, ... ]
+#
+
+sub graph_from_bb($$$)
+{
+	my ($bb, $fileorder, $bb_filename) = @_;
+	my $graph = {};
+	my $instr = {};
+	my $basefile;
+	my $file;
+	my $func;
+	my $filedata;
+	my $linedata;
+	my $order;
+
+	$basefile = graph_find_base($bb);
+	if (!defined($basefile)) {
+		warn("WARNING: could not determine source file for ".
+		     "$bb_filename - some functions may be accounted multiple ".
+		     "times\n");
+	}
+	# Create graph structure
+	foreach $func (keys(%{$bb})) {
+		$filedata = $bb->{$func};
+		$order = $fileorder->{$func};
+
+		# Account for lines in functions
+		if (defined($basefile) && defined($filedata->{$basefile})) {
+			# If the basefile contributes to this function,
+			# account this function to the basefile.
+			$graph->{$basefile}->{$func} = $filedata->{$basefile};
+		} else {
+			# If the basefile does not contribute to this function,
+			# account this function to the first file contributing
+			# lines.
+			$graph->{$order->[0]}->{$func} =
+				$filedata->{$order->[0]};
+		}
+
+		foreach $file (keys(%{$filedata})) {
+			# Account for instrumented lines
+			$linedata = $filedata->{$file};
+			push(@{$instr->{$file}}, @$linedata);
+		}
+	}
+	# Clean up array of instrumented lines
+	foreach $file (keys(%{$instr})) {
+		$instr->{$file} = [ sort_uniq(@{$instr->{$file}}) ];
+	}
+
+	return ($instr, $graph);
+}
+
+#
+# graph_add_order(fileorder, function, filename)
+#
+# Add an entry for filename to the fileorder data set for function.
+#
+
+sub graph_add_order($$$)
+{
+	my ($fileorder, $function, $filename) = @_;
+	my $item;
+	my $list;
+
+	$list = $fileorder->{$function};
+	foreach $item (@$list) {
+		if ($item eq $filename) {
+			return;
+		}
+	}
+	push(@$list, $filename);
+	$fileorder->{$function} = $list;
+}
+#
+# read_bb_word(handle[, description])
+#
+# Read and return a word in .bb format from handle.
+#
+
+sub read_bb_word(*;$)
+{
+	my ($handle, $desc) = @_;
+
+	return graph_read($handle, 4, $desc);
+}
+
+#
+# read_bb_value(handle[, description])
+#
+# Read a word in .bb format from handle and return the word and its integer
+# value.
+#
+
+sub read_bb_value(*;$)
+{
+	my ($handle, $desc) = @_;
+	my $word;
+
+	$word = read_bb_word($handle, $desc);
+	return undef if (!defined($word));
+
+	return ($word, unpack("V", $word));
+}
+
+#
+# read_bb_string(handle, delimiter)
+#
+# Read and return a string in .bb format from handle up to the specified
+# delimiter value.
+#
+
+sub read_bb_string(*$)
+{
+	my ($handle, $delimiter) = @_;
+	my $word;
+	my $value;
+	my $string = "";
+
+	graph_expect("string");
+	do {
+		($word, $value) = read_bb_value($handle, "string or delimiter");
+		return undef if (!defined($value));
+		if ($value != $delimiter) {
+			$string .= $word;
+		}
+	} while ($value != $delimiter);
+	$string =~ s/\0//g;
+
+	return $string;
+}
+
+#
+# read_bb(filename, base_dir)
+#
+# Read the contents of the specified .bb file and return (instr, graph), where:
+#
+#   instr     : filename -> line data
+#   line data : [ line1, line2, ... ]
+#
+#   graph     :     filename -> file_data
+#   file_data : function name -> line_data
+#   line_data : [ line1, line2, ... ]
+#
+# Relative filenames are converted to absolute form using base_dir as
+# base directory. See the gcov info pages of gcc 2.95 for a description of
+# the .bb file format.
+#
+
+sub read_bb($$)
+{
+	my ($bb_filename, $base) = @_;
+	my $minus_one = 0x80000001;
+	my $minus_two = 0x80000002;
+	my $value;
+	my $filename;
+	my $function;
+	my $bb = {};
+	my $fileorder = {};
+	my $instr;
+	my $graph;
+	local *HANDLE;
+
+	open(HANDLE, "<$bb_filename") or goto open_error;
+	binmode(HANDLE);
+	while (!eof(HANDLE)) {
+		$value = read_bb_value(*HANDLE, "data word");
+		goto incomplete if (!defined($value));
+		if ($value == $minus_one) {
+			# Source file name
+			graph_expect("filename");
+			$filename = read_bb_string(*HANDLE, $minus_one);
+			goto incomplete if (!defined($filename));
+			if ($filename ne "") {
+				$filename = rel2abs($filename, $base);
+			}
+		} elsif ($value == $minus_two) {
+			# Function name
+			graph_expect("function name");
+			$function = read_bb_string(*HANDLE, $minus_two);
+			goto incomplete if (!defined($function));
+		} elsif ($value > 0) {
+			# Line number
+			if (!defined($filename) || !defined($function)) {
+				warn("WARNING: unassigned line number ".
+				     "$value\n");
+				next;
+			}
+			push(@{$bb->{$function}->{$filename}}, $value);
+			graph_add_order($fileorder, $function, $filename);
+		}
+	}
+	close(HANDLE);
+	($instr, $graph) = graph_from_bb($bb, $fileorder, $bb_filename);
+	graph_cleanup($graph);
+
+	return ($instr, $graph);
+
+open_error:
+	graph_error($bb_filename, "could not open file");
+	return undef;
+incomplete:
+	graph_error($bb_filename, "reached unexpected end of file");
+	return undef;
+}
+
+#
+# read_bbg_word(handle[, description])
+#
+# Read and return a word in .bbg format.
+#
+
+sub read_bbg_word(*;$)
+{
+	my ($handle, $desc) = @_;
+
+	return graph_read($handle, 4, $desc);
+}
+
+#
+# read_bbg_value(handle[, description])
+#
+# Read a word in .bbg format from handle and return its integer value.
+#
+
+sub read_bbg_value(*;$)
+{
+	my ($handle, $desc) = @_;
+	my $word;
+
+	$word = read_bbg_word($handle, $desc);
+	return undef if (!defined($word));
+
+	return unpack("N", $word);
+}
+
+#
+# read_bbg_string(handle)
+#
+# Read and return a string in .bbg format.
+#
+
+sub read_bbg_string(*)
+{
+	my ($handle, $desc) = @_;
+	my $length;
+	my $string;
+
+	graph_expect("string");
+	# Read string length
+	$length = read_bbg_value($handle, "string length");
+	return undef if (!defined($length));
+	if ($length == 0) {
+		return "";
+	}
+	# Read string
+	$string = graph_read($handle, $length, "string");
+	return undef if (!defined($string));
+	# Skip padding
+	graph_skip($handle, 4 - $length % 4, "string padding") or return undef;
+
+	return $string;
+}
+
+#
+# read_bbg_lines_record(handle, bbg_filename, bb, fileorder, filename,
+#                       function, base)
+#
+# Read a bbg format lines record from handle and add the relevant data to
+# bb and fileorder. Return filename on success, undef on error.
+#
+
+sub read_bbg_lines_record(*$$$$$$)
+{
+	my ($handle, $bbg_filename, $bb, $fileorder, $filename, $function,
+	    $base) = @_;
+	my $string;
+	my $lineno;
+
+	graph_expect("lines record");
+	# Skip basic block index
+	graph_skip($handle, 4, "basic block index") or return undef;
+	while (1) {
+		# Read line number
+		$lineno = read_bbg_value($handle, "line number");
+		return undef if (!defined($lineno));
+		if ($lineno == 0) {
+			# Got a marker for a new filename
+			graph_expect("filename");
+			$string = read_bbg_string($handle);
+			return undef if (!defined($string));
+			# Check for end of record
+			if ($string eq "") {
+				return $filename;
+			}
+			$filename = rel2abs($string, $base);
+			next;
+		}
+		# Got an actual line number
+		if (!defined($filename)) {
+			warn("WARNING: unassigned line number in ".
+			     "$bbg_filename\n");
+			next;
+		}
+		push(@{$bb->{$function}->{$filename}}, $lineno);
+		graph_add_order($fileorder, $function, $filename);
+	}
+}
+
+#
+# read_bbg(filename, base_dir)
+#
+# Read the contents of the specified .bbg file and return the following mapping:
+#   graph:     filename -> file_data
+#   file_data: function name -> line_data
+#   line_data: [ line1, line2, ... ]
+#
+# Relative filenames are converted to absolute form using base_dir as
+# base directory. See the gcov-io.h file in the SLES 9 gcc 3.3.3 source code
+# for a description of the .bbg format.
+#
+
+sub read_bbg($$)
+{
+	my ($bbg_filename, $base) = @_;
+	my $file_magic = 0x67626267;
+	my $tag_function = 0x01000000;
+	my $tag_lines = 0x01450000;
+	my $word;
+	my $tag;
+	my $length;
+	my $function;
+	my $filename;
+	my $bb = {};
+	my $fileorder = {};
+	my $instr;
+	my $graph;
+	local *HANDLE;
+
+	open(HANDLE, "<$bbg_filename") or goto open_error;
+	binmode(HANDLE);
+	# Read magic
+	$word = read_bbg_value(*HANDLE, "file magic");
+	goto incomplete if (!defined($word));
+	# Check magic
+	if ($word != $file_magic) {
+		goto magic_error;
+	}
+	# Skip version
+	graph_skip(*HANDLE, 4, "version") or goto incomplete;
+	while (!eof(HANDLE)) {
+		# Read record tag
+		$tag = read_bbg_value(*HANDLE, "record tag");
+		goto incomplete if (!defined($tag));
+		# Read record length
+		$length = read_bbg_value(*HANDLE, "record length");
+		goto incomplete if (!defined($tag));
+		if ($tag == $tag_function) {
+			graph_expect("function record");
+			# Read function name
+			graph_expect("function name");
+			$function = read_bbg_string(*HANDLE);
+			goto incomplete if (!defined($function));
+			$filename = undef;
+			# Skip function checksum
+			graph_skip(*HANDLE, 4, "function checksum")
+				or goto incomplete;
+		} elsif ($tag == $tag_lines) {
+			# Read lines record
+			$filename = read_bbg_lines_record(HANDLE, $bbg_filename,
+					  $bb, $fileorder, $filename,
+					  $function, $base);
+			goto incomplete if (!defined($filename));
+		} else {
+			# Skip record contents
+			graph_skip(*HANDLE, $length, "unhandled record")
+				or goto incomplete;
+		}
+	}
+	close(HANDLE);
+	($instr, $graph) = graph_from_bb($bb, $fileorder, $bbg_filename);
+	graph_cleanup($graph);
+
+	return ($instr, $graph);
+
+open_error:
+	graph_error($bbg_filename, "could not open file");
+	return undef;
+incomplete:
+	graph_error($bbg_filename, "reached unexpected end of file");
+	return undef;
+magic_error:
+	graph_error($bbg_filename, "found unrecognized bbg file magic");
+	return undef;
+}
+
+#
+# read_gcno_word(handle[, description])
+#
+# Read and return a word in .gcno format.
+#
+
+sub read_gcno_word(*;$)
+{
+	my ($handle, $desc) = @_;
+
+	return graph_read($handle, 4, $desc);
+}
+
+#
+# read_gcno_value(handle, big_endian[, description])
+#
+# Read a word in .gcno format from handle and return its integer value
+# according to the specified endianness.
+#
+
+sub read_gcno_value(*$;$)
+{
+	my ($handle, $big_endian, $desc) = @_;
+	my $word;
+
+	$word = read_gcno_word($handle, $desc);
+	return undef if (!defined($word));
+	if ($big_endian) {
+		return unpack("N", $word);
+	} else {
+		return unpack("V", $word);
+	}
+}
+
+#
+# read_gcno_string(handle, big_endian)
+#
+# Read and return a string in .gcno format.
+#
+
+sub read_gcno_string(*$)
+{
+	my ($handle, $big_endian) = @_;
+	my $length;
+	my $string;
+
+	graph_expect("string");
+	# Read string length
+	$length = read_gcno_value($handle, $big_endian, "string length");
+	return undef if (!defined($length));
+	if ($length == 0) {
+		return "";
+	}
+	$length *= 4;
+	# Read string
+	$string = graph_read($handle, $length, "string and padding");
+	return undef if (!defined($string));
+	$string =~ s/\0//g;
+
+	return $string;
+}
+
+#
+# read_gcno_lines_record(handle, gcno_filename, bb, fileorder, filename,
+#                        function, base, big_endian)
+#
+# Read a gcno format lines record from handle and add the relevant data to
+# bb and fileorder. Return filename on success, undef on error.
+#
+
+sub read_gcno_lines_record(*$$$$$$$)
+{
+	my ($handle, $gcno_filename, $bb, $fileorder, $filename, $function,
+	    $base, $big_endian) = @_;
+	my $string;
+	my $lineno;
+
+	graph_expect("lines record");
+	# Skip basic block index
+	graph_skip($handle, 4, "basic block index") or return undef;
+	while (1) {
+		# Read line number
+		$lineno = read_gcno_value($handle, $big_endian, "line number");
+		return undef if (!defined($lineno));
+		if ($lineno == 0) {
+			# Got a marker for a new filename
+			graph_expect("filename");
+			$string = read_gcno_string($handle, $big_endian);
+			return undef if (!defined($string));
+			# Check for end of record
+			if ($string eq "") {
+				return $filename;
+			}
+			$filename = rel2abs($string, $base);
+			next;
+		}
+		# Got an actual line number
+		if (!defined($filename)) {
+			warn("WARNING: unassigned line number in ".
+			     "$gcno_filename\n");
+			next;
+		}
+		# Add to list
+		push(@{$bb->{$function}->{$filename}}, $lineno);
+		graph_add_order($fileorder, $function, $filename);
+	}
+}
+
+#
+# read_gcno_function_record(handle, graph, base, big_endian)
+#
+# Read a gcno format function record from handle and add the relevant data
+# to graph. Return (filename, function) on success, undef on error. 
+#
+
+sub read_gcno_function_record(*$$$$)
+{
+	my ($handle, $bb, $fileorder, $base, $big_endian) = @_;
+	my $filename;
+	my $function;
+	my $lineno;
+	my $lines;
+
+	graph_expect("function record");
+	# Skip ident and checksum
+	graph_skip($handle, 8, "function ident and checksum") or return undef;
+	# Read function name
+	graph_expect("function name");
+	$function = read_gcno_string($handle, $big_endian);
+	return undef if (!defined($function));
+	# Read filename
+	graph_expect("filename");
+	$filename = read_gcno_string($handle, $big_endian);
+	return undef if (!defined($filename));
+	$filename = rel2abs($filename, $base);
+	# Read first line number
+	$lineno = read_gcno_value($handle, $big_endian, "initial line number");
+	return undef if (!defined($lineno));
+	# Add to list
+	push(@{$bb->{$function}->{$filename}}, $lineno);
+	graph_add_order($fileorder, $function, $filename);
+
+	return ($filename, $function);
+}
+
+#
+# read_gcno(filename, base_dir)
+#
+# Read the contents of the specified .gcno file and return the following
+# mapping:
+#   graph:    filename -> file_data
+#   file_data: function name -> line_data
+#   line_data: [ line1, line2, ... ]
+#
+# Relative filenames are converted to absolute form using base_dir as
+# base directory. See the gcov-io.h file in the gcc 3.3 source code
+# for a description of the .gcno format.
+#
+
+sub read_gcno($$)
+{
+	my ($gcno_filename, $base) = @_;
+	my $file_magic = 0x67636e6f;
+	my $tag_function = 0x01000000;
+	my $tag_lines = 0x01450000;
+	my $big_endian;
+	my $word;
+	my $tag;
+	my $length;
+	my $filename;
+	my $function;
+	my $bb = {};
+	my $fileorder = {};
+	my $instr;
+	my $graph;
+	local *HANDLE;
+
+	open(HANDLE, "<$gcno_filename") or goto open_error;
+	binmode(HANDLE);
+	# Read magic
+	$word = read_gcno_word(*HANDLE, "file magic");
+	goto incomplete if (!defined($word));
+	# Determine file endianness
+	if (unpack("N", $word) == $file_magic) {
+		$big_endian = 1;
+	} elsif (unpack("V", $word) == $file_magic) {
+		$big_endian = 0;
+	} else {
+		goto magic_error;
+	}
+	# Skip version and stamp
+	graph_skip(*HANDLE, 8, "version and stamp") or goto incomplete;
+	while (!eof(HANDLE)) {
+		# Read record tag
+		$tag = read_gcno_value(*HANDLE, $big_endian, "record tag");
+		goto incomplete if (!defined($tag));
+		# Read record length
+		$length = read_gcno_value(*HANDLE, $big_endian,
+					  "record length");
+		goto incomplete if (!defined($length));
+		# Convert length to bytes
+		$length *= 4;
+		if ($tag == $tag_function) {
+			($filename, $function) = read_gcno_function_record(
+				*HANDLE, $bb, $fileorder, $base, $big_endian);
+			goto incomplete if (!defined($function));
+		} elsif ($tag == $tag_lines) {
+			# Read lines record
+			$filename = read_gcno_lines_record(*HANDLE,
+					$gcno_filename, $bb, $fileorder,
+					$filename, $function, $base,
+					$big_endian);
+			goto incomplete if (!defined($filename));
+		} else {
+			# Skip record contents
+			graph_skip(*HANDLE, $length, "unhandled record")
+				or goto incomplete;
+		}
+	}
+	close(HANDLE);
+	($instr, $graph) = graph_from_bb($bb, $fileorder, $gcno_filename);
+	graph_cleanup($graph);
+
+	return ($instr, $graph);
+
+open_error:
+	graph_error($gcno_filename, "could not open file");
+	return undef;
+incomplete:
+	graph_error($gcno_filename, "reached unexpected end of file");
+	return undef;
+magic_error:
+	graph_error($gcno_filename, "found unrecognized gcno file magic");
+	return undef;
 }

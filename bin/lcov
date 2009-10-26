@@ -165,6 +165,7 @@ our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 our @temp_dirs;
 our $gcov_gkv;		# gcov kernel support version found on machine
 our $opt_derive_func_data;
+our $opt_debug;
 
 
 #
@@ -232,6 +233,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"from-package=s" => \$from_package,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
+		"debug" => \$opt_debug,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -423,7 +425,7 @@ Options:
       --(no-)checksum             Enable (disable) line checksumming
       --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
-      --ignore-errors ERRORS      Continue after ERRORS (gcov, source)
+      --ignore-errors ERRORS      Continue after ERRORS (gcov, source, graph)
       --no-recursion              Exclude subdirectories from processing
       --to-package FILENAME       Store unprocessed coverage data in FILENAME
       --from-package FILENAME     Capture from unprocessed data in FILENAME
@@ -749,6 +751,10 @@ sub lcov_geninfo(@)
 	if ($opt_derive_func_data)
 	{
 		@param = (@param, "--derive-func-data");
+	}
+	if ($opt_debug)
+	{
+		@param = (@param, "--debug");
 	}
 	system(@param) and exit($? >> 8);
 }
