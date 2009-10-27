@@ -652,6 +652,7 @@ sub process_dafile($$)
 	my $bb_filename;	# Name of respective graph file
 	my $bb_basename;	# Basename of the original graph file
 	my $graph;		# Contents of graph file
+	my $instr;		# Contents of graph file part 2
 	my $gcov_error;		# Error code of gcov tool
 	my $object_dir;		# Directory containing all object files
 	my $source_filename;	# Name of a source code file
@@ -745,16 +746,16 @@ sub process_dafile($$)
 	{
 		if (defined($compatibility) && $compatibility eq $COMPAT_HAMMER)
 		{
-			$graph = read_bbg($bb_filename, $base_dir);
+			($instr, $graph) = read_bbg($bb_filename, $base_dir);
 		}
 		else
 		{
-			$graph = read_bb($bb_filename, $base_dir);
+			($instr, $graph) = read_bb($bb_filename, $base_dir);
 		}
 	} 
 	else
 	{
-		$graph = read_gcno($bb_filename, $base_dir);
+		($instr, $graph) = read_gcno($bb_filename, $base_dir);
 	} 
 
 	# Set $object_dir to real location of object files. This may differ
@@ -893,7 +894,7 @@ sub process_dafile($$)
 		}
 
 		@matches = match_filename(defined($source) ? $source :
-					  $gcov_file, keys(%{$graph}));
+					  $gcov_file, keys(%{$instr}));
 
 		# Skip files that are not mentioned in the graph file
 		if (!@matches)
@@ -1145,27 +1146,41 @@ sub solve_relative_path($$)
 
 sub match_filename($@)
 {
-	my $filename = shift;
-	my @list = @_;
+	my ($filename, @list) = @_;
+	my ($vol, $dir, $file) = splitpath($filename);
+	my @comp = splitdir($dir);
+	my $comps = scalar(@comp);
+	my $entry;
 	my @result;
 
-	$filename =~ s/^(.*).gcov$/$1/;
+entry:
+	foreach $entry (@list) {
+		my ($evol, $edir, $efile) = splitpath($entry);
+		my @ecomp;
+		my $ecomps;
+		my $i;
 
-	if ($filename =~ /^\/(.*)$/)
-	{
-		$filename = "$1";
-	}
-
-	foreach (@list)
-	{
-		if (/\/\Q$filename\E(.*)$/ && $1 eq "")
-		{
-			@result = (@result, $_);
+		# Filename component must match
+		if ($efile ne $file) {
+			next;
 		}
+		# Check directory components last to first for match
+		@ecomp = splitdir($edir);
+		$ecomps = scalar(@ecomp);
+		if ($ecomps < $comps) {
+			next;
+		}
+		for ($i = 0; $i < $comps; $i++) {
+			if ($comp[$comps - $i - 1] ne
+			    $ecomp[$ecomps - $i - 1]) {
+				next entry;
+			}
+		}
+		push(@result, $entry),
 	}
+
 	return @result;
 }
-
 
 #
 # solve_ambiguous_match(rel_filename, matches_ref, gcov_content_ref)
