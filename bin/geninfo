@@ -581,7 +581,6 @@ sub derive_data($$$)
 	my $count;
 
 	if (!defined($bbdata)) {
-		warn("WARNING: no function data available to derive from\n");
 		return @gcov_functions;
 	}
 
@@ -869,7 +868,7 @@ sub process_dafile($$)
 
 	# Traverse the list of generated .gcov files and combine them into a
 	# single .info file
-	@unprocessed = keys(%{$graph});
+	@unprocessed = keys(%{$instr});
 	foreach $gcov_file (sort(@gcov_list))
 	{
 		($source, $object) = read_gcov_header($gcov_file);
