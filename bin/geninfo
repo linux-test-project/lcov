@@ -2159,11 +2159,6 @@ sub graph_from_bb($$$)
 	my $order;
 
 	$basefile = graph_find_base($bb);
-	if (!defined($basefile)) {
-		warn("WARNING: could not determine source file for ".
-		     "$bb_filename - some functions may be accounted multiple ".
-		     "times\n");
-	}
 	# Create graph structure
 	foreach $func (keys(%{$bb})) {
 		$filedata = $bb->{$func};
