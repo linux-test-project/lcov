@@ -120,6 +120,13 @@ Assuming the compile directory is called "appdir", do the following:
 
 Point the web browser of your choice to the resulting index.html file.
 
+Please note that independently of where the application is installed or
+from which directory it is run, the --directory statement needs to
+point to the directory in which the application was compiled.
+
+For further information on the gcc profiling mechanism, please also
+consult the gcov man page.
+
 
 5. Questions and comments
 -------------------------
