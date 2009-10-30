@@ -100,8 +100,10 @@ Point the web browser of your choice to the resulting index.html file.
 4. An example of how to access coverage data for a user space program
 ---------------------------------------------------------------------
 Requirements: compile the program in question using GCC with the options
--fprofile-arcs and -ftest-coverage. Assuming the compile directory is called
-"appdir", do the following:
+-fprofile-arcs and -ftest-coverage. During linking, make sure to specify
+-lgcov or -coverage.
+
+Assuming the compile directory is called "appdir", do the following:
 
   a) Resetting counters
 
