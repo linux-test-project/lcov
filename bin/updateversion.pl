@@ -93,7 +93,7 @@ sub update_bin_tool($)
 	open(OUT, ">$filename.new") ||
 		die("Error: cannot create $filename.new\n");
 	while (<IN>) {
-		s/(our\s+\$lcov_version\s*=\s*\").*(\".*)$/$1LCOV version $version$2/g;
+		s/(our\s+\$lcov_version\s*=\s*["']).*(["'].*)$/$1LCOV version $version$2/g;
 		print(OUT $_);
 	}
 	close(OUT);

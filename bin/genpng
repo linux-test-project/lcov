@@ -35,7 +35,7 @@ use Getopt::Long;
 
 
 # Constants
-our $lcov_version	= "LCOV version 1.8";
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.10 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -52,6 +52,9 @@ sub genpng_die_handler($);
 #
 # Code entry point
 #
+
+# Prettify version string
+$lcov_version =~ s/\$Revision: 1.10 $/$1/;
 
 # Check whether required module GD.pm is installed
 if (check_and_load_module("GD"))
