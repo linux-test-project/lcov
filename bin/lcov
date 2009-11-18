@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.46 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.47 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -178,7 +178,7 @@ $SIG{'INT'} = \&abort_handler;
 $SIG{'QUIT'} = \&abort_handler;
 
 # Prettify version string
-$lcov_version =~ s/\$Revision: 1.46 $/$1/;
+$lcov_version =~ s/\$\s*Revision\s*:?\s*(\S+)\s*\$/$1/;
 
 # Add current working directory if $tool_dir is not already an absolute path
 if (! ($tool_dir =~ /^\/(.*)$/))
