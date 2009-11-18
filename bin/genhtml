@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.29 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.30 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -241,7 +241,7 @@ $SIG{__WARN__} = \&warn_handler;
 $SIG{__DIE__} = \&die_handler;
 
 # Prettify version string
-$lcov_version =~ s/\$Revision: 1.29 $/$1/;
+$lcov_version =~ s/\$\s*Revision\s*:?\s*(\S+)\s*\$/$1/;
 
 # Add current working directory if $tool_dir is not already an absolute path
 if (! ($tool_dir =~ /^\/(.*)$/))
