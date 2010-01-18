@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.61 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.62 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -172,6 +172,9 @@ $SIG{__DIE__} = \&die_handler;
 
 # Prettify version string
 $lcov_version =~ s/\$\s*Revision\s*:?\s*(\S+)\s*\$/$1/;
+
+# Set LANG so that gcov output will be in a unified format
+$ENV{"LANG"} = "C";
 
 # Read configuration file if available
 if (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
