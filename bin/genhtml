@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.31 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.32 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -439,8 +439,7 @@ if ($output_directory)
 
 	if (! -e _)
 	{
-		system("mkdir", "-p", $output_directory)
-			and die("ERROR: cannot create directory $_!\n");
+		create_sub_dir($output_directory);
 	}
 }
 
@@ -2005,8 +2004,10 @@ sub get_date_string()
 
 sub create_sub_dir($)
 {
-	system("mkdir", "-p" ,$_[0])
-		and die("ERROR: cannot create directory $_!\n");
+	my ($dir) = @_;
+
+	system("mkdir", "-p" ,$dir)
+		and die("ERROR: cannot create directory $dir!\n");
 }
 
 
