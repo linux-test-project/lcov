@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.47 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.48 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -206,24 +206,24 @@ if ($config)
 
 # Parse command line options
 if (!GetOptions("directory|d|di=s" => \@directory,
-		"add-tracefile=s" => \@add_tracefile,
-		"list=s" => \$list,
-		"kernel-directory=s" => \@kernel_directory,
-		"extract=s" => \$extract,
-		"remove=s" => \$remove,
+		"add-tracefile|a=s" => \@add_tracefile,
+		"list|l=s" => \$list,
+		"kernel-directory|k=s" => \@kernel_directory,
+		"extract|e=s" => \$extract,
+		"remove|r=s" => \$remove,
 		"diff=s" => \$diff,
 		"convert-filenames" => \$convert_filenames,
 		"strip=i" => \$strip,
 		"capture|c" => \$capture,
-		"output-file=s" => \$output_filename,
-		"test-name=s" => \$test_name,
-		"zerocounters" => \$reset,
-		"quiet" => \$quiet,
-		"help|?" => \$help,
-		"version" => \$version,
-		"follow" => \$follow,
+		"output-file|o=s" => \$output_filename,
+		"test-name|t=s" => \$test_name,
+		"zerocounters|z" => \$reset,
+		"quiet|q" => \$quiet,
+		"help|h|?" => \$help,
+		"version|v" => \$version,
+		"follow|f" => \$follow,
 		"path=s" => \$diff_path,
-		"base-directory=s" => \$base_directory,
+		"base-directory|b=s" => \$base_directory,
 		"checksum" => \$checksum,
 		"no-checksum" => \$no_checksum,
 		"compat-libtool" => \$compat_libtool,

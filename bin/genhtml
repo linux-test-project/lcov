@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.32 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.33 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -287,23 +287,23 @@ if ($config)
 }
 
 # Parse command line options
-if (!GetOptions("output-directory=s"	=> \$output_directory,
-		"title=s"		=> \$test_title,
+if (!GetOptions("output-directory|o=s"	=> \$output_directory,
+		"title|t=s"		=> \$test_title,
 		"description-file|d=s"	=> \$desc_filename,
-		"keep-descriptions"	=> \$keep_descriptions,
-		"css-file=s"		=> \$css_filename,
-		"baseline-file=s"	=> \$base_filename,
-		"prefix=s"		=> \$dir_prefix,
+		"keep-descriptions|k"	=> \$keep_descriptions,
+		"css-file|c=s"		=> \$css_filename,
+		"baseline-file|b=s"	=> \$base_filename,
+		"prefix|p=s"		=> \$dir_prefix,
 		"num-spaces=i"		=> \$tab_size,
 		"no-prefix"		=> \$no_prefix,
 		"no-sourceview"		=> \$no_sourceview,
-		"show-details"		=> \$show_details,
-		"frames"		=> \$frames,
+		"show-details|s"	=> \$show_details,
+		"frames|f"		=> \$frames,
 		"highlight"		=> \$highlight,
 		"legend"		=> \$legend,
-		"quiet"			=> \$quiet,
+		"quiet|q"		=> \$quiet,
 		"help|h|?"		=> \$help,
-		"version"		=> \$version,
+		"version|v"		=> \$version,
 		"html-prolog=s"		=> \$html_prolog_file,
 		"html-epilog=s"		=> \$html_epilog_file,
 		"html-extension=s"	=> \$html_ext,

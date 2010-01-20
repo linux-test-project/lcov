@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.62 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.63 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -205,15 +205,15 @@ if ($config)
 }
 
 # Parse command line options
-if (!GetOptions("test-name=s" => \$test_name,
-		"output-filename=s" => \$output_filename,
+if (!GetOptions("test-name|t=s" => \$test_name,
+		"output-filename|o=s" => \$output_filename,
 		"checksum" => \$checksum,
 		"no-checksum" => \$no_checksum,
-		"base-directory=s" => \$base_directory,
-		"version" =>\$version,
-		"quiet" => \$quiet,
-		"help|?" => \$help,
-		"follow" => \$follow,
+		"base-directory|b=s" => \$base_directory,
+		"version|v" =>\$version,
+		"quiet|q" => \$quiet,
+		"help|h|?" => \$help,
+		"follow|f" => \$follow,
 		"compat-libtool" => \$compat_libtool,
 		"no-compat-libtool" => \$no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
