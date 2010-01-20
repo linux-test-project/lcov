@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.63 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.64 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -1021,8 +1021,8 @@ sub process_dafile($$)
 			$funcs_hit++ if ($count > 0);
 		}
 		if ($funcs_found > 0) {
-			printf(INFO_HANDLE "FNH:%s\n", $funcs_hit);
 			printf(INFO_HANDLE "FNF:%s\n", $funcs_found);
+			printf(INFO_HANDLE "FNH:%s\n", $funcs_hit);
 		}
 
 		# Reset line counters
@@ -1077,8 +1077,8 @@ sub process_dafile($$)
 		}
 
 		# Write line statistics and section separator
-		printf(INFO_HANDLE "LH:%s\n", $lines_hit);
 		printf(INFO_HANDLE "LF:%s\n", $lines_found);
+		printf(INFO_HANDLE "LH:%s\n", $lines_hit);
 		print(INFO_HANDLE "end_of_record\n");
 
 		# Remove .gcov file after processing
@@ -1881,16 +1881,16 @@ sub process_graphfile($$)
 				      filter_fn_name($func)."\n");
 			}
 			# Print function summary
-			print(INFO_HANDLE "FNH:0\n");
 			print(INFO_HANDLE "FNF:".scalar(@functions)."\n");
+			print(INFO_HANDLE "FNH:0\n");
 		}
 		# Print zero line coverage data
 		foreach $line (@{$instr->{$filename}}) {
 			print(INFO_HANDLE "DA:$line,0\n");
 		}
 		# Print line summary
-		print(INFO_HANDLE "LH:0\n");
 		print(INFO_HANDLE "LF:".scalar(@{$instr->{$filename}})."\n");
+		print(INFO_HANDLE "LH:0\n");
 
 		print(INFO_HANDLE "end_of_record\n");
 	}
