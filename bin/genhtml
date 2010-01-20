@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.33 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.34 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -4438,14 +4438,16 @@ sub subtract_counts($$)
 
 sub subtract_fnccounts($$)
 {
-	my %data = %{$_[0]};
-	my %base = %{$_[1]};
+	my %data;
+	my %base;
 	my $func;
 	my $data_count;
 	my $base_count;
 	my $fn_hit = 0;
 	my $fn_found = 0;
 
+	%data = %{$_[0]} if (defined($_[0]));
+	%base = %{$_[1]} if (defined($_[1]));
 	foreach $func (keys(%data)) {
 		$fn_found++;
 		$data_count = $data{$func};
