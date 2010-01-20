@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.30 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.31 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -4558,7 +4558,7 @@ sub apply_baseline($$)
 			($sumcount, $found, $hit) =
 				add_counts($sumcount, $data_count);
 			($sumfnccount, $fn_found, $fn_hit) =
-				add_fnccounts($sumfnccount, $data_testfnccount);
+				add_fnccount($sumfnccount, $data_testfnccount);
 		}
 
 		# Write back resulting entry
