@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.49 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.50 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2714,10 +2714,16 @@ sub get_line_hash($$$)
 	my $old_depth;
 	my $new_depth;
 
+	# Remove trailing slash from diff path
+	$diff_path =~ s/\/$//;
 	foreach (keys(%{$diff_data}))
 	{
+		my $sep = "";
+
+		$sep = '/' if (!/^\//);
+
 		# Try to match diff filename with filename
-		if ($filename =~ /^\Q$diff_path\E\/$_$/)
+		if ($filename =~ /^\Q$diff_path$sep$_\E$/)
 		{
 			if ($diff_name)
 			{
