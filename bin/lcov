@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.48 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.49 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -380,7 +380,7 @@ elsif ($diff)
 
 temp_cleanup();
 
-info("Done.\n");
+info("Done.\n") if (!$list);
 exit(0);
 
 #
@@ -2259,6 +2259,7 @@ sub list()
 
 	# Get common file path prefix
 	$prefix = get_common_prefix(1, keys(%{$data}));
+	$prefix = "" if ($prefix eq "/");
 	# Get longest filename length and function coverage flag
 	foreach $filename (keys(%{$data})) {
 		$entry = $data->{$filename};
@@ -2305,7 +2306,7 @@ sub list()
 		$total_hit += $hit;
 		$fn_total_found += $fn_found;
 		$fn_total_hit += $fn_hit;
-		$filename =~ s/^\Q$prefix\/\E//;
+		$filename =~ s/^\Q$prefix\/\E// if (length($prefix) > 0);
 		if ($found == 0) {
 			$rate = "-";
 		} else {
