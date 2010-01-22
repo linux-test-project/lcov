@@ -47,25 +47,11 @@ section 'OPTIONS' below.
 #genhtml_css_file = gcov.css
 .br
 
-# Coverage rate limits for line coverage
+# Coverage rate limits
 .br
-genhtml_hi_limit = 50
+genhtml_hi_limit = 90
 .br
-genhtml_med_limit = 15
-.br
-
-# Coverage rate limits for function coverage
-.br
-genhtml_function_hi_limit = 90
-.br
-genhtml_function_med_limit = 75
-.br
-
-# Coverage rate limits for branch coverage
-.br
-genhtml_branch_hi_limit = 90
-.br
-genhtml_branch_med_limit = 75
+genhtml_med_limit = 75
 .br
 
 # Width of line coverage field in source code view
@@ -213,21 +199,9 @@ By default, a standard CSS file is generated.
 .BR genhtml_med_limit " ="
 .I med_limit
 .br
-.BR genhtml_function_hi_limit " ="
-.I hi_limit
-.br
-.BR genhtml_function_med_limit " ="
-.I med_limit
-.br
-.BR genhtml_branch_hi_limit " ="
-.I hi_limit
-.br
-.BR genhtml_branch_med_limit " ="
-.I med_limit
-.br
 .IP
 Specify coverage rate limits for classifying file entries. Use this option to
-modify the coverage rates (in percent) for line, function or branch coverage at
+modify the coverage rates (in percent) for line, function and branch coverage at
 which a result is classified as high, medium or low coverage. This
 classification affects the color of the corresponding entries on the overview
 pages of the HTML output:
@@ -240,8 +214,7 @@ Medium: med_limit <= rate < hi_limit    default color: orange
 Low:    0         <= rate < med_limit   default color: red
 .br
 
-Defaults are 50 and 15 percent for line coverage and 90 and 75 percent for
-function coverage.
+Defaults are 90 and 75 percent.
 .PP
 
 .BR genhtml_line_field_width " ="

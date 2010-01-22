@@ -12,18 +12,8 @@
 # HI:   hi_limit <= rate <= 100         graph color: green
 # MED: med_limit <= rate <  hi_limit    graph color: orange
 # LO:         0  <= rate <  med_limit   graph color: red
-
-# For line coverage
-genhtml_hi_limit = 50
-genhtml_med_limit = 15
-
-# For function coverage
-genhtml_function_hi_limit = 90
-genhtml_function_med_limit = 75
-
-# For branch coverage
-genhtml_branch_hi_limit = 90
-genhtml_branch_med_limit = 75
+genhtml_hi_limit = 90
+genhtml_med_limit = 75
 
 # Width of line coverage field in source code view
 genhtml_line_field_width = 12
