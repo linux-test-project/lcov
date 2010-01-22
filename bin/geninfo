@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.64 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.65 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -126,6 +126,7 @@ sub read_gcno_string(*$);
 sub read_gcno_lines_record(*$$$$$$$);
 sub read_gcno_function_record(*$$$$);
 sub read_gcno($$);
+sub get_gcov_capabilities();
 
 # Global variables
 our $gcov_version;
@@ -141,7 +142,6 @@ our $version;
 our $follow;
 our $checksum;
 our $no_checksum;
-our $preserve_paths;
 our $compat_libtool;
 our $no_compat_libtool;
 our $adjust_testname;
@@ -156,6 +156,8 @@ our $maxdepth;
 our $no_markers = 0;
 our $opt_derive_func_data = 0;
 our $debug = 0;
+our $gcov_caps;
+our @gcov_options;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -392,11 +394,12 @@ else
 	$graph_file_extension = ".gcno";
 }	
 
-# Check for availability of --preserve-paths option of gcov
-if (`$gcov_tool --help` =~ /--preserve-paths/)
-{
-	$preserve_paths = "--preserve-paths";
-}
+# Determine gcov options
+$gcov_caps = get_gcov_capabilities();
+push(@gcov_options, "-b") if ($gcov_caps->{'branch-probabilities'});
+push(@gcov_options, "-c") if ($gcov_caps->{'branch-counts'});
+push(@gcov_options, "-a") if ($gcov_caps->{'all-blocks'});
+push(@gcov_options, "-p") if ($gcov_caps->{'preserve-paths'});
 
 # Check output filename
 if (defined($output_filename) && ($output_filename ne "-"))
@@ -802,19 +805,8 @@ sub process_dafile($$)
 	}
 
 	# Execute gcov command and suppress standard output
-	if ($preserve_paths)
-	{
-		$gcov_error = system_no_output(1, $gcov_tool, $da_filename,
-					       "-o", $object_dir,
-					       "--preserve-paths",
-					       "-b");
-	}
-	else
-	{
-		$gcov_error = system_no_output(1, $gcov_tool, $da_filename,
-					       "-o", $object_dir,
-					       "-b");
-	}
+	$gcov_error = system_no_output(1, $gcov_tool, $da_filename,
+				       "-o", $object_dir, @gcov_options);
 
 	if ($da_renamed)
 	{
@@ -2788,4 +2780,36 @@ incomplete:
 magic_error:
 	graph_error($gcno_filename, "found unrecognized gcno file magic");
 	return undef;
+}
+
+sub debug($)
+{
+	my ($msg) = @_;
+
+	return if (!$debug);
+	print("DEBUG: $msg");
+}
+
+#
+# get_gcov_capabilities
+#
+# Determine the list of available gcov options.
+#
+
+sub get_gcov_capabilities()
+{
+	my $help = `$gcov_tool --help`;
+	my %capabilities;
+
+	foreach (split(/\n/, $help)) {
+		next if (!/--(\S+)/);
+		next if ($1 eq 'help');
+		next if ($1 eq 'version');
+		next if ($1 eq 'object-directory');
+
+		$capabilities{$1} = 1;
+		debug("gcov has capability '$1'\n");
+	}
+
+	return \%capabilities;
 }
