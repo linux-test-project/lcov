@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.51 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.52 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -129,6 +129,8 @@ sub die_handler($);
 sub abort_handler($);
 sub temp_cleanup();
 sub setup_gkv();
+sub get_overall_line($$$$);
+sub print_overall_rate($$$$$$$$$);
 
 # Global variables & initialization
 our @directory;		# Specifies where to get coverage data from
@@ -172,6 +174,12 @@ our @temp_dirs;
 our $gcov_gkv;		# gcov kernel support version found on machine
 our $opt_derive_func_data;
 our $opt_debug;
+our $ln_overall_found;
+our $ln_overall_hit;
+our $fn_overall_found;
+our $fn_overall_hit;
+our $br_overall_found;
+our $br_overall_hit;
 
 
 #
@@ -360,15 +368,21 @@ elsif ($capture)
 }
 elsif (@add_tracefile)
 {
-	add_traces();
+	($ln_overall_found, $ln_overall_hit,
+	 $fn_overall_found, $fn_overall_hit,
+	 $br_overall_found, $br_overall_hit) = add_traces();
 }
 elsif ($remove)
 {
-	remove();
+	($ln_overall_found, $ln_overall_hit,
+	 $fn_overall_found, $fn_overall_hit,
+	 $br_overall_found, $br_overall_hit) = remove();
 }
 elsif ($extract)
 {
-	extract();
+	($ln_overall_found, $ln_overall_hit,
+	 $fn_overall_found, $fn_overall_hit,
+	 $br_overall_found, $br_overall_hit) = extract();
 }
 elsif ($list)
 {
@@ -381,12 +395,20 @@ elsif ($diff)
 		die("ERROR: option --diff requires one additional argument!\n".
 		    "Use $tool_name --help to get usage information\n");
 	}
-	diff();
+	($ln_overall_found, $ln_overall_hit,
+	 $fn_overall_found, $fn_overall_hit,
+	 $br_overall_found, $br_overall_hit) = diff();
 }
 
 temp_cleanup();
 
-info("Done.\n") if (!$list);
+if (defined($ln_overall_found)) {
+	print_overall_rate(1, $ln_overall_found, $ln_overall_hit,
+			   1, $fn_overall_found, $br_overall_hit,
+			   1, $br_overall_found, $br_overall_hit);
+} else {
+	info("Done.\n") if (!$list && !$capture);
+}
 exit(0);
 
 #
@@ -2277,6 +2299,7 @@ sub add_traces()
 	my $total_trace;
 	my $current_trace;
 	my $tracefile;
+	my @result;
 	local *INFO_HANDLE;
 
 	info("Combining tracefiles.\n");
@@ -2301,13 +2324,15 @@ sub add_traces()
 		info("Writing data to $output_filename\n");
 		open(INFO_HANDLE, ">$output_filename")
 			or die("ERROR: cannot write to $output_filename!\n");
-		write_info_file(*INFO_HANDLE, $total_trace);
+		@result = write_info_file(*INFO_HANDLE, $total_trace);
 		close(*INFO_HANDLE);
 	}
 	else
 	{
-		write_info_file(*STDOUT, $total_trace);
+		@result = write_info_file(*STDOUT, $total_trace);
 	}
+
+	return @result;
 }
 
 
@@ -2341,6 +2366,12 @@ sub write_info_file(*$)
 	my $f_hit;
 	my $br_found;
 	my $br_hit;
+	my $ln_total_found = 0;
+	my $ln_total_hit = 0;
+	my $fn_total_found = 0;
+	my $fn_total_hit = 0;
+	my $br_total_found = 0;
+	my $br_total_hit = 0;
 
 	foreach $source_file (sort(keys(%data)))
 	{
@@ -2377,6 +2408,10 @@ sub write_info_file(*$)
 			print(INFO_HANDLE "FNF:$f_found\n");
 			print(INFO_HANDLE "FNH:$f_hit\n");
 
+			# Add to total
+			$fn_total_found += $f_found;
+			$fn_total_hit += $f_hit;
+
 			# Write branch related data
 			$br_found = 0;
 			$br_hit = 0;
@@ -2402,6 +2437,10 @@ sub write_info_file(*$)
 				print(INFO_HANDLE "BRH:$br_hit\n");
 			}
 
+			# Add to total
+			$br_total_found += $br_found;
+			$br_total_hit += $br_hit;
+
 			# Write line related data
 			foreach $line (sort({$a <=> $b} keys(%{$testcount})))
 			{
@@ -2420,8 +2459,15 @@ sub write_info_file(*$)
 			print(INFO_HANDLE "LF:$found\n");
 			print(INFO_HANDLE "LH:$hit\n");
 			print(INFO_HANDLE "end_of_record\n");
+
+			# Add to total
+			$ln_total_found += $found;
+			$ln_total_hit += $hit;
 		}
 	}
+
+	return ($ln_total_found, $ln_total_hit, $fn_total_found, $fn_total_hit,
+		$br_total_found, $br_total_hit);
 }
 
 
@@ -2475,6 +2521,7 @@ sub extract()
 	my $pattern;
 	my @pattern_list;
 	my $extracted = 0;
+	my @result;
 	local *INFO_HANDLE;
 
 	# Need perlreg expressions instead of shell pattern
@@ -2509,13 +2556,15 @@ sub extract()
 		info("Writing data to $output_filename\n");
 		open(INFO_HANDLE, ">$output_filename")
 			or die("ERROR: cannot write to $output_filename!\n");
-		write_info_file(*INFO_HANDLE, $data);
+		@result = write_info_file(*INFO_HANDLE, $data);
 		close(*INFO_HANDLE);
 	}
 	else
 	{
-		write_info_file(*STDOUT, $data);
+		@result = write_info_file(*STDOUT, $data);
 	}
+
+	return @result;
 }
 
 
@@ -2531,6 +2580,7 @@ sub remove()
 	my $pattern;
 	my @pattern_list;
 	my $removed = 0;
+	my @result;
 	local *INFO_HANDLE;
 
 	# Need perlreg expressions instead of shell pattern
@@ -2562,13 +2612,15 @@ sub remove()
 		info("Writing data to $output_filename\n");
 		open(INFO_HANDLE, ">$output_filename")
 			or die("ERROR: cannot write to $output_filename!\n");
-		write_info_file(*INFO_HANDLE, $data);
+		@result = write_info_file(*INFO_HANDLE, $data);
 		close(*INFO_HANDLE);
 	}
 	else
 	{
-		write_info_file(*STDOUT, $data);
+		@result = write_info_file(*STDOUT, $data);
 	}
+
+	return @result;
 }
 
 
@@ -3414,6 +3466,7 @@ sub diff()
 	my $br_hit;
 	my $converted = 0;
 	my $unchanged = 0;
+	my @result;
 	local *INFO_HANDLE;
 
 	($diff_data, $path_data) = read_diff($ARGV[0]);
@@ -3558,13 +3611,15 @@ sub diff()
 		info("Writing data to $output_filename\n");
 		open(INFO_HANDLE, ">$output_filename")
 			or die("ERROR: cannot write to $output_filename!\n");
-		write_info_file(*INFO_HANDLE, $trace_data);
+		@result = write_info_file(*INFO_HANDLE, $trace_data);
 		close(*INFO_HANDLE);
 	}
 	else
 	{
-		write_info_file(*STDOUT, $trace_data);
+		@result = write_info_file(*STDOUT, $trace_data);
 	}
+
+	return @result;
 }
 
 
@@ -3796,4 +3851,48 @@ sub setup_gkv()
 	} else {
 		die("ERROR: no gcov kernel data found\n");
 	}
+}
+
+
+#
+# get_overall_line(found, hit, name_singular, name_plural)
+#
+# Return a string containing overall information for the specified
+# found/hit data.
+#
+
+sub get_overall_line($$$$)
+{
+	my ($found, $hit, $name_sn, $name_pl) = @_;
+	my $name;
+
+	return "no data found" if (!defined($found) || $found == 0);
+	$name = ($found == 1) ? $name_sn : $name_pl;
+	return sprintf("%.1f%% (%d of %d %s)", $hit * 100 / $found, $hit,
+		       $found, $name);
+}
+
+
+#
+# print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
+#                    br_found, br_hit)
+#
+# Print overall coverage rates for the specified coverage types.
+#
+
+sub print_overall_rate($$$$$$$$$)
+{
+	my ($ln_do, $ln_found, $ln_hit, $fn_do, $fn_found, $fn_hit,
+	    $br_do, $br_found, $br_hit) = @_;
+
+	info("Overall coverage rate:\n");
+	info("  lines......: %s\n",
+	     get_overall_line($ln_found, $ln_hit, "line", "lines"))
+		if ($ln_do);
+	info("  functions..: %s\n",
+	     get_overall_line($fn_found, $fn_hit, "function", "functions"))
+		if ($fn_do);
+	info("  branches...: %s\n",
+	     get_overall_line($br_found, $br_hit, "branch", "branches"))
+		if ($br_do);
 }

@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.37 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.38 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -575,6 +575,50 @@ sub get_rate($$)
 
 
 #
+# get_overall_line(found, hit, name_singular, name_plural)
+#
+# Return a string containing overall information for the specified
+# found/hit data.
+#
+
+sub get_overall_line($$$$)
+{
+	my ($found, $hit, $name_sn, $name_pl) = @_;
+	my $name;
+
+	return "no data found" if (!defined($found) || $found == 0);
+	$name = ($found == 1) ? $name_sn : $name_pl;
+	return sprintf("%.1f%% (%d of %d %s)", $hit * 100 / $found, $hit,
+		       $found, $name);
+}
+
+
+#
+# print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
+#                    br_found, br_hit)
+#
+# Print overall coverage rates for the specified coverage types.
+#
+
+sub print_overall_rate($$$$$$$$$)
+{
+	my ($ln_do, $ln_found, $ln_hit, $fn_do, $fn_found, $fn_hit,
+	    $br_do, $br_found, $br_hit) = @_;
+
+	info("Overall coverage rate:\n");
+	info("  lines......: %s\n",
+	     get_overall_line($ln_found, $ln_hit, "line", "lines"))
+		if ($ln_do);
+	info("  functions..: %s\n",
+	     get_overall_line($fn_found, $fn_hit, "function", "functions"))
+		if ($fn_do);
+	info("  branches...: %s\n",
+	     get_overall_line($br_found, $br_hit, "branch", "branches"))
+		if ($br_do);
+}
+
+
+#
 # gen_html()
 #
 # Generate a set of HTML pages from contents of .info file INFO_FILENAME.
@@ -751,44 +795,11 @@ sub gen_html()
 					$total_br_found, $total_br_hit);
 	}
 
+	print_overall_rate(1, $overall_found, $overall_hit,
+			   $func_coverage, $total_fn_found, $total_fn_hit,
+			   $br_coverage, $total_br_found, $total_br_hit);
+
 	chdir($cwd);
-
-	info("Overall coverage rate:\n");
-
-	if ($overall_found == 0)
-	{
-		info("  lines......: no data found\n");
-		return;
-	}
-	info("  lines......: %.1f%% (%d of %d lines)\n",
-	     $overall_hit * 100 / $overall_found, $overall_hit,
-	     $overall_found,);
-
-	if ($func_coverage)
-	{
-		if ($total_fn_found == 0)
-		{
-			info("  functions..: no data found\n");
-		}
-		else
-		{
-			info("  functions..: %.1f%% (%d of %d functions)\n",
-			     $total_fn_hit * 100 / $total_fn_found,
-			     $total_fn_hit, $total_fn_found);
-
-		}
-	}
-	if ($br_coverage) {
-		if ($total_br_found == 0) {
-			info("  branches...: no data found\n");
-		} else {
-			info("  branches...: %.1f%% (%d of %d branches)\n",
-			     $total_br_hit * 100 / $total_br_found,
-			     $total_br_hit, $total_br_found);
-
-		}
-	}
-
 }
 
 #

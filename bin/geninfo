@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.66 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.67 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -134,6 +134,8 @@ sub read_gcno_lines_record(*$$$$$$$);
 sub read_gcno_function_record(*$$$$);
 sub read_gcno($$);
 sub get_gcov_capabilities();
+sub get_overall_line($$$$);
+sub print_overall_rate($$$$$$$$$);
 
 # Global variables
 our $gcov_version;
@@ -427,21 +429,44 @@ if (defined($output_filename) && ($output_filename ne "-"))
 }
 
 # Do something
-if ($initial)
 {
-	foreach (@data_directory)
-	{
-		gen_initial_info($_);
+	my $total_ln_found	= 0;
+	my $total_ln_hit	= 0;
+	my $total_fn_found	= 0;
+	my $total_fn_hit	= 0;
+	my $total_br_found	= 0;
+	my $total_br_hit	= 0;
+	my $entry;
+
+	foreach $entry (@data_directory) {
+		my $ln_found;
+		my $ln_hit;
+		my $fn_found;
+		my $fn_hit;
+		my $br_found;
+		my $br_hit;
+
+		# Process files
+		if ($initial) {
+			($ln_found, $ln_hit, $fn_found, $fn_hit,
+			 $br_found, $br_hit) = gen_initial_info($entry);
+		} else {
+			($ln_found, $ln_hit, $fn_found, $fn_hit,
+			 $br_found, $br_hit) = gen_info($entry);
+		}
+		# Add data
+		$total_ln_found	+= $ln_found;
+		$total_ln_hit	+= $ln_hit;
+		$total_fn_found	+= $fn_found;
+		$total_fn_hit	+= $fn_hit;
+		$total_br_found	+= $br_found;
+		$total_br_hit	+= $br_hit;
 	}
+	info("Finished .info-file creation\n");
+	print_overall_rate(1, $total_ln_found, $total_ln_hit,
+			   1, $total_fn_found, $total_fn_hit,
+			   1, $total_br_found, $total_br_hit);
 }
-else
-{
-	foreach (@data_directory)
-	{
-		gen_info($_);
-	}
-}
-info("Finished .info-file creation\n");
 
 exit(0);
 
@@ -558,7 +583,14 @@ sub gen_info($)
 {
 	my $directory = $_[0];
 	my @file_list;
+	my $file;
 	my $prefix;
+	my $total_ln_found	= 0;
+	my $total_ln_hit	= 0;
+	my $total_fn_found	= 0;
+	my $total_fn_hit	= 0;
+	my $total_br_found	= 0;
+	my $total_br_hit	= 0;
 
 	if (-d $directory)
 	{
@@ -579,7 +611,29 @@ sub gen_info($)
 	}
 
 	# Process all files in list
-	foreach (@file_list) { process_dafile($_, $prefix); }
+	foreach $file (@file_list) {
+		my $ln_found;
+		my $ln_hit;
+		my $fn_found;
+		my $fn_hit;
+		my $br_found;
+		my $br_hit;
+
+		# Process file
+		($ln_found, $ln_hit, $fn_found, $fn_hit, $br_found, $br_hit) =
+			process_dafile($file, $prefix);
+
+		# Add data
+		$total_ln_found	+= $ln_found;
+		$total_ln_hit	+= $ln_hit;
+		$total_fn_found	+= $fn_found;
+		$total_fn_hit	+= $fn_hit;
+		$total_br_found	+= $br_found;
+		$total_br_hit	+= $br_hit;
+	}
+
+	return ($total_ln_found, $total_ln_hit, $total_fn_found, $total_fn_hit,
+		$total_br_found, $total_br_hit);
 }
 
 
@@ -679,10 +733,16 @@ sub process_dafile($$)
 	my $line_number;	# Line number count
 	my $lines_hit;		# Number of instrumented lines hit
 	my $lines_found;	# Number of instrumented lines found
+	my $total_ln_found = 0;
+	my $total_ln_hit = 0;
 	my $funcs_hit;		# Number of instrumented functions hit
 	my $funcs_found;	# Number of instrumented functions found
+	my $total_fn_found = 0;
+	my $total_fn_hit = 0;
 	my $br_hit;
 	my $br_found;
+	my $total_br_found = 0;
+	my $total_br_hit = 0;
 	my $source;		# gcov source header information
 	my $object;		# gcov object header information
 	my @matches;		# List of absolute paths matching filename
@@ -1029,6 +1089,10 @@ sub process_dafile($$)
 			printf(INFO_HANDLE "FNH:%s\n", $funcs_hit);
 		}
 
+		# Add to totals
+		$total_fn_found += $funcs_found;
+		$total_fn_hit += $funcs_hit;
+
 		# Write coverage information for each instrumented branch:
 		#
 		#   BRDA:<line number>,<block number>,<branch number>,<taken>
@@ -1051,6 +1115,10 @@ sub process_dafile($$)
 			printf(INFO_HANDLE "BRF:%s\n", $br_found);
 			printf(INFO_HANDLE "BRH:%s\n", $br_hit);
 		}
+
+		# Add to totals
+		$total_br_found += $br_found;
+		$total_br_hit += $br_hit;
 
 		# Reset line counters
 		$line_number = 0;
@@ -1087,6 +1155,10 @@ sub process_dafile($$)
 		printf(INFO_HANDLE "LH:%s\n", $lines_hit);
 		print(INFO_HANDLE "end_of_record\n");
 
+		# Add to totals
+		$total_ln_found += $lines_found;
+		$total_ln_hit += $lines_hit;
+
 		# Remove .gcov file after processing
 		unlink($gcov_file);
 	}
@@ -1108,6 +1180,9 @@ sub process_dafile($$)
 
 	# Change back to initial directory
 	chdir($cwd);
+
+	return ($total_ln_found, $total_ln_hit, $total_fn_found, $total_fn_hit,
+		$total_br_found, $total_br_hit);
 }
 
 
@@ -1822,7 +1897,14 @@ sub gen_initial_info($)
 {
 	my $directory = $_[0];
 	my @file_list;
+	my $file;
 	my $prefix;
+	my $total_ln_found	= 0;
+	my $total_ln_hit	= 0;
+	my $total_fn_found	= 0;
+	my $total_fn_hit	= 0;
+	my $total_br_found	= 0;
+	my $total_br_hit	= 0;
 
 	if (-d $directory)
 	{
@@ -1843,9 +1925,31 @@ sub gen_initial_info($)
 	}
 
 	# Process all files in list
-	foreach (@file_list) { process_graphfile($_, $prefix); }
+	foreach $file (@file_list) {
+		my $ln_found;
+		my $ln_hit;
+		my $fn_found;
+		my $fn_hit;
+		my $br_found;
+		my $br_hit;
+
+		# Process file
+		($ln_found, $ln_hit, $fn_found, $fn_hit, $br_found, $br_hit) =
+			process_graphfile($file, $prefix);
+
+		# Add data
+		$total_ln_found	+= $ln_found;
+		$total_ln_hit	+= $ln_hit;
+		$total_fn_found	+= $fn_found;
+		$total_fn_hit	+= $fn_hit;
+		$total_br_found	+= $br_found;
+		$total_br_hit	+= $br_hit;
+	}
 
 	warn("Note: --initial does not generate branch coverage data\n");
+
+	return ($total_ln_found, $total_ln_hit, $total_fn_found, $total_fn_hit,
+		$total_br_found, $total_br_hit);
 }
 
 sub process_graphfile($$)
@@ -1859,6 +1963,10 @@ sub process_graphfile($$)
 	my $graph;
 	my $instr;
 	my $filename;
+	my $ln_found;
+	my $total_ln_found = 0;
+	my $fn_found;
+	my $total_fn_found = 0;
 	local *INFO_HANDLE;
 
 	info("Processing %s\n", abs2rel($file, $dir));
@@ -1955,23 +2063,33 @@ sub process_graphfile($$)
 				      filter_fn_name($func)."\n");
 			}
 			# Print function summary
-			print(INFO_HANDLE "FNF:".scalar(@functions)."\n");
+			$fn_found = scalar(@functions);
+			print(INFO_HANDLE "FNF:$fn_found\n");
 			print(INFO_HANDLE "FNH:0\n");
+
+			# Add to totals
+			$total_fn_found += $fn_found;
 		}
 		# Print zero line coverage data
 		foreach $line (@{$instr->{$filename}}) {
 			print(INFO_HANDLE "DA:$line,0\n");
 		}
 		# Print line summary
-		print(INFO_HANDLE "LF:".scalar(@{$instr->{$filename}})."\n");
+		$ln_found = scalar(@{$instr->{$filename}});
+		print(INFO_HANDLE "LF:$ln_found\n");
 		print(INFO_HANDLE "LH:0\n");
 
 		print(INFO_HANDLE "end_of_record\n");
+
+		# Add to totals
+		$total_ln_found += $ln_found;
 	}
 	if (!($output_filename && ($output_filename eq "-")))
 	{
 		close(INFO_HANDLE);
 	}
+
+	return ($ln_found, 0, $fn_found, 0, 0, 0);
 }
 
 sub filter_fn_name($)
@@ -2894,4 +3012,48 @@ sub get_gcov_capabilities()
 	}
 
 	return \%capabilities;
+}
+
+
+#
+# get_overall_line(found, hit, name_singular, name_plural)
+#
+# Return a string containing overall information for the specified
+# found/hit data.
+#
+
+sub get_overall_line($$$$)
+{
+	my ($found, $hit, $name_sn, $name_pl) = @_;
+	my $name;
+
+	return "no data found" if (!defined($found) || $found == 0);
+	$name = ($found == 1) ? $name_sn : $name_pl;
+	return sprintf("%.1f%% (%d of %d %s)", $hit * 100 / $found, $hit,
+		       $found, $name);
+}
+
+
+#
+# print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
+#                    br_found, br_hit)
+#
+# Print overall coverage rates for the specified coverage types.
+#
+
+sub print_overall_rate($$$$$$$$$)
+{
+	my ($ln_do, $ln_found, $ln_hit, $fn_do, $fn_found, $fn_hit,
+	    $br_do, $br_found, $br_hit) = @_;
+
+	info("Overall coverage rate:\n");
+	info("  lines......: %s\n",
+	     get_overall_line($ln_found, $ln_hit, "line", "lines"))
+		if ($ln_do);
+	info("  functions..: %s\n",
+	     get_overall_line($fn_found, $fn_hit, "function", "functions"))
+		if ($fn_do);
+	info("  branches...: %s\n",
+	     get_overall_line($br_found, $br_hit, "branch", "branches"))
+		if ($br_do);
 }
