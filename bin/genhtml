@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.38 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.39 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -168,7 +168,6 @@ sub get_dir_list(@);
 sub get_relative_base_path($);
 sub read_testfile($);
 sub get_date_string();
-sub split_filename($);
 sub create_sub_dir($);
 sub subtract_counts($$);
 sub add_counts($$);
@@ -185,6 +184,14 @@ sub read_config($);
 sub apply_config($);
 sub get_html_prolog($);
 sub get_html_epilog($);
+sub write_dir_page($$$$$$$$$$$$$$$$$);
+sub classify_rate($$$$);
+sub br_ivec_len($);
+sub br_ivec_get($$);
+sub br_ivec_push($$$$);
+sub get_br_found_and_hit($);
+sub warn_handler($);
+sub die_handler($);
 
 
 # HTML related prototypes
@@ -195,7 +202,7 @@ sub write_png_files();
 sub write_htaccess_file();
 sub write_css_file();
 sub write_description_file($$$$$$$);
-sub write_function_rable(*$$$);
+sub write_function_table(*$$$$$$$$$$);
 
 sub write_html(*$);
 sub write_html_prolog(*$$);
@@ -2693,18 +2700,6 @@ sub write_css_file()
 	  background-color: #FF0000;
 	}
 	
-	/* All views: header legend item for legend entry */
-	td.headerItemLeg
-	{
-	  text-align: right;
-	  padding-right: 6px;
-	  padding-left: 20px;
-	  font-family: sans-serif;
-	  font-weight: bold;
-	  vertical-align: bottom;
-	  white-space: nowrap;
-	}
-
 	/* All views: header legend value for legend entry */
 	td.headerValueLeg
 	{
@@ -2800,16 +2795,6 @@ sub write_css_file()
 	  font-family: sans-serif;
 	}
 	
-	/* Directory view/File view (all): legend entry for high coverage
-	   rate */
-	span.coverLegendHi
-	{
-	  padding-left: 10px;
-	  padding-right: 10px;
-	  padding-bottom: 2px;
-	  background-color: #A7FC9D;
-	}
-	
 	/* Directory view/File view (all): percentage entry for files with
 	   medium coverage rate */
 	td.coverPerMed
@@ -2832,16 +2817,6 @@ sub write_css_file()
 	  background-color: #FFEA20;
 	  white-space: nowrap;
 	  font-family: sans-serif;
-	}
-	
-	/* Directory view/File view (all): legend entry for medium coverage
-	   rate */
-	span.coverLegendMed
-	{
-	  padding-left: 10px;
-	  padding-right: 10px;
-	  padding-bottom: 2px;
-	  background-color: #FFEA20;
 	}
 	
 	/* Directory view/File view (all): percentage entry for files with
@@ -2868,16 +2843,6 @@ sub write_css_file()
 	  font-family: sans-serif;
 	}
 	
-	/* Directory view/File view (all): legend entry for low coverage
-	   rate */
-	span.coverLegendLo
-	{
-	  padding-left: 10px;
-	  padding-right: 10px;
-	  padding-bottom: 2px;
-	  background-color: #FF0000;
-	}
-	
 	/* File view (all): "show/hide details" link format */
 	a.detail:link
 	{
@@ -2897,25 +2862,6 @@ sub write_css_file()
 	{
 	  color: #FFFFFF;
 	  font-size:80%;
-	}
-	
-	/* File view (detail): test name table headline format */
-	td.testNameHead
-	{
-	  text-align: right;
-	  padding-right: 10px;
-	  background-color: #DAE7FE;
-	  font-family: sans-serif;
-	  font-weight: bold;
-	}
-	
-	/* File view (detail): test lines table headline format */
-	td.testLinesHead
-	{
-	  text-align: center;
-	  background-color: #DAE7FE;
-	  font-family: sans-serif;
-	  font-weight: bold;
 	}
 	
 	/* File view (detail): test name entry */
@@ -3056,15 +3002,6 @@ sub write_css_file()
 	  background-color: #B5F7AF;
 	}
 	
-	/* Source code view: format for DiffCov legend */
-	span.LegendDiffCov
-	{
-	  text-align: center;
-	  padding-left: 10px;
-	  padding-right: 10px;
-	  background-color: #B5F7AF;
-	}
-
 	/* Source code view: format for branches which were executed
 	 * and taken */
 	span.branchCov
@@ -3307,7 +3244,7 @@ sub write_header_line(*@)
 	my ($handle, @content) = @_;
 	my $entry;
 
-	write_html($handle, "        <tr>\n");
+	write_html($handle, "          <tr>\n");
 	foreach $entry (@content) {
 		my ($width, $class, $text, $colspan) = @{$entry};
 
@@ -3328,9 +3265,9 @@ sub write_header_line(*@)
 		}
 		$text = "" if (!defined($text));
 		write_html($handle,
-			   "          <td$width$class$colspan>$text</td>\n");
+			   "            <td$width$class$colspan>$text</td>\n");
 	}
-	write_html($handle, "        </tr>\n");
+	write_html($handle, "          </tr>\n");
 }
 
 
@@ -3345,10 +3282,11 @@ sub write_header_epilog(*$)
 	# *************************************************************
 
 	write_html($_[0], <<END_OF_HTML)
-                <tr><td><img src="$_[1]glass.png" width=3 height=3 alt=""></td></tr>
+	          <tr><td><img src="$_[1]glass.png" width=3 height=3 alt=""></td></tr>
 	        </table>
 	      </td>
 	    </tr>
+
 	    <tr><td class="ruler"><img src="$_[1]glass.png" width=3 height=3 alt=""></td></tr>
 	  </table>
 
@@ -4002,8 +3940,8 @@ sub write_html_epilog(*$;$)
 
 	write_html($_[0], <<END_OF_HTML)
 	  <table width="100%" border=0 cellspacing=0 cellpadding=0>
-	  <tr><td class="ruler"><img src="$_[1]glass.png" width=3 height=3 alt=""></td></tr>
-	  <tr><td class="versionInfo">Generated by: <a href="$lcov_url"$break_code>$lcov_version</a></td></tr>
+	    <tr><td class="ruler"><img src="$_[1]glass.png" width=3 height=3 alt=""></td></tr>
+	    <tr><td class="versionInfo">Generated by: <a href="$lcov_url"$break_code>$lcov_version</a></td></tr>
 	  </table>
 	  <br>
 END_OF_HTML
@@ -4143,28 +4081,6 @@ END_OF_HTML
 }
 
 
-# rate_to_col(found, hit)
-#
-# Return Lo, Med or Hi, depending on the coverage rate.
-#
-
-sub rate_to_col($$)
-{
-	my ($found, $hit) = @_;
-	my $rate;
-
-	if ($found == 0) {
-		return "Hi";
-	}
-	$rate = 100 * $hit / $found;
-	if ($rate < $med_limit) {
-		return "Lo";
-	} elsif ($rate < $hi_limit) {
-		return "Med";
-	}
-	return "Hi";
-}
-
 # format_rate(found, hit)
 #
 # Return formatted percent string for coverage rate.
@@ -4175,19 +4091,6 @@ sub format_rate($$)
 	return $_[0] == 0 ? "-" : sprintf("%.1f", $_[1] * 100 / $_[0])." %";
 }
 
-sub get_legend_code($$$)
-{
-	my ($text, $med, $hi) = @_;
-	my $result;
-
-	$result = <<EOF;
-	            $text<br>
-	            <span class="coverLegendLo">0% to $med%</span>
-	            <span class="coverLegendMed">$med% to $hi%</span>
-	            <span class="coverLegendHi">$hi% to 100%</span>
-EOF
-	return $result;
-}
 
 sub max($$)
 {
@@ -4445,23 +4348,6 @@ END_OF_HTML
 	write_header_epilog(*HTML_HANDLE, $base_dir);
 }
 
-
-#
-# split_filename(filename)
-#
-# Return (path, filename, extension) for a given FILENAME.
-#
-
-sub split_filename($)
-{
-	if (!$_[0]) { return(); }
-	my @path_components = split('/', $_[0]);
-	my @file_components = split('\.', pop(@path_components));
-	my $extension = pop(@file_components);
-
-	return (join("/",@path_components), join(".",@file_components),
-		$extension);
-}
 
 #
 # get_sorted_keys(hash_ref, sort_type)
@@ -5106,7 +4992,7 @@ sub funcview_get_sorted($$$)
 # Die on error.
 #
 
-sub write_function_table(*$$$$$$$$)
+sub write_function_table(*$$$$$$$$$$)
 {
 	local *HTML_HANDLE = $_[0];
 	my $source = $_[1];

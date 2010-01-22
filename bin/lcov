@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.52 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.53 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -131,6 +131,9 @@ sub temp_cleanup();
 sub setup_gkv();
 sub get_overall_line($$$$);
 sub print_overall_rate($$$$$$$$$);
+sub lcov_geninfo(@);
+sub create_package($$$;$);
+sub get_func_found_and_hit($);
 
 # Global variables & initialization
 our @directory;		# Specifies where to get coverage data from

@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.68 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.69 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -95,7 +95,6 @@ sub match_filename($@);
 sub solve_ambiguous_match($$$);
 sub split_filename($);
 sub solve_relative_path($$);
-sub get_dir($);
 sub read_gcov_header($);
 sub read_gcov_file($);
 sub info(@);
@@ -107,7 +106,6 @@ sub process_graphfile($$);
 sub filter_fn_name($);
 sub warn_handler($);
 sub die_handler($);
-sub graph_print($);
 sub graph_error($$);
 sub graph_expect($);
 sub graph_read(*$;$);
@@ -135,6 +133,11 @@ sub read_gcno($$);
 sub get_gcov_capabilities();
 sub get_overall_line($$$$);
 sub print_overall_rate($$$$$$$$$);
+sub br_gvec_len($);
+sub br_gvec_get($$);
+sub debug($);
+sub int_handler();
+
 
 # Global variables
 our $gcov_version;
@@ -1359,21 +1362,6 @@ sub split_filename($)
 
 
 #
-# get_dir(filename);
-#
-# Return the directory component of a given FILENAME.
-#
-
-sub get_dir($)
-{
-	my @components = split("/", $_[0]);
-	pop(@components);
-
-	return join("/", @components);
-}
-
-
-#
 # read_gcov_header(gcov_filename)
 #
 # Parse file GCOV_FILENAME and return a list containing the following
@@ -2073,33 +2061,6 @@ sub die_handler($)
 	die("$tool_name: $msg");
 }
 
-#
-# graph_print(graph)
-#
-# Print the information in graph.
-#
-
-sub graph_print($)
-{
-	my ($graph) = @_;
-	my $filename;
-
-	foreach $filename (sort(keys(%{$graph}))) {
-		my $fn_list = $graph->{$filename};
-		my $function;
-
-		print("$filename:\n");
-		foreach $function (sort(keys(%{$fn_list}))) {
-			my $line_list = $fn_list->{$function};
-			my $line;
-
-			print("  $function:\n");
-			foreach $line (@{$line_list}) {
-				print("    $line\n");
-			}
-		}
-	}
-}
 
 #
 # graph_error(filename, message)
