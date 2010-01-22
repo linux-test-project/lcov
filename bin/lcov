@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-#   Copyright (c) International Business Machines  Corp., 2002,2007
+#   Copyright (c) International Business Machines  Corp., 2002,2010
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.50 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.51 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -81,12 +81,18 @@ our $gcov_dir;
 # Where to create temporary directories
 our $tmp_dir;
 
-# Constants
+# Internal constants
 our $GKV_PROC = 0;	# gcov-kernel data in /proc via external patch
 our $GKV_SYS = 1;	# gcov-kernel data in /sys via vanilla 2.6.31+
 our @GKV_NAME = ( "external", "upstream" );
 our $pkg_gkv_file = ".gcov_kernel_version";
 our $pkg_build_file = ".build_directory";
+
+our $BR_BLOCK		= 0;
+our $BR_BRANCH		= 1;
+our $BR_TAKEN		= 2;
+our $BR_VEC_ENTRIES	= 3;
+our $BR_VEC_WIDTH	= 32;
 
 # Prototypes
 sub print_usage(*);
@@ -100,7 +106,7 @@ sub package_capture();
 sub add_traces();
 sub read_info_file($);
 sub get_info_entry($);
-sub set_info_entry($$$$$$$;$$$$);
+sub set_info_entry($$$$$$$$$;$$$$$$);
 sub add_counts($$);
 sub merge_checksums($$$);
 sub combine_info_entries($$$);
@@ -1228,6 +1234,113 @@ sub create_temp_dir()
 
 
 #
+# br_ivec_len(vector)
+#
+# Return the number of entries in the branch coverage vector.
+#
+
+sub br_ivec_len($)
+{
+	my ($vec) = @_;
+
+	return 0 if (!defined($vec));
+	return (length($vec) * 8 / $BR_VEC_WIDTH) / $BR_VEC_ENTRIES;
+}
+
+
+#
+# br_ivec_push(vector, block, branch, taken)
+#
+# Add an entry to the branch coverage vector.
+#
+
+sub br_ivec_push($$$$)
+{
+	my ($vec, $block, $branch, $taken) = @_;
+	my $offset;
+
+	$vec = "" if (!defined($vec));
+	$offset = br_ivec_len($vec) * $BR_VEC_ENTRIES;
+
+	# Encode taken value into an integer
+	if ($taken eq "-") {
+		$taken = 0;
+	} else {
+		$taken++;
+	}
+
+	# Add to vector
+	vec($vec, $offset + $BR_BLOCK, $BR_VEC_WIDTH) = $block;
+	vec($vec, $offset + $BR_BRANCH, $BR_VEC_WIDTH) = $branch;
+	vec($vec, $offset + $BR_TAKEN, $BR_VEC_WIDTH) = $taken;
+
+	return $vec;
+}
+
+
+#
+# br_ivec_get(vector, number)
+#
+# Return an entry from the branch coverage vector.
+#
+
+sub br_ivec_get($$)
+{
+	my ($vec, $num) = @_;
+	my $block;
+	my $branch;
+	my $taken;
+	my $offset = $num * $BR_VEC_ENTRIES;
+
+	# Retrieve data from vector
+	$block	= vec($vec, $offset + $BR_BLOCK, $BR_VEC_WIDTH);
+	$branch = vec($vec, $offset + $BR_BRANCH, $BR_VEC_WIDTH);
+	$taken	= vec($vec, $offset + $BR_TAKEN, $BR_VEC_WIDTH);
+
+	# Decode taken value from an integer
+	if ($taken == 0) {
+		$taken = "-";
+	} else {
+		$taken--;
+	}
+
+	return ($block, $branch, $taken);
+}
+
+
+#
+# get_br_found_and_hit(brcount)
+#
+# Return (br_found, br_hit) for brcount
+#
+
+sub get_br_found_and_hit($)
+{
+	my ($brcount) = @_;
+	my $line;
+	my $br_found = 0;
+	my $br_hit = 0;
+
+	foreach $line (keys(%{$brcount})) {
+		my $brdata = $brcount->{$line};
+		my $i;
+		my $num = br_ivec_len($brdata);
+
+		for ($i = 0; $i < $num; $i++) {
+			my $taken;
+
+			(undef, undef, $taken) = br_ivec_get($brdata, $i);
+
+			$br_found++;
+			$br_hit++ if ($taken ne "-" && $taken > 0);
+		}
+	}
+
+	return ($br_found, $br_hit);
+}
+
+
+#
 # read_info_file(info_filename)
 #
 # Read in the contents of the .info file specified by INFO_FILENAME. Data will
@@ -1243,16 +1356,22 @@ sub create_temp_dir()
 #        "check" -> \%checkdata
 #        "testfnc" -> \%testfncdata
 #        "sumfnc"  -> \%sumfnccount
+#        "testbr"  -> \%testbrdata
+#        "sumbr"   -> \%sumbrcount
 #
 # %testdata   : name of test affecting this file -> \%testcount
 # %testfncdata: name of test affecting this file -> \%testfnccount
+# %testbrdata:  name of test affecting this file -> \%testbrcount
 #
 # %testcount   : line number   -> execution count for a single test
 # %testfnccount: function name -> execution count for a single test
+# %testbrcount : line number   -> branch coverage data for a single test
 # %sumcount    : line number   -> execution count for all tests
 # %sumfnccount : function name -> execution count for all tests
+# %sumbrcount  : line number   -> branch coverage data for all tests
 # %funcdata    : function name -> line number
 # %checkdata   : line number   -> checksum of source code line
+# $brdata      : vector of items: block, branch, taken
 # 
 # Note that .info file sections referring to the same file and test name
 # will automatically be combined by adding all execution counts.
@@ -1277,6 +1396,9 @@ sub read_info_file($)
 	my $testfncdata;
 	my $testfnccount;
 	my $sumfnccount;
+	my $testbrdata;
+	my $testbrcount;
+	my $sumbrcount;
 	my $line;			# Current line read from .info file
 	my $testname;			# Current test name
 	my $filename;			# Current filename
@@ -1354,18 +1476,21 @@ sub read_info_file($)
 
 				$data = $result{$filename};
 				($testdata, $sumcount, $funcdata, $checkdata,
-				 $testfncdata, $sumfnccount) =
+				 $testfncdata, $sumfnccount, $testbrdata,
+				 $sumbrcount) =
 					get_info_entry($data);
 
 				if (defined($testname))
 				{
 					$testcount = $testdata->{$testname};
 					$testfnccount = $testfncdata->{$testname};
+					$testbrcount = $testbrdata->{$testname};
 				}
 				else
 				{
 					$testcount = {};
 					$testfnccount = {};
+					$testbrcount = {};
 				}
 				last;
 			};
@@ -1438,6 +1563,27 @@ sub read_info_file($)
 				}
 				last;
 			};
+
+			/^BRDA:(\d+),(\d+),(\d+),(\d+|-)/ && do {
+				# Branch coverage data found
+				my ($line, $block, $branch, $taken) =
+				   ($1, $2, $3, $4);
+
+				$sumbrcount->{$line} =
+					br_ivec_push($sumbrcount->{$line},
+						     $block, $branch, $taken);
+
+				# Add test-specific counts
+				if (defined($testname)) {
+					$testbrcount->{$line} =
+						br_ivec_push(
+							$testbrcount->{$line},
+							$block, $branch,
+							$taken);
+				}
+				last;
+			};
+
 			/^end_of_record/ && do
 			{
 				# Found end of section marker
@@ -1450,12 +1596,16 @@ sub read_info_file($)
 							$testcount;
 						$testfncdata->{$testname} =
 							$testfnccount;
+						$testbrdata->{$testname} =
+							$testbrcount;
 					}	
 
 					set_info_entry($data, $testdata,
 						       $sumcount, $funcdata,
 						       $checkdata, $testfncdata,
-						       $sumfnccount);
+						       $sumfnccount,
+						       $testbrdata,
+						       $sumbrcount);
 					$result{$filename} = $data;
 					last;
 				}
@@ -1473,7 +1623,8 @@ sub read_info_file($)
 		$data = $result{$filename};
 
 		($testdata, $sumcount, undef, undef, $testfncdata,
-		 $sumfnccount) = get_info_entry($data);
+		 $sumfnccount, $testbrdata, $sumbrcount) =
+			get_info_entry($data);
 
 		# Filter out empty files
 		if (scalar(keys(%{$sumcount})) == 0)
@@ -1512,6 +1663,14 @@ sub read_info_file($)
 			}
 		}
 		$data->{"f_hit"} = $hitcount;
+
+		# Get found/hit values for branch data
+		{
+			my ($br_found, $br_hit) = get_br_found_and_hit($sumbrcount);
+
+			$data->{"b_found"} = $br_found;
+			$data->{"b_hit"} = $br_hit;
+		}
 	}
 
 	if (scalar(keys(%result)) == 0)
@@ -1539,8 +1698,9 @@ sub read_info_file($)
 # Retrieve data from an entry of the structure generated by read_info_file().
 # Return a list of references to hashes:
 # (test data hash ref, sum count hash ref, funcdata hash ref, checkdata hash
-#  ref, testfncdata hash ref, sumfnccount hash ref, lines found, lines hit,
-#  functions found, functions hit)
+#  ref, testfncdata hash ref, sumfnccount hash ref, testbrdata hash ref,
+#  sumbrcount hash ref, lines found, lines hit, functions found,
+#  functions hit, branches found, branches hit)
 #
 
 sub get_info_entry($)
@@ -1551,26 +1711,32 @@ sub get_info_entry($)
 	my $checkdata_ref = $_[0]->{"check"};
 	my $testfncdata = $_[0]->{"testfnc"};
 	my $sumfnccount = $_[0]->{"sumfnc"};
+	my $testbrdata = $_[0]->{"testbr"};
+	my $sumbrcount = $_[0]->{"sumbr"};
 	my $lines_found = $_[0]->{"found"};
 	my $lines_hit = $_[0]->{"hit"};
 	my $f_found = $_[0]->{"f_found"};
 	my $f_hit = $_[0]->{"f_hit"};
+	my $br_found = $_[0]->{"b_found"};
+	my $br_hit = $_[0]->{"b_hit"};
 
 	return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
-		$testfncdata, $sumfnccount, $lines_found, $lines_hit,
-		$f_found, $f_hit);
+		$testfncdata, $sumfnccount, $testbrdata, $sumbrcount,
+		$lines_found, $lines_hit, $f_found, $f_hit,
+		$br_found, $br_hit);
 }
 
 
 #
 # set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref,
-#                checkdata_ref, testfncdata_ref, sumfcncount_ref[,lines_found,
-#                lines_hit, f_found, f_hit])
+#                checkdata_ref, testfncdata_ref, sumfcncount_ref,
+#                testbrdata_ref, sumbrcount_ref[,lines_found,
+#                lines_hit, f_found, f_hit, $b_found, $b_hit])
 #
 # Update the hash referenced by HASH_REF with the provided data references.
 #
 
-sub set_info_entry($$$$$$$;$$$$)
+sub set_info_entry($$$$$$$$$;$$$$$$)
 {
 	my $data_ref = $_[0];
 
@@ -1580,11 +1746,15 @@ sub set_info_entry($$$$$$$;$$$$)
 	$data_ref->{"check"} = $_[4];
 	$data_ref->{"testfnc"} = $_[5];
 	$data_ref->{"sumfnc"} = $_[6];
+	$data_ref->{"testbr"} = $_[7];
+	$data_ref->{"sumbr"} = $_[8];
 
-	if (defined($_[7])) { $data_ref->{"found"} = $_[7]; }
-	if (defined($_[8])) { $data_ref->{"hit"} = $_[8]; }
-	if (defined($_[9])) { $data_ref->{"f_found"} = $_[9]; }
-	if (defined($_[10])) { $data_ref->{"f_hit"} = $_[10]; }
+	if (defined($_[9])) { $data_ref->{"found"} = $_[9]; }
+	if (defined($_[10])) { $data_ref->{"hit"} = $_[10]; }
+	if (defined($_[11])) { $data_ref->{"f_found"} = $_[11]; }
+	if (defined($_[12])) { $data_ref->{"f_hit"} = $_[12]; }
+	if (defined($_[13])) { $data_ref->{"b_found"} = $_[13]; }
+	if (defined($_[14])) { $data_ref->{"b_hit"} = $_[14]; }
 }
 
 
@@ -1782,6 +1952,168 @@ sub add_testfncdata($$)
 	return \%result;
 }
 
+
+#
+# brcount_to_db(brcount)
+#
+# Convert brcount data to the following format:
+#
+# db:          line number    -> block hash
+# block hash:  block number   -> branch hash
+# branch hash: branch number  -> taken value
+#
+
+sub brcount_to_db($)
+{
+	my ($brcount) = @_;
+	my $line;
+	my $db;
+
+	# Add branches from first count to database
+	foreach $line (keys(%{$brcount})) {
+		my $brdata = $brcount->{$line};
+		my $i;
+		my $num = br_ivec_len($brdata);
+
+		for ($i = 0; $i < $num; $i++) {
+			my ($block, $branch, $taken) = br_ivec_get($brdata, $i);
+
+			$db->{$line}->{$block}->{$branch} = $taken;
+		}
+	}
+
+	return $db;
+}
+
+
+#
+# db_to_brcount(db)
+#
+# Convert branch coverage data back to brcount format.
+#
+
+sub db_to_brcount($)
+{
+	my ($db) = @_;
+	my $line;
+	my $brcount = {};
+	my $br_found = 0;
+	my $br_hit = 0;
+
+	# Convert database back to brcount format
+	foreach $line (sort({$a <=> $b} keys(%{$db}))) {
+		my $ldata = $db->{$line};
+		my $brdata;
+		my $block;
+
+		foreach $block (sort({$a <=> $b} keys(%{$ldata}))) {
+			my $bdata = $ldata->{$block};
+			my $branch;
+
+			foreach $branch (sort({$a <=> $b} keys(%{$bdata}))) {
+				my $taken = $bdata->{$branch};
+
+				$br_found++;
+				$br_hit++ if ($taken ne "-" && $taken > 0);
+				$brdata = br_ivec_push($brdata, $block,
+						       $branch, $taken);
+			}
+		}
+		$brcount->{$line} = $brdata;
+	}
+
+	return ($brcount, $br_found, $br_hit);
+}
+
+
+#
+# add_brcount(brcount1, brcount2)
+#
+# Add branch coverage data. Return list (brcount_added, br_found, br_hit)
+#
+
+sub add_brcount($$)
+{
+	my ($brcount1, $brcount2) = @_;
+	my $line;
+	my $block;
+	my $branch;
+	my $taken;
+	my $db;
+	my $br_found = 0;
+	my $br_hit = 0;
+	my $result;
+
+	# Add branches from first count to database
+	$db = brcount_to_db($brcount1);
+	# Add branches from second count to database
+	foreach $line (keys(%{$brcount2})) {
+		my $brdata = $brcount2->{$line};
+		my $i;
+		my $num = br_ivec_len($brdata);
+
+		for ($i = 0; $i < $num; $i++) {
+			($block, $branch, $taken) = br_ivec_get($brdata, $i);
+			my $new_taken = $db->{$line}->{$block}->{$branch};
+
+			$new_taken = '-' if (!defined($new_taken));
+			if ($taken ne '-') {
+				if ($new_taken eq '-') {
+					$new_taken = $taken;
+				} else {
+					$new_taken += $taken;
+				}
+			}
+			$db->{$line}->{$block}->{$branch} = $new_taken;
+		}
+	}
+	# Convert database back to brcount format
+	($result, $br_found, $br_hit) = db_to_brcount($db);
+
+	return ($result, $br_found, $br_hit);
+}
+
+
+#
+# add_testbrdata(testbrdata1, testbrdata2)
+#
+# Add branch coverage data for several tests. Return reference to
+# added_testbrdata.
+#
+
+sub add_testbrdata($$)
+{
+	my ($testbrdata1, $testbrdata2) = @_;
+	my %result;
+	my $testname;
+
+	foreach $testname (keys(%{$testbrdata1})) {
+		if (defined($testbrdata2->{$testname})) {
+			my $brcount;
+
+			# Branch coverage data for this testname exists
+			# in both data sets: add
+			($brcount) = add_brcount(
+				$testbrdata1->{$testname},
+				$testbrdata2->{$testname});
+			$result{$testname} = $brcount;
+			next;
+		}
+		# Branch coverage data for this testname is unique to
+		# data set 1: copy
+		$result{$testname} = $testbrdata1->{$testname};
+	}
+
+	# Add count data for testnames unique to data set 2
+	foreach $testname (keys(%{$testbrdata2})) {
+		if (!defined($result{$testname})) {
+			$result{$testname} = $testbrdata2->{$testname};
+		}
+	}
+	return \%result;
+}
+
+
 #
 # combine_info_entries(entry_ref1, entry_ref2, filename)
 #
@@ -1798,6 +2130,8 @@ sub combine_info_entries($$$)
 	my $checkdata1;
 	my $testfncdata1;
 	my $sumfnccount1;
+	my $testbrdata1;
+	my $sumbrcount1;
 
 	my $entry2 = $_[1];	# Reference to hash containing second entry
 	my $testdata2;
@@ -1806,6 +2140,8 @@ sub combine_info_entries($$$)
 	my $checkdata2;
 	my $testfncdata2;
 	my $sumfnccount2;
+	my $testbrdata2;
+	my $sumbrcount2;
 
 	my %result;		# Hash containing combined entry
 	my %result_testdata;
@@ -1813,19 +2149,23 @@ sub combine_info_entries($$$)
 	my $result_funcdata;
 	my $result_testfncdata;
 	my $result_sumfnccount;
+	my $result_testbrdata;
+	my $result_sumbrcount;
 	my $lines_found;
 	my $lines_hit;
 	my $f_found;
 	my $f_hit;
+	my $br_found;
+	my $br_hit;
 
 	my $testname;
 	my $filename = $_[2];
 
 	# Retrieve data
 	($testdata1, $sumcount1, $funcdata1, $checkdata1, $testfncdata1,
-	 $sumfnccount1) = get_info_entry($entry1);
+	 $sumfnccount1, $testbrdata1, $sumbrcount1) = get_info_entry($entry1);
 	($testdata2, $sumcount2, $funcdata2, $checkdata2, $testfncdata2,
-	 $sumfnccount2) = get_info_entry($entry2);
+	 $sumfnccount2, $testbrdata2, $sumbrcount2) = get_info_entry($entry2);
 
 	# Merge checksums
 	$checkdata1 = merge_checksums($checkdata1, $checkdata2, $filename);
@@ -1837,7 +2177,12 @@ sub combine_info_entries($$$)
 	$result_testfncdata = add_testfncdata($testfncdata1, $testfncdata2);
 	($result_sumfnccount, $f_found, $f_hit) =
 		add_fnccount($sumfnccount1, $sumfnccount2);
-	
+
+	# Combine branch coverage data
+	$result_testbrdata = add_testbrdata($testbrdata1, $testbrdata2);
+	($result_sumbrcount, $br_found, $br_hit) =
+		add_brcount($sumbrcount1, $sumbrcount2);
+
 	# Combine testdata
 	foreach $testname (keys(%{$testdata1}))
 	{
@@ -1880,8 +2225,9 @@ sub combine_info_entries($$$)
 	# Store result
 	set_info_entry(\%result, \%result_testdata, $result_sumcount,
 		       $result_funcdata, $checkdata1, $result_testfncdata,
-		       $result_sumfnccount, $lines_found, $lines_hit,
-		       $f_found, $f_hit);
+		       $result_sumfnccount, $result_testbrdata,
+		       $result_sumbrcount, $lines_found, $lines_hit,
+		       $f_found, $f_hit, $br_found, $br_hit);
 
 	return(\%result);
 }
@@ -1981,25 +2327,32 @@ sub write_info_file(*$)
 	my $checkdata;
 	my $testfncdata;
 	my $sumfnccount;
+	my $testbrdata;
+	my $sumbrcount;
 	my $testname;
 	my $line;
 	my $func;
 	my $testcount;
 	my $testfnccount;
+	my $testbrcount;
 	my $found;
 	my $hit;
 	my $f_found;
 	my $f_hit;
+	my $br_found;
+	my $br_hit;
 
-	foreach $source_file (keys(%data))
+	foreach $source_file (sort(keys(%data)))
 	{
 		$entry = $data{$source_file};
 		($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-		 $sumfnccount) = get_info_entry($entry);
-		foreach $testname (keys(%{$testdata}))
+		 $sumfnccount, $testbrdata, $sumbrcount) =
+			get_info_entry($entry);
+		foreach $testname (sort(keys(%{$testdata})))
 		{
 			$testcount = $testdata->{$testname};
 			$testfnccount = $testfncdata->{$testname};
+			$testbrcount = $testbrdata->{$testname};
 			$found = 0;
 			$hit   = 0;
 
@@ -2023,6 +2376,31 @@ sub write_info_file(*$)
 				get_func_found_and_hit($testfnccount);
 			print(INFO_HANDLE "FNF:$f_found\n");
 			print(INFO_HANDLE "FNH:$f_hit\n");
+
+			# Write branch related data
+			$br_found = 0;
+			$br_hit = 0;
+			foreach $line (sort({$a <=> $b}
+					    keys(%{$testbrcount}))) {
+				my $brdata = $testbrcount->{$line};
+				my $num = br_ivec_len($brdata);
+				my $i;
+
+				for ($i = 0; $i < $num; $i++) {
+					my ($block, $branch, $taken) =
+						br_ivec_get($brdata, $i);
+
+					print(INFO_HANDLE "BRDA:$line,$block,".
+					      "$branch,$taken\n");
+					$br_found++;
+					$br_hit++ if ($taken ne '-' &&
+						      $taken > 0);
+				}
+			}
+			if ($br_found > 0) {
+				print(INFO_HANDLE "BRF:$br_found\n");
+				print(INFO_HANDLE "BRH:$br_hit\n");
+			}
 
 			# Write line related data
 			foreach $line (sort({$a <=> $b} keys(%{$testcount})))
@@ -2245,98 +2623,185 @@ sub list()
 	my $entry;
 	my $fn_found;
 	my $fn_hit;
+	my $br_found;
+	my $br_hit;
 	my $total_found = 0;
 	my $total_hit = 0;
 	my $fn_total_found = 0;
 	my $fn_total_hit = 0;
-	my $fncov = 0;
+	my $br_total_found = 0;
+	my $br_total_hit = 0;
 	my $prefix;
 	my $strlen = 0;
 	my $format;
+	my @heading1;
+	my @heading2;
+	my @footer;
 	my $barlen;
 	my $rate;
 	my $fnrate;
+	my $brrate;
 
 	# Get common file path prefix
 	$prefix = get_common_prefix(1, keys(%{$data}));
 	$prefix = "" if ($prefix eq "/");
 	# Get longest filename length and function coverage flag
 	foreach $filename (keys(%{$data})) {
-		$entry = $data->{$filename};
-		(undef, undef, undef, undef, undef, undef, $found, $hit,
-		 $fn_found, $fn_hit) = get_info_entry($entry);
-
-		# Is there function data available?
-		if (defined($fn_found) || defined($fn_hit)) {
-			$fncov = 1;
-		}
-		if (length($filename) > $strlen) {
-			$strlen = length($filename);
-		}
+		# Determine maximum length of entries
+		$strlen = length($filename) if (length($filename) > $strlen);
 	}
 	# Print header
 	if (length($prefix) > 0) {
 		info("Common directory: $prefix\n");
 		$strlen -= length($prefix) + 1;
 	}
-	if ($fncov) {
-		$format = " %-".$strlen."s    %6s  %6s  %6s  %5s\n";
-		$barlen = 36 + $strlen;
-		printf($format, "", "Line", "Func", "", "");
-		printf($format, "Filename", "Rate", "Rate", "Lines", "Funcs");
-	} else {
-		$format = " %-".$strlen."s    %6s  %6s\n";
-		$barlen = 20 + $strlen;
-		printf($format, "", "Line", "");
-		printf($format, "Filename", "Rate", "Lines");
-	}
+	# Filename
+	$format		= " %-${strlen}s    ";
+	push(@heading1, "");
+	push(@heading2, "Filename");
+	$barlen		= 1 + $strlen + 4;
+	# Line coverage rate
+	$format		.= "%6s  ";
+	push(@heading1, "Line");
+	push(@heading2, "Rate");
+	$barlen		+= 8;
+	# Function coverage rate
+	$format		.= "%6s  ";
+	push(@heading1, "Func");
+	push(@heading2, "Rate");
+	$barlen		+= 8;
+	# Branch coverage rate
+	$format		.= "%6s  ";
+	push(@heading1, "Branch");
+	push(@heading2, "Rate");
+	$barlen		+= 8;
+	# Number of lines
+	$format		.= "%6s  ";
+	push(@heading1, "");
+	push(@heading2, "Lines");
+	$barlen		+= 8;
+	# Number of functions
+	$format		.= "%5s  ";
+	push(@heading1, "");
+	push(@heading2, "Funcs");
+	$barlen		+= 7;
+	# Number of branches
+	$format		.= "%5s  ";
+	push(@heading1, "");
+	push(@heading2, "Br's");
+	$barlen		+= 7;
+	# Line end
+	$format		.= "\n";
+
+	# Print heading
+	printf($format, @heading1);
+	printf($format, @heading2);
 	print(("="x$barlen)."\n");
+
 	# Print per file information
 	foreach $filename (sort(keys(%{$data})))
 	{
+		my @file_data;
+
 		$entry = $data->{$filename};
 
-		(undef, undef, undef, undef, undef, undef, $found, $hit,
-		 $fn_found, $fn_hit) = get_info_entry($entry);
+		(undef, undef, undef, undef, undef, undef, undef, undef,
+		 $found, $hit, $fn_found, $fn_hit, $br_found, $br_hit) =
+			get_info_entry($entry);
+
+		# Assume zero count if there is no function data for this file
 		if (!defined($fn_found) || !defined($fn_hit)) {
 			$fn_found = 0;
 			$fn_hit = 0;
 		}
+		# Assume zero count if there is no branch data for this file
+		if (!defined($br_found) || !defined($br_hit)) {
+			$br_found = 0;
+			$br_hit = 0;
+		}
+
+		# Add line coverage totals
 		$total_found += $found;
 		$total_hit += $hit;
+		# Add function coverage totals
 		$fn_total_found += $fn_found;
 		$fn_total_hit += $fn_hit;
+		# Add branch coverage totals
+		$br_total_found += $br_found;
+		$br_total_hit += $br_hit;
+
+		# Shorten filename by common prefix
 		$filename =~ s/^\Q$prefix\/\E// if (length($prefix) > 0);
+
+		# Determine line coverage rate for this file
 		if ($found == 0) {
 			$rate = "-";
 		} else {
 			$rate = sprintf("%.1f%%", 100 * $hit / $found);
 		}
-		if ($fncov) {
-			if ($fn_found == 0) {
-				$fnrate = "-";
-			} else {
-				$fnrate = sprintf("%.1f%%",
-						  100 * $fn_hit / $fn_found);
-			}
-			printf($format, $filename, $rate, $fnrate, $found,
-			       $fn_found);
+		# Determine function coverage rate for this file
+		if (!defined($fn_found) || $fn_found == 0) {
+			$fnrate = "-";
 		} else {
-			printf($format, $filename, $rate, $found);
+			$fnrate = sprintf("%.1f%%",
+					  100 * $fn_hit / $fn_found);
 		}
+		# Determine branch coverage rate for this file
+		if (!defined($br_found) || $br_found == 0) {
+			$brrate = "-";
+		} else {
+			$brrate = sprintf("%.1f%%",
+					  100 * $br_hit / $br_found);
+		}
+
+		# Assemble line parameters
+		push(@file_data, $filename);
+		push(@file_data, $rate);
+		push(@file_data, $fnrate);
+		push(@file_data, $brrate);
+		push(@file_data, $found);
+		push(@file_data, $fn_found);
+		push(@file_data, $br_found);
+
+		# Print assembled line
+		printf($format, @file_data);
 	}
-	print(("-"x$barlen)."\n");
-	# Show totals
-	$rate = sprintf("%.1f%%", $total_found > 0 ?
-			100 * $total_hit / $total_found : 0);
-	if ($fncov) {
-		$fnrate = sprintf("%.1f%%", $fn_total_found > 0 ?
-			  100 * $fn_total_hit / $fn_total_found : 0);
-		printf($format, "Total", $rate, $fnrate, $total_found,
-		       $fn_total_found);
+
+	# Determine total line coverage rate
+	if ($total_found == 0) {
+		$rate = "-";
 	} else {
-		printf($format, "Total", $rate, $total_found);
+		$rate = sprintf("%.1f%%", 100 * $total_hit / $total_found);
 	}
+	# Determine total function coverage rate
+	if ($fn_total_found == 0) {
+		$fnrate = "-";
+	} else {
+		$fnrate = sprintf("%.1f%%",
+				100 * $fn_total_hit / $fn_total_found);
+	}
+	# Determine total branch coverage rate
+	if ($br_total_found == 0) {
+		$brrate = "-";
+	} else {
+		$brrate = sprintf("%.1f%%",
+				100 * $br_total_hit / $br_total_found);
+	}
+
+	# Print separator
+	print(("-"x$barlen)."\n");
+
+	# Assemble line parameters
+	push(@footer, sprintf("%*s", $strlen, "Total:"));
+	push(@footer, $rate);
+	push(@footer, $fnrate);
+	push(@footer, $brrate);
+	push(@footer, $total_found);
+	push(@footer, $fn_total_found);
+	push(@footer, $br_total_found);
+
+	# Print assembled line
+	printf($format, @footer);
 }
 
 
@@ -2634,6 +3099,28 @@ sub apply_diff($$)
 
 
 #
+# apply_diff_to_brcount(brcount, linedata)
+#
+# Adjust line numbers of branch coverage data according to linedata.
+#
+
+sub apply_diff_to_brcount($$)
+{
+	my ($brcount, $linedata) = @_;
+	my $db;
+
+	# Convert brcount to db format
+	$db = brcount_to_db($brcount);
+	# Apply diff to db format
+	$db = apply_diff($db, $linedata);
+	# Convert db format back to brcount format
+	($brcount) = db_to_brcount($db);
+
+	return $brcount;
+}
+
+
+#
 # get_hash_max(hash_ref)
 #
 # Return the highest integer key from hash.
@@ -2917,10 +3404,14 @@ sub diff()
 	my $checkdata;
 	my $testfncdata;
 	my $sumfnccount;
+	my $testbrdata;
+	my $sumbrcount;
 	my $found;
 	my $hit;
 	my $f_found;
 	my $f_hit;
+	my $br_found;
+	my $br_hit;
 	my $converted = 0;
 	my $unchanged = 0;
 	local *INFO_HANDLE;
@@ -2953,17 +3444,24 @@ sub diff()
 		info("Converting $filename\n");
 		$entry = $trace_data->{$filename};
 		($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-		 $sumfnccount) = get_info_entry($entry);
+		 $sumfnccount, $testbrdata, $sumbrcount) =
+			get_info_entry($entry);
 		# Convert test data
 		foreach $testname (keys(%{$testdata}))
 		{
+			# Adjust line numbers of line coverage data
 			$testdata->{$testname} =
 				apply_diff($testdata->{$testname}, $line_hash);
+			# Adjust line numbers of branch coverage data
+			$testbrdata->{$testname} =
+				apply_diff_to_brcount($testbrdata->{$testname},
+						      $line_hash);
 			# Remove empty sets of test data
 			if (scalar(keys(%{$testdata->{$testname}})) == 0)
 			{
 				delete($testdata->{$testname});
 				delete($testfncdata->{$testname});
+				delete($testbrdata->{$testname});
 			}
 		}
 		# Rename test data to indicate conversion
@@ -2987,6 +3485,11 @@ sub diff()
 					$testfncdata->{$testname},
 					$testfncdata->{$testname.",diff"});
 				delete($testfncdata->{$testname.",diff"});
+				# Add branch counts
+				($testbrdata->{$testname}) = add_brcount(
+					$testbrdata->{$testname},
+					$testbrdata->{$testname.",diff"});
+				delete($testbrdata->{$testname.",diff"});
 			}
 			# Move test data to new testname
 			$testdata->{$testname.",diff"} = $testdata->{$testname};
@@ -2995,16 +3498,24 @@ sub diff()
 			$testfncdata->{$testname.",diff"} =
 				$testfncdata->{$testname};
 			delete($testfncdata->{$testname});
+			# Move branch count data to new testname
+			$testbrdata->{$testname.",diff"} =
+				$testbrdata->{$testname};
+			delete($testbrdata->{$testname});
 		}
 		# Convert summary of test data
 		$sumcount = apply_diff($sumcount, $line_hash);
 		# Convert function data
 		$funcdata = apply_diff_to_funcdata($funcdata, $line_hash);
+		# Convert branch coverage data
+		$sumbrcount = apply_diff_to_brcount($sumbrcount, $line_hash);
+		# Update found/hit numbers
 		# Convert checksum data
 		$checkdata = apply_diff($checkdata, $line_hash);
 		# Convert function call count data
 		adjust_fncdata($funcdata, $testfncdata, $sumfnccount);
 		($f_found, $f_hit) = get_func_found_and_hit($sumfnccount);
+		($br_found, $br_hit) = get_br_found_and_hit($sumbrcount);
 		# Update found/hit numbers
 		$found = 0;
 		$hit = 0;
@@ -3021,7 +3532,8 @@ sub diff()
 			# Store converted entry
 			set_info_entry($entry, $testdata, $sumcount, $funcdata,
 				       $checkdata, $testfncdata, $sumfnccount,
-				       $found, $hit, $f_found, $f_hit);
+				       $testbrdata, $sumbrcount, $found, $hit,
+				       $f_found, $f_hit, $br_found, $br_hit);
 		}
 		else
 		{
