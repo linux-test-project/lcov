@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.35 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.36 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -3070,6 +3070,43 @@ sub write_css_file()
 	  font-weight: bold;
 	  margin: 0px;
 	}
+
+	/* All views: header legend value for low rate */
+	td.headerValueLegL
+	{
+	  font-family: sans-serif;
+	  text-align: center;
+	  white-space: nowrap;
+	  padding-left: 4px;
+	  padding-right: 2px;
+	  background-color: #FF0000;
+	  font-size: 80%;
+	}
+
+	/* All views: header legend value for med rate */
+	td.headerValueLegM
+	{
+	  font-family: sans-serif;
+	  text-align: center;
+	  white-space: nowrap;
+	  padding-left: 2px;
+	  padding-right: 2px;
+	  background-color: #FFEA20;
+	  font-size: 80%;
+	}
+
+	/* All views: header legend value for hi rate */
+	td.headerValueLegH
+	{
+	  font-family: sans-serif;
+	  text-align: center;
+	  white-space: nowrap;
+	  padding-left: 2px;
+	  padding-right: 4px;
+	  background-color: #A7FC9D;
+	  font-size: 80%;
+	}
+
 END_OF_CSS
 	;
 
@@ -3249,7 +3286,7 @@ sub write_header_line(*@)
 
 	write_html($handle, "        <tr>\n");
 	foreach $entry (@content) {
-		my ($width, $class, $text) = @{$entry};
+		my ($width, $class, $text, $colspan) = @{$entry};
 
 		if (defined($width)) {
 			$width = " width=\"$width\"";
@@ -3261,9 +3298,14 @@ sub write_header_line(*@)
 		} else {
 			$class = "";
 		}
+		if (defined($colspan)) {
+			$colspan = " colspan=\"$colspan\"";
+		} else {
+			$colspan = "";
+		}
 		$text = "" if (!defined($text));
 		write_html($handle,
-			   "          <td$width$class>$text</td>\n");
+			   "          <td$width$class$colspan>$text</td>\n");
 	}
 	write_html($handle, "        </tr>\n");
 }
@@ -4132,6 +4174,7 @@ sub max($$)
 	return $b;
 }
 
+
 #
 # write_header(filehandle, type, trunc_file_name, rel_file_name, lines_found,
 # lines_hit, funcs_found, funcs_hit, sort_type)
@@ -4162,8 +4205,10 @@ sub write_header(*$$$$$$$$$$)
 	my $rate;
 	my @row_left;
 	my @row_right;
+	my @row_right2;
 	my $num_rows;
 	my $i;
+	my $add_width;
 
 	$base_name = basename($rel_filename);
 
@@ -4252,6 +4297,9 @@ sub write_header(*$$$$$$$$$$)
 			 [undef, "headerValue", $test]]);
 	push(@row_left, [[undef, "headerItem", "Date:"],
 			 [undef, "headerValue", $date]]);
+
+	# Right row
+	$add_width = 5;
 	if ($legend && ($type == $HDR_SOURCE || $type == $HDR_FUNC)) {
 		my $text = <<END_OF_HTML;
             Lines:
@@ -4266,28 +4314,45 @@ END_OF_HTML
             <span class="coverLegendNoCov">#</span> not executed
 END_OF_HTML
 		}
-		push(@row_left, [[undef, "headerItem", "Colors:"],
-				 [undef, "headerValueLeg", $text]]);
-	} elsif ($legend && ($type == $HDR_DIR || $type == $HDR_FILE)) {
-		my $text = get_legend_code("Line coverage:", $med_limit,
-					   $hi_limit);
-		if ($func_coverage) {
-			$text .= "<br>".get_legend_code("Function coverage:",
-						 $fn_med_limit, $fn_hi_limit);
-		}
-		if ($br_coverage) {
-			$text .= "<br>".get_legend_code("Branch coverage:",
-						 $br_med_limit, $br_hi_limit);
-		}
-		push(@row_left, [[undef, "headerItem", "Colors:"],
+		push(@row_left, [[undef, "headerItem", "Legend:"],
 				 [undef, "headerValueLeg", $text]]);
 	}
-
-	# Right row
-	push(@row_right, [["10%", undef, undef ],
-			  ["10%", "headerCovTableHead", "Hit" ],
-			  ["10%", "headerCovTableHead", "Total" ],
-			  ["15%", "headerCovTableHead", "Coverage"]]);
+	if ($legend && ($type != $HDR_TESTDESC && $type != $HDR_SOURCE &&
+			$type != $HDR_FUNC)) {
+		$add_width = 0;
+		# Add column for color legend
+		push(@row_right2,
+		     [ ["10%", "headerCovTableHead", "Colors", 4] ]);
+		# Legend for line coverage colors
+		push(@row_right2,
+		     [ [undef, undef, "&nbsp;"],
+		       [undef, "headerValueLegL", "&lt; $med_limit%"],
+		       [undef, "headerValueLegM", "&gt;= $med_limit%"],
+		       [undef, "headerValueLegH", "&gt;= $hi_limit%"]]);
+		# Legend for function coverage colors
+		push(@row_right2,
+		     [ [undef, undef, "&nbsp;"],
+		       [undef, "headerValueLegL", "&lt; $fn_med_limit%"],
+		       [undef, "headerValueLegM", "&gt;= $fn_med_limit%"],
+		       [undef, "headerValueLegH", "&gt;= $fn_hi_limit%"]])
+			if ($func_coverage);
+		# Legend for branch coverage colors
+		push(@row_right2,
+		     [ [undef, undef, "&nbsp;"],
+		       [undef, "headerValueLegL", "&lt; $br_med_limit%"],
+		       [undef, "headerValueLegM", "&gt;= $br_med_limit%"],
+		       [undef, "headerValueLegH", "&gt;= $br_hi_limit%"]])
+			if ($br_coverage);
+	}
+	if ($type == $HDR_TESTDESC) {
+		push(@row_right, [[ "55%" ]]);
+	} else {
+		push(@row_right, [[(10 + $add_width)."%", undef, undef ],
+				  ["10%", "headerCovTableHead", "Hit" ],
+				  ["10%", "headerCovTableHead", "Total" ],
+				  [(10 + $add_width)."%", "headerCovTableHead",
+					"Coverage"]]);
+	}
 	# Line coverage
 	$style = $rate_name[classify_rate($lines_found, $lines_hit,
 					  $med_limit, $hi_limit)];
@@ -4295,7 +4360,8 @@ END_OF_HTML
 	push(@row_right, [[undef, "headerItem", "Lines:"],
 			  [undef, "headerCovTableEntry", $lines_hit],
 			  [undef, "headerCovTableEntry", $lines_found],
-			  [undef, "headerCovTableEntry$style", $rate]]);
+			  [undef, "headerCovTableEntry$style", $rate]])
+			if ($type != $HDR_TESTDESC);
 	# Function coverage
 	if ($func_coverage) {
 		$style = $rate_name[classify_rate($fn_found, $fn_hit,
@@ -4304,7 +4370,8 @@ END_OF_HTML
 		push(@row_right, [[undef, "headerItem", "Functions:"],
 				  [undef, "headerCovTableEntry", $fn_hit],
 				  [undef, "headerCovTableEntry", $fn_found],
-				  [undef, "headerCovTableEntry$style", $rate]]);
+				  [undef, "headerCovTableEntry$style", $rate]])
+			if ($type != $HDR_TESTDESC);
 	}
 	# Branch coverage
 	if ($br_coverage) {
@@ -4314,25 +4381,37 @@ END_OF_HTML
 		push(@row_right, [[undef, "headerItem", "Branches:"],
 				  [undef, "headerCovTableEntry", $br_hit],
 				  [undef, "headerCovTableEntry", $br_found],
-				  [undef, "headerCovTableEntry$style", $rate]]);
+				  [undef, "headerCovTableEntry$style", $rate]])
+			if ($type != $HDR_TESTDESC);
 	}
-
 
 	# Print rows
 	$num_rows = max(scalar(@row_left), scalar(@row_right));
+	$num_rows = max($num_rows, scalar(@row_right2));
 	for ($i = 0; $i < $num_rows; $i++) {
 		my $left = $row_left[$i];
 		my $right = $row_right[$i];
+		my $right2 = $row_right2[$i];
 
 		if (!defined($left)) {
 			$left = [[undef, undef, undef], [undef, undef, undef]];
 		}
 		if (!defined($right)) {
-			$right = [];
+			if (defined($right2)) {
+				$right = [ [undef, undef, undef],
+					   [undef, undef, undef],
+					   [undef, undef, undef],
+					   [undef, undef, undef] ];
+			} else {
+				$right = [];
+			}
+		}
+		if (!defined($right2)) {
+			$right2 = [];
 		}
 		write_header_line(*HTML_HANDLE, @{$left},
 				  [ $i == 0 ? "5%" : undef, undef, undef],
-				  @{$right});
+				  @{$right}, @{$right2});
 	}
 
 	# Fourth line
