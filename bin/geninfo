@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.67 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.68 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -103,7 +103,6 @@ sub get_gcov_version();
 sub system_no_output($@);
 sub read_config($);
 sub apply_config($);
-sub gen_initial_info($);
 sub process_graphfile($$);
 sub filter_fn_name($);
 sub warn_handler($);
@@ -447,13 +446,8 @@ if (defined($output_filename) && ($output_filename ne "-"))
 		my $br_hit;
 
 		# Process files
-		if ($initial) {
-			($ln_found, $ln_hit, $fn_found, $fn_hit,
-			 $br_found, $br_hit) = gen_initial_info($entry);
-		} else {
-			($ln_found, $ln_hit, $fn_found, $fn_hit,
-			 $br_found, $br_hit) = gen_info($entry);
-		}
+		($ln_found, $ln_hit, $fn_found, $fn_hit, $br_found, $br_hit) =
+			gen_info($entry);
 		# Add data
 		$total_ln_found	+= $ln_found;
 		$total_ln_hit	+= $ln_hit;
@@ -591,18 +585,28 @@ sub gen_info($)
 	my $total_fn_hit	= 0;
 	my $total_br_found	= 0;
 	my $total_br_hit	= 0;
+	my $type;
+	my $ext;
+
+	if ($initial) {
+		$type = "graph";
+		$ext = $graph_file_extension;
+	} else {
+		$type = "data";
+		$ext = $data_file_extension;
+	}
 
 	if (-d $directory)
 	{
-		info("Scanning $directory for $data_file_extension ".
-		     "files ...\n");	
+		info("Scanning $directory for $ext files ...\n");
 
-		@file_list = `find "$directory" $maxdepth $follow -name \\*$data_file_extension -type f 2>/dev/null`;
+		@file_list = `find "$directory" $maxdepth $follow -name \\*$ext -type f 2>/dev/null`;
 		chomp(@file_list);
-		@file_list or die("ERROR: no $data_file_extension files found ".
-				  "in $directory!\n");
+		@file_list or
+			die("ERROR: no $ext files found in $directory!\n");
 		$prefix = get_common_prefix(1, @file_list);
-		info("Found %d data files in %s\n", $#file_list+1, $directory);
+		info("Found %d %s files in %s\n", $#file_list+1, $type,
+		     $directory);
 	}
 	else
 	{
@@ -620,8 +624,15 @@ sub gen_info($)
 		my $br_hit;
 
 		# Process file
-		($ln_found, $ln_hit, $fn_found, $fn_hit, $br_found, $br_hit) =
-			process_dafile($file, $prefix);
+		if ($initial) {
+			($ln_found, $ln_hit, $fn_found, $fn_hit,
+			 $br_found, $br_hit) =
+				process_graphfile($file, $prefix);
+		} else {
+			($ln_found, $ln_hit, $fn_found, $fn_hit,
+			 $br_found, $br_hit) =
+				process_dafile($file, $prefix);
+		}
 
 		# Add data
 		$total_ln_found	+= $ln_found;
@@ -630,6 +641,11 @@ sub gen_info($)
 		$total_fn_hit	+= $fn_hit;
 		$total_br_found	+= $br_found;
 		$total_br_hit	+= $br_hit;
+	}
+
+	if ($initial) {
+		warn("Note: --initial does not generate branch coverage ".
+		     "data\n");
 	}
 
 	return ($total_ln_found, $total_ln_hit, $total_fn_found, $total_fn_hit,
@@ -1892,65 +1908,6 @@ sub apply_config($)
 	}
 }
 
-
-sub gen_initial_info($)
-{
-	my $directory = $_[0];
-	my @file_list;
-	my $file;
-	my $prefix;
-	my $total_ln_found	= 0;
-	my $total_ln_hit	= 0;
-	my $total_fn_found	= 0;
-	my $total_fn_hit	= 0;
-	my $total_br_found	= 0;
-	my $total_br_hit	= 0;
-
-	if (-d $directory)
-	{
-		info("Scanning $directory for $graph_file_extension ".
-		     "files ...\n");	
-
-		@file_list = `find "$directory" $maxdepth $follow -name \\*$graph_file_extension -type f 2>/dev/null`;
-		chomp(@file_list);
-		@file_list or die("ERROR: no $graph_file_extension files ".
-				  "found in $directory!\n");
-		$prefix = get_common_prefix(1, @file_list);
-		info("Found %d graph files in %s\n", $#file_list+1, $directory);
-	}
-	else
-	{
-		@file_list = ($directory);
-		$prefix = "";
-	}
-
-	# Process all files in list
-	foreach $file (@file_list) {
-		my $ln_found;
-		my $ln_hit;
-		my $fn_found;
-		my $fn_hit;
-		my $br_found;
-		my $br_hit;
-
-		# Process file
-		($ln_found, $ln_hit, $fn_found, $fn_hit, $br_found, $br_hit) =
-			process_graphfile($file, $prefix);
-
-		# Add data
-		$total_ln_found	+= $ln_found;
-		$total_ln_hit	+= $ln_hit;
-		$total_fn_found	+= $fn_found;
-		$total_fn_hit	+= $fn_hit;
-		$total_br_found	+= $br_found;
-		$total_br_hit	+= $br_hit;
-	}
-
-	warn("Note: --initial does not generate branch coverage data\n");
-
-	return ($total_ln_found, $total_ln_hit, $total_fn_found, $total_fn_hit,
-		$total_br_found, $total_br_hit);
-}
 
 sub process_graphfile($$)
 {
