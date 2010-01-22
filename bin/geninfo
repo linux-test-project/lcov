@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-#   Copyright (c) International Business Machines  Corp., 2002,2007
+#   Copyright (c) International Business Machines  Corp., 2002,2010
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.65 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.66 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -79,6 +79,13 @@ our $ERROR_GRAPH	= 2;
 our $EXCL_START = "LCOV_EXCL_START";
 our $EXCL_STOP = "LCOV_EXCL_STOP";
 our $EXCL_LINE = "LCOV_EXCL_LINE";
+
+our $BR_LINE		= 0;
+our $BR_BLOCK		= 1;
+our $BR_BRANCH		= 2;
+our $BR_TAKEN		= 3;
+our $BR_VEC_ENTRIES	= 4;
+our $BR_VEC_WIDTH	= 32;
 
 # Prototypes
 sub print_usage(*);
@@ -666,7 +673,7 @@ sub process_dafile($$)
 	my $source_filename;	# Name of a source code file
 	my $gcov_file;		# Name of a .gcov file
 	my @gcov_content;	# Content of a .gcov file
-	my @gcov_branches;	# Branch content of a .gcov file
+	my $gcov_branches;	# Branch content of a .gcov file
 	my @gcov_functions;	# Function calls of a .gcov file
 	my @gcov_list;		# List of generated .gcov files
 	my $line_number;	# Line number count
@@ -674,6 +681,8 @@ sub process_dafile($$)
 	my $lines_found;	# Number of instrumented lines found
 	my $funcs_hit;		# Number of instrumented functions hit
 	my $funcs_found;	# Number of instrumented functions found
+	my $br_hit;
+	my $br_found;
 	my $source;		# gcov source header information
 	my $object;		# gcov object header information
 	my @matches;		# List of absolute paths matching filename
@@ -869,6 +878,9 @@ sub process_dafile($$)
 	@unprocessed = keys(%{$instr});
 	foreach $gcov_file (sort(@gcov_list))
 	{
+		my $i;
+		my $num;
+
 		($source, $object) = read_gcov_header($gcov_file);
 
 		if (defined($source))
@@ -912,7 +924,7 @@ sub process_dafile($$)
 			next;
 		}
 		@gcov_content = @{$result[0]};
-		@gcov_branches = @{$result[1]};
+		$gcov_branches = $result[1];
 		@gcov_functions = @{$result[2]};
 
 		# Skip empty files
@@ -1017,6 +1029,29 @@ sub process_dafile($$)
 			printf(INFO_HANDLE "FNH:%s\n", $funcs_hit);
 		}
 
+		# Write coverage information for each instrumented branch:
+		#
+		#   BRDA:<line number>,<block number>,<branch number>,<taken>
+		#
+		# where 'taken' is the number of times the branch was taken
+		# or '-' if the block to which the branch belongs was never
+		# executed
+		$br_found = 0;
+		$br_hit = 0;
+		$num = br_gvec_len($gcov_branches);
+		for ($i = 0; $i < $num; $i++) {
+			my ($line, $block, $branch, $taken) =
+				br_gvec_get($gcov_branches, $i);
+
+			print(INFO_HANDLE "BRDA:$line,$block,$branch,$taken\n");
+			$br_found++;
+			$br_hit++ if ($taken ne '-' && $taken > 0);
+		}
+		if ($br_found > 0) {
+			printf(INFO_HANDLE "BRF:%s\n", $br_found);
+			printf(INFO_HANDLE "BRH:%s\n", $br_hit);
+		}
+
 		# Reset line counters
 		$line_number = 0;
 		$lines_found = 0;
@@ -1045,27 +1080,6 @@ sub process_dafile($$)
 
 			# Remove already processed data from array
 			splice(@gcov_content,0,3);
-		}
-
-		#--
-		#-- BA: <code-line>, <branch-coverage>
-		#--
-		#-- print one BA line for every branch of a
-		#-- conditional.  <branch-coverage> values
-		#-- are:
-		#--     0 - not executed
-		#--     1 - executed but not taken
-		#--     2 - executed and taken
-		#--
-		while (@gcov_branches)
-		{
-			if ($gcov_branches[0])
-			{
-				printf(INFO_HANDLE "BA:%s,%s\n",
-				       $gcov_branches[0],
-				       $gcov_branches[1]);
-			}
-			splice(@gcov_branches,0,2);
 		}
 
 		# Write line statistics and section separator
@@ -1330,6 +1344,84 @@ sub read_gcov_header($)
 
 
 #
+# br_gvec_len(vector)
+#
+# Return the number of entries in the branch coverage vector.
+#
+
+sub br_gvec_len($)
+{
+	my ($vec) = @_;
+
+	return 0 if (!defined($vec));
+	return (length($vec) * 8 / $BR_VEC_WIDTH) / $BR_VEC_ENTRIES;
+}
+
+
+#
+# br_gvec_get(vector, number)
+#
+# Return an entry from the branch coverage vector.
+#
+
+sub br_gvec_get($$)
+{
+	my ($vec, $num) = @_;
+	my $line;
+	my $block;
+	my $branch;
+	my $taken;
+	my $offset = $num * $BR_VEC_ENTRIES;
+
+	# Retrieve data from vector
+	$line	= vec($vec, $offset + $BR_LINE, $BR_VEC_WIDTH);
+	$block	= vec($vec, $offset + $BR_BLOCK, $BR_VEC_WIDTH);
+	$branch = vec($vec, $offset + $BR_BRANCH, $BR_VEC_WIDTH);
+	$taken	= vec($vec, $offset + $BR_TAKEN, $BR_VEC_WIDTH);
+
+	# Decode taken value from an integer
+	if ($taken == 0) {
+		$taken = "-";
+	} else {
+		$taken--;
+	}
+
+	return ($line, $block, $branch, $taken);
+}
+
+
+#
+# br_gvec_push(vector, line, block, branch, taken)
+#
+# Add an entry to the branch coverage vector.
+#
+
+sub br_gvec_push($$$$$)
+{
+	my ($vec, $line, $block, $branch, $taken) = @_;
+	my $offset;
+
+	$vec = "" if (!defined($vec));
+	$offset = br_gvec_len($vec) * $BR_VEC_ENTRIES;
+
+	# Encode taken value into an integer
+	if ($taken eq "-") {
+		$taken = 0;
+	} else {
+		$taken++;
+	}
+
+	# Add to vector
+	vec($vec, $offset + $BR_LINE, $BR_VEC_WIDTH) = $line;
+	vec($vec, $offset + $BR_BLOCK, $BR_VEC_WIDTH) = $block;
+	vec($vec, $offset + $BR_BRANCH, $BR_VEC_WIDTH) = $branch;
+	vec($vec, $offset + $BR_TAKEN, $BR_VEC_WIDTH) = $taken;
+
+	return $vec;
+}
+
+
+#
 # read_gcov_file(gcov_filename)
 #
 # Parse file GCOV_FILENAME (.gcov file format) and return the list:
@@ -1342,8 +1434,8 @@ sub read_gcov_header($)
 # $result[($line_number-1)*3+1] = execution count for line $line_number
 # $result[($line_number-1)*3+2] = source code text for line $line_number
 #
-# gcov_branch is a list of 2 elements
-# (linenumber, branch result) for each branch
+# gcov_branch is a vector of 4 4-byte long elements for each branch:
+# line number, block number, branch number, count + 1 or 0
 #
 # gcov_func is a list of 2 elements
 # (number of calls, function name) for each function
@@ -1355,11 +1447,13 @@ sub read_gcov_file($)
 {
 	my $filename = $_[0];
 	my @result = ();
-	my @branches = ();
+	my $branches = "";
 	my @functions = ();
 	my $number;
 	my $exclude_flag = 0;
 	my $exclude_line = 0;
+	my $last_block = 0;
+	my $last_line = 0;
 	local *INPUT;
 
 	if (!open(INPUT, $filename)) {
@@ -1381,25 +1475,14 @@ sub read_gcov_file($)
 			# Also remove CR from line-end
 			s/\015$//;
 
-			if (/^branch/)
-			{
-				if ($exclude_line) {
-					next;
-				}
-				# Branch execution data
-				push(@branches, scalar(@result) / 3);
-				if (/^branch \d+ never executed$/)
-				{
-					push(@branches, 0);
-				}
-				elsif (/^branch \d+ taken = 0%/)
-				{
-					push(@branches, 1);
-				}
-				else
-				{
-					push(@branches, 2);
-				}
+			if (/^branch\s+(\d+)\s+taken\s+=\s+(\d+)/) {
+				next if ($exclude_line);
+				$branches = br_gvec_push($branches, $last_line,
+						$last_block, $1, $2);
+			} elsif (/^branch\s+(\d+)\s+never\s+executed/) {
+				next if ($exclude_line);
+				$branches = br_gvec_push($branches, $last_line,
+						$last_block, $1, '-');
 			}
 			elsif (/^call/ || /^function/)
 			{
@@ -1407,6 +1490,7 @@ sub read_gcov_file($)
 			}
 			else
 			{
+				$last_line++;
 				# Check for exclusion markers
 				if (!$no_markers) {
 					if (/$EXCL_STOP/) {
@@ -1457,25 +1541,19 @@ sub read_gcov_file($)
 			# Also remove CR from line-end
 			s/\015$//;
 
-			if (/^branch\s+\d+\s+(\S+)\s+(\S+)/)
-			{
-				if ($exclude_line) {
-					next;
-				}
-				# Branch execution data
-				push(@branches, scalar(@result) / 3);
-				if ($1 eq "never")
-				{
-					push(@branches, 0);
-				}
-				elsif ($2 eq "0%")
-				{
-					push(@branches, 1);
-				}
-				else
-				{
-					push(@branches, 2);
-				}
+			if (/^\s*(\d+|\$+):\s*(\d+)-block\s+(\d+)\s*$/) {
+				# Block information - used to group related
+				# branches
+				$last_line = $2;
+				$last_block = $3;
+			} elsif (/^branch\s+(\d+)\s+taken\s+(\d+)/) {
+				next if ($exclude_line);
+				$branches = br_gvec_push($branches, $last_line,
+						$last_block, $1, $2);
+			} elsif (/^branch\s+(\d+)\s+never\s+executed/) {
+				next if ($exclude_line);
+				$branches = br_gvec_push($branches, $last_line,
+						$last_block, $1, '-');
 			}
 			elsif (/^function\s+(\S+)\s+called\s+(\d+)/)
 			{
@@ -1492,6 +1570,8 @@ sub read_gcov_file($)
 			{
 				my ($count, $line, $code) = ($1, $2, $3);
 
+				$last_line = $line;
+				$last_block = 0;
 				# Check for exclusion markers
 				if (!$no_markers) {
 					if (/$EXCL_STOP/) {
@@ -1540,7 +1620,7 @@ sub read_gcov_file($)
 	if ($exclude_flag) {
 		warn("WARNING: unterminated exclusion section in $filename\n");
 	}
-	return(\@result, \@branches, \@functions);
+	return(\@result, $branches, \@functions);
 }
 
 
@@ -1764,6 +1844,8 @@ sub gen_initial_info($)
 
 	# Process all files in list
 	foreach (@file_list) { process_graphfile($_, $prefix); }
+
+	warn("Note: --initial does not generate branch coverage data\n");
 }
 
 sub process_graphfile($$)

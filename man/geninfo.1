@@ -207,10 +207,13 @@ Capture initial zero coverage data.
 
 Run geninfo with this option on the directories containing .bb, .bbg or .gcno
 files before running any test case. The result is a "baseline" coverage data
-file that contains zero coverage for every instrumented line. Combine this
-data file (using lcov \-a) with coverage data files captured after a test
-run to ensure that the percentage of total lines covered is correct even
-when not all source code files were loaded during the test.
+file that contains zero coverage for every instrumented line and function.
+Combine this data file (using lcov \-a) with coverage data files captured
+after a test run to ensure that the percentage of total lines covered is
+correct even when not all object code files were loaded during the test.
+
+Note: currently, the \-\-initial option does not generate branch coverage
+information.
 .RE
 
 .B \-\-no\-recursion
@@ -305,6 +308,19 @@ and hit:
 
   FNF:<number of functions found>
   FNH:<number of function hit>
+
+Branch coverage information is stored which one line per branch:
+
+  BRDA:<line number>,<block number>,<branch number>,<taken>
+
+Block number and branch number are gcc internal IDs for the branch. Taken is
+either '-' if the basic block containing the branch was never executed or
+a number indicating how often that branch was taken.
+
+Branch coverage summaries are stored in two lines:
+
+  BRF:<number of branches found>
+  BRH:<number of branches hit>
 
 Then there is a list of execution counts for each instrumented line
 (i.e. a line which resulted in executable code):
