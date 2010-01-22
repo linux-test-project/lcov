@@ -61,6 +61,23 @@ genhtml_function_hi_limit = 90
 genhtml_function_med_limit = 75
 .br
 
+# Coverage rate limits for branch coverage
+.br
+genhtml_branch_hi_limit = 90
+.br
+genhtml_branch_med_limit = 75
+.br
+
+# Width of line coverage field in source code view
+.br
+genhtml_line_field_width = 12
+.br
+
+# Width of branch coverage field in source code view
+.br
+genhtml_branch_field_width = 16
+.br
+
 # Width of overview image
 .br
 genhtml_overview_width = 80
@@ -136,6 +153,11 @@ genhtml_sort = 1
 genhtml_function_coverage = 1
 .br
 
+# Include branch coverage data display
+.br
+genhtml_branch_coverage = 1
+.br
+
 # Location of the gcov tool
 .br
 #geninfo_gcov_tool = gcov
@@ -191,17 +213,24 @@ By default, a standard CSS file is generated.
 .BR genhtml_med_limit " ="
 .I med_limit
 .br
-.BR genhtml_function_med_limit " ="
+.BR genhtml_function_hi_limit " ="
 .I hi_limit
 .br
 .BR genhtml_function_med_limit " ="
 .I med_limit
+.br
+.BR genhtml_branch_hi_limit " ="
+.I hi_limit
+.br
+.BR genhtml_branch_med_limit " ="
+.I med_limit
+.br
 .IP
 Specify coverage rate limits for classifying file entries. Use this option to
-modify the coverage rates (in percent) for line or function coverage at which
-a result is classified as high, medium or low coverage. This classification
-affects the color of the corresponding entries on the overview pages of the
-HTML output:
+modify the coverage rates (in percent) for line, function or branch coverage at
+which a result is classified as high, medium or low coverage. This
+classification affects the color of the corresponding entries on the overview
+pages of the HTML output:
 .br
 
 High:   hi_limit  <= rate <= 100        default color: green
@@ -213,6 +242,26 @@ Low:    0         <= rate < med_limit   default color: red
 
 Defaults are 50 and 15 percent for line coverage and 90 and 75 percent for
 function coverage.
+.PP
+
+.BR genhtml_line_field_width " ="
+.I number_of_characters
+.IP
+Specify the width (in characters) of the source code view column containing
+line coverage information.
+.br
+
+Default is 12.
+.PP
+
+.BR genhtml_branch_field_width " ="
+.I number_of_characters
+.IP
+Specify the width (in characters) of the source code view column containing
+branch coverage information.
+.br
+
+Default is 16.
 .PP
 
 .BR genhtml_overview_width " ="
@@ -417,6 +466,20 @@ If non\-zero, include function coverage data when generating HTML output using
 .br
 
 This option can be set to 0 by using the \-\-no\-function\-coverage option of
+.BR genhtml .
+.br
+
+Default is 1.
+.PP
+
+.BR genhtml_branch_coverage " ="
+.IR 0 | 1
+.IP
+If non\-zero, include branch coverage data when generating HTML output using
+.BR genhtml .
+.br
+
+This option can be set to 0 by using the \-\-no\-branch\-coverage option of
 .BR genhtml .
 .br
 

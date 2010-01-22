@@ -21,6 +21,16 @@ genhtml_med_limit = 15
 genhtml_function_hi_limit = 90
 genhtml_function_med_limit = 75
 
+# For branch coverage
+genhtml_branch_hi_limit = 90
+genhtml_branch_med_limit = 75
+
+# Width of line coverage field in source code view
+genhtml_line_field_width = 12
+
+# Width of branch coverage field in source code view
+genhtml_branch_field_width = 16
+
 # Width of overview image (used by --frames option of genhtml)
 genhtml_overview_width = 80
 
@@ -82,6 +92,10 @@ genhtml_sort = 1
 # Include function coverage data display (can be disabled by the
 # --no-func-coverage option of genhtml)
 genhtml_function_coverage = 1
+
+# Include branch coverage data display (can be disabled by the
+# --no-branch-coverage option of genhtml)
+genhtml_branch_coverage = 1
 
 # Location of the gcov tool (same as --gcov-info option of geninfo)
 #geninfo_gcov_tool = gcov

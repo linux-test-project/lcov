@@ -52,6 +52,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-function\-coverage ]
 .RB [ \-\-no\-function\-coverage ]
 .br
+.RB [ \-\-branch\-coverage ]
+.RB [ \-\-no\-branch\-coverage ]
+.br
 .RB [ \-\-demangle\-cpp ]
 .br
 .IR tracefile(s)
@@ -436,6 +439,35 @@ respective call count for those functions.
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_function_coverage .
+
+.RE
+.B \-\-branch\-coverage
+.br
+.B \-\-no\-branch\-coverage
+.RS
+Specify whether to display branch coverage data in HTML output.
+
+Use \-\-branch\-coverage to enable branch coverage display or
+\-\-no\-branch\-coverage to disable it. Branch coverage data display is
+.B enabled
+by default
+
+When branch coverage display is enabled, each overview page will contain
+the number of branches found and hit per file or directory, together with
+the resulting coverage rate. In addition, each source code view will contain
+an extra column which lists all branches of a line with indications of
+whether the branch was taken or not. Branches are shown in the following format:
+
+ ' + ': Branch was taken at least once
+.br
+ ' - ': Branch was not taken
+.br
+ ' # ': The basic block containing the branch was never executed
+.br
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_branch_coverage .
 
 .RE
 .B \-\-demangle\-cpp
