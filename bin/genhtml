@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.36 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.37 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -111,7 +111,7 @@ our $nav_offset = 10;
 # specifies that offset in lines.
 our $func_offset = 2;
 
-our $overview_title = "directory";
+our $overview_title = "top level";
 
 # Width for line coverage information in the source code view
 our $line_field_width = 12;
@@ -2774,6 +2774,7 @@ sub write_css_file()
 	  padding-right: 10px;
 	  background-color: #A7FC9D;
 	  font-weight: bold;
+	  font-family: sans-serif;
 	}
 	
 	/* Directory view/File view (all): line count entry for files with
@@ -2785,6 +2786,7 @@ sub write_css_file()
 	  padding-right: 10px;
 	  background-color: #A7FC9D;
 	  white-space: nowrap;
+	  font-family: sans-serif;
 	}
 	
 	/* Directory view/File view (all): legend entry for high coverage
@@ -2806,6 +2808,7 @@ sub write_css_file()
 	  padding-right: 10px;
 	  background-color: #FFEA20;
 	  font-weight: bold;
+	  font-family: sans-serif;
 	}
 	
 	/* Directory view/File view (all): line count entry for files with
@@ -2817,6 +2820,7 @@ sub write_css_file()
 	  padding-right: 10px;
 	  background-color: #FFEA20;
 	  white-space: nowrap;
+	  font-family: sans-serif;
 	}
 	
 	/* Directory view/File view (all): legend entry for medium coverage
@@ -2838,6 +2842,7 @@ sub write_css_file()
 	  padding-right: 10px;
 	  background-color: #FF0000;
 	  font-weight: bold;
+	  font-family: sans-serif;
 	}
 	
 	/* Directory view/File view (all): line count entry for files with
@@ -2849,6 +2854,7 @@ sub write_css_file()
 	  padding-right: 10px;
 	  background-color: #FF0000;
 	  white-space: nowrap;
+	  font-family: sans-serif;
 	}
 	
 	/* Directory view/File view (all): legend entry for low coverage
@@ -2865,18 +2871,21 @@ sub write_css_file()
 	a.detail:link
 	{
 	  color: #B8D0FF;
+	  font-size:80%;
 	}
 	
 	/* File view (all): "show/hide details" link - visited format */
 	a.detail:visited
 	{
 	  color: #B8D0FF;
+	  font-size:80%;
 	}
 	
 	/* File view (all): "show/hide details" link - activated format */
 	a.detail:active
 	{
 	  color: #FFFFFF;
+	  font-size:80%;
 	}
 	
 	/* File view (detail): test name table headline format */
@@ -2904,6 +2913,7 @@ sub write_css_file()
 	  text-align: right;
 	  padding-right: 10px;
 	  background-color: #DAE7FE;
+	  font-family: sans-serif;
 	}
 	
 	/* File view (detail): test percentage entry */
@@ -2913,6 +2923,7 @@ sub write_css_file()
 	  padding-left: 10px;
 	  padding-right: 10px; 
 	  background-color: #DAE7FE;
+	  font-family: sans-serif;
 	}
 	
 	/* File view (detail): test lines count entry */
@@ -2922,6 +2933,7 @@ sub write_css_file()
 	  padding-left: 10px;
 	  padding-right: 10px; 
 	  background-color: #DAE7FE;
+	  font-family: sans-serif;
 	}
 	
 	/* Test case descriptions: test name format*/
@@ -4251,11 +4263,13 @@ sub write_header(*$$$$$$$$$$)
 
 		# Add function suffix
 		if ($func_coverage) {
+			$view .= "<span style=\"font-size: 80%;\">";
 			if ($type == $HDR_SOURCE) {
 				$view .= " (source / <a href=\"$base_name.func.$html_ext\">functions</a>)";
 			} elsif ($type == $HDR_FUNC) {
 				$view .= " (<a href=\"$base_name.gcov.$html_ext\">source</a> / functions)";
 			}
+			$view .= "</span>";
 		}
 	}
 	elsif ($type == $HDR_TESTDESC)
@@ -4275,15 +4289,17 @@ sub write_header(*$$$$$$$$$$)
 		if ($frames && ($type == $HDR_SOURCE || $type == $HDR_FUNC))
 		{
 			# Need to break frameset when clicking this link
-			$test .= " ( <a href=\"$base_dir".
+			$test .= " ( <span style=\"font-size:80%;\">".
+				 "<a href=\"$base_dir".
 				 "descriptions.$html_ext\" target=\"_parent\">".
-				 "view descriptions</a> )";
+				 "view descriptions</a></span> )";
 		}
 		else
 		{
-			$test .= " ( <a href=\"$base_dir".
+			$test .= " ( <span style=\"font-size:80%;\">".
+				 "<a href=\"$base_dir".
 				 "descriptions.$html_ext\">".
-				 "view descriptions</a> )";
+				 "view descriptions</a></span> )";
 		}
 	}
 
