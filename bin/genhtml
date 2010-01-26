@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.40 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.41 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -3790,7 +3790,7 @@ sub get_branch_html($)
 			if ($taken eq '-') {
 				$class	= "branchNoExec";
 				$text	= " # ";
-				$title	= "Basic block containing branch ".
+				$title	= "Block containing branch ".
 					  "$br_num was never ".
 					  "executed";
 			} elsif ($taken == 0) {
