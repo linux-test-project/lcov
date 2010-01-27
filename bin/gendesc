@@ -41,7 +41,7 @@ use Getopt::Long;
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.9 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.10 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -172,7 +172,7 @@ sub gen_desc()
 	{
 		chomp($_);
 
-		if (/^\s*(\w[\w-]*)(\s*)$/)
+		if (/^(\w[\w-]*)(\s*)$/)
 		{
 			# Matched test name
 			# Name starts with alphanum or _, continues with
