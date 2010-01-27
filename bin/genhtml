@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.41 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.42 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -1295,7 +1295,7 @@ sub read_info_file($)
 		# Switch statement
 		foreach ($line)
 		{
-			/^TN:([^,]*)/ && do
+			/^TN:([^,]*)(,diff)?/ && do
 			{
 				# Test name information found
 				$testname = defined($1) ? $1 : "";
@@ -1303,6 +1303,7 @@ sub read_info_file($)
 				{
 					$changed_testname = 1;
 				}
+				$testname .= $2 if (defined($2));
 				last;
 			};
 
