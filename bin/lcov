@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.55 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.56 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -944,6 +944,10 @@ sub create_package($$$;$)
 	chdir($dir);
 	system("tar cfz $file .")
 		and die("ERROR: could not create package $file\n");
+
+	# Remove temporary files
+	unlink("$dir/$pkg_build_file");
+	unlink("$dir/$pkg_gkv_file");
 
 	# Show number of data files
 	if (!$quiet) {
