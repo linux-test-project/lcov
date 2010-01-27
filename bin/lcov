@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.53 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.54 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -407,7 +407,7 @@ temp_cleanup();
 
 if (defined($ln_overall_found)) {
 	print_overall_rate(1, $ln_overall_found, $ln_overall_hit,
-			   1, $fn_overall_found, $br_overall_hit,
+			   1, $fn_overall_found, $fn_overall_hit,
 			   1, $br_overall_found, $br_overall_hit);
 } else {
 	info("Done.\n") if (!$list && !$capture);
