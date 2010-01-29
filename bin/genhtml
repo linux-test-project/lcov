@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.43 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.44 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -4828,7 +4828,6 @@ sub br_ivec_push($$$$)
 		next if ($v_block != $block || $v_branch != $branch);
 
 		# Add taken counts
-		$v_taken = br_num_to_taken($v_taken);
 		$taken = br_taken_add($taken, $v_taken);
 		last;
 	}
