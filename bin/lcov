@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.59 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.60 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2746,6 +2746,23 @@ sub get_common_prefix($@)
 	return catdir(@prefix);
 }
 
+
+#
+# shorten_filename(filename, width)
+#
+# Truncate filename if it is longer than width characters.
+#
+
+sub shorten_filename($$)
+{
+	my ($filename, $width) = @_;
+
+	return $filename if (length($filename) <= $width);
+	return '...'.substr($filename, length($filename) - $width + 3,
+			    $width - 3);
+}
+
+
 #
 # list()
 #
@@ -2781,7 +2798,7 @@ sub list()
 	# Get common file path prefix
 	$prefix = get_common_prefix(1, keys(%{$data}));
 	$prefix = "" if ($prefix eq "/");
-	# Get longest filename length and function coverage flag
+	# Get longest filename length
 	foreach $filename (keys(%{$data})) {
 		# Determine maximum length of entries
 		$strlen = length($filename) if (length($filename) > $strlen);
@@ -2791,6 +2808,7 @@ sub list()
 		info("Common directory: $prefix\n");
 		$strlen -= length($prefix) + 1;
 	}
+	$strlen = 28 if ($strlen > 28);
 	# Filename
 	$format		= " %-${strlen}s    ";
 	push(@heading1, "");
@@ -2868,6 +2886,7 @@ sub list()
 
 		# Shorten filename by common prefix
 		$filename =~ s/^\Q$prefix\/\E// if (length($prefix) > 0);
+		$filename = shorten_filename($filename, $strlen);
 
 		# Determine line coverage rate for this file
 		if ($found == 0) {
