@@ -1,3 +1,75 @@
+Version 1.8
+===========
+
+gendesc:
+- Fixed problem with single word descriptions
+
+genhtml:
+- Added support for branch coverage measurements
+- Added --demangle-cpp option to convert C++ function names to human readable
+  format. Based on a patch by slava.semushin@gmail.com.
+- Improved color legend: legend display takes up less space in HTML output
+- Improved coverage rate limits: all coverage types use the same limits
+  unless specified otherwise
+- Fixed CRLF line breaks in source code when generating html output. Based
+  on patch by michael.knigge@set-software.de.
+- Fixed warning when $HOME is not set
+- Fixed problem with --baseline-file option. Reported by sixarm@gmail.com.
+  (Undefined subroutine &main::add_fnccounts called at genhtml line 4560.)
+- Fixed problem with --baseline-file option and files without function
+  coverage data (Can't use an undefined value as a HASH reference at genhtml
+  line 4441.)
+- Fixed short-name option ambiguities
+- Fixed --highlight option not showing line data from converted test data
+- Fixed warnings about undefined value used. Reported by nikita@zhuk.fi.
+- Fixed error when processing tracefiles without function data. Reported
+  by richard.corden@gmail.com (Can't use an undefined value as a HASH
+  reference at genhtml line 1506.)
+
+geninfo:
+- Added support for branch coverage measurements
+- Added support for exclusion markers: Users can exclude lines of code from
+  coverage reports by adding keywords to the source code.
+- Added --derive-func-data option
+- Added --debug option to better debug problems with graph files
+- Fixed CRLF line breaks in source code when generating tracefiles. Based on
+  patch by michael.knigge@set-software.de.
+- Fixed problems with unnamed source files
+- Fixed warning when $HOME is not set. Reported by acalando@free.fr.
+- Fixed errors when processing unnamed source files
+- Fixed help text typo
+- Fixed errors when processing incomplete function names in .bb files
+- Fixed filename prefix detection
+- Fixed problem with matching filename
+- Fixed problem when LANG is set to non-english locale. Reported by
+  benoit_belbezet@yahoo.fr.
+- Fixed short-name option ambiguities
+
+genpng:
+- Fixed runtime-warning
+
+lcov:
+- Added support for branch coverage measurements
+- Added support for the linux-2.6.31 upstream gcov kernel support
+- Added --from-package and --to-package options
+- Added --derive-func-data option
+- Added overall coverage result output for more operations
+- Improved output of lcov --list
+- Improved gcov-kernel handling
+- Fixed minor problem with --diff
+- Fixed double-counting of function data
+- Fixed warning when $HOME is not set. Reported by acalando@free.fr.
+- Fixed error when combining tracefiles without function data. Reported by
+  richard.corden@gmail.com. (Can't use an undefined value as a HASH reference
+  at lcov line 1341.)
+- Fixed help text typo
+- Fixed filename prefix detection
+- Fixed lcov ignoring information about converted test data
+
+README: 
+- Added note to mention required -lgcov switch during linking
+
+ 
 Version 1.7:
 ============
 
@@ -85,7 +157,7 @@ lcov:
 - Updated help text
 - Updated man page
 - Fixed lcov not working when -k is specified more than once
-- Fixed lcov not deleting .gcda files when specifiying -z and -d
+- Fixed lcov not deleting .gcda files when specifying -z and -d
 
 lcovrc:
 - Added geninfo_compat_libtool option
