@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.58 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.59 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2463,8 +2463,18 @@ sub write_info_file(*$)
 	{
 		$entry = $data{$source_file};
 		($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-		 $sumfnccount, $testbrdata, $sumbrcount) =
+		 $sumfnccount, $testbrdata, $sumbrcount, $found, $hit,
+		 $f_found, $f_hit, $br_found, $br_hit) =
 			get_info_entry($entry);
+
+		# Add to totals
+		$ln_total_found += $found;
+		$ln_total_hit += $hit;
+		$fn_total_found += $f_found;
+		$fn_total_hit += $f_hit;
+		$br_total_found += $br_found;
+		$br_total_hit += $br_hit;
+
 		foreach $testname (sort(keys(%{$testdata})))
 		{
 			$testcount = $testdata->{$testname};
@@ -2494,10 +2504,6 @@ sub write_info_file(*$)
 			print(INFO_HANDLE "FNF:$f_found\n");
 			print(INFO_HANDLE "FNH:$f_hit\n");
 
-			# Add to total
-			$fn_total_found += $f_found;
-			$fn_total_hit += $f_hit;
-
 			# Write branch related data
 			$br_found = 0;
 			$br_hit = 0;
@@ -2523,10 +2529,6 @@ sub write_info_file(*$)
 				print(INFO_HANDLE "BRH:$br_hit\n");
 			}
 
-			# Add to total
-			$br_total_found += $br_found;
-			$br_total_hit += $br_hit;
-
 			# Write line related data
 			foreach $line (sort({$a <=> $b} keys(%{$testcount})))
 			{
@@ -2545,10 +2547,6 @@ sub write_info_file(*$)
 			print(INFO_HANDLE "LF:$found\n");
 			print(INFO_HANDLE "LH:$hit\n");
 			print(INFO_HANDLE "end_of_record\n");
-
-			# Add to total
-			$ln_total_found += $found;
-			$ln_total_hit += $hit;
 		}
 	}
 
