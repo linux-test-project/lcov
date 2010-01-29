@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.44 $)';
+our $lcov_version	= 'LCOV version 1.8 pre (CVS $Revision: 1.45 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2942,6 +2942,7 @@ sub write_css_file()
 	  padding-right: 10px;
 	  background-color: #FF0000;
 	  font-weight: bold;
+	  font-family: sans-serif;
 	}
 
 	/* Source code view: function entry nonzero count*/
@@ -2952,6 +2953,7 @@ sub write_css_file()
 	  padding-right: 10px;
 	  background-color: #DAE7FE;
 	  font-weight: bold;
+	  font-family: sans-serif;
 	}
 
 	/* Source code view: source code format */
