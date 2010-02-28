@@ -52,13 +52,13 @@
 use strict;
 use File::Basename; 
 use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
-			      splitpath rel2abs/;
+			      splitpath/;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.73 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.74 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -2442,7 +2442,8 @@ sub read_bb($$)
 			$filename = read_bb_string(*HANDLE, $minus_one);
 			goto incomplete if (!defined($filename));
 			if ($filename ne "") {
-				$filename = rel2abs($filename, $base);
+				$filename = solve_relative_path($base,
+								$filename);
 			}
 		} elsif ($value == $minus_two) {
 			# Function name
@@ -2563,7 +2564,7 @@ sub read_bbg_lines_record(*$$$$$$)
 			if ($string eq "") {
 				return $filename;
 			}
-			$filename = rel2abs($string, $base);
+			$filename = solve_relative_path($base, $string);
 			next;
 		}
 		# Got an actual line number
@@ -2757,7 +2758,7 @@ sub read_gcno_lines_record(*$$$$$$$)
 			if ($string eq "") {
 				return $filename;
 			}
-			$filename = rel2abs($string, $base);
+			$filename = solve_relative_path($base, $string);
 			next;
 		}
 		# Got an actual line number
@@ -2798,7 +2799,7 @@ sub read_gcno_function_record(*$$$$)
 	graph_expect("filename");
 	$filename = read_gcno_string($handle, $big_endian);
 	return undef if (!defined($filename));
-	$filename = rel2abs($filename, $base);
+	$filename = solve_relative_path($base, $filename);
 	# Read first line number
 	$lineno = read_gcno_value($handle, $big_endian, "initial line number");
 	return undef if (!defined($lineno));
