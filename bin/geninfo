@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.74 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.75 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -723,6 +723,32 @@ sub derive_data($$$)
 }
 
 #
+# get_filenames(directory, pattern)
+#
+# Return a list of filenames found in directory which match the specified
+# pattern.
+#
+# Die on error.
+#
+
+sub get_filenames($$)
+{
+	my ($dirname, $pattern) = @_;
+	my @result;
+	my $directory;
+	local *DIR;
+
+	opendir(DIR, $dirname) or
+		die("ERROR: cannot read directory $dirname\n");
+	while ($directory = readdir(DIR)) {
+		push(@result, $directory) if ($directory =~ /$pattern/);
+	}
+	closedir(DIR);
+
+	return @result;
+}
+
+#
 # process_dafile(da_filename, dir)
 #
 # Create a .info file for a single data file.
@@ -918,7 +944,7 @@ sub process_dafile($$)
 	}
 
 	# Collect data from resulting .gcov files and create .info file
-	@gcov_list = glob("*.gcov");
+	@gcov_list = get_filenames('.', '\.gcov$');
 
 	# Check for files
 	if (!@gcov_list)
