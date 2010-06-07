@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.75 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.76 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -102,6 +102,8 @@ sub get_gcov_version();
 sub system_no_output($@);
 sub read_config($);
 sub apply_config($);
+sub get_exclusion_data($);
+sub apply_exclusion_data($$);
 sub process_graphfile($$);
 sub filter_fn_name($);
 sub warn_handler($);
@@ -111,6 +113,7 @@ sub graph_expect($);
 sub graph_read(*$;$);
 sub graph_skip(*$;$);
 sub sort_uniq(@);
+sub sort_uniq_lex(@);
 sub graph_cleanup($);
 sub graph_find_base($);
 sub graph_from_bb($$$);
@@ -1923,6 +1926,157 @@ sub apply_config($)
 }
 
 
+#
+# get_exclusion_data(filename)
+#
+# Scan specified source code file for exclusion markers and return
+#   linenumber -> 1
+# for all lines which should be excluded.
+#
+
+sub get_exclusion_data($)
+{
+	my ($filename) = @_;
+	my %list;
+	my $flag = 0;
+	local *HANDLE;
+
+	if (!open(HANDLE, "<$filename")) {
+		warn("WARNING: could not open $filename\n");
+		return undef;
+	}
+	while (<HANDLE>) {
+		if (/$EXCL_STOP/) {
+			$flag = 0;
+		} elsif (/$EXCL_START/) {
+			$flag = 1;
+		}
+		if (/$EXCL_LINE/ || $flag) {
+			$list{$.} = 1;
+		}
+	}
+	close(HANDLE);
+
+	if ($flag) {
+		warn("WARNING: unterminated exclusion section in $filename\n");
+	}
+
+	return \%list;
+}
+
+
+#
+# apply_exclusion_data(instr, graph)
+#
+# Remove lines from instr and graph data structures which are marked
+# for exclusion in the source code file.
+#
+# Return adjusted (instr, graph).
+#
+# graph         : file name -> function data
+# function data : function name -> line data
+# line data     : [ line1, line2, ... ]
+#
+# instr     : filename -> line data
+# line data : [ line1, line2, ... ]
+#
+
+sub apply_exclusion_data($$)
+{
+	my ($instr, $graph) = @_;
+	my $filename;
+	my %excl_data;
+	my $excl_read_failed = 0;
+
+	# Collect exclusion marker data
+	foreach $filename (sort_uniq_lex(keys(%{$graph}), keys(%{$instr}))) {
+		my $excl = get_exclusion_data($filename);
+
+		# Skip and note if file could not be read
+		if (!defined($excl)) {
+			$excl_read_failed = 1;
+			next;
+		}
+
+		# Add to collection if there are markers
+		$excl_data{$filename} = $excl if (keys(%{$excl}) > 0);
+	}
+
+	# Warn if not all source files could be read
+	if ($excl_read_failed) {
+		warn("WARNING: some exclusion markers may be ignored\n");
+	}
+
+	# Skip if no markers were found
+	return ($instr, $graph) if (keys(%excl_data) == 0);
+
+	# Apply exclusion marker data to graph
+	foreach $filename (keys(%excl_data)) {
+		my $function_data = $graph->{$filename};
+		my $excl = $excl_data{$filename};
+		my $function;
+
+		next if (!defined($function_data));
+
+		foreach $function (keys(%{$function_data})) {
+			my $line_data = $function_data->{$function};
+			my $line;
+			my @new_data;
+
+			# To be consistent with exclusion parser in non-initial
+			# case we need to remove a function if the first line
+			# was excluded
+			if ($excl->{$line_data->[0]}) {
+				delete($function_data->{$function});
+				next;
+			}
+			# Copy only lines which are not excluded
+			foreach $line (@{$line_data}) {
+				push(@new_data, $line) if (!$excl->{$line});
+			}
+
+			# Store modified list
+			if (scalar(@new_data) > 0) {
+				$function_data->{$function} = \@new_data;
+			} else {
+				# All of this function was excluded
+				delete($function_data->{$function});
+			}
+		}
+
+		# Check if all functions of this file were excluded
+		if (keys(%{$function_data}) == 0) {
+			delete($graph->{$filename});
+		}
+	}
+
+	# Apply exclusion marker data to instr
+	foreach $filename (keys(%excl_data)) {
+		my $line_data = $instr->{$filename};
+		my $excl = $excl_data{$filename};
+		my $line;
+		my @new_data;
+
+		next if (!defined($line_data));
+
+		# Copy only lines which are not excluded
+		foreach $line (@{$line_data}) {
+			push(@new_data, $line) if (!$excl->{$line});
+		}
+
+		# Store modified list
+		if (scalar(@new_data) > 0) {
+			$instr->{$filename} = \@new_data;
+		} else {
+			# All of this file was excluded
+			delete($instr->{$filename});
+		}
+	}
+
+	return ($instr, $graph);
+}
+
+
 sub process_graphfile($$)
 {
 	my ($file, $dir) = @_;
@@ -1934,9 +2088,9 @@ sub process_graphfile($$)
 	my $graph;
 	my $instr;
 	my $filename;
-	my $ln_found;
+	my $ln_found = 0;
 	my $total_ln_found = 0;
-	my $fn_found;
+	my $fn_found = 0;
 	my $total_fn_found = 0;
 	local *INFO_HANDLE;
 
@@ -1980,6 +2134,11 @@ sub process_graphfile($$)
 	else
 	{
 		($instr, $graph) = read_gcno($graph_filename, $base_dir);
+	}
+
+	if (!$no_markers) {
+		# Apply exclusion marker data to graph file data
+		($instr, $graph) = apply_exclusion_data($instr, $graph);
 	}
 
 	# Check whether we're writing to a single file
@@ -2197,6 +2356,23 @@ sub sort_uniq(@)
 		$hash{$_} = 1;
 	}
 	return sort { $a <=> $b } keys(%hash);
+}
+
+#
+# sort_uniq_lex(list)
+#
+# Return list in lexically ascending order and without duplicate entries.
+#
+
+sub sort_uniq_lex(@)
+{
+	my (@list) = @_;
+	my %hash;
+
+	foreach (@list) {
+		$hash{$_} = 1;
+	}
+	return sort keys(%hash);
 }
 
 #
