@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.48 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.49 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -3758,7 +3758,7 @@ sub get_branch_html($)
 		}
 		# Split the block into several lines
 		foreach $branch (@{$block}) {
-			if ($line_len + $branch->[$BR_LEN] > $br_field_width) {
+			if ($line_len + $branch->[$BR_LEN] >= $br_field_width) {
 				# Start a new line
 				if (($line_len + 1 <= $br_field_width) &&
 				    scalar(@{$line}) > 0 &&
