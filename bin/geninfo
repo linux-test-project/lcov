@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.76 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.77 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -86,6 +86,8 @@ our $BR_BRANCH		= 2;
 our $BR_TAKEN		= 3;
 our $BR_VEC_ENTRIES	= 4;
 our $BR_VEC_WIDTH	= 32;
+
+our $UNNAMED_BLOCK	= 9999;
 
 # Prototypes
 sub print_usage(*);
@@ -1560,7 +1562,7 @@ sub read_gcov_file($)
 	my $number;
 	my $exclude_flag = 0;
 	my $exclude_line = 0;
-	my $last_block = 0;
+	my $last_block = $UNNAMED_BLOCK;
 	my $last_line = 0;
 	local *INPUT;
 
@@ -1679,7 +1681,7 @@ sub read_gcov_file($)
 				my ($count, $line, $code) = ($1, $2, $3);
 
 				$last_line = $line;
-				$last_block = 0;
+				$last_block = $UNNAMED_BLOCK;
 				# Check for exclusion markers
 				if (!$no_markers) {
 					if (/$EXCL_STOP/) {
