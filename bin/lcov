@@ -64,14 +64,14 @@ use File::Basename;
 use File::Path;
 use File::Find;
 use File::Temp qw /tempdir/;
-use File::Spec::Functions qw /abs2rel canonpath catdir catfile 
+use File::Spec::Functions qw /abs2rel canonpath catdir catfile catpath
 			      file_name_is_absolute rootdir splitdir splitpath/;
 use Getopt::Long;
 use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.62 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.63 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -182,6 +182,8 @@ our @temp_dirs;
 our $gcov_gkv;		# gcov kernel support version found on machine
 our $opt_derive_func_data;
 our $opt_debug;
+our $opt_list_full_path;
+our $opt_no_list_full_path;
 our $ln_overall_found;
 our $ln_overall_hit;
 our $fn_overall_found;
@@ -223,7 +225,9 @@ if ($config)
 	# Copy configuration file values to variables
 	apply_config({
 		"lcov_gcov_dir"		=> \$gcov_dir,
-		"lcov_tmp_dir"		=> \$tmp_dir});
+		"lcov_tmp_dir"		=> \$tmp_dir,
+		"lcov_list_full_path"	=> \$opt_list_full_path,
+	});
 }
 
 # Parse command line options
@@ -259,6 +263,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
 		"debug" => \$opt_debug,
+		"list-full-path" => \$opt_list_full_path,
+		"no-list-full-path" => \$opt_no_list_full_path,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -277,6 +283,12 @@ else
 	{
 		$compat_libtool = ($no_compat_libtool ? 0 : 1);
 		$no_compat_libtool = undef;
+	}
+
+	if (defined($opt_no_list_full_path))
+	{
+		$opt_list_full_path = ($opt_no_list_full_path ? 0 : 1);
+		$opt_no_list_full_path = undef;
 	}
 }
 
@@ -470,6 +482,7 @@ Options:
       --from-package FILENAME     Capture from unprocessed data in FILENAME
       --no-markers                Ignore exclusion markers in source code
       --derive-func-data          Generate function data from line data
+      --list-full-path            Print full path during a list operation
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -2758,8 +2771,7 @@ sub shorten_filename($$)
 	my ($filename, $width) = @_;
 
 	return $filename if (length($filename) <= $width);
-	return '...'.substr($filename, length($filename) - $width + 3,
-			    $width - 3);
+	return substr($filename, 0, $width - 3).'...';
 }
 
 
@@ -2784,7 +2796,6 @@ sub list()
 	my $fn_total_hit = 0;
 	my $br_total_found = 0;
 	my $br_total_hit = 0;
-	my $prefix;
 	my $strlen = 0;
 	my $format;
 	my @heading1;
@@ -2794,23 +2805,27 @@ sub list()
 	my $rate;
 	my $fnrate;
 	my $brrate;
+	my $lastpath;
 
-	# Get common file path prefix
-	$prefix = get_common_prefix(1, keys(%{$data}));
-	$prefix = "" if ($prefix eq "/");
 	# Get longest filename length
 	foreach $filename (keys(%{$data})) {
+
 		# Determine maximum length of entries
-		$strlen = length($filename) if (length($filename) > $strlen);
+		if ($opt_list_full_path) {
+			if (length($filename) > $strlen) {
+				$strlen = length($filename)
+			}
+		} else {
+			my ($v, $d, $f) = splitpath($filename);
+
+			$strlen = length($f) if (length($f) > $strlen);
+		}
 	}
-	# Print header
-	if (length($prefix) > 0) {
-		info("Common directory: $prefix\n");
-		$strlen -= length($prefix) + 1;
+	if (!$opt_list_full_path) {
+		$strlen = 26 if ($strlen > 26);
 	}
-	$strlen = 28 if ($strlen > 28);
 	# Filename
-	$format		= " %-${strlen}s    ";
+	$format		= "   %-${strlen}s    ";
 	push(@heading1, "");
 	push(@heading2, "Filename");
 	$barlen		= 1 + $strlen + 4;
@@ -2856,8 +2871,20 @@ sub list()
 	foreach $filename (sort(keys(%{$data})))
 	{
 		my @file_data;
+		my $print_filename = $filename;
 
 		$entry = $data->{$filename};
+		if (!$opt_list_full_path) {
+			my ($v, $d, $f) = splitpath($filename);
+			my $p = catpath($v, $d, "");
+
+			if (!defined($lastpath) || $lastpath ne $p) {
+				print("\n") if (defined($lastpath));
+				$lastpath = $p;
+				print(" $lastpath\n");
+			}
+			$print_filename = shorten_filename($f, $strlen);
+		}
 
 		(undef, undef, undef, undef, undef, undef, undef, undef,
 		 $found, $hit, $fn_found, $fn_hit, $br_found, $br_hit) =
@@ -2884,10 +2911,6 @@ sub list()
 		$br_total_found += $br_found;
 		$br_total_hit += $br_hit;
 
-		# Shorten filename by common prefix
-		$filename =~ s/^\Q$prefix\/\E// if (length($prefix) > 0);
-		$filename = shorten_filename($filename, $strlen);
-
 		# Determine line coverage rate for this file
 		if ($found == 0) {
 			$rate = "-";
@@ -2910,7 +2933,7 @@ sub list()
 		}
 
 		# Assemble line parameters
-		push(@file_data, $filename);
+		push(@file_data, $print_filename);
 		push(@file_data, $rate);
 		push(@file_data, $fnrate);
 		push(@file_data, $brrate);

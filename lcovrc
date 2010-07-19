@@ -115,3 +115,7 @@ lcov_rmmod_tool = /sbin/rmmod
 
 # Location for temporary directories
 lcov_tmp_dir = /tmp
+
+# Show full paths during list operation if non-zero (same as --list-full-path
+# option of lcov)
+lcov_list_full_path = 0

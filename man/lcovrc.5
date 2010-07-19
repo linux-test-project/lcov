@@ -173,6 +173,11 @@ lcov_gcov_dir = /proc/gcov
 .br
 lcov_tmp_dir = /tmp
 .br
+
+# Show full paths during list operation if non\-zero
+.br
+lcov_list_full_path = 0
+.br
 .PP
 
 .SH OPTIONS
@@ -530,6 +535,19 @@ Specify the location of a directory used for temporary files.
 .br
 
 Default is '/tmp'.
+.PP
+
+.BR lcov_list_full_path " ="
+.IR 0 | 1
+.IP
+If non-zero, print the full path to source code files during a list operation.
+.br
+
+This option corresponds to the \-\-list\-full\-path option of
+.BR lcov .
+.br
+
+Default is 0.
 .PP
 
 .SH FILES

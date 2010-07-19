@@ -61,6 +61,8 @@ lcov \- a graphical GCOV front\-end
 .RS 5
 .br
 .RB [ \-q | \-\-quiet ]
+.RB [ \-\-list\-full\-path ]
+.RB [ \-\-no\-list\-full\-path ]
 .br
 .RE
 
@@ -496,6 +498,19 @@ List the contents of the
 
 Only one of  \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
 at a time.
+.RE
+
+.B \-\-list\-full\-path
+.br
+.B \-\-no\-list\-full\-path
+.br
+.RS
+Specify whether to show full paths during list operation.
+
+Use \-\-list\-full\-path to show full paths during list operation
+or \-\-no\-list\-full\-path to show shortened paths. Paths are
+.B shortened
+by default.
 .RE
 
 .B \-\-no\-markers
