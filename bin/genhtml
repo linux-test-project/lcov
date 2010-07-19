@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.47 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.48 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -3844,7 +3844,7 @@ sub format_count($$)
 	my $result;
 	my $exp;
 
-	$result = sprintf("%*d", $width, $count);
+	$result = sprintf("%*.0f", $width, $count);
 	while (length($result) > $width) {
 		last if ($count < 10);
 		$exp++;
