@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.63 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.64 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -1110,6 +1110,7 @@ sub kernel_capture_initial()
 {
 	my $build;
 	my $source;
+	my @params;
 
 	if (defined($base_directory)) {
 		$build = $base_directory;
@@ -1125,7 +1126,14 @@ sub kernel_capture_initial()
 	info("Using $build as kernel build directory ($source)\n");
 	# Build directory needs to be passed to geninfo
 	$base_directory = $build;
-	lcov_geninfo($build);
+	if (@kernel_directory) {
+		foreach my $dir (@kernel_directory) {
+			push(@params, "$build/$dir");
+		}
+	} else {
+		push(@params, $build);
+	}
+	lcov_geninfo(@params);
 }
 
 #
