@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.78 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.79 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -439,6 +439,11 @@ if (defined($output_filename) && ($output_filename ne "-"))
 foreach my $entry (@data_directory) {
 	gen_info($entry);
 }
+
+if ($initial) {
+	warn("Note: --initial does not generate branch coverage ".
+	     "data\n");
+}
 info("Finished .info-file creation\n");
 
 exit(0);
@@ -595,11 +600,6 @@ sub gen_info($)
 		} else {
 			process_dafile($file, $prefix);
 		}
-	}
-
-	if ($initial) {
-		warn("Note: --initial does not generate branch coverage ".
-		     "data\n");
 	}
 }
 
