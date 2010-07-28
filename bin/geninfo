@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.79 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.80 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -3065,48 +3065,4 @@ sub get_gcov_capabilities()
 	}
 
 	return \%capabilities;
-}
-
-
-#
-# get_overall_line(found, hit, name_singular, name_plural)
-#
-# Return a string containing overall information for the specified
-# found/hit data.
-#
-
-sub get_overall_line($$$$)
-{
-	my ($found, $hit, $name_sn, $name_pl) = @_;
-	my $name;
-
-	return "no data found" if (!defined($found) || $found == 0);
-	$name = ($found == 1) ? $name_sn : $name_pl;
-	return sprintf("%.1f%% (%d of %d %s)", $hit * 100 / $found, $hit,
-		       $found, $name);
-}
-
-
-#
-# print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
-#                    br_found, br_hit)
-#
-# Print overall coverage rates for the specified coverage types.
-#
-
-sub print_overall_rate($$$$$$$$$)
-{
-	my ($ln_do, $ln_found, $ln_hit, $fn_do, $fn_found, $fn_hit,
-	    $br_do, $br_found, $br_hit) = @_;
-
-	info("Overall coverage rate:\n");
-	info("  lines......: %s\n",
-	     get_overall_line($ln_found, $ln_hit, "line", "lines"))
-		if ($ln_do);
-	info("  functions..: %s\n",
-	     get_overall_line($fn_found, $fn_hit, "function", "functions"))
-		if ($fn_do);
-	info("  branches...: %s\n",
-	     get_overall_line($br_found, $br_hit, "branch", "branches"))
-		if ($br_do);
 }
