@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.64 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.65 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2804,7 +2804,7 @@ sub list()
 	my $fn_total_hit = 0;
 	my $br_total_found = 0;
 	my $br_total_hit = 0;
-	my $strlen = 0;
+	my $strlen = length("Total:");
 	my $format;
 	my @heading1;
 	my @heading2;
