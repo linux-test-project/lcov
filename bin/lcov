@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.66 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.67 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2975,7 +2975,7 @@ sub list()
 	}
 
 	# Print separator
-	print(("-"x$barlen)."\n");
+	print(("="x$barlen)."\n");
 
 	# Assemble line parameters
 	push(@footer, sprintf("%*s", $strlen, "Total:"));
