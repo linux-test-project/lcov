@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.67 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.68 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2729,42 +2729,63 @@ sub remove()
 }
 
 
+# get_prefix(max_width, max_percentage_too_long, path_list)
 #
-# get_common_prefix(min_dir, filenames)
+# Return a path prefix that satisfies the following requirements:
+# - is shared by more paths in path_list than any other prefix
+# - the percentage of paths which would exceed the given max_width length
+#   after applying the prefix does not exceed max_percentage_too_long
 #
-# Return the longest path prefix shared by all filenames. MIN_DIR specifies
-# the minimum number of directories that a filename may have after removing
-# the prefix.
-#
+# If multiple prefixes satisfy all requirements, the longest prefix is
+# returned. Return an empty string if no prefix could be found.
 
-sub get_common_prefix($@)
+sub get_prefix($$@)
 {
-	my ($min_dir, @files) = @_;
-	my $file;
-	my @prefix;
-	my $i;
+	my ($max_width, $max_long, @path_list) = @_;
+	my $path;
+	my $ENTRY_NUM = 0;
+	my $ENTRY_LONG = 1;
+	my %prefix;
 
-	if (scalar(@files) == 1) {
-		return "";
-	}
-	foreach $file (@files) {
-		my ($v, $d, $f) = splitpath($file);
-		my @comp = splitdir($d);
+	# Build prefix hash
+	foreach $path (@path_list) {
+		my ($v, $d, $f) = splitpath($path);
+		my @dirs = splitdir($d);
+		my $p_len = length($path);
+		my $i;
 
-		if (!@prefix) {
-			@prefix = @comp;
-			next;
-		}
-		for ($i = 0; $i < scalar(@comp) && $i < scalar(@prefix); $i++) {
-			if ($comp[$i] ne $prefix[$i] ||
-			    ((scalar(@comp) - ($i + 1)) <= $min_dir)) {
-				delete(@prefix[$i..scalar(@prefix)]);
-				last;
+		# Remove trailing '/'
+		pop(@dirs) if ($dirs[scalar(@dirs) - 1] eq '');
+		for ($i = 0; $i < scalar(@dirs); $i++) {
+			my $subpath = catpath($v, catdir(@dirs[0..$i]), '');
+			my $entry = $prefix{$subpath};
+
+			$entry = [ 0, 0 ] if (!defined($entry));
+			$entry->[$ENTRY_NUM]++;
+			if (($p_len - length($subpath) - 1) > $max_width) {
+				$entry->[$ENTRY_LONG]++;
 			}
+			$prefix{$subpath} = $entry;
+		}
+	}
+	# Find suitable prefix (sort descending by two keys: 1. number of
+	# entries covered by a prefix, 2. length of prefix)
+	foreach $path (sort {($prefix{$a}->[$ENTRY_NUM] ==
+			      $prefix{$b}->[$ENTRY_NUM]) ?
+				length($b) <=> length($a) :
+				$prefix{$b}->[$ENTRY_NUM] <=>
+				$prefix{$a}->[$ENTRY_NUM]}
+				keys(%prefix)) {
+		my ($num, $long) = @{$prefix{$path}};
+
+		# Check for additional requirement: number of filenames
+		# that would be too long may not exceed a certain percentage
+		if ($long <= $num * $max_long / 100) {
+			return $path;
 		}
 	}
 
-	return catdir(@prefix);
+	return "";
 }
 
 
@@ -2777,11 +2798,44 @@ sub get_common_prefix($@)
 sub shorten_filename($$)
 {
 	my ($filename, $width) = @_;
+	my $l = length($filename);
+	my $s;
+	my $e;
 
-	return $filename if (length($filename) <= $width);
-	return substr($filename, 0, $width - 3).'...';
+	return $filename if ($l <= $width);
+	$e = int(($width - 3) / 2);
+	$s = $width - 3 - $e;
+
+	return substr($filename, 0, $s).'...'.substr($filename, $l - $e);
 }
 
+
+sub shorten_number($$)
+{
+	my ($number, $width) = @_;
+	my $result = sprintf("%*d", $width, $number);
+
+	return $result if (length($result) <= $width);
+	$number = $number / 1000;
+	return $result if (length($result) <= $width);
+	$result = sprintf("%*dk", $width - 1, $number);
+	return $result if (length($result) <= $width);
+	$number = $number / 1000;
+	$result = sprintf("%*dM", $width - 1, $number);
+	return $result if (length($result) <= $width);
+	return '#';
+}
+
+sub shorten_rate($$)
+{
+	my ($rate, $width) = @_;
+	my $result = sprintf("%*.1f%%", $width - 3, $rate);
+
+	return $result if (length($result) <= $width);
+	$result = sprintf("%*d%%", $width - 1, $rate);
+	return $result if (length($result) <= $width);
+	return "#";
+}
 
 #
 # list()
@@ -2804,75 +2858,135 @@ sub list()
 	my $fn_total_hit = 0;
 	my $br_total_found = 0;
 	my $br_total_hit = 0;
+	my $prefix;
 	my $strlen = length("Filename");
 	my $format;
-	my @heading1;
-	my @heading2;
+	my $heading1;
+	my $heading2;
 	my @footer;
 	my $barlen;
 	my $rate;
 	my $fnrate;
 	my $brrate;
 	my $lastpath;
+	my $F_LN_NUM = 0;
+	my $F_LN_RATE = 1;
+	my $F_FN_NUM = 2;
+	my $F_FN_RATE = 3;
+	my $F_BR_NUM = 4;
+	my $F_BR_RATE = 5;
+	my @fwidth_narrow = (5, 5, 3, 5, 4, 5);
+	my @fwidth_wide = (6, 5, 5, 5, 6, 5);
+	my @fwidth = @fwidth_wide;
+	my $w;
+	my $max_width = 80;
+	my $max_long = 20;
+	my $fwidth_narrow_length;
+	my $fwidth_wide_length;
 
+	# Calculate total width of narrow fields
+	$fwidth_narrow_length = 0;
+	foreach $w (@fwidth_narrow) {
+		$fwidth_narrow_length += $w + 1;
+	}
+	# Calculate total width of wide fields
+	$fwidth_wide_length = 0;
+	foreach $w (@fwidth_wide) {
+		$fwidth_wide_length += $w + 1;
+	}
+	# Get common file path prefix
+	$prefix = get_prefix($max_width - $fwidth_narrow_length, $max_long,
+			     keys(%{$data}));
+	$prefix =~ s/\/$//;
 	# Get longest filename length
 	foreach $filename (keys(%{$data})) {
+		if (!$opt_list_full_path) {
+			if ((length($prefix) == 0) ||
+			    !($filename =~ s/^\Q$prefix\/\E//)) {
+				my ($v, $d, $f) = splitpath($filename);
 
-		# Determine maximum length of entries
-		if ($opt_list_full_path) {
-			if (length($filename) > $strlen) {
-				$strlen = length($filename)
+				$filename = $f;
 			}
-		} else {
-			my ($v, $d, $f) = splitpath($filename);
-
-			$strlen = length($f) if (length($f) > $strlen);
+		}
+		# Determine maximum length of entries
+		if (length($filename) > $strlen) {
+			$strlen = length($filename)
 		}
 	}
 	if (!$opt_list_full_path) {
-		$strlen = 26 if ($strlen > 26);
+		my $blanks;
+
+		$w = $fwidth_wide_length;
+		# Check if all columns fit into max_width characters
+		if ($strlen + $fwidth_wide_length > $max_width) {
+			# Use narrow fields
+			@fwidth = @fwidth_narrow;
+			$w = $fwidth_narrow_length;
+			if (($strlen + $fwidth_narrow_length) > $max_width) {
+				# Truncate filenames at max width
+				$strlen = $max_width - $fwidth_narrow_length;
+			}
+		}
+		# Add some blanks between filename and fields if possible
+		$blanks = int($strlen * 0.5);
+		$blanks = 4 if ($blanks < 4);
+		$blanks = 8 if ($blanks > 8);
+		if (($strlen + $w + $blanks) < $max_width) {
+			$strlen += $blanks;
+		} else {
+			$strlen = $max_width - $w;
+		}
 	}
 	# Filename
-	$format		= "   %-${strlen}s    ";
-	push(@heading1, "");
-	push(@heading2, "Filename");
-	$barlen		= 3 + $strlen + 4;
-	# Line coverage rate
-	$format		.= "%6s  ";
-	push(@heading1, "Line");
-	push(@heading2, "Rate");
-	$barlen		+= 8;
-	# Function coverage rate
-	$format		.= "%6s  ";
-	push(@heading1, "Func");
-	push(@heading2, "Rate");
-	$barlen		+= 8;
-	# Branch coverage rate
-	$format		.= "%6s  ";
-	push(@heading1, "Branch");
-	push(@heading2, "Rate");
-	$barlen		+= 8;
+	$w = $strlen;
+	$format		= "%-${w}s|";
+	$heading1 	= sprintf("%*s|", $w, "");
+	$heading2 	= sprintf("%-*s|", $w, "Filename");
+	$barlen		= $w + 1;
 	# Number of lines
-	$format		.= "%6s  ";
-	push(@heading1, "");
-	push(@heading2, "Lines");
-	$barlen		+= 8;
+	$w = $fwidth[$F_LN_NUM];
+	$format		.= "%${w}s ";
+	$heading1 	.= sprintf("%-*s |", $w + $fwidth[$F_LN_RATE],
+				   "Lines");
+	$heading2 	.= sprintf("%-*s ", $w, "Num");
+	$barlen		+= $w + 1;
+	# Line coverage rate
+	$w = $fwidth[$F_LN_RATE];
+	$format		.= "%${w}s|";
+	$heading2	.= sprintf("%*s|", $w, "Rate");
+	$barlen		+= $w + 1;
 	# Number of functions
-	$format		.= "%5s  ";
-	push(@heading1, "");
-	push(@heading2, "Funcs");
-	$barlen		+= 7;
+	$w = $fwidth[$F_FN_NUM];
+	$format		.= "%${w}s ";
+	$heading1 	.= sprintf("%-*s|", $w + $fwidth[$F_FN_RATE] + 1,
+				   "Functions");
+	$heading2 	.= sprintf("%-*s ", $w, "Num");
+	$barlen		+= $w + 1;
+	# Function coverage rate
+	$w = $fwidth[$F_FN_RATE];
+	$format		.= "%${w}s|";
+	$heading2	.= sprintf("%*s|", $w, "Rate");
+	$barlen		+= $w + 1;
 	# Number of branches
-	$format		.= "%5s  ";
-	push(@heading1, "");
-	push(@heading2, "Br's");
-	$barlen		+= 7;
+	$w = $fwidth[$F_BR_NUM];
+	$format		.= "%${w}s ";
+	$heading1 	.= sprintf("%-*s", $w + $fwidth[$F_BR_RATE] + 1,
+				   "Branches");
+	$heading2 	.= sprintf("%-*s ", $w, "Num");
+	$barlen		+= $w + 1;
+	# Branch coverage rate
+	$w = $fwidth[$F_BR_RATE];
+	$format		.= "%${w}s";
+	$heading2	.= sprintf("%*s", $w, "Rate");
+	$barlen		+= $w;
 	# Line end
 	$format		.= "\n";
+	$heading1	.= "\n";
+	$heading2	.= "\n";
 
 	# Print heading
-	printf($format, @heading1);
-	printf($format, @heading2);
+	print($heading1);
+	print($heading2);
 	print(("="x$barlen)."\n");
 
 	# Print per file information
@@ -2883,15 +2997,27 @@ sub list()
 
 		$entry = $data->{$filename};
 		if (!$opt_list_full_path) {
-			my ($v, $d, $f) = splitpath($filename);
-			my $p = catpath($v, $d, "");
+			my $p;
+
+			$print_filename = $filename;
+			if ((length($prefix) == 0) ||
+			    !($print_filename =~ s/^\Q$prefix\/\E//)) {
+				my ($v, $d, $f) = splitpath($filename);
+
+				$p = catpath($v, $d, "");
+				$p =~ s/\/$//;
+				$print_filename = $f;
+			} else {
+				$p = $prefix;
+			}
 
 			if (!defined($lastpath) || $lastpath ne $p) {
 				print("\n") if (defined($lastpath));
 				$lastpath = $p;
-				print(" $lastpath\n");
+				print("[$lastpath/]\n");
 			}
-			$print_filename = shorten_filename($f, $strlen);
+			$print_filename = shorten_filename($print_filename,
+							   $strlen);
 		}
 
 		(undef, undef, undef, undef, undef, undef, undef, undef,
@@ -2923,31 +3049,32 @@ sub list()
 		if ($found == 0) {
 			$rate = "-";
 		} else {
-			$rate = sprintf("%.1f%%", 100 * $hit / $found);
+			$rate = shorten_rate(100 * $hit / $found,
+					     $fwidth[$F_LN_RATE]);
 		}
 		# Determine function coverage rate for this file
 		if (!defined($fn_found) || $fn_found == 0) {
 			$fnrate = "-";
 		} else {
-			$fnrate = sprintf("%.1f%%",
-					  100 * $fn_hit / $fn_found);
+			$fnrate = shorten_rate(100 * $fn_hit / $fn_found,
+					     $fwidth[$F_FN_RATE]);
 		}
 		# Determine branch coverage rate for this file
 		if (!defined($br_found) || $br_found == 0) {
 			$brrate = "-";
 		} else {
-			$brrate = sprintf("%.1f%%",
-					  100 * $br_hit / $br_found);
+			$brrate = shorten_rate(100 * $br_hit / $br_found,
+					     $fwidth[$F_BR_RATE]);
 		}
 
 		# Assemble line parameters
 		push(@file_data, $print_filename);
+		push(@file_data, shorten_number($found, $fwidth[$F_LN_NUM]));
 		push(@file_data, $rate);
+		push(@file_data, shorten_number($fn_found, $fwidth[$F_FN_NUM]));
 		push(@file_data, $fnrate);
+		push(@file_data, shorten_number($br_found, $fwidth[$F_BR_NUM]));
 		push(@file_data, $brrate);
-		push(@file_data, $found);
-		push(@file_data, $fn_found);
-		push(@file_data, $br_found);
 
 		# Print assembled line
 		printf($format, @file_data);
@@ -2957,21 +3084,22 @@ sub list()
 	if ($total_found == 0) {
 		$rate = "-";
 	} else {
-		$rate = sprintf("%.1f%%", 100 * $total_hit / $total_found);
+		$rate = shorten_rate(100 * $hit / $found,
+				     $fwidth[$F_LN_RATE]);
 	}
 	# Determine total function coverage rate
 	if ($fn_total_found == 0) {
 		$fnrate = "-";
 	} else {
-		$fnrate = sprintf("%.1f%%",
-				100 * $fn_total_hit / $fn_total_found);
+		$fnrate = shorten_rate(100 * $fn_total_hit / $fn_total_found,
+				       $fwidth[$F_FN_RATE]);
 	}
 	# Determine total branch coverage rate
 	if ($br_total_found == 0) {
 		$brrate = "-";
 	} else {
-		$brrate = sprintf("%.1f%%",
-				100 * $br_total_hit / $br_total_found);
+		$brrate = shorten_rate(100 * $br_total_hit / $br_total_found,
+				       $fwidth[$F_BR_RATE]);
 	}
 
 	# Print separator
@@ -2979,12 +3107,12 @@ sub list()
 
 	# Assemble line parameters
 	push(@footer, sprintf("%*s", $strlen, "Total:"));
+	push(@footer, shorten_number($total_found, $fwidth[$F_LN_NUM]));
 	push(@footer, $rate);
+	push(@footer, shorten_number($fn_total_found, $fwidth[$F_FN_NUM]));
 	push(@footer, $fnrate);
+	push(@footer, shorten_number($br_total_found, $fwidth[$F_BR_NUM]));
 	push(@footer, $brrate);
-	push(@footer, $total_found);
-	push(@footer, $fn_total_found);
-	push(@footer, $br_total_found);
 
 	# Print assembled line
 	printf($format, @footer);
