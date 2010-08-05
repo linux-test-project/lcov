@@ -1,3 +1,39 @@
+Version 1.9
+===========
+
+genhtml:
+- Improved wording for branch representation tooltip text
+- Fixed vertical alignment of HTML branch representation
+
+geninfo:
+- Improved warning message about --initial not generating branch coverage data
+- Debugging messages are now printed to STDERR instead of STDOUT
+- Fixed problem with some .gcno files. Reported by gui@futarque.com.
+  (file.gcno: reached unexpected end of file)
+- Fixed problem with relative build paths. Reported by zhanbiao2000@gmail.com.
+  (cannot find an entry for ^#src#test.c.gcov in .gcno file, skipping file!)
+- Fixed problem where coverage data is missing for some files. Reported by
+  weston_schmidt@open-roadster.com
+- Fixed problem where exclusion markers are ignored when gathering
+  initial coverage data. Reported by ahmed_osman@mentor.com.
+- Fixed large execution counts showing as negative numbers in HTML output.
+  Reported by kkyriako@yahoo.com.
+- Fixed problem that incorrectly associated branches outside of a block with
+  branches inside the first block
+
+lcov:
+- Fixed problem that made lcov ignore --kernel-directory parameters when
+  specifying --initial. Reported by hjia@redhat.com.
+- Added --list-full-path option to prevent lcov from truncating paths in list
+  output
+- Added lcov_list_width and lcov_list_truncate_max directives to the
+  lcov configuration file to allow for list output customization
+- Improved list output
+
+COPYING:
+- Added license text to better comply with GPL recommendations
+
+
 Version 1.8
 ===========
 
