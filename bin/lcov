@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.69 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.70 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2943,41 +2943,41 @@ sub list()
 	$heading1 	= sprintf("%*s|", $w, "");
 	$heading2 	= sprintf("%-*s|", $w, "Filename");
 	$barlen		= $w + 1;
-	# Number of lines
-	$w = $fwidth[$F_LN_NUM];
-	$format		.= "%${w}s ";
-	$heading1 	.= sprintf("%-*s |", $w + $fwidth[$F_LN_RATE],
-				   "Lines");
-	$heading2 	.= sprintf("%-*s ", $w, "Num");
-	$barlen		+= $w + 1;
 	# Line coverage rate
 	$w = $fwidth[$F_LN_RATE];
-	$format		.= "%${w}s|";
-	$heading2	.= sprintf("%*s|", $w, "Rate");
-	$barlen		+= $w + 1;
-	# Number of functions
-	$w = $fwidth[$F_FN_NUM];
 	$format		.= "%${w}s ";
-	$heading1 	.= sprintf("%-*s|", $w + $fwidth[$F_FN_RATE] + 1,
-				   "Functions");
-	$heading2 	.= sprintf("%-*s ", $w, "Num");
+	$heading1 	.= sprintf("%-*s |", $w + $fwidth[$F_LN_NUM],
+				   "Lines");
+	$heading2 	.= sprintf("%-*s ", $w, "Rate");
+	$barlen		+= $w + 1;
+	# Number of lines
+	$w = $fwidth[$F_LN_NUM];
+	$format		.= "%${w}s|";
+	$heading2	.= sprintf("%*s|", $w, "Num");
 	$barlen		+= $w + 1;
 	# Function coverage rate
 	$w = $fwidth[$F_FN_RATE];
-	$format		.= "%${w}s|";
-	$heading2	.= sprintf("%*s|", $w, "Rate");
-	$barlen		+= $w + 1;
-	# Number of branches
-	$w = $fwidth[$F_BR_NUM];
 	$format		.= "%${w}s ";
-	$heading1 	.= sprintf("%-*s", $w + $fwidth[$F_BR_RATE] + 1,
-				   "Branches");
-	$heading2 	.= sprintf("%-*s ", $w, "Num");
+	$heading1 	.= sprintf("%-*s|", $w + $fwidth[$F_FN_NUM] + 1,
+				   "Functions");
+	$heading2 	.= sprintf("%-*s ", $w, "Rate");
+	$barlen		+= $w + 1;
+	# Number of functions
+	$w = $fwidth[$F_FN_NUM];
+	$format		.= "%${w}s|";
+	$heading2	.= sprintf("%*s|", $w, "Num");
 	$barlen		+= $w + 1;
 	# Branch coverage rate
 	$w = $fwidth[$F_BR_RATE];
+	$format		.= "%${w}s ";
+	$heading1 	.= sprintf("%-*s", $w + $fwidth[$F_BR_NUM] + 1,
+				   "Branches");
+	$heading2 	.= sprintf("%-*s ", $w, "Rate");
+	$barlen		+= $w + 1;
+	# Number of branches
+	$w = $fwidth[$F_BR_NUM];
 	$format		.= "%${w}s";
-	$heading2	.= sprintf("%*s", $w, "Rate");
+	$heading2	.= sprintf("%*s", $w, "Num");
 	$barlen		+= $w;
 	# Line end
 	$format		.= "\n";
@@ -3069,12 +3069,12 @@ sub list()
 
 		# Assemble line parameters
 		push(@file_data, $print_filename);
-		push(@file_data, shorten_number($found, $fwidth[$F_LN_NUM]));
 		push(@file_data, $rate);
-		push(@file_data, shorten_number($fn_found, $fwidth[$F_FN_NUM]));
+		push(@file_data, shorten_number($found, $fwidth[$F_LN_NUM]));
 		push(@file_data, $fnrate);
-		push(@file_data, shorten_number($br_found, $fwidth[$F_BR_NUM]));
+		push(@file_data, shorten_number($fn_found, $fwidth[$F_FN_NUM]));
 		push(@file_data, $brrate);
+		push(@file_data, shorten_number($br_found, $fwidth[$F_BR_NUM]));
 
 		# Print assembled line
 		printf($format, @file_data);
@@ -3107,12 +3107,12 @@ sub list()
 
 	# Assemble line parameters
 	push(@footer, sprintf("%*s", $strlen, "Total:"));
-	push(@footer, shorten_number($total_found, $fwidth[$F_LN_NUM]));
 	push(@footer, $rate);
-	push(@footer, shorten_number($fn_total_found, $fwidth[$F_FN_NUM]));
+	push(@footer, shorten_number($total_found, $fwidth[$F_LN_NUM]));
 	push(@footer, $fnrate);
-	push(@footer, shorten_number($br_total_found, $fwidth[$F_BR_NUM]));
+	push(@footer, shorten_number($fn_total_found, $fwidth[$F_FN_NUM]));
 	push(@footer, $brrate);
+	push(@footer, shorten_number($br_total_found, $fwidth[$F_BR_NUM]));
 
 	# Print assembled line
 	printf($format, @footer);
