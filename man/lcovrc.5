@@ -178,6 +178,22 @@ lcov_tmp_dir = /tmp
 .br
 lcov_list_full_path = 0
 .br
+
+# Specify the maximum width for list output. This value is
+.br
+# ignored when lcov_list_full_path is non\-zero.
+.br
+lcov_list_width = 80
+.br
+
+# Specify the maximum percentage of file names which may be
+.br
+# truncated when choosing a directory prefix in list output.
+.br
+# This value is ignored when lcov_list_full_path is non\-zero.
+.br
+
+lcov_list_truncate_max = 20
 .PP
 
 .SH OPTIONS
@@ -548,6 +564,28 @@ This option corresponds to the \-\-list\-full\-path option of
 .br
 
 Default is 0.
+.PP
+
+.BR lcov_list_max_width " ="
+.IR width
+.IP
+Specify the maximum width for list output. This value is ignored when
+lcov_list_full_path is non\-zero.
+.br
+
+Default is 80.
+.PP
+
+.BR lcov_list_truncate_max
+.B " ="
+.IR percentage
+.IP
+Specify the maximum percentage of file names which may be truncated when
+choosing a directory prefix in list output. This value is ignored when
+lcov_list_full_path is non\-zero.
+.br
+
+Default is 20.
 .PP
 
 .SH FILES

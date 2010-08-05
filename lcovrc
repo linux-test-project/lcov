@@ -119,3 +119,12 @@ lcov_tmp_dir = /tmp
 # Show full paths during list operation if non-zero (same as --list-full-path
 # option of lcov)
 lcov_list_full_path = 0
+
+# Specify the maximum width for list output. This value is ignored when
+# lcov_list_full_path is non-zero.
+lcov_list_width = 80
+
+# Specify the maximum percentage of file names which may be truncated when
+# choosing a directory prefix in list output. This value is ignored when
+# lcov_list_full_path is non-zero.
+lcov_list_truncate_max = 20

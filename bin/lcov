@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.70 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.71 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -184,6 +184,8 @@ our $opt_derive_func_data;
 our $opt_debug;
 our $opt_list_full_path;
 our $opt_no_list_full_path;
+our $opt_list_width = 80;
+our $opt_list_truncate_max = 20;
 our $ln_overall_found;
 our $ln_overall_hit;
 our $fn_overall_found;
@@ -227,6 +229,8 @@ if ($config)
 		"lcov_gcov_dir"		=> \$gcov_dir,
 		"lcov_tmp_dir"		=> \$tmp_dir,
 		"lcov_list_full_path"	=> \$opt_list_full_path,
+		"lcov_list_width"	=> \$opt_list_width,
+		"lcov_list_truncate_max"=> \$opt_list_truncate_max,
 	});
 }
 
@@ -304,6 +308,12 @@ if ($version)
 {
 	print("$tool_name: $lcov_version\n");
 	exit(0);
+}
+
+# Check list width option
+if ($opt_list_width <= 40) {
+	die("ERROR: lcov_list_width parameter out of range (needs to be ".
+	    "larger than 40)\n");
 }
 
 # Normalize --path text
@@ -2879,10 +2889,12 @@ sub list()
 	my @fwidth_wide = (6, 5, 5, 5, 6, 5);
 	my @fwidth = @fwidth_wide;
 	my $w;
-	my $max_width = 80;
-	my $max_long = 20;
+	my $max_width = $opt_list_width;
+	my $max_long = $opt_list_truncate_max;
 	my $fwidth_narrow_length;
 	my $fwidth_wide_length;
+	my $got_prefix = 0;
+	my $root_prefix = 0;
 
 	# Calculate total width of narrow fields
 	$fwidth_narrow_length = 0;
@@ -2897,11 +2909,13 @@ sub list()
 	# Get common file path prefix
 	$prefix = get_prefix($max_width - $fwidth_narrow_length, $max_long,
 			     keys(%{$data}));
+	$root_prefix = 1 if ($prefix eq rootdir());
+	$got_prefix = 1 if (length($prefix) > 0);
 	$prefix =~ s/\/$//;
 	# Get longest filename length
 	foreach $filename (keys(%{$data})) {
 		if (!$opt_list_full_path) {
-			if ((length($prefix) == 0) ||
+			if (!$got_prefix || !$root_prefix &&
 			    !($filename =~ s/^\Q$prefix\/\E//)) {
 				my ($v, $d, $f) = splitpath($filename);
 
@@ -3000,7 +3014,7 @@ sub list()
 			my $p;
 
 			$print_filename = $filename;
-			if ((length($prefix) == 0) ||
+			if (!$got_prefix || !$root_prefix &&
 			    !($print_filename =~ s/^\Q$prefix\/\E//)) {
 				my ($v, $d, $f) = splitpath($filename);
 
@@ -3014,7 +3028,7 @@ sub list()
 			if (!defined($lastpath) || $lastpath ne $p) {
 				print("\n") if (defined($lastpath));
 				$lastpath = $p;
-				print("[$lastpath/]\n");
+				print("[$lastpath/]\n") if (!$root_prefix);
 			}
 			$print_filename = shorten_filename($print_filename,
 							   $strlen);
