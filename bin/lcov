@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.68 $)';
+our $lcov_version	= 'LCOV version 1.9 pre (CVS $Revision: 1.69 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -3084,7 +3084,7 @@ sub list()
 	if ($total_found == 0) {
 		$rate = "-";
 	} else {
-		$rate = shorten_rate(100 * $hit / $found,
+		$rate = shorten_rate(100 * $total_hit / $total_found,
 				     $fwidth[$F_LN_RATE]);
 	}
 	# Determine total function coverage rate
