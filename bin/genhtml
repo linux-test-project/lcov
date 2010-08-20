@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.53 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.54 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -288,6 +288,7 @@ our $html_gzip = 0;	# Compress with gzip
 our $demangle_cpp = 0;	# Demangle C++ function names
 our @opt_ignore_errors;	# Ignore certain error classes during processing
 our @ignore;
+our $charset = "UTF-8";	# Default charset for HTML pages
 our @fileview_sortlist;
 our @fileview_sortname = ("", "-sort-l", "-sort-f", "-sort-b");
 our @funcview_sortlist;
@@ -354,6 +355,7 @@ if ($config)
 		"genhtml_branch_coverage"	=> \$br_coverage,
 		"genhtml_branch_field_width"	=> \$br_field_width,
 		"genhtml_sort"			=> \$sort,
+		"genhtml_charset"		=> \$charset,
 		});
 }
 
@@ -4024,7 +4026,7 @@ sub write_frameset(*$$$)
 	<html lang="en">
 
 	<head>
-	  <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+	  <meta http-equiv="Content-Type" content="text/html; charset=$charset">
 	  <title>$_[3]</title>
 	  <link rel="stylesheet" type="text/css" href="$_[1]gcov.css">
 	</head>
@@ -4087,7 +4089,7 @@ sub write_overview(*$$$$)
 
 	<head>
 	  <title>$_[3]</title>
-	  <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+	  <meta http-equiv="Content-Type" content="text/html; charset=$charset">
 	  <link rel="stylesheet" type="text/css" href="$_[1]gcov.css">
 	</head>
 
@@ -5619,7 +5621,7 @@ sub get_html_prolog($)
 <html lang="en">
 
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+  <meta http-equiv="Content-Type" content="text/html; charset=$charset">
   <title>\@pagetitle\@</title>
   <link rel="stylesheet" type="text/css" href="\@basedir\@gcov.css">
 </head>

@@ -144,6 +144,11 @@ genhtml_function_coverage = 1
 genhtml_branch_coverage = 1
 .br
 
+# Specify the character set of all generated HTML pages
+.br
+genhtml_charset=UTF\-8
+.br
+
 # Location of the gcov tool
 .br
 #geninfo_gcov_tool = gcov
@@ -480,6 +485,20 @@ This option can be set to 0 by using the \-\-no\-branch\-coverage option of
 Default is 1.
 .PP
 
+.BR genhtml_charset " ="
+.I charset
+.IP
+Specify the character set of all generated HTML pages.
+.br
+
+Use this option if the source code contains characters which are not
+part of the default character set. Note that this option is ignored
+when a custom HTML prolog is specified (see also
+.BR genhtml_html_prolog ).
+.br
+
+Default is UTF-8.
+.PP
 .BR geninfo_gcov_tool " ="
 .I path_to_gcov
 .IP

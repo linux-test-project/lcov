@@ -87,6 +87,9 @@ genhtml_function_coverage = 1
 # --no-branch-coverage option of genhtml)
 genhtml_branch_coverage = 1
 
+# Specify the character set of all generated HTML pages
+genhtml_charset=UTF-8
+
 # Location of the gcov tool (same as --gcov-info option of geninfo)
 #geninfo_gcov_tool = gcov
 
