@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.54 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.55 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -871,6 +871,7 @@ sub write_dir_page($$$$$$$$$$$$$$$$$)
 	if (!defined($trunc_dir)) {
 		$trunc_dir = "";
 	}
+	$title .= " - " if ($trunc_dir ne "");
 	write_html_prolog(*HTML_HANDLE, $base_dir, "LCOV - $title$trunc_dir");
 	write_header(*HTML_HANDLE, $view_type, $trunc_dir, $rel_dir,
 		     $overall_found, $overall_hit, $total_fn_found,
