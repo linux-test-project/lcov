@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.82 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.83 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -72,9 +72,15 @@ our $BBG_FILE_MAGIC	= 0x67626267;
 
 our $COMPAT_HAMMER	= "hammer";
 
+# Error classes which users may specify to ignore during processing
 our $ERROR_GCOV		= 0;
 our $ERROR_SOURCE	= 1;
 our $ERROR_GRAPH	= 2;
+our %ERROR_ID = (
+	"gcov" => $ERROR_GCOV,
+	"source" => $ERROR_SOURCE,
+	"graph" => $ERROR_GRAPH,
+);
 
 our $EXCL_START = "LCOV_EXCL_START";
 our $EXCL_STOP = "LCOV_EXCL_STOP";
@@ -142,6 +148,7 @@ sub br_gvec_len($);
 sub br_gvec_get($$);
 sub debug($);
 sub int_handler();
+sub parse_ignore_errors(@);
 
 
 # Global variables
@@ -278,6 +285,9 @@ if ($version)
 	exit(0);
 }
 
+# Determine which errors the user wants us to ignore
+parse_ignore_errors(@ignore_errors);
+
 # Make sure test names only contain valid characters
 if ($test_name =~ s/\W/_/g)
 {
@@ -355,32 +365,6 @@ else
 		{
 			die("ERROR: cannot read $_!\n");
 		}
-	}
-}
-
-if (@ignore_errors)
-{
-	my @expanded;
-	my $error;
-
-	# Expand comma-separated entries
-	foreach (@ignore_errors) {
-		if (/,/)
-		{
-			push(@expanded, split(",", $_));
-		}
-		else
-		{
-			push(@expanded, $_);
-		}
-	}
-
-	foreach (@expanded)
-	{
-		/^gcov$/ && do { $ignore[$ERROR_GCOV] = 1; next; } ;
-		/^source$/ && do { $ignore[$ERROR_SOURCE] = 1; next; };
-		/^graph$/ && do { $ignore[$ERROR_GRAPH] = 1; next; };
-		die("ERROR: unknown argument for --ignore-errors: $_\n");
 	}
 }
 
@@ -3065,4 +3049,39 @@ sub get_gcov_capabilities()
 	}
 
 	return \%capabilities;
+}
+
+#
+# parse_ignore_errors(@ignore_errors)
+#
+# Parse user input about which errors to ignore.
+#
+
+sub parse_ignore_errors(@)
+{
+	my (@ignore_errors) = @_;
+	my @items;
+	my $item;
+
+	return if (!@ignore_errors);
+
+	foreach $item (@ignore_errors) {
+		$item =~ s/\s//g;
+		if ($item =~ /,/) {
+			# Split and add comma-separated parameters
+			push(@items, split(/,/, $item));
+		} else {
+			# Add single parameter
+			push(@items, $item);
+		}
+	}
+	foreach $item (@items) {
+		my $item_id = $ERROR_ID{lc($item)};
+
+		if (!defined($item_id)) {
+			die("ERROR: unknown argument for --ignore-errors: ".
+			    "$item\n");
+		}
+		$ignore[$item_id] = 1;
+	}
 }

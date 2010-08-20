@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.73 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.74 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -168,7 +168,7 @@ our $no_checksum;	# If set, don't calculate a checksum for each line
 our $compat_libtool;	# If set, indicates that libtool mode is to be enabled
 our $no_compat_libtool;	# If set, indicates that libtool mode is to be disabled
 our $gcov_tool;
-our $ignore_errors;
+our @opt_ignore_errors;
 our $initial;
 our $no_recursion = 0;
 our $to_package;
@@ -259,7 +259,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"compat-libtool" => \$compat_libtool,
 		"no-compat-libtool" => \$no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
-		"ignore-errors=s" => \$ignore_errors,
+		"ignore-errors=s" => \@opt_ignore_errors,
 		"initial|i" => \$initial,
 		"no-recursion" => \$no_recursion,
 		"to-package=s" => \$to_package,
@@ -798,9 +798,8 @@ sub lcov_geninfo(@)
 	{
 		@param = (@param, "--gcov-tool", $gcov_tool);
 	}
-	if ($ignore_errors)
-	{
-		@param = (@param, "--ignore-errors", $ignore_errors);
+	foreach (@opt_ignore_errors) {
+		@param = (@param, "--ignore-errors", $_);
 	}
 	if ($initial)
 	{

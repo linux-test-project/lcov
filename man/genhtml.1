@@ -56,6 +56,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-no\-branch\-coverage ]
 .br
 .RB [ \-\-demangle\-cpp ]
+.RB [ \-\-ignore\-errors
+.IR errors  ]
 .br
 .IR tracefile(s)
 .RE
@@ -478,6 +480,23 @@ Use this option if you want to convert C++ internal function names to
 human readable format for display on the HTML function overview page.
 This option requires that the c++filt tool is installed (see
 .BR c++filt (1)).
+
+.RE
+.B \-\-ignore\-errors
+.I errors
+.br
+.RS
+Specify a list of errors after which to continue processing.
+
+Use this option to specify a list of one or more classes of errors after which
+geninfo should continue processing instead of aborting.
+
+.I errors
+can be a comma\-separated list of the following keywords:
+
+.B source:
+the source code file for a data set could not be found.
+.RE
 
 .SH FILES
 

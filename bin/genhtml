@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.52 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.53 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -155,6 +155,12 @@ our $BR_CLOSE	= 5;
 our $BR_SUB = 0;
 our $BR_ADD = 1;
 
+# Error classes which users may specify to ignore during processing
+our $ERROR_SOURCE	= 0;
+our %ERROR_ID = (
+	"source" => $ERROR_SOURCE,
+);
+
 # Data related prototypes
 sub print_usage(*);
 sub gen_html();
@@ -198,6 +204,7 @@ sub combine_brcount($$$);
 sub get_br_found_and_hit($);
 sub warn_handler($);
 sub die_handler($);
+sub parse_ignore_errors(@);
 
 
 # HTML related prototypes
@@ -279,6 +286,8 @@ our $html_epilog;	# Actual HTML epilog
 our $html_ext = "html";	# Extension for generated HTML files
 our $html_gzip = 0;	# Compress with gzip
 our $demangle_cpp = 0;	# Demangle C++ function names
+our @opt_ignore_errors;	# Ignore certain error classes during processing
+our @ignore;
 our @fileview_sortlist;
 our @fileview_sortname = ("", "-sort-l", "-sort-f", "-sort-b");
 our @funcview_sortlist;
@@ -383,6 +392,7 @@ if (!GetOptions("output-directory|o=s"	=> \$output_directory,
 		"sort"			=> \$sort,
 		"no-sort"		=> \$no_sort,
 		"demangle-cpp"		=> \$demangle_cpp,
+		"ignore-errors=s"	=> \@opt_ignore_errors,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -417,6 +427,9 @@ if ($version)
 	print("$tool_name: $lcov_version\n");
 	exit(0);
 }
+
+# Determine which errors the user wants us to ignore
+parse_ignore_errors(@opt_ignore_errors);
 
 # Check for info filename
 if (!@info_filenames)
@@ -567,6 +580,7 @@ HTML output:
       --html-gzip                   Use gzip to compress HTML
       --(no-)sort                   Enable (disable) sorted coverage views
       --demangle-cpp                Demangle C++ function names
+      --ignore-errors ERRORS        Continue after ERRORS (source)
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -4958,19 +4972,43 @@ sub write_source($$$$$$$)
 	my $sumbrcount = $_[6];
 	my $datafunc = get_hash_reverse($funcdata);
 	my $add_anchor;
+	my @file;
 
 	if ($_[2])
 	{
 		%count_data = %{$_[2]};
 	}
 
-	open(SOURCE_HANDLE, "<".$source_filename)
-		or die("ERROR: cannot open $source_filename for reading!\n");
+	if (!open(SOURCE_HANDLE, "<".$source_filename)) {
+		my @lines;
+		my $last_line = 0;
+
+		if (!$ignore[$ERROR_SOURCE]) {
+			die("ERROR: cannot read $source_filename\n");
+		}
+
+		# Continue without source file
+		warn("WARNING: cannot read $source_filename!\n");
+
+		@lines = sort( { $a <=> $b }  keys(%count_data));
+		if (@lines) {
+			$last_line = $lines[scalar(@lines) - 1];
+		}
+		return ( ":" ) if ($last_line < 1);
+
+		# Simulate gcov behavior
+		for ($line_number = 1; $line_number <= $last_line;
+		     $line_number++) {
+			push(@file, "/* EOF */");
+		}
+	} else {
+		@file = <SOURCE_HANDLE>;
+	}
 	
 	write_source_prolog(*HTML_HANDLE);
-
-	for ($line_number = 1; <SOURCE_HANDLE> ; $line_number++)
-	{
+	$line_number = 0;
+	foreach (@file) {
+		$line_number++;
 		chomp($_);
 
 		# Also remove CR from line-end
@@ -5645,4 +5683,39 @@ sub die_handler($)
 	my ($msg) = @_;
 
 	die("$tool_name: $msg");
+}
+
+#
+# parse_ignore_errors(@ignore_errors)
+#
+# Parse user input about which errors to ignore.
+#
+
+sub parse_ignore_errors(@)
+{
+	my (@ignore_errors) = @_;
+	my @items;
+	my $item;
+
+	return if (!@ignore_errors);
+
+	foreach $item (@ignore_errors) {
+		$item =~ s/\s//g;
+		if ($item =~ /,/) {
+			# Split and add comma-separated parameters
+			push(@items, split(/,/, $item));
+		} else {
+			# Add single parameter
+			push(@items, $item);
+		}
+	}
+	foreach $item (@items) {
+		my $item_id = $ERROR_ID{lc($item)};
+
+		if (!defined($item_id)) {
+			die("ERROR: unknown argument for --ignore-errors: ".
+			    "$item\n");
+		}
+		$ignore[$item_id] = 1;
+	}
 }
