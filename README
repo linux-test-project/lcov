@@ -7,7 +7,7 @@ Description
 -----------
   LCOV is an extension of GCOV, a GNU tool which provides information about
   what parts of a program are actually executed (i.e. "covered") while running
-  a particular test case. The extension consists of a set of PERL scripts
+  a particular test case. The extension consists of a set of Perl scripts
   which build on the textual GCOV output to implement the following enhanced
   functionality:
 
@@ -80,7 +80,7 @@ Requirements: get and install the gcov-kernel package from
   http://sourceforge.net/projects/ltp
 
 Copy the resulting gcov kernel module file to either the system wide modules
-directory or the same directory as the PERL scripts. As root, do the following:
+directory or the same directory as the Perl scripts. As root, do the following:
 
   a) Resetting counters
 

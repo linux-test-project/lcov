@@ -22,7 +22,7 @@
 #   This script creates an overview PNG image of a source code file by
 #   representing each source code character by a single pixel.
 #
-#   Note that the PERL module GD.pm is required for this script to work.
+#   Note that the Perl module GD.pm is required for this script to work.
 #   It may be obtained from http://www.cpan.org
 #
 # History:
@@ -35,7 +35,7 @@ use Getopt::Long;
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.15 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.16 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 

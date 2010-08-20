@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.74 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.75 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2588,7 +2588,7 @@ sub write_info_file(*$)
 #
 # transform_pattern(pattern)
 #
-# Transform shell wildcard expression to equivalent PERL regular expression.
+# Transform shell wildcard expression to equivalent Perl regular expression.
 # Return transformed pattern.
 #
 
