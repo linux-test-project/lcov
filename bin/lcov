@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.77 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.78 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -139,6 +139,7 @@ sub lcov_geninfo(@);
 sub create_package($$$;$);
 sub get_func_found_and_hit($);
 sub br_ivec_get($$);
+sub summary();
 
 # Global variables & initialization
 our @directory;		# Specifies where to get coverage data from
@@ -188,6 +189,7 @@ our $opt_list_width = 80;
 our $opt_list_truncate_max = 20;
 our $opt_external;
 our $opt_no_external;
+our @opt_summary;
 our $ln_overall_found;
 our $ln_overall_hit;
 our $fn_overall_found;
@@ -273,6 +275,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"no-list-full-path" => \$opt_no_list_full_path,
 		"external" => \$opt_external,
 		"no-external" => \$opt_no_external,
+		"summary=s" => \@opt_summary,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -350,7 +353,7 @@ else
 check_options();
 
 # Only --extract, --remove and --diff allow unnamed parameters
-if (@ARGV && !($extract || $remove || $diff))
+if (@ARGV && !($extract || $remove || $diff || @opt_summary))
 {
 	die("Extra parameter found: '".join(" ", @ARGV)."'\n".
 	    "Use $tool_name --help to get usage information\n");
@@ -438,6 +441,12 @@ elsif ($diff)
 	 $fn_overall_found, $fn_overall_hit,
 	 $br_overall_found, $br_overall_hit) = diff();
 }
+elsif (@opt_summary)
+{
+	($ln_overall_found, $ln_overall_hit,
+	 $fn_overall_found, $fn_overall_hit,
+	 $br_overall_found, $br_overall_hit) = summary();
+}
 
 temp_cleanup();
 
@@ -480,6 +489,7 @@ Operation:
   -r, --remove FILE PATTERN       Remove files matching PATTERN from FILE
   -l, --list FILE                 List contents of tracefile FILE
       --diff FILE DIFF            Transform tracefile FILE according to DIFF
+      --summary FILE              Show summary coverage data for tracefiles
 
 Options:
   -i, --initial                   Capture initial zero coverage data
@@ -528,17 +538,18 @@ sub check_options()
 	$remove && $i++;
 	$list && $i++;
 	$diff && $i++;
+	@opt_summary && $i++;
 	
 	if ($i == 0)
 	{
-		die("Need one of the options -z, -c, -a, -e, -r, -l or ".
-		    "--diff\n".
+		die("Need one of options -z, -c, -a, -e, -r, -l, ".
+		    "--diff or --summary\n".
 		    "Use $tool_name --help to get usage information\n");
 	}
 	elsif ($i > 1)
 	{
-		die("ERROR: only one of -z, -c, -a, -e, -r, -l or ".
-		    "--diff allowed!\n".
+		die("ERROR: only one of -z, -c, -a, -e, -r, -l, ".
+		    "--diff or --summary allowed!\n".
 		    "Use $tool_name --help to get usage information\n");
 	}
 }
@@ -3919,6 +3930,59 @@ sub diff()
 	return @result;
 }
 
+#
+# summary()
+#
+
+sub summary()
+{
+	my $filename;
+	my $current;
+	my $total;
+	my $ln_total_found;
+	my $ln_total_hit;
+	my $fn_total_found;
+	my $fn_total_hit;
+	my $br_total_found;
+	my $br_total_hit;
+
+	# Read and combine trace files
+	foreach $filename (@opt_summary) {
+		$current = read_info_file($filename);
+		if (!defined($total)) {
+			$total = $current;
+		} else {
+			$total = combine_info_files($total, $current);
+		}
+	}
+	# Calculate coverage data
+	foreach $filename (keys(%{$total}))
+	{
+		my $entry = $total->{$filename};
+		my $ln_found;
+		my $ln_hit;
+		my $fn_found;
+		my $fn_hit;
+		my $br_found;
+		my $br_hit;
+
+		(undef, undef, undef, undef, undef, undef, undef, undef,
+			$ln_found, $ln_hit, $fn_found, $fn_hit, $br_found,
+			$br_hit) = get_info_entry($entry);
+
+		# Add to totals
+		$ln_total_found	+= $ln_found;
+		$ln_total_hit	+= $ln_hit;
+		$fn_total_found += $fn_found;
+		$fn_total_hit	+= $fn_hit;
+		$br_total_found += $br_found;
+		$br_total_hit	+= $br_hit;
+	}
+
+
+	return ($ln_total_found, $ln_total_hit, $fn_total_found, $fn_total_hit,
+		$br_total_found, $br_total_hit);
+}
 
 #
 # system_no_output(mode, parameters)
@@ -4182,7 +4246,7 @@ sub print_overall_rate($$$$$$$$$)
 	my ($ln_do, $ln_found, $ln_hit, $fn_do, $fn_found, $fn_hit,
 	    $br_do, $br_found, $br_hit) = @_;
 
-	info("Overall coverage rate:\n");
+	info("Summary coverage rate:\n");
 	info("  lines......: %s\n",
 	     get_overall_line($ln_found, $ln_hit, "line", "lines"))
 		if ($ln_do);

@@ -129,6 +129,15 @@ lcov \- a graphical GCOV front\-end
 .RE
 
 .B lcov
+.BR \-\-summary
+.I tracefile
+.RS 5
+.br
+.RB [ \-q | \-\-quiet ]
+.br
+.RE
+
+.B lcov
 .RB [ \-h | \-\-help ]
 .RB [ \-v | \-\-version ]
 .RS 5
@@ -188,8 +197,8 @@ filename combinations.
 The result of the add operation will be written to stdout or the tracefile
 specified with \-o.
 
-Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
-at a time.
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+specified at a time.
 
 .RE
 
@@ -239,8 +248,8 @@ option to capture counts for a user space program.
 The result of the capture operation will be written to stdout or the tracefile
 specified with \-o.
 
-Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
-at a time.
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+specified at a time.
 .RE
 
 .B \-\-checksum
@@ -325,8 +334,8 @@ of accuracy.
 The result of the diff operation will be written to stdout or the tracefile
 specified with \-o.
 
-Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
-at a time.
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+specified at a time.
 .RE
 
 .B \-d
@@ -387,8 +396,8 @@ which matches at least one of those patterns will be extracted.
 The result of the extract operation will be written to stdout or the tracefile
 specified with \-o.
 
-Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
-at a time.
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+specified at a time.
 .RE
 
 .B \-f
@@ -515,8 +524,8 @@ depending on the version of the kernel gcov support.
 List the contents of the
 .IR tracefile .
 
-Only one of  \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
-at a time.
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+specified at a time.
 .RE
 
 .B \-\-list\-full\-path
@@ -565,6 +574,18 @@ By convention, lcov\-generated coverage data files are called "tracefiles" and
 should have the filename extension ".info".
 .RE
 
+.B \-\-summary
+.I tracefile
+.br
+.RS
+Show summary coverage information for the specified tracefile.
+
+Note that you may specify this option more than once.
+
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+specified at a time.
+.RE
+
 .B \-\-path
 .I path
 .br
@@ -610,8 +631,8 @@ which matches at least one of those patterns will be removed.
 The result of the remove operation will be written to stdout or the tracefile
 specified with \-o.
 
-Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
-at a time.
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+specified at a time.
 .RE
 
 .B \-\-strip
@@ -698,8 +719,8 @@ Reset all execution counts to zero.
 By default tries to reset kernel execution counts. Use the \-\-directory
 option to reset all counters of a user space program.
 
-Only one of \-z, \-c, \-a, \-e, \-r, \-l and \-\-diff may be specified
-at a time.
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+specified at a time.
 .RE
 
 .SH FILES
