@@ -197,8 +197,14 @@ lcov_list_width = 80
 .br
 # This value is ignored when lcov_list_full_path is non\-zero.
 .br
-
 lcov_list_truncate_max = 20
+
+# Specify whether to capture coverage data for external source
+.br
+# files
+.br
+geninfo_external = 1
+.br
 .PP
 
 .SH OPTIONS
@@ -552,6 +558,19 @@ command line option of
 
 Default is 1.
 .PP
+
+.BR geninfo_external " ="
+.IR 0 | 1
+.IP
+If non\-zero, capture coverage data for external source files.
+
+External source files are files which are not located in one of the directories
+specified by the \-\-directory or \-\-base\-directory options of
+.BR lcov / geninfo .
+
+Default is 1.
+.PP
+
 
 .BR lcov_gcov_dir " ="
 .I path_to_kernel_coverage_data

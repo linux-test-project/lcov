@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.83 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.84 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -149,6 +149,7 @@ sub br_gvec_get($$);
 sub debug($);
 sub int_handler();
 sub parse_ignore_errors(@);
+sub is_external($);
 
 
 # Global variables
@@ -178,9 +179,12 @@ our $no_recursion = 0;
 our $maxdepth;
 our $no_markers = 0;
 our $opt_derive_func_data = 0;
+our $opt_external = 1;
+our $opt_no_external;
 our $debug = 0;
 our $gcov_caps;
 our @gcov_options;
+our @internal_dirs;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -219,7 +223,9 @@ if ($config)
 		"geninfo_adjust_testname"	=> \$adjust_testname,
 		"geninfo_checksum"		=> \$checksum,
 		"geninfo_no_checksum"		=> \$no_checksum, # deprecated
-		"geninfo_compat_libtool"	=> \$compat_libtool});
+		"geninfo_compat_libtool"	=> \$compat_libtool,
+		"geninfo_external"		=> \$opt_external,
+	});
 
 	# Merge options
 	if (defined($no_checksum))
@@ -248,6 +254,8 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
 		"debug" => \$debug,
+		"external" => \$opt_external,
+		"no-external" => \$opt_no_external,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -266,6 +274,11 @@ else
 	{
 		$compat_libtool = ($no_compat_libtool ? 0 : 1);
 		$no_compat_libtool = undef;
+	}
+
+	if (defined($opt_no_external)) {
+		$opt_external = 0;
+		$opt_no_external = undef;
 	}
 }
 
@@ -419,6 +432,12 @@ if (defined($output_filename) && ($output_filename ne "-"))
 	}
 }
 
+# Build list of directories to identify external files
+foreach my $entry(@data_directory, $base_directory) {
+	next if (!defined($entry));
+	push(@internal_dirs, solve_relative_path($cwd, $entry));
+}
+
 # Do something
 foreach my $entry (@data_directory) {
 	gen_info($entry);
@@ -467,6 +486,7 @@ sequentially.
       --function-coverage           Capture function call counts
       --no-markers                  Ignore exclusion markers in source code
       --derive-func-data            Generate function data from line data
+      --(no-)external               Include (ignore) data for external files
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -988,6 +1008,16 @@ sub process_dafile($$)
 			}
 		}
 
+		# Skip external files if requested
+		if (!$opt_external) {
+			if (is_external($source_filename)) {
+				info("  ignoring data for external file ".
+				     "$source_filename\n");
+				unlink($gcov_file);
+				next;
+			}
+		}
+
 		# Write absolute path of source file
 		printf(INFO_HANDLE "SF:%s\n", $source_filename);
 
@@ -1166,6 +1196,10 @@ sub solve_relative_path($$)
 
 	# Remove .
 	$result =~ s/\/\.\//\//g;
+	$result =~ s/\/\.$/\//g;
+
+	# Remove trailing /
+	$result =~ s/\/$//g;
 
 	# Solve ..
 	while ($result =~ s/\/[^\/]+\/\.\.\//\//)
@@ -3084,4 +3118,21 @@ sub parse_ignore_errors(@)
 		}
 		$ignore[$item_id] = 1;
 	}
+}
+
+#
+# is_external(filename)
+#
+# Determine if a file is located outside of the specified data directories.
+#
+
+sub is_external($)
+{
+	my ($filename) = @_;
+	my $dir;
+
+	foreach $dir (@internal_dirs) {
+		return 0 if ($filename =~ /^\Q$dir\/\E/);
+	}
+	return 1;
 }

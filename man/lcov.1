@@ -39,6 +39,8 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-q | \-\-quiet ]
 .br
 .RB [ \-\-no\-markers ]
+.RB [ \-\-external ]
+.RB [ \-\-no\-external ]
 .br
 .RE
 
@@ -343,6 +345,23 @@ option to specify the location where the program was compiled (that's
 where the counter files ending with .da will be stored).
 
 Note that you may specify this option more than once.
+.RE
+
+.B \-\-external
+.br
+.B \-\-no\-external
+.br
+.RS
+Specify whether to capture coverage data for external source files.
+
+External source files are files which are not located in one of the directories
+specified by \-\-directory or \-\-base\-directory. Use \-\-external to include
+external source files while capturing coverage data or \-\-no\-external to
+ignore this data.
+
+Data for external source files is
+.B included
+by default.
 .RE
 
 .B \-e

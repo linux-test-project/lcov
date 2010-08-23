@@ -70,7 +70,7 @@ test_noargs:
 	@echo
 	$(LCOV) --zerocounters --directory .
 	./example
-	$(LCOV) --capture --directory . --output-file trace_noargs.info --test-name test_noargs
+	$(LCOV) --capture --directory . --output-file trace_noargs.info --test-name test_noargs --no-external
 
 test_2_to_2000:
 	@echo
@@ -80,7 +80,7 @@ test_2_to_2000:
 	@echo
 	$(LCOV) --zerocounters --directory .
 	./example 2 2000
-	$(LCOV) --capture --directory . --output-file trace_args.info --test-name test_2_to_2000
+	$(LCOV) --capture --directory . --output-file trace_args.info --test-name test_2_to_2000 --no-external
 
 test_overflow:
 	@echo
@@ -90,7 +90,7 @@ test_overflow:
 	@echo
 	$(LCOV) --zerocounters --directory .
 	./example 0 100000 || true
-	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "test_overflow"
+	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "test_overflow" --no-external
 
 clean:
 	rm -rf *.o *.bb *.bbg *.da *.gcno *.gcda *.info output example \

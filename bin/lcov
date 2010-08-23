@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.76 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.77 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -186,6 +186,8 @@ our $opt_list_full_path;
 our $opt_no_list_full_path;
 our $opt_list_width = 80;
 our $opt_list_truncate_max = 20;
+our $opt_external;
+our $opt_no_external;
 our $ln_overall_found;
 our $ln_overall_hit;
 our $fn_overall_found;
@@ -269,6 +271,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"debug" => \$opt_debug,
 		"list-full-path" => \$opt_list_full_path,
 		"no-list-full-path" => \$opt_no_list_full_path,
+		"external" => \$opt_external,
+		"no-external" => \$opt_no_external,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -293,6 +297,11 @@ else
 	{
 		$opt_list_full_path = ($opt_no_list_full_path ? 0 : 1);
 		$opt_no_list_full_path = undef;
+	}
+
+	if (defined($opt_no_external)) {
+		$opt_external = 0;
+		$opt_no_external = undef;
 	}
 }
 
@@ -493,6 +502,7 @@ Options:
       --no-markers                Ignore exclusion markers in source code
       --derive-func-data          Generate function data from line data
       --list-full-path            Print full path during a list operation
+      --(no-)external             Include (ignore) data for external files
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -819,6 +829,14 @@ sub lcov_geninfo(@)
 	if ($opt_debug)
 	{
 		@param = (@param, "--debug");
+	}
+	if (defined($opt_external) && $opt_external)
+	{
+		@param = (@param, "--external");
+	}
+	if (defined($opt_external) && !$opt_external)
+	{
+		@param = (@param, "--no-external");
 	}
 	system(@param) and exit($? >> 8);
 }

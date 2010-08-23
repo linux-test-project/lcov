@@ -32,6 +32,8 @@ geninfo \- Generate tracefiles from .da files
 .br
 .RB [ \-\-no\-recursion ]
 .I directory
+.RB [ \-\-external ]
+.RB [ \-\-no\-external ]
 .RE
 .SH DESCRIPTION
 .B geninfo 
@@ -157,6 +159,23 @@ found in its parent directory.
 
 If you have directories named ".libs" in your build environment but don't use
 libtool, disable this option to prevent problems when capturing coverage data.
+.RE
+
+.B \-\-external
+.br
+.B \-\-no\-external
+.br
+.RS
+Specify whether to capture coverage data for external source files.
+
+External source files are files which are not located in one of the directories
+specified by \-\-directory or \-\-base\-directory. Use \-\-external to include
+external source files while capturing coverage data or \-\-no\-external to
+ignore this data.
+
+Data for external source files is
+.B included
+by default.
 .RE
 
 .B \-f
