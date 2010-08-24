@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.84 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.85 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -185,6 +185,7 @@ our $debug = 0;
 our $gcov_caps;
 our @gcov_options;
 our @internal_dirs;
+our $opt_config_file;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -205,8 +206,15 @@ $lcov_version =~ s/\$\s*Revision\s*:?\s*(\S+)\s*\$/$1/;
 # Set LANG so that gcov output will be in a unified format
 $ENV{"LANG"} = "C";
 
+# Check command line for a configuration file name
+Getopt::Long::Configure("pass_through", "no_auto_abbrev");
+GetOptions("config-file:s" => \$opt_config_file);
+Getopt::Long::Configure("default");
+
 # Read configuration file if available
-if (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
+if (defined($opt_config_file)) {
+	$config = read_config($opt_config_file);
+} elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
 {
 	$config = read_config($ENV{"HOME"}."/.lcovrc");
 }
@@ -487,6 +495,7 @@ sequentially.
       --no-markers                  Ignore exclusion markers in source code
       --derive-func-data            Generate function data from line data
       --(no-)external               Include (ignore) data for external files
+      --config-file FILENAME        Specify configuration file location
 
 For more information see: $lcov_url
 END_OF_USAGE

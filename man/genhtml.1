@@ -59,6 +59,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-ignore\-errors
 .IR errors  ]
 .br
+.RB [ \-\-config\-file
+.IR config\-file ]
+.br
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -496,6 +499,21 @@ can be a comma\-separated list of the following keywords:
 
 .B source:
 the source code file for a data set could not be found.
+.RE
+
+.B \-\-config\-file
+.I config\-file
+.br
+.RS
+Specify a configuration file to use.
+
+When this option is specified, neither the system\-wide configuration file
+/etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
+
+This option may be useful when there is a need to run several
+instances of
+.B genhtml
+with different configuration file options in parallel.
 .RE
 
 .SH FILES

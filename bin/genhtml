@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.55 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.56 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -288,6 +288,7 @@ our $html_gzip = 0;	# Compress with gzip
 our $demangle_cpp = 0;	# Demangle C++ function names
 our @opt_ignore_errors;	# Ignore certain error classes during processing
 our @ignore;
+our $opt_config_file;	# User-specified configuration file location
 our $charset = "UTF-8";	# Default charset for HTML pages
 our @fileview_sortlist;
 our @fileview_sortname = ("", "-sort-l", "-sort-f", "-sort-b");
@@ -316,8 +317,15 @@ if (! ($tool_dir =~ /^\/(.*)$/))
 	$tool_dir = "$cwd/$tool_dir";
 }
 
+# Check command line for a configuration file name
+Getopt::Long::Configure("pass_through", "no_auto_abbrev");
+GetOptions("config-file:s" => \$opt_config_file);
+Getopt::Long::Configure("default");
+
 # Read configuration file if available
-if (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
+if (defined($opt_config_file)) {
+	$config = read_config($opt_config_file);
+} elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
 {
 	$config = read_config($ENV{"HOME"}."/.lcovrc");
 }
@@ -556,6 +564,8 @@ Misc:
   -h, --help                        Print this help, then exit
   -v, --version                     Print version number, then exit
   -q, --quiet                       Do not print progress messages
+      --config-file FILENAME        Specify configuration file location
+      --ignore-errors ERRORS        Continue after ERRORS (source)
 
 Operation:
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
@@ -582,7 +592,6 @@ HTML output:
       --html-gzip                   Use gzip to compress HTML
       --(no-)sort                   Enable (disable) sorted coverage views
       --demangle-cpp                Demangle C++ function names
-      --ignore-errors ERRORS        Continue after ERRORS (source)
 
 For more information see: $lcov_url
 END_OF_USAGE

@@ -34,6 +34,9 @@ geninfo \- Generate tracefiles from .da files
 .I directory
 .RB [ \-\-external ]
 .RB [ \-\-no\-external ]
+.br
+.RB [ \-\-config\-file
+.IR config\-file ]
 .RE
 .SH DESCRIPTION
 .B geninfo 
@@ -159,6 +162,21 @@ found in its parent directory.
 
 If you have directories named ".libs" in your build environment but don't use
 libtool, disable this option to prevent problems when capturing coverage data.
+.RE
+
+.B \-\-config\-file
+.I config\-file
+.br
+.RS
+Specify a configuration file to use.
+
+When this option is specified, neither the system\-wide configuration file
+/etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
+
+This option may be useful when there is a need to run several
+instances of
+.B geninfo
+with different configuration file options in parallel.
 .RE
 
 .B \-\-external

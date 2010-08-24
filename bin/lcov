@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.78 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.79 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -189,6 +189,7 @@ our $opt_list_width = 80;
 our $opt_list_truncate_max = 20;
 our $opt_external;
 our $opt_no_external;
+our $opt_config_file;
 our @opt_summary;
 our $ln_overall_found;
 our $ln_overall_hit;
@@ -216,8 +217,15 @@ if (! ($tool_dir =~ /^\/(.*)$/))
 	$tool_dir = "$cwd/$tool_dir";
 }
 
+# Check command line for a configuration file name
+Getopt::Long::Configure("pass_through", "no_auto_abbrev");
+GetOptions("config-file:s" => \$opt_config_file);
+Getopt::Long::Configure("default");
+
 # Read configuration file if available
-if (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
+if (defined($opt_config_file)) {
+	$config = read_config($opt_config_file);
+} elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
 {
 	$config = read_config($ENV{"HOME"}."/.lcovrc");
 }
@@ -513,6 +521,7 @@ Options:
       --derive-func-data          Generate function data from line data
       --list-full-path            Print full path during a list operation
       --(no-)external             Include (ignore) data for external files
+      --config-file FILENAME      Specify configuration file location
 
 For more information see: $lcov_url
 END_OF_USAGE

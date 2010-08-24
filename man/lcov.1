@@ -42,6 +42,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-external ]
 .RB [ \-\-no\-external ]
 .br
+.RB [ \-\-config\-file
+.IR config\-file ]
+.br
 .RE
 
 .B lcov
@@ -66,6 +69,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-list\-full\-path ]
 .RB [ \-\-no\-list\-full\-path ]
 .br
+.RB [ \-\-config\-file
+.IR config\-file ]
+.br
 .RE
 
 .B lcov
@@ -79,6 +85,8 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-no\-checksum ]
 .br
 .RB [ \-q | \-\-quiet ]
+.RB [ \-\-config\-file
+.IR config\-file ]
 .br
 .RE
 
@@ -93,6 +101,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-no\-checksum ]
 .br
 .RB [ \-q | \-\-quiet ]
+.RB [ \-\-config\-file
+.IR config\-file ]
+.br
 .RE
 
 .B lcov
@@ -106,6 +117,8 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-no\-checksum ]
 .br
 .RB [ \-q | \-\-quiet ]
+.RB [ \-\-config\-file
+.IR config\-file ]
 .br
 .RE
 
@@ -125,6 +138,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-path
 .IR path ]
 .RB [ \-q | \-\-quiet ]
+.br
+.RB [ \-\-config\-file
+.IR config\-file ]
 .br
 .RE
 
@@ -291,6 +307,21 @@ found in its parent directory.
 
 If you have directories named ".libs" in your build environment but don't use
 libtool, disable this option to prevent problems when capturing coverage data.
+.RE
+
+.B \-\-config\-file
+.I config\-file
+.br
+.RS
+Specify a configuration file to use.
+
+When this option is specified, neither the system\-wide configuration file
+/etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
+
+This option may be useful when there is a need to run several
+instances of
+.B lcov
+with different configuration file options in parallel.
 .RE
 
 .B \-\-convert\-filenames
