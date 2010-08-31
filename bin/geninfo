@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.86 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.87 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -1793,6 +1793,7 @@ sub system_no_output($@)
 	($mode & 1) && open(STDOUT, ">/dev/null");
 	($mode & 2) && open(STDERR, ">/dev/null");
  
+	debug("system(".join(' ', @_).")\n");
 	system(@_);
 	$result = $?;
 
