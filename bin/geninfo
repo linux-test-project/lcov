@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.85 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.86 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -186,6 +186,7 @@ our $gcov_caps;
 our @gcov_options;
 our @internal_dirs;
 our $opt_config_file;
+our $opt_gcov_all_blocks = 1;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -233,6 +234,7 @@ if ($config)
 		"geninfo_no_checksum"		=> \$no_checksum, # deprecated
 		"geninfo_compat_libtool"	=> \$compat_libtool,
 		"geninfo_external"		=> \$opt_external,
+		"geninfo_gcov_all_blocks"	=> \$opt_gcov_all_blocks,
 	});
 
 	# Merge options
@@ -419,7 +421,8 @@ else
 $gcov_caps = get_gcov_capabilities();
 push(@gcov_options, "-b") if ($gcov_caps->{'branch-probabilities'});
 push(@gcov_options, "-c") if ($gcov_caps->{'branch-counts'});
-push(@gcov_options, "-a") if ($gcov_caps->{'all-blocks'});
+push(@gcov_options, "-a") if ($gcov_caps->{'all-blocks'} &&
+			      $opt_gcov_all_blocks);
 push(@gcov_options, "-p") if ($gcov_caps->{'preserve-paths'});
 
 # Check output filename

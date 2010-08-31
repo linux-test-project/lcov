@@ -169,6 +169,18 @@ geninfo_checksum = 0
 geninfo_compat_libtool = 0
 .br
 
+# Specify whether to capture coverage data for external source
+.br
+# files
+.br
+#geninfo_external = 1
+.br
+
+# Use gcov's --all-blocks option if non-zero
+.br
+#geninfo_gcov_all_blocks = 1
+.br
+
 # Directory containing gcov kernel files
 .br
 lcov_gcov_dir = /proc/gcov
@@ -199,12 +211,6 @@ lcov_list_width = 80
 .br
 lcov_list_truncate_max = 20
 
-# Specify whether to capture coverage data for external source
-.br
-# files
-.br
-geninfo_external = 1
-.br
 .PP
 
 .SH OPTIONS
@@ -571,6 +577,19 @@ specified by the \-\-directory or \-\-base\-directory options of
 Default is 1.
 .PP
 
+.BR geninfo_gcov_all_blocks " ="
+.IR 0 | 1
+.IP
+If non\-zero, call the gcov tool with option --all-blocks.
+
+Using --all-blocks will produce more detailed branch coverage information for
+each line. Set this option to zero if you do not need detailed branch coverage
+information to speed up the process of capturing code coverage or to work
+around a bug in some versions of gcov which will cause it to endlessly loop
+when analysing some files.
+
+Default is 1.
+.PP
 
 .BR lcov_gcov_dir " ="
 .I path_to_kernel_coverage_data

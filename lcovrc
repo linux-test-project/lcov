@@ -100,9 +100,16 @@ genhtml_charset=UTF-8
 # option of geninfo if non-zero, same as --no-checksum if zero)
 #geninfo_checksum = 1
 
+# Specify whether to capture coverage data for external source files (can
+# be overridden by the --external and --no-external options of geninfo/lcov)
+#geninfo_external = 1
+
 # Enable libtool compatibility mode if non-zero (same as --compat-libtool option
 # of geninfo if non-zero, same as --no-compat-libtool if zero)
 #geninfo_compat_libtool = 0
+
+# Use gcov's --all-blocks option if non-zero
+#geninfo_gcov_all_blocks = 1
 
 # Directory containing gcov kernel files
 # lcov_gcov_dir = /proc/gcov
@@ -131,7 +138,3 @@ lcov_list_width = 80
 # choosing a directory prefix in list output. This value is ignored when
 # lcov_list_full_path is non-zero.
 lcov_list_truncate_max = 20
-
-# Specify whether to capture coverage data for external source files (can
-# be overridden by the --external and --no-external options of geninfo/lcov)
-geninfo_external = 1
