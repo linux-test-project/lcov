@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.88 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.89 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -619,6 +619,25 @@ sub gen_info($)
 	}
 }
 
+
+#
+# derive_data(contentdata, funcdata, bbdata)
+#
+# Calculate function coverage data by combining line coverage data and the
+# list of lines belonging to a function.
+#
+# contentdata: [ instr1, count1, source1, instr2, count2, source2, ... ]
+# instr<n>: Instrumentation flag for line n
+# count<n>: Execution count for line n
+# source<n>: Source code for line n
+#
+# funcdata: [ count1, func1, count2, func2, ... ]
+# count<n>: Execution count for function number n
+# func<n>: Function name for function number n
+#
+# bbdata: function_name -> [ line1, line2, ... ]
+# line<n>: Line number belonging to the corresponding function
+#
 
 sub derive_data($$$)
 {
