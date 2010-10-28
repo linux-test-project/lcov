@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.87 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.88 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -649,6 +649,7 @@ sub derive_data($$$)
 	foreach $fn (keys(%{$bbdata})) {
 		my $line_data = $bbdata->{$fn};
 		my $line;
+		my $fninstr = 0;
 
 		if ($fn eq "") {
 			next;
@@ -656,13 +657,17 @@ sub derive_data($$$)
 		# Find the lowest line count for this function
 		$count = 0;
 		foreach $line (@$line_data) {
+			my $linstr = $gcov_content[ ( $line - 1 ) * 3 + 0 ];
 			my $lcount = $gcov_content[ ( $line - 1 ) * 3 + 1 ];
 
+			next if (!$linstr);
+			$fninstr = 1;
 			if (($lcount > 0) &&
 			    (($count == 0) || ($lcount < $count))) {
 				$count = $lcount;
 			}
 		}
+		next if (!$fninstr);
 		$fn_count{$fn} = $count;
 	}
 
