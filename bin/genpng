@@ -35,7 +35,7 @@ use Getopt::Long;
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.16 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.17 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -182,7 +182,7 @@ sub genpng_process_file($$$$)
 	local *HANDLE;
 	my @source;
 
-	open(HANDLE, "<$filename")
+	open(HANDLE, "<", $filename)
 		or die("ERROR: cannot open $filename!\n");
 
 	# Check for .gcov filename extension
@@ -362,7 +362,7 @@ sub gen_png($$$@)
 	}
 
 	# Write PNG file
-	open (PNG_HANDLE, ">$filename")
+	open (PNG_HANDLE, ">", $filename)
 		or die("ERROR: cannot write png file $filename!\n");
 	binmode(*PNG_HANDLE);
 	print(PNG_HANDLE $overview->png());

@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.56 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.57 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -857,13 +857,13 @@ sub html_create($$)
 
 	if ($html_gzip)
 	{
-		open($handle, "|gzip -c >$filename")
+		open($handle, "|-", "gzip -c >'$filename'")
 			or die("ERROR: cannot open $filename for writing ".
 			       "(gzip)!\n");
 	}
 	else
 	{
-		open($handle, ">$filename")
+		open($handle, ">", $filename)
 			or die("ERROR: cannot open $filename for writing!\n");
 	}
 }
@@ -1307,14 +1307,14 @@ sub read_info_file($)
 				"compressed file $_[0]!\n");
 
 		# Open compressed file
-		open(INFO_HANDLE, "gunzip -c $_[0]|")
+		open(INFO_HANDLE, "-|", "gunzip -c '$_[0]'")
 			or die("ERROR: cannot start gunzip to decompress ".
 			       "file $_[0]!\n");
 	}
 	else
 	{
 		# Open decompressed file
-		open(INFO_HANDLE, $_[0])
+		open(INFO_HANDLE, "<", $_[0])
 			or die("ERROR: cannot read file $_[0]!\n");
 	}
 
@@ -2286,7 +2286,7 @@ sub read_testfile($)
 	my $changed_testname;
 	local *TEST_HANDLE;
 
-	open(TEST_HANDLE, "<".$_[0])
+	open(TEST_HANDLE, "<", $_[0])
 		or die("ERROR: cannot open $_[0]!\n");
 
 	while (<TEST_HANDLE>)
@@ -2557,7 +2557,7 @@ sub write_png_files()
 		 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82] if ($sort);
 	foreach (keys(%data))
 	{
-		open(PNG_HANDLE, ">".$_)
+		open(PNG_HANDLE, ">", $_)
 			or die("ERROR: cannot create $_!\n");
 		binmode(PNG_HANDLE);
 		print(PNG_HANDLE map(chr,@{$data{$_}}));
@@ -2575,7 +2575,7 @@ sub write_htaccess_file()
 	local *HTACCESS_HANDLE;
 	my $htaccess_data;
 
-	open(*HTACCESS_HANDLE, ">.htaccess")
+	open(*HTACCESS_HANDLE, ">", ".htaccess")
 		or die("ERROR: cannot open .htaccess for writing!\n");
 
 	$htaccess_data = (<<"END_OF_HTACCESS")
@@ -2608,7 +2608,7 @@ sub write_css_file()
 		return;
 	}
 
-	open(CSS_HANDLE, ">gcov.css")
+	open(CSS_HANDLE, ">", "gcov.css")
 		or die ("ERROR: cannot open gcov.css for writing!\n");
 
 
@@ -4991,7 +4991,7 @@ sub write_source($$$$$$$)
 		%count_data = %{$_[2]};
 	}
 
-	if (!open(SOURCE_HANDLE, "<".$source_filename)) {
+	if (!open(SOURCE_HANDLE, "<", $source_filename)) {
 		my @lines;
 		my $last_line = 0;
 
@@ -5505,12 +5505,12 @@ sub system_no_output($@)
 	local *OLD_STDOUT;
 
 	# Save old stdout and stderr handles
-	($mode & 1) && open(OLD_STDOUT, ">>&STDOUT");
-	($mode & 2) && open(OLD_STDERR, ">>&STDERR");
+	($mode & 1) && open(OLD_STDOUT, ">>&", "STDOUT");
+	($mode & 2) && open(OLD_STDERR, ">>&", "STDERR");
 
 	# Redirect to /dev/null
-	($mode & 1) && open(STDOUT, ">/dev/null");
-	($mode & 2) && open(STDERR, ">/dev/null");
+	($mode & 1) && open(STDOUT, ">", "/dev/null");
+	($mode & 2) && open(STDERR, ">", "/dev/null");
 
 	system(@_);
 	$result = $?;
@@ -5520,8 +5520,8 @@ sub system_no_output($@)
 	($mode & 2) && close(STDERR);
 
 	# Restore old handles
-	($mode & 1) && open(STDOUT, ">>&OLD_STDOUT");
-	($mode & 2) && open(STDERR, ">>&OLD_STDERR");
+	($mode & 1) && open(STDOUT, ">>&", "OLD_STDOUT");
+	($mode & 2) && open(STDERR, ">>&", "OLD_STDERR");
 
 	return $result;
 }
@@ -5542,7 +5542,7 @@ sub read_config($)
 	my $value;
 	local *HANDLE;
 
-	if (!open(HANDLE, "<$filename"))
+	if (!open(HANDLE, "<", $filename))
 	{
 		warn("WARNING: cannot read configuration file $filename\n");
 		return undef;
@@ -5615,7 +5615,7 @@ sub get_html_prolog($)
 	{
 		local *HANDLE;
 
-		open(HANDLE, "<".$filename)
+		open(HANDLE, "<", $filename)
 			or die("ERROR: cannot open html prolog $filename!\n");
 		while (<HANDLE>)
 		{
@@ -5661,7 +5661,7 @@ sub get_html_epilog($)
 	{
 		local *HANDLE;
 
-		open(HANDLE, "<".$filename)
+		open(HANDLE, "<", $filename)
 			or die("ERROR: cannot open html epilog $filename!\n");
 		while (<HANDLE>)
 		{

@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.79 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.80 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -643,7 +643,7 @@ sub kernel_reset()
 	} else {
 		die("ERROR: no reset control found in $gcov_dir\n");
 	}
-	open(HANDLE, ">$reset_file") or
+	open(HANDLE, ">", $reset_file) or
 		die("ERROR: cannot write to $reset_file!\n");
 	print(HANDLE "0");
 	close(HANDLE);
@@ -665,10 +665,10 @@ sub lcov_copy_single($$)
 	local $/;
 	local *HANDLE;
 
-	open(HANDLE, "<$from") or die("ERROR: cannot read $from: $!\n");
+	open(HANDLE, "<", $from) or die("ERROR: cannot read $from: $!\n");
 	$content = <HANDLE>;
 	close(HANDLE);
-	open(HANDLE, ">$to") or die("ERROR: cannot write $from: $!\n");
+	open(HANDLE, ">", $to) or die("ERROR: cannot write $from: $!\n");
 	if (defined($content)) {
 		print(HANDLE $content);
 	}
@@ -874,7 +874,7 @@ sub read_file($)
 	local $\;
 	local *HANDLE;
 
-	open(HANDLE, "<$filename") || return undef;
+	open(HANDLE, "<", $filename) || return undef;
 	$content = <HANDLE>;
 	close(HANDLE);
 
@@ -903,7 +903,7 @@ sub get_package($)
 	info("  data directory .......: $dir\n");
 	$file = abs_path($file);
 	chdir($dir);
-	open(HANDLE, "tar xvfz $file 2>/dev/null|")
+	open(HANDLE, "-|", "tar xvfz '$file' 2>/dev/null")
 		or die("ERROR: could not process package $file\n");
 	while (<HANDLE>) {
 		if (/\.da$/ || /\.gcda$/) {
@@ -944,7 +944,7 @@ sub write_file($$)
 	my ($filename, $content) = @_;
 	local *HANDLE;
 
-	open(HANDLE, ">$filename") || return 0;
+	open(HANDLE, ">", $filename) || return 0;
 	print(HANDLE $content);
 	close(HANDLE) || return 0;
 
@@ -962,7 +962,7 @@ sub count_package_data($)
 	local *HANDLE;
 	my $count = 0;
 
-	open(HANDLE, "tar tfz $filename|") or return undef;
+	open(HANDLE, "-|", "tar tfz '$filename'") or return undef;
 	while (<HANDLE>) {
 		if (/\.da$/ || /\.gcda$/) {
 			$count++;
@@ -1616,14 +1616,14 @@ sub read_info_file($)
 				"compressed file $_[0]!\n");
 
 		# Open compressed file
-		open(INFO_HANDLE, "gunzip -c $_[0]|")
+		open(INFO_HANDLE, "-|", "gunzip -c '$_[0]'")
 			or die("ERROR: cannot start gunzip to decompress ".
 			       "file $_[0]!\n");
 	}
 	else
 	{
 		# Open decompressed file
-		open(INFO_HANDLE, $_[0])
+		open(INFO_HANDLE, "<", $_[0])
 			or die("ERROR: cannot read file $_[0]!\n");
 	}
 
@@ -2479,7 +2479,7 @@ sub add_traces()
 	if ($to_file)
 	{
 		info("Writing data to $output_filename\n");
-		open(INFO_HANDLE, ">$output_filename")
+		open(INFO_HANDLE, ">", $output_filename)
 			or die("ERROR: cannot write to $output_filename!\n");
 		@result = write_info_file(*INFO_HANDLE, $total_trace);
 		close(*INFO_HANDLE);
@@ -2709,7 +2709,7 @@ sub extract()
 	{
 		info("Extracted $extracted files\n");
 		info("Writing data to $output_filename\n");
-		open(INFO_HANDLE, ">$output_filename")
+		open(INFO_HANDLE, ">", $output_filename)
 			or die("ERROR: cannot write to $output_filename!\n");
 		@result = write_info_file(*INFO_HANDLE, $data);
 		close(*INFO_HANDLE);
@@ -2765,7 +2765,7 @@ sub remove()
 	{
 		info("Deleted $removed files\n");
 		info("Writing data to $output_filename\n");
-		open(INFO_HANDLE, ">$output_filename")
+		open(INFO_HANDLE, ">", $output_filename)
 			or die("ERROR: cannot write to $output_filename!\n");
 		@result = write_info_file(*INFO_HANDLE, $data);
 		close(*INFO_HANDLE);
@@ -3293,14 +3293,14 @@ sub read_diff($)
 				"compressed file $diff_file!\n");
 
 		# Open compressed file
-		open(HANDLE, "gunzip -c $diff_file|")
+		open(HANDLE, "-|", "gunzip -c '$diff_file'")
 			or die("ERROR: cannot start gunzip to decompress ".
 			       "file $_[0]!\n");
 	}
 	else
 	{
 		# Open decompressed file
-		open(HANDLE, $diff_file)
+		open(HANDLE, "<", $diff_file)
 			or die("ERROR: cannot read file $_[0]!\n");
 	}
 
@@ -3926,7 +3926,7 @@ sub diff()
 	if ($to_file)
 	{
 		info("Writing data to $output_filename\n");
-		open(INFO_HANDLE, ">$output_filename")
+		open(INFO_HANDLE, ">", $output_filename)
 			or die("ERROR: cannot write to $output_filename!\n");
 		@result = write_info_file(*INFO_HANDLE, $trace_data);
 		close(*INFO_HANDLE);
@@ -4013,12 +4013,12 @@ sub system_no_output($@)
 	local *OLD_STDOUT;
 
 	# Save old stdout and stderr handles
-	($mode & 1) && open(OLD_STDOUT, ">>&STDOUT");
-	($mode & 2) && open(OLD_STDERR, ">>&STDERR");
+	($mode & 1) && open(OLD_STDOUT, ">>&", "STDOUT");
+	($mode & 2) && open(OLD_STDERR, ">>&", "STDERR");
 
 	# Redirect to /dev/null
-	($mode & 1) && open(STDOUT, ">/dev/null");
-	($mode & 2) && open(STDERR, ">/dev/null");
+	($mode & 1) && open(STDOUT, ">", "/dev/null");
+	($mode & 2) && open(STDERR, ">", "/dev/null");
  
 	system(@_);
 	$result = $?;
@@ -4028,8 +4028,8 @@ sub system_no_output($@)
 	($mode & 2) && close(STDERR);
 
 	# Restore old handles
-	($mode & 1) && open(STDOUT, ">>&OLD_STDOUT");
-	($mode & 2) && open(STDERR, ">>&OLD_STDERR");
+	($mode & 1) && open(STDOUT, ">>&", "OLD_STDOUT");
+	($mode & 2) && open(STDERR, ">>&", "OLD_STDERR");
  
 	return $result;
 }
@@ -4050,7 +4050,7 @@ sub read_config($)
 	my $value;
 	local *HANDLE;
 
-	if (!open(HANDLE, "<$filename"))
+	if (!open(HANDLE, "<", $filename))
 	{
 		warn("WARNING: cannot read configuration file $filename\n");
 		return undef;

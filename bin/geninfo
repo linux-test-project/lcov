@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.90 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.91 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -431,7 +431,7 @@ if (defined($output_filename) && ($output_filename ne "-"))
 	# Initially create output filename, data is appended
 	# for each data file processed
 	local *DUMMY_HANDLE;
-	open(DUMMY_HANDLE, ">$output_filename")
+	open(DUMMY_HANDLE, ">", $output_filename)
 		or die("ERROR: cannot create $output_filename!\n");
 	close(DUMMY_HANDLE);
 
@@ -945,7 +945,7 @@ sub process_dafile($$)
 		else
 		{
 			# Append to output file
-			open(INFO_HANDLE, ">>$output_filename")
+			open(INFO_HANDLE, ">>", $output_filename)
 				or die("ERROR: cannot write to ".
 				       "$output_filename!\n");
 		}
@@ -953,7 +953,7 @@ sub process_dafile($$)
 	else
 	{
 		# Open .info file for output
-		open(INFO_HANDLE, ">$da_filename.info")
+		open(INFO_HANDLE, ">", "$da_filename.info")
 			or die("ERROR: cannot create $da_filename.info!\n");
 	}
 
@@ -1323,7 +1323,7 @@ sub solve_ambiguous_match($$$)
 	{
 
 		# Compare file contents
-		open(SOURCE, $filename)
+		open(SOURCE, "<", $filename)
 			or die("ERROR: cannot read $filename!\n");
 
 		$no_match = 0;
@@ -1393,7 +1393,7 @@ sub read_gcov_header($)
 	my $object;
 	local *INPUT;
 
-	if (!open(INPUT, $_[0]))
+	if (!open(INPUT, "<", $_[0]))
 	{
 		if ($ignore_errors[$ERROR_GCOV])
 		{
@@ -1545,7 +1545,7 @@ sub read_gcov_file($)
 	my $last_line = 0;
 	local *INPUT;
 
-	if (!open(INPUT, $filename)) {
+	if (!open(INPUT, "<", $filename)) {
 		if ($ignore_errors[$ERROR_GCOV])
 		{
 			warn("WARNING: cannot read $filename!\n");
@@ -1725,7 +1725,7 @@ sub get_gcov_version()
 	my $version_string;
 	my $result;
 
-	open(GCOV_PIPE, "$gcov_tool -v |")
+	open(GCOV_PIPE, "-|", "$gcov_tool -v")
 		or die("ERROR: cannot retrieve gcov version!\n");
 	$version_string = <GCOV_PIPE>;
 	close(GCOV_PIPE);
@@ -1813,12 +1813,12 @@ sub system_no_output($@)
 	local *OLD_STDOUT;
 
 	# Save old stdout and stderr handles
-	($mode & 1) && open(OLD_STDOUT, ">>&STDOUT");
-	($mode & 2) && open(OLD_STDERR, ">>&STDERR");
+	($mode & 1) && open(OLD_STDOUT, ">>&", "STDOUT");
+	($mode & 2) && open(OLD_STDERR, ">>&", "STDERR");
 
 	# Redirect to /dev/null
-	($mode & 1) && open(STDOUT, ">/dev/null");
-	($mode & 2) && open(STDERR, ">/dev/null");
+	($mode & 1) && open(STDOUT, ">", "/dev/null");
+	($mode & 2) && open(STDERR, ">", "/dev/null");
  
 	debug("system(".join(' ', @_).")\n");
 	system(@_);
@@ -1829,8 +1829,8 @@ sub system_no_output($@)
 	($mode & 2) && close(STDERR);
 
 	# Restore old handles
-	($mode & 1) && open(STDOUT, ">>&OLD_STDOUT");
-	($mode & 2) && open(STDERR, ">>&OLD_STDERR");
+	($mode & 1) && open(STDOUT, ">>&", "OLD_STDOUT");
+	($mode & 2) && open(STDERR, ">>&", "OLD_STDERR");
  
 	return $result;
 }
@@ -1851,7 +1851,7 @@ sub read_config($)
 	my $value;
 	local *HANDLE;
 
-	if (!open(HANDLE, "<$filename"))
+	if (!open(HANDLE, "<", $filename))
 	{
 		warn("WARNING: cannot read configuration file $filename\n");
 		return undef;
@@ -1923,7 +1923,7 @@ sub get_exclusion_data($)
 	my $flag = 0;
 	local *HANDLE;
 
-	if (!open(HANDLE, "<$filename")) {
+	if (!open(HANDLE, "<", $filename)) {
 		warn("WARNING: could not open $filename\n");
 		return undef;
 	}
@@ -2129,7 +2129,7 @@ sub process_graphfile($$)
 		else
 		{
 			# Append to output file
-			open(INFO_HANDLE, ">>$output_filename")
+			open(INFO_HANDLE, ">>", $output_filename)
 				or die("ERROR: cannot write to ".
 				       "$output_filename!\n");
 		}
@@ -2137,7 +2137,7 @@ sub process_graphfile($$)
 	else
 	{
 		# Open .info file for output
-		open(INFO_HANDLE, ">$graph_filename.info")
+		open(INFO_HANDLE, ">", "$graph_filename.info")
 			or die("ERROR: cannot create $graph_filename.info!\n");
 	}
 
@@ -2601,7 +2601,7 @@ sub read_bb($$)
 	my $graph;
 	local *HANDLE;
 
-	open(HANDLE, "<$bb_filename") or goto open_error;
+	open(HANDLE, "<", $bb_filename) or goto open_error;
 	binmode(HANDLE);
 	while (!eof(HANDLE)) {
 		$value = read_bb_value(*HANDLE, "data word");
@@ -2778,7 +2778,7 @@ sub read_bbg($$)
 	my $graph;
 	local *HANDLE;
 
-	open(HANDLE, "<$bbg_filename") or goto open_error;
+	open(HANDLE, "<", $bbg_filename) or goto open_error;
 	binmode(HANDLE);
 	# Read magic
 	$word = read_bbg_value(*HANDLE, "file magic");
@@ -3012,7 +3012,7 @@ sub read_gcno($$)
 	my $graph;
 	local *HANDLE;
 
-	open(HANDLE, "<$gcno_filename") or goto open_error;
+	open(HANDLE, "<", $gcno_filename) or goto open_error;
 	binmode(HANDLE);
 	# Read magic
 	$word = read_gcno_word(*HANDLE, "file magic");
