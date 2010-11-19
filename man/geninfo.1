@@ -37,6 +37,9 @@ geninfo \- Generate tracefiles from .da files
 .br
 .RB [ \-\-config\-file
 .IR config\-file ]
+.RB [ \-\-no\-markers ]
+.br
+.RB [ \-\-derive\-func\-data ]
 .RE
 .SH DESCRIPTION
 .B geninfo 
@@ -179,6 +182,17 @@ instances of
 with different configuration file options in parallel.
 .RE
 
+.B \-\-derive\-func\-data
+.br
+.RS
+Calculate function coverage data from line coverage data.
+
+Use this option to collect function coverage data, even if the version of the
+gcov tool installed on the test system does not provide this data. lcov will
+instead derive function coverage data from line coverage data and
+information about which lines belong to a function.
+.RE
+
 .B \-\-external
 .br
 .B \-\-no\-external
@@ -251,6 +265,13 @@ correct even when not all object code files were loaded during the test.
 
 Note: currently, the \-\-initial option does not generate branch coverage
 information.
+.RE
+
+.B \-\-no\-markers
+.br
+.RS
+Use this option if you want to get coverage data without regard to exclusion
+markers in the source code file.
 .RE
 
 .B \-\-no\-recursion
