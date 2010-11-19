@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.91 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.92 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -494,7 +494,6 @@ sequentially.
       --gcov-tool TOOL              Specify gcov tool location
       --ignore-errors ERROR         Continue after ERROR (gcov, source, graph)
       --no-recursion                Exclude subdirectories from processing
-      --function-coverage           Capture function call counts
       --no-markers                  Ignore exclusion markers in source code
       --derive-func-data            Generate function data from line data
       --(no-)external               Include (ignore) data for external files
