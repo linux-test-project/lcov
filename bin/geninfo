@@ -58,7 +58,7 @@ use Digest::MD5 qw(md5_base64);
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.89 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.90 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -967,6 +967,9 @@ sub process_dafile($$)
 	{
 		my $i;
 		my $num;
+
+		# Skip gcov file for gcc built-in code
+		next if ($gcov_file eq "<built-in>.gcov");
 
 		($source, $object) = read_gcov_header($gcov_file);
 
