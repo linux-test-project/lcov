@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.57 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.58 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -3441,12 +3441,13 @@ sub write_file_table_entry(*$$$@)
 	my ($handle, $base_dir, $filename, $page_link, @entries) = @_;
 	my $file_code;
 	my $entry;
+	my $esc_filename = escape_html($filename);
 
 	# Add link to source if provided
 	if (defined($page_link) && $page_link ne "") {
-		$file_code = "<a href=\"$page_link\">$filename</a>";
+		$file_code = "<a href=\"$page_link\">$esc_filename</a>";
 	} else {
-		$file_code = $filename;
+		$file_code = $esc_filename;
 	}
 
 	# First column: filename
@@ -4198,6 +4199,7 @@ sub write_header(*$$$$$$$$$$)
 	my @row_right;
 	my $num_rows;
 	my $i;
+	my $esc_trunc_name = escape_html($trunc_name);
 
 	$base_name = basename($rel_filename);
 
@@ -4213,12 +4215,14 @@ sub write_header(*$$$$$$$$$$)
 		# Directory overview
 		$base_dir = get_relative_base_path($rel_filename);
 		$view = "<a href=\"$base_dir"."index.$html_ext\">".
-			"$overview_title</a> - $trunc_name";
+			"$overview_title</a> - $esc_trunc_name";
 	}
 	elsif ($type == $HDR_SOURCE || $type == $HDR_FUNC)
 	{
 		# File view
 		my $dir_name = dirname($rel_filename);
+		my $esc_base_name = escape_html($base_name);
+		my $esc_dir_name = escape_html($dir_name);
 
 		$base_dir = get_relative_base_path($dir_name);
 		if ($frames)
@@ -4228,14 +4232,14 @@ sub write_header(*$$$$$$$$$$)
 			$view = "<a href=\"$base_dir"."index.$html_ext\" ".
 				"target=\"_parent\">$overview_title</a> - ".
 				"<a href=\"index.$html_ext\" target=\"_parent\">".
-				"$dir_name</a> - $base_name";
+				"$esc_dir_name</a> - $esc_base_name";
 		}
 		else
 		{
 			$view = "<a href=\"$base_dir"."index.$html_ext\">".
 				"$overview_title</a> - ".
 				"<a href=\"index.$html_ext\">".
-				"$dir_name</a> - $base_name";
+				"$esc_dir_name</a> - $esc_base_name";
 		}
 
 		# Add function suffix
