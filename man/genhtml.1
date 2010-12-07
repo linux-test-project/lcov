@@ -470,6 +470,10 @@ whether the branch was taken or not. Branches are shown in the following format:
  ' # ': The basic block containing the branch was never executed
 .br
 
+Note that it might not always be possible to relate branches to the
+corresponding source code statements: during compilation, GCC might shuffle
+branches around or eliminate some of them to generate better code.
+
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_branch_coverage .
