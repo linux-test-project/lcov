@@ -35,7 +35,7 @@ use Getopt::Long;
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.17 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.18 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -238,7 +238,7 @@ sub gen_png($$$@)
 	my $overview_width = shift(@_);	# Imagewidth for image
 	my $tab_size = shift(@_);	# Replacement string for tab signs
 	my @source = @_;	# Source code as passed via argument 2
-	my $height = scalar(@source);	# Height as define by source size
+	my $height;		# Height as define by source size
 	my $overview;		# Source code overview image data
 	my $col_plain_back;	# Color for overview background
 	my $col_plain_text;	# Color for uninstrumented text
@@ -261,6 +261,11 @@ sub gen_png($$$@)
 	my $replacement;	# Replacement string for tabulator chars
 	local *PNG_HANDLE;	# Handle for output PNG file
 
+	# Handle empty source files
+	if (!@source) {
+		@source = ( "" );
+	}
+	$height = scalar(@source);
 	# Create image
 	$overview = new GD::Image($overview_width, $height)
 		or die("ERROR: cannot allocate overview image!\n");
