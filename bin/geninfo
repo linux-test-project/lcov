@@ -55,10 +55,13 @@ use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
 			      splitpath/;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
-
+if( $^O eq "msys" )
+{
+	require File::Spec::Win32;
+}
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.92 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.93 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -1220,7 +1223,39 @@ sub solve_relative_path($$)
 {
 	my $path = $_[0];
 	my $dir = $_[1];
+	my $volume;
+	my $directories;
+	my $filename;
+	my @dirs;			# holds path elements
 	my $result;
+
+	# Convert from Windows path to msys path
+	if( $^O eq "msys" )
+	{
+		# search for a windows drive letter at the beginning
+		($volume, $directories, $filename) = File::Spec::Win32->splitpath( $dir );
+		if( $volume ne '' )
+		{
+			my $uppercase_volume;
+			# transform c/d\../e/f\g to Windows style c\d\..\e\f\g
+			$dir = File::Spec::Win32->canonpath( $dir );
+			# use Win32 module to retrieve path components
+			# $uppercase_volume is not used any further
+			( $uppercase_volume, $directories, $filename ) = File::Spec::Win32->splitpath( $dir );
+			@dirs = File::Spec::Win32->splitdir( $directories );
+			
+			# prepend volume, since in msys C: is always mounted to /c
+			$volume =~ s|^([a-zA-Z]+):|/$1|;
+			unshift( @dirs, $volume );
+			
+			# transform to Unix style '/' path
+			$directories = File::Spec->catdir( @dirs );
+			$dir = File::Spec->catpath( '', $directories, $filename );
+		} else {
+			# eliminate '\' path separators
+			$dir = File::Spec->canonpath( $dir );
+		}
+	}
 
 	$result = $dir;
 	# Prepend path if not absolute
