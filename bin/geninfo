@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.93 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.94 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -1678,7 +1678,7 @@ sub read_gcov_file($)
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, '-');
 			}
-			elsif (/^function\s+(\S+)\s+called\s+(\d+)/)
+			elsif (/^function\s+(.+)\s+called\s+(\d+)\s+/)
 			{
 				if ($exclude_line) {
 					next;
