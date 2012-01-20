@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.80 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.81 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -191,6 +191,7 @@ our $opt_external;
 our $opt_no_external;
 our $opt_config_file;
 our @opt_summary;
+our $opt_compat;
 our $ln_overall_found;
 our $ln_overall_hit;
 our $fn_overall_found;
@@ -284,6 +285,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"external" => \$opt_external,
 		"no-external" => \$opt_no_external,
 		"summary=s" => \@opt_summary,
+		"compat=s" => \$opt_compat,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -857,6 +859,9 @@ sub lcov_geninfo(@)
 	if (defined($opt_external) && !$opt_external)
 	{
 		@param = (@param, "--no-external");
+	}
+	if (defined($opt_compat)) {
+		@param = (@param, "--compat", $opt_compat);
 	}
 	system(@param) and exit($? >> 8);
 }

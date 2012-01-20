@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.94 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.95 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -72,8 +72,6 @@ our $GCNO_FUNCTION_TAG	= 0x01000000;
 our $GCNO_LINES_TAG	= 0x01450000;
 our $GCNO_FILE_MAGIC	= 0x67636e6f;
 our $BBG_FILE_MAGIC	= 0x67626267;
-
-our $COMPAT_HAMMER	= "hammer";
 
 # Error classes which users may specify to ignore during processing
 our $ERROR_GCOV		= 0;
@@ -88,6 +86,43 @@ our %ERROR_ID = (
 our $EXCL_START = "LCOV_EXCL_START";
 our $EXCL_STOP = "LCOV_EXCL_STOP";
 our $EXCL_LINE = "LCOV_EXCL_LINE";
+
+# Compatibility setting values
+our $COMPAT_VALUE_OFF	= 0;
+our $COMPAT_VALUE_ON	= 1;
+our $COMPAT_VALUE_AUTO	= 2;
+
+# Compatibility setting value names
+our %COMPAT_NAME_TO_VALUE = (
+	"off"	=> $COMPAT_VALUE_OFF,
+	"on"	=> $COMPAT_VALUE_ON,
+	"auto"	=> $COMPAT_VALUE_AUTO,
+);
+
+# Compatiblity setting flags
+our $COMPAT_FLAG_LIBTOOL	= 1 << 0;
+our $COMPAT_FLAG_HAMMER		= 1 << 1;
+our $COMPAT_FLAG_ANDROID_4_4_0	= 1 << 2;
+
+# Compatibility setting flag names
+our %COMPAT_NAME_TO_FLAG = (
+	"libtool"	=> $COMPAT_FLAG_LIBTOOL,
+	"hammer"	=> $COMPAT_FLAG_HAMMER,
+	"android_4_4_0"	=> $COMPAT_FLAG_ANDROID_4_4_0,
+);
+
+# Compatibility setting default values
+our %COMPAT_FLAG_DEFAULTS = (
+	$COMPAT_FLAG_LIBTOOL		=> $COMPAT_VALUE_ON,
+	$COMPAT_FLAG_HAMMER		=> $COMPAT_VALUE_OFF,
+	$COMPAT_FLAG_ANDROID_4_4_0	=> $COMPAT_VALUE_OFF,
+);
+
+# Compatibility setting autodetection routines
+sub compat_hammer_autodetect();
+our %COMPAT_FLAG_AUTO = (
+	$COMPAT_FLAG_HAMMER		=> \&compat_hammer_autodetect,
+);
 
 our $BR_LINE		= 0;
 our $BR_BLOCK		= 1;
@@ -153,10 +188,14 @@ sub debug($);
 sub int_handler();
 sub parse_ignore_errors(@);
 sub is_external($);
+sub compat_name($);
+sub parse_compat_flags($);
+sub is_compat($);
 
 
 # Global variables
 our $gcov_version;
+our $gcov_version_string;
 our $graph_file_extension;
 our $data_file_extension;
 our @data_directory;
@@ -169,12 +208,10 @@ our $version;
 our $follow;
 our $checksum;
 our $no_checksum;
-our $compat_libtool;
-our $no_compat_libtool;
+our $opt_compat_libtool;
+our $opt_no_compat_libtool;
 our $adjust_testname;
 our $config;		# Configuration file contents
-our $compatibility;	# Compatibility version flag - used to indicate
-			# non-standard GCOV data format versions
 our @ignore_errors;	# List of errors to ignore (parameter)
 our @ignore;		# List of errors to ignore (array)
 our $initial;
@@ -190,6 +227,8 @@ our @gcov_options;
 our @internal_dirs;
 our $opt_config_file;
 our $opt_gcov_all_blocks = 1;
+our $opt_compat;
+our %compat_value;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -235,9 +274,10 @@ if ($config)
 		"geninfo_adjust_testname"	=> \$adjust_testname,
 		"geninfo_checksum"		=> \$checksum,
 		"geninfo_no_checksum"		=> \$no_checksum, # deprecated
-		"geninfo_compat_libtool"	=> \$compat_libtool,
+		"geninfo_compat_libtool"	=> \$opt_compat_libtool,
 		"geninfo_external"		=> \$opt_external,
 		"geninfo_gcov_all_blocks"	=> \$opt_gcov_all_blocks,
+		"geninfo_compat"		=> \$opt_compat,
 	});
 
 	# Merge options
@@ -258,8 +298,8 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"quiet|q" => \$quiet,
 		"help|h|?" => \$help,
 		"follow|f" => \$follow,
-		"compat-libtool" => \$compat_libtool,
-		"no-compat-libtool" => \$no_compat_libtool,
+		"compat-libtool" => \$opt_compat_libtool,
+		"no-compat-libtool" => \$opt_no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@ignore_errors,
 		"initial|i" => \$initial,
@@ -269,6 +309,7 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"debug" => \$debug,
 		"external" => \$opt_external,
 		"no-external" => \$opt_no_external,
+		"compat=s" => \$opt_compat,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -283,10 +324,10 @@ else
 		$no_checksum = undef;
 	}
 
-	if (defined($no_compat_libtool))
+	if (defined($opt_no_compat_libtool))
 	{
-		$compat_libtool = ($no_compat_libtool ? 0 : 1);
-		$no_compat_libtool = undef;
+		$opt_compat_libtool = ($opt_no_compat_libtool ? 0 : 1);
+		$opt_no_compat_libtool = undef;
 	}
 
 	if (defined($opt_no_external)) {
@@ -310,6 +351,25 @@ if ($version)
 	print("$tool_name: $lcov_version\n");
 	exit(0);
 }
+
+# Check gcov tool
+if (system_no_output(3, $gcov_tool, "--help") == -1)
+{
+	die("ERROR: need tool $gcov_tool!\n");
+}
+
+($gcov_version, $gcov_version_string) = get_gcov_version();
+
+# Determine gcov options
+$gcov_caps = get_gcov_capabilities();
+push(@gcov_options, "-b") if ($gcov_caps->{'branch-probabilities'});
+push(@gcov_options, "-c") if ($gcov_caps->{'branch-counts'});
+push(@gcov_options, "-a") if ($gcov_caps->{'all-blocks'} &&
+			      $opt_gcov_all_blocks);
+push(@gcov_options, "-p") if ($gcov_caps->{'preserve-paths'});
+
+# Determine compatibility flags
+parse_compat_flags($opt_compat);
 
 # Determine which errors the user wants us to ignore
 parse_ignore_errors(@ignore_errors);
@@ -355,17 +415,6 @@ else
 	$checksum = 0;
 }
 
-# Determine libtool compatibility mode
-if (defined($compat_libtool))
-{
-	$compat_libtool = ($compat_libtool? 1 : 0);
-}
-else
-{
-	# Default is on
-	$compat_libtool = 1;
-}
-
 # Determine max depth for recursion
 if ($no_recursion)
 {
@@ -394,16 +443,9 @@ else
 	}
 }
 
-if (system_no_output(3, $gcov_tool, "--help") == -1)
-{
-	die("ERROR: need tool $gcov_tool!\n");
-}
-
-$gcov_version = get_gcov_version();
-
 if ($gcov_version < $GCOV_VERSION_3_4_0)
 {
-	if (defined($compatibility) && $compatibility eq $COMPAT_HAMMER)
+	if (is_compat($COMPAT_FLAG_HAMMER))
 	{
 		$data_file_extension = ".da";
 		$graph_file_extension = ".bbg";
@@ -419,14 +461,6 @@ else
 	$data_file_extension = ".gcda";
 	$graph_file_extension = ".gcno";
 }	
-
-# Determine gcov options
-$gcov_caps = get_gcov_capabilities();
-push(@gcov_options, "-b") if ($gcov_caps->{'branch-probabilities'});
-push(@gcov_options, "-c") if ($gcov_caps->{'branch-counts'});
-push(@gcov_options, "-a") if ($gcov_caps->{'all-blocks'} &&
-			      $opt_gcov_all_blocks);
-push(@gcov_options, "-p") if ($gcov_caps->{'preserve-paths'});
 
 # Check output filename
 if (defined($output_filename) && ($output_filename ne "-"))
@@ -792,7 +826,7 @@ sub process_dafile($$)
 	($da_dir, $da_basename) = split_filename($da_filename);
 
 	# avoid files from .libs dirs 	 
-	if ($compat_libtool && $da_dir =~ m/(.*)\/\.libs$/) {
+	if (is_compat($COMPAT_FLAG_LIBTOOL) && $da_dir =~ m/(.*)\/\.libs$/) {
 		$source_dir = $1;
 	} else {
 		$source_dir = $da_dir;
@@ -850,7 +884,7 @@ sub process_dafile($$)
 	# information about functions and their source code positions.
 	if ($gcov_version < $GCOV_VERSION_3_4_0)
 	{
-		if (defined($compatibility) && $compatibility eq $COMPAT_HAMMER)
+		if (is_compat($COMPAT_FLAG_HAMMER))
 		{
 			($instr, $graph) = read_bbg($bb_filename, $base_dir);
 		}
@@ -1778,13 +1812,7 @@ sub get_gcov_version()
 			$result = $1 << 16 | $2 << 8;
 		}
 	}
-        if ($version_string =~ /suse/i && $result == 0x30303 ||
-            $version_string =~ /mandrake/i && $result == 0x30302)
-	{
-		info("Using compatibility mode for GCC 3.3 (hammer)\n");
-		$compatibility = $COMPAT_HAMMER;
-	}
-	return $result;
+	return ($result, $version_string);
 }
 
 
@@ -2116,7 +2144,7 @@ sub process_graphfile($$)
 	($graph_dir, $graph_basename) = split_filename($graph_filename);
 
 	# avoid files from .libs dirs 	 
-	if ($compat_libtool && $graph_dir =~ m/(.*)\/\.libs$/) {
+	if (is_compat($COMPAT_FLAG_LIBTOOL) && $graph_dir =~ m/(.*)\/\.libs$/) {
 		$source_dir = $1;
 	} else {
 		$source_dir = $graph_dir;
@@ -2134,7 +2162,7 @@ sub process_graphfile($$)
 
 	if ($gcov_version < $GCOV_VERSION_3_4_0)
 	{
-		if (defined($compatibility) && $compatibility eq $COMPAT_HAMMER)
+		if (is_compat($COMPAT_FLAG_HAMMER))
 		{
 			($instr, $graph) = read_bbg($graph_filename, $base_dir);
 		}
@@ -2995,6 +3023,10 @@ sub read_gcno_function_record(*$$$$)
 	graph_expect("function record");
 	# Skip ident and checksum
 	graph_skip($handle, 8, "function ident and checksum") or return undef;
+	if (is_compat($COMPAT_FLAG_ANDROID_4_4_0)) {
+		# Skip extra word added by android 4.4.0 toolchain.
+		graph_skip($handle, 4, "android_4_4_0 extra word");
+	}
 	# Read function name
 	graph_expect("function name");
 	$function = read_gcno_string($handle, $big_endian);
@@ -3209,4 +3241,129 @@ sub is_external($)
 		return 0 if ($filename =~ /^\Q$dir\/\E/);
 	}
 	return 1;
+}
+
+#
+# compat_name(flag)
+#
+# Return the name of compatibility flag FLAG.
+#
+
+sub compat_name($)
+{
+	my ($flag) = @_;
+
+	foreach my $name (keys(%COMPAT_NAME_TO_FLAG)) {
+		return $name if ($COMPAT_NAME_TO_FLAG{$name} eq $flag);
+	}
+	return "<unknown>";
+}
+
+#
+# parse_compat_flags(opt)
+#
+# Determine compatibility flag settings.
+#
+
+sub parse_compat_flags($)
+{
+	my ($opt) = @_;
+	my @opt_list;
+	my %specified;
+
+	# Initialize with defaults
+	%compat_value = %COMPAT_FLAG_DEFAULTS;
+
+	# Add old style specifications
+	if (defined($opt_compat_libtool)) {
+		$compat_value{$COMPAT_FLAG_LIBTOOL} =
+			$opt_compat_libtool ? $COMPAT_VALUE_ON
+					    : $COMPAT_VALUE_OFF;
+	}
+
+	# Parse settings
+	if (defined($opt)) {
+		@opt_list = split(/,/, $opt);
+	}
+	foreach my $directive (@opt_list) {
+		my ($flag, $value);
+
+		# Either
+		#   flag=off|on|auto or
+		#   flag (implies auto)
+		if ($directive !~ /^(\w+)=(\w+)$/ &&
+		    $directive !~ /^(\w+)$/) {
+			die("ERROR: Unknown compatibility setting format: ".
+			    "$directive!\n");
+		}
+		# Determine flag
+		$flag = $COMPAT_NAME_TO_FLAG{lc($1)};
+		if (!defined($flag)) {
+			die("ERROR: Unknown compatibility setting: $1!\n");
+		}
+		$specified{$flag} = 1;
+		# Determine value
+		if (defined($2)) {
+			$value = $COMPAT_NAME_TO_VALUE{lc($2)};
+			if (!defined($value)) {
+				die("ERROR: Unknown compatibility setting ".
+				    "value: $2!\n");
+			}
+		} else {
+			$value = $COMPAT_VALUE_ON;
+		}
+		$compat_value{$flag} = $value;
+	}
+	# Perform autodetection
+	foreach my $flag (sort(keys(%compat_value))) {
+		my $value = $compat_value{$flag};
+		my $is_autodetect = "";
+		my $name = compat_name($flag);
+
+		if ($value == $COMPAT_VALUE_AUTO) {
+			my $autodetect = $COMPAT_FLAG_AUTO{$flag};
+
+			if (!defined($autodetect)) {
+				die("ERROR: No automatic detection for ".
+				    "setting '$name' available!\n");
+			}
+			$value = &$autodetect();
+			$compat_value{$flag} = $value;
+			$is_autodetect = " (autodetected)";
+		}
+		if ($specified{$flag}) {
+			if ($value == $COMPAT_VALUE_ON) {
+				info("Enabling compatibility setting ".
+				     "'$name'$is_autodetect\n");
+			} else {
+				info("Disabling compatibility setting ".
+				     "'$name'$is_autodetect\n");
+			}
+		}
+	}
+}
+
+sub compat_hammer_autodetect()
+{
+        if ($gcov_version_string =~ /suse/i && $gcov_version == 0x30303 ||
+            $gcov_version_string =~ /mandrake/i && $gcov_version == 0x30302)
+	{
+		info("Autodetected compatibility mode for GCC 3.3 (hammer)\n");
+		return $COMPAT_VALUE_ON;
+	}
+	return $COMPAT_VALUE_OFF;
+}
+
+#
+# is_compat(flag)
+#
+# Return non-zero if compatibility setting for FLAG is enabled.
+#
+
+sub is_compat($)
+{
+	my ($flag) = @_;
+
+	return 1 if ($compat_value{$flag} == $COMPAT_VALUE_ON);
+	return 0;
 }
