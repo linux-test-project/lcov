@@ -8,6 +8,7 @@ URL: http://ltp.sourceforge.net/coverage/lcov.php
 Source0: http://downloads.sourceforge.net/ltp/lcov-%{version}.tar.gz
 BuildRoot: /var/tmp/%{name}-%{version}-root
 BuildArch: noarch
+Requires: perl >= 4:5.8.8
 
 %description
 LCOV is a graphical front-end for GCC's coverage testing tool gcov. It collects
@@ -35,6 +36,8 @@ rm -rf $RPM_BUILD_ROOT
 /etc
 
 %changelog
+* Mon May 07 2012 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
+- added dependency on perl 5.8.8 for >>& open mode support
 * Wed Aug 13 2008 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - changed description + summary text
 * Mon Aug 20 2007 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
