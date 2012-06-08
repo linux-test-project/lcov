@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.96 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.97 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -1280,7 +1280,7 @@ sub solve_relative_path($$)
 			@dirs = File::Spec::Win32->splitdir( $directories );
 			
 			# prepend volume, since in msys C: is always mounted to /c
-			$volume =~ s|^([a-zA-Z]+):|/$1|;
+			$volume =~ s|^([a-zA-Z]+):|/\L$1\E|;
 			unshift( @dirs, $volume );
 			
 			# transform to Unix style '/' path
