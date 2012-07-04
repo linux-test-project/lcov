@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.97 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.98 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -116,13 +116,14 @@ our %COMPAT_NAME_TO_FLAG = (
 our %COMPAT_FLAG_DEFAULTS = (
 	$COMPAT_FLAG_LIBTOOL		=> $COMPAT_VALUE_ON,
 	$COMPAT_FLAG_HAMMER		=> $COMPAT_VALUE_OFF,
-	$COMPAT_FLAG_ANDROID_4_4_0	=> $COMPAT_VALUE_OFF,
+	$COMPAT_FLAG_ANDROID_4_4_0	=> $COMPAT_VALUE_AUTO,
 );
 
 # Compatibility setting autodetection routines
 sub compat_hammer_autodetect();
 our %COMPAT_FLAG_AUTO = (
 	$COMPAT_FLAG_HAMMER		=> \&compat_hammer_autodetect,
+	$COMPAT_FLAG_ANDROID_4_4_0	=> 1,
 );
 
 our $BR_LINE		= 0;
@@ -157,7 +158,7 @@ sub warn_handler($);
 sub die_handler($);
 sub graph_error($$);
 sub graph_expect($);
-sub graph_read(*$;$);
+sub graph_read(*$;$$);
 sub graph_skip(*$;$);
 sub sort_uniq(@);
 sub sort_uniq_lex(@);
@@ -174,11 +175,11 @@ sub read_bbg_value(*;$);
 sub read_bbg_string(*);
 sub read_bbg_lines_record(*$$$$$$);
 sub read_bbg($$);
-sub read_gcno_word(*;$);
-sub read_gcno_value(*$;$);
+sub read_gcno_word(*;$$);
+sub read_gcno_value(*$;$$);
 sub read_gcno_string(*$);
 sub read_gcno_lines_record(*$$$$$$$);
-sub read_gcno_function_record(*$$$$);
+sub read_gcno_function_record(*$$$$$);
 sub read_gcno($$);
 sub get_gcov_capabilities();
 sub get_overall_line($$$$);
@@ -192,6 +193,7 @@ sub is_external($);
 sub compat_name($);
 sub parse_compat_flags($);
 sub is_compat($);
+sub is_compat_auto($);
 
 
 # Global variables
@@ -2315,26 +2317,36 @@ sub graph_expect($)
 }
 
 #
-# graph_read(handle, bytes[, description])
+# graph_read(handle, bytes[, description, peek])
 #
 # Read and return the specified number of bytes from handle. Return undef
-# if the number of bytes could not be read.
+# if the number of bytes could not be read. If PEEK is non-zero, reset
+# file position after read.
 #
 
-sub graph_read(*$;$)
+sub graph_read(*$;$$)
 {
-	my ($handle, $length, $desc) = @_;
+	my ($handle, $length, $desc, $peek) = @_;
 	my $data;
 	my $result;
+	my $pos;
 
 	graph_expect($desc);
+	if ($peek) {
+		$pos = tell($handle);
+		if ($pos == -1) {
+			warn("Could not get current file position: $!\n");
+			return undef;
+		}
+	}
 	$result = read($handle, $data, $length);
 	if ($debug) {
+		my $op = $peek ? "peek" : "read";
 		my $ascii = "";
 		my $hex = "";
 		my $i;
 
-		print(STDERR "DEBUG: read($length)=$result: ");
+		print(STDERR "DEBUG: $op($length)=$result: ");
 		for ($i = 0; $i < length($data); $i++) {
 			my $c = substr($data, $i, 1);;
 			my $n = ord($c);
@@ -2348,6 +2360,12 @@ sub graph_read(*$;$)
 		}
 		print(STDERR "$hex |$ascii|");
 		print(STDERR "\n");
+	}
+	if ($peek) {
+		if (!seek($handle, $pos, 0)) {
+			warn("Could not set file position: $!\n");
+			return undef;
+		}
 	}
 	if ($result != $length) {
 		return undef;
@@ -2899,31 +2917,33 @@ magic_error:
 }
 
 #
-# read_gcno_word(handle[, description])
+# read_gcno_word(handle[, description, peek])
 #
 # Read and return a word in .gcno format.
 #
 
-sub read_gcno_word(*;$)
+sub read_gcno_word(*;$$)
 {
-	my ($handle, $desc) = @_;
+	my ($handle, $desc, $peek) = @_;
 
-	return graph_read($handle, 4, $desc);
+	return graph_read($handle, 4, $desc, $peek);
 }
 
 #
-# read_gcno_value(handle, big_endian[, description])
+# read_gcno_value(handle, big_endian[, description, peek])
 #
 # Read a word in .gcno format from handle and return its integer value
-# according to the specified endianness.
+# according to the specified endianness. If PEEK is non-zero, reset file
+# position after read.
 #
 
-sub read_gcno_value(*$;$)
+sub read_gcno_value(*$;$$)
 {
-	my ($handle, $big_endian, $desc) = @_;
+	my ($handle, $big_endian, $desc, $peek) = @_;
 	my $word;
+	my $pos;
 
-	$word = read_gcno_word($handle, $desc);
+	$word = read_gcno_word($handle, $desc, $peek);
 	return undef if (!defined($word));
 	if ($big_endian) {
 		return unpack("N", $word);
@@ -3007,28 +3027,55 @@ sub read_gcno_lines_record(*$$$$$$$)
 }
 
 #
-# read_gcno_function_record(handle, graph, base, big_endian)
+# read_gcno_function_record(handle, graph, base, big_endian, rec_length)
 #
 # Read a gcno format function record from handle and add the relevant data
 # to graph. Return (filename, function) on success, undef on error. 
 #
 
-sub read_gcno_function_record(*$$$$)
+sub read_gcno_function_record(*$$$$$)
 {
-	my ($handle, $bb, $fileorder, $base, $big_endian) = @_;
+	my ($handle, $bb, $fileorder, $base, $big_endian, $rec_length) = @_;
 	my $filename;
 	my $function;
 	my $lineno;
 	my $lines;
+	my $is_4_7;
 
 	graph_expect("function record");
 	# Skip ident and checksum
 	graph_skip($handle, 8, "function ident and checksum") or return undef;
-	if (is_compat($COMPAT_FLAG_ANDROID_4_4_0) ||
-	    ($gcov_version >= $GCOV_VERSION_4_7_0)) {
-		# Skip extra checksum added by android 4.4.0 / gcc >= 4.7
-		# toolchains.
-		graph_skip($handle, 4, "function extra checksum");
+	# Determine if this is a gcc 4.7 format function record
+	if ($gcov_version >= $GCOV_VERSION_4_7_0) {
+		$is_4_7 = 1;
+	} elsif (is_compat($COMPAT_FLAG_ANDROID_4_4_0)) {
+		$is_4_7 = 1;
+	} elsif (is_compat_auto($COMPAT_FLAG_ANDROID_4_4_0)) {
+		my $strlen = read_gcno_value($handle, $big_endian, undef, 1);
+
+		return undef if (!defined($strlen));
+
+		# Heuristic:
+		# - pre-gcc 4.7
+		#   This is the function name length / 4 which should be
+		#   less than the remaining record length
+		# - gcc 4.7
+		#   This is a checksum, likely with high-order bits set,
+		#   resulting in a large number
+		if ($strlen * 4 > $rec_length - 12) {
+			if ($debug) {
+				print(STDERR "DEBUG: found overlong string ".
+				      "length - assuming gcc 4.7 format\n");
+			}
+			$is_4_7 = 1;
+		} elsif ($debug) {
+			print(STDERR "DEBUG: found strlen=".($strlen * 4).
+			      " and rec_length=".($rec_length - 12)."\n");
+		}
+	}
+	# Skip cfg checksum word in case of gcc 4.7 format function record
+	if ($is_4_7) {
+		graph_skip($handle, 4, "function cfg checksum");
 	}
 	# Read function name
 	graph_expect("function name");
@@ -3116,7 +3163,8 @@ sub read_gcno($$)
 		# Process record
 		if ($tag == $tag_function) {
 			($filename, $function) = read_gcno_function_record(
-				*HANDLE, $bb, $fileorder, $base, $big_endian);
+				*HANDLE, $bb, $fileorder, $base, $big_endian,
+				$length);
 			goto incomplete if (!defined($function));
 		} elsif ($tag == $tag_lines) {
 			# Read lines record
@@ -3330,17 +3378,25 @@ sub parse_compat_flags($)
 				die("ERROR: No automatic detection for ".
 				    "setting '$name' available!\n");
 			}
-			$value = &$autodetect();
-			$compat_value{$flag} = $value;
-			$is_autodetect = " (autodetected)";
+
+			if (ref($autodetect) eq "CODE") {
+				$value = &$autodetect();
+				$compat_value{$flag} = $value;
+				$is_autodetect = " (auto-detected)";
+			}
 		}
+
 		if ($specified{$flag}) {
 			if ($value == $COMPAT_VALUE_ON) {
 				info("Enabling compatibility setting ".
 				     "'$name'$is_autodetect\n");
-			} else {
+			} elsif ($value == $COMPAT_VALUE_OFF) {
 				info("Disabling compatibility setting ".
 				     "'$name'$is_autodetect\n");
+			} else {
+				info("Using delayed auto-detection for ".
+				     "compatibility setting ".
+				     "'$name'\n");
 			}
 		}
 	}
@@ -3351,7 +3407,7 @@ sub compat_hammer_autodetect()
         if ($gcov_version_string =~ /suse/i && $gcov_version == 0x30303 ||
             $gcov_version_string =~ /mandrake/i && $gcov_version == 0x30302)
 	{
-		info("Autodetected compatibility mode for GCC 3.3 (hammer)\n");
+		info("Auto-detected compatibility mode for GCC 3.3 (hammer)\n");
 		return $COMPAT_VALUE_ON;
 	}
 	return $COMPAT_VALUE_OFF;
@@ -3368,5 +3424,19 @@ sub is_compat($)
 	my ($flag) = @_;
 
 	return 1 if ($compat_value{$flag} == $COMPAT_VALUE_ON);
+	return 0;
+}
+
+#
+# is_compat_auto(flag)
+#
+# Return non-zero if compatibility setting for FLAG is set to auto-detect.
+#
+
+sub is_compat_auto($)
+{
+	my ($flag) = @_;
+
+	return 1 if ($compat_value{$flag} == $COMPAT_VALUE_AUTO);
 	return 0;
 }
