@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.98 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.99 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -103,27 +103,35 @@ our %COMPAT_NAME_TO_VALUE = (
 # Compatiblity setting flags
 our $COMPAT_FLAG_LIBTOOL	= 1 << 0;
 our $COMPAT_FLAG_HAMMER		= 1 << 1;
-our $COMPAT_FLAG_ANDROID_4_4_0	= 1 << 2;
+our $COMPAT_FLAG_GCC_4_7	= 1 << 2;
 
 # Compatibility setting flag names
 our %COMPAT_NAME_TO_FLAG = (
 	"libtool"	=> $COMPAT_FLAG_LIBTOOL,
 	"hammer"	=> $COMPAT_FLAG_HAMMER,
-	"android_4_4_0"	=> $COMPAT_FLAG_ANDROID_4_4_0,
+	"android_4_4_0"	=> $COMPAT_FLAG_GCC_4_7,
+	"gcc_4_7"	=> $COMPAT_FLAG_GCC_4_7,
+);
+
+# Map flags to names
+our %COMPAT_FLAG_TO_NAME = (
+	$COMPAT_FLAG_LIBTOOL	=> "libtool",
+	$COMPAT_FLAG_HAMMER	=> "hammer",
+	$COMPAT_FLAG_GCC_4_7	=> "gcc_4_7/android_4_4_0",
 );
 
 # Compatibility setting default values
 our %COMPAT_FLAG_DEFAULTS = (
 	$COMPAT_FLAG_LIBTOOL		=> $COMPAT_VALUE_ON,
 	$COMPAT_FLAG_HAMMER		=> $COMPAT_VALUE_OFF,
-	$COMPAT_FLAG_ANDROID_4_4_0	=> $COMPAT_VALUE_AUTO,
+	$COMPAT_FLAG_GCC_4_7	=> $COMPAT_VALUE_AUTO,
 );
 
 # Compatibility setting autodetection routines
 sub compat_hammer_autodetect();
 our %COMPAT_FLAG_AUTO = (
 	$COMPAT_FLAG_HAMMER		=> \&compat_hammer_autodetect,
-	$COMPAT_FLAG_ANDROID_4_4_0	=> 1,
+	$COMPAT_FLAG_GCC_4_7	=> 1,
 );
 
 our $BR_LINE		= 0;
@@ -232,6 +240,7 @@ our $opt_config_file;
 our $opt_gcov_all_blocks = 1;
 our $opt_compat;
 our %compat_value;
+our $gcno_fmt_4_7;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -538,6 +547,7 @@ sequentially.
       --derive-func-data            Generate function data from line data
       --(no-)external               Include (ignore) data for external files
       --config-file FILENAME        Specify configuration file location
+      --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, gcc_4_7)
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -3027,6 +3037,51 @@ sub read_gcno_lines_record(*$$$$$$$)
 }
 
 #
+# determine_gcno_fmt(handle, big_endian, rec_length)
+#
+# Determine if HANDLE refers to a .gcno file with a gcc 4.7 format function
+# record. Return non-zero in case of gcc 4.7 format, zero otherwise,
+# undef in case of read error.
+#
+
+sub determine_gcno_fmt($$$)
+{
+	my ($handle, $big_endian, $rec_length) = @_;
+	my $strlen;
+	my $overlong_string;
+
+	return 1 if ($gcov_version >= $GCOV_VERSION_4_7_0);
+	return 1 if (is_compat($COMPAT_FLAG_GCC_4_7));
+
+	# Heuristic:
+	# Decide format based on contents of next word in record:
+	# - pre-gcc 4.7
+	#   This is the function name length / 4 which should be
+	#   less than the remaining record length
+	# - gcc 4.7
+	#   This is a checksum, likely with high-order bits set,
+	#   resulting in a large number
+	$strlen = read_gcno_value($handle, $big_endian, undef, 1);
+	return undef if (!defined($strlen));
+	$overlong_string = 1 if ($strlen * 4 >= $rec_length - 12);
+
+	if (!is_compat_auto($COMPAT_FLAG_GCC_4_7)) {
+		# Sanity check
+		if ($overlong_string) {
+			warn("Found overlong string in function record: ".
+			     "try --compat gcc_4_7\n");
+		}
+		return 0;
+	} elsif (!$overlong_string) {
+		return 0;
+	}
+
+	info("Auto-detected compatibility mode for GCC 4.7\n");
+
+	return 1;
+}
+
+#
 # read_gcno_function_record(handle, graph, base, big_endian, rec_length)
 #
 # Read a gcno format function record from handle and add the relevant data
@@ -3040,43 +3095,18 @@ sub read_gcno_function_record(*$$$$$)
 	my $function;
 	my $lineno;
 	my $lines;
-	my $is_4_7;
 
 	graph_expect("function record");
 	# Skip ident and checksum
 	graph_skip($handle, 8, "function ident and checksum") or return undef;
 	# Determine if this is a gcc 4.7 format function record
-	if ($gcov_version >= $GCOV_VERSION_4_7_0) {
-		$is_4_7 = 1;
-	} elsif (is_compat($COMPAT_FLAG_ANDROID_4_4_0)) {
-		$is_4_7 = 1;
-	} elsif (is_compat_auto($COMPAT_FLAG_ANDROID_4_4_0)) {
-		my $strlen = read_gcno_value($handle, $big_endian, undef, 1);
-
-		return undef if (!defined($strlen));
-
-		# Heuristic:
-		# - pre-gcc 4.7
-		#   This is the function name length / 4 which should be
-		#   less than the remaining record length
-		# - gcc 4.7
-		#   This is a checksum, likely with high-order bits set,
-		#   resulting in a large number
-		if ($strlen * 4 > $rec_length - 12) {
-			if ($debug) {
-				print(STDERR "DEBUG: found overlong string ".
-				      "length - assuming gcc 4.7 format\n");
-			}
-			$is_4_7 = 1;
-		} elsif ($debug) {
-			print(STDERR "DEBUG: found strlen=".($strlen * 4).
-			      " and rec_length=".($rec_length - 12)."\n");
-		}
+	if (!defined($gcno_fmt_4_7)) {
+		$gcno_fmt_4_7 = determine_gcno_fmt($handle, $big_endian,
+						   $rec_length);
+		return undef if (!defined($gcno_fmt_4_7));
 	}
 	# Skip cfg checksum word in case of gcc 4.7 format function record
-	if ($is_4_7) {
-		graph_skip($handle, 4, "function cfg checksum");
-	}
+	graph_skip($handle, 4, "function cfg checksum") if ($gcno_fmt_4_7);
 	# Read function name
 	graph_expect("function name");
 	$function = read_gcno_string($handle, $big_endian);
@@ -3303,10 +3333,10 @@ sub is_external($)
 sub compat_name($)
 {
 	my ($flag) = @_;
+	my $name = $COMPAT_FLAG_TO_NAME{$flag};
 
-	foreach my $name (keys(%COMPAT_NAME_TO_FLAG)) {
-		return $name if ($COMPAT_NAME_TO_FLAG{$name} eq $flag);
-	}
+	return $name if (defined($name));
+
 	return "<unknown>";
 }
 
