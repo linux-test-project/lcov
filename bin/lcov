@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.82 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.83 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -524,7 +524,7 @@ Options:
       --list-full-path            Print full path during a list operation
       --(no-)external             Include (ignore) data for external files
       --config-file FILENAME      Specify configuration file location
-      --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, gcc_4_7)
+      --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, split_crc)
 
 For more information see: $lcov_url
 END_OF_USAGE
