@@ -89,6 +89,13 @@ default, the coverage limits for low, medium and high coverage are set to
 values, use configuration file options
 .IR genhtml_hi_limit " and " genhtml_med_limit .
 
+Also note that when displaying percentages, 0% and 100% are only printed when
+the values are exactly 0% and 100% respectively. Other values which would
+conventionally be rounded to 0% or 100% are instead printed as nearest
+non-boundary value. This behavior is in accordance with that of the
+.BR gcov (1)
+tool.
+
 .SH OPTIONS
 .B \-h
 .br

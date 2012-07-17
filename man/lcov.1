@@ -193,6 +193,14 @@ Please note that this man page refers to the output format of
 .B lcov
 as ".info file" or "tracefile" and that the output of GCOV
 is called ".da file".
+
+Also note that when printing percentages, 0% and 100% are only printed when
+the values are exactly 0% and 100% respectively. Other values which would
+conventionally be rounded to 0% or 100% are instead printed as nearest
+non-boundary value. This behavior is in accordance with that of the
+.BR gcov (1)
+tool.
+
 .SH OPTIONS
 
 

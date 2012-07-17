@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.58 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.59 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -205,6 +205,7 @@ sub get_br_found_and_hit($);
 sub warn_handler($);
 sub die_handler($);
 sub parse_ignore_errors(@);
+sub rate($$;$$$);
 
 
 # HTML related prototypes
@@ -632,8 +633,7 @@ sub get_overall_line($$$$)
 
 	return "no data found" if (!defined($found) || $found == 0);
 	$name = ($found == 1) ? $name_sn : $name_pl;
-	return sprintf("%.1f%% (%d of %d %s)", $hit * 100 / $found, $hit,
-		       $found, $name);
+	return rate($hit, $found, "% ($hit of $found $name)");
 }
 
 
@@ -3158,6 +3158,7 @@ END_OF_CSS
 
 sub get_bar_graph_code($$$)
 {
+	my ($base_dir, $found, $hit) = @_;
 	my $rate;
 	my $alt;
 	my $width;
@@ -3168,13 +3169,12 @@ sub get_bar_graph_code($$$)
 	# Check number of instrumented lines
 	if ($_[1] == 0) { return ""; }
 
-	$rate		= $_[2] * 100 / $_[1];
-	$alt		= sprintf("%.1f", $rate)."%";
-	$width		= sprintf("%.0f", $rate);
-	$remainder	= sprintf("%d", 100-$width);
+	$alt		= rate($hit, $found, "%");
+	$width		= rate($hit, $found, undef, 0);
+	$remainder	= 100 - $width;
 
 	# Decide which .png file to use
-	$png_name = $rate_png[classify_rate($_[1], $_[2], $med_limit,
+	$png_name = $rate_png[classify_rate($found, $hit, $med_limit,
 					    $hi_limit)];
 
 	if ($width == 0)
@@ -3223,7 +3223,7 @@ sub classify_rate($$$$)
 	if ($found == 0) {
 		return 2;
 	}
-	$rate = $hit * 100 / $found;
+	$rate = rate($hit, $found);
 	if ($rate < $med) {
 		return 0;
 	} elsif ($rate < $hi) {
@@ -3477,7 +3477,7 @@ END_OF_HTML
 			$rate = "-";
 			$class = "Hi";
 		} else {
-			$rate = sprintf("%.1f&nbsp;%%", $hit * 100 / $found);
+			$rate = rate($hit, $found, "&nbsp;%");
 			$class = $rate_name[classify_rate($found, $hit,
 					    $med, $hi)];
 		}
@@ -3517,11 +3517,8 @@ END_OF_HTML
 	# Test data
 	foreach $entry (@entries) {
 		my ($found, $hit) = @{$entry};
-		my $rate = "-";
+		my $rate = rate($hit, $found, "&nbsp;%");
 
-		if ($found > 0) {
-			$rate = sprintf("%.1f&nbsp;%%", $hit * 100 / $found);
-		}
 		write_html($handle, <<END_OF_HTML);
 	      <td class="testPer">$rate</td>
 	      <td class="testNum">$hit&nbsp;/&nbsp;$found</td>
@@ -4147,17 +4144,6 @@ END_OF_HTML
 }
 
 
-# format_rate(found, hit)
-#
-# Return formatted percent string for coverage rate.
-#
-
-sub format_rate($$)
-{	
-	return $_[0] == 0 ? "-" : sprintf("%.1f", $_[1] * 100 / $_[0])." %";
-}
-
-
 sub max($$)
 {
 	my ($a, $b) = @_;
@@ -4333,7 +4319,7 @@ END_OF_HTML
 	# Line coverage
 	$style = $rate_name[classify_rate($lines_found, $lines_hit,
 					  $med_limit, $hi_limit)];
-	$rate = format_rate($lines_found, $lines_hit);
+	$rate = rate($lines_hit, $lines_found, " %");
 	push(@row_right, [[undef, "headerItem", "Lines:"],
 			  [undef, "headerCovTableEntry", $lines_hit],
 			  [undef, "headerCovTableEntry", $lines_found],
@@ -4343,7 +4329,7 @@ END_OF_HTML
 	if ($func_coverage) {
 		$style = $rate_name[classify_rate($fn_found, $fn_hit,
 						  $fn_med_limit, $fn_hi_limit)];
-		$rate = format_rate($fn_found, $fn_hit);
+		$rate = rate($fn_hit, $fn_found, " %");
 		push(@row_right, [[undef, "headerItem", "Functions:"],
 				  [undef, "headerCovTableEntry", $fn_hit],
 				  [undef, "headerCovTableEntry", $fn_found],
@@ -4354,7 +4340,7 @@ END_OF_HTML
 	if ($br_coverage) {
 		$style = $rate_name[classify_rate($br_found, $br_hit,
 						  $br_med_limit, $br_hi_limit)];
-		$rate = format_rate($br_found, $br_hit);
+		$rate = rate($br_hit, $br_found, " %");
 		push(@row_right, [[undef, "headerItem", "Branches:"],
 				  [undef, "headerCovTableEntry", $br_hit],
 				  [undef, "headerCovTableEntry", $br_found],
@@ -5734,4 +5720,38 @@ sub parse_ignore_errors(@)
 		}
 		$ignore[$item_id] = 1;
 	}
+}
+
+#
+# rate(hit, found[, suffix, precision, width])
+#
+# Return the coverage rate [0..100] for HIT and FOUND values. 0 is only
+# returned when HIT is 0. 100 is only returned when HIT equals FOUND.
+# PRECISION specifies the precision of the result. SUFFIX defines a
+# string that is appended to the result if FOUND is non-zero). Spaces
+# are added to the start of the resulting string until it is at least WIDTH
+# characters wide.
+#
+
+sub rate($$;$$$)
+{
+        my ($hit, $found, $suffix, $precision, $width) = @_;
+        my $rate; 
+
+	# Assign defaults if necessary
+        $precision	= 1	if (!defined($precision));
+	$suffix		= ""	if (!defined($suffix));
+	$width		= 0	if (!defined($width));
+        
+        return sprintf("%*s", $width, "-") if (!defined($found) || $found == 0);
+        $rate = sprintf("%.*f", $precision, $hit * 100 / $found);
+
+	# Adjust rates if necessary
+        if ($rate == 0 && $hit > 0) {
+		$rate = sprintf("%.*f", $precision, 1 / 10 ** $precision);
+        } elsif ($rate == 100 && $hit != $found) {
+		$rate = sprintf("%.*f", $precision, 100 - 1 / 10 ** $precision);
+	}
+
+	return sprintf("%*s", $width, $rate.$suffix);
 }
