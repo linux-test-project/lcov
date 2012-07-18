@@ -150,13 +150,16 @@ to speed up coverage data processing and to reduce the size of tracefiles.
 .RE
 
 .B \-\-compat
-.IR mode = value
+.IR mode = value [, mode = value ,...]
 .br
 .RS
 Set compatibility mode.
 
 Use \-\-compat to specify that geninfo should enable one or more compatibility
-modes when capturing coverage data. Valid
+modes when capturing coverage data. You can provide a comma-separated list
+of mode=value pairs to specify the values for multiple modes.
+
+Valid
 .I values
 are:
 
@@ -173,6 +176,8 @@ Disable compatibility mode.
 Apply auto-detection to determine if compatibility mode is required. Note that
 auto-detection is not available for all compatibility modes.
 .RE
+
+If no value is specified, 'on' is assumed as default value.
 
 Valid
 .I modes
