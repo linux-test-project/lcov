@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.59 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.60 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -5728,7 +5728,7 @@ sub parse_ignore_errors(@)
 # Return the coverage rate [0..100] for HIT and FOUND values. 0 is only
 # returned when HIT is 0. 100 is only returned when HIT equals FOUND.
 # PRECISION specifies the precision of the result. SUFFIX defines a
-# string that is appended to the result if FOUND is non-zero). Spaces
+# string that is appended to the result if FOUND is non-zero. Spaces
 # are added to the start of the resulting string until it is at least WIDTH
 # characters wide.
 #
