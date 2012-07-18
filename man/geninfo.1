@@ -40,6 +40,8 @@ geninfo \- Generate tracefiles from .da files
 .RB [ \-\-no\-markers ]
 .br
 .RB [ \-\-derive\-func\-data ]
+.RB [ \-\-compat
+.IR  mode =on|off|auto]
 .RE
 .SH DESCRIPTION
 .B geninfo 
@@ -145,6 +147,68 @@ code versions.
 
 If you don't work with different source code versions, disable this option
 to speed up coverage data processing and to reduce the size of tracefiles.
+.RE
+
+.B \-\-compat
+.IR mode = value
+.br
+.RS
+Set compatibility mode.
+
+Use \-\-compat to specify that geninfo should enable one or more compatibility
+modes when capturing coverage data. Valid
+.I values
+are:
+
+.B on
+.RS
+Enable compatibility mode.
+.RE
+.B off
+.RS
+Disable compatibility mode.
+.RE
+.B auto
+.RS
+Apply auto-detection to determine if compatibility mode is required. Note that
+auto-detection is not available for all compatibility modes.
+.RE
+
+Valid
+.I modes
+are:
+
+.B libtool
+.RS
+Enable this mode if you are capturing coverage data for a project that
+was built using the libtool mechanism. See also
+\-\-compat\-libtool.
+
+The default value for this setting is 'on'.
+
+.RE
+.B hammer
+.RS
+Enable this mode if you are capturing coverage data for a project that
+was built using a version of GCC 3.3 that contains a modification
+(hammer patch) of later GCC versions. You can identify a modified GCC 3.3
+by checking the build directory of your project for files ending in the
+extension '.bbg'. Unmodified versions of GCC 3.3 name these files '.bb'.
+
+The default value for this setting is 'auto'.
+
+.RE
+.B split_crc
+.RS
+Enable this mode if you are capturing coverage data for a project that
+was built using a version of GCC 4.6 that contains a modification
+(split function checksums) of later GCC versions. Typical error messages
+when running geninfo on coverage data produced by such GCC versions are
+\'out of memory' and 'reached unexpected end of file'.
+
+The default value for this setting is 'auto'
+.RE
+
 .RE
 
 .B \-\-compat\-libtool

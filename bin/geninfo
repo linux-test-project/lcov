@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.101 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.102 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -115,15 +115,15 @@ our %COMPAT_NAME_TO_MODE = (
 
 # Map modes to names
 our %COMPAT_MODE_TO_NAME = (
-	$COMPAT_MODE_LIBTOOL		=> "libtool",
-	$COMPAT_MODE_HAMMER		=> "hammer",
+	$COMPAT_MODE_LIBTOOL	=> "libtool",
+	$COMPAT_MODE_HAMMER	=> "hammer",
 	$COMPAT_MODE_SPLIT_CRC	=> "split_crc",
 );
 
 # Compatibility mode default values
 our %COMPAT_MODE_DEFAULTS = (
 	$COMPAT_MODE_LIBTOOL	=> $COMPAT_VALUE_ON,
-	$COMPAT_MODE_HAMMER	=> $COMPAT_VALUE_OFF,
+	$COMPAT_MODE_HAMMER	=> $COMPAT_VALUE_AUTO,
 	$COMPAT_MODE_SPLIT_CRC	=> $COMPAT_VALUE_AUTO,
 );
 
