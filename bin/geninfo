@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.102 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.103 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -3365,7 +3365,7 @@ sub parse_compat_modes($)
 
 	# Parse settings
 	if (defined($opt)) {
-		@opt_list = split(/,/, $opt);
+		@opt_list = split(/\s*,\s*/, $opt);
 	}
 	foreach my $directive (@opt_list) {
 		my ($mode, $value);

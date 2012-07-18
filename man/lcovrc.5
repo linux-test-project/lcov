@@ -181,6 +181,13 @@ geninfo_compat_libtool = 0
 #geninfo_gcov_all_blocks = 1
 .br
 
+# Specify compatiblity modes (same as \-\-compat option
+.br
+# of geninfo)
+.br
+#geninfo_compat = libtool=on, hammer=auto, split_crc=auto
+.br
+
 # Directory containing gcov kernel files
 .br
 lcov_gcov_dir = /proc/gcov
@@ -589,6 +596,18 @@ around a bug in some versions of gcov which will cause it to endlessly loop
 when analysing some files.
 
 Default is 1.
+.PP
+
+.BR geninfo_compat " ="
+.IR mode = value [, mode = value ,...]
+.IP
+Specify that geninfo should enable one or more compatibility modes
+when capturing coverage data.
+
+This option corresponds to the \-\-compat command line option of
+.BR geninfo .
+
+Default is 'libtool=on, hammer=auto, split_crc=auto'.
 .PP
 
 .BR lcov_gcov_dir " ="

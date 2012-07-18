@@ -111,6 +111,9 @@ genhtml_charset=UTF-8
 # Use gcov's --all-blocks option if non-zero
 #geninfo_gcov_all_blocks = 1
 
+# Specify compatiblity modes (same as --compat option of geninfo).
+#geninfo_compat = libtool=on, hammer=auto, split_crc=auto
+
 # Directory containing gcov kernel files
 # lcov_gcov_dir = /proc/gcov
 
