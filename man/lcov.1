@@ -44,6 +44,9 @@ lcov \- a graphical GCOV front\-end
 .br
 .RB [ \-\-config\-file
 .IR config\-file ]
+.RB [ \-\-rc
+.IR keyword = value ]
+.br
 .RB [ \-\-compat
 .IR  mode =on|off|auto]
 .br
@@ -73,8 +76,8 @@ lcov \- a graphical GCOV front\-end
 .br
 .RB [ \-\-config\-file
 .IR config\-file ]
-.RB [ \-\-compat
-.IR  mode =on|off|auto]
+.RB [ \-\-rc
+.IR keyword = value ]
 .br
 .RE
 
@@ -91,6 +94,8 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-q | \-\-quiet ]
 .RB [ \-\-config\-file
 .IR config\-file ]
+.RB [ \-\-rc
+.IR keyword = value ]
 .br
 .RE
 
@@ -107,6 +112,8 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-q | \-\-quiet ]
 .RB [ \-\-config\-file
 .IR config\-file ]
+.RB [ \-\-rc
+.IR keyword = value ]
 .br
 .RE
 
@@ -123,6 +130,8 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-q | \-\-quiet ]
 .RB [ \-\-config\-file
 .IR config\-file ]
+.RB [ \-\-rc
+.IR keyword = value ]
 .br
 .RE
 
@@ -145,6 +154,8 @@ lcov \- a graphical GCOV front\-end
 .br
 .RB [ \-\-config\-file
 .IR config\-file ]
+.RB [ \-\-rc
+.IR keyword = value ]
 .br
 .RE
 
@@ -684,18 +695,6 @@ By convention, lcov\-generated coverage data files are called "tracefiles" and
 should have the filename extension ".info".
 .RE
 
-.B \-\-summary
-.I tracefile
-.br
-.RS
-Show summary coverage information for the specified tracefile.
-
-Note that you may specify this option more than once.
-
-Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
-specified at a time.
-.RE
-
 .B \-\-path
 .I path
 .br
@@ -716,6 +715,22 @@ Do not print progress messages.
 This option is implied when no output filename is specified to prevent
 progress messages to mess with coverage data which is also printed to
 the standard output.
+.RE
+
+.B \-\-rc
+.IR keyword = value
+.br
+.RS
+Override a configuration directive.
+
+Use this option to specify a
+.IR keyword = value
+statement which overrides the corresponding configuration statement in
+the lcovrc configuration file. You can specify this option more than once
+to override multiple configuration statements.
+See
+.BR lcovrc (5)
+for a list of available keywords and their meaning.
 .RE
 
 .B \-r
@@ -753,6 +768,18 @@ Strip path components when applying diff.
 
 Use this option together with \-\-diff to tell lcov to disregard the specified
 number of initial directories when matching tracefile and diff filenames.
+.RE
+
+.B \-\-summary
+.I tracefile
+.br
+.RS
+Show summary coverage information for the specified tracefile.
+
+Note that you may specify this option more than once.
+
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+specified at a time.
 .RE
 
 .B \-t

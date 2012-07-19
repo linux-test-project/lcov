@@ -61,6 +61,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .br
 .RB [ \-\-config\-file
 .IR config\-file ]
+.RB [ \-\-rc
+.IR keyword = value ]
 .br
 .IR tracefile(s)
 .RE
@@ -527,6 +529,22 @@ instances of
 with different configuration file options in parallel.
 .RE
 
+.B \-\-rc
+.IR keyword = value
+.br
+.RS
+Override a configuration directive.
+
+Use this option to specify a
+.IR keyword = value
+statement which overrides the corresponding configuration statement in
+the lcovrc configuration file. You can specify this option more than once
+to override multiple configuration statements.
+See
+.BR lcovrc (5)
+for a list of available keywords and their meaning.
+.RE
+
 .SH FILES
 
 .I /etc/lcovrc
@@ -544,6 +562,7 @@ Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
 
 .SH SEE ALSO
 .BR lcov (1),
+.BR lcovrc (5),
 .BR geninfo (1),
 .BR genpng (1),
 .BR gendesc (1),

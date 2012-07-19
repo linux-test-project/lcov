@@ -42,6 +42,9 @@ geninfo \- Generate tracefiles from .da files
 .RB [ \-\-derive\-func\-data ]
 .RB [ \-\-compat
 .IR  mode =on|off|auto]
+.br
+.RB [ \-\-rc
+.IR keyword = value ]
 .RE
 .SH DESCRIPTION
 .B geninfo 
@@ -372,6 +375,22 @@ Suppresses all informational progress output. When this switch is enabled,
 only error or warning messages are printed.
 .RE
 
+.B \-\-rc
+.IR keyword = value
+.br
+.RS
+Override a configuration directive.
+
+Use this option to specify a
+.IR keyword = value
+statement which overrides the corresponding configuration statement in
+the lcovrc configuration file. You can specify this option more than once
+to override multiple configuration statements.
+See
+.BR lcovrc (5)
+for a list of available keywords and their meaning.
+.RE
+
 .BI "\-t " testname
 .br
 .BI "\-\-test\-name " testname
@@ -487,6 +506,7 @@ Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
 
 .SH SEE ALSO
 .BR lcov (1),
+.BR lcovrc (5),
 .BR genhtml (1),
 .BR genpng (1),
 .BR gendesc (1),
