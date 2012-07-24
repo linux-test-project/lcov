@@ -188,6 +188,14 @@ geninfo_compat_libtool = 0
 #geninfo_compat = libtool=on, hammer=auto, split_crc=auto
 .br
 
+# Adjust path to source files by removing or changing path
+.br
+# components that match the specified pattern (Perl regular
+.br
+# expression format)
+.br
+#geninfo_adjust_src_path = /tmp/build => /usr/src
+
 # Directory containing gcov kernel files
 .br
 lcov_gcov_dir = /proc/gcov
@@ -608,6 +616,65 @@ This option corresponds to the \-\-compat command line option of
 .BR geninfo .
 
 Default is 'libtool=on, hammer=auto, split_crc=auto'.
+.PP
+
+.BR geninfo_adjust_src_path " ="
+.IR pattern " => " replacement
+.br
+.BR geninfo_adjust_src_path " ="
+.I pattern
+.IP
+Adjust source paths when capturing coverage data.
+
+Use this option in situations where geninfo cannot find the correct
+path to source code files of a project. By providing a
+.I pattern
+in Perl regular expression format (see
+.BR perlre (1))
+and an optional replacement string, you can instruct geninfo to
+remove or change parts of the incorrect source path.
+
+.B Example:
+.br
+
+1. When geninfo reports that it cannot find source file
+.br
+
+    /path/to/src/.libs/file.c
+.br
+
+while the file is actually located in
+.br
+
+    /path/to/src/file.c
+.br
+
+use the following parameter:
+.br
+
+    geninfo_adjust_src_path = /.libs
+
+This will remove all "/.libs" strings from the path.
+
+2. When geninfo reports that it cannot find source file
+.br
+
+    /tmp/build/file.c
+.br
+
+while the file is actually located in
+.br
+
+    /usr/src/file.c
+.br
+
+use the following parameter:
+.br
+
+    geninfo_adjust_src_path = /tmp/build => /usr/src
+.br
+
+This will change all "/tmp/build" strings in the path to "/usr/src".
 .PP
 
 .BR lcov_gcov_dir " ="

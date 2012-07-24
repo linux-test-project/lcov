@@ -114,6 +114,10 @@ genhtml_charset=UTF-8
 # Specify compatiblity modes (same as --compat option of geninfo).
 #geninfo_compat = libtool=on, hammer=auto, split_crc=auto
 
+# Adjust path to source files by removing or changing path components that
+# match the specified pattern (Perl regular expression format)
+#geninfo_adjust_src_path = /tmp/build => /usr/src
+
 # Directory containing gcov kernel files
 # lcov_gcov_dir = /proc/gcov
 
