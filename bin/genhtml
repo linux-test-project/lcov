@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.61 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.62 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -290,7 +290,7 @@ our $demangle_cpp = 0;	# Demangle C++ function names
 our @opt_ignore_errors;	# Ignore certain error classes during processing
 our @ignore;
 our $opt_config_file;	# User-specified configuration file location
-our $opt_rc;
+our %opt_rc;
 our $charset = "UTF-8";	# Default charset for HTML pages
 our @fileview_sortlist;
 our @fileview_sortname = ("", "-sort-l", "-sort-f", "-sort-b");
@@ -322,7 +322,7 @@ if (! ($tool_dir =~ /^\/(.*)$/))
 # Check command line for a configuration file name
 Getopt::Long::Configure("pass_through", "no_auto_abbrev");
 GetOptions("config-file=s" => \$opt_config_file,
-	   "rc=s%" => \$opt_rc);
+	   "rc=s%" => \%opt_rc);
 Getopt::Long::Configure("default");
 
 # Read configuration file if available
@@ -337,7 +337,7 @@ elsif (-r "/etc/lcovrc")
 	$config = read_config("/etc/lcovrc");
 }
 
-if ($config || $opt_rc)
+if ($config || %opt_rc)
 {
 	# Copy configuration file and --rc values to variables
 	apply_config({
@@ -407,7 +407,7 @@ if (!GetOptions("output-directory|o=s"	=> \$output_directory,
 		"demangle-cpp"		=> \$demangle_cpp,
 		"ignore-errors=s"	=> \@opt_ignore_errors,
 		"config-file=s"		=> \$opt_config_file,
-		"rc=s%"			=> \$opt_rc,
+		"rc=s%"			=> \%opt_rc,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -5585,8 +5585,8 @@ sub apply_config($)
 
 	foreach (keys(%{$ref}))
 	{
-		if (defined($opt_rc->{$_})) {
-			${$ref->{$_}} = $opt_rc->{$_};
+		if (defined($opt_rc{$_})) {
+			${$ref->{$_}} = $opt_rc{$_};
 		} elsif (defined($config->{$_})) {
 			${$ref->{$_}} = $config->{$_};
 		}

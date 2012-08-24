@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.86 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.87 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -191,7 +191,7 @@ our $opt_list_truncate_max = 20;
 our $opt_external;
 our $opt_no_external;
 our $opt_config_file;
-our $opt_rc;
+our %opt_rc;
 our @opt_summary;
 our $opt_compat;
 our $ln_overall_found;
@@ -223,7 +223,7 @@ if (! ($tool_dir =~ /^\/(.*)$/))
 # Check command line for a configuration file name
 Getopt::Long::Configure("pass_through", "no_auto_abbrev");
 GetOptions("config-file=s" => \$opt_config_file,
-	   "rc=s%" => \$opt_rc);
+	   "rc=s%" => \%opt_rc);
 Getopt::Long::Configure("default");
 
 # Read configuration file if available
@@ -238,7 +238,7 @@ elsif (-r "/etc/lcovrc")
 	$config = read_config("/etc/lcovrc");
 }
 
-if ($config || $opt_rc)
+if ($config || %opt_rc)
 {
 	# Copy configuration file and --rc values to variables
 	apply_config({
@@ -290,7 +290,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"summary=s" => \@opt_summary,
 		"compat=s" => \$opt_compat,
 		"config-file=s" => \$opt_config_file,
-		"rc=s%" => \$opt_rc,
+		"rc=s%" => \%opt_rc,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -869,6 +869,12 @@ sub lcov_geninfo(@)
 	if (defined($opt_compat)) {
 		@param = (@param, "--compat", $opt_compat);
 	}
+	if (%opt_rc) {
+		foreach my $key (keys(%opt_rc)) {
+			@param = (@param, "--rc", "$key=".$opt_rc{$key});
+		}
+	}
+
 	system(@param) and exit($? >> 8);
 }
 
@@ -4082,8 +4088,8 @@ sub apply_config($)
 
 	foreach (keys(%{$ref}))
 	{
-		if (defined($opt_rc->{$_})) {
-			${$ref->{$_}} = $opt_rc->{$_};
+		if (defined($opt_rc{$_})) {
+			${$ref->{$_}} = $opt_rc{$_};
 		} elsif (defined($config->{$_})) {
 			${$ref->{$_}} = $config->{$_};
 		}
