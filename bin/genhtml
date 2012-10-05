@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.63 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.64 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -298,7 +298,7 @@ our @funcview_sortlist;
 our @rate_name = ("Lo", "Med", "Hi");
 our @rate_png = ("ruby.png", "amber.png", "emerald.png");
 our $lcov_func_coverage = 1;
-our $lcov_branch_coverage = 1;
+our $lcov_branch_coverage = 0;
 
 our $cwd = `pwd`;	# Current working directory
 chomp($cwd);
