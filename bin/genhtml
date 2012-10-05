@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.64 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.65 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -171,7 +171,7 @@ sub info(@);
 sub read_info_file($);
 sub get_info_entry($);
 sub set_info_entry($$$$$$$$$;$$$$$$);
-sub get_prefix(@);
+sub get_prefix($@);
 sub shorten_prefix($);
 sub get_dir_list(@);
 sub get_relative_base_path($);
@@ -739,7 +739,7 @@ sub gen_html()
 	elsif (!defined($dir_prefix))
 	{
 		# Get prefix common to most directories in list
-		$dir_prefix = get_prefix(@dir_list);
+		$dir_prefix = get_prefix(1, keys(%info_data));
 
 		if ($dir_prefix)
 		{
@@ -2150,16 +2150,17 @@ sub combine_info_files($$)
 
 
 #
-# get_prefix(filename_list)
+# get_prefix(min_dir, filename_list)
 #
 # Search FILENAME_LIST for a directory prefix which is common to as many
 # list entries as possible, so that removing this prefix will minimize the
-# sum of the lengths of all resulting shortened filenames.
+# sum of the lengths of all resulting shortened filenames while observing
+# that no filename has less than MIN_DIR parent directories.
 #
 
-sub get_prefix(@)
+sub get_prefix($@)
 {
-	my @filename_list = @_;		# provided list of filenames
+	my ($min_dir, @filename_list) = @_;
 	my %prefix;			# mapping: prefix -> sum of lengths
 	my $current;			# Temporary iteration variable
 
@@ -2168,17 +2169,30 @@ sub get_prefix(@)
 	{
 		# Need explicit assignment to get a copy of $_ so that
 		# shortening the contained prefix does not affect the list
-		$current = shorten_prefix($_);
+		$current = $_;
 		while ($current = shorten_prefix($current))
 		{
+			$current .= "/";
+
 			# Skip rest if the remaining prefix has already been
 			# added to hash
-			if ($prefix{$current}) { last; }
+			if (exists($prefix{$current})) { last; }
 
 			# Initialize with 0
 			$prefix{$current}="0";
 		}
 
+	}
+
+	# Remove all prefixes that would cause filenames to have less than
+	# the minimum number of parent directories
+	foreach my $filename (@filename_list) {
+		my $dir = dirname($filename);
+
+		for (my $i = 0; $i < $min_dir; $i++) {
+			delete($prefix{$dir."/"});
+			$dir = shorten_prefix($dir);
+		}
 	}
 
 	# Calculate sum of lengths for all prefixes
@@ -2208,6 +2222,8 @@ sub get_prefix(@)
 			$current = $_;
 		}
 	}
+
+	$current =~ s/\/$//;
 
 	return($current);
 }
