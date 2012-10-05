@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.110 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.111 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -2171,12 +2171,7 @@ sub apply_exclusion_data($$)
 		}
 
 		# Store modified list
-		if (scalar(@new_data) > 0) {
-			$instr->{$filename} = \@new_data;
-		} else {
-			# All of this file was excluded
-			delete($instr->{$filename});
-		}
+		$instr->{$filename} = \@new_data;
 	}
 
 	return ($instr, $graph);
@@ -3103,6 +3098,7 @@ sub read_gcno_lines_record(*$$$$$$$)
 				return $filename;
 			}
 			$filename = solve_relative_path($base, $string);
+			$bb->{$function}->{$filename} = [];
 			next;
 		}
 		# Got an actual line number
