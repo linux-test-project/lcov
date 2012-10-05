@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.108 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.109 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -874,16 +874,10 @@ sub process_dafile($$)
 	# Get directory and basename of data file
 	($da_dir, $da_basename) = split_filename($da_filename);
 
-	if (defined($adjust_src_pattern)) {
-		# Apply transformation as specified by user
-		$source_dir = $da_dir;
-		$source_dir =~ s/$adjust_src_pattern/$adjust_src_replace/g;
-	} elsif (is_compat($COMPAT_MODE_LIBTOOL) &&
-		 $da_dir =~ m/(.*)\/\.libs$/) {
+	$source_dir = $da_dir;
+	if (is_compat($COMPAT_MODE_LIBTOOL)) {
 		# Avoid files from .libs dirs 	 
-		$source_dir = $1;
-	} else {
-		$source_dir = $da_dir;
+		$source_dir =~ s/\.libs$//;
 	}
 
 	if (-z $da_filename)
@@ -1071,6 +1065,11 @@ sub process_dafile($$)
 		}
 
 		$source = solve_relative_path($base_dir, $source);
+
+		if (defined($adjust_src_pattern)) {
+			# Apply transformation as specified by user
+			$source =~ s/$adjust_src_pattern/$adjust_src_replace/g;
+		}
 
 		# gcov will happily create output even if there's no source code
 		# available - this interferes with checksum creation so we need
@@ -2206,16 +2205,10 @@ sub process_graphfile($$)
 	# Get directory and basename of data file
 	($graph_dir, $graph_basename) = split_filename($graph_filename);
 
-	if (defined($adjust_src_pattern)) {
-		# Apply transformation as specified by user
-		$source_dir = $graph_dir;
-		$source_dir =~ s/$adjust_src_pattern/$adjust_src_replace/g;
-	} elsif (is_compat($COMPAT_MODE_LIBTOOL) &&
-		 $graph_dir =~ m/(.*)\/\.libs$/) {
+	$source_dir = $graph_dir;
+	if (is_compat($COMPAT_MODE_LIBTOOL)) {
 		# Avoid files from .libs dirs 	 
-		$source_dir = $1;
-	} else {
-		$source_dir = $graph_dir;
+		$source_dir =~ s/\.libs$//;
 	}
 
 	# Construct base_dir for current file
@@ -2487,6 +2480,39 @@ sub sort_uniq_lex(@)
 		$hash{$_} = 1;
 	}
 	return sort keys(%hash);
+}
+
+#
+# adjust_graph_filenames(instr, graph)
+#
+# Apply geninfo_adjust_src_path setting to graph file data.
+#
+
+sub adjust_graph_filenames($$)
+{
+	my ($instr, $graph) = @_;
+
+	return ($instr, $graph) if (!defined($adjust_src_pattern));
+
+	foreach my $filename (keys(%{$instr})) {
+		my $old_filename = $filename;
+
+		next if ($filename !~
+			 s/$adjust_src_pattern/$adjust_src_replace/g);
+
+		$instr->{$filename} = delete($instr->{$old_filename});
+	}
+
+	foreach my $filename (keys(%{$graph})) {
+		my $old_filename = $filename;
+
+		next if ($filename !~
+			 s/$adjust_src_pattern/$adjust_src_replace/g);
+
+		$graph->{$filename} = delete($graph->{$old_filename});
+	}
+
+	return ($instr, $graph);
 }
 
 #
@@ -2781,7 +2807,7 @@ sub read_bb($$)
 	($instr, $graph) = graph_from_bb($bb, $fileorder, $bb_filename);
 	graph_cleanup($graph);
 
-	return ($instr, $graph);
+	return adjust_graph_filenames($instr, $graph);
 
 open_error:
 	graph_error($bb_filename, "could not open file");
@@ -2968,7 +2994,7 @@ sub read_bbg($$)
 	($instr, $graph) = graph_from_bb($bb, $fileorder, $bbg_filename);
 	graph_cleanup($graph);
 
-	return ($instr, $graph);
+	return adjust_graph_filenames($instr, $graph);
 
 open_error:
 	graph_error($bbg_filename, "could not open file");
@@ -3276,7 +3302,7 @@ sub read_gcno($$)
 	($instr, $graph) = graph_from_bb($bb, $fileorder, $gcno_filename);
 	graph_cleanup($graph);
 
-	return ($instr, $graph);
+	return adjust_graph_filenames($instr, $graph);
 
 open_error:
 	graph_error($gcno_filename, "could not open file");
