@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-#   Copyright (c) International Business Machines  Corp., 2002,2010
+#   Copyright (c) International Business Machines  Corp., 2002,2012
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.111 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.112 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);

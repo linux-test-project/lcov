@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-#   Copyright (c) International Business Machines  Corp., 2002,2010
+#   Copyright (c) International Business Machines  Corp., 2002,2012
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.65 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.66 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 

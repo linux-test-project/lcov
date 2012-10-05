@@ -1,3 +1,72 @@
+Version 1.10
+============
+
+All:
+- Disabled branch coverage processing per default to improve processing
+  performance (can be re-enabled using a config file setting)
+- Added option --rc to override config file settings from the command line
+- Added option --config-file to override the config file location
+- Fixed handling of '<' in filenames
+
+genhtml:
+- Added option --ignore-errors to continue after errors
+- Added man page note to further explain branch coverage output
+- Fixed man page description of default coverage rates
+- Fixed HTML page title for directory pages
+- Fixed handling of special characters in file and directory names
+- Fixed directory prefix calculation
+
+geninfo:
+- Added options --external and --no-external to include/exclude external
+  source files such as standard libary headers
+- Added option --compat to specify compatibility modes
+- Added missing man page sections for --derive-func-data and --no-markers
+- Added support for MinGW output on MSYS. From martin.hopfeld@sse-erfurt.de
+- Added support for gcc 4.7 .gcno file format.  Based on patch by
+  berrange@redhat.com
+- Added auto-detection of gcc-4.7 function record format. Includes
+  suggestions by garnold@google.com
+- Fixed exclusion markers for --derive-func-data.  Reported by bettse@gmail.com
+- Fixed processing of pre-3.3 gcov files. Reported by georgysebastian@gmail.com
+- Fixed handling of '<built-in>.gcov' files
+- Fixed warning about unhandled .gcov files
+- Improved --debug output
+- Removed help text for obsolete parameter --function-coverage
+
+genpng:
+- Fixed handling of empty source files. Reported by: sylvestre@debian.org
+
+lcov:
+- Added options --external and --no-external to include/exclude external source
+  files such as standard libary headers
+- Added option --summary to show summary coverage information
+- Added option --compat to specify compatibility modes
+- Fixed missing Perl version dependency in RPM spec file. Reported by
+  Martin Hopfeld <martin.hopfeld@sse-erfurt.de>
+- Fixed geninfo not recognizing Objective-C functions. Based on patch
+  by abrahamh@web.de
+- Fixed option --no-recursion not being passed to geninfo
+- Fixed capitalization of the term 'Perl'
+- Improved coverage rate calculation to only show 0%/100% when no/full coverage
+  is achieved.  Based on suggestions by Paul.Zimmermann@loria.fr and
+  vincent@vinc17.net
+
+lcovrc:
+- Added description for geninfo_compat setting
+- Added config file setting 'genhtml_charset' to specify HTML charset
+- Added config file setting 'geninfo_external' to include/exclude external
+  source files such as standard libary headers
+- Added config file setting 'geninfo_gcov_all_blocks' to modify lcov's use
+  of gcov's -a option
+- Added config file setting 'geninfo_compat' to specify compatibility modes
+- Added config file setting 'geninfo_adjust_src_path' to enabled source path
+  adjustments.  Inspired by patch by ammon.riley@gmail.com
+- Added config file setting 'lcov_function_coverage' to enable/disable
+  function coverage processing
+- Added config file setting 'lcov_branch_coverage' to enable/disable
+  branch coverage processing
+
+
 Version 1.9
 ===========
 
