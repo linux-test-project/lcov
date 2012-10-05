@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.107 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.108 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -246,6 +246,8 @@ our $opt_compat;
 our %opt_rc;
 our %compat_value;
 our $gcno_split_crc;
+our $func_coverage = 1;
+our $br_coverage = 1;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -297,6 +299,8 @@ if ($config || %opt_rc)
 		"geninfo_gcov_all_blocks"	=> \$opt_gcov_all_blocks,
 		"geninfo_compat"		=> \$opt_compat,
 		"geninfo_adjust_src_path"	=> \$rc_adjust_src_path,
+		"lcov_function_coverage"	=> \$func_coverage,
+		"lcov_branch_coverage"		=> \$br_coverage,
 	});
 
 	# Merge options
@@ -404,10 +408,12 @@ if (system_no_output(3, $gcov_tool, "--help") == -1)
 
 # Determine gcov options
 $gcov_caps = get_gcov_capabilities();
-push(@gcov_options, "-b") if ($gcov_caps->{'branch-probabilities'});
-push(@gcov_options, "-c") if ($gcov_caps->{'branch-counts'});
+push(@gcov_options, "-b") if ($gcov_caps->{'branch-probabilities'} &&
+			      ($br_coverage || $func_coverage));
+push(@gcov_options, "-c") if ($gcov_caps->{'branch-counts'} &&
+			      $br_coverage);
 push(@gcov_options, "-a") if ($gcov_caps->{'all-blocks'} &&
-			      $opt_gcov_all_blocks);
+			      $opt_gcov_all_blocks && $br_coverage);
 push(@gcov_options, "-p") if ($gcov_caps->{'preserve-paths'});
 
 # Determine compatibility modes
@@ -533,7 +539,7 @@ foreach my $entry (@data_directory) {
 	gen_info($entry);
 }
 
-if ($initial) {
+if ($initial && $br_coverage) {
 	warn("Note: --initial does not generate branch coverage ".
 	     "data\n");
 }
@@ -1684,10 +1690,12 @@ sub read_gcov_file($)
 			s/\015$//;
 
 			if (/^branch\s+(\d+)\s+taken\s+=\s+(\d+)/) {
+				next if (!$br_coverage);
 				next if ($exclude_line);
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, $2);
 			} elsif (/^branch\s+(\d+)\s+never\s+executed/) {
+				next if (!$br_coverage);
 				next if ($exclude_line);
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, '-');
@@ -1755,16 +1763,19 @@ sub read_gcov_file($)
 				$last_line = $2;
 				$last_block = $3;
 			} elsif (/^branch\s+(\d+)\s+taken\s+(\d+)/) {
+				next if (!$br_coverage);
 				next if ($exclude_line);
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, $2);
 			} elsif (/^branch\s+(\d+)\s+never\s+executed/) {
+				next if (!$br_coverage);
 				next if ($exclude_line);
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, '-');
 			}
 			elsif (/^function\s+(.+)\s+called\s+(\d+)\s+/)
 			{
+				next if (!$func_coverage);
 				if ($exclude_line) {
 					next;
 				}
@@ -2270,7 +2281,7 @@ sub process_graphfile($$)
 
 		print(INFO_HANDLE "SF:$filename\n");
 
-		if (defined($funcdata)) {
+		if (defined($funcdata) && $func_coverage) {
 			my @functions = sort {$funcdata->{$a}->[0] <=>
 					      $funcdata->{$b}->[0]}
 					     keys(%{$funcdata});

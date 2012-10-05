@@ -136,12 +136,12 @@ genhtml_sort = 1
 
 # Include function coverage data display
 .br
-genhtml_function_coverage = 1
+#genhtml_function_coverage = 1
 .br
 
 # Include branch coverage data display
 .br
-genhtml_branch_coverage = 1
+#genhtml_branch_coverage = 1
 .br
 
 # Specify the character set of all generated HTML pages
@@ -226,6 +226,19 @@ lcov_list_width = 80
 .br
 lcov_list_truncate_max = 20
 
+# Specify if function coverage data should be collected and
+.br
+# processed.
+.br
+lcov_function_coverage = 1
+.br
+
+# Specify if branch coverage data should be collected and
+.br
+# processed.
+.br
+lcov_branch_coverage = 1
+.br
 .PP
 
 .SH OPTIONS
@@ -730,6 +743,38 @@ lcov_list_full_path is non\-zero.
 .br
 
 Default is 20.
+.PP
+
+.BR lcov_function_coverage " ="
+.IR 0 | 1
+.IP
+Specify whether lcov should handle function coverage data.
+.br
+
+Setting this option to 0 can reduce memory and CPU time consumption
+when lcov is collecting and processing coverage data, as well as
+reduce the size of the resulting data files. Note that setting
+.B genhtml_function_coverage
+will override this option for HTML generation.
+.br
+
+Default is 1.
+.PP
+
+.BR lcov_branch_coverage " ="
+.IR 0 | 1
+.IP
+Specify whether lcov should handle branch coverage data.
+.br
+
+Setting this option to 0 can reduce memory and CPU time consumption
+when lcov is collecting and processing coverage data, as well as
+reduce the size of the resulting data files. Note that setting
+.B genhtml_branch_coverage
+will override this option for HTML generation.
+.br
+
+Default is 1.
 .PP
 
 .SH FILES

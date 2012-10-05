@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.87 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.88 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -200,6 +200,8 @@ our $fn_overall_found;
 our $fn_overall_hit;
 our $br_overall_found;
 our $br_overall_hit;
+our $func_coverage = 1;
+our $br_coverage = 1;
 
 
 #
@@ -247,6 +249,8 @@ if ($config || %opt_rc)
 		"lcov_list_full_path"	=> \$opt_list_full_path,
 		"lcov_list_width"	=> \$opt_list_width,
 		"lcov_list_truncate_max"=> \$opt_list_truncate_max,
+		"lcov_branch_coverage"	=> \$br_coverage,
+		"lcov_function_coverage"=> \$func_coverage,
 	});
 }
 
@@ -1731,6 +1735,8 @@ sub read_info_file($)
 
 			/^FN:(\d+),([^,]+)/ && do
 			{
+				last if (!$func_coverage);
+
 				# Function data found, add to structure
 				$funcdata->{$2} = $1;
 
@@ -1749,6 +1755,8 @@ sub read_info_file($)
 
 			/^FNDA:(\d+),([^,]+)/ && do
 			{
+				last if (!$func_coverage);
+
 				# Function call count found, add to structure
 				# Add summary counts
 				$sumfnccount->{$2} += $1;
@@ -1766,6 +1774,7 @@ sub read_info_file($)
 				my ($line, $block, $branch, $taken) =
 				   ($1, $2, $3, $4);
 
+				last if (!$br_coverage);
 				$sumbrcount->{$line} =
 					br_ivec_push($sumbrcount->{$line},
 						     $block, $branch, $taken);

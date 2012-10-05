@@ -81,11 +81,11 @@ genhtml_sort = 1
 
 # Include function coverage data display (can be disabled by the
 # --no-func-coverage option of genhtml)
-genhtml_function_coverage = 1
+#genhtml_function_coverage = 1
 
 # Include branch coverage data display (can be disabled by the
 # --no-branch-coverage option of genhtml)
-genhtml_branch_coverage = 1
+#genhtml_branch_coverage = 1
 
 # Specify the character set of all generated HTML pages
 genhtml_charset=UTF-8
@@ -145,3 +145,9 @@ lcov_list_width = 80
 # choosing a directory prefix in list output. This value is ignored when
 # lcov_list_full_path is non-zero.
 lcov_list_truncate_max = 20
+
+# Specify if function coverage data should be collected and processed.
+lcov_function_coverage = 1
+
+# Specify if branch coverage data should be collected and processed.
+lcov_branch_coverage = 1
