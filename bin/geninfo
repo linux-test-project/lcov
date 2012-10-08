@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.113 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.114 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -2680,6 +2680,7 @@ sub graph_add_order($$$)
 	push(@$list, $filename);
 	$fileorder->{$function} = $list;
 }
+
 #
 # read_bb_word(handle[, description])
 #
@@ -2903,6 +2904,9 @@ sub read_bbg_lines_record(*$$$$$$)
 				return $filename;
 			}
 			$filename = solve_relative_path($base, $string);
+			if (!exists($bb->{$function}->{$filename})) {
+				$bb->{$function}->{$filename} = [];
+			}
 			next;
 		}
 		# Got an actual line number
@@ -3099,7 +3103,9 @@ sub read_gcno_lines_record(*$$$$$$$)
 				return $filename;
 			}
 			$filename = solve_relative_path($base, $string);
-			$bb->{$function}->{$filename} = [];
+			if (!exists($bb->{$function}->{$filename})) {
+				$bb->{$function}->{$filename} = [];
+			}
 			next;
 		}
 		# Got an actual line number
