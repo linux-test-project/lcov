@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.66 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.67 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -576,6 +576,7 @@ Misc:
   -v, --version                     Print version number, then exit
   -q, --quiet                       Do not print progress messages
       --config-file FILENAME        Specify configuration file location
+      --rc SETTING=VALUE            Override configuration file setting
       --ignore-errors ERRORS        Continue after ERRORS (source)
 
 Operation:

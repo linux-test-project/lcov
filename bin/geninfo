@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.112 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.113 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -583,6 +583,7 @@ sequentially.
       --derive-func-data            Generate function data from line data
       --(no-)external               Include (ignore) data for external files
       --config-file FILENAME        Specify configuration file location
+      --rc SETTING=VALUE            Override configuration file setting
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
 
 For more information see: $lcov_url
