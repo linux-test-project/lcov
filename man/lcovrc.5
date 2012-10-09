@@ -196,6 +196,13 @@ geninfo_compat_libtool = 0
 .br
 #geninfo_adjust_src_path = /tmp/build => /usr/src
 
+# Specify if geninfo should try to automatically determine
+.br
+# the base-directory when collecting coverage data.
+.br
+geninfo_auto_base = 1
+.br
+
 # Directory containing gcov kernel files
 .br
 lcov_gcov_dir = /proc/gcov
@@ -689,6 +696,23 @@ use the following parameter:
 .br
 
 This will change all "/tmp/build" strings in the path to "/usr/src".
+.PP
+
+.BR geninfo_auto_base " ="
+.IR 0 | 1
+.IP
+If non\-zero, apply a heuristic to determine the base directory when
+collecting coverage data.
+.br
+
+Use this option when using geninfo on projects built with libtool or
+similar build environments that work with multiple base directories,
+i.e. environments, where the current working directory when invoking the
+compiler ist not the same directory in which the source code file is
+located, and in addition, is different between files of the same project.
+.br
+
+Default is 1.
 .PP
 
 .BR lcov_gcov_dir " ="

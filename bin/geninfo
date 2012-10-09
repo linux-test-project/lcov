@@ -52,7 +52,7 @@
 use strict;
 use File::Basename; 
 use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
-			      splitpath/;
+			      splitpath catpath/;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 if( $^O eq "msys" )
@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.114 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.115 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -177,19 +177,19 @@ sub graph_add_order($$$);
 sub read_bb_word(*;$);
 sub read_bb_value(*;$);
 sub read_bb_string(*$);
-sub read_bb($$);
+sub read_bb($);
 sub read_bbg_word(*;$);
 sub read_bbg_value(*;$);
 sub read_bbg_string(*);
-sub read_bbg_lines_record(*$$$$$$);
-sub read_bbg($$);
+sub read_bbg_lines_record(*$$$$$);
+sub read_bbg($);
 sub read_gcno_word(*;$$);
 sub read_gcno_value(*$;$$);
 sub read_gcno_string(*$);
-sub read_gcno_lines_record(*$$$$$$$);
+sub read_gcno_lines_record(*$$$$$$);
 sub determine_gcno_split_crc($$$);
-sub read_gcno_function_record(*$$$$$);
-sub read_gcno($$);
+sub read_gcno_function_record(*$$$$);
+sub read_gcno($);
 sub get_gcov_capabilities();
 sub get_overall_line($$$$);
 sub print_overall_rate($$$$$$$$$);
@@ -248,6 +248,7 @@ our %compat_value;
 our $gcno_split_crc;
 our $func_coverage = 1;
 our $br_coverage = 0;
+our $rc_auto_base = 1;
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -299,6 +300,7 @@ if ($config || %opt_rc)
 		"geninfo_gcov_all_blocks"	=> \$opt_gcov_all_blocks,
 		"geninfo_compat"		=> \$opt_compat,
 		"geninfo_adjust_src_path"	=> \$rc_adjust_src_path,
+		"geninfo_auto_base"		=> \$rc_auto_base,
 		"lcov_function_coverage"	=> \$func_coverage,
 		"lcov_branch_coverage"		=> \$br_coverage,
 	});
@@ -935,17 +937,24 @@ sub process_dafile($$)
 	{
 		if (is_compat($COMPAT_MODE_HAMMER))
 		{
-			($instr, $graph) = read_bbg($bb_filename, $base_dir);
+			($instr, $graph) = read_bbg($bb_filename);
 		}
 		else
 		{
-			($instr, $graph) = read_bb($bb_filename, $base_dir);
+			($instr, $graph) = read_bb($bb_filename);
 		}
 	} 
 	else
 	{
-		($instr, $graph) = read_gcno($bb_filename, $base_dir);
+		($instr, $graph) = read_gcno($bb_filename);
 	} 
+
+	# Try to find base directory automatically if requested by user
+	if ($rc_auto_base) {
+		$base_dir = find_base_from_graph($base_dir, $instr, $graph);
+	}
+
+	($instr, $graph) = adjust_graph_filenames($base_dir, $instr, $graph);
 
 	# Set $object_dir to real location of object files. This may differ
 	# from $da_dir if the graph file is just a link to the "real" object
@@ -975,6 +984,7 @@ sub process_dafile($$)
 	}
 
 	# Change to directory containing data files and apply GCOV
+	debug("chdir($base_dir)\n");
         chdir($base_dir);
 
 	if ($da_renamed)
@@ -2221,17 +2231,24 @@ sub process_graphfile($$)
 	{
 		if (is_compat($COMPAT_MODE_HAMMER))
 		{
-			($instr, $graph) = read_bbg($graph_filename, $base_dir);
+			($instr, $graph) = read_bbg($graph_filename);
 		}
 		else
 		{
-			($instr, $graph) = read_bb($graph_filename, $base_dir);
+			($instr, $graph) = read_bb($graph_filename);
 		}
 	} 
 	else
 	{
-		($instr, $graph) = read_gcno($graph_filename, $base_dir);
+		($instr, $graph) = read_gcno($graph_filename);
 	}
+
+	# Try to find base directory automatically if requested by user
+	if ($rc_auto_base) {
+		$base_dir = find_base_from_graph($base_dir, $instr, $graph);
+	}
+
+	($instr, $graph) = adjust_graph_filenames($base_dir, $instr, $graph);
 
 	if (!$no_markers) {
 		# Apply exclusion marker data to graph file data
@@ -2479,33 +2496,127 @@ sub sort_uniq_lex(@)
 }
 
 #
-# adjust_graph_filenames(instr, graph)
+# parent_dir(dir)
 #
-# Apply geninfo_adjust_src_path setting to graph file data.
+# Return parent directory for DIR. DIR must not contain relative path
+# components.
 #
 
-sub adjust_graph_filenames($$)
+sub parent_dir($)
 {
-	my ($instr, $graph) = @_;
+	my ($dir) = @_;
+	my ($v, $d, $f) = splitpath($dir, 1);
+	my @dirs = splitdir($d);
 
-	return ($instr, $graph) if (!defined($adjust_src_pattern));
+	pop(@dirs);
+
+	return catpath($v, catdir(@dirs), $f);
+}
+
+#
+# find_base_from_graph(base_dir, instr, graph)
+#
+# Try to determine the base directory of the graph file specified by INSTR
+# and GRAPH. The base directory is the base for all relative filenames in
+# the graph file. It is defined by the current working directory at time
+# of compiling the source file.
+#
+# This function implements a heuristic which relies on the following
+# assumptions:
+# - all files used for compilation are still present at their location
+# - the base directory is either BASE_DIR or one of its parent directories
+# - files by the same name are not present in multiple parent directories
+#
+
+sub find_base_from_graph($$$)
+{
+	my ($base_dir, $instr, $graph) = @_;
+	my $old_base;
+	my $best_miss;
+	my $best_base;
+	my %rel_files;
+
+	# Determine list of relative paths
+	foreach my $filename (keys(%{$instr}), keys(%{$graph})) {
+		next if (file_name_is_absolute($filename));
+
+		$rel_files{$filename} = 1;
+	}
+
+	# Early exit if there are no relative paths
+	return $base_dir if (!%rel_files);
+
+	do {
+		my $miss = 0;
+
+		foreach my $filename (keys(%rel_files)) {
+			if (!-e solve_relative_path($base_dir, $filename)) {
+				$miss++;
+			}
+		}
+
+		debug("base_dir=$base_dir miss=$miss\n");
+
+		# Exit if we find an exact match with no misses
+		return $base_dir if ($miss == 0);
+
+		# No exact match, aim for the one with the least source file
+		# misses
+		if (!defined($best_base) || $miss < $best_miss) {
+			$best_base = $base_dir;
+			$best_miss = $miss;
+		}
+
+		# Repeat until there's no more parent directory
+		$old_base = $base_dir;
+		$base_dir = parent_dir($base_dir);
+	} while ($old_base ne $base_dir);
+
+	return $best_base;
+}
+
+#
+# adjust_graph_filenames(base_dir, instr, graph)
+#
+# Make relative paths in INSTR and GRAPH absolute and apply
+# geninfo_adjust_src_path setting to graph file data.
+#
+
+sub adjust_graph_filenames($$$)
+{
+	my ($base_dir, $instr, $graph) = @_;
 
 	foreach my $filename (keys(%{$instr})) {
 		my $old_filename = $filename;
 
-		next if ($filename !~
-			 s/$adjust_src_pattern/$adjust_src_replace/g);
+		# Convert to absolute canonical form
+		$filename = solve_relative_path($base_dir, $filename);
 
-		$instr->{$filename} = delete($instr->{$old_filename});
+		# Apply adjustment
+		if (defined($adjust_src_pattern)) {
+			$filename =~ s/$adjust_src_pattern/$adjust_src_replace/g;
+		}
+
+		if ($filename ne $old_filename) {
+			$instr->{$filename} = delete($instr->{$old_filename});
+		}
 	}
 
 	foreach my $filename (keys(%{$graph})) {
 		my $old_filename = $filename;
 
-		next if ($filename !~
-			 s/$adjust_src_pattern/$adjust_src_replace/g);
+		# Make absolute
+		# Convert to absolute canonical form
+		$filename = solve_relative_path($base_dir, $filename);
 
-		$graph->{$filename} = delete($graph->{$old_filename});
+		# Apply adjustment
+		if (defined($adjust_src_pattern)) {
+			$filename =~ s/$adjust_src_pattern/$adjust_src_replace/g;
+		}
+
+		if ($filename ne $old_filename) {
+			$graph->{$filename} = delete($graph->{$old_filename});
+		}
 	}
 
 	return ($instr, $graph);
@@ -2740,7 +2851,7 @@ sub read_bb_string(*$)
 }
 
 #
-# read_bb(filename, base_dir)
+# read_bb(filename)
 #
 # Read the contents of the specified .bb file and return (instr, graph), where:
 #
@@ -2751,14 +2862,12 @@ sub read_bb_string(*$)
 #   file_data : function name -> line_data
 #   line_data : [ line1, line2, ... ]
 #
-# Relative filenames are converted to absolute form using base_dir as
-# base directory. See the gcov info pages of gcc 2.95 for a description of
-# the .bb file format.
+# See the gcov info pages of gcc 2.95 for a description of the .bb file format.
 #
 
-sub read_bb($$)
+sub read_bb($)
 {
-	my ($bb_filename, $base) = @_;
+	my ($bb_filename) = @_;
 	my $minus_one = 0x80000001;
 	my $minus_two = 0x80000002;
 	my $value;
@@ -2780,10 +2889,6 @@ sub read_bb($$)
 			graph_expect("filename");
 			$filename = read_bb_string(*HANDLE, $minus_one);
 			goto incomplete if (!defined($filename));
-			if ($filename ne "") {
-				$filename = solve_relative_path($base,
-								$filename);
-			}
 		} elsif ($value == $minus_two) {
 			# Function name
 			graph_expect("function name");
@@ -2804,7 +2909,7 @@ sub read_bb($$)
 	($instr, $graph) = graph_from_bb($bb, $fileorder, $bb_filename);
 	graph_cleanup($graph);
 
-	return adjust_graph_filenames($instr, $graph);
+	return ($instr, $graph);
 
 open_error:
 	graph_error($bb_filename, "could not open file");
@@ -2874,16 +2979,15 @@ sub read_bbg_string(*)
 
 #
 # read_bbg_lines_record(handle, bbg_filename, bb, fileorder, filename,
-#                       function, base)
+#                       function)
 #
 # Read a bbg format lines record from handle and add the relevant data to
 # bb and fileorder. Return filename on success, undef on error.
 #
 
-sub read_bbg_lines_record(*$$$$$$)
+sub read_bbg_lines_record(*$$$$$)
 {
-	my ($handle, $bbg_filename, $bb, $fileorder, $filename, $function,
-	    $base) = @_;
+	my ($handle, $bbg_filename, $bb, $fileorder, $filename, $function) = @_;
 	my $string;
 	my $lineno;
 
@@ -2903,7 +3007,7 @@ sub read_bbg_lines_record(*$$$$$$)
 			if ($string eq "") {
 				return $filename;
 			}
-			$filename = solve_relative_path($base, $string);
+			$filename = $string;
 			if (!exists($bb->{$function}->{$filename})) {
 				$bb->{$function}->{$filename} = [];
 			}
@@ -2921,21 +3025,20 @@ sub read_bbg_lines_record(*$$$$$$)
 }
 
 #
-# read_bbg(filename, base_dir)
+# read_bbg(filename)
 #
 # Read the contents of the specified .bbg file and return the following mapping:
 #   graph:     filename -> file_data
 #   file_data: function name -> line_data
 #   line_data: [ line1, line2, ... ]
 #
-# Relative filenames are converted to absolute form using base_dir as
-# base directory. See the gcov-io.h file in the SLES 9 gcc 3.3.3 source code
-# for a description of the .bbg format.
+# See the gcov-io.h file in the SLES 9 gcc 3.3.3 source code for a description
+# of the .bbg format.
 #
 
-sub read_bbg($$)
+sub read_bbg($)
 {
-	my ($bbg_filename, $base) = @_;
+	my ($bbg_filename) = @_;
 	my $file_magic = 0x67626267;
 	my $tag_function = 0x01000000;
 	my $tag_lines = 0x01450000;
@@ -2982,7 +3085,7 @@ sub read_bbg($$)
 			# Read lines record
 			$filename = read_bbg_lines_record(HANDLE, $bbg_filename,
 					  $bb, $fileorder, $filename,
-					  $function, $base);
+					  $function);
 			goto incomplete if (!defined($filename));
 		} else {
 			# Skip record contents
@@ -2994,7 +3097,7 @@ sub read_bbg($$)
 	($instr, $graph) = graph_from_bb($bb, $fileorder, $bbg_filename);
 	graph_cleanup($graph);
 
-	return adjust_graph_filenames($instr, $graph);
+	return ($instr, $graph);
 
 open_error:
 	graph_error($bbg_filename, "could not open file");
@@ -3073,16 +3176,16 @@ sub read_gcno_string(*$)
 
 #
 # read_gcno_lines_record(handle, gcno_filename, bb, fileorder, filename,
-#                        function, base, big_endian)
+#                        function, big_endian)
 #
 # Read a gcno format lines record from handle and add the relevant data to
 # bb and fileorder. Return filename on success, undef on error.
 #
 
-sub read_gcno_lines_record(*$$$$$$$)
+sub read_gcno_lines_record(*$$$$$$)
 {
 	my ($handle, $gcno_filename, $bb, $fileorder, $filename, $function,
-	    $base, $big_endian) = @_;
+	    $big_endian) = @_;
 	my $string;
 	my $lineno;
 
@@ -3102,7 +3205,7 @@ sub read_gcno_lines_record(*$$$$$$$)
 			if ($string eq "") {
 				return $filename;
 			}
-			$filename = solve_relative_path($base, $string);
+			$filename = $string;
 			if (!exists($bb->{$function}->{$filename})) {
 				$bb->{$function}->{$filename} = [];
 			}
@@ -3166,15 +3269,15 @@ sub determine_gcno_split_crc($$$)
 }
 
 #
-# read_gcno_function_record(handle, graph, base, big_endian, rec_length)
+# read_gcno_function_record(handle, graph, big_endian, rec_length)
 #
 # Read a gcno format function record from handle and add the relevant data
 # to graph. Return (filename, function) on success, undef on error. 
 #
 
-sub read_gcno_function_record(*$$$$$)
+sub read_gcno_function_record(*$$$$)
 {
-	my ($handle, $bb, $fileorder, $base, $big_endian, $rec_length) = @_;
+	my ($handle, $bb, $fileorder, $big_endian, $rec_length) = @_;
 	my $filename;
 	my $function;
 	my $lineno;
@@ -3199,7 +3302,6 @@ sub read_gcno_function_record(*$$$$$)
 	graph_expect("filename");
 	$filename = read_gcno_string($handle, $big_endian);
 	return undef if (!defined($filename));
-	$filename = solve_relative_path($base, $filename);
 	# Read first line number
 	$lineno = read_gcno_value($handle, $big_endian, "initial line number");
 	return undef if (!defined($lineno));
@@ -3211,7 +3313,7 @@ sub read_gcno_function_record(*$$$$$)
 }
 
 #
-# read_gcno(filename, base_dir)
+# read_gcno(filename)
 #
 # Read the contents of the specified .gcno file and return the following
 # mapping:
@@ -3219,14 +3321,13 @@ sub read_gcno_function_record(*$$$$$)
 #   file_data: function name -> line_data
 #   line_data: [ line1, line2, ... ]
 #
-# Relative filenames are converted to absolute form using base_dir as
-# base directory. See the gcov-io.h file in the gcc 3.3 source code
-# for a description of the .gcno format.
+# See the gcov-io.h file in the gcc 3.3 source code for a description of
+# the .gcno format.
 #
 
-sub read_gcno($$)
+sub read_gcno($)
 {
-	my ($gcno_filename, $base) = @_;
+	my ($gcno_filename) = @_;
 	my $file_magic = 0x67636e6f;
 	my $tag_function = 0x01000000;
 	my $tag_lines = 0x01450000;
@@ -3277,14 +3378,14 @@ sub read_gcno($$)
 		# Process record
 		if ($tag == $tag_function) {
 			($filename, $function) = read_gcno_function_record(
-				*HANDLE, $bb, $fileorder, $base, $big_endian,
+				*HANDLE, $bb, $fileorder, $big_endian,
 				$length);
 			goto incomplete if (!defined($function));
 		} elsif ($tag == $tag_lines) {
 			# Read lines record
 			$filename = read_gcno_lines_record(*HANDLE,
 					$gcno_filename, $bb, $fileorder,
-					$filename, $function, $base,
+					$filename, $function,
 					$big_endian);
 			goto incomplete if (!defined($filename));
 		} else {
@@ -3305,7 +3406,7 @@ sub read_gcno($$)
 	($instr, $graph) = graph_from_bb($bb, $fileorder, $gcno_filename);
 	graph_cleanup($graph);
 
-	return adjust_graph_filenames($instr, $graph);
+	return ($instr, $graph);
 
 open_error:
 	graph_error($gcno_filename, "could not open file");

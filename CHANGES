@@ -61,6 +61,8 @@ lcovrc:
 - Added config file setting 'geninfo_compat' to specify compatibility modes
 - Added config file setting 'geninfo_adjust_src_path' to enabled source path
   adjustments.  Inspired by patch by ammon.riley@gmail.com
+- Added config file setting 'geninfo_auto_base' to automatically determine
+  the base directory when collecting coverage data
 - Added config file setting 'lcov_function_coverage' to enable/disable
   function coverage processing
 - Added config file setting 'lcov_branch_coverage' to enable/disable

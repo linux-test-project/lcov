@@ -124,11 +124,10 @@ where the current working directory when invoking the compiler is not the same
 directory in which the source code file is located.
 
 Note that this option will not work in environments where multiple base
-directories are used. In that case repeat the geninfo call for each base
-directory while using the \-\-ignore\-errors option to prevent geninfo from
-exiting when the first source code file could not be found. This way you can
-get partial coverage information for each base directory which can then be
-combined using the \-a option.
+directories are used. In that case use configuration file setting
+.B geninfo_auto_base=1
+(see
+.BR lcovrc (5)).
 .RE
 
 .B \-\-checksum
