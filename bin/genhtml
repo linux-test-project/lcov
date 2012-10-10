@@ -72,7 +72,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.67 $)';
+our $lcov_version	= 'LCOV version 1.10 pre (CVS $Revision: 1.68 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -799,6 +799,9 @@ sub gen_html()
 		 $br_found, $br_hit)
 			= process_dir($dir_name);
 
+		# Handle files in root directory gracefully
+		$dir_name = "root" if ($dir_name eq "");
+
 		# Remove prefix if applicable
 		if (!$no_prefix && $dir_prefix)
 		{
@@ -952,6 +955,10 @@ sub process_dir($)
 	{
 		$rel_dir = substr($rel_dir, 1);
 	}
+
+	# Handle files in root directory gracefully
+	$rel_dir = "root" if ($rel_dir eq "");
+	$trunc_dir = "root" if ($trunc_dir eq "");
 
 	$base_dir = get_relative_base_path($rel_dir);
 
@@ -2195,6 +2202,9 @@ sub get_prefix($@)
 			$dir = shorten_prefix($dir);
 		}
 	}
+
+	# Check if any prefix remains
+	return undef if (!%prefix);
 
 	# Calculate sum of lengths for all prefixes
 	foreach $current (keys(%prefix))
