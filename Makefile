@@ -12,7 +12,7 @@
 #
 
 VERSION := 1.10
-RELEASE := pre1
+RELEASE := 1
 
 CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/usr/bin
