@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.10';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.117 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
