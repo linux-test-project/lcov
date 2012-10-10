@@ -15,6 +15,7 @@ genhtml:
 - Fixed HTML page title for directory pages
 - Fixed handling of special characters in file and directory names
 - Fixed directory prefix calculation
+- Fixed warning when source files are found in root directory
 
 geninfo:
 - Added options --external and --no-external to include/exclude external
