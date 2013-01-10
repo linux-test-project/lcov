@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.118 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.119 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -684,8 +684,11 @@ sub gen_info($)
 
 		@file_list = `find "$directory" $maxdepth $follow -name \\*$ext -type f 2>/dev/null`;
 		chomp(@file_list);
-		@file_list or
-			die("ERROR: no $ext files found in $directory!\n");
+		if (!@file_list) {
+			warn("WARNING: no $ext files found in $directory - ".
+			     "skipping!\n");
+			return;
+		}
 		$prefix = get_common_prefix(1, @file_list);
 		info("Found %d %s files in %s\n", $#file_list+1, $type,
 		     $directory);
