@@ -65,14 +65,15 @@
 #
 
 use strict;
-use File::Basename; 
+use File::Basename;
+use File::Temp qw(tempfile);
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.70 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.71 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -672,6 +673,162 @@ sub print_overall_rate($$$$$$$$$)
 		if ($br_do);
 }
 
+sub get_fn_list($)
+{
+	my ($info) = @_;
+	my %fns;
+	my @result;
+
+	foreach my $filename (keys(%{$info})) {
+		my $data = $info->{$filename};
+		my $funcdata = $data->{"func"};
+		my $sumfnccount = $data->{"sumfnc"};
+
+		if (defined($funcdata)) {
+			foreach my $func_name (keys(%{$funcdata})) {
+				$fns{$func_name} = 1;
+			}
+		}
+
+		if (defined($sumfnccount)) {
+			foreach my $func_name (keys(%{$sumfnccount})) {
+				$fns{$func_name} = 1;
+			}
+		}
+	}
+
+	@result = keys(%fns);
+
+	return \@result;
+}
+
+#
+# rename_functions(info, conv)
+#
+# Rename all function names in INFO according to CONV: OLD_NAME -> NEW_NAME.
+#
+
+sub rename_functions($$)
+{
+	my ($info, $conv) = @_;
+
+	foreach my $filename (keys(%{$info})) {
+		my $data = $info->{$filename};
+		my $funcdata;
+		my $testfncdata;
+		my $sumfnccount;
+		my %newfuncdata;
+		my %newsumfnccount;
+
+		# funcdata: function name -> line number
+		$funcdata = $data->{"func"};
+		foreach my $fn_name (keys(%{$funcdata})) {
+			$newfuncdata{$conv->{$fn_name}} = $funcdata->{$fn_name};
+		}
+		$data->{"func"} = \%newfuncdata;
+
+		# testfncdata: test name -> testfnccount
+		# testfnccount: function name -> execution count
+		$testfncdata = $data->{"testfnc"};
+		foreach my $test_name (keys(%{$testfncdata})) {
+			my $testfnccount = $testfncdata->{$test_name};
+			my %newtestfnccount;
+
+			foreach my $fn_name (keys(%{$testfnccount})) {
+				$newtestfnccount{$conv->{$fn_name}} =
+					$testfnccount->{$fn_name};
+			}
+			$testfncdata->{$test_name} = \%newtestfnccount;
+		}
+
+		# sumfnccount: function name -> execution count
+		$sumfnccount = $data->{"sumfnc"};
+		foreach my $fn_name (keys(%{$sumfnccount})) {
+			$newsumfnccount{$conv->{$fn_name}} =
+				$sumfnccount->{$fn_name};
+		}
+		$data->{"sumfnc"} = \%newsumfnccount;
+	}
+}
+
+#
+# check_unique_conv(CONV)
+#
+# Check that there is no A in CONV: A -> B where C -> B.
+#
+
+sub check_unique_conv($)
+{
+	my ($conv) = @_;
+	my %rconv;
+
+	foreach my $fn_name (keys(%{$conv})) {
+		my $c = $conv->{$fn_name};
+
+		if (defined($rconv{$c})) {
+			die("ERROR: non-unique c++filt output for ".
+			    "'$fn_name' and '$rconv{$c}!\n");
+		}
+		$rconv{$c} = $fn_name;
+	}
+}
+
+#
+# demangle_cpp(INFO)
+#
+# Demangle all function names found in INFO.
+#
+sub demangle_cpp($)
+{
+	my ($info) = @_;
+	my $fn_list = get_fn_list($info);
+	my @fn_list_demangled;
+	my $tmpfile;
+	my $handle;
+	my %demangled;
+	my $changed;
+
+	# Nothing to do
+	return if (!@$fn_list);
+
+	# Write list to temp file
+	(undef, $tmpfile) = tempfile();
+	die("ERROR: could not create temporary file") if (!defined($tmpfile));
+	open($handle, ">", $tmpfile) or
+		die("ERROR: could not write to $tmpfile: $!\n");
+	print($handle join("\n", @$fn_list));
+	close($handle);
+
+	# Run c++ filt on tempfile file and parse output, creating a hash
+	open($handle, "-|", "c++filt < $tmpfile") or
+		die("ERROR: could not run c++filt: $!\n");
+	@fn_list_demangled = <$handle>;
+	close($handle);
+	unlink($tmpfile) or
+		warn("WARNING: could not remove temporary file $tmpfile: $!\n");
+
+	if (scalar(@fn_list_demangled) != scalar(@$fn_list)) {
+		die("ERROR: c++filt output not as expected (".
+		    scalar(@fn_list_demangled)." vs ".
+		    scalar(@$fn_list).") lines\n");
+	}
+
+	# Build old_name -> new_name
+	$changed = 0;
+	for (my $i = 0; $i < scalar(@$fn_list); $i++) {
+		chomp($fn_list_demangled[$i]);
+		$demangled{$fn_list->[$i]} = $fn_list_demangled[$i];
+		$changed++ if ($fn_list->[$i] ne $fn_list_demangled[$i]);
+	}
+
+	# Should not be necessary but could silently produce incorrect results
+	check_unique_conv(\%demangled);
+
+	info("Demangling $changed function names\n");
+
+	# Change all occurrences of function names in INFO
+	rename_functions($info, \%demangled);
+}
 
 #
 # gen_html()
@@ -729,6 +886,9 @@ sub gen_html()
 		info("Subtracting baseline data.\n");
 		%info_data = %{apply_baseline(\%info_data, \%base_data)};
 	}
+
+	# Demangle C++ function names if requested
+	demangle_cpp(\%info_data) if ($demangle_cpp);
 
 	@dir_list = get_dir_list(keys(%info_data));
 
@@ -5194,12 +5354,7 @@ END_OF_HTML
 		my $count = $sumfncdata->{$name};
 		my $countstyle;
 
-		# Demangle C++ function names if requested
-		if ($demangle_cpp) {
-			$name = `c++filt "$name"`;
-			chomp($name);
-		}
-		# Escape any remaining special characters
+		# Escape special characters
 		$name = escape_html($name);
 		if ($startline < 1) {
 			$startline = 1;
