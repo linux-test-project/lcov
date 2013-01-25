@@ -73,7 +73,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.72 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.73 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -706,6 +706,8 @@ sub get_fn_list($)
 # rename_functions(info, conv)
 #
 # Rename all function names in INFO according to CONV: OLD_NAME -> NEW_NAME.
+# In case two functions demangle to the same name, assume that they are
+# different object code implementations for the same source function.
 #
 
 sub rename_functions($$)
@@ -719,57 +721,66 @@ sub rename_functions($$)
 		my $sumfnccount;
 		my %newfuncdata;
 		my %newsumfnccount;
+		my $f_found;
+		my $f_hit;
 
 		# funcdata: function name -> line number
 		$funcdata = $data->{"func"};
-		foreach my $fn_name (keys(%{$funcdata})) {
-			$newfuncdata{$conv->{$fn_name}} = $funcdata->{$fn_name};
+		foreach my $fn (keys(%{$funcdata})) {
+			my $cn = $conv->{$fn};
+
+			# Abort if two functions on different lines map to the
+			# same demangled name.
+			if (defined($newfuncdata{$cn}) &&
+			    $newfuncdata{$cn} != $funcdata->{$fn}) {
+				die("ERROR: Demangled function name $fn ".
+				    " maps to different lines (".
+				    $newfuncdata{$cn}." vs ".
+				    $funcdata->{$fn}.")\n");
+			}
+			$newfuncdata{$cn} = $funcdata->{$fn};
 		}
 		$data->{"func"} = \%newfuncdata;
 
 		# testfncdata: test name -> testfnccount
 		# testfnccount: function name -> execution count
 		$testfncdata = $data->{"testfnc"};
-		foreach my $test_name (keys(%{$testfncdata})) {
-			my $testfnccount = $testfncdata->{$test_name};
+		foreach my $tn (keys(%{$testfncdata})) {
+			my $testfnccount = $testfncdata->{$tn};
 			my %newtestfnccount;
 
-			foreach my $fn_name (keys(%{$testfnccount})) {
-				$newtestfnccount{$conv->{$fn_name}} =
-					$testfnccount->{$fn_name};
+			foreach my $fn (keys(%{$testfnccount})) {
+				my $cn = $conv->{$fn};
+
+				# Add counts for different functions that map
+				# to the same name.
+				$newtestfnccount{$cn} +=
+					$testfnccount->{$fn};
 			}
-			$testfncdata->{$test_name} = \%newtestfnccount;
+			$testfncdata->{$tn} = \%newtestfnccount;
 		}
 
 		# sumfnccount: function name -> execution count
 		$sumfnccount = $data->{"sumfnc"};
-		foreach my $fn_name (keys(%{$sumfnccount})) {
-			$newsumfnccount{$conv->{$fn_name}} =
-				$sumfnccount->{$fn_name};
+		foreach my $fn (keys(%{$sumfnccount})) {
+			my $cn = $conv->{$fn};
+
+			# Add counts for different functions that map
+			# to the same name.
+			$newsumfnccount{$cn} += $sumfnccount->{$fn};
 		}
 		$data->{"sumfnc"} = \%newsumfnccount;
-	}
-}
 
-#
-# check_unique_conv(CONV)
-#
-# Check that there is no A in CONV: A -> B where C -> B.
-#
-
-sub check_unique_conv($)
-{
-	my ($conv) = @_;
-	my %rconv;
-
-	foreach my $fn_name (keys(%{$conv})) {
-		my $c = $conv->{$fn_name};
-
-		if (defined($rconv{$c})) {
-			die("ERROR: non-unique c++filt output for ".
-			    "'$fn_name' and '$rconv{$c}!\n");
+		# Update function found and hit counts since they may have
+		# changed
+		$f_found = 0;
+		$f_hit = 0;
+		foreach my $fn (keys(%newsumfnccount)) {
+			$f_found++;
+			$f_hit++ if ($newsumfnccount{$fn} > 0);
 		}
-		$rconv{$c} = $fn_name;
+		$data->{"f_found"} = $f_found;
+		$data->{"f_hit"} = $f_hit;
 	}
 }
 
@@ -820,9 +831,6 @@ sub demangle_cpp($)
 		$demangled{$fn_list->[$i]} = $fn_list_demangled[$i];
 		$changed++ if ($fn_list->[$i] ne $fn_list_demangled[$i]);
 	}
-
-	# Should not be necessary but could silently produce incorrect results
-	check_unique_conv(\%demangled);
 
 	info("Demangling $changed function names\n");
 
