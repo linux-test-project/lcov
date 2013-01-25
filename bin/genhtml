@@ -73,7 +73,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.73 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.74 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -1407,6 +1407,10 @@ sub process_file($$$)
 #        "func"  -> \%funcdata
 #        "found" -> $lines_found (number of instrumented lines found in file)
 #	 "hit"   -> $lines_hit (number of executed lines in file)
+#        "f_found" -> $fn_found (number of instrumented functions found in file)
+#	 "f_hit"   -> $fn_hit (number of executed functions in file)
+#        "b_found" -> $br_found (number of instrumented branches found in file)
+#	 "b_hit"   -> $br_hit (number of executed branches in file)
 #        "check" -> \%checkdata
 #        "testfnc" -> \%testfncdata
 #        "sumfnc"  -> \%sumfnccount

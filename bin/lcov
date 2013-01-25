@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.93 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.94 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -1554,6 +1554,10 @@ sub get_br_found_and_hit($)
 #        "func"  -> \%funcdata
 #        "found" -> $lines_found (number of instrumented lines found in file)
 #	 "hit"   -> $lines_hit (number of executed lines in file)
+#        "f_found" -> $fn_found (number of instrumented functions found in file)
+#	 "f_hit"   -> $fn_hit (number of executed functions in file)
+#        "b_found" -> $br_found (number of instrumented branches found in file)
+#	 "b_hit"   -> $br_hit (number of executed branches in file)
 #        "check" -> \%checkdata
 #        "testfnc" -> \%testfncdata
 #        "sumfnc"  -> \%sumfnccount
