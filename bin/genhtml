@@ -73,7 +73,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.71 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.72 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -4433,7 +4433,11 @@ sub write_header(*$$$$$$$$$$)
 		if ($func_coverage) {
 			$view .= "<span style=\"font-size: 80%;\">";
 			if ($type == $HDR_SOURCE) {
-				$view .= " (source / <a href=\"$base_name.func.$html_ext\">functions</a>)";
+				if ($sort) {
+					$view .= " (source / <a href=\"$base_name.func-sort-c.$html_ext\">functions</a>)";
+				} else {
+					$view .= " (source / <a href=\"$base_name.func.$html_ext\">functions</a>)";
+				}
 			} elsif ($type == $HDR_FUNC) {
 				$view .= " (<a href=\"$base_name.gcov.$html_ext\">source</a> / functions)";
 			}
@@ -5296,8 +5300,10 @@ sub funcview_get_sorted($$$)
 	if ($type == 0) {
 		return sort(keys(%{$funcdata}));
 	}
-	return sort({$sumfncdata->{$b} <=> $sumfncdata->{$a}}
-		    keys(%{$sumfncdata}));
+	return sort({
+		$sumfncdata->{$b} == $sumfncdata->{$a} ?
+			$a cmp $b : $sumfncdata->{$a} <=> $sumfncdata->{$b}
+		} keys(%{$sumfncdata}));
 }
 
 #
