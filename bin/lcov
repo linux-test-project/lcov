@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.94 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.95 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -3711,10 +3711,10 @@ sub adjust_fncdata($$$)
 
 	# Remove count data in testfncdata for functions which are no longer
 	# in funcdata
-	foreach $testname (%{$testfncdata}) {
+	foreach $testname (keys(%{$testfncdata})) {
 		my $fnccount = $testfncdata->{$testname};
 
-		foreach $func (%{$fnccount}) {
+		foreach $func (keys(%{$fnccount})) {
 			if (!defined($funcdata->{$func})) {
 				delete($fnccount->{$func});
 			}
@@ -3722,7 +3722,7 @@ sub adjust_fncdata($$$)
 	}
 	# Remove count data in sumfnccount for functions which are no longer
 	# in funcdata
-	foreach $func (%{$sumfnccount}) {
+	foreach $func (keys(%{$sumfnccount})) {
 		if (!defined($funcdata->{$func})) {
 			delete($sumfnccount->{$func});
 		}
