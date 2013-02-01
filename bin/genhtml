@@ -73,7 +73,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.74 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.75 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -924,6 +924,7 @@ sub gen_html()
 	{
 		info("Using user-specified filename prefix \"".
 		     "$dir_prefix\"\n");
+		$dir_prefix =~ s/\/+$//;
 	}
 
 	# Read in test description file if specified
