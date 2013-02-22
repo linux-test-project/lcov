@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.119 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.120 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -864,7 +864,6 @@ sub process_dafile($$)
 	my $source;		# gcov source header information
 	my $object;		# gcov object header information
 	my @matches;		# List of absolute paths matching filename
-	my @unprocessed;	# List of unprocessed source code files
 	my $base_dir;		# Base directory for current file
 	my @tmp_links;		# Temporary links to be cleaned up
 	my @result;
@@ -1060,7 +1059,6 @@ sub process_dafile($$)
 
 	# Traverse the list of generated .gcov files and combine them into a
 	# single .info file
-	@unprocessed = keys(%{$instr});
 	foreach $gcov_file (sort(@gcov_list))
 	{
 		my $i;
@@ -1141,16 +1139,6 @@ sub process_dafile($$)
 			# Try to solve the ambiguity
 			$source_filename = solve_ambiguous_match($gcov_file,
 						\@matches, \@gcov_content);
-		}
-
-		# Remove processed file from list
-		for ($index = scalar(@unprocessed) - 1; $index >= 0; $index--)
-		{
-			if ($unprocessed[$index] eq $source_filename)
-			{
-				splice(@unprocessed, $index, 1);
-				last;
-			}
 		}
 
 		# Skip external files if requested
@@ -1295,16 +1283,6 @@ sub process_dafile($$)
 
 		# Remove .gcov file after processing
 		unlink($gcov_file);
-	}
-
-	# Check for files which show up in the graph file but were never
-	# processed
-	if (@unprocessed && @gcov_list)
-	{
-		foreach (@unprocessed)
-		{
-			warn("WARNING: no data found for $_\n");
-		}
 	}
 
 	if (!($output_filename && ($output_filename eq "-")))
