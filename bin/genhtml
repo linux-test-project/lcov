@@ -73,7 +73,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.75 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.76 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2588,10 +2588,15 @@ sub get_date_string()
 	my $year;
 	my $month;
 	my $day;
+	my $hour;
+	my $min;
+	my $sec;
 
-	($year, $month, $day) = (localtime())[5, 4, 3];
+	($year, $month, $day, $hour, $min, $sec) =
+		(localtime())[5, 4, 3, 2, 1, 0];
 
-	return sprintf("%d-%02d-%02d", $year+1900, $month+1, $day);
+	return sprintf("%d-%02d-%02d %02d:%02d:%02d", $year+1900, $month+1,
+		       $day, $hour, $min, $sec);
 }
 
 
