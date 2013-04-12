@@ -109,10 +109,13 @@ Assuming the compile directory is called "appdir", do the following:
 
      lcov --directory appdir --zerocounters
 
-  b) Capturing the current coverage state to a file (works only after the
-     application has been started and stopped at least once)
+  b) Capturing the current coverage state to a file
 
      lcov --directory appdir --capture --output-file app.info
+
+     Note that this step only works after the application has
+     been started and stopped at least once. Otherwise lcov will
+     abort with an error mentioning that there are no data/.gcda files.
 
   c) Getting HTML output
 
