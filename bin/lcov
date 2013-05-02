@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.95 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.96 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -227,6 +227,16 @@ Getopt::Long::Configure("pass_through", "no_auto_abbrev");
 GetOptions("config-file=s" => \$opt_config_file,
 	   "rc=s%" => \%opt_rc);
 Getopt::Long::Configure("default");
+
+# Remove spaces around rc options
+while (my ($key, $value) = each(%opt_rc)) {
+	delete($opt_rc{$key});
+
+	$key =~ s/^\s+|\s+$//g;
+	$value =~ s/^\s+|\s+$//g;
+
+	$opt_rc{$key} = $value;
+}
 
 # Read configuration file if available
 if (defined($opt_config_file)) {
