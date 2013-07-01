@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.96 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.97 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -888,6 +888,9 @@ sub lcov_geninfo(@)
 		foreach my $key (keys(%opt_rc)) {
 			@param = (@param, "--rc", "$key=".$opt_rc{$key});
 		}
+	}
+	if (defined($opt_config_file)) {
+		@param = (@param, "--config-file", $opt_config_file);
 	}
 
 	system(@param) and exit($? >> 8);
