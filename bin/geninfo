@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.121 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.122 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -2275,6 +2275,15 @@ sub process_graphfile($$)
 		my $funcdata = $graph->{$filename};
 		my $line;
 		my $linedata;
+
+		# Skip external files if requested
+		if (!$opt_external) {
+			if (is_external($filename)) {
+				info("  ignoring data for external file ".
+				     "$filename\n");
+				next;
+			}
+		}
 
 		print(INFO_HANDLE "SF:$filename\n");
 
