@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.122 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.123 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -266,8 +266,8 @@ $SIG{__DIE__} = \&die_handler;
 # Prettify version string
 $lcov_version =~ s/\$\s*Revision\s*:?\s*(\S+)\s*\$/$1/;
 
-# Set LANG so that gcov output will be in a unified format
-$ENV{"LANG"} = "C";
+# Set LC_ALL so that gcov output will be in a unified format
+$ENV{"LC_ALL"} = "C";
 
 # Check command line for a configuration file name
 Getopt::Long::Configure("pass_through", "no_auto_abbrev");
