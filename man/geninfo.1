@@ -74,8 +74,10 @@ so that there is usually no need to call it directly.
 .B Exclusion markers
 
 To exclude specific lines of code from a tracefile, you can add exclusion
-markers to the source code. Exclusion markers are keywords which can for
-example be added in the form of a comment.
+markers to the source code. Additionally you can exclude specific branches from
+branch coverage without excluding the involved lines from line and function
+coverage. Exclusion markers are keywords which can for example be added in the
+form of a comment.
 
 The following markers are recognized by geninfo:
 
@@ -94,6 +96,23 @@ LCOV_EXCL_STOP
 .RS
 Marks the end of an excluded section. The current line not part of this
 section.
+.RE
+.br
+LCOV_EXCL_BR_LINE
+.RS
+Lines containing this marker will be excluded from branch coverage.
+.br
+.RE
+LCOV_EXCL_BR_START
+.RS
+Marks the beginning of a section which is excluded from branch coverage. The
+current line is part of this section.
+.br
+.RE
+LCOV_EXCL_BR_STOP
+.RS
+Marks the end of a section which is excluded from branch coverage. The current
+line not part of this section.
 .RE
 .br
 

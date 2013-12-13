@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.123 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.124 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -87,6 +87,11 @@ our %ERROR_ID = (
 our $EXCL_START = "LCOV_EXCL_START";
 our $EXCL_STOP = "LCOV_EXCL_STOP";
 our $EXCL_LINE = "LCOV_EXCL_LINE";
+
+# Marker to exclude branch coverage but keep function and line coveage
+our $EXCL_BR_START = "LCOV_EXCL_BR_START";
+our $EXCL_BR_STOP = "LCOV_EXCL_BR_STOP";
+our $EXCL_BR_LINE = "LCOV_EXCL_BR_LINE";
 
 # Compatibility mode values
 our $COMPAT_VALUE_OFF	= 0;
@@ -1667,6 +1672,8 @@ sub read_gcov_file($)
 	my $number;
 	my $exclude_flag = 0;
 	my $exclude_line = 0;
+	my $exclude_br_flag = 0;
+	my $exclude_branch = 0;
 	my $last_block = $UNNAMED_BLOCK;
 	my $last_line = 0;
 	local *INPUT;
@@ -1693,11 +1700,13 @@ sub read_gcov_file($)
 			if (/^branch\s+(\d+)\s+taken\s+=\s+(\d+)/) {
 				next if (!$br_coverage);
 				next if ($exclude_line);
+				next if ($exclude_branch);
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, $2);
 			} elsif (/^branch\s+(\d+)\s+never\s+executed/) {
 				next if (!$br_coverage);
 				next if ($exclude_line);
+				next if ($exclude_branch);
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, '-');
 			}
@@ -1719,6 +1728,19 @@ sub read_gcov_file($)
 						$exclude_line = 1;
 					} else {
 						$exclude_line = 0;
+					}
+				}
+				# Check for exclusion markers (branch exclude)
+				if (!$no_markers) {
+					if (/$EXCL_BR_STOP/) {
+						$exclude_br_flag = 0;
+					} elsif (/$EXCL_BR_START/) {
+						$exclude_br_flag = 1;
+					}
+					if (/$EXCL_BR_LINE/ || $exclude_br_flag) {
+						$exclude_branch = 1;
+					} else {
+						$exclude_branch = 0;
 					}
 				}
 				# Source code execution data
@@ -1766,11 +1788,13 @@ sub read_gcov_file($)
 			} elsif (/^branch\s+(\d+)\s+taken\s+(\d+)/) {
 				next if (!$br_coverage);
 				next if ($exclude_line);
+				next if ($exclude_branch);
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, $2);
 			} elsif (/^branch\s+(\d+)\s+never\s+executed/) {
 				next if (!$br_coverage);
 				next if ($exclude_line);
+				next if ($exclude_branch);
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, '-');
 			}
@@ -1805,6 +1829,20 @@ sub read_gcov_file($)
 						$exclude_line = 0;
 					}
 				}
+				# Check for exclusion markers (branch exclude)
+				if (!$no_markers) {
+					if (/$EXCL_BR_STOP/) {
+						$exclude_br_flag = 0;
+					} elsif (/$EXCL_BR_START/) {
+						$exclude_br_flag = 1;
+					}
+					if (/$EXCL_BR_LINE/ || $exclude_br_flag) {
+						$exclude_branch = 1;
+					} else {
+						$exclude_branch = 0;
+					}
+				}
+
 				# <exec count>:<line number>:<source code>
 				if ($line eq "0")
 				{
@@ -1837,7 +1875,7 @@ sub read_gcov_file($)
 	}
 
 	close(INPUT);
-	if ($exclude_flag) {
+	if ($exclude_flag || $exclude_br_flag) {
 		warn("WARNING: unterminated exclusion section in $filename\n");
 	}
 	return(\@result, $branches, \@functions);
