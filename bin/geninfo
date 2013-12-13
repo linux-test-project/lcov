@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.124 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.125 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -1898,6 +1898,11 @@ sub get_gcov_version()
 		or die("ERROR: cannot retrieve gcov version!\n");
 	$version_string = <GCOV_PIPE>;
 	close(GCOV_PIPE);
+
+	# Remove version information in parenthesis to cope with the following:
+	# - gcov (GCC) 4.4.7 20120313 (Red Hat 4.4.7-3)
+	# - gcov (crosstool-NG 1.18.0) 4.7.2
+	$version_string =~ s/\([^\)]*\)//g;
 
 	$result = 0;
 	if ($version_string =~ /(\d+)\.(\d+)(\.(\d+))?/)
