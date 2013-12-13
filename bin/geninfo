@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.125 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.126 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -3384,9 +3384,11 @@ sub read_gcno($)
 	my $fileorder = {};
 	my $instr;
 	my $graph;
+	my $filelength;
 	local *HANDLE;
 
 	open(HANDLE, "<", $gcno_filename) or goto open_error;
+	$filelength = (stat(HANDLE))[7];
 	binmode(HANDLE);
 	# Read magic
 	$word = read_gcno_word(*HANDLE, "file magic");
@@ -3418,6 +3420,14 @@ sub read_gcno($)
 		$next_pos = tell(HANDLE);
 		goto tell_error if ($next_pos == -1);
 		$next_pos += $length;
+		# Catch garbage at the end of a gcno file
+		if ($next_pos > $filelength) {
+			debug("Overlong record: file_length=$filelength ".
+			      "rec_length=$length\n");
+			warn("WARNING: $gcno_filename: Overlong record at end ".
+			     "of file!\n");
+			last;
+		}
 		# Process record
 		if ($tag == $tag_function) {
 			($filename, $function) = read_gcno_function_record(
