@@ -71,7 +71,7 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.97 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.98 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -1996,8 +1996,8 @@ sub set_info_entry($$$$$$$$$;$$$$$$)
 
 sub add_counts($$)
 {
-	my %data1 = %{$_[0]};	# Hash 1
-	my %data2 = %{$_[1]};	# Hash 2
+	my $data1_ref = $_[0];	# Hash 1
+	my $data2_ref = $_[1];	# Hash 2
 	my %result;		# Resulting hash
 	my $line;		# Current line iteration scalar
 	my $data1_count;	# Count of line in hash1
@@ -2005,10 +2005,10 @@ sub add_counts($$)
 	my $found = 0;		# Total number of lines found
 	my $hit = 0;		# Number of lines with a count > 0
 
-	foreach $line (keys(%data1))
+	foreach $line (keys(%$data1_ref))
 	{
-		$data1_count = $data1{$line};
-		$data2_count = $data2{$line};
+		$data1_count = $data1_ref->{$line};
+		$data2_count = $data2_ref->{$line};
 
 		# Add counts if present in both hashes
 		if (defined($data2_count)) { $data1_count += $data2_count; }
@@ -2020,14 +2020,14 @@ sub add_counts($$)
 		if ($data1_count > 0) { $hit++; }
 	}
 
-	# Add lines unique to data2
-	foreach $line (keys(%data2))
+	# Add lines unique to data2_ref
+	foreach $line (keys(%$data2_ref))
 	{
-		# Skip lines already in data1
-		if (defined($data1{$line})) { next; }
+		# Skip lines already in data1_ref
+		if (defined($data1_ref->{$line})) { next; }
 
-		# Copy count from data2
-		$result{$line} = $data2{$line};
+		# Copy count from data2_ref
+		$result{$line} = $data2_ref->{$line};
 
 		$found++;
 		if ($result{$line} > 0) { $hit++; }
