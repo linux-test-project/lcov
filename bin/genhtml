@@ -73,7 +73,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.77 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.78 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -2521,6 +2521,9 @@ sub read_testfile($)
 		# Match lines beginning with TD:<whitespace(s)>
 		if (/^TD:\s+(.*?)\s*$/)
 		{
+			if (!defined($test_name)) {
+				die("ERROR: Found test description without prior test name in $_[0]:$.\n");
+			}
 			# Check for empty line
 			if ($1)
 			{
