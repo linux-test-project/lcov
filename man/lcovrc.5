@@ -149,6 +149,11 @@ genhtml_sort = 1
 genhtml_charset=UTF\-8
 .br
 
+# Allow HTML markup in test case description text if non\-zero
+.br
+genhtml_desc_html=0
+.br
+
 # Location of the gcov tool
 .br
 #geninfo_gcov_tool = gcov
@@ -546,6 +551,21 @@ when a custom HTML prolog is specified (see also
 
 Default is UTF-8.
 .PP
+
+.BR genhtml_desc_html " ="
+.IR 0 | 1
+.IP
+If non-zero, test case descriptions may contain HTML markup.
+
+Set this option to one if you want to embed HTML markup (for example to
+include links) in test case descriptions. When set to zero, HTML markup
+characters will be escaped to show up as plain text on the test case
+description page.
+.br
+
+Default is 0.
+.PP
+.
 .BR geninfo_gcov_tool " ="
 .I path_to_gcov
 .IP
