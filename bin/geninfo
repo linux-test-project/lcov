@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.126 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.127 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -1894,9 +1894,14 @@ sub get_gcov_version()
 	my $version_string;
 	my $result;
 
-	open(GCOV_PIPE, "-|", "$gcov_tool -v")
+	open(GCOV_PIPE, "-|", "$gcov_tool --version")
 		or die("ERROR: cannot retrieve gcov version!\n");
 	$version_string = <GCOV_PIPE>;
+	# LLVM gcov keeps version information on the second line.
+	# For example, gcov --version yields:
+	# LLVM (http://llvm.org/):
+	#   LLVM version 3.4svn
+	$version_string = <GCOV_PIPE> if ($version_string =~ /LLVM/);
 	close(GCOV_PIPE);
 
 	# Remove version information in parenthesis to cope with the following:
@@ -1916,6 +1921,21 @@ sub get_gcov_version()
 		{
 			info("Found gcov version: $1.$2\n");
 			$result = $1 << 16 | $2 << 8;
+		}
+	}
+	if ($version_string =~ /LLVM/)
+	{
+		# Map LLVM versions to the version of GCC gcov which
+		# they emulate
+		if ($result >= 0x030400)
+		{
+			info("Found LLVM gcov version 3.4, which emulates gcov version 4.2\n");
+			$result = 0x040200;
+		}
+		else
+		{
+			warn("This version of LLVM's gcov is unknown.  Assuming it emulates GCC gcov version 4.2.\n");
+			$result = 0x040200;
 		}
 	}
 	return ($result, $version_string);
@@ -3496,15 +3516,36 @@ sub get_gcov_capabilities()
 {
 	my $help = `$gcov_tool --help`;
 	my %capabilities;
+	my %short_option_translations = (
+		'a' => 'all-blocks',
+		'b' => 'branch-probabilities',
+		'c' => 'branch-counts',
+		'f' => 'function-summaries',
+		'h' => 'help',
+		'l' => 'long-file-names',
+		'n' => 'no-output',
+		'o' => 'object-directory',
+		'p' => 'preserve-paths',
+		'u' => 'unconditional-branches',
+		'v' => 'version',
+	);
 
 	foreach (split(/\n/, $help)) {
-		next if (!/--(\S+)/);
-		next if ($1 eq 'help');
-		next if ($1 eq 'version');
-		next if ($1 eq 'object-directory');
+		my $capability;
+		if (/--(\S+)/) {
+			$capability = $1;
+		} else {
+			# If the line provides a short option, translate it.
+			next if (!/^\s*-(\S)\s/);
+			$capability = $short_option_translations{$1};
+			next if not defined($capability);
+		}
+		next if ($capability eq 'help');
+		next if ($capability eq 'version');
+		next if ($capability eq 'object-directory');
 
-		$capabilities{$1} = 1;
-		debug("gcov has capability '$1'\n");
+		$capabilities{$capability} = 1;
+		debug("gcov has capability '$capability'\n");
 	}
 
 	return \%capabilities;
