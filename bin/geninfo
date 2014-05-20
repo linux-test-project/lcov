@@ -61,7 +61,7 @@ if( $^O eq "msys" )
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.127 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.128 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -145,8 +145,9 @@ our $BR_BRANCH		= 2;
 our $BR_TAKEN		= 3;
 our $BR_VEC_ENTRIES	= 4;
 our $BR_VEC_WIDTH	= 32;
+our $BR_VEC_MAX		= vec(pack('b*', 1 x $BR_VEC_WIDTH), 0, $BR_VEC_WIDTH);
 
-our $UNNAMED_BLOCK	= 9999;
+our $UNNAMED_BLOCK	= -1;
 
 # Prototypes
 sub print_usage(*);
@@ -1252,6 +1253,7 @@ sub process_dafile($$)
 			my ($line, $block, $branch, $taken) =
 				br_gvec_get($gcov_branches, $i);
 
+			$block = $BR_VEC_MAX if ($block < 0);
 			print(INFO_HANDLE "BRDA:$line,$block,$branch,$taken\n");
 			$br_found++;
 			$br_hit++ if ($taken ne '-' && $taken > 0);
@@ -1596,6 +1598,7 @@ sub br_gvec_get($$)
 	# Retrieve data from vector
 	$line	= vec($vec, $offset + $BR_LINE, $BR_VEC_WIDTH);
 	$block	= vec($vec, $offset + $BR_BLOCK, $BR_VEC_WIDTH);
+	$block = -1 if ($block == $BR_VEC_MAX);
 	$branch = vec($vec, $offset + $BR_BRANCH, $BR_VEC_WIDTH);
 	$taken	= vec($vec, $offset + $BR_TAKEN, $BR_VEC_WIDTH);
 
@@ -1623,6 +1626,7 @@ sub br_gvec_push($$$$$)
 
 	$vec = "" if (!defined($vec));
 	$offset = br_gvec_len($vec) * $BR_VEC_ENTRIES;
+	$block = $BR_VEC_MAX if $block < 0;
 
 	# Encode taken value into an integer
 	if ($taken eq "-") {

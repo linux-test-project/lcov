@@ -73,7 +73,7 @@ use Digest::MD5 qw(md5_base64);
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.79 $)';
+our $lcov_version	= 'LCOV version 1.11 pre (CVS $Revision: 1.80 $)';
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -146,6 +146,7 @@ our $BR_BRANCH		= 1;
 our $BR_TAKEN		= 2;
 our $BR_VEC_ENTRIES	= 3;
 our $BR_VEC_WIDTH	= 32;
+our $BR_VEC_MAX		= vec(pack('b*', 1 x $BR_VEC_WIDTH), 0, $BR_VEC_WIDTH);
 
 # Additional offsets used when converting branch coverage data to HTML
 our $BR_LEN	= 3;
@@ -5041,6 +5042,7 @@ sub br_ivec_get($$)
 
 	# Retrieve data from vector
 	$block	= vec($vec, $offset + $BR_BLOCK, $BR_VEC_WIDTH);
+	$block = -1 if ($block == $BR_VEC_MAX);
 	$branch = vec($vec, $offset + $BR_BRANCH, $BR_VEC_WIDTH);
 	$taken	= vec($vec, $offset + $BR_TAKEN, $BR_VEC_WIDTH);
 
@@ -5066,10 +5068,12 @@ sub br_ivec_push($$$$)
 	my $i;
 
 	$vec = "" if (!defined($vec));
+	$block = $BR_VEC_MAX if $block < 0;
 
 	# Check if branch already exists in vector
 	for ($i = 0; $i < $num; $i++) {
 		my ($v_block, $v_branch, $v_taken) = br_ivec_get($vec, $i);
+		$v_block = $BR_VEC_MAX if $v_block < 0;
 
 		next if ($v_block != $block || $v_branch != $branch);
 
