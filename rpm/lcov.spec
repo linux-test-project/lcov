@@ -1,7 +1,7 @@
 Summary: A graphical GCOV front-end
 Name: lcov
 Version: 1.11
-Release: pre1
+Release: 1
 License: GPL
 Group: Development/Tools
 URL: http://ltp.sourceforge.net/coverage/lcov.php
