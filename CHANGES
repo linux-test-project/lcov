@@ -1,3 +1,63 @@
+Version 1.11
+============
+
+genhtml:
+- Added current time to date information in HTML output. Based on patch by
+  sylvestre@debian.org
+- Improved --demanglecpp performance. Based on suggestion by olly@survex.com
+- Improved memory usage when combining files. Based on patch by olly@survex.com
+- Changed initial function table sorting order to execution counts. Based on
+  suggestion by paul.bignier@hotmail.fr
+- Fixed incorrect function execution counts when using --demanglecpp on
+  functions that demange to the same name
+- Fixed handling of prefix with trailing /. Reported by ahmed_osman@mentor.com
+- Fixed "use of uninitialized value" warning when processing incorrect
+  test description files. Reported by lbalbalba@gmail.com
+- Fixed reordering of unnamed branch blocks during coverage data merging.
+  Contributed by jhutz@cmu.edu
+
+geninfo:
+- Added exclusion markers for branch coverage. Contributed by s_stigler@gmx.de
+- Added toleration support for .gcno files with trailing garbage. Reported by
+  christophe.guillon@st.com
+- Fixed parsing of gcc 4.7 gcov format. Reported by fa.soft@gmx.net
+- Fixed geninfo aborting on empty data directories. Based on suggestion by
+  rich_drake@yahoo.com
+- Fixed "no data found" warning when using lcov with gcc 4.7
+- Fixed --no-external not working with --initial. Reported by
+  malcolm.parsons@gmail.com
+- Fixed handling of non-english locales. Reported by s_stigler@gmx.de
+- Fixed gcov tool version detection for gcov versions containing additional
+  versions in parenthesis.
+
+lcov:
+- Added compatibility support with LLVM's gcov (NOT llvm-cov). Contributed by
+  jonah@petri.us
+- Improved memory usage when combining files. Contributed by olly@survex.com
+- Fixed lcov aborting when using --diff on a patch file that changes the list
+  of functions. Reported by Nasir.Amanullah@us.fujitsu.com
+- Fixed whitespace handling in --rc options
+- Fixed --config-file not being passed to geninfo. Reported by
+  liuyhlinux@gmail.com
+- Fixed missing description for command line parameter value in man page.
+  Reported by sylvestre@mozilla.com
+- Fixed reordering of unnamed branch blocks during coverage data merging.
+  Contributed by jhutz@cmu.edu
+
+lcov.spec:
+- Fixed Perl dependency statement
+
+lcovrc:
+- Added config file setting 'genhtml_desc_html' to allow using HTML markup in
+  test case description text
+
+CONTRIBUTING:
+- Added contribution guidelines
+
+README:
+- Improved note on lcov usage
+
+
 Version 1.10
 ============
 
@@ -149,7 +209,7 @@ geninfo:
 - Fixed errors when processing incomplete function names in .bb files
 - Fixed filename prefix detection
 - Fixed problem with matching filename
-- Fixed problem when LANG is set to non-english locale. Reported by
+- Fixed problem when LANG is set to non-English locale. Reported by
   benoit_belbezet@yahoo.fr.
 - Fixed short-name option ambiguities
 
