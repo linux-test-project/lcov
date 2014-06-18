@@ -50,7 +50,7 @@ do_uninstall()
   # Does target exist?
   if test -r $TARGET ; then
     # Is target of the same version as this package?
-    if diff $SOURCE $TARGET >/dev/null; then
+    if diff -I '^our \$lcov_version' -I '^\.TH ' $SOURCE $TARGET >/dev/null; then
       rm -f $TARGET
     else
       echo WARNING: Skipping uninstall for $TARGET - versions differ! >&2

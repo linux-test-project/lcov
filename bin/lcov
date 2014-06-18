@@ -71,7 +71,8 @@ use Cwd qw /abs_path getcwd/;
 
 
 # Global constants
-our $lcov_version	= 'LCOV version 1.11';
+our $tool_dir		= abs_path(dirname($0));
+our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --version`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -180,7 +181,6 @@ our $maxdepth;
 our $no_markers;
 our $config;		# Configuration file contents
 chomp($cwd);
-our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 our @temp_dirs;
 our $gcov_gkv;		# gcov kernel support version found on machine
 our $opt_derive_func_data;
@@ -213,15 +213,6 @@ $SIG{__WARN__} = \&warn_handler;
 $SIG{__DIE__} = \&die_handler;
 $SIG{'INT'} = \&abort_handler;
 $SIG{'QUIT'} = \&abort_handler;
-
-# Prettify version string
-$lcov_version =~ s/\$\s*Revision\s*:?\s*(\S+)\s*\$/$1/;
-
-# Add current working directory if $tool_dir is not already an absolute path
-if (! ($tool_dir =~ /^\/(.*)$/))
-{
-	$tool_dir = "$cwd/$tool_dir";
-}
 
 # Check command line for a configuration file name
 Getopt::Long::Configure("pass_through", "no_auto_abbrev");

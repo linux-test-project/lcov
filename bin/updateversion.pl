@@ -2,10 +2,13 @@
 
 use strict;
 
+use File::Basename;
+
 sub update_man_page($);
 sub update_bin_tool($);
 sub update_txt_file($);
 sub update_spec_file($);
+sub write_version_file($);
 sub get_file_info($);
 
 our $directory = $ARGV[0];
@@ -20,7 +23,34 @@ our @txt_files = ("README");
 our @spec_files = ("rpm/lcov.spec");
 
 if (!defined($directory) || !defined($version) || !defined($release)) {
-	die("Usage: $0 <directory> <version string> <release string>\n");
+	die("Usage: $0 DIRECTORY|FILE VERSION RELEASE\n");
+}
+
+# Determine mode of operation
+if (-f $directory) {
+	my $file = $directory;
+	my $base = basename($file);
+
+	if (grep(/^$base$/, map({ basename($_) } @man_pages))) {
+		print("Updating man page $file\n");
+		update_man_page($file);
+	} elsif (grep(/^$base$/, map({ basename($_) } @bin_tools))) {
+		print("Updating bin tool $file\n");
+		update_bin_tool($file);
+	} elsif (grep(/^$base$/, map({ basename($_) } @txt_files))) {
+		print("Updating text file $file\n");
+		update_txt_file($file);
+	} elsif (grep(/^$base$/, map({ basename($_) } @spec_files))) {
+		print("Updating spec file $file\n");
+		update_spec_file($file);
+	} elsif ($base eq ".version") {
+		print("Updating version file $file\n");
+		write_version_file($file);
+	} else {
+		print("WARNING: Skipping unknown file $file\n");
+	}
+	print("Done.\n");
+	exit(0);
 }
 
 foreach (@man_pages) {
@@ -39,6 +69,8 @@ foreach (@spec_files) {
 	print("Updating spec file $_\n");
 	update_spec_file($directory."/".$_);
 }
+print("Updating version file $directory/.version\n");
+write_version_file("$directory/.version");
 print("Done.\n");
 
 sub get_file_info($)
@@ -46,7 +78,9 @@ sub get_file_info($)
 	my ($filename) = @_;
 	my ($sec, $min, $hour, $year, $month, $day);
 	my @stat;
+	my $gittime;
 
+	return (0, 0, 0) if (!-e $filename);
 	@stat = stat($filename);
 	($sec, $min, $hour, $day, $month, $year) = localtime($stat[9]);
 	$year += 1900;
@@ -93,7 +127,7 @@ sub update_bin_tool($)
 	open(OUT, ">$filename.new") ||
 		die("Error: cannot create $filename.new\n");
 	while (<IN>) {
-		s/(our\s+\$lcov_version\s*=\s*["']).*(["'].*)$/$1LCOV version $version$2/g;
+		s/^(our\s+\$lcov_version\s*=).*$/$1 "LCOV version $version";/g;
 		print(OUT $_);
 	}
 	close(OUT);
@@ -143,4 +177,15 @@ sub update_spec_file($)
 	close(IN);
 	system("mv", "-f", "$filename.new", "$filename");
 	system("touch", "$filename", "-t", $date[1]);
+}
+
+sub write_version_file($)
+{
+	my ($filename) = @_;
+	my $fd;
+
+	open($fd, ">", $filename) or die("Error: cannot write $filename: $!\n");
+	print($fd "VERSION=$version\n");
+	print($fd "RELEASE=$release\n");
+	close($fd);
 }

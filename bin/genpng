@@ -32,10 +32,12 @@
 use strict;
 use File::Basename; 
 use Getopt::Long;
+use Cwd qw/abs_path/;
 
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11';
+our $tool_dir		= abs_path(dirname($0));
+our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --version`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -52,9 +54,6 @@ sub genpng_die_handler($);
 #
 # Code entry point
 #
-
-# Prettify version string
-$lcov_version =~ s/\$\s*Revision\s*:?\s*(\S+)\s*\$/$1/;
 
 # Check whether required module GD.pm is installed
 if (check_and_load_module("GD"))

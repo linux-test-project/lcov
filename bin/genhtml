@@ -69,11 +69,13 @@ use File::Basename;
 use File::Temp qw(tempfile);
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
+use Cwd qw/abs_path/;
 
 
 # Global constants
 our $title		= "LCOV - code coverage report";
-our $lcov_version	= 'LCOV version 1.11';
+our $tool_dir		= abs_path(dirname($0));
+our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --version`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -305,7 +307,6 @@ our $rc_desc_html = 0;	# lcovrc: genhtml_desc_html
 
 our $cwd = `pwd`;	# Current working directory
 chomp($cwd);
-our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 
 
 #
@@ -314,15 +315,6 @@ our $tool_dir = dirname($0);	# Directory where genhtml tool is installed
 
 $SIG{__WARN__} = \&warn_handler;
 $SIG{__DIE__} = \&die_handler;
-
-# Prettify version string
-$lcov_version =~ s/\$\s*Revision\s*:?\s*(\S+)\s*\$/$1/;
-
-# Add current working directory if $tool_dir is not already an absolute path
-if (! ($tool_dir =~ /^\/(.*)$/))
-{
-	$tool_dir = "$cwd/$tool_dir";
-}
 
 # Check command line for a configuration file name
 Getopt::Long::Configure("pass_through", "no_auto_abbrev");

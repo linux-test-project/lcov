@@ -55,13 +55,15 @@ use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
 			      splitpath catpath/;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
+use Cwd qw/abs_path/;
 if( $^O eq "msys" )
 {
 	require File::Spec::Win32;
 }
 
 # Constants
-our $lcov_version	= 'LCOV version 1.11';
+our $tool_dir		= abs_path(dirname($0));
+our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --version`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -268,9 +270,6 @@ chomp($cwd);
 $SIG{"INT"} = \&int_handler;
 $SIG{__WARN__} = \&warn_handler;
 $SIG{__DIE__} = \&die_handler;
-
-# Prettify version string
-$lcov_version =~ s/\$\s*Revision\s*:?\s*(\S+)\s*\$/$1/;
 
 # Set LC_ALL so that gcov output will be in a unified format
 $ENV{"LC_ALL"} = "C";

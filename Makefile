@@ -11,8 +11,8 @@
 #   - clean:     remove all generated files
 #
 
-VERSION := 1.11
-RELEASE := 1
+VERSION := $(shell bin/get_version.sh --version)
+RELEASE := $(shell bin/get_version.sh --release)
 
 CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/usr/bin
@@ -49,6 +49,17 @@ install:
 	bin/install.sh man/gendesc.1 $(MAN_DIR)/man1/gendesc.1 -m 644
 	bin/install.sh man/lcovrc.5 $(MAN_DIR)/man5/lcovrc.5 -m 644
 	bin/install.sh lcovrc $(CFG_DIR)/lcovrc -m 644
+	bin/updateversion.pl $(BIN_DIR)/lcov $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(BIN_DIR)/genhtml $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(BIN_DIR)/geninfo $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(BIN_DIR)/genpng $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(BIN_DIR)/gendesc $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(MAN_DIR)/man1/lcov.1 $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(MAN_DIR)/man1/genhtml.1 $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(MAN_DIR)/man1/geninfo.1 $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(MAN_DIR)/man1/genpng.1 $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(MAN_DIR)/man1/gendesc.1 $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(MAN_DIR)/man5/lcovrc.5 $(VERSION) $(RELEASE)
 
 uninstall:
 	bin/install.sh --uninstall bin/lcov $(BIN_DIR)/lcov
@@ -71,7 +82,7 @@ lcov-$(VERSION).tar.gz: $(FILES)
 	mkdir $(TMP_DIR)
 	mkdir $(TMP_DIR)/lcov-$(VERSION)
 	cp -r * $(TMP_DIR)/lcov-$(VERSION)
-	find $(TMP_DIR)/lcov-$(VERSION) -name CVS -type d | xargs rm -rf
+	bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
 	make -C $(TMP_DIR)/lcov-$(VERSION) clean
 	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(RELEASE)
 	cd $(TMP_DIR) ; \

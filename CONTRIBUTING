@@ -69,13 +69,9 @@ following command line options:
   diff -Naurp
 
 Please base your changes on the most current version of LCOV. You can use the
-following command line to obtain this version from the "utils" module of the
-LTP CVS repository (when asked for a password, simply press return):
+following command line to obtain this version from the lcov Git repository:
 
-  cvs -d:pserver:anonymous@ltp.cvs.sourceforge.net:/cvsroot/ltp login
-  cvs -z3 -d:pserver:anonymous@ltp.cvs.sourceforge.net:/cvsroot/ltp co -P utils
-
-You can find LCOV in sub-directory "utils/analysis/lcov".
+ git clone https://github.com/linux-test-project/lcov.git
 
 Add a meaningful description of the contribution to the top of the patch. The
 description should follow this format:
