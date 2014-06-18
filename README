@@ -64,7 +64,7 @@ Use Git for the most recent (but possibly unstable) version:
 
   git clone https://github.com/linux-test-project/lcov.git
 
-Change to the ulting cov directory and type:
+Change to the resulting lcov directory and type:
 
   make install
 
