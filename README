@@ -43,7 +43,6 @@ Further README contents
   bin/geninfo        - Internal tool (creates LCOV data files)
   bin/genpng         - Internal tool (creates png overviews of source files)
   bin/install.sh     - Internal tool (takes care of un-/installing)
-  descriptions.tests - Test descriptions for the LTP suite, use with gendesc
   man                - Directory containing man pages for included tools
   example            - Directory containing an example to demonstrate LCOV
   lcovrc             - LCOV configuration file
