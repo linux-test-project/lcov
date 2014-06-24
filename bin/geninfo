@@ -176,6 +176,7 @@ sub graph_error($$);
 sub graph_expect($);
 sub graph_read(*$;$$);
 sub graph_skip(*$;$);
+sub uniq(@);
 sub sort_uniq(@);
 sub sort_uniq_lex(@);
 sub graph_cleanup($);
@@ -2528,6 +2529,27 @@ sub graph_skip(*$;$)
 }
 
 #
+# uniq(list)
+#
+# Return list without duplicate entries.
+#
+
+sub uniq(@)
+{
+	my (@list) = @_;
+	my @new_list;
+	my %known;
+
+	foreach my $item (@list) {
+		next if ($known{$item});
+		$known{$item} = 1;
+		push(@new_list, $item);
+	}
+
+	return @new_list;
+}
+
+#
 # sort_uniq(list)
 #
 # Return list in numerically ascending order and without duplicate entries.
@@ -2713,7 +2735,7 @@ sub graph_cleanup($)
 				next;
 			}
 			# Normalize list
-			$per_file->{$function} = [ sort_uniq(@$lines) ];
+			$per_file->{$function} = [ uniq(@$lines) ];
 		}
 		if (scalar(keys(%{$per_file})) == 0) {
 			# Remove empty file
