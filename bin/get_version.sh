@@ -19,6 +19,7 @@ else
 	VERSION=${VERSION:1}
 	if [ "${GITVER#*-}" != "$GITVER" ] ; then
 		RELEASE=${GITVER#*-}
+		RELEASE=${RELEASE/-/.}
 	fi
 fi
 
