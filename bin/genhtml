@@ -728,10 +728,10 @@ sub rename_functions($$)
 			# same demangled name.
 			if (defined($newfuncdata{$cn}) &&
 			    $newfuncdata{$cn} != $funcdata->{$fn}) {
-				die("ERROR: Demangled function name $fn ".
-				    " maps to different lines (".
+				die("ERROR: Demangled function name $cn ".
+				    "maps to different lines (".
 				    $newfuncdata{$cn}." vs ".
-				    $funcdata->{$fn}.")\n");
+				    $funcdata->{$fn}.") in $filename\n");
 			}
 			$newfuncdata{$cn} = $funcdata->{$fn};
 		}
