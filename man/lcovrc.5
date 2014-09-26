@@ -154,6 +154,11 @@ genhtml_charset=UTF\-8
 genhtml_desc_html=0
 .br
 
+# Specify the precision for coverage rates
+.br
+#genhtml_precision=1
+.br
+
 # Location of the gcov tool
 .br
 #geninfo_gcov_tool = gcov
@@ -564,6 +569,16 @@ description page.
 .br
 
 Default is 0.
+.PP
+
+.BR genhtml_precision " ="
+.IR  1 | 2 | 3 | 4
+.IP
+Specify how many digits after the decimal-point should be used for
+displaying coverage rates.
+.br
+
+Default is 1.
 .PP
 .
 .BR geninfo_gcov_tool " ="

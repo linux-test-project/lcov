@@ -93,6 +93,9 @@ genhtml_charset=UTF-8
 # Allow HTML markup in test case description text if non-zero
 genhtml_desc_html=0
 
+# Specify the precision for coverage rates
+#genhtml_precision=1
+
 # Location of the gcov tool (same as --gcov-info option of geninfo)
 #geninfo_gcov_tool = gcov
 

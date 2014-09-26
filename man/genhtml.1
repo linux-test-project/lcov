@@ -64,6 +64,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-rc
 .IR keyword = value ]
 .br
+.RB [ \-\-precision
+.IR num ]
+.br
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -543,6 +546,19 @@ to override multiple configuration statements.
 See
 .BR lcovrc (5)
 for a list of available keywords and their meaning.
+.RE
+
+.BI "\-\-precision " num
+.RS
+Show coverage rates with
+.I num
+number of digits after the decimal-point.
+
+Default value is 1.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_precision .
 .RE
 
 .SH FILES
