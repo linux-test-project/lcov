@@ -1476,6 +1476,7 @@ sub read_info_file($)
 	my $line_checksum;		# Checksum of current line
 	my $br_found;
 	my $br_hit;
+	my $notified_about_relative_paths;
 	local *INFO_HANDLE;		# Filehandle for .info file
 
 	info("Reading data file $tracefile\n");
@@ -1542,7 +1543,16 @@ sub read_info_file($)
 			{
 				# Filename information found
 				# Retrieve data for new entry
-				$filename = $1;
+				$filename = File::Spec->rel2abs($1, Cwd::cwd());
+
+				if (!File::Spec->file_name_is_absolute($1) &&
+				    !$notified_about_relative_paths)
+				{
+					info("Resolved relative source file ".
+					     "path \"$1\" with CWD to ".
+					     "\"$filename\".\n");
+					$notified_about_relative_paths = 1;
+				}
 
 				$data = $result{$filename};
 				($testdata, $sumcount, $funcdata, $checkdata,
