@@ -2288,6 +2288,13 @@ sub process_graphfile($$)
 		$base_dir = $source_dir;
 	}
 
+	# Ignore empty graph file (e.g. source file with no statement)
+	if (-z $graph_filename)
+	{
+		warn("WARNING: empty $graph_filename (skipped)\n");
+		return;
+	}
+
 	if ($gcov_version < $GCOV_VERSION_3_4_0)
 	{
 		if (is_compat($COMPAT_MODE_HAMMER))
