@@ -325,6 +325,19 @@ GetOptions("config-file=s" => \$opt_config_file,
 	   "rc=s%" => \%opt_rc);
 Getopt::Long::Configure("default");
 
+{
+	# Remove spaces around rc options
+	my %new_opt_rc;
+
+	while (my ($key, $value) = each(%opt_rc)) {
+		$key =~ s/^\s+|\s+$//g;
+		$value =~ s/^\s+|\s+$//g;
+
+		$new_opt_rc{$key} = $value;
+	}
+	%opt_rc = %new_opt_rc;
+}
+
 # Read configuration file if available
 if (defined($opt_config_file)) {
 	$config = read_config($opt_config_file);
