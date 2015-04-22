@@ -88,12 +88,10 @@ our %ERROR_ID = (
 
 our $EXCL_START = "LCOV_EXCL_START";
 our $EXCL_STOP = "LCOV_EXCL_STOP";
-our $EXCL_LINE = "LCOV_EXCL_LINE";
 
 # Marker to exclude branch coverage but keep function and line coveage
 our $EXCL_BR_START = "LCOV_EXCL_BR_START";
 our $EXCL_BR_STOP = "LCOV_EXCL_BR_STOP";
-our $EXCL_BR_LINE = "LCOV_EXCL_BR_LINE";
 
 # Compatibility mode values
 our $COMPAT_VALUE_OFF	= 0;
@@ -258,6 +256,8 @@ our $gcno_split_crc;
 our $func_coverage = 1;
 our $br_coverage = 0;
 our $rc_auto_base = 1;
+our $excl_line = "LCOV_EXCL_LINE";
+our $excl_br_line = "LCOV_EXCL_BR_LINE";
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -322,6 +322,8 @@ if ($config || %opt_rc)
 		"geninfo_auto_base"		=> \$rc_auto_base,
 		"lcov_function_coverage"	=> \$func_coverage,
 		"lcov_branch_coverage"		=> \$br_coverage,
+		"lcov_excl_line"		=> \$excl_line,
+		"lcov_excl_br_line"		=> \$excl_br_line,
 	});
 
 	# Merge options
@@ -350,6 +352,13 @@ if ($config || %opt_rc)
 		} else {
 			$adjust_src_replace = $replace;
 		}
+	}
+	for my $regexp (($excl_line, $excl_br_line)) {
+		eval 'qr/'.$regexp.'/';
+		my $error = $@;
+		chomp($error);
+		$error =~ s/at \(eval.*$//;
+		die("ERROR: invalid exclude pattern: $error") if $error;
 	}
 }
 
@@ -1731,7 +1740,7 @@ sub read_gcov_file($)
 					} elsif (/$EXCL_START/) {
 						$exclude_flag = 1;
 					}
-					if (/$EXCL_LINE/ || $exclude_flag) {
+					if (/$excl_line/ || $exclude_flag) {
 						$exclude_line = 1;
 					} else {
 						$exclude_line = 0;
@@ -1744,7 +1753,7 @@ sub read_gcov_file($)
 					} elsif (/$EXCL_BR_START/) {
 						$exclude_br_flag = 1;
 					}
-					if (/$EXCL_BR_LINE/ || $exclude_br_flag) {
+					if (/$excl_br_line/ || $exclude_br_flag) {
 						$exclude_branch = 1;
 					} else {
 						$exclude_branch = 0;
@@ -1830,7 +1839,7 @@ sub read_gcov_file($)
 					} elsif (/$EXCL_START/) {
 						$exclude_flag = 1;
 					}
-					if (/$EXCL_LINE/ || $exclude_flag) {
+					if (/$excl_line/ || $exclude_flag) {
 						$exclude_line = 1;
 					} else {
 						$exclude_line = 0;
@@ -1843,7 +1852,7 @@ sub read_gcov_file($)
 					} elsif (/$EXCL_BR_START/) {
 						$exclude_br_flag = 1;
 					}
-					if (/$EXCL_BR_LINE/ || $exclude_br_flag) {
+					if (/$excl_br_line/ || $exclude_br_flag) {
 						$exclude_branch = 1;
 					} else {
 						$exclude_branch = 0;
@@ -2129,7 +2138,7 @@ sub get_exclusion_data($)
 		} elsif (/$EXCL_START/) {
 			$flag = 1;
 		}
-		if (/$EXCL_LINE/ || $flag) {
+		if (/$excl_line/ || $flag) {
 			$list{$.} = 1;
 		}
 	}
