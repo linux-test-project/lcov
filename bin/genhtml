@@ -806,60 +806,6 @@ sub rename_functions($$)
 }
 
 #
-# demangle_cpp(INFO)
-#
-# Demangle all function names found in INFO.
-#
-sub demangle_cpp($)
-{
-	my ($info) = @_;
-	my $fn_list = get_fn_list($info);
-	my @fn_list_demangled;
-	my $tmpfile;
-	my $handle;
-	my %demangled;
-	my $changed;
-
-	# Nothing to do
-	return if (!@$fn_list);
-
-	# Write list to temp file
-	(undef, $tmpfile) = tempfile();
-	die("ERROR: could not create temporary file") if (!defined($tmpfile));
-	open($handle, ">", $tmpfile) or
-		die("ERROR: could not write to $tmpfile: $!\n");
-	print($handle join("\n", @$fn_list));
-	close($handle);
-
-	# Run c++ filt on tempfile file and parse output, creating a hash
-	open($handle, "-|", "c++filt < $tmpfile") or
-		die("ERROR: could not run c++filt: $!\n");
-	@fn_list_demangled = <$handle>;
-	close($handle);
-	unlink($tmpfile) or
-		warn("WARNING: could not remove temporary file $tmpfile: $!\n");
-
-	if (scalar(@fn_list_demangled) != scalar(@$fn_list)) {
-		die("ERROR: c++filt output not as expected (".
-		    scalar(@fn_list_demangled)." vs ".
-		    scalar(@$fn_list).") lines\n");
-	}
-
-	# Build old_name -> new_name
-	$changed = 0;
-	for (my $i = 0; $i < scalar(@$fn_list); $i++) {
-		chomp($fn_list_demangled[$i]);
-		$demangled{$fn_list->[$i]} = $fn_list_demangled[$i];
-		$changed++ if ($fn_list->[$i] ne $fn_list_demangled[$i]);
-	}
-
-	info("Demangling $changed function names\n");
-
-	# Change all occurrences of function names in INFO
-	rename_functions($info, \%demangled);
-}
-
-#
 # gen_html()
 #
 # Generate a set of HTML pages from contents of .info file INFO_FILENAME.
@@ -915,9 +861,6 @@ sub gen_html()
 		info("Subtracting baseline data.\n");
 		%info_data = %{apply_baseline(\%info_data, \%base_data)};
 	}
-
-	# Demangle C++ function names if requested
-	demangle_cpp(\%info_data) if ($demangle_cpp);
 
 	@dir_list = get_dir_list(keys(%info_data));
 
@@ -5363,6 +5306,47 @@ sub funcview_get_sorted($$$)
 		} keys(%{$sumfncdata}));
 }
 
+sub demangle_list($)
+{
+	my ($list) = @_;
+	my $tmpfile;
+	my $handle;
+	my %demangle;
+	my %versions;
+
+	# Write function names to file
+	($handle, $tmpfile) = tempfile();
+	die("ERROR: could not create temporary file") if (!defined($tmpfile));
+	print($handle join("\n", @$list));
+	close($handle);
+
+	# Build translation hash from c++filt output
+	open($handle, "-|", "c++filt < $tmpfile") or
+		die("ERROR: could not run c++filt: $!\n");
+	foreach my $func (@$list) {
+		my $translated = <$handle>;
+		my $version;
+
+		last if (!defined($translated));
+		chomp($translated);
+
+		$version = ++$versions{$translated};
+		$translated .= ".$version" if ($version > 1);
+		$demangle{$func} = $translated;
+	}
+	close($handle);
+
+	if (scalar(keys(%demangle)) != scalar(@$list)) {
+		die("ERROR: c++filt output not as expected (".
+		    scalar(keys(%demangle))." vs ".scalar(@$list).") lines\n");
+	}
+
+	unlink($tmpfile) or
+		warn("WARNING: could not remove temporary file $tmpfile: $!\n");
+
+	return \%demangle;
+}
+
 #
 # write_function_table(filehandle, source_file, sumcount, funcdata,
 #		       sumfnccount, testfncdata, sumbrcount, testbrdata,
@@ -5390,6 +5374,7 @@ sub write_function_table(*$$$$$$$$$$)
 	my $func;
 	my $func_code;
 	my $count_code;
+	my $demangle;
 
 	# Get HTML code for headings
 	$func_code = funcview_get_func_code($name, $base, $type);
@@ -5404,7 +5389,12 @@ sub write_function_table(*$$$$$$$$$$)
 	    </tr>
 END_OF_HTML
 	;
-	
+
+	# Get demangle translation hash
+	if ($demangle_cpp) {
+		$demangle = demangle_list([ sort(keys(%{$funcdata})) ]);
+	}
+
 	# Get a sorted table
 	foreach $func (funcview_get_sorted($funcdata, $sumfncdata, $type)) {
 		if (!defined($funcdata->{$func}))
@@ -5416,6 +5406,9 @@ END_OF_HTML
 		my $name = $func;
 		my $count = $sumfncdata->{$name};
 		my $countstyle;
+
+		# Replace function name with demangled version if available
+		$name = $demangle->{$name} if (exists($demangle->{$name}));
 
 		# Escape special characters
 		$name = escape_html($name);
