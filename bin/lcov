@@ -930,17 +930,21 @@ sub get_package($)
 	local *HANDLE;
 
 	info("Reading package $file:\n");
-	info("  data directory .......: $dir\n");
 	$file = abs_path($file);
 	chdir($dir);
 	open(HANDLE, "-|", "tar xvfz '$file' 2>/dev/null")
 		or die("ERROR: could not process package $file\n");
+	$count = 0;
 	while (<HANDLE>) {
 		if (/\.da$/ || /\.gcda$/) {
 			$count++;
 		}
 	}
 	close(HANDLE);
+	if ($count == 0) {
+		die("ERROR: no data file found in package $file\n");
+	}
+	info("  data directory .......: $dir\n");
 	$build = read_file("$dir/$pkg_build_file");
 	if (defined($build)) {
 		info("  build directory ......: $build\n");
@@ -1013,6 +1017,10 @@ sub create_package($$$;$)
 {
 	my ($file, $dir, $build, $gkv) = @_;
 	my $cwd = getcwd();
+
+	# Check for availability of tar tool first
+	system("tar --help > /dev/null")
+		and die("ERROR: tar command not available\n");
 
 	# Print information about the package
 	info("Creating package $file:\n");
@@ -4146,6 +4154,9 @@ sub abort_handler($)
 
 sub temp_cleanup()
 {
+	# Ensure temp directory is not in use by current process
+	chdir("/");
+
 	if (@temp_dirs) {
 		info("Removing temporary directories.\n");
 		foreach (@temp_dirs) {
