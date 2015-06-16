@@ -1286,6 +1286,84 @@ sub kernel_capture()
 }
 
 #
+# link_data_cb(datadir, rel, graphdir)
+#
+# Create symbolic link in GRAPDIR/REL pointing to DATADIR/REL.
+#
+
+sub link_data_cb($$$)
+{
+	my ($datadir, $rel, $graphdir) = @_;
+	my $absfrom = catfile($datadir, $rel);
+	my $absto = catfile($graphdir, $rel);
+	my $base;
+	my $dir;
+
+	if (-e $absto) {
+		die("ERROR: could not create symlink at $absto: ".
+		    "File already exists!\n");
+	}
+	if (-l $absto) {
+		# Broken link - possibly from an interrupted earlier run
+		unlink($absto);
+	}
+
+	# Check for graph file
+	$base = $absto;
+	$base =~ s/\.(gcda|da)$//;
+	if (! -e $base.".gcno" && ! -e $base.".bbg" && ! -e $base.".bb") {
+		die("ERROR: No graph file found for $absfrom in ".
+		    dirname($base)."!\n");
+	}
+
+	symlink($absfrom, $absto) or
+		die("ERROR: could not create symlink at $absto: $!\n");
+}
+
+#
+# unlink_data_cb(datadir, rel, graphdir)
+#
+# Remove symbolic link from GRAPHDIR/REL to DATADIR/REL.
+#
+
+sub unlink_data_cb($$$)
+{
+	my ($datadir, $rel, $graphdir) = @_;
+	my $absfrom = catfile($datadir, $rel);
+	my $absto = catfile($graphdir, $rel);
+	my $target;
+
+	return if (!-l $absto);
+	$target = readlink($absto);
+	return if (!defined($target) || $target ne $absfrom);
+
+	unlink($absto) or
+		warn("WARNING: could not remove symlink $absto: $!\n");
+}
+
+#
+# link_data(datadir, graphdir, create)
+#
+# If CREATE is non-zero, create symbolic links in GRAPHDIR for data files
+# found in DATADIR. Otherwise remove link in GRAPHDIR.
+#
+
+sub link_data($$$)
+{
+	my ($datadir, $graphdir, $create) = @_;
+
+	$datadir = abs_path($datadir);
+	$graphdir = abs_path($graphdir);
+	if ($create) {
+		lcov_find($datadir, \&link_data_cb, $graphdir, '\.gcda$',
+			  '\.da$');
+	} else {
+		lcov_find($datadir, \&unlink_data_cb, $graphdir, '\.gcda$',
+			  '\.da$');
+	}
+}
+
+#
 # package_capture()
 #
 # Capture coverage data from a package of unprocessed coverage data files
@@ -1320,7 +1398,9 @@ sub package_capture()
 	} else {
 		# Build directory needs to be passed to geninfo
 		$base_directory = $build;
-		lcov_geninfo($dir);
+		link_data($dir, $base_directory, 1);
+		lcov_geninfo($base_directory);
+		link_data($dir, $base_directory, 0);
 	}
 }
 

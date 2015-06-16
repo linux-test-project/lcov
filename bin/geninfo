@@ -710,7 +710,7 @@ sub gen_info($)
 	{
 		info("Scanning $directory for $ext files ...\n");
 
-		@file_list = `find "$directory" $maxdepth $follow -name \\*$ext -type f 2>/dev/null`;
+		@file_list = `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -type l 2>/dev/null`;
 		chomp(@file_list);
 		if (!@file_list) {
 			warn("WARNING: no $ext files found in $directory - ".
