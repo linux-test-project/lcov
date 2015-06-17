@@ -1050,6 +1050,7 @@ sub create_package($$$;$)
 	chdir($dir);
 	system("tar cfz $file .")
 		and die("ERROR: could not create package $file\n");
+	chdir($cwd);
 
 	# Remove temporary files
 	unlink("$dir/$pkg_build_file");
@@ -1063,7 +1064,6 @@ sub create_package($$$;$)
 			info("  data files ...........: $count\n");
 		}
 	}
-	chdir($cwd);
 }
 
 sub find_link_fn($$$)
