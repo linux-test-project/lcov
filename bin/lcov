@@ -1364,6 +1364,35 @@ sub link_data($$$)
 }
 
 #
+# find_graph_cb(datadir, rel, count_ref)
+#
+# Count number of files found.
+#
+
+sub find_graph_cb($$$)
+{
+	my ($dir, $rel, $count_ref) = @_;
+
+	($$count_ref)++;
+}
+
+#
+# find_graph(dir)
+#
+# Search DIR for a graph file. Return non-zero if one was found, zero otherwise.
+#
+
+sub find_graph($)
+{
+	my ($dir) = @_;
+	my $count = 0;
+
+	lcov_find($dir, \&find_graph_cb, \$count, '\.gcno$', '\.bb$', '\.bbg$');
+
+	return $count > 0 ? 1 : 0;
+}
+
+#
 # package_capture()
 #
 # Capture coverage data from a package of unprocessed coverage data files
@@ -1398,9 +1427,16 @@ sub package_capture()
 	} else {
 		# Build directory needs to be passed to geninfo
 		$base_directory = $build;
-		link_data($dir, $base_directory, 1);
-		lcov_geninfo($base_directory);
-		link_data($dir, $base_directory, 0);
+		if (find_graph($dir)) {
+			# Package contains graph files - collect from there
+			lcov_geninfo($dir);
+		} else {
+			# No graph files found, link data files next to
+			# graph files
+			link_data($dir, $base_directory, 1);
+			lcov_geninfo($base_directory);
+			link_data($dir, $base_directory, 0);
+		}
 	}
 }
 
