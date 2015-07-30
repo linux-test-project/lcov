@@ -194,7 +194,7 @@ sub get_affecting_tests($$$);
 sub combine_info_files($$);
 sub merge_checksums($$$);
 sub combine_info_entries($$$);
-sub apply_prefix($$);
+sub apply_prefix($@);
 sub system_no_output($@);
 sub read_config($);
 sub apply_config($);
@@ -212,6 +212,7 @@ sub get_br_found_and_hit($);
 sub warn_handler($);
 sub die_handler($);
 sub parse_ignore_errors(@);
+sub parse_dir_prefix(@);
 sub rate($$;$$$);
 
 
@@ -259,7 +260,8 @@ sub gen_png($$$@);
 
 # Global variables & initialization
 our %info_data;		# Hash containing all data from .info file
-our $dir_prefix;	# Prefix to remove from all sub directories
+our @opt_dir_prefix;	# Array of prefixes to remove from all sub directories
+our @dir_prefix;
 our %test_description;	# Hash containing test descriptions if available
 our $date = get_date_string();
 
@@ -402,7 +404,7 @@ if (!GetOptions("output-directory|o=s"	=> \$output_directory,
 		"keep-descriptions|k"	=> \$keep_descriptions,
 		"css-file|c=s"		=> \$css_filename,
 		"baseline-file|b=s"	=> \$base_filename,
-		"prefix|p=s"		=> \$dir_prefix,
+		"prefix|p=s"		=> \@opt_dir_prefix,
 		"num-spaces=i"		=> \$tab_size,
 		"no-prefix"		=> \$no_prefix,
 		"no-sourceview"		=> \$no_sourceview,
@@ -466,6 +468,9 @@ if ($version)
 # Determine which errors the user wants us to ignore
 parse_ignore_errors(@opt_ignore_errors);
 
+# Split the list of prefixes if needed
+parse_dir_prefix(@opt_dir_prefix);
+
 # Check for info filename
 if (!@info_filenames)
 {
@@ -519,11 +524,11 @@ if ($no_sourceview && defined($frames))
 }
 
 # Issue a warning if --no-prefix is enabled together with --prefix
-if ($no_prefix && defined($dir_prefix))
+if ($no_prefix && @dir_prefix)
 {
 	warn("WARNING: option --prefix disabled because --no-prefix was ".
 	     "specified!\n");
-	$dir_prefix = undef;
+	@dir_prefix = undef;
 }
 
 @fileview_sortlist = ($SORT_FILE);
@@ -869,14 +874,16 @@ sub gen_html()
 		# User requested that we leave filenames alone
 		info("User asked not to remove filename prefix\n");
 	}
-	elsif (!defined($dir_prefix))
+	elsif (! @dir_prefix)
 	{
 		# Get prefix common to most directories in list
-		$dir_prefix = get_prefix(1, keys(%info_data));
+		my $prefix = get_prefix(1, keys(%info_data));
 
-		if ($dir_prefix)
+		if ($prefix)
 		{
-			info("Found common filename prefix \"$dir_prefix\"\n");
+			info("Found common filename prefix \"$prefix\"\n");
+			$dir_prefix[0] = $prefix;
+
 		}
 		else
 		{
@@ -886,10 +893,16 @@ sub gen_html()
 	}
 	else
 	{
-		info("Using user-specified filename prefix \"".
-		     "$dir_prefix\"\n");
-		$dir_prefix =~ s/\/+$//;
+		my $msg = "Using user-specified filename prefix ";
+		for my $i (0 .. $#dir_prefix)
+		{
+				$dir_prefix[$i] =~ s/\/+$//;
+				$msg .= ", " unless 0 == $i;
+				$msg .= "\"" . $dir_prefix[$i] . "\"";
+		}
+		info($msg . "\n");
 	}
+
 
 	# Read in test description file if specified
 	if ($desc_filename)
@@ -936,10 +949,10 @@ sub gen_html()
 		$dir_name = "root" if ($dir_name eq "");
 
 		# Remove prefix if applicable
-		if (!$no_prefix && $dir_prefix)
+		if (!$no_prefix && @dir_prefix)
 		{
-			# Match directory names beginning with $dir_prefix
-			$dir_name = apply_prefix($dir_name, $dir_prefix);
+			# Match directory names beginning with one of @dir_prefix
+			$dir_name = apply_prefix($dir_name,@dir_prefix);
 		}
 
 		# Generate name for directory overview HTML page
@@ -1077,8 +1090,8 @@ sub process_dir($)
 	# Remove prefix if applicable
 	if (!$no_prefix)
 	{
-		# Match directory name beginning with $dir_prefix
-		$rel_dir = apply_prefix($rel_dir, $dir_prefix);
+		# Match directory name beginning with one of @dir_prefix
+		$rel_dir = apply_prefix($rel_dir,@dir_prefix);
 	}
 
 	$trunc_dir = $rel_dir;
@@ -1260,7 +1273,7 @@ sub write_function_page($$$$$$$$$$$$$$$$$$)
 
 sub process_file($$$)
 {
-	info("Processing file ".apply_prefix($_[2], $dir_prefix)."\n");
+	info("Processing file ".apply_prefix($_[2], @dir_prefix)."\n");
 
 	my $trunc_dir = $_[0];
 	my $rel_dir = $_[1];
@@ -5704,22 +5717,25 @@ sub remove_unused_descriptions()
 
 
 #
-# apply_prefix(filename, prefix)
+# apply_prefix(filename, PREFIXES)
 #
-# If FILENAME begins with PREFIX, remove PREFIX from FILENAME and return
-# resulting string, otherwise return FILENAME.
+# If FILENAME begins with PREFIX from PREFIXES, remove PREFIX from FILENAME
+# and return resulting string, otherwise return FILENAME.
 #
 
-sub apply_prefix($$)
+sub apply_prefix($@)
 {
-	my $filename = $_[0];
-	my $prefix = $_[1];
+	my $filename = shift;
+        my @dir_prefix = @_;
 
-	if (defined($prefix) && ($prefix ne ""))
+	if (@dir_prefix)
 	{
-		if ($filename =~ /^\Q$prefix\E\/(.*)$/)
+		foreach my $prefix (@dir_prefix)
 		{
-			return substr($filename, length($prefix) + 1);
+			if ($prefix ne "" && $filename =~ /^\Q$prefix\E\/(.*)$/)
+			{
+				return substr($filename, length($prefix) + 1);
+			}
 		}
 	}
 
@@ -5972,6 +5988,31 @@ sub parse_ignore_errors(@)
 			    "$item\n");
 		}
 		$ignore[$item_id] = 1;
+	}
+}
+
+#
+# parse_dir_prefix(@dir_prefix)
+#
+# Parse user input about the prefix list
+#
+
+sub parse_dir_prefix(@)
+{
+	my (@opt_dir_prefix) = @_;
+	my $item;
+
+	return if (!@opt_dir_prefix);
+
+	foreach $item (@opt_dir_prefix) {
+		$item =~ s/\s//g;
+		if ($item =~ /,/) {
+			# Split and add comma-separated parameters
+			push(@dir_prefix, split(/,/, $item));
+		} else {
+			# Add single parameter
+			push(@dir_prefix, $item);
+		}
 	}
 }
 
