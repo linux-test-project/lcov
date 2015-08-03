@@ -5726,7 +5726,7 @@ sub remove_unused_descriptions()
 sub apply_prefix($@)
 {
 	my $filename = shift;
-        my @dir_prefix = @_;
+	my @dir_prefix = @_;
 
 	if (@dir_prefix)
 	{
@@ -6005,7 +6005,6 @@ sub parse_dir_prefix(@)
 	return if (!@opt_dir_prefix);
 
 	foreach $item (@opt_dir_prefix) {
-		$item =~ s/\s//g;
 		if ($item =~ /,/) {
 			# Split and add comma-separated parameters
 			push(@dir_prefix, split(/,/, $item));
