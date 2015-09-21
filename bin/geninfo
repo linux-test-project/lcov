@@ -1909,6 +1909,7 @@ sub get_gcov_version()
 	local *HANDLE;
 	my $version_string;
 	my $result;
+	my $pipe_next_line;
 
 	open(GCOV_PIPE, "-|", "$gcov_tool --version")
 		or die("ERROR: cannot retrieve gcov version!\n");
@@ -1917,7 +1918,13 @@ sub get_gcov_version()
 	# For example, gcov --version yields:
 	# LLVM (http://llvm.org/):
 	#   LLVM version 3.4svn
-	$version_string = <GCOV_PIPE> if ($version_string =~ /LLVM/);
+
+	$pipe_next_line = <GCOV_PIPE>;	
+	# In case version information is on first line.
+	# For example, with Xcode 7.0 gcov --version yields:
+	# Apple LLVM 7.0.0 (clang-700.0.65)
+
+	$version_string = $pipe_next_line if ($pipe_next_line && $version_string =~ /LLVM/);
 	close(GCOV_PIPE);
 
 	# Remove version information in parenthesis to cope with the following:
