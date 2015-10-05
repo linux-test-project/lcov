@@ -14,6 +14,7 @@ sub get_file_info($);
 our $directory = $ARGV[0];
 our $version = $ARGV[1];
 our $release = $ARGV[2];
+our $full = $ARGV[3];
 
 our @man_pages = ("man/gendesc.1",  "man/genhtml.1",  "man/geninfo.1",
 		  "man/genpng.1", "man/lcov.1", "man/lcovrc.5");
@@ -23,7 +24,7 @@ our @txt_files = ("README");
 our @spec_files = ("rpm/lcov.spec");
 
 if (!defined($directory) || !defined($version) || !defined($release)) {
-	die("Usage: $0 DIRECTORY|FILE VERSION RELEASE\n");
+	die("Usage: $0 DIRECTORY|FILE VERSION RELEASE FULL_VERSION\n");
 }
 
 # Determine mode of operation
@@ -127,7 +128,7 @@ sub update_bin_tool($)
 	open(OUT, ">$filename.new") ||
 		die("Error: cannot create $filename.new\n");
 	while (<IN>) {
-		s/^(our\s+\$lcov_version\s*=).*$/$1 "LCOV version $version";/g;
+		s/^(our\s+\$lcov_version\s*=).*$/$1 "LCOV version $full";/g;
 		print(OUT $_);
 	}
 	close(OUT);
@@ -187,5 +188,6 @@ sub write_version_file($)
 	open($fd, ">", $filename) or die("Error: cannot write $filename: $!\n");
 	print($fd "VERSION=$version\n");
 	print($fd "RELEASE=$release\n");
+	print($fd "FULL=$full\n");
 	close($fd);
 }

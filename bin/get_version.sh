@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: get_version.sh --version|--release
+# Usage: get_version.sh --version|--release|--full
 #
 # Print lcov version or release information as provided by Git, .version
 # or a fallback.
@@ -15,6 +15,7 @@ if [ -z "$GITVER" ] ; then
 	fi
 else
 	# Get version information from git
+	FULL=${GITVER:1}
 	VERSION=${GITVER%%-*}
 	VERSION=${VERSION:1}
 	if [ "${GITVER#*-}" != "$GITVER" ] ; then
@@ -24,8 +25,10 @@ else
 fi
 
 # Fallback
-[ -z "$VERSION" ] && VERSION=1.0
-[ -z "$RELEASE" ] && RELEASE=1
+[ -z "$VERSION" ] && VERSION="1.0"
+[ -z "$RELEASE" ] && RELEASE="1"
+[ -z "$FULL" ]    && FULL="$VERSION"
 
-[ "$1" == "--version" ] && echo -n $VERSION
-[ "$1" == "--release" ] && echo -n $RELEASE
+[ "$1" == "--version" ] && echo -n "$VERSION"
+[ "$1" == "--release" ] && echo -n "$RELEASE"
+[ "$1" == "--full"    ] && echo -n "$FULL"

@@ -43,7 +43,7 @@ use Cwd qw/abs_path/;
 
 # Constants
 our $tool_dir		= abs_path(dirname($0));
-our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --version`;
+our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --full`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 

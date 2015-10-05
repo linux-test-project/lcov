@@ -13,12 +13,13 @@
 
 VERSION := $(shell bin/get_version.sh --version)
 RELEASE := $(shell bin/get_version.sh --release)
+FULL    := $(shell bin/get_version.sh --full)
 
 CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/usr/bin
 MAN_DIR := $(PREFIX)/usr/share/man
-TMP_DIR := /tmp/lcov-tmp.$(shell echo $$$$)
-FILES   := $(wildcard bin/*) $(wildcard man/*) README CHANGES Makefile \
+TMP_DIR := $(shell mktemp -d)
+FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
 
 .PHONY: all info clean install uninstall rpms
@@ -49,17 +50,17 @@ install:
 	bin/install.sh man/gendesc.1 $(MAN_DIR)/man1/gendesc.1 -m 644
 	bin/install.sh man/lcovrc.5 $(MAN_DIR)/man5/lcovrc.5 -m 644
 	bin/install.sh lcovrc $(CFG_DIR)/lcovrc -m 644
-	bin/updateversion.pl $(BIN_DIR)/lcov $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(BIN_DIR)/genhtml $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(BIN_DIR)/geninfo $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(BIN_DIR)/genpng $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(BIN_DIR)/gendesc $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(MAN_DIR)/man1/lcov.1 $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(MAN_DIR)/man1/genhtml.1 $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(MAN_DIR)/man1/geninfo.1 $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(MAN_DIR)/man1/genpng.1 $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(MAN_DIR)/man1/gendesc.1 $(VERSION) $(RELEASE)
-	bin/updateversion.pl $(MAN_DIR)/man5/lcovrc.5 $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(BIN_DIR)/lcov $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(BIN_DIR)/genhtml $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(BIN_DIR)/geninfo $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(BIN_DIR)/genpng $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(BIN_DIR)/gendesc $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(MAN_DIR)/man1/lcov.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(MAN_DIR)/man1/genhtml.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(MAN_DIR)/man1/geninfo.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(MAN_DIR)/man1/genpng.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(MAN_DIR)/man1/gendesc.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(MAN_DIR)/man5/lcovrc.5 $(VERSION) $(RELEASE) $(FULL)
 
 uninstall:
 	bin/install.sh --uninstall bin/lcov $(BIN_DIR)/lcov
@@ -79,12 +80,12 @@ dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
 
 lcov-$(VERSION).tar.gz: $(FILES)
-	mkdir $(TMP_DIR)
 	mkdir $(TMP_DIR)/lcov-$(VERSION)
 	cp -r * $(TMP_DIR)/lcov-$(VERSION)
 	bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
 	make -C $(TMP_DIR)/lcov-$(VERSION) clean
-	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(RELEASE)
+	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(RELEASE) $(FULL)
+	bin/get_changes.sh > $(TMP_DIR)/lcov-$(VERSION)/CHANGES
 	cd $(TMP_DIR) ; \
 	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION)
 	mv $(TMP_DIR)/lcov-$(VERSION).tar.gz .
