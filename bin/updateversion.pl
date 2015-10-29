@@ -83,7 +83,7 @@ sub get_file_info($)
 
 	return (0, 0, 0) if (!-e $filename);
 	@stat = stat($filename);
-	($sec, $min, $hour, $day, $month, $year) = localtime($stat[9]);
+	($sec, $min, $hour, $day, $month, $year) = gmtime($stat[9]);
 	$year += 1900;
 	$month += 1;
 
