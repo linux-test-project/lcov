@@ -2915,7 +2915,7 @@ sub remove()
 
 		foreach $pattern (@pattern_list)
 		{
-			$match_found ||= ($filename =~ (/$pattern$/));
+			$match_found ||= ($filename =~ (/^$pattern$/));
 		}
 
 
