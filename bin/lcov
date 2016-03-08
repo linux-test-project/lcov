@@ -4250,7 +4250,6 @@ sub warn_handler($)
 {
 	my ($msg) = @_;
 
-	temp_cleanup();
 	warn("$tool_name: $msg");
 }
 
