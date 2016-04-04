@@ -5325,6 +5325,7 @@ sub demangle_list($)
 	my $tmpfile;
 	my $handle;
 	my %demangle;
+    my $demangle_arg = "";
 	my %versions;
 
 	# Write function names to file
@@ -5333,8 +5334,14 @@ sub demangle_list($)
 	print($handle join("\n", @$list));
 	close($handle);
 
+    # Extra flag necessary on OS X so that symbols listed by gcov get demangled
+    # properly.
+    if ($^O eq "darwin") {
+        $demangle_arg = "--no-strip-underscores";
+    }
+
 	# Build translation hash from c++filt output
-	open($handle, "-|", "c++filt < $tmpfile") or
+	open($handle, "-|", "c++filt $demangle_arg < $tmpfile") or
 		die("ERROR: could not run c++filt: $!\n");
 	foreach my $func (@$list) {
 		my $translated = <$handle>;
