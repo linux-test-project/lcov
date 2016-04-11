@@ -31,9 +31,9 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root)
-/usr/bin
-/usr/share
-/etc
+/usr/bin/*
+/usr/share/man/man*/*.gz
+/etc/*
 
 %changelog
 * Mon May 07 2012 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
