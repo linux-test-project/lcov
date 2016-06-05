@@ -72,6 +72,12 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path cwd/;
 
+our $dir_separator = "/";
+if ($^O =~ /Win/)
+{
+	$dir_separator = "\\";
+}
+
 
 # Global constants
 our $title		= "LCOV - code coverage report";
@@ -1114,7 +1120,7 @@ sub process_dir($)
 
 	# Match filenames which specify files in this directory, not including
 	# sub-directories
-	foreach $filename (grep(/^\Q$abs_dir\E\/[^\/]*$/,keys(%info_data)))
+	foreach $filename (grep(/^\Q$abs_dir$dir_separator\E[^\Q$dir_separator\E]*$/,keys(%info_data)))
 	{
 		my $page_link;
 		my $func_link;
@@ -2393,7 +2399,7 @@ sub get_prefix($@)
 		$current = $_;
 		while ($current = shorten_prefix($current))
 		{
-			$current .= "/";
+			$current .= $dir_separator;
 
 			# Skip rest if the remaining prefix has already been
 			# added to hash
@@ -2411,7 +2417,7 @@ sub get_prefix($@)
 		my $dir = dirname($filename);
 
 		for (my $i = 0; $i < $min_dir; $i++) {
-			delete($prefix{$dir."/"});
+			delete($prefix{$dir . $dir_separator});
 			$dir = shorten_prefix($dir);
 		}
 	}
@@ -2447,7 +2453,7 @@ sub get_prefix($@)
 		}
 	}
 
-	$current =~ s/\/$//;
+	$current =~ s/\Q$dir_separator\E$//;
 
 	return($current);
 }
@@ -2461,10 +2467,10 @@ sub get_prefix($@)
 
 sub shorten_prefix($)
 {
-	my @list = split("/", $_[0]);
+	my @list = split(/\Q$dir_separator\E/, $_[0]);
 
 	pop(@list);
-	return join("/", @list);
+	return join($dir_separator, @list);
 }
 
 
@@ -2507,6 +2513,12 @@ sub get_relative_base_path($)
 
 	# Count number of /s in path
 	$index = ($_[0] =~ s/\//\//g);
+
+	# Count \s as well if under native Windows host
+	if ($^O =~ /Win/)
+	{
+		$index += ($_[0] =~ s/\\/\\/g);
+	}
 
 	# Add a ../ to $result for each / in the directory path + 1
 	for (; $index>=0; $index--)
@@ -5678,7 +5690,7 @@ sub apply_prefix($@)
 			{
 				return "root";
 			}
-			if ($prefix ne "" && $filename =~ /^\Q$prefix\E\/(.*)$/)
+			if ($prefix ne "" && $filename =~ /^\Q$prefix$dir_separator\E(.*)$/)
 			{
 				return substr($filename, length($prefix) + 1);
 			}

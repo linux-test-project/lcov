@@ -1141,7 +1141,16 @@ sub process_dafile($$)
 
 	# Construct name of graph file
 	$bb_basename = $da_basename.$graph_file_extension;
-	$bb_filename = "$da_dir/$bb_basename";
+
+	# Handle native win32 path
+	if ($^O =~ /Win/)
+	{
+		$bb_filename = "$da_dir\\$bb_basename";
+	}
+	else
+	{
+		$bb_filename = "$da_dir/$bb_basename";
+	}
 
 	# Find out the real location of graph file in case we're just looking at
 	# a link
@@ -1561,11 +1570,58 @@ sub process_dafile($$)
 
 
 #
+# solve_windows_relative_path(path, dir)
+#
+# Solve relative path components of DIR which, if not absolute, resides in PATH.
+#
+sub solve_windows_relative_path($$)
+{
+	my $path = $_[0];
+	my $dir = $_[1];
+	my $uppercase_volume;
+	my $directories;
+	my $filename;
+	my $result;
+
+	# Transform c/d\../e/f\g to Windows style c\d\..\e\f\g
+	$path = File::Spec::Win32->canonpath($path);
+	$dir = File::Spec::Win32->canonpath($dir);
+
+	$result = $dir;
+
+	# Prepend path if not absolute
+	if ($dir !~ /^[A-Za-z]:\\/)
+	{
+		$result = "$path\\$result";
+	}
+
+	# Remove \\
+	$result =~ s/\\\\/\\/g;
+
+	# Remove .
+	$result =~ s/\\\.\\/\\/g;
+	$result =~ s/\\\.$/\\/;
+
+	# Remove trailing \
+	$result =~ s/\\$//g;
+
+	# Solve ..
+	while ($result =~ s/\\[^\\]+\\\.\.\\/\\/)
+	{
+	}
+
+	# Remove preceding ..
+	$result =~ s/^\\\.\.\\/\\/g;
+
+	return $result;
+}
+
+
+#
 # solve_relative_path(path, dir)
 #
 # Solve relative path components of DIR which, if not absolute, resides in PATH.
 #
-
 sub solve_relative_path($$)
 {
 	my $path = $_[0];
@@ -1576,8 +1632,14 @@ sub solve_relative_path($$)
 	my @dirs;			# holds path elements
 	my $result;
 
+	# Handle native win32 path
+	if ($^O =~ /Win/)
+	{
+		return solve_windows_relative_path($path, $dir);
+	}
+
 	# Convert from Windows path to msys path
-	if( $^O eq "msys" )
+	if ($^O eq "msys")
 	{
 		# search for a windows drive letter at the beginning
 		($volume, $directories, $filename) = File::Spec::Win32->splitpath( $dir );
@@ -1745,11 +1807,21 @@ sub solve_ambiguous_match($$$)
 
 sub split_filename($)
 {
-	my @path_components = split('/', $_[0]);
+	my $path_split_pattern = "/";
+	my $join_pattern = "/";
+
+	# Handle native win32 path
+	if ($^O =~ /Win/)
+	{
+		$path_split_pattern = "\\\\";
+		$join_pattern = "\\";
+	}
+
+	my @path_components = split($path_split_pattern, $_[0]);
 	my @file_components = split('\.', pop(@path_components));
 	my $extension = pop(@file_components);
 
-	return (join("/",@path_components), join(".",@file_components),
+	return (join($join_pattern,@path_components), join(".",@file_components),
 		$extension);
 }
 
