@@ -52,19 +52,28 @@
 use strict;
 use warnings;
 use File::Basename;
+use File::Find;
 use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
 			      splitpath catpath/;
 use File::Temp qw(tempfile tempdir);
 use File::Copy qw(copy);
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
-use Cwd qw/abs_path/;
+use Cwd qw/abs_path getcwd/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 use JSON::PP qw(decode_json);
 
-if( $^O eq "msys" )
+if (($^O eq "msys") || ($^O =~ /Win/))
 {
 	require File::Spec::Win32;
+}
+
+our $mv_cmd = "mv";
+our $null_redirect = "/dev/null";
+if ($^O =~ /Win/)
+{
+	$mv_cmd = "move";
+	$null_redirect = "NUL";
 }
 
 # Constants
@@ -280,7 +289,7 @@ our $excl_line = "LCOV_EXCL_LINE";
 our $excl_br_line = "LCOV_EXCL_BR_LINE";
 our $excl_exception_br_line = "LCOV_EXCL_EXCEPTION_BR_LINE";
 
-our $cwd = `pwd`;
+our $cwd = getcwd();
 chomp($cwd);
 
 
@@ -554,11 +563,11 @@ if ($base_directory)
 # Check for follow option
 if ($follow)
 {
-	$follow = "-follow"
+	$follow = 1
 }
 else
 {
-	$follow = "";
+	$follow = 0;
 }
 
 # Determine checksum mode
@@ -576,11 +585,11 @@ else
 # Determine max depth for recursion
 if ($no_recursion)
 {
-	$maxdepth = "-maxdepth 1";
+	$maxdepth = 1;
 }
 else
 {
-	$maxdepth = "";
+	$maxdepth = -1;
 }
 
 # Check for directory name
@@ -778,6 +787,63 @@ sub get_common_prefix($@)
 }
 
 #
+# find_files(directory, maxdepth, follow, ext)
+#
+# Look for files in the selected DIRECTORY matching an extension EXT.
+#
+# MAXDEPTH sets the maximum level of directories to descend to.
+# A value of -1 disables this limitation entirely
+#
+# FOLLOW might either be set to 1 to enable or 0 to disable symlinks
+# following.
+#
+sub find_files($$$$)
+{
+    my ($directory, $maxdepth, $follow, $ext) = @_;
+    my @found;
+
+    File::Find::find({
+                        wanted =>
+                        sub {
+                                my $current_fullpath = $File::Find::name;
+                                my $current_file_dir = $File::Find::dir;
+
+                                # Calculate current depth
+                                my $current_relpath = $File::Find::name;
+                                $current_relpath =~ s{^\Q$directory\E/?}{};
+                                my $current_depth = scalar File::Spec->splitdir($current_relpath);
+
+                                if (-d "$current_fullpath")
+                                {
+                                    if (($maxdepth != -1) && ($current_depth >= $maxdepth))
+                                    {
+                                        # Max depth reached, stop descending in directory tree
+                                        $File::Find::prune = 1;
+                                    }
+                                    return;
+                                }
+
+                                # Only consider files and symlinks
+                                if ((! -f $current_fullpath) && (! -l $current_fullpath))
+                                {
+                                    return;
+                                }
+
+                                # Restrict file extension and depth if needed
+                                if (("$current_fullpath" =~ /$ext$/)
+                                    && (($maxdepth == -1) || ($current_depth <= $maxdepth)))
+                                {
+                                    push(@found, "$current_relpath");
+                                }
+                            },
+                        follow => $follow
+                     },
+                     $directory);
+
+    return @found;
+}
+
+#
 # gen_info(directory)
 #
 # Traverse DIRECTORY and create a .info file for each data file found.
@@ -832,7 +898,7 @@ sub gen_info($)
 	{
 		info("Scanning $directory for $ext files ...\n");
 
-		@file_list = `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>/dev/null`;
+		@file_list = find_files("$directory", $maxdepth, $follow, "$ext");
 		chomp(@file_list);
 		if (!@file_list) {
 			warn("WARNING: no $ext files found in $directory - ".
@@ -1132,9 +1198,9 @@ sub process_dafile($$)
 	if ($object_dir ne $da_dir)
 	{
 		# Need to create link to data file in $object_dir
-		system("ln", "-s", $da_filename,
-		       "$object_dir/$da_basename$data_file_extension")
-			and die ("ERROR: cannot create link $object_dir/".
+		symlink($da_filename,
+		        "$object_dir/$da_basename$data_file_extension")
+			or die ("ERROR: cannot create link $object_dir/".
 				 "$da_basename$data_file_extension!\n");
 		push(@tmp_links,
 		     "$object_dir/$da_basename$data_file_extension");
@@ -1156,8 +1222,8 @@ sub process_dafile($$)
 	if ($da_renamed)
 	{
 		# Need to rename empty data file to workaround
-	        # gcov <= 3.2.x bug (Abort)
-		system_no_output(3, "mv", "$da_filename", "$da_filename.ori")
+		# gcov <= 3.2.x bug (Abort)
+		system_no_output(3, "$mv_cmd", "$da_filename", "$da_filename.ori")
 			and die ("ERROR: cannot rename $da_filename\n");
 	}
 
@@ -1167,7 +1233,7 @@ sub process_dafile($$)
 
 	if ($da_renamed)
 	{
-		system_no_output(3, "mv", "$da_filename.ori", "$da_filename")
+		system_no_output(3, "$mv_cmd", "$da_filename.ori", "$da_filename")
 			and die ("ERROR: cannot rename $da_filename.ori");
 	}
 
@@ -2779,8 +2845,8 @@ sub system_no_output($@)
 		}
 	} else {
 		# Redirect to /dev/null
-		($mode & 1) && open(STDOUT, ">", "/dev/null");
-		($mode & 2) && open(STDERR, ">", "/dev/null");
+		($mode & 1) && open(STDOUT, ">", "$null_redirect");
+		($mode & 2) && open(STDERR, ">", "$null_redirect");
 	}
 
 	debug("system(".join(' ', @_).")\n");

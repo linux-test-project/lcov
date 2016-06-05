@@ -2665,7 +2665,17 @@ sub create_sub_dir($)
 {
 	my ($dir) = @_;
 
-	system("mkdir", "-p" ,$dir)
+	my @param = ("mkdir");
+
+	# Windows mkdir does not need the -p param
+	if ($^O !~ /Win/)
+	{
+		@param = (@param, "-p");
+	}
+
+	@param = (@param, $dir);
+
+	system(@param)
 		and die("ERROR: cannot create directory $dir!\n");
 }
 
