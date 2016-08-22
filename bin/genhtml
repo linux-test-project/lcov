@@ -350,6 +350,9 @@ if (defined($opt_config_file)) {
 elsif (-r "/etc/lcovrc")
 {
 	$config = read_config("/etc/lcovrc");
+} elsif (-r "/usr/local/etc/lcovrc")
+{
+	$config = read_config("/usr/local/etc/lcovrc");
 }
 
 if ($config || %opt_rc)

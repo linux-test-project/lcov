@@ -24,18 +24,20 @@ exit 0
 
 %install
 rm -rf $RPM_BUILD_ROOT
-make install PREFIX=$RPM_BUILD_ROOT
+make install DESTDIR=$RPM_BUILD_ROOT PREFIX=/usr CFG_DIR=/etc
 
 %clean
 rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root)
-/usr/bin
-/usr/share
-/etc
+/usr/bin/*
+/usr/share/man/man*/*
+/etc/*
 
 %changelog
+* Mon Aug 22 2016 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
+- updated "make install" call to work with PREFIX Makefile changes
 * Mon May 07 2012 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - added dependency on perl 5.8.8 for >>& open mode support
 * Wed Aug 13 2008 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)

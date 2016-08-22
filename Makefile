@@ -15,9 +15,11 @@ VERSION := $(shell bin/get_version.sh --version)
 RELEASE := $(shell bin/get_version.sh --release)
 FULL    := $(shell bin/get_version.sh --full)
 
+PREFIX  := /usr/local
+
 CFG_DIR := $(PREFIX)/etc
-BIN_DIR := $(PREFIX)/usr/bin
-MAN_DIR := $(PREFIX)/usr/share/man
+BIN_DIR := $(PREFIX)/bin
+MAN_DIR := $(PREFIX)/share/man
 TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
@@ -28,8 +30,8 @@ all: info
 
 info:
 	@echo "Available make targets:"
-	@echo "  install   : install binaries and man pages in PREFIX (default /)"
-	@echo "  uninstall : delete binaries and man pages from PREFIX (default /)"
+	@echo "  install   : install binaries and man pages in DESTDIR (default /)"
+	@echo "  uninstall : delete binaries and man pages from DESTDIR (default /)"
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
 
 clean:
@@ -38,43 +40,43 @@ clean:
 	make -C example clean
 
 install:
-	bin/install.sh bin/lcov $(BIN_DIR)/lcov -m 755
-	bin/install.sh bin/genhtml $(BIN_DIR)/genhtml -m 755
-	bin/install.sh bin/geninfo $(BIN_DIR)/geninfo -m 755
-	bin/install.sh bin/genpng $(BIN_DIR)/genpng -m 755
-	bin/install.sh bin/gendesc $(BIN_DIR)/gendesc -m 755
-	bin/install.sh man/lcov.1 $(MAN_DIR)/man1/lcov.1 -m 644
-	bin/install.sh man/genhtml.1 $(MAN_DIR)/man1/genhtml.1 -m 644
-	bin/install.sh man/geninfo.1 $(MAN_DIR)/man1/geninfo.1 -m 644
-	bin/install.sh man/genpng.1 $(MAN_DIR)/man1/genpng.1 -m 644
-	bin/install.sh man/gendesc.1 $(MAN_DIR)/man1/gendesc.1 -m 644
-	bin/install.sh man/lcovrc.5 $(MAN_DIR)/man5/lcovrc.5 -m 644
-	bin/install.sh lcovrc $(CFG_DIR)/lcovrc -m 644
-	bin/updateversion.pl $(BIN_DIR)/lcov $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(BIN_DIR)/genhtml $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(BIN_DIR)/geninfo $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(BIN_DIR)/genpng $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(BIN_DIR)/gendesc $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(MAN_DIR)/man1/lcov.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(MAN_DIR)/man1/genhtml.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(MAN_DIR)/man1/geninfo.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(MAN_DIR)/man1/genpng.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(MAN_DIR)/man1/gendesc.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(MAN_DIR)/man5/lcovrc.5 $(VERSION) $(RELEASE) $(FULL)
+	bin/install.sh bin/lcov $(DESTDIR)$(BIN_DIR)/lcov -m 755
+	bin/install.sh bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml -m 755
+	bin/install.sh bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo -m 755
+	bin/install.sh bin/genpng $(DESTDIR)$(BIN_DIR)/genpng -m 755
+	bin/install.sh bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc -m 755
+	bin/install.sh man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1 -m 644
+	bin/install.sh man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 -m 644
+	bin/install.sh man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 -m 644
+	bin/install.sh man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1 -m 644
+	bin/install.sh man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 -m 644
+	bin/install.sh man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 -m 644
+	bin/install.sh lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
+	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/lcov $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genhtml $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/geninfo $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genpng $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/gendesc $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/lcov.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genpng.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 $(VERSION) $(RELEASE) $(FULL)
 
 uninstall:
-	bin/install.sh --uninstall bin/lcov $(BIN_DIR)/lcov
-	bin/install.sh --uninstall bin/genhtml $(BIN_DIR)/genhtml
-	bin/install.sh --uninstall bin/geninfo $(BIN_DIR)/geninfo
-	bin/install.sh --uninstall bin/genpng $(BIN_DIR)/genpng
-	bin/install.sh --uninstall bin/gendesc $(BIN_DIR)/gendesc
-	bin/install.sh --uninstall man/lcov.1 $(MAN_DIR)/man1/lcov.1
-	bin/install.sh --uninstall man/genhtml.1 $(MAN_DIR)/man1/genhtml.1
-	bin/install.sh --uninstall man/geninfo.1 $(MAN_DIR)/man1/geninfo.1
-	bin/install.sh --uninstall man/genpng.1 $(MAN_DIR)/man1/genpng.1
-	bin/install.sh --uninstall man/gendesc.1 $(MAN_DIR)/man1/gendesc.1
-	bin/install.sh --uninstall man/lcovrc.5 $(MAN_DIR)/man5/lcovrc.5
-	bin/install.sh --uninstall lcovrc $(CFG_DIR)/lcovrc
+	bin/install.sh --uninstall bin/lcov $(DESTDIR)$(BIN_DIR)/lcov
+	bin/install.sh --uninstall bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml
+	bin/install.sh --uninstall bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo
+	bin/install.sh --uninstall bin/genpng $(DESTDIR)$(BIN_DIR)/genpng
+	bin/install.sh --uninstall bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc
+	bin/install.sh --uninstall man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1
+	bin/install.sh --uninstall man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1
+	bin/install.sh --uninstall man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1
+	bin/install.sh --uninstall man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1
+	bin/install.sh --uninstall man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1
+	bin/install.sh --uninstall man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5
+	bin/install.sh --uninstall lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
