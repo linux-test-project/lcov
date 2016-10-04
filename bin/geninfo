@@ -160,6 +160,8 @@ sub solve_relative_path($$);
 sub read_gcov_header($);
 sub read_gcov_file($);
 sub info(@);
+sub map_llvm_version($);
+sub version_to_str($);
 sub get_gcov_version();
 sub system_no_output($@);
 sub read_config($);
@@ -1901,6 +1903,36 @@ sub read_gcov_file($)
 }
 
 
+# Map LLVM versions to the version of GCC gcov which they emulate.
+
+sub map_llvm_version($)
+{
+	my ($ver) = @_;
+
+	return 0x040200 if ($ver >= 0x030400);
+
+	warn("WARNING: This version of LLVM's gcov is unknown.  ".
+	     "Assuming it emulates GCC gcov version 4.2.\n");
+
+	return 0x040200;
+}
+
+
+# Return a readable version of encoded gcov version.
+
+sub version_to_str($)
+{
+	my ($ver) = @_;
+	my ($a, $b, $c);
+
+	$a = $ver >> 16 & 0xff;
+	$b = $ver >> 8 & 0xff;
+	$c = $ver & 0xff;
+
+	return "$a.$b.$c";
+}
+
+
 #
 # Get the GCOV tool version. Return an integer number which represents the
 # GCOV version. Version numbers can be compared using standard integer
@@ -1912,58 +1944,48 @@ sub get_gcov_version()
 	local *HANDLE;
 	my $version_string;
 	my $result;
-	my $pipe_next_line;
+	my ($a, $b, $c) = (4, 2, 0);	# Fallback version
+
+	# Examples for gcov version output:
+	#
+	# gcov (GCC) 4.4.7 20120313 (Red Hat 4.4.7-3)
+	#
+	# gcov (crosstool-NG 1.18.0) 4.7.2
+	#
+	# LLVM (http://llvm.org/):
+	#   LLVM version 3.4svn
+	#
+	# Apple LLVM version 8.0.0 (clang-800.0.38)
+	#       Optimized build.
+	#       Default target: x86_64-apple-darwin16.0.0
+	#       Host CPU: haswell
 
 	open(GCOV_PIPE, "-|", "$gcov_tool --version")
 		or die("ERROR: cannot retrieve gcov version!\n");
+	local $/;
 	$version_string = <GCOV_PIPE>;
-	# LLVM gcov keeps version information on the second line.
-	# For example, gcov --version yields:
-	# LLVM (http://llvm.org/):
-	#   LLVM version 3.4svn
-
-	$pipe_next_line = <GCOV_PIPE>;	
-	# In case version information is on first line.
-	# For example, with Xcode 7.0 gcov --version yields:
-	# Apple LLVM 7.0.0 (clang-700.0.65)
-
-	$version_string = $pipe_next_line if ($pipe_next_line && $version_string =~ /LLVM/);
 	close(GCOV_PIPE);
 
-	# Remove version information in parenthesis to cope with the following:
-	# - gcov (GCC) 4.4.7 20120313 (Red Hat 4.4.7-3)
-	# - gcov (crosstool-NG 1.18.0) 4.7.2
+	# Remove all bracketed information
 	$version_string =~ s/\([^\)]*\)//g;
 
-	$result = 0;
-	if ($version_string =~ /(\d+)\.(\d+)(\.(\d+))?/)
-	{
-		if (defined($4))
-		{
-			info("Found gcov version: $1.$2.$4\n");
-			$result = $1 << 16 | $2 << 8 | $4;
-		}
-		else
-		{
-			info("Found gcov version: $1.$2\n");
-			$result = $1 << 16 | $2 << 8;
-		}
+	if ($version_string =~ /(\d+)\.(\d+)(\.(\d+))?/) {
+		($a, $b, $c) = ($1, $2, $4);
+		$c = 0 if (!defined($c));
+	} else {
+		warn("WARNING: cannot determine gcov version - ".
+		     "assuming $a.$b.$c\n");
 	}
-	if ($version_string =~ /LLVM/)
-	{
-		# Map LLVM versions to the version of GCC gcov which
-		# they emulate
-		if ($result >= 0x030400)
-		{
-			info("Found LLVM gcov version 3.4, which emulates gcov version 4.2\n");
-			$result = 0x040200;
-		}
-		else
-		{
-			warn("This version of LLVM's gcov is unknown.  Assuming it emulates GCC gcov version 4.2.\n");
-			$result = 0x040200;
-		}
+	$result = $a << 16 | $b << 8 | $c;
+
+	if ($version_string =~ /LLVM/) {
+		$result = map_llvm_version($result);
+		info("Found LLVM gcov version $a.$b.$c, which emulates gcov ".
+		     "version ".version_to_str($result)."\n");
+	} else {
+		info("Found gcov version: ".version_to_str($result)."\n");
 	}
+
 	return ($result, $version_string);
 }
 
