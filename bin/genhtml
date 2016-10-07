@@ -3851,8 +3851,8 @@ sub fmt_centered($$)
 {
 	my ($width, $text) = @_;
 	my $w0 = length($text);
-	my $w1 = int(($width - $w0) / 2);
-	my $w2 = $width - $w0 - $w1;
+	my $w1 = $width > $w0 ? int(($width - $w0) / 2) : 0;
+	my $w2 = $width > $w0 ? $width - $w0 - $w1 : 0;
 
 	return (" "x$w1).$text.(" "x$w2);
 }
