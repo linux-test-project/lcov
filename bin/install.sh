@@ -34,7 +34,8 @@ do_install()
   local TARGET=$2
   local PARAMS=$3
 
-  install -p -D $PARAMS $SOURCE $TARGET
+  install -d $(dirname $TARGET)
+  install -p $PARAMS $SOURCE $TARGET
 }
 
 
