@@ -1,6 +1,6 @@
 Summary: A graphical GCOV front-end
 Name: lcov
-Version: 1.12
+Version: 1.13
 Release: 1
 License: GPL
 Group: Development/Tools
