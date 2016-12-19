@@ -196,8 +196,8 @@ sub read_gcno_word(*;$$);
 sub read_gcno_value(*$;$$);
 sub read_gcno_string(*$);
 sub read_gcno_lines_record(*$$$$$$);
-sub determine_gcno_split_crc($$$);
-sub read_gcno_function_record(*$$$$);
+sub determine_gcno_split_crc($$$$);
+sub read_gcno_function_record(*$$$$$);
 sub read_gcno($);
 sub get_gcov_capabilities();
 sub get_overall_line($$$$);
@@ -418,6 +418,8 @@ else
 }
 
 @data_directory = @ARGV;
+
+debug("$lcov_version\n");
 
 # Check for help option
 if ($help)
@@ -3363,20 +3365,20 @@ sub read_gcno_lines_record(*$$$$$$)
 }
 
 #
-# determine_gcno_split_crc(handle, big_endian, rec_length)
+# determine_gcno_split_crc(handle, big_endian, rec_length, version)
 #
 # Determine if HANDLE refers to a .gcno file with a split checksum function
 # record format. Return non-zero in case of split checksum format, zero
 # otherwise, undef in case of read error.
 #
 
-sub determine_gcno_split_crc($$$)
+sub determine_gcno_split_crc($$$$)
 {
-	my ($handle, $big_endian, $rec_length) = @_;
+	my ($handle, $big_endian, $rec_length, $version) = @_;
 	my $strlen;
 	my $overlong_string;
 
-	return 1 if ($gcov_version >= $GCOV_VERSION_4_7_0);
+	return 1 if ($version >= $GCOV_VERSION_4_7_0);
 	return 1 if (is_compat($COMPAT_MODE_SPLIT_CRC));
 
 	# Heuristic:
@@ -3408,15 +3410,15 @@ sub determine_gcno_split_crc($$$)
 }
 
 #
-# read_gcno_function_record(handle, graph, big_endian, rec_length)
+# read_gcno_function_record(handle, graph, big_endian, rec_length, version)
 #
 # Read a gcno format function record from handle and add the relevant data
 # to graph. Return (filename, function) on success, undef on error. 
 #
 
-sub read_gcno_function_record(*$$$$)
+sub read_gcno_function_record(*$$$$$)
 {
-	my ($handle, $bb, $fileorder, $big_endian, $rec_length) = @_;
+	my ($handle, $bb, $fileorder, $big_endian, $rec_length, $version) = @_;
 	my $filename;
 	my $function;
 	my $lineno;
@@ -3428,7 +3430,8 @@ sub read_gcno_function_record(*$$$$)
 	# Determine if this is a function record with split checksums
 	if (!defined($gcno_split_crc)) {
 		$gcno_split_crc = determine_gcno_split_crc($handle, $big_endian,
-							   $rec_length);
+							   $rec_length,
+							   $version);
 		return undef if (!defined($gcno_split_crc));
 	}
 	# Skip cfg checksum word in case of split checksums
@@ -3449,6 +3452,33 @@ sub read_gcno_function_record(*$$$$)
 	graph_add_order($fileorder, $function, $filename);
 
 	return ($filename, $function);
+}
+
+#
+# map_gcno_version
+#
+# Map version number as found in .gcno files to the format used in geninfo.
+#
+
+sub map_gcno_version($)
+{
+	my ($version) = @_;
+	my ($a, $b, $c);
+	my ($major, $minor);
+
+	$a = $version >> 24;
+	$b = $version >> 16 & 0xff;
+	$c = $version >> 8 & 0xff;
+
+	if ($a < ord('A')) {
+		$major = $a - ord('0');
+		$minor = ($b - ord('0')) * 10 + $c - ord('0');
+	} else {
+		$major = ($a - ord('A')) * 10 + $b - ord('0');
+		$minor = $c - ord('0');
+	}
+
+	return $major << 16 | $minor << 8;
 }
 
 #
@@ -3481,6 +3511,7 @@ sub read_gcno($)
 	my $instr;
 	my $graph;
 	my $filelength;
+	my $version;
 	local *HANDLE;
 
 	open(HANDLE, "<", $gcno_filename) or goto open_error;
@@ -3497,8 +3528,12 @@ sub read_gcno($)
 	} else {
 		goto magic_error;
 	}
-	# Skip version and stamp
-	graph_skip(*HANDLE, 8, "version and stamp") or goto incomplete;
+	# Read version
+	$version = read_gcno_value(*HANDLE, $big_endian, "compiler version");
+	$version = map_gcno_version($version);
+	debug(sprintf("found version 0x%08x\n", $version));
+	# Skip stamp
+	graph_skip(*HANDLE, 4, "file timestamp") or goto incomplete;
 	while (!eof(HANDLE)) {
 		my $next_pos;
 		my $curr_pos;
@@ -3528,7 +3563,7 @@ sub read_gcno($)
 		if ($tag == $tag_function) {
 			($filename, $function) = read_gcno_function_record(
 				*HANDLE, $bb, $fileorder, $big_endian,
-				$length);
+				$length, $version);
 			goto incomplete if (!defined($function));
 		} elsif ($tag == $tag_lines) {
 			# Read lines record
