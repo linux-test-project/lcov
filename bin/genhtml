@@ -387,6 +387,7 @@ if ($config || %opt_rc)
 		"genhtml_sort"			=> \$sort,
 		"genhtml_charset"		=> \$charset,
 		"genhtml_desc_html"		=> \$rc_desc_html,
+		"genhtml_demangle_cpp"		=> \$demangle_cpp,
 		"lcov_function_coverage"	=> \$lcov_func_coverage,
 		"lcov_branch_coverage"		=> \$lcov_branch_coverage,
 		});
