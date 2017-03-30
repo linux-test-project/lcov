@@ -24,7 +24,7 @@ TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
 
-.PHONY: all info clean install uninstall rpms
+.PHONY: all info clean install uninstall rpms test
 
 all: info
 
@@ -33,11 +33,13 @@ info:
 	@echo "  install   : install binaries and man pages in DESTDIR (default /)"
 	@echo "  uninstall : delete binaries and man pages from DESTDIR (default /)"
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
+	@echo "  test      : perform self-tests"
 
 clean:
 	rm -f lcov-*.tar.gz
 	rm -f lcov-*.rpm
 	make -C example clean
+	make -C test -s clean
 
 install:
 	bin/install.sh bin/lcov $(DESTDIR)$(BIN_DIR)/lcov -m 755
@@ -111,3 +113,6 @@ rpms: lcov-$(VERSION).tar.gz
 	mv $(TMP_DIR)/RPMS/noarch/lcov-$(VERSION)-$(RELEASE).noarch.rpm .
 	mv $(TMP_DIR)/SRPMS/lcov-$(VERSION)-$(RELEASE).src.rpm .
 	rm -rf $(TMP_DIR)
+
+test:
+	@make -C test -s all
