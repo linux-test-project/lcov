@@ -163,7 +163,7 @@ our $convert_filenames;	# If set, convert filenames when applying diff
 our $strip;		# If set, strip leading directories when applying diff
 our $temp_dir_name;	# Name of temporary directory
 our $cwd = `pwd`;	# Current working directory
-our $to_file;		# If set, indicates that output is written to a file
+our $data_stdout;	# If set, indicates that data is written to stdout
 our $follow;		# If set, indicates that find shall follow links
 our $diff_path = "";	# Path removed from tracefile when applying diff
 our $base_directory;	# Base directory (cwd of gcc during compilation)
@@ -387,11 +387,11 @@ if (@ARGV && !($extract || $remove || $diff || @opt_summary))
 }
 
 # Check for output filename
-$to_file = ($output_filename && ($output_filename ne "-"));
+$data_stdout = !($output_filename && ($output_filename ne "-"));
 
 if ($capture)
 {
-	if (!$to_file)
+	if ($data_stdout)
 	{
 		# Option that tells geninfo to write to stdout
 		$output_filename = "-";
@@ -406,6 +406,7 @@ if (!$from_package && !@directory && ($capture || $reset)) {
 # Check for requested functionality
 if ($reset)
 {
+	$data_stdout = 0;
 	# Differentiate between user space and kernel reset
 	if (@directory)
 	{
@@ -455,6 +456,7 @@ elsif ($extract)
 }
 elsif ($list)
 {
+	$data_stdout = 0;
 	list();
 }
 elsif ($diff)
@@ -470,6 +472,7 @@ elsif ($diff)
 }
 elsif (@opt_summary)
 {
+	$data_stdout = 0;
 	($ln_overall_found, $ln_overall_hit,
 	 $fn_overall_found, $fn_overall_hit,
 	 $br_overall_found, $br_overall_hit) = summary();
@@ -1456,7 +1459,7 @@ sub info(@)
 	if (!$quiet)
 	{
 		# Print info string
-		if ($to_file)
+		if (!$data_stdout)
 		{
 			printf(@_)
 		}
@@ -2645,7 +2648,7 @@ sub add_traces()
 	}
 
 	# Write combined data
-	if ($to_file)
+	if (!$data_stdout)
 	{
 		info("Writing data to $output_filename\n");
 		open(INFO_HANDLE, ">", $output_filename)
@@ -2875,7 +2878,7 @@ sub extract()
 	}
 
 	# Write extracted data
-	if ($to_file)
+	if (!$data_stdout)
 	{
 		info("Extracted $extracted files\n");
 		info("Writing data to $output_filename\n");
@@ -2931,7 +2934,7 @@ sub remove()
 	}
 
 	# Write data
-	if ($to_file)
+	if (!$data_stdout)
 	{
 		info("Deleted $removed files\n");
 		info("Writing data to $output_filename\n");
@@ -4065,7 +4068,7 @@ sub diff()
 	     "unchanged.\n");
 
 	# Write data
-	if ($to_file)
+	if (!$data_stdout)
 	{
 		info("Writing data to $output_filename\n");
 		open(INFO_HANDLE, ">", $output_filename)
