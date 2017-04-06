@@ -41,6 +41,6 @@ fi
 
 echo "Comparing with reference..."
 if ! diff -u "$REFFILE" "$SORTFILE" ; then
-	echo "Error: Result of addition differs from reference file" >&2
+	echo "Error: Result of combination differs from reference file" >&2
 	exit 1
 fi

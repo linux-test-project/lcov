@@ -178,12 +178,16 @@ sub main()
 	my $tn = "";
 	my %allfiles;
 
-	if (!defined($infofile)) {
-		die("Usage: $0 <coverage-data-file> [<multiplier>]\n");
-	}
 	$multi = 1 if (!defined($multi));
-
-	open($fd, "<", $infofile) or die("$0: Could not open $infofile: $!\n");
+	if (!defined($infofile)) {
+		$infofile = "standard input";
+		warn("$0: Reading data from standard input\n");
+		open($fd, "<&STDIN") or
+			die("$0: Could not duplicated stdin: $!\n");
+	} else {
+		open($fd, "<", $infofile) or
+			die("$0: Could not open $infofile: $!\n");
+	}
 
 	# Register starting positions of data sets
 	while (my $line = <$fd>) {

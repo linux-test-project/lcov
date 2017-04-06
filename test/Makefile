@@ -11,7 +11,7 @@ info:
 	echo ""
 	echo "Available make variables:"
 	echo "  SIZE   : specify size of test data (small, medium, large)"
-	echo "  V      : specify level of verbosity (0, 1)"
+	echo "  V      : specify level of verbosity (0, 1, 2)"
 
 test:
 	for TEST in $(TESTDIRS) ; do \

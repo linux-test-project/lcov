@@ -83,7 +83,7 @@ echo
 # Show log excerpt on failure or if requested
 if [ $RC -ne 0 -o "$V" == "1" ] ; then
 	LEN=$(tail -c "+$POS" "$LOGFILE" | wc -l)
-	if [ "$LEN" -gt "$EXCERPTLEN" ] ; then
+	if [ "$LEN" -gt "$EXCERPTLEN" -a "$V" != "1" ] ; then
 		tail -c "+$POS" "$LOGFILE" | head -n $EXCERPTLEN | t_indent
 		let LEN=$LEN-$EXCERPTLEN
 		echo "    ..."

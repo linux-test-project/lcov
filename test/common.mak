@@ -18,6 +18,7 @@ COUNTFILES   := $(ZEROCOUNTS) $(FULLCOUNTS) $(TARGETCOUNTS) $(PART1COUNTS) \
 LCOVRC       := $(TOPDIR)lcovrc
 LCOVFLAGS    := --config-file $(LCOVRC)
 SIZE         := small
+CC           := gcc
 
 export LCOV := lcov $(LCOVFLAGS)
 export PATH := $(TOPDIR)/../bin:$(TOPDIR)/bin:$(PATH)
@@ -41,6 +42,8 @@ clean_common:
 $(INFOFILES) $(COUNTFILES):
 	cd $(TOPDIR) && mkinfo profiles/$(SIZE)
 
+ifneq ($(V),2)
 .SILENT:
+endif
 
 .PHONY: all init exit prepare clean clean_common

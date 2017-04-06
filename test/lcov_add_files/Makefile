@@ -3,7 +3,7 @@ include ../common.mak
 ADDTEST := ./add_test
 
 TESTS := lcov_add_zero lcov_add_zero2 lcov_add_full lcov_add_full2 \
-	 lcov_add_part lcov_add_part2 lcov_add_concatenated
+	 lcov_add_part lcov_add_part2 lcov_add_concatenated4
 
 
 test: $(TESTS)
@@ -35,7 +35,7 @@ lcov_add_part2:
 	# should be same as target file
 	test_run lcov_add_part2 $(ADDTEST) 1 "$(TARGETINFO)" "$(PART1INFO)" "$(PART2INFO)"
 
-lcov_add_concatenated:
+lcov_add_concatenated4:
 	# Add coverage file that consists of 4 concatenation of target files 
 	# and reduce counts to 1/4 - output should be the same as input
 	cat $(TARGETINFO) $(TARGETINFO) $(TARGETINFO) $(TARGETINFO) >concatenated.info
