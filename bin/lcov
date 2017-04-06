@@ -1585,8 +1585,8 @@ sub br_ivec_len($)
 #
 # br_ivec_push(vector, block, branch, taken)
 #
-# Add an entry to the branch coverage vector. If an entry with the same
-# branch ID already exists, add the corresponding taken values.
+# Add an entry to the branch coverage vector. Entries with the same
+# branch ID might occur multiple times and must be added later
 #
 
 sub br_ivec_push($$$$)
@@ -1594,24 +1594,11 @@ sub br_ivec_push($$$$)
 	my ($vec, $block, $branch, $taken) = @_;
 	my $offset;
 	my $num = br_ivec_len($vec);
-	my $i;
 
 	$vec = "" if (!defined($vec));
 	$block = $BR_VEC_MAX if $block < 0;
 
-	# Check if branch already exists in vector
-	for ($i = 0; $i < $num; $i++) {
-		my ($v_block, $v_branch, $v_taken) = br_ivec_get($vec, $i);
-		$v_block = $BR_VEC_MAX if $v_block < 0;
-
-		next if ($v_block != $block || $v_branch != $branch);
-
-		# Add taken counts
-		$taken = br_taken_add($taken, $v_taken);
-		last;
-	}
-
-	$offset = $i * $BR_VEC_ENTRIES;
+	$offset = $num * $BR_VEC_ENTRIES;
 	$taken = br_taken_to_num($taken);
 
 	# Add to vector
@@ -1620,6 +1607,54 @@ sub br_ivec_push($$$$)
 	vec($vec, $offset + $BR_TAKEN, $BR_VEC_WIDTH) = $taken;
 
 	return $vec;
+}
+
+#
+# br_ihash_push(line, block, branch, taken, hash-reference)
+#
+# Add an entry from the branch coverage vector to an hash.
+# If an entry with the same branch ID already exists, add the corresponding
+# taken values.
+#
+
+sub br_ihash_push($$$$$)
+{
+	my ($line, $block, $branch, $taken, $hashref) = @_;
+
+	#TODO do we need that?
+	$block = $BR_VEC_MAX if $block < 0;
+
+	# Check if branch already exists in hash
+	# don't do the following:
+	#     if (exists $hash{$block}{$branch}) {
+	# since it might lead to autovivification: https://perlmaven.com/autovivification
+	# thus the pure test for existence will create at least an entry in $hash with
+	# the given $block as key!
+	if (exists $hashref->{$line}) {
+		if (exists $hashref->{$line}{$block}) {
+			if (exists $hashref->{$line}{$block}{$branch}) {
+				my $v_taken = $hashref->{$line}{$block}{$branch};
+				# Add taken counts
+				$taken = br_taken_add($taken, $v_taken);
+			}
+		}
+	}
+
+	$taken = $taken;
+
+	# Add to hash
+	$hashref->{$line}{$block}{$branch} = $taken;
+}
+
+sub br_ivec_squash($){
+	my $vec = $_[0];
+	my %hash;
+	if(defined($vec)) {
+		%hash = %{brcount_to_db($vec)};
+	}
+	($vec, undef, undef) = db_to_brcount(\%hash);
+
+	return $vec
 }
 
 
@@ -1968,6 +2003,31 @@ sub read_info_file($)
 		}
 	}
 	close(INFO_HANDLE);
+
+	# squash the branch vectors in a way that they will contain only one entry
+	# per branch id afterwrds.
+	foreach $filename (keys %result) {
+		$data = $result{$filename};
+		($testdata, $sumcount, $funcdata, $checkdata,
+			 $testfncdata, $sumfnccount, $testbrdata,
+			 $sumbrcount) =
+		get_info_entry($data);
+
+		$sumbrcount = br_ivec_squash($sumbrcount);
+
+		my $testname;
+		foreach $testname (keys %{$testbrdata}) {
+			$testbrdata->{$testname} = br_ivec_squash($testbrdata->{$testname});
+		}
+
+		set_info_entry($data, $testdata,
+								$sumcount, $funcdata,
+							   $checkdata, $testfncdata,
+							   $sumfnccount,
+							   $testbrdata,
+							   $sumbrcount);
+		$result{$filename} = $data;
+	}
 
 	# Calculate hit and found values for lines and functions of each file
 	foreach $filename (keys(%result))
@@ -2319,7 +2379,8 @@ sub brcount_to_db($)
 {
 	my ($brcount) = @_;
 	my $line;
-	my $db;
+	my %hash;
+	my $db = \%hash;
 
 	# Add branches from first count to database
 	foreach $line (keys(%{$brcount})) {
@@ -2330,7 +2391,7 @@ sub brcount_to_db($)
 		for ($i = 0; $i < $num; $i++) {
 			my ($block, $branch, $taken) = br_ivec_get($brdata, $i);
 
-			$db->{$line}->{$block}->{$branch} = $taken;
+			br_ihash_push($line, $block, $branch, $taken, $db);
 		}
 	}
 
