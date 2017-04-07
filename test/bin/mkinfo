@@ -885,6 +885,11 @@ sub main()
 	}
 
 	if (defined($opt_output)) {
+		if (! -d $opt_output) {
+			mkdir($opt_output) or
+				die("$0: Could not create directory ".
+				    "$opt_output: $!\n");
+		}
 		$root = abs_path($opt_output)
 	} else {
 		$root = "/";

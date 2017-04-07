@@ -21,6 +21,7 @@ SIZE         := small
 CC           := gcc
 
 export LCOV := lcov $(LCOVFLAGS)
+export GENHTML := genhtml $(LCOVFLAGS)
 export PATH := $(TOPDIR)/../bin:$(TOPDIR)/bin:$(PATH)
 export LANG := C
 
@@ -40,7 +41,7 @@ clean_common:
 	echo "  CLEAN   $(patsubst %/,%,$(RELDIR))"
 
 $(INFOFILES) $(COUNTFILES):
-	cd $(TOPDIR) && mkinfo profiles/$(SIZE)
+	cd $(TOPDIR) && mkinfo profiles/$(SIZE) -o src/
 
 ifneq ($(V),2)
 .SILENT:

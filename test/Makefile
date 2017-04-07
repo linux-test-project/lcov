@@ -1,6 +1,6 @@
 include common.mak
 
-TESTDIRS   := $(patsubst %/,%,$(dir $(wildcard */Makefile)))
+TESTDIRS   := $(sort $(patsubst %/,%,$(dir $(wildcard */Makefile))))
 
 help: info
 
@@ -19,7 +19,7 @@ test:
 	done
 
 clean:
-	rm -f *.info *.counts test.log
+	rm -rf *.info *.counts test.log src/
 	for TEST in $(TESTDIRS) ; do \
 		make -C $$TEST clean ; \
 	done
