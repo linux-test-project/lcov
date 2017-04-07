@@ -145,14 +145,6 @@ our $HEAD_NO_DETAIL	= 1;
 our $HEAD_DETAIL_HIDDEN	= 2;
 our $HEAD_DETAIL_SHOWN	= 3;
 
-# Offsets for storing branch coverage data in vectors
-our $BR_BLOCK		= 0;
-our $BR_BRANCH		= 1;
-our $BR_TAKEN		= 2;
-our $BR_VEC_ENTRIES	= 3;
-our $BR_VEC_WIDTH	= 32;
-our $BR_VEC_MAX		= vec(pack('b*', 1 x $BR_VEC_WIDTH), 0, $BR_VEC_WIDTH);
-
 # Additional offsets used when converting branch coverage data to HTML
 our $BR_LEN	= 3;
 our $BR_OPEN	= 4;
@@ -202,12 +194,7 @@ sub get_html_prolog($);
 sub get_html_epilog($);
 sub write_dir_page($$$$$$$$$$$$$$$$$);
 sub classify_rate($$$$);
-sub br_taken_add($$);
-sub br_taken_sub($$);
-sub br_ivec_len($);
-sub br_ivec_get($$);
-sub br_ivec_push($$$$);
-sub combine_brcount($$$);
+sub combine_brcount($$$;$);
 sub get_br_found_and_hit($);
 sub warn_handler($);
 sub die_handler($);
@@ -1376,6 +1363,16 @@ sub process_file($$$)
 }
 
 
+sub compress_brcount($)
+{
+	my ($brcount) = @_;
+	my $db;
+
+	$db = brcount_to_db($brcount);
+	return db_to_brcount($db, $brcount);
+}
+
+
 #
 # read_info_file(info_filename)
 #
@@ -1447,8 +1444,6 @@ sub read_info_file($)
 	my $negative;			# If set, warn about negative counts
 	my $changed_testname;		# If set, warn about changed testname
 	my $line_checksum;		# Checksum of current line
-	my $br_found;
-	my $br_hit;
 	my $notified_about_relative_paths;
 	local *INFO_HANDLE;		# Filehandle for .info file
 
@@ -1626,17 +1621,13 @@ sub read_info_file($)
 				   ($1, $2, $3, $4);
 
 				last if (!$br_coverage);
-				$sumbrcount->{$line} =
-					br_ivec_push($sumbrcount->{$line},
-						     $block, $branch, $taken);
+				$sumbrcount->{$line} .=
+					"$block,$branch,$taken:";
 
 				# Add test-specific counts
 				if (defined($testname)) {
-					$testbrcount->{$line} =
-						br_ivec_push(
-							$testbrcount->{$line},
-							$block, $branch,
-							$taken);
+					$testbrcount->{$line} .=
+						"$block,$branch,$taken:";
 				}
 				last;
 			};
@@ -1721,11 +1712,12 @@ sub read_info_file($)
 		}
 		$data->{"f_hit"} = $hitcount;
 
-		# Get found/hit values for branch data
-		($br_found, $br_hit) = get_br_found_and_hit($sumbrcount);
-
-		$data->{"b_found"} = $br_found;
-		$data->{"b_hit"} = $br_hit;
+		# Combine branch data for the same branches
+		(undef, $data->{"b_found"}, $data->{"b_hit"}) =
+			compress_brcount($sumbrcount);
+		foreach $testname (keys(%{$testbrdata})) {
+			compress_brcount($testbrdata->{$testname});
+		}
 	}
 
 	if (scalar(keys(%result)) == 0)
@@ -2023,16 +2015,21 @@ sub brcount_to_db($)
 	my $line;
 	my $db;
 
-	# Add branches from first count to database
+	# Add branches to database
 	foreach $line (keys(%{$brcount})) {
 		my $brdata = $brcount->{$line};
-		my $i;
-		my $num = br_ivec_len($brdata);
 
-		for ($i = 0; $i < $num; $i++) {
-			my ($block, $branch, $taken) = br_ivec_get($brdata, $i);
+		foreach my $entry (split(/:/, $brdata)) {
+			my ($block, $branch, $taken) = split(/,/, $entry);
+			my $old = $db->{$line}->{$block}->{$branch};
 
-			$db->{$line}->{$block}->{$branch} = $taken;
+			if (!defined($old) || $old eq "-") {
+				$old = $taken;
+			} elsif ($taken ne "-") {
+				$old += $taken;
+			}
+
+			$db->{$line}->{$block}->{$branch} = $old;
 		}
 	}
 
@@ -2041,16 +2038,16 @@ sub brcount_to_db($)
 
 
 #
-# db_to_brcount(db)
+# db_to_brcount(db[, brcount])
 #
-# Convert branch coverage data back to brcount format.
+# Convert branch coverage data back to brcount format. If brcount is specified,
+# the converted data is directly inserted in brcount.
 #
 
-sub db_to_brcount($)
+sub db_to_brcount($;$)
 {
-	my ($db) = @_;
+	my ($db, $brcount) = @_;
 	my $line;
-	my $brcount = {};
 	my $br_found = 0;
 	my $br_hit = 0;
 
@@ -2069,8 +2066,7 @@ sub db_to_brcount($)
 
 				$br_found++;
 				$br_hit++ if ($taken ne "-" && $taken > 0);
-				$brdata = br_ivec_push($brdata, $block,
-						       $branch, $taken);
+				$brdata .= "$block,$branch,$taken:";
 			}
 		}
 		$brcount->{$line} = $brdata;
@@ -2081,50 +2077,91 @@ sub db_to_brcount($)
 
 
 #
-# combine_brcount(brcount1, brcount2, type)
+# brcount_db_combine(db1, db2, op)
 #
-# If add is BR_ADD, add branch coverage data and return list (brcount_added,
-# br_found, br_hit). If add is BR_SUB, subtract the taken values of brcount2
-# from brcount1 and return (brcount_sub, br_found, br_hit).
+# db1 := db1 op db2, where
+#   db1, db2: brcount data as returned by brcount_to_db
+#   op:       one of $BR_ADD and BR_SUB
 #
-
-sub combine_brcount($$$)
+sub brcount_db_combine($$$)
 {
-	my ($brcount1, $brcount2, $type) = @_;
-	my $line;
-	my $block;
-	my $branch;
-	my $taken;
-	my $db;
-	my $br_found = 0;
-	my $br_hit = 0;
-	my $result;
+	my ($db1, $db2, $op) = @_;
 
-	# Convert branches from first count to database
-	$db = brcount_to_db($brcount1);
-	# Combine values from database and second count
-	foreach $line (keys(%{$brcount2})) {
-		my $brdata = $brcount2->{$line};
-		my $num = br_ivec_len($brdata);
-		my $i;
+	foreach my $line (keys(%{$db2})) {
+		my $ldata = $db2->{$line};
 
-		for ($i = 0; $i < $num; $i++) {
-			($block, $branch, $taken) = br_ivec_get($brdata, $i);
-			my $new_taken = $db->{$line}->{$block}->{$branch};
+		foreach my $block (keys(%{$ldata})) {
+			my $bdata = $ldata->{$block};
 
-			if ($type == $BR_ADD) {
-				$new_taken = br_taken_add($new_taken, $taken);
-			} elsif ($type == $BR_SUB) {
-				$new_taken = br_taken_sub($new_taken, $taken);
+			foreach my $branch (keys(%{$bdata})) {
+				my $taken = $bdata->{$branch};
+				my $new = $db1->{$line}->{$block}->{$branch};
+
+				if (!defined($new) || $new eq "-") {
+					$new = $taken;
+				} elsif ($taken ne "-") {
+					if ($op == $BR_ADD) {
+						$new += $taken;
+					} elsif ($op == $BR_SUB) {
+						$new -= $taken;
+						$new = 0 if ($new < 0);
+					}
+				}
+
+				$db1->{$line}->{$block}->{$branch} = $new;
 			}
-			$db->{$line}->{$block}->{$branch} = $new_taken
-				if (defined($new_taken));
 		}
 	}
-	# Convert database back to brcount format
-	($result, $br_found, $br_hit) = db_to_brcount($db);
+}
 
-	return ($result, $br_found, $br_hit);
+
+#
+# brcount_db_get_found_and_hit(db)
+#
+# Return (br_found, br_hit) for db.
+#
+
+sub brcount_db_get_found_and_hit($)
+{
+	my ($db) = @_;
+	my ($br_found , $br_hit) = (0, 0);
+
+	foreach my $line (keys(%{$db})) {
+		my $ldata = $db->{$line};
+
+		foreach my $block (keys(%{$ldata})) {
+			my $bdata = $ldata->{$block};
+
+			foreach my $branch (keys(%{$bdata})) {
+				my $taken = $bdata->{$branch};
+
+				$br_found++;
+				$br_hit++ if ($taken ne "-" && $taken > 0);
+			}
+		}
+	}
+
+	return ($br_found, $br_hit);
+}
+
+
+# combine_brcount(brcount1, brcount2, type, inplace)
+#
+# If add is BR_ADD, add branch coverage data and return list brcount_added.
+# If add is BR_SUB, subtract the taken values of brcount2 from brcount1 and
+# return brcount_sub. If inplace is set, the result is inserted into brcount1.
+#
+
+sub combine_brcount($$$;$)
+{
+	my ($brcount1, $brcount2, $type, $inplace) = @_;
+	my ($db1, $db2);
+
+	$db1 = brcount_to_db($brcount1);
+	$db2 = brcount_to_db($brcount2);
+	brcount_db_combine($db1, $db2, $type);
+
+	return db_to_brcount($db1, $inplace ? $brcount1 : undef);
 }
 
 
@@ -3918,12 +3955,12 @@ sub get_branch_blocks($)
 	my $last_block_num;
 	my $block = [];
 	my @blocks;
-	my $i;
-	my $num = br_ivec_len($brdata);
+
+	return () if (!defined($brdata));
 
 	# Group branches
-	for ($i = 0; $i < $num; $i++) {
-		my ($block_num, $branch, $taken) = br_ivec_get($brdata, $i);
+	foreach my $entry (split(/:/, $brdata)) {
+		my ($block_num, $branch, $taken) = split(/,/, $entry);
 		my $br;
 
 		if (defined($last_block_num) && $block_num != $last_block_num) {
@@ -4939,186 +4976,14 @@ sub get_func_found_and_hit($)
 }
 
 
-#
-# br_taken_to_num(taken)
-#
-# Convert a branch taken value .info format to number format.
-#
-
-sub br_taken_to_num($)
-{
-	my ($taken) = @_;
-
-	return 0 if ($taken eq '-');
-	return $taken + 1;
-}
-
-
-#
-# br_num_to_taken(taken)
-#
-# Convert a branch taken value in number format to .info format.
-#
-
-sub br_num_to_taken($)
-{
-	my ($taken) = @_;
-
-	return '-' if ($taken == 0);
-	return $taken - 1;
-}
-
-
-#
-# br_taken_add(taken1, taken2)
-#
-# Return the result of taken1 + taken2 for 'branch taken' values.
-#
-
-sub br_taken_add($$)
-{
-	my ($t1, $t2) = @_;
-
-	return $t1 if (!defined($t2));
-	return $t2 if (!defined($t1));
-	return $t1 if ($t2 eq '-');
-	return $t2 if ($t1 eq '-');
-	return $t1 + $t2;
-}
-
-
-#
-# br_taken_sub(taken1, taken2)
-#
-# Return the result of taken1 - taken2 for 'branch taken' values. Return 0
-# if the result would become negative.
-#
-
-sub br_taken_sub($$)
-{
-	my ($t1, $t2) = @_;
-
-	return $t1 if (!defined($t2));
-	return undef if (!defined($t1));
-	return $t1 if ($t1 eq '-');
-	return $t1 if ($t2 eq '-');
-	return 0 if $t2 > $t1;
-	return $t1 - $t2;
-}
-
-
-#
-# br_ivec_len(vector)
-#
-# Return the number of entries in the branch coverage vector.
-#
-
-sub br_ivec_len($)
-{
-	my ($vec) = @_;
-
-	return 0 if (!defined($vec));
-	return (length($vec) * 8 / $BR_VEC_WIDTH) / $BR_VEC_ENTRIES;
-}
-
-
-#
-# br_ivec_get(vector, number)
-#
-# Return an entry from the branch coverage vector.
-#
-
-sub br_ivec_get($$)
-{
-	my ($vec, $num) = @_;
-	my $block;
-	my $branch;
-	my $taken;
-	my $offset = $num * $BR_VEC_ENTRIES;
-
-	# Retrieve data from vector
-	$block	= vec($vec, $offset + $BR_BLOCK, $BR_VEC_WIDTH);
-	$block = -1 if ($block == $BR_VEC_MAX);
-	$branch = vec($vec, $offset + $BR_BRANCH, $BR_VEC_WIDTH);
-	$taken	= vec($vec, $offset + $BR_TAKEN, $BR_VEC_WIDTH);
-
-	# Decode taken value from an integer
-	$taken = br_num_to_taken($taken);
-
-	return ($block, $branch, $taken);
-}
-
-
-#
-# br_ivec_push(vector, block, branch, taken)
-#
-# Add an entry to the branch coverage vector. If an entry with the same
-# branch ID already exists, add the corresponding taken values.
-#
-
-sub br_ivec_push($$$$)
-{
-	my ($vec, $block, $branch, $taken) = @_;
-	my $offset;
-	my $num = br_ivec_len($vec);
-	my $i;
-
-	$vec = "" if (!defined($vec));
-	$block = $BR_VEC_MAX if $block < 0;
-
-	# Check if branch already exists in vector
-	for ($i = 0; $i < $num; $i++) {
-		my ($v_block, $v_branch, $v_taken) = br_ivec_get($vec, $i);
-		$v_block = $BR_VEC_MAX if $v_block < 0;
-
-		next if ($v_block != $block || $v_branch != $branch);
-
-		# Add taken counts
-		$taken = br_taken_add($taken, $v_taken);
-		last;
-	}
-
-	$offset = $i * $BR_VEC_ENTRIES;
-	$taken = br_taken_to_num($taken);
-
-	# Add to vector
-	vec($vec, $offset + $BR_BLOCK, $BR_VEC_WIDTH) = $block;
-	vec($vec, $offset + $BR_BRANCH, $BR_VEC_WIDTH) = $branch;
-	vec($vec, $offset + $BR_TAKEN, $BR_VEC_WIDTH) = $taken;
-
-	return $vec;
-}
-
-
-#
-# get_br_found_and_hit(sumbrcount)
-#
-# Return (br_found, br_hit) for sumbrcount
-#
-
 sub get_br_found_and_hit($)
 {
-	my ($sumbrcount) = @_;
-	my $line;
-	my $br_found = 0;
-	my $br_hit = 0;
+	my ($brcount) = @_;
+	my $db;
 
-	foreach $line (keys(%{$sumbrcount})) {
-		my $brdata = $sumbrcount->{$line};
-		my $i;
-		my $num = br_ivec_len($brdata);
+	$db = brcount_to_db($brcount);
 
-		for ($i = 0; $i < $num; $i++) {
-			my $taken;
-
-			(undef, undef, $taken) = br_ivec_get($brdata, $i);
-
-			$br_found++;
-			$br_hit++ if ($taken ne "-" && $taken > 0);
-		}
-	}
-
-	return ($br_found, $br_hit);
+	return brcount_db_get_found_and_hit($db);
 }
 
 
