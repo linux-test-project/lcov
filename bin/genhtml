@@ -3893,6 +3893,14 @@ END_OF_HTML
 	# *************************************************************
 }
 
+sub cmp_blocks($$)
+{
+	my ($a, $b) = @_;
+	my ($fa, $fb) = ($a->[0], $b->[0]);
+
+	return $fa->[0] <=> $fb->[0] if ($fa->[0] != $fb->[0]);
+	return $fa->[1] <=> $fb->[1];
+}
 
 #
 # get_branch_blocks(brdata)
@@ -3936,7 +3944,7 @@ sub get_branch_blocks($)
 		$block->[scalar(@{$block}) - 1]->[$BR_LEN]++;
 	}
 
-	return @blocks;
+	return sort(cmp_blocks @blocks);
 }
 
 #
