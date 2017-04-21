@@ -283,6 +283,8 @@ our $html_epilog;	# Actual HTML epilog
 our $html_ext = "html";	# Extension for generated HTML files
 our $html_gzip = 0;	# Compress with gzip
 our $demangle_cpp = 0;	# Demangle C++ function names
+our $demangle_cpp_tool = "c++filt"; # Demangler for C++ function names
+our $demangle_cpp_no_strip_underscores = 0; # Use --no-strip-underscores when demangling C++ function names
 our @opt_ignore_errors;	# Ignore certain error classes during processing
 our @ignore;
 our $opt_config_file;	# User-specified configuration file location
@@ -416,6 +418,8 @@ if (!GetOptions("output-directory|o=s"	=> \$output_directory,
 		"sort"			=> \$sort,
 		"no-sort"		=> \$no_sort,
 		"demangle-cpp"		=> \$demangle_cpp,
+		"demangle-cpp-no-strip-underscores"		=> \$demangle_cpp_no_strip_underscores,
+		"demangle-cpp-tool=s"		=> \$demangle_cpp_tool,
 		"ignore-errors=s"	=> \@opt_ignore_errors,
 		"config-file=s"		=> \$opt_config_file,
 		"rc=s%"			=> \%opt_rc,
@@ -540,10 +544,20 @@ if ($frames)
 # Ensure that the c++filt tool is available when using --demangle-cpp
 if ($demangle_cpp)
 {
-	if (system_no_output(3, "c++filt", "--version")) {
+	if (system_no_output(3, $demangle_cpp_tool, "--version")) {
 		die("ERROR: could not find c++filt tool needed for ".
 		    "--demangle-cpp\n");
 	}
+}
+
+if (!$demangle_cpp && $demangle_cpp_no_strip_underscores)
+{
+   die("ERROR: can't specify --demangle-cpp-no-strip-underscores if --demangle-cpp is not requested\n");
+}
+
+if (!$demangle_cpp && $demangle_cpp_tool)
+{
+   die("ERROR: can't specify --demangle-cpp-tool if --demangle-cpp is not requested\n");
 }
 
 # Make sure precision is within valid range
@@ -620,6 +634,8 @@ HTML output:
       --html-gzip                   Use gzip to compress HTML
       --(no-)sort                   Enable (disable) sorted coverage views
       --demangle-cpp                Demangle C++ function names
+      --demangle-cpp-tool TOOL      Specify C++ demangler (usually c++filt) tool location
+      --demangle-cpp-no-strip-underscores Add --no-strip-underscores flag to the demangler
       --precision NUM               Set precision of coverage rate
 
 For more information see: $lcov_url
@@ -5212,12 +5228,12 @@ sub demangle_list($)
 
 	# Extra flag necessary on OS X so that symbols listed by gcov get demangled
 	# properly.
-	if ($^O eq "darwin") {
+	if ($^O eq "darwin" || $demangle_cpp_no_strip_underscores) {
 		$demangle_arg = "--no-strip-underscores";
 	}
 
 	# Build translation hash from c++filt output
-	open($handle, "-|", "c++filt $demangle_arg < $tmpfile") or
+	open($handle, "-|", "$demangle_cpp_tool $demangle_arg < $tmpfile") or
 		die("ERROR: could not run c++filt: $!\n");
 	foreach my $func (@$list) {
 		my $translated = <$handle>;
