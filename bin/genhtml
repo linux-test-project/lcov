@@ -5201,7 +5201,6 @@ sub demangle_list($)
 	my $tmpfile;
 	my $handle;
 	my %demangle;
-	my $demangle_arg = "";
 	my %versions;
 
 	# Write function names to file
