@@ -2,11 +2,11 @@ Summary: A graphical GCOV front-end
 Name: lcov
 Version: 1.13
 Release: 1
-License: GPL
+License: GPLv2
 Group: Development/Tools
 URL: http://ltp.sourceforge.net/coverage/lcov.php
-Source0: http://downloads.sourceforge.net/ltp/lcov-%{version}.tar.gz
-BuildRoot: /var/tmp/%{name}-%{version}-root
+Source0: http://downloads.sourceforge.net/ltp/%{name}-%{version}.tar.gz
+BuildRoot: %{_tmppath}/%{name}-%{version}-root
 BuildArch: noarch
 Requires: perl >= 5.8.8
 
@@ -17,7 +17,7 @@ source code annotated with coverage information. It also adds overview pages
 for easy navigation within the file structure.
 
 %prep
-%setup -q -n lcov-%{version}
+%setup -q -n %{name}-%{version}
 
 %build
 exit 0
@@ -31,23 +31,38 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root)
-/usr/bin/*
-/usr/share/man/man*/*
-/etc/*
+%config /etc/lcovrc
+%{_bindir}/gendesc
+%{_bindir}/genhtml
+%{_bindir}/geninfo
+%{_bindir}/genpng
+%{_bindir}/lcov
+/usr/share/man/man1/gendesc.1.gz
+/usr/share/man/man1/genhtml.1.gz
+/usr/share/man/man1/geninfo.1.gz
+/usr/share/man/man1/genpng.1.gz
+/usr/share/man/man1/lcov.1.gz
+/usr/share/man/man5/lcovrc.5.gz
 
 %changelog
 * Mon Aug 22 2016 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - updated "make install" call to work with PREFIX Makefile changes
+
 * Mon May 07 2012 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - added dependency on perl 5.8.8 for >>& open mode support
+
 * Wed Aug 13 2008 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - changed description + summary text
+
 * Mon Aug 20 2007 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - fixed "Copyright" tag
+
 * Mon Jul 14 2003 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - removed variables for version/release to support source rpm building
 - added initial rm command in install section
+
 * Mon Apr 7 2003 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - implemented variables for version/release
-* Fri Oct 8 2002 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
+
+* Tue Oct 8 2002 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
 - created initial spec file
