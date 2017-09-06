@@ -45,6 +45,11 @@ geninfo \- Generate tracefiles from .da files
 .br
 .RB [ \-\-rc
 .IR keyword = value ]
+.br
+.RB [ \-\-extract
+.IR pattern ]
+.RB [ \-\-ignore
+.IR pattern ]
 .RE
 .SH DESCRIPTION
 .B geninfo 
@@ -301,6 +306,45 @@ ignore this data.
 Data for external source files is
 .B included
 by default.
+.RE
+
+.B \-\-extract
+.I pattern
+.br
+.RS
+Extract data from source files matching
+.IR pattern .
+
+Use this switch if you want to extract coverage data for only a particular set
+of source files matching any of the given patterns. Multiple patterns can be
+specified by using multiple
+.B --extract
+command line switches. The
+.I patterns
+will be interpreted as shell wildcard patterns (note that they may need to be
+escaped accordingly to prevent the shell from expanding them first).
+.RE
+
+.B \-\-ignore
+.I pattern
+.br
+.RS
+Ignore data from source files matching
+.IR pattern .
+
+Use this switch if you want to ignore coverage data for a particular set
+of source files matching any of the given patterns. Multiple patterns can be
+specified by using multiple
+.B --ignore
+command line switches. The
+.I patterns
+will be interpreted as shell wildcard patterns (note that they may need to be
+escaped accordingly to prevent the shell from expanding them first).
+
+Can be combined with the
+.B --extract
+command line switch. If a given file matches both the extract pattern and the
+ignore pattern, the ignore pattern will take precedence.
 .RE
 
 .B \-f

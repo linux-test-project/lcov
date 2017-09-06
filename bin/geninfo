@@ -151,6 +151,7 @@ our $UNNAMED_BLOCK	= -1;
 
 # Prototypes
 sub print_usage(*);
+sub transform_pattern($);
 sub gen_info($);
 sub process_dafile($$);
 sub match_filename($@);
@@ -239,6 +240,8 @@ our $config;		# Configuration file contents
 our @ignore_errors;	# List of errors to ignore (parameter)
 our @ignore;		# List of errors to ignore (array)
 our $initial;
+our @extract_patterns; # List of source file patterns to extract
+our @ignore_patterns; # List of source file patterns to ignore
 our $no_recursion = 0;
 our $maxdepth;
 our $no_markers = 0;
@@ -381,12 +384,14 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"no-compat-libtool" => \$opt_no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@ignore_errors,
-		"initial|i" => \$initial,
+        "initial|i" => \$initial,
+        "extract=s" => \@extract_patterns,
+        "ignore=s" => \@ignore_patterns,
 		"no-recursion" => \$no_recursion,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
 		"debug" => \$debug,
-		"external" => \$opt_external,
+		"external|e" => \$opt_external,
 		"no-external" => \$opt_no_external,
 		"compat=s" => \$opt_compat,
 		"config-file=s" => \$opt_config_file,
@@ -415,6 +420,16 @@ else
 		$opt_external = 0;
 		$opt_no_external = undef;
 	}
+
+    if(@extract_patterns) {
+        # Need perlreg expressions instead of shell pattern
+        @extract_patterns = map({ transform_pattern($_); } @extract_patterns);
+    }
+
+    if(@ignore_patterns) {
+        # Need perlreg expressions instead of shell pattern
+        @ignore_patterns = map({ transform_pattern($_); } @ignore_patterns);
+    }
 }
 
 @data_directory = @ARGV;
@@ -622,11 +637,52 @@ sequentially.
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
+      --extract PATTERN             Extract files matching PATTERN
+      --ignore PATTERN              Ignore files matching PATTERN
 
 For more information see: $lcov_url
 END_OF_USAGE
 	;
 }
+
+
+#
+# transform_pattern(pattern)
+#
+# Transform shell wildcard expression to equivalent Perl regular expression.
+# Return transformed pattern.
+#
+
+sub transform_pattern($)
+{
+	my $pattern = $_[0];
+
+	# Escape special chars
+
+	$pattern =~ s/\\/\\\\/g;
+	$pattern =~ s/\//\\\//g;
+	$pattern =~ s/\^/\\\^/g;
+	$pattern =~ s/\$/\\\$/g;
+	$pattern =~ s/\(/\\\(/g;
+	$pattern =~ s/\)/\\\)/g;
+	$pattern =~ s/\[/\\\[/g;
+	$pattern =~ s/\]/\\\]/g;
+	$pattern =~ s/\{/\\\{/g;
+	$pattern =~ s/\}/\\\}/g;
+	$pattern =~ s/\./\\\./g;
+	$pattern =~ s/\,/\\\,/g;
+	$pattern =~ s/\|/\\\|/g;
+	$pattern =~ s/\+/\\\+/g;
+	$pattern =~ s/\!/\\\!/g;
+
+	# Transform ? => (.) and * => (.*)
+
+	$pattern =~ s/\*/\(\.\*\)/g;
+	$pattern =~ s/\?/\(\.\)/g;
+
+	return $pattern;
+}
+
 
 #
 # get_common_prefix(min_dir, filenames)
@@ -1143,6 +1199,38 @@ sub process_dafile($$)
 			unlink($gcov_file);
 			next;
 		}
+
+        if (@extract_patterns)
+        {
+            my $keep = 0;
+
+            foreach my $pattern (@extract_patterns)
+            {
+                $keep ||= ($source =~ (/^$pattern$/));
+            }
+
+            if (!$keep)
+            {
+                unlink($gcov_file);
+                next;
+            }
+        }
+
+        if (@ignore_patterns)
+        {
+            my $ignore = 0;
+
+            foreach my $pattern (@ignore_patterns)
+            {
+                $ignore ||= ($source =~ (/^$pattern$/));
+            }
+
+            if ($ignore)
+            {
+                unlink($gcov_file);
+                next;
+            }
+        }
 
 		# Read in contents of gcov file
 		@result = read_gcov_file($gcov_file);
