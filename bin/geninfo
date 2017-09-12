@@ -240,8 +240,8 @@ our $config;		# Configuration file contents
 our @ignore_errors;	# List of errors to ignore (parameter)
 our @ignore;		# List of errors to ignore (array)
 our $initial;
-our @extract_patterns; # List of source file patterns to extract
-our @ignore_patterns; # List of source file patterns to ignore
+our @include_patterns; # List of source file patterns to include
+our @exclude_patterns; # List of source file patterns to exclude
 our $no_recursion = 0;
 our $maxdepth;
 our $no_markers = 0;
@@ -385,8 +385,8 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@ignore_errors,
         "initial|i" => \$initial,
-        "extract=s" => \@extract_patterns,
-        "ignore=s" => \@ignore_patterns,
+        "include=s" => \@include_patterns,
+        "exclude=s" => \@exclude_patterns,
 		"no-recursion" => \$no_recursion,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
@@ -421,14 +421,14 @@ else
 		$opt_no_external = undef;
 	}
 
-    if(@extract_patterns) {
+    if(@include_patterns) {
         # Need perlreg expressions instead of shell pattern
-        @extract_patterns = map({ transform_pattern($_); } @extract_patterns);
+        @include_patterns = map({ transform_pattern($_); } @include_patterns);
     }
 
-    if(@ignore_patterns) {
+    if(@exclude_patterns) {
         # Need perlreg expressions instead of shell pattern
-        @ignore_patterns = map({ transform_pattern($_); } @ignore_patterns);
+        @exclude_patterns = map({ transform_pattern($_); } @exclude_patterns);
     }
 }
 
@@ -637,8 +637,8 @@ sequentially.
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
-      --extract PATTERN             Extract files matching PATTERN
-      --ignore PATTERN              Ignore files matching PATTERN
+      --include PATTERN             Include files matching PATTERN
+      --exclude PATTERN             Exclude files matching PATTERN
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -1200,11 +1200,11 @@ sub process_dafile($$)
 			next;
 		}
 
-        if (@extract_patterns)
+        if (@include_patterns)
         {
             my $keep = 0;
 
-            foreach my $pattern (@extract_patterns)
+            foreach my $pattern (@include_patterns)
             {
                 $keep ||= ($source =~ (/^$pattern$/));
             }
@@ -1216,16 +1216,16 @@ sub process_dafile($$)
             }
         }
 
-        if (@ignore_patterns)
+        if (@exclude_patterns)
         {
-            my $ignore = 0;
+            my $exclude = 0;
 
-            foreach my $pattern (@ignore_patterns)
+            foreach my $pattern (@exclude_patterns)
             {
-                $ignore ||= ($source =~ (/^$pattern$/));
+                $exclude ||= ($source =~ (/^$pattern$/));
             }
 
-            if ($ignore)
+            if ($exclude)
             {
                 unlink($gcov_file);
                 next;
