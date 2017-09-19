@@ -384,9 +384,9 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"no-compat-libtool" => \$opt_no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@ignore_errors,
-        "initial|i" => \$initial,
-        "include=s" => \@include_patterns,
-        "exclude=s" => \@exclude_patterns,
+		"initial|i" => \$initial,
+		"include=s" => \@include_patterns,
+		"exclude=s" => \@exclude_patterns,
 		"no-recursion" => \$no_recursion,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
@@ -421,15 +421,15 @@ else
 		$opt_no_external = undef;
 	}
 
-    if(@include_patterns) {
-        # Need perlreg expressions instead of shell pattern
-        @include_patterns = map({ transform_pattern($_); } @include_patterns);
-    }
+	if(@include_patterns) {
+		# Need perlreg expressions instead of shell pattern
+		@include_patterns = map({ transform_pattern($_); } @include_patterns);
+	}
 
-    if(@exclude_patterns) {
-        # Need perlreg expressions instead of shell pattern
-        @exclude_patterns = map({ transform_pattern($_); } @exclude_patterns);
-    }
+	if(@exclude_patterns) {
+		# Need perlreg expressions instead of shell pattern
+		@exclude_patterns = map({ transform_pattern($_); } @exclude_patterns);
+	}
 }
 
 @data_directory = @ARGV;
@@ -637,8 +637,6 @@ sequentially.
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
-      --include PATTERN             Include files matching PATTERN
-      --exclude PATTERN             Exclude files matching PATTERN
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -1200,38 +1198,6 @@ sub process_dafile($$)
 			next;
 		}
 
-        if (@include_patterns)
-        {
-            my $keep = 0;
-
-            foreach my $pattern (@include_patterns)
-            {
-                $keep ||= ($source =~ (/^$pattern$/));
-            }
-
-            if (!$keep)
-            {
-                unlink($gcov_file);
-                next;
-            }
-        }
-
-        if (@exclude_patterns)
-        {
-            my $exclude = 0;
-
-            foreach my $pattern (@exclude_patterns)
-            {
-                $exclude ||= ($source =~ (/^$pattern$/));
-            }
-
-            if ($exclude)
-            {
-                unlink($gcov_file);
-                next;
-            }
-        }
-
 		# Read in contents of gcov file
 		@result = read_gcov_file($gcov_file);
 		if (!defined($result[0])) {
@@ -1262,6 +1228,40 @@ sub process_dafile($$)
 			# Try to solve the ambiguity
 			$source_filename = solve_ambiguous_match($gcov_file,
 						\@matches, \@gcov_content);
+		}
+
+		if (@include_patterns)
+		{
+			my $keep = 0;
+
+			foreach my $pattern (@include_patterns)
+			{
+				$keep ||= ($source_filename =~ (/^$pattern$/));
+			}
+
+			if (!$keep)
+			{
+				info("	not included: $source_filename\n");
+				unlink($gcov_file);
+				next;
+			}
+		}
+
+		if (@exclude_patterns)
+		{
+			my $exclude = 0;
+
+			foreach my $pattern (@exclude_patterns)
+			{
+				$exclude ||= ($source_filename =~ (/^$pattern$/));
+			}
+
+			if ($exclude)
+			{
+				info("	excluded: $source_filename\n");
+				unlink($gcov_file);
+				next;
+			}
 		}
 
 		# Skip external files if requested
