@@ -166,6 +166,8 @@ our $no_compat_libtool;	# If set, indicates that libtool mode is to be disabled
 our $gcov_tool;
 our @opt_ignore_errors;
 our $initial;
+our @include_patterns; # List of source file patterns to include
+our @exclude_patterns; # List of source file patterns to exclude
 our $no_recursion = 0;
 our $to_package;
 our $from_package;
@@ -281,6 +283,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@opt_ignore_errors,
 		"initial|i" => \$initial,
+		"include=s" => \@include_patterns,
+		"exclude=s" => \@exclude_patterns,
 		"no-recursion" => \$no_recursion,
 		"to-package=s" => \$to_package,
 		"from-package=s" => \$from_package,
@@ -538,6 +542,8 @@ Options:
       --config-file FILENAME      Specify configuration file location
       --rc SETTING=VALUE          Override configuration file setting
       --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, split_crc)
+      --include PATTERN           Include files matching PATTERN
+      --exclude PATTERN           Exclude files matching PATTERN
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -884,6 +890,12 @@ sub lcov_geninfo(@)
 	}
 	if (defined($opt_config_file)) {
 		@param = (@param, "--config-file", $opt_config_file);
+	}
+	foreach (@include_patterns) {
+		@param = (@param, "--include", $_);
+	}
+	foreach (@exclude_patterns) {
+		@param = (@param, "--exclude", $_);
 	}
 
 	system(@param) and exit($? >> 8);

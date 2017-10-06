@@ -151,6 +151,7 @@ our $UNNAMED_BLOCK	= -1;
 
 # Prototypes
 sub print_usage(*);
+sub transform_pattern($);
 sub gen_info($);
 sub process_dafile($$);
 sub match_filename($@);
@@ -239,6 +240,9 @@ our $config;		# Configuration file contents
 our @ignore_errors;	# List of errors to ignore (parameter)
 our @ignore;		# List of errors to ignore (array)
 our $initial;
+our @include_patterns; # List of source file patterns to include
+our @exclude_patterns; # List of source file patterns to exclude
+our %excluded_files; # Files excluded due to include/exclude options
 our $no_recursion = 0;
 our $maxdepth;
 our $no_markers = 0;
@@ -382,11 +386,13 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@ignore_errors,
 		"initial|i" => \$initial,
+		"include=s" => \@include_patterns,
+		"exclude=s" => \@exclude_patterns,
 		"no-recursion" => \$no_recursion,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
 		"debug" => \$debug,
-		"external" => \$opt_external,
+		"external|e" => \$opt_external,
 		"no-external" => \$opt_no_external,
 		"compat=s" => \$opt_compat,
 		"config-file=s" => \$opt_config_file,
@@ -414,6 +420,16 @@ else
 	if (defined($opt_no_external)) {
 		$opt_external = 0;
 		$opt_no_external = undef;
+	}
+
+	if(@include_patterns) {
+		# Need perlreg expressions instead of shell pattern
+		@include_patterns = map({ transform_pattern($_); } @include_patterns);
+	}
+
+	if(@exclude_patterns) {
+		# Need perlreg expressions instead of shell pattern
+		@exclude_patterns = map({ transform_pattern($_); } @exclude_patterns);
 	}
 }
 
@@ -622,11 +638,52 @@ sequentially.
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
+      --include PATTERN             Include files matching PATTERN
+      --exclude PATTERN             Exclude files matching PATTERN
 
 For more information see: $lcov_url
 END_OF_USAGE
 	;
 }
+
+
+#
+# transform_pattern(pattern)
+#
+# Transform shell wildcard expression to equivalent Perl regular expression.
+# Return transformed pattern.
+#
+
+sub transform_pattern($)
+{
+	my $pattern = $_[0];
+
+	# Escape special chars
+
+	$pattern =~ s/\\/\\\\/g;
+	$pattern =~ s/\//\\\//g;
+	$pattern =~ s/\^/\\\^/g;
+	$pattern =~ s/\$/\\\$/g;
+	$pattern =~ s/\(/\\\(/g;
+	$pattern =~ s/\)/\\\)/g;
+	$pattern =~ s/\[/\\\[/g;
+	$pattern =~ s/\]/\\\]/g;
+	$pattern =~ s/\{/\\\{/g;
+	$pattern =~ s/\}/\\\}/g;
+	$pattern =~ s/\./\\\./g;
+	$pattern =~ s/\,/\\\,/g;
+	$pattern =~ s/\|/\\\|/g;
+	$pattern =~ s/\+/\\\+/g;
+	$pattern =~ s/\!/\\\!/g;
+
+	# Transform ? => (.) and * => (.*)
+
+	$pattern =~ s/\*/\(\.\*\)/g;
+	$pattern =~ s/\?/\(\.\)/g;
+
+	return $pattern;
+}
+
 
 #
 # get_common_prefix(min_dir, filenames)
@@ -742,6 +799,12 @@ sub gen_info($)
 		} else {
 			process_dafile($file, $prefix);
 		}
+	}
+
+	# Report whether files were excluded.
+	if (%excluded_files) {
+		info("Excluded data for %d files due to include/exclude options\n",
+			 scalar keys %excluded_files);
 	}
 }
 
@@ -1174,6 +1237,40 @@ sub process_dafile($$)
 			# Try to solve the ambiguity
 			$source_filename = solve_ambiguous_match($gcov_file,
 						\@matches, \@gcov_content);
+		}
+
+		if (@include_patterns)
+		{
+			my $keep = 0;
+
+			foreach my $pattern (@include_patterns)
+			{
+				$keep ||= ($source_filename =~ (/^$pattern$/));
+			}
+
+			if (!$keep)
+			{
+				$excluded_files{$source_filename} = ();
+				unlink($gcov_file);
+				next;
+			}
+		}
+
+		if (@exclude_patterns)
+		{
+			my $exclude = 0;
+
+			foreach my $pattern (@exclude_patterns)
+			{
+				$exclude ||= ($source_filename =~ (/^$pattern$/));
+			}
+
+			if ($exclude)
+			{
+				$excluded_files{$source_filename} = ();
+				unlink($gcov_file);
+				next;
+			}
 		}
 
 		# Skip external files if requested

@@ -45,6 +45,11 @@ geninfo \- Generate tracefiles from .da files
 .br
 .RB [ \-\-rc
 .IR keyword = value ]
+.br
+.RB [ \-\-include
+.IR pattern ]
+.RB [ \-\-exclude
+.IR pattern ]
 .RE
 .SH DESCRIPTION
 .B geninfo 
@@ -286,6 +291,28 @@ instead derive function coverage data from line coverage data and
 information about which lines belong to a function.
 .RE
 
+.B \-\-exclude
+.I pattern
+.br
+.RS
+Exclude source files matching
+.IR pattern .
+
+Use this switch if you want to exclude coverage data for a particular set
+of source files matching any of the given patterns. Multiple patterns can be
+specified by using multiple
+.B --exclude
+command line switches. The
+.I patterns
+will be interpreted as shell wildcard patterns (note that they may need to be
+escaped accordingly to prevent the shell from expanding them first).
+
+Can be combined with the
+.B --include
+command line switch. If a given file matches both the include pattern and the
+exclude pattern, the exclude pattern will take precedence.
+.RE
+
 .B \-\-external
 .br
 .B \-\-no\-external
@@ -322,6 +349,23 @@ Specify the location of the gcov tool.
 .B \-\-help
 .RS
 Print a short help text, then exit.
+.RE
+
+.B \-\-include
+.I pattern
+.br
+.RS
+Include source files matching
+.IR pattern .
+
+Use this switch if you want to include coverage data for only a particular set
+of source files matching any of the given patterns. Multiple patterns can be
+specified by using multiple
+.B --include
+command line switches. The
+.I patterns
+will be interpreted as shell wildcard patterns (note that they may need to be
+escaped accordingly to prevent the shell from expanding them first).
 .RE
 
 .B \-\-ignore\-errors
