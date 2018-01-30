@@ -96,6 +96,9 @@ genhtml_desc_html=0
 # Specify the precision for coverage rates
 #genhtml_precision=1
 
+# Show missed counts instead of hit counts
+#genhtml_missed=1
+
 # Demangle C++ symbols
 #genhtml_demangle_cpp=1
 

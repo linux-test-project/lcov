@@ -287,6 +287,7 @@ our @opt_ignore_errors;	# Ignore certain error classes during processing
 our @ignore;
 our $opt_config_file;	# User-specified configuration file location
 our %opt_rc;
+our $opt_missed;	# List/sort lines by missed counts
 our $charset = "UTF-8";	# Default charset for HTML pages
 our @fileview_sortlist;
 our @fileview_sortname = ("", "-sort-l", "-sort-f", "-sort-b");
@@ -374,6 +375,7 @@ if ($config || %opt_rc)
 		"genhtml_charset"		=> \$charset,
 		"genhtml_desc_html"		=> \$rc_desc_html,
 		"genhtml_demangle_cpp"		=> \$demangle_cpp,
+		"genhtml_missed"		=> \$opt_missed,
 		"lcov_function_coverage"	=> \$lcov_func_coverage,
 		"lcov_branch_coverage"		=> \$lcov_branch_coverage,
 		});
@@ -420,6 +422,7 @@ if (!GetOptions("output-directory|o=s"	=> \$output_directory,
 		"config-file=s"		=> \$opt_config_file,
 		"rc=s%"			=> \%opt_rc,
 		"precision=i"		=> \$default_precision,
+		"missed"		=> \$opt_missed,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -621,6 +624,7 @@ HTML output:
       --(no-)sort                   Enable (disable) sorted coverage views
       --demangle-cpp                Demangle C++ function names
       --precision NUM               Set precision of coverage rate
+      --missed                      Show miss counts as negative numbers
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -3732,6 +3736,10 @@ END_OF_HTML
 			$class = $rate_name[classify_rate($found, $hit,
 					    $med, $hi)];
 		}
+		if ($opt_missed) {
+			# Show negative number of items without coverage
+			$hit = -($found - $hit);
+		}
 		write_html($handle, <<END_OF_HTML);
 	      <td class="coverPer$class">$rate</td>
 	      <td class="coverNum$class">$hit / $found</td>
@@ -4632,9 +4640,56 @@ END_OF_HTML
 	write_header_epilog(*HTML_HANDLE, $base_dir);
 }
 
+sub get_sorted_by_rate($$)
+{
+	my ($hash, $type) = @_;
+
+	if ($type == $SORT_LINE) {
+		# Sort by line coverage
+		return sort({$hash->{$a}[7] <=> $hash->{$b}[7]} keys(%{$hash}));
+	} elsif ($type == $SORT_FUNC) {
+		# Sort by function coverage;
+		return sort({$hash->{$a}[8] <=> $hash->{$b}[8]}	keys(%{$hash}));
+	} elsif ($type == $SORT_BRANCH) {
+		# Sort by br coverage;
+		return sort({$hash->{$a}[9] <=> $hash->{$b}[9]}	keys(%{$hash}));
+	}
+}
+
+sub get_sorted_by_missed($$)
+{
+	my ($hash, $type) = @_;
+
+	if ($type == $SORT_LINE) {
+		# Sort by number of instrumented lines without coverage
+		return sort(
+			{
+				($hash->{$b}[0] - $hash->{$b}[1]) <=>
+				($hash->{$a}[0] - $hash->{$a}[1])
+			} keys(%{$hash}));
+	} elsif ($type == $SORT_FUNC) {
+		# Sort by number of instrumented functions without coverage
+		return sort(
+			{
+				($hash->{$b}[2] - $hash->{$b}[3]) <=>
+				($hash->{$a}[2] - $hash->{$a}[3])
+			} keys(%{$hash}));
+	} elsif ($type == $SORT_BRANCH) {
+		# Sort by number of instrumented branches without coverage
+		return sort(
+			{
+				($hash->{$b}[4] - $hash->{$b}[5]) <=>
+				($hash->{$a}[4] - $hash->{$a}[5])
+			} keys(%{$hash}));
+	}
+}
 
 #
 # get_sorted_keys(hash_ref, sort_type)
+#
+# hash_ref: filename -> stats
+# stats: [ lines_found, lines_hit, fn_found, fn_hit, br_found, br_hit,
+#          link_name, line_rate, fn_rate, br_rate ]
 #
 
 sub get_sorted_keys($$)
@@ -4644,15 +4699,10 @@ sub get_sorted_keys($$)
 	if ($type == $SORT_FILE) {
 		# Sort by name
 		return sort(keys(%{$hash}));
-	} elsif ($type == $SORT_LINE) {
-		# Sort by line coverage
-		return sort({$hash->{$a}[7] <=> $hash->{$b}[7]} keys(%{$hash}));
-	} elsif ($type == $SORT_FUNC) {
-		# Sort by function coverage;
-		return sort({$hash->{$a}[8] <=> $hash->{$b}[8]}	keys(%{$hash}));
-	} elsif ($type == $SORT_BRANCH) {
-		# Sort by br coverage;
-		return sort({$hash->{$a}[9] <=> $hash->{$b}[9]}	keys(%{$hash}));
+	} elsif ($opt_missed) {
+		return get_sorted_by_missed($hash, $type);
+	} else {
+		return get_sorted_by_rate($hash, $type);
 	}
 }
 

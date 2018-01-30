@@ -159,6 +159,11 @@ genhtml_desc_html=0
 #genhtml_precision=1
 .br
 
+# Show missed counts instead of hit counts
+.br
+#genhtml_missed=1
+.br
+
 # Demangle C++ symbols
 .br
 #genhtml_demangle_cpp=1
@@ -604,6 +609,16 @@ displaying coverage rates.
 
 Default is 1.
 .PP
+.BR genhtml_missed " ="
+.IR  0 | 1
+.IP
+If non-zero, the count of missed lines, functions, or branches is shown
+as negative numbers in overview pages.
+.br
+
+Default is 0.
+.PP
+
 .
 .BR geninfo_gcov_tool " ="
 .I path_to_gcov
