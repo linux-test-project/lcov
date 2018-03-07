@@ -68,6 +68,7 @@ our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
 
+our $GCOV_VERSION_8_0_0	= 0x80000;
 our $GCOV_VERSION_4_7_0	= 0x40700;
 our $GCOV_VERSION_3_4_0	= 0x30400;
 our $GCOV_VERSION_3_3_0	= 0x30300;
@@ -1934,6 +1935,9 @@ sub read_gcov_file($)
 			{
 				my ($count, $line, $code) = ($1, $2, $3);
 
+				# Skip instance-specific counts
+				next if ($line == $last_line);
+
 				$last_line = $line;
 				$last_block = $UNNAMED_BLOCK;
 				# Check for exclusion markers
@@ -1962,6 +1966,9 @@ sub read_gcov_file($)
 						$exclude_branch = 0;
 					}
 				}
+
+				# Strip unexecuted basic block marker
+				$count =~ s/\*$//;
 
 				# <exec count>:<line number>:<source code>
 				if ($line eq "0")
@@ -3537,6 +3544,10 @@ sub read_gcno_function_record(*$$$$$)
 	graph_expect("function name");
 	$function = read_gcno_string($handle, $big_endian);
 	return undef if (!defined($function));
+	if ($version >= $GCOV_VERSION_8_0_0) {
+		graph_skip($handle, 4, "compiler-generated entity flag")
+			or return undef;
+	}
 	# Read filename
 	graph_expect("filename");
 	$filename = read_gcno_string($handle, $big_endian);
@@ -3544,6 +3555,11 @@ sub read_gcno_function_record(*$$$$$)
 	# Read first line number
 	$lineno = read_gcno_value($handle, $big_endian, "initial line number");
 	return undef if (!defined($lineno));
+	# Skip column and ending line number
+	if ($version >= $GCOV_VERSION_8_0_0) {
+		graph_skip($handle, 4, "column number") or return undef;
+		graph_skip($handle, 4, "ending line number") or return undef;
+	}
 	# Add to list
 	push(@{$bb->{$function}->{$filename}}, $lineno);
 	graph_add_order($fileorder, $function, $filename);
@@ -3631,6 +3647,10 @@ sub read_gcno($)
 	debug(sprintf("found version 0x%08x\n", $version));
 	# Skip stamp
 	graph_skip(*HANDLE, 4, "file timestamp") or goto incomplete;
+	if ($version >= $GCOV_VERSION_8_0_0) {
+		graph_skip(*HANDLE, 4, "support unexecuted blocks flag")
+			or goto incomplete;
+	}
 	while (!eof(HANDLE)) {
 		my $next_pos;
 		my $curr_pos;
