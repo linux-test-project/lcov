@@ -2153,7 +2153,7 @@ sub brcount_to_db($)
 {
 	my ($brcount) = @_;
 	my $line;
-	my $db;
+	my $db = {};
 
 	# Add branches to database
 	foreach $line (keys(%{$brcount})) {
