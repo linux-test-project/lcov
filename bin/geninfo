@@ -1901,7 +1901,7 @@ sub read_gcov_file($)
 			# Also remove CR from line-end
 			s/\015$//;
 
-			if (/^\s*(\d+|\$+):\s*(\d+)-block\s+(\d+)\s*$/) {
+			if (/^\s*(\d+|\$+|\%+):\s*(\d+)-block\s+(\d+)\s*$/) {
 				# Block information - used to group related
 				# branches
 				$last_line = $2;
