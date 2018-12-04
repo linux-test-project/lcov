@@ -4,7 +4,7 @@
 #
 # Print lcov change log information as provided by Git
 
-TOOLDIR=$(cd $(dirname $0) ; pwd)
+TOOLDIR=$(cd $(dirname $0) >/dev/null ; pwd)
 
 cd $TOOLDIR
 

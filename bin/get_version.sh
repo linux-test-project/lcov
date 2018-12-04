@@ -5,7 +5,7 @@
 # Print lcov version or release information as provided by Git, .version
 # or a fallback.
 
-TOOLDIR=$(cd $(dirname $0) ; pwd)
+TOOLDIR=$(cd $(dirname $0) >/dev/null ; pwd)
 GITVER=$(cd $TOOLDIR ; git describe --tags 2>/dev/null)
 
 if [ -z "$GITVER" ] ; then
