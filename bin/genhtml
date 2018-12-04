@@ -2625,9 +2625,18 @@ sub get_date_string()
 	my $hour;
 	my $min;
 	my $sec;
+	my @timeresult;
 
+	if (defined $ENV{'SOURCE_DATE_EPOCH'})
+	{
+		@timeresult = localtime($ENV{'SOURCE_DATE_EPOCH'});
+	}
+	else
+	{
+		@timeresult = localtime();
+	}
 	($year, $month, $day, $hour, $min, $sec) =
-		(localtime())[5, 4, 3, 2, 1, 0];
+		@timeresult[5, 4, 3, 2, 1, 0];
 
 	return sprintf("%d-%02d-%02d %02d:%02d:%02d", $year+1900, $month+1,
 		       $day, $hour, $min, $sec);
