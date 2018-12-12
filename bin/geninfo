@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 #
 #   Copyright (c) International Business Machines  Corp., 2002,2012
 #
@@ -49,6 +49,7 @@
 #                implementation (now enabled per default)
 #
 
+use warnings;
 use strict;
 use File::Basename; 
 use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir

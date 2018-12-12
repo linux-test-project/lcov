@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 #
 #   Copyright (c) International Business Machines  Corp., 2002
 #
@@ -35,6 +35,7 @@
 #   2002-09-02: created by Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
 #
 
+use warnings;
 use strict;
 use File::Basename; 
 use Getopt::Long;

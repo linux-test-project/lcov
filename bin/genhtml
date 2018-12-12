@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 #
 #   Copyright (c) International Business Machines  Corp., 2002,2012
 #
@@ -64,6 +64,7 @@
 #                introduced sorting option (enabled per default)
 #
 
+use warnings;
 use strict;
 use File::Basename;
 use File::Temp qw(tempfile);
