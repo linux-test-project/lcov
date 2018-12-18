@@ -2629,7 +2629,7 @@ sub get_date_string()
 
 	if (defined $ENV{'SOURCE_DATE_EPOCH'})
 	{
-		@timeresult = localtime($ENV{'SOURCE_DATE_EPOCH'});
+		@timeresult = gmtime($ENV{'SOURCE_DATE_EPOCH'});
 	}
 	else
 	{
