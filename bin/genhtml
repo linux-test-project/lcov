@@ -234,7 +234,7 @@ sub write_test_table_epilog(*);
 
 sub write_source($$$$$$$);
 sub write_source_prolog(*);
-sub write_source_line(*$$$$$$);
+sub write_source_line(*$$$$$);
 sub write_source_epilog(*);
 
 sub write_frameset(*$$$);
@@ -4145,16 +4145,15 @@ sub format_count($$)
 
 #
 # write_source_line(filehandle, line_num, source, hit_count, converted,
-#                   brdata, add_anchor)
+#                   brdata)
 #
 # Write formatted source code line. Return a line in a format as needed
 # by gen_png()
 #
 
-sub write_source_line(*$$$$$$)
+sub write_source_line(*$$$$$)
 {
-	my ($handle, $line, $source, $count, $converted, $brdata,
-	    $add_anchor) = @_;
+	my ($handle, $line, $source, $count, $converted, $brdata) = @_;
 	my $source_format;
 	my $count_format;
 	my $result;
@@ -4191,11 +4190,8 @@ sub write_source_line(*$$$$$$)
 
 	# Write out a line number navigation anchor every $nav_resolution
 	# lines if necessary
-	if ($add_anchor)
-	{
-		$anchor_start	= "<a name=\"$_[1]\">";
-		$anchor_end	= "</a>";
-	}
+	$anchor_start	= "<a name=\"$_[1]\">";
+	$anchor_end	= "</a>";
 
 
 	# *************************************************************
@@ -5117,7 +5113,6 @@ sub write_source($$$$$$$)
 	my $funcdata  = $_[5];
 	my $sumbrcount = $_[6];
 	my $datafunc = get_hash_reverse($funcdata);
-	my $add_anchor;
 	my @file;
 
 	if ($_[2])
@@ -5168,25 +5163,11 @@ sub write_source($$$$$$$)
 			    "$line_number\n");
 		}
 
-		$add_anchor = 0;
-		if ($frames) {
-			if (($line_number - 1) % $nav_resolution == 0) {
-				$add_anchor = 1;
-			}
-		}
-		if ($func_coverage) {
-			if ($line_number == 1) {
-				$add_anchor = 1;
-			} elsif (defined($datafunc->{$line_number +
-						     $func_offset})) {
-				$add_anchor = 1;
-			}
-		}
 		push (@result,
 		      write_source_line(HTML_HANDLE, $line_number,
 					$_, $count_data{$line_number},
 					$converted->{$line_number},
-					$sumbrcount->{$line_number}, $add_anchor));
+					$sumbrcount->{$line_number}));
 	}
 
 	close(SOURCE_HANDLE);
