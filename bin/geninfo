@@ -1936,7 +1936,7 @@ sub read_gcov_file($)
 				my ($count, $line, $code) = ($1, $2, $3);
 
 				# Skip instance-specific counts
-				next if ($line == $last_line);
+				next if ($line <= (scalar(@result) / 3));
 
 				$last_line = $line;
 				$last_block = $UNNAMED_BLOCK;
