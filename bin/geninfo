@@ -197,7 +197,7 @@ sub read_bbg($);
 sub read_gcno_word(*;$$);
 sub read_gcno_value(*$;$$);
 sub read_gcno_string(*$);
-sub read_gcno_lines_record(*$$$$$$);
+sub read_gcno_lines_record(*$$$$$$$);
 sub determine_gcno_split_crc($$$$);
 sub read_gcno_function_record(*$$$$$);
 sub read_gcno($);
@@ -3421,16 +3421,16 @@ sub read_gcno_string(*$)
 
 #
 # read_gcno_lines_record(handle, gcno_filename, bb, fileorder, filename,
-#                        function, big_endian)
+#                        function, big_endian, artificial)
 #
 # Read a gcno format lines record from handle and add the relevant data to
 # bb and fileorder. Return filename on success, undef on error.
 #
 
-sub read_gcno_lines_record(*$$$$$$)
+sub read_gcno_lines_record(*$$$$$$$)
 {
 	my ($handle, $gcno_filename, $bb, $fileorder, $filename, $function,
-	    $big_endian) = @_;
+	    $big_endian, $artificial) = @_;
 	my $string;
 	my $lineno;
 
@@ -3462,9 +3462,12 @@ sub read_gcno_lines_record(*$$$$$$)
 			     "$gcno_filename\n");
 			next;
 		}
-		# Add to list
-		push(@{$bb->{$function}->{$filename}}, $lineno);
-		graph_add_order($fileorder, $function, $filename);
+
+		if (!$artificial) {
+			# Add to list
+			push(@{$bb->{$function}->{$filename}}, $lineno);
+			graph_add_order($fileorder, $function, $filename);
+		}
 	}
 }
 
@@ -3517,7 +3520,7 @@ sub determine_gcno_split_crc($$$$)
 # read_gcno_function_record(handle, graph, big_endian, rec_length, version)
 #
 # Read a gcno format function record from handle and add the relevant data
-# to graph. Return (filename, function) on success, undef on error. 
+# to graph. Return (filename, function, artificial) on success, undef on error.
 #
 
 sub read_gcno_function_record(*$$$$$)
@@ -3527,6 +3530,7 @@ sub read_gcno_function_record(*$$$$$)
 	my $function;
 	my $lineno;
 	my $lines;
+	my $artificial;
 
 	graph_expect("function record");
 	# Skip ident and checksum
@@ -3545,8 +3549,9 @@ sub read_gcno_function_record(*$$$$$)
 	$function = read_gcno_string($handle, $big_endian);
 	return undef if (!defined($function));
 	if ($version >= $GCOV_VERSION_8_0_0) {
-		graph_skip($handle, 4, "compiler-generated entity flag")
-			or return undef;
+		$artificial = read_gcno_value($handle, $big_endian,
+					      "compiler-generated entity flag");
+		return undef if (!defined($artificial));
 	}
 	# Read filename
 	graph_expect("filename");
@@ -3560,11 +3565,13 @@ sub read_gcno_function_record(*$$$$$)
 		graph_skip($handle, 4, "column number") or return undef;
 		graph_skip($handle, 4, "ending line number") or return undef;
 	}
-	# Add to list
-	push(@{$bb->{$function}->{$filename}}, $lineno);
-	graph_add_order($fileorder, $function, $filename);
+	if (!$artificial) {
+		# Add to list
+		push(@{$bb->{$function}->{$filename}}, $lineno);
+		graph_add_order($fileorder, $function, $filename);
+	}
 
-	return ($filename, $function);
+	return ($filename, $function, $artificial);
 }
 
 #
@@ -3625,6 +3632,7 @@ sub read_gcno($)
 	my $graph;
 	my $filelength;
 	my $version;
+	my $artificial;
 	local *HANDLE;
 
 	open(HANDLE, "<", $gcno_filename) or goto open_error;
@@ -3678,7 +3686,8 @@ sub read_gcno($)
 		}
 		# Process record
 		if ($tag == $tag_function) {
-			($filename, $function) = read_gcno_function_record(
+			($filename, $function, $artificial) =
+				read_gcno_function_record(
 				*HANDLE, $bb, $fileorder, $big_endian,
 				$length, $version);
 			goto incomplete if (!defined($function));
@@ -3687,7 +3696,7 @@ sub read_gcno($)
 			$filename = read_gcno_lines_record(*HANDLE,
 					$gcno_filename, $bb, $fileorder,
 					$filename, $function,
-					$big_endian);
+					$big_endian, $artificial);
 			goto incomplete if (!defined($filename));
 		} else {
 			# Skip record contents
