@@ -1489,7 +1489,9 @@ sub solve_relative_path($$)
 	$result =~ s/\/\//\//g;
 
 	# Remove .
-	$result =~ s/\/\.\//\//g;
+	while ($result =~ s/\/\.\//\//g)
+	{
+	}
 	$result =~ s/\/\.$/\//g;
 
 	# Remove trailing /
