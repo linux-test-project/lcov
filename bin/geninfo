@@ -184,7 +184,7 @@ sub sort_uniq(@);
 sub sort_uniq_lex(@);
 sub graph_cleanup($);
 sub graph_find_base($);
-sub graph_from_bb($$$);
+sub graph_from_bb($$$$);
 sub graph_add_order($$$);
 sub read_bb_word(*;$);
 sub read_bb_value(*;$);
@@ -2958,9 +2958,13 @@ sub graph_find_base($)
 }
 
 #
-# graph_from_bb(bb, fileorder, bb_filename)
+# graph_from_bb(bb, fileorder, bb_filename, fileorder_first)
 #
 # Convert data from bb to the graph format and list of instrumented lines.
+#
+# If FILEORDER_FIRST is set, use fileorder data to determine a functions
+# base source file.
+#
 # Returns (instr, graph).
 #
 # bb         : function name -> file data
@@ -2978,9 +2982,9 @@ sub graph_find_base($)
 # line data : [ line1, line2, ... ]
 #
 
-sub graph_from_bb($$$)
+sub graph_from_bb($$$$)
 {
-	my ($bb, $fileorder, $bb_filename) = @_;
+	my ($bb, $fileorder, $bb_filename, $fileorder_first) = @_;
 	my $graph = {};
 	my $instr = {};
 	my $basefile;
@@ -2997,7 +3001,8 @@ sub graph_from_bb($$$)
 		$order = $fileorder->{$func};
 
 		# Account for lines in functions
-		if (defined($basefile) && defined($filedata->{$basefile})) {
+		if (defined($basefile) && defined($filedata->{$basefile}) &&
+		    !$fileorder_first) {
 			# If the basefile contributes to this function,
 			# account this function to the basefile.
 			$graph->{$basefile}->{$func} = $filedata->{$basefile};
@@ -3159,7 +3164,8 @@ sub read_bb($)
 		}
 	}
 	close(HANDLE);
-	($instr, $graph) = graph_from_bb($bb, $fileorder, $bb_filename);
+
+	($instr, $graph) = graph_from_bb($bb, $fileorder, $bb_filename, 0);
 	graph_cleanup($graph);
 
 	return ($instr, $graph);
@@ -3347,7 +3353,8 @@ sub read_bbg($)
 		}
 	}
 	close(HANDLE);
-	($instr, $graph) = graph_from_bb($bb, $fileorder, $bbg_filename);
+	($instr, $graph) = graph_from_bb($bb, $fileorder, $bbg_filename, 0);
+
 	graph_cleanup($graph);
 
 	return ($instr, $graph);
@@ -3731,7 +3738,7 @@ sub read_gcno($)
 	remove_fn_from_hash($bb, \@artificial_fns);
 	remove_fn_from_hash($fileorder, \@artificial_fns);
 
-	($instr, $graph) = graph_from_bb($bb, $fileorder, $gcno_filename);
+	($instr, $graph) = graph_from_bb($bb, $fileorder, $gcno_filename, 1);
 	graph_cleanup($graph);
 
 	return ($instr, $graph);
