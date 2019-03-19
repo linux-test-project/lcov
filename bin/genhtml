@@ -5656,6 +5656,10 @@ sub apply_prefix($@)
 	{
 		foreach my $prefix (@dir_prefix)
 		{
+			if ($prefix eq $filename)
+			{
+				return "root";
+			}
 			if ($prefix ne "" && $filename =~ /^\Q$prefix\E\/(.*)$/)
 			{
 				return substr($filename, length($prefix) + 1);
