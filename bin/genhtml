@@ -155,6 +155,9 @@ our $BR_CLOSE	= 5;
 our $BR_SUB = 0;
 our $BR_ADD = 1;
 
+# Block value used for unnamed blocks
+our $UNNAMED_BLOCK = vec(pack('b*', 1 x 32), 0, 32);
+
 # Error classes which users may specify to ignore during processing
 our $ERROR_SOURCE	= 0;
 our %ERROR_ID = (
@@ -1625,6 +1628,7 @@ sub read_info_file($)
 				   ($1, $2, $3, $4);
 
 				last if (!$br_coverage);
+				$block = -1 if ($block == $UNNAMED_BLOCK);
 				$sumbrcount->{$line} .=
 					"$block,$branch,$taken:";
 
