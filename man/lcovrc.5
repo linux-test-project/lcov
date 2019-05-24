@@ -223,6 +223,11 @@ geninfo_compat_libtool = 0
 geninfo_auto_base = 1
 .br
 
+# Use gcov intermediate format? Valid values are 0, 1, auto
+.br
+geninfo_intermediate = auto
+.br
+
 # Directory containing gcov kernel files
 .br
 lcov_gcov_dir = /proc/gcov
@@ -787,6 +792,25 @@ located, and in addition, is different between files of the same project.
 .br
 
 Default is 1.
+.PP
+
+.BR geninfo_intermediate " ="
+.IR 0 | 1 | auto
+.IP
+Specify whether to use gcov intermediate format
+.br
+
+Use this option to control whether geninfo should use the gcov intermediate
+format while collecting coverage data. The use of the gcov intermediate format
+should increase processing speed. It also provides branch coverage data when
+using the \-\-initial command line option.
+.br
+
+Valid values are 0 for off, 1 for on, and "auto" to let geninfo automatically
+use immediate format when supported by gcov.
+.br
+
+Default is "auto".
 .PP
 
 .BR lcov_gcov_dir " ="

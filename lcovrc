@@ -134,6 +134,9 @@ genhtml_desc_html=0
 # when collecting coverage data.
 geninfo_auto_base = 1
 
+# Use gcov intermediate format? Valid values are 0, 1, auto
+geninfo_intermediate = auto
+
 # Directory containing gcov kernel files
 # lcov_gcov_dir = /proc/gcov
 
