@@ -3362,7 +3362,7 @@ sub read_diff($)
 			};
 			# Start of diff block:
 			# @@ -old_start,old_num, +new_start,new_num @@
-			/^\@\@\s+-(\d+),(\d+)\s+\+(\d+),(\d+)\s+\@\@$/ && do
+			/^\@\@\s+-(\d+),(\d+)\s+\+(\d+),(\d+)\s+\@\@/ && do
 			{
 			$in_block = 1;
 			while ($num_old < $1)
