@@ -3285,7 +3285,15 @@ sub read_diff($)
 	my $file_old;		# Name of old file in diff section
 	my $file_new;		# Name of new file in diff section
 	my $filename;		# Name of common filename of diff section
-	my $in_block = 0;	# Non-zero while we are inside a diff block
+
+	use constant {
+		IN_META		=> 0,	# Out of any block or relevant header.
+		HAVE_OLD	=> 1,	# After reading the --- line.
+		HAVE_NEW	=> 2,	# After reading the +++ line after a --- line.
+		IN_BLOCK	=> 3,	# Inside a diff block.
+	};
+	my $state = IN_META;	# Non-zero while we are inside a diff block
+
 	local *HANDLE;		# File handle for reading the diff file
 
 	info("Reading diff $diff_file\n");
@@ -3340,86 +3348,98 @@ sub read_diff($)
 			/^--- (\S+)/ && do
 			{
 				$file_old = strip_directories($1, $strip);
+				$state = HAVE_OLD;
 				last;
 			};
 			# Filename of new file:
 			# +++ <filename> <date>
 			/^\+\+\+ (\S+)/ && do
 			{
-				# Add last file to resulting hash
-				if ($filename)
+				if ($state == HAVE_OLD)
 				{
-					my %new_hash;
-					$diff{$filename} = $mapping;
-					$mapping = \%new_hash;
+					# Add last file to resulting hash
+					if ($filename)
+					{
+						my %new_hash;
+						$diff{$filename} = $mapping;
+						$mapping = \%new_hash;
+					}
+					$file_new = strip_directories($1, $strip);
+					$filename = $file_old;
+					$paths{$filename} = $file_new;
+					$num_old = 1;
+					$num_new = 1;
+					$state = HAVE_NEW;
 				}
-				$file_new = strip_directories($1, $strip);
-				$filename = $file_old;
-				$paths{$filename} = $file_new;
-				$num_old = 1;
-				$num_new = 1;
+				else
+				{
+					# +++ line out of place.
+					$state = IN_META;
+				}
 				last;
 			};
 			# Start of diff block:
 			# @@ -old_start,old_num, +new_start,new_num @@
 			/^\@\@\s+-(\d+),(\d+)\s+\+(\d+),(\d+)\s+\@\@/ && do
 			{
-			$in_block = 1;
-			while ($num_old < $1)
-			{
-				$mapping->{$num_new} = $num_old;
-				$num_old++;
-				$num_new++;
-			}
-			last;
+				if ($state == HAVE_NEW || $state == IN_BLOCK)
+				{
+					while ($num_old < $1)
+					{
+						$mapping->{$num_new} = $num_old;
+						$num_old++;
+						$num_new++;
+					}
+					$state = IN_BLOCK;
+				}
+				else
+				{
+					# @@ line out of place.
+					$state = IN_META;
+				}
+				last;
 			};
 			# Unchanged line
-			# <line starts with blank>
-			/^ / && do
+			# <line starts with blank or is empty>
+			(/^ / || /^$/) && do
 			{
-				if ($in_block == 0)
+				if ($state == IN_BLOCK)
 				{
-					last;
+					$mapping->{$num_new} = $num_old;
+					$num_old++;
+					$num_new++;
 				}
-				$mapping->{$num_new} = $num_old;
-				$num_old++;
-				$num_new++;
+				else
+				{
+					# Back to the starting point.
+					$state = IN_META;
+				}
 				last;
 			};
-			# Line as seen in old file
+			# Line as seen in old file or new file.
 			# <line starts with '-'>
-			/^-/ && do
+			/^([-+])/ && do
 			{
-				if ($in_block == 0)
+				if ($state == IN_BLOCK)
 				{
-					last;
+					if ($1 eq "-")
+					{
+						$num_old++;
+					}
+					else
+					{
+						$num_new++;
+					}
 				}
-				$num_old++;
+				else
+				{
+					# Back to the starting point.
+					$state = IN_META;
+				}
 				last;
 			};
-			# Line as seen in new file
-			# <line starts with '+'>
-			/^\+/ && do
-			{
-				if ($in_block == 0)
-				{
-					last;
-				}
-				$num_new++;
-				last;
-			};
-			# Empty line
-			/^$/ && do
-			{
-				if ($in_block == 0)
-				{
-					last;
-				}
-				$mapping->{$num_new} = $num_old;
-				$num_old++;
-				$num_new++;
-				last;
-			};
+			# With any other pattern, back to the starting point.
+			$state = IN_META;
 		}
 	}
 
