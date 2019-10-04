@@ -84,7 +84,9 @@ sub get_file_info($)
 
 	return (0, 0, 0) if (!-e $filename);
 	@stat = stat($filename);
-	($sec, $min, $hour, $day, $month, $year) = gmtime($stat[9]);
+	my $epoch = int($ENV{SOURCE_DATE_EPOCH} || $stat[9]);
+	$epoch = $stat[9] if $stat[9] < $epoch;
+	($sec, $min, $hour, $day, $month, $year) = gmtime($epoch);
 	$year += 1900;
 	$month += 1;
 
