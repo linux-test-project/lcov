@@ -4264,10 +4264,14 @@ sub read_gcno($)
 		# Read record tag
 		$tag = read_gcno_value(*HANDLE, $big_endian, "record tag");
 		goto incomplete if (!defined($tag));
-		# Read record length
-		$length = read_gcno_value(*HANDLE, $big_endian,
-					  "record length");
-		goto incomplete if (!defined($length));
+		# Skip unsupported tags or Read record length
+		if ($tag == $tag_function || $tag == $tag_lines) {
+			$length = read_gcno_value(*HANDLE, $big_endian,
+						"record length");
+			goto incomplete if (!defined($length));
+		} else {
+			next;
+		}
 		# Convert length to bytes
 		$length *= 4;
 		# Calculate start of next record
