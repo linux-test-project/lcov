@@ -70,15 +70,19 @@ if (($^O eq "msys") || ($^O =~ /Win/))
 
 our $mv_cmd = "mv";
 our $null_redirect = "/dev/null";
+our $perl_invoke = "";
 if ($^O =~ /Win/)
 {
 	$mv_cmd = "move";
 	$null_redirect = "NUL";
+
+	# Windows can't deduce the interpreter from the shebang
+	$perl_invoke = $^X;
 }
 
 # Constants
 our $tool_dir		= abs_path(dirname($0));
-our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.pl --full`;
+our $lcov_version	= 'LCOV version '.`$perl_invoke $tool_dir/get_version.pl --full`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);

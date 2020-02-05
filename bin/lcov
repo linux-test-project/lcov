@@ -70,10 +70,16 @@ use File::Spec::Functions qw /abs2rel canonpath catdir catfile catpath
 use Getopt::Long;
 use Cwd qw /abs_path getcwd/;
 
+our $perl_invoke = "";
+if ($^O =~ /Win/)
+{
+	# Windows can't deduce the interpreter from the shebang
+	$perl_invoke = $^X;
+}
 
 # Global constants
 our $tool_dir		= abs_path(dirname($0));
-our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.pl --full`;
+our $lcov_version	= 'LCOV version '.`$perl_invoke $tool_dir/get_version.pl --full`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
@@ -899,6 +905,12 @@ sub lcov_geninfo(@)
 		@param = (@param, "--exclude", $_);
 	}
 
+	if ($^O =~ /Win/)
+	{
+		# Native Windows can't deduce the interpreter from the shebang,
+		# prepend it to the command
+		@param = ($^X, @param)
+	}
 	system(@param) and exit($? >> 8);
 }
 

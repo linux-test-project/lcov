@@ -72,17 +72,22 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path cwd/;
 
+our $perl_invoke = "";
+
 our $dir_separator = "/";
 if ($^O =~ /Win/)
 {
 	$dir_separator = "\\";
+
+	# Windows can't deduce the interpreter from the shebang
+	$perl_invoke = $^X;
 }
 
 
 # Global constants
 our $title		= "LCOV - code coverage report";
 our $tool_dir		= abs_path(dirname($0));
-our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.pl --full`;
+our $lcov_version	= 'LCOV version '.`$perl_invoke $tool_dir/get_version.pl --full`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $tool_name		= basename($0);
 
