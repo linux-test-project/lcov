@@ -2,5 +2,13 @@
 *.gcda
 *.gcno
 *.info
-*.tar.gz
+*.log
 *.rpm
+*.tar.gz
+
+# Ignore tests outputs
+test/*.counts
+test/genhtml_output/out_*/
+test/lcov_diff/diff
+test/lcov_diff/*/prog
+test/src/
