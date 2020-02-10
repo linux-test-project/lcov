@@ -11,9 +11,9 @@
 #   - clean:     remove all generated files
 #
 
-VERSION := $(shell bin/get_version.sh --version)
-RELEASE := $(shell bin/get_version.sh --release)
-FULL    := $(shell bin/get_version.sh --full)
+VERSION := $(shell bin/get_version.pl --version)
+RELEASE := $(shell bin/get_version.pl --release)
+FULL    := $(shell bin/get_version.pl --full)
 
 # Set this variable during 'make install' to specify the Perl interpreter used in
 # installed scripts, or leave empty to keep the current interpreter.

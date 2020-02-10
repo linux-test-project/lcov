@@ -189,8 +189,8 @@ sub write_version_file($)
 	my $fd;
 
 	open($fd, ">", $filename) or die("Error: cannot write $filename: $!\n");
-	print($fd "VERSION=$version\n");
-	print($fd "RELEASE=$release\n");
-	print($fd "FULL=$full\n");
+	print($fd "our \$version = \"$version\";\n");
+	print($fd "our \$release = \"$release\";\n");
+	print($fd "our \$full = \"$full\";\n");
 	close($fd);
 }
