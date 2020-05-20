@@ -849,6 +849,15 @@ use immediate format when supported by gcov.
 Default is "auto".
 .PP
 
+.BR geninfo_no_exception_branch " ="
+.IR 0 | 1
+.IP
+Specify whether to exclude exception branches from branch coverage.
+.br
+
+Default is 0.
+.PP
+
 .BR lcov_gcov_dir " ="
 .I path_to_kernel_coverage_data
 .IP
@@ -951,6 +960,15 @@ Specify the regular expression of lines to exclude from branch coverage.
 .br
 
 Default is 'LCOV_EXCL_BR_LINE'.
+.PP
+
+.BR lcov_excl_exception_br_line " ="
+.I expression
+.IP
+Specify the regular expression of lines to exclude from exception branch coverage.
+.br
+
+Default is 'LCOV_EXCL_EXCEPTION_BR_LINE'.
 .PP
 
 .SH FILES

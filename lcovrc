@@ -143,6 +143,9 @@ geninfo_auto_base = 1
 # Use gcov intermediate format? Valid values are 0, 1, auto
 geninfo_intermediate = auto
 
+# Specify if exception branches should be excluded from branch coverage.
+geninfo_no_exception_branch = 0
+
 # Directory containing gcov kernel files
 # lcov_gcov_dir = /proc/gcov
 
