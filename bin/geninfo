@@ -2159,6 +2159,12 @@ sub intermediate_text_to_info($$$)
 	print($fd "TN:$test_name\n");
 	for my $filename (keys(%{$data})) {
 		my ($excl, $brexcl, $checksums);
+		my $lines_found = 0;
+		my $lines_hit = 0;
+		my $functions_found = 0;
+		my $functions_hit = 0;
+		my $branches_found = 0;
+		my $branches_hit = 0;
 
 		if (defined($srcdata->{$filename})) {
 			($excl, $brexcl, $checksums) = @{$srcdata->{$filename}};
@@ -2185,12 +2191,18 @@ sub intermediate_text_to_info($$$)
 				#    instances
 				# b) an instance starts with an lcount line
 				$branch_num = 0;
+
+				$lines_found++;
+				$lines_hit++ if ($2 > 0);
 			} elsif ($line =~ /^function:(\d+),(\d+),([^,]+)$/) {
 				next if (!$func_coverage || $excl->{$1});
 
 				# function:<line>,<count>,<name>
 				print($fd "FN:$1,$3\n");
 				print($fd "FNDA:$2,$3\n");
+
+				$functions_found++;
+				$functions_hit++ if ($2 > 0);
 			} elsif ($line =~ /^function:(\d+),\d+,(\d+),([^,]+)$/) {
 				next if (!$func_coverage || $excl->{$1});
 
@@ -2198,6 +2210,9 @@ sub intermediate_text_to_info($$$)
 				#          <name>
 				print($fd "FN:$1,$3\n");
 				print($fd "FNDA:$2,$3\n");
+
+				$functions_found++;
+				$functions_hit++ if ($2 > 0);
 			} elsif ($line =~ /^branch:(\d+),(taken|nottaken|notexec)/) {
 				next if (!$br_coverage || $excl->{$1} ||
 					 $brexcl->{$1});
@@ -2212,8 +2227,22 @@ sub intermediate_text_to_info($$$)
 				}
 				print($fd "BRDA:$1,0,$branch_num,$c\n");
 				$branch_num++;
+
+				$branches_found++;
+				$branches_hit++ if ($2 eq "taken");
 			}
 		}
+		
+		if ($functions_found > 0) {
+			printf($fd "FNF:%s\n", $functions_found);
+			printf($fd "FNH:%s\n", $functions_hit);
+		}
+		if ($branches_found > 0) {
+			printf($fd "BRF:%s\n", $branches_found);
+			printf($fd "BRH:%s\n", $branches_hit);
+		}
+		printf($fd "LF:%s\n", $lines_found);
+		printf($fd "LH:%s\n", $lines_hit);
 		print($fd "end_of_record\n");
 	}
 }
@@ -2248,6 +2277,12 @@ sub intermediate_json_to_info($$$)
 	for my $filename (keys(%{$data})) {
 		my ($excl, $brexcl, $checksums);
 		my $file_data = $data->{$filename};
+		my $lines_found = 0;
+		my $lines_hit = 0;
+		my $functions_found = 0;
+		my $functions_hit = 0;
+		my $branches_found = 0;
+		my $branches_hit = 0;
 
 		if (defined($srcdata->{$filename})) {
 			($excl, $brexcl, $checksums) = @{$srcdata->{$filename}};
@@ -2267,7 +2302,15 @@ sub intermediate_json_to_info($$$)
 
 				print($fd "FN:$line,$name\n");
 				print($fd "FNDA:$count,$name\n");
+
+				$functions_found++;
+				$functions_hit++ if ($count > 0);
 			}
+		}
+
+		if ($functions_found > 0) {
+			printf($fd "FNF:%s\n", $functions_found);
+			printf($fd "FNH:%s\n", $functions_hit);
 		}
 
 		# Line data
@@ -2294,6 +2337,9 @@ sub intermediate_json_to_info($$$)
 			}
 			print($fd "DA:$line,$count$c\n");
 
+			$lines_found++;
+			$lines_hit++ if ($count > 0);
+
 			$branch_num = 0;
 			# Branch data
 			if ($br_coverage && !$brexcl->{$line}) {
@@ -2306,12 +2352,19 @@ sub intermediate_json_to_info($$$)
 					print($fd "BRDA:$line,0,$branch_num,".
 					      "$brcount\n");
 
+					$branches_found++;
+					$branches_hit++ if ($brcount > 0);
 					$branch_num++;
 				}
 			}
-
 		}
 
+		if ($branches_found > 0) {
+			printf($fd "BRF:%s\n", $branches_found);
+			printf($fd "BRH:%s\n", $branches_hit);
+		}
+		printf($fd "LF:%s\n", $lines_found);
+		printf($fd "LH:%s\n", $lines_hit);
 		print($fd "end_of_record\n");
 	}
 }
