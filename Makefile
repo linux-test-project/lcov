@@ -37,13 +37,13 @@ info:
 	@echo "  install   : install binaries and man pages in DESTDIR (default /)"
 	@echo "  uninstall : delete binaries and man pages from DESTDIR (default /)"
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
-	@echo "  test      : perform self-tests"
+	@echo "  check     : perform self-tests"
 
 clean:
 	rm -f lcov-*.tar.gz
 	rm -f lcov-*.rpm
 	make -C example clean
-	make -C test -s clean
+	make -C tests -s clean
 
 install:
 	bin/install.sh bin/lcov $(DESTDIR)$(BIN_DIR)/lcov -m 755
@@ -118,5 +118,7 @@ rpms: lcov-$(VERSION).tar.gz
 	mv $(TMP_DIR)/SRPMS/lcov-$(VERSION)-$(RELEASE).src.rpm .
 	rm -rf $(TMP_DIR)
 
-test:
-	@make -C test -s all
+test: check
+
+check:
+	@make -s -C tests check

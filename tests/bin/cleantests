@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# Copyright IBM Corp. 2020
+#
+# Usage: cleantests <make> <tests>
+# 
+
+MAKE="$1"
+shift
+TESTS="$*"
+
+for TEST in ${TESTS} ; do
+	if [[ -d "${TEST}" ]] ; then
+		# Enter sub-directory
+		${MAKE} -C "${TEST}" clean
+	fi
+done
+
+exit 0

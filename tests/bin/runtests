@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#
+# Copyright IBM Corp. 2020
+#
+# Usage: runtests <make> <tests>
+# 
+
+MAKE="$1"
+shift
+TESTS="$*"
+
+if [[ -z "${_TESTS_RUNNING}" ]] ; then
+	# Do this only once at start of test run
+	export _TESTS_RUNNING=1
+
+	testsuite_init
+	trap testsuite_exit exit
+fi
+
+for TEST in ${TESTS} ; do
+	if [[ -d "${TEST}" ]] ; then
+		# Enter sub-directory
+		${MAKE} -C "${TEST}" check
+	else
+		# Enter test
+		ABS_TEST="$PWD/$TEST"
+		REL_TEST="${ABS_TEST##$TOPDIR}"
+		test_run "${REL_TEST}" "${ABS_TEST}" </dev/null
+	fi
+done
+
+exit 0
