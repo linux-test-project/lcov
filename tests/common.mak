@@ -39,6 +39,10 @@ ifneq ($(V),2)
 .SILENT:
 endif
 
+# Do not pass TESTS= specified on command line to subdirectories to allow
+#   make TESTS=subdir
+MAKEOVERRIDES := $(filter-out TESTS=%,$(MAKEOVERRIDES))
+
 check: prepare
 	runtests "$(MAKE)" $(TESTS)
 
