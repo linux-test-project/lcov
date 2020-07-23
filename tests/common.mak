@@ -21,7 +21,6 @@ export COUNTFILES   := $(ZEROCOUNTS) $(FULLCOUNTS) $(TARGETCOUNTS) \
 
 # Use pre-defined lcovrc file
 LCOVRC       := $(TOPDIR)lcovrc
-LCOVFLAGS    := --config-file $(LCOVRC)
 
 # Specify size for artificial info files (small, medium, large)
 SIZE         := small
@@ -29,8 +28,8 @@ CC           := gcc
 
 # Specify programs under test
 export PATH    := $(TOPDIR)/../bin:$(TOPDIR)/bin:$(PATH)
-export LCOV    := lcov $(LCOVFLAGS)
-export GENHTML := genhtml $(LCOVFLAGS)
+export LCOV    := lcov --config-file $(LCOVRC) $(LCOVFLAGS)
+export GENHTML := genhtml --config-file $(LCOVRC) $(GENHTMLFLAGS)
 
 # Ensure stable output
 export LANG    := C

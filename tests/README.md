@@ -5,6 +5,31 @@ This directory contains a number of regression tests for LCOV. To start it,
 simply run `make check`. The resulting output is written to the terminal and
 stored in a log file.
 
+You can modify some aspects of testing by specifying additional parameters on
+`make` invocation:
+
+  - SIZE
+
+    Select the size of the artifical coverage files used for testing.
+    Supported values are small, medium, and large.
+
+    The default value is small.
+
+    Example usage:
+
+    ```
+    make check SIZE=small|medium|large
+    ```
+
+
+  - LCOVFLAGS
+
+    Specify additional parameters to pass to the `lcov` tool during testing.
+
+  - GENHTMLFLAGS
+
+    Specify additional parameters to pass to the `genhtml` tool during testing.
+
 
 Adding new tests
 ----------------
