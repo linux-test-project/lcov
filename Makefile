@@ -17,13 +17,15 @@ FULL    := $(shell bin/get_version.sh --full)
 
 # Set this variable during 'make install' to specify the Perl interpreter used in
 # installed scripts, or leave empty to keep the current interpreter.
-export LCOV_PERL_PATH := /usr/bin/perl
+export LCOV_PERL_PATH := /usr/bin/env perl
 
 PREFIX  := /usr/local
 
 CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/bin
+LIB_DIR := $(PREFIX)/lib
 MAN_DIR := $(PREFIX)/share/man
+SCRIPT_DIR := $(PREFIX)/share/lcov/support-scripts
 TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
@@ -48,38 +50,58 @@ clean:
 install:
 	bin/install.sh bin/lcov $(DESTDIR)$(BIN_DIR)/lcov -m 755
 	bin/install.sh bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml -m 755
+	bin/install.sh bin/gendiffcov $(DESTDIR)$(BIN_DIR)/gendiffcov -m 755
 	bin/install.sh bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo -m 755
 	bin/install.sh bin/genpng $(DESTDIR)$(BIN_DIR)/genpng -m 755
+	bin/install.sh bin/gendiffpng $(DESTDIR)$(BIN_DIR)/gendiffpng -m 755
 	bin/install.sh bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc -m 755
+	bin/install.sh bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff -m 755
+	bin/install.sh bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate -m 755
+	bin/install.sh bin/gitblame $(DESTDIR)$(SCRIPT_DIR)/gitblame -m 755
+	bin/install.sh lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm -m 755
 	bin/install.sh man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1 -m 644
 	bin/install.sh man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 -m 644
+	bin/install.sh man/gendiffcov.1 $(DESTDIR)$(MAN_DIR)/man1/gendiffcov.1 -m 644
 	bin/install.sh man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 -m 644
 	bin/install.sh man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1 -m 644
+	bin/install.sh man/gendiffpng.1 $(DESTDIR)$(MAN_DIR)/man1/gendiffpng.1 -m 644
 	bin/install.sh man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 -m 644
 	bin/install.sh man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 -m 644
 	bin/install.sh lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/lcov $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genhtml $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/gendiffcov $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/geninfo $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genpng $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/gendiffpng $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/gendesc $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/lcov.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/gendiffcov.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genpng.1 $(VERSION) $(RELEASE) $(FULL)
+	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/gendiffpng.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 $(VERSION) $(RELEASE) $(FULL)
 
 uninstall:
 	bin/install.sh --uninstall bin/lcov $(DESTDIR)$(BIN_DIR)/lcov
 	bin/install.sh --uninstall bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml
+	bin/install.sh --uninstall bin/gendiffcov $(DESTDIR)$(BIN_DIR)/gendiffcov
 	bin/install.sh --uninstall bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo
 	bin/install.sh --uninstall bin/genpng $(DESTDIR)$(BIN_DIR)/genpng
+	bin/install.sh --uninstall bin/gendiffpng $(DESTDIR)$(BIN_DIR)/gendiffpng
 	bin/install.sh --uninstall bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc
+	bin/install.sh --uninstall bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff
+	bin/install.sh --uninstall bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate
+	bin/install.sh --uninstall bin/gitblame $(DESTDIR)$(SCRIPT_DIR)/gitblame
+	bin/install.sh --uninstall lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm
 	bin/install.sh --uninstall man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1
 	bin/install.sh --uninstall man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1
+	bin/install.sh --uninstall man/gendiffcov.1 $(DESTDIR)$(MAN_DIR)/man1/gendiffcov.1
 	bin/install.sh --uninstall man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1
 	bin/install.sh --uninstall man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1
+	bin/install.sh --uninstall man/gendiffpng.1 $(DESTDIR)$(MAN_DIR)/man1/gendiffpng.1
 	bin/install.sh --uninstall man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1
 	bin/install.sh --uninstall man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5
 	bin/install.sh --uninstall lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc

@@ -1,0 +1,263 @@
+#!/usr/bin/env perl
+
+#   Copyright (c) MediaTek USA Inc., 2020
+#
+#   This program is free software;  you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or (at
+#   your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY;  without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details. 
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, see
+#   <http://www.gnu.org/licenses/>.
+#
+#
+# p4udiff
+#
+#   This script extracts a unified-diff between two Perforce changelists.
+
+#use strict;
+use DateTime;
+
+package P4File;
+sub new {
+  my $class = shift;
+  my $description = shift;
+  if ($description =~ m/([^#]+)#([0-9]+)\s+-\s+(\S+)\s+change\s+([0-9]+)\s+\(([^)]+)\).*$/) {
+     my $self = {};
+     bless $self, $class;
+
+     $self->{path} = $1;
+     $self->{rev} = $2;
+     $self->{action} = $3;
+     $self->{changelist} = $4;
+     $self->{type} = $5;
+
+     return $self;
+   }
+  return undef;
+}
+
+sub path {
+  my $self = shift;
+  return $self->{path};
+}
+
+sub rev {
+  my $self = shift;
+  return $self->{rev};
+}
+
+sub action {
+  my $self = shift;
+  return $self->{action};
+}
+
+sub changelist {
+  my $self = shift;
+  return $self->{changelist};
+}
+
+sub type {
+  my $self = shift;
+  return $self->{type};
+}
+
+package P4FileList;
+sub new {
+  my $class = shift;
+  my $self = {};
+  bless $self, $class;
+
+  $self->{_hash} = { };
+  return $self;
+}
+
+sub append {
+  my $self = shift;
+  my $entry = shift;
+
+  return $self if (!defined($entry));
+  my $key = $entry->path();
+  if (defined($self->{_hash}->{$key})) {
+    warn("WARNING: skipping duplicated path $key\n");
+    return $self;
+  }
+  $self->{_hash}->{$key} = $entry;
+  return $self;
+}
+
+sub files {
+  my $self = shift;
+  return sort keys %{$self->{_hash}};
+}
+
+sub get {
+  my $self = shift;
+  my $key = shift;
+
+  if (!defined($self->{_hash}->{$key})) {
+    return undef;
+  }
+  return $self->{_hash}->{$key};
+}
+
+sub remove {
+  my $self = shift;
+  my $key = shift;
+  delete $self->{_hash}->{$key};
+  return $self;
+}
+
+package main;
+
+my $depot_path = shift @ARGV;
+my $base_changelist = shift @ARGV;
+my $curr_changelist = shift @ARGV;
+my $base_files = P4FileList->new();
+my $curr_files = P4FileList->new();
+
+if (open(HANDLE, "-|", "p4 files $depot_path/...\@$base_changelist")) {
+  while (my $line = <HANDLE>) {
+    chomp $line;
+    s/\015$//;
+
+    $base_files->append(P4File->new($line));
+  }
+  close(HANDLE);
+}
+
+if (open(HANDLE, "-|", "p4 files $depot_path/...\@$curr_changelist")) {
+  while (my $line = <HANDLE>) {
+    chomp $line;
+    s/\015$//;
+
+    $curr_files->append(P4File->new($line));
+  }
+  close(HANDLE);
+}
+
+# prune files at the same rev; no difference to report
+foreach my $f ($base_files->files()) {
+  my $b = $base_files->get($f);
+  my $c = $curr_files->get($f);
+
+  if (defined($c) &&
+      $b->rev() eq $c->rev() &&
+      $b->action() eq $c->action() &&
+      $b->changelist() eq $c->changelist()) {
+    $curr_files->remove($f);
+    $base_files->remove($f);
+  }
+}
+
+# prune files already deleted in base list
+foreach my $f (grep { $base_files->get($_)->action() eq "delete" ||  $base_files->get($_)->action() eq "move/delete" } $base_files->files()) {
+  my $b = $base_files->get($f);
+  my $c = $curr_files->get($f);
+
+  if (defined($c) && $b->action() eq $c->action()) {
+    # deleted again in curr with a different rev
+    $curr_files->remove($f);
+  }
+
+  $base_files->remove($f);
+}
+
+# prune files deleted in curr list
+foreach my $f (grep { $curr_files->get($_)->action() eq "delete" ||  $curr_files->get($_)->action() eq "move/delete" } $curr_files->files()) {
+  my $c = $curr_files->get($f);
+
+  $curr_files->remove($f);
+}
+
+my %union;
+
+foreach my $k ($base_files->files()) {
+  #my $b = $base_files->get($k);
+  #printf("base: %s#%d %s change %d\n", $k, $b->rev(), $b->action(), $b->changelist());
+  $union{$k} = 1;
+}
+foreach my $k ($curr_files->files()) {
+  #my $b = $curr_files->get($k);
+  #printf("curr: %s#%d %s change %d\n", $k, $b->rev(), $b->action(), $b->changelist());
+  $union{$k} = 1;
+}
+#exit;
+my $workspace = `p4 -F \%clientRoot\% -ztag info`;
+chomp $workspace;
+
+sub reloc {
+  my $path = shift;
+  $path =~ s/$depot_path/$workspace$depot_path/;
+  $path =~ s|//|/|;
+  return $path;
+}
+
+foreach my $f (sort keys %union) {
+  my $b = $base_files->get($f);
+  my $c = $curr_files->get($f);
+
+  if (defined($b) && !defined($c)) {
+    # deleted
+    next if ($b->type() eq "binary");
+    printf("p4 diff $f#%d $f\n", $b->rev());
+    printf("index %d..0\n", $base_changelist);
+    printf("--- %s\n", reloc($f));
+    printf("+++ /dev/null\n");
+    # p4 print -q $b->path() . '#' . $b->rev() |sed -e 's/^/-/'
+    my @lines;
+    open(HANDLE, "-|", "p4", "print", "-q", $b->path() . '#' . $b->rev());
+    while (my $line = <HANDLE>) {
+      chomp $line;
+      $line =~ s/^/-/;
+      push @lines, $line;
+    }
+    close(HANDLE);
+    printf("@@ 1,%d 0,0 @@\n", scalar(@lines));
+    printf("%s\n", join("\n", @lines));
+  } elsif (!defined($b) && defined($c)) {
+    # added
+    next if ($c->type() eq "binary");
+    printf("p4 diff $f $f#%d\n", $c->rev());
+    printf("new file mode\n");
+    printf("index 0..%d\n", $curr_changelist);
+    printf("--- /dev/null\n");
+    printf("+++ %s\n", reloc($f));
+    my @lines;
+    open(HANDLE, "-|", "p4", "print", "-q", $c->path() . '#' . $c->rev());
+    while (my $line = <HANDLE>) {
+      chomp $line;
+      $line =~ s/^/+/;
+      push @lines, $line;
+    }
+    close(HANDLE);
+    printf("@@ 0,0 1,%d @@\n", scalar(@lines));
+    printf("%s\n", join("\n", @lines));
+  } elsif (defined($b) && defined($c)) {
+    # check diff
+    next if ($b->type() eq "binary" || $c->type() eq "binary");
+    # "p4 diff -du ". $c->path() . '#' . $c->rev() . " " . $b->path() . '#' . $b->rev() 
+    printf("p4 diff $f#%d $f#%d\n", $b->rev(), $c->rev());
+    printf("index %d..%d\n", $base_changelist, $curr_changelist);
+    my @lines;
+    open(HANDLE, "-|", "p4", "diff", "-du", $b->path() . '#' . $b->rev(), $c->path() . '#' . $c->rev());
+    while (my $line = <HANDLE>) {
+      chomp $line;
+      if ($line =~ m/^(---|\+\+\+)/) {
+	$line =~ s/^(---\s+\S+).*$/$1/;
+	$line =~ s/^(\+\+\+\s+\S+).*$/$1/;
+	$line = reloc($line);
+      }
+      printf("%s\n", $line);
+    }
+    close(HANDLE);
+  } else {
+    warn("WARNING: not in base or current for $f\n");
+  }
+}

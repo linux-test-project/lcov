@@ -32,6 +32,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-ignore\-errors
 .IR errors ]
 .br
+.RB [ \-\-filter
+.IR type  ]
+.br
 .RB [ \-\-to\-package
 .IR package ]
 .RB [ \-\-from\-package
@@ -624,6 +627,9 @@ lcov should continue processing instead of aborting.
 .I errors
 can be a comma\-separated list of the following keywords:
 
+.B empty:
+the .info data file is empty (e.g., because all the code was 'removed' or excluded.
+
 .B gcov:
 the gcov tool returned with a non\-zero return code.
 
@@ -633,6 +639,13 @@ the source code file for a data set could not be found.
 .B graph:
 the graph file could not be found or is corrupted.
 .RE
+
+.RE
+.BI "\-\-filter "
+.I filters
+.RS
+Specify a list of coverpoint filters to apply to input data.
+See the gendiffcov man page for details.
 
 .B \-i
 .br

@@ -1,0 +1,818 @@
+.TH gendiffcov 1 "LCOV 1.14" 2018\-01\-30 "User Manuals"
+.SH NAME
+gendiffcov \- Generate HTML differential coverage view from LCOV coverage data files
+.SH SYNOPSIS
+.B gendiffcov
+.RB [ \-h | \-\-help ]
+.RB [ \-v | \-\-version ]
+.RS 8
+.br
+.RB [ \-q | \-\-quiet ]
+.RB [ \-s | \-\-show\-details ]
+.RB [ \-f | \-\-frames ]
+.br
+.RB [ \-b | \-\-baseline\-file ]
+.IR baseline\-file
+.br
+.RB [ \-o | \-\-output\-directory
+.IR output\-directory ]
+.br
+.RB [ \-t | \-\-title
+.IR title ]
+.br
+.RB [ \-d | \-\-description\-file
+.IR description\-file ]
+.br
+.RB [ \-k | \-\-keep\-descriptions ]
+.RB [ \-c | \-\-css\-file
+.IR css\-file ]
+.br
+.RB [ \-p | \-\-prefix
+.IR prefix ]
+.RB [ \-\-no\-prefix ]
+.br
+.RB [ \-\-no\-source ]
+.RB [ \-\-num\-spaces
+.IR num ]
+.RB [ \-\-highlight ]
+.br
+.RB [ \-\-legend ]
+.RB [ \-\-html\-prolog
+.IR prolog\-file ]
+.br
+.RB [ \-\-html\-epilog
+.IR epilog\-file ]
+.RB [ \-\-html\-extension
+.IR extension ]
+.br
+.RB [ \-\-html\-gzip ]
+.RB [ \-\-sort ]
+.RB [ \-\-no\-sort ]
+.br
+.RB [ \-\-function\-coverage ]
+.RB [ \-\-no\-function\-coverage ]
+.br
+.RB [ \-\-branch\-coverage ]
+.RB [ \-\-no\-branch\-coverage ]
+.br
+.RB [ \-\-demangle\-cpp ]
+.RB [ \-\-ignore\-errors
+.IR errors  ]
+.br
+.RB [ \-\-config\-file
+.IR config\-file ]
+.RB [ \-\-rc
+.IR keyword = value ]
+.br
+.RB [ \-\-precision
+.IR num ]
+.RB [ \-\-missed ]
+.br
+.RB [ \-\-baseline\-file
+.IR baseline\-trace\-file ]
+.br
+.RB [ \-\-baseline\-title
+.IR baseline\-title\-string ]
+.br
+.RB [ \-\-baseline\-date
+.IR baseline\-date\-string ]
+.br
+.RB [ \-\-diff\-file
+.IR unified\-diff\-file ]
+.br
+.RB [ \-\-annotate\-script
+.IR source\-annotation\-script ]
+.br
+.RB [ \-\-date
+.IR day[,day,...]]
+.br
+.RB [ \-\-show-owners
+.IR [ all ] ]
+.br
+.RB [ \-\-show-noncode ]
+.br
+.RB [ \-\-filter
+.IR filters ]
+.br
+.IR tracefile(s)
+.RE
+.SH DESCRIPTION
+Create an HTML differential coverage view of current coverage data found in
+.IR tracefile ,
+with differential comparison against baseline coverage data found in
+.IR baseline\-trace\-file .
+Note that while
+.I tracefile
+may be a list of filenames,
+.I baseline\-trace\-file
+must be a single consolidated file.
+
+The difference in coverage between
+.I tracefile
+and
+.I baseline\-trace\-file
+is classified line by line into one of 10 categories:
+.RE
+.B UNC
+.RS
+Uncovered New Code (new code since the baseline is uncovered).
+.RE
+.B LBC
+.RS
+Lost Baseline Coverage (existing active code covered in the baseline is now uncovered).
+.RE
+.B UIC
+.RS
+Uncovered Included Code (existing inactive code from the baseline is now active and uncovered).
+.RE
+.B UBC
+.RS
+Uncovered Baseline Code (existing active and uncovered baseline code remains uncovered).
+.RE
+.B GBC
+.RS
+Gained Baseline Coverage (new code since the baseline is covered).
+.RE
+.B GIC
+.RS
+Gained Included Code (existing inactive code from the baseline is now active and covered).
+.RE
+.B GNC
+.RS
+Gained New Code (new code since the baseline is covered).
+.RE
+.B CBC
+.RS
+Covered Baseline Code (existing active and covered baseline code remains covered).
+.RE
+.B EUB
+.RS
+Excluded Uncovered Baseline (previously active and uncovered baseline code has become inactive).
+.RE
+.B ECB
+.RS
+Excluded Covered Baseline (previously active and covered baseline code has become inactive).
+.RE
+.B DUB
+.RS
+Deleted Uncovered Baseline (previously active and uncovered baseline code has been removed).
+Note: Because these lines are not represented in the current source version, they are only
+represented in the classification summary table.
+.RE
+.B DCB
+.RS
+Deleted Covered Baseline (previously active and covered baseline code has been removed).
+Note: Because these lines are not represented in the current source version, they are only
+represented in the classification summary table.
+.RE
+
+To create a differential coverage report,
+.B gendiffcov
+requires both a
+.I baseline\-trace\-file
+and a
+.I unified\-diff\-file .
+
+
+If the
+.I \-\-annotate\-script
+option is used, the coverage report will use the referenced script to retrieve annotated
+source listings for each file, from which it will extract age and ownership data for each
+line.  For each source line, age is the interval since the most recent modification date
+and the owner is the user identity responsible for the most recent change to that line.
+Line coverage overall totals and counts for each of the 12 classification categories are
+collected for each of the specified age ranges (see the
+.I \-\-date
+option, below).  Age and ownership reporting enhance team efforts to maintain good
+coverage discipline by spotlighting coverage shortfalls in recently modified code, even
+in the absence of baseline coverage data.
+
+
+HTML output files are created in the current working directory unless the
+.I \-\-output\-directory
+option is used. If
+.I \-\-tracefile
+or
+I \-\-baseline\-trace\-file
+ends with ".gz", it is assumed to be GZIP\-compressed and the gunzip tool
+will be used to decompress it transparently.
+
+Note that all source code files have to be present and readable at the
+exact file system location they were compiled.
+
+Use option
+.I \-\-diff\-file
+to supply a unified diff file that represents the changes to the source
+code files between the version used to compile and capture the baseline
+trace files, and the version used to compile and capture the current
+trace files.
+
+Use option
+.I \--css\-file
+to modify layout and colors of the generated HTML output. Files are
+marked in different colors depending on the associated coverage rate. By
+default, the coverage limits for low, medium and high coverage are set to
+0\-75%, 75\-90% and 90\-100% percent respectively. To change these
+values, use configuration file options
+.IR genhtml_hi_limit " and " genhtml_med_limit .
+
+Also note that when displaying percentages, 0% and 100% are only printed when
+the values are exactly 0% and 100% respectively. Other values which would
+conventionally be rounded to 0% or 100% are instead printed as nearest
+non-boundary value. This behavior is in accordance with that of the
+.BR gcov (1)
+tool.
+
+.SH OPTIONS
+.B \-h
+.br
+.B \-\-help
+.RS
+Print a short help text, then exit.
+
+.RE
+.B \-v
+.br
+.B \-\-version
+.RS
+Print version number, then exit.
+
+.RE
+.B \-q
+.br
+.B \-\-quiet
+.RS
+Do not print progress messages.
+
+Suppresses all informational progress output. When this switch is enabled,
+only error or warning messages are printed.
+
+.RE
+.B \-f
+.br
+.B \-\-frames
+.RS
+Use HTML frames for source code view.
+
+If enabled, a frameset is created for each source code file, providing
+an overview of the source code as a "clickable" image. Note that this
+option will slow down output creation noticeably because each source
+code character has to be inspected once. Note also that the GD.pm Perl
+module has to be installed for this option to work (it may be obtained
+from http://www.cpan.org).
+
+.RE
+.B \-s
+.br
+.B \-\-show\-details
+.RS
+Generate detailed directory view.
+
+When this option is enabled,
+.B gendiffcov
+generates two versions of each
+file view. One containing the standard information plus a link to a
+"detailed" version. The latter additionally contains information about
+which test case covered how many lines of each source file.
+
+.RE
+.BI "\-b " baseline\-trace\-file
+.br
+.BI "\-\-baseline\-file " baseline\-trace\-file
+.RS
+Use data in
+.I baseline\-trace\-file
+as coverage baseline.
+
+The tracefile specified by
+.I baseline\-trace\-file
+ is read and used as the baseline for classifying the change in coverage
+ represented by the coverage counts in
+.IR tracefile .
+.RE
+.BI "\-\-baseline\-title " baseline\-title\-string
+.RS
+Use the
+.I baseline\-title\-string
+as the descriptive label for the source of coverage baseline data.
+
+.RE
+.BI "\-\-baseline\-date " baseline\-date\-string
+.RS
+Use the
+.I baseline\-date\-string
+as the collection date for the coverage baseline data.
+If this argument is not specified, the default is to use the creation time of the
+.I baseline\-trace\-file
+as the baseline date.
+
+.RE
+.BI "\-\-diff\-file " unified\-diff\-file
+.RS
+Use the
+.I unified\-diff\-file
+as the definition for source file changes between the sample points for
+.I baseline\-trace\-file
+and
+.IR tracefile(s) .
+A suitable
+.I unified\-diff\-file
+can be generated using the command "p4 diff baseline-cl curent-cl", or using the "gitdiff" sample script (found in the share/lcov/support-scripts directory shipped as part of this release).
+The
+.I unified\-diff\-file
+is ignored if the
+.I baseline\-trace\-file
+is not available.
+
+.RE
+.BI "\-\-annotate\-script " source\-annotation\-script
+.RS
+Use the
+.I source\-annotation\-script
+to supply age and ownership data for each source line. The script is
+required to filter data supplied by the revision management system, and
+represent it in the format expected by
+.BR gendiffcov .
+'source\-annotation\-script' is treated as a space-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the filename) when the script is executed.  Parameter order is 'str[0] file_name str[1:]'.
+When a
+.I source\-annotation\-script
+is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
+Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support-scripts directory which is shipped as part of this release.
+
+.RE
+.BI "\-\-date " day[,day,...]
+.RS
+The
+.I \-\-date
+option is used to specify age boundaries (cutpoints) for date-binning classification.  If not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days.
+This argument has no effect if there is no
+.I source\-annotation\-script .
+
+.RE
+.BI "\-\-show\-owners " [all]
+.RS
+If the
+.I \-\-show-owners
+option is used, each coverage report header report contain a summary table, showing counts in the various coverage categories for everyone who appears in the revision control annotation as the most recent editor of the corresponding line.  If the optional argument 'all' is not specified, the table will show only users who are responsible for un-excercised code lines.  If the optional argument is specified, then users responsible for any code lines will appear.  In both cases, users who are responsible for non-code lines (e.g, comments) are not shown.
+This option does nothing if
+.I \-\-annotate\-script
+is not used; it needs revision control information provided by calling the script.
+
+.RE
+.BI "\-\-show\-noncode "
+.RS
+By default, the source code detail view does not show owner or date annotations in the far left column for non-code lines (e.g., comments). If the
+.I \-\-show-noncode
+option is used, then the source code view will show annotations for both code and non-code lines.
+This argument has no effect if there is no
+.I source\-annotation\-script .
+
+.RE
+.BI "\-\-filter "
+.I filters
+.RS
+Specify a list of coverpoint filters to apply to input data.
+
+.I filters
+can be a comma\-separated list of the following keywords:
+
+.B branch:
+ignore branch counts for C/C++ source code lines which do not appear to contain conditionals.  These may be generated automatically by the compiler (e.g., from C++ exception handling) - and are not interesting to users.
+This option has no effect unless
+.I \-\-branch\-coverage
+is used.
+
+.B line:
+ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceeding line has the same count.
+These lines seem to appear and disappear in gcov output - and cause differential coverage to report bogus LBC and/or GBC counts.  Bogus LBC counts are a problem because an automated regression which uses pass criteria "LBC + UIC + UNC == 0" will fail.
+
+.RE
+.BI "\-o " output\-directory
+.br
+.BI "\-\-output\-directory " output\-directory
+.RS
+Create files in
+.I output\-directory.
+
+Use this option to tell
+.B gendiffcov
+to write the resulting files to a directory other than
+the current one. If
+.I output\-directory
+does not exist, it will be created.
+
+It is advisable to use this option since depending on the
+project size, a lot of files and subdirectories may be created.
+
+.RE
+.BI "\-t " title
+.br
+.BI "\-\-title " title
+.RS
+Display
+.I title
+in header of all pages.
+
+.I title
+is written to the header portion of each generated HTML page to
+identify the context in which a particular output
+was created. By default this is the name of the tracefile.
+
+.RE
+.BI "\-d " description\-file
+.br
+.BI "\-\-description\-file " description\-file
+.RS
+Read test case descriptions from
+.IR description\-file .
+
+All test case descriptions found in
+.I description\-file
+and referenced in the input data file are read and written to an extra page
+which is then incorporated into the HTML output.
+
+The file format of
+.IR "description\-file " is:
+
+for each test case:
+.RS
+TN:<testname>
+.br
+TD:<test description>
+
+.RE
+
+Valid test case names can consist of letters, numbers and the underscore
+character ('_').
+.RE
+.B \-k
+.br
+.B \-\-keep\-descriptions
+.RS
+Do not remove unused test descriptions.
+
+Keep descriptions found in the description file even if the coverage data
+indicates that the associated test case did not cover any lines of code.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_keep_descriptions .
+
+.RE
+.BI "\-c " css\-file
+.br
+.BI "\-\-css\-file " css\-file
+.RS
+Use external style sheet file
+.IR css\-file .
+
+Using this option, an extra .css file may be specified which will replace
+the default one. This may be helpful if the default colors make your eyes want
+to jump out of their sockets :)
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_css_file .
+
+.RE
+.BI "\-p " prefix
+.br
+.BI "\-\-prefix " prefix
+.RS
+Remove
+.I prefix
+from all directory names.
+
+Because lists containing long filenames are difficult to read, there is a
+mechanism implemented that will automatically try to shorten all directory
+names on the overview page beginning with a common prefix. By default,
+this is done using an algorithm that tries to find the prefix which, when
+applied, will minimize the resulting sum of characters of all directory
+names.
+
+Use this option to specify the prefix to be removed by yourself.
+
+.RE
+.B \-\-no\-prefix
+.RS
+Do not remove prefix from directory names.
+
+This switch will completely disable the prefix mechanism described in the
+previous section.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_no_prefix .
+
+.RE
+.B \-\-no\-source
+.RS
+Do not create source code view.
+
+Use this switch if you don't want to get a source code view for each file.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_no_source .
+
+.RE
+.BI "\-\-num\-spaces " spaces
+.RS
+Replace tabs in source view with
+.I num
+spaces.
+
+Default value is 8.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_num_spaces .
+
+.RE
+.B \-\-highlight
+.RS
+Highlight lines with converted\-only coverage data.
+
+Use this option in conjunction with the \-\-diff option of
+.B lcov
+to highlight those lines which were only covered in data sets which were
+converted from previous source code versions.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_highlight .
+
+.RE
+.B \-\-legend
+.RS
+Include color legend in HTML output.
+
+Use this option to include a legend explaining the meaning of color coding
+in the resulting HTML output.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_legend .
+
+.RE
+.BI "\-\-html\-prolog " prolog\-file
+.RS
+Read customized HTML prolog from
+.IR prolog\-file .
+
+Use this option to replace the default HTML prolog (the initial part of the
+HTML source code leading up to and including the <body> tag) with the contents
+of
+.IR prolog\-file .
+Within the prolog text, the following words will be replaced when a page is generated:
+
+.B "@pagetitle@"
+.br
+The title of the page.
+
+.B "@basedir@"
+.br
+A relative path leading to the base directory (e.g. for locating css\-files).
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_html_prolog .
+
+.RE
+.BI "\-\-html\-epilog " epilog\-file
+.RS
+Read customized HTML epilog from
+.IR epilog\-file .
+
+Use this option to replace the default HTML epilog (the final part of the HTML
+source including </body>) with the contents of
+.IR epilog\-file .
+
+Within the epilog text, the following words will be replaced when a page is generated:
+
+.B "@basedir@"
+.br
+A relative path leading to the base directory (e.g. for locating css\-files).
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_html_epilog .
+
+.RE
+.BI "\-\-html\-extension " extension
+.RS
+Use customized filename extension for generated HTML pages.
+
+This option is useful in situations where different filename extensions
+are required to render the resulting pages correctly (e.g. php). Note that
+a '.' will be inserted between the filename and the extension specified by
+this option.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_html_extension .
+.RE
+
+.B \-\-html\-gzip
+.RS
+Compress all generated html files with gzip and add a .htaccess file specifying
+gzip\-encoding in the root output directory.
+
+Use this option if you want to save space on your webserver. Requires a
+webserver with .htaccess support and a browser with support for gzip
+compressed html.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_html_gzip .
+
+.RE
+.B \-\-sort
+.br
+.B \-\-no\-sort
+.RS
+Specify whether to include sorted views of file and directory overviews.
+
+Use \-\-sort to include sorted views or \-\-no\-sort to not include them.
+Sorted views are
+.B enabled
+by default.
+
+When sorted views are enabled, each overview page will contain links to
+views of that page sorted by coverage rate.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_sort .
+
+.RE
+.B \-\-function\-coverage
+.br
+.B \-\-no\-function\-coverage
+.RS
+Specify whether to display function coverage summaries in HTML output.
+
+Use \-\-function\-coverage to enable function coverage summaries or
+\-\-no\-function\-coverage to disable it. Function coverage summaries are
+.B enabled
+by default
+
+When function coverage summaries are enabled, each overview page will contain
+the number of functions found and hit per file or directory, together with
+the resulting coverage rate. In addition, each source code view will contain
+a link to a page which lists all functions found in that file plus the
+respective call count for those functions.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_function_coverage .
+
+.RE
+.B \-\-branch\-coverage
+.br
+.B \-\-no\-branch\-coverage
+.RS
+Specify whether to display branch coverage data in HTML output.
+
+Use \-\-branch\-coverage to enable branch coverage display or
+\-\-no\-branch\-coverage to disable it. Branch coverage data display is
+.B enabled
+by default
+
+When branch coverage display is enabled, each overview page will contain
+the number of branches found and hit per file or directory, together with
+the resulting coverage rate. In addition, each source code view will contain
+an extra column which lists all branches of a line with indications of
+whether the branch was taken or not. Branches are shown in the following format:
+
+ ' + ': Branch was taken at least once
+.br
+ ' - ': Branch was not taken
+.br
+ ' # ': The basic block containing the branch was never executed
+.br
+
+Note that it might not always be possible to relate branches to the
+corresponding source code statements: during compilation, GCC might shuffle
+branches around or eliminate some of them to generate better code.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_branch_coverage .
+
+.RE
+.B \-\-demangle\-cpp
+.RS
+Specify whether to demangle C++ function names.
+
+Use this option if you want to convert C++ internal function names to
+human readable format for display on the HTML function overview page.
+This option requires that the c++filt tool is installed (see
+.BR c++filt (1)).
+
+.RE
+.B \-\-ignore\-errors
+.I errors
+.br
+.RS
+Specify a list of errors after which to continue processing.
+
+Use this option to specify a list of one or more classes of errors after which
+geninfo should continue processing instead of aborting.
+
+.I errors
+can be a comma\-separated list of the following keywords:
+
+.B source:
+the source code file for a data set could not be found.
+
+.B unmapped:
+coverage data for a particular line cannot be found (possibly because the source code was not found, or because the line number mapping in the \.info file is wrong.
+
+.B category:
+line number categorizations are incorrect in the .info file, so branch coverage line number turns out to not be an executable source line.
+.RE
+
+.B \-\-config\-file
+.I config\-file
+.br
+.RS
+Specify a configuration file to use.
+
+When this option is specified, neither the system\-wide configuration file
+/etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
+
+This option may be useful when there is a need to run several
+instances of
+.B gendiffcov
+with different configuration file options in parallel.
+.RE
+
+.B \-\-rc
+.IR keyword = value
+.br
+.RS
+Override a configuration directive.
+
+Use this option to specify a
+.IR keyword = value
+statement which overrides the corresponding configuration statement in
+the lcovrc configuration file. You can specify this option more than once
+to override multiple configuration statements.
+See
+.BR lcovrc (5)
+for a list of available keywords and their meaning.
+.RE
+
+.BI "\-\-precision " num
+.RS
+Show coverage rates with
+.I num
+number of digits after the decimal-point.
+
+Default value is 1.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_precision .
+.RE
+
+.B \-\-missed
+.RS
+Show counts of missed lines, functions, or branches
+
+Use this option to change overview pages to show the count of lines, functions,
+or branches that were not hit. These counts are represented by negative numbers.
+
+When specified together with \-\-sort, file and directory views will be sorted
+by missed counts.
+
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_missed .
+.RE
+
+.SH FILES
+
+.I /etc/lcovrc
+.RS
+The system\-wide configuration file.
+.RE
+
+.I ~/.lcovrc
+.RS
+The per\-user configuration file.
+.RE
+
+.SH AUTHOR
+Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
+
+Henry Cox <henry.cox@mediatek.com> (differential coverage and date/owner binning sections)
+
+.SH SEE ALSO
+.BR lcov (1),
+.BR lcovrc (5),
+.BR geninfo (1),
+.BR gendiffpng (1),
+.BR gendesc (1),
+.BR gcov (1)

@@ -1,0 +1,69 @@
+#!/usr/bin/env perl
+
+#   Copyright (c) MediaTek USA Inc., 2020
+#
+#   This program is free software;  you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or (at
+#   your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY;  without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details. 
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, see
+#   <http://www.gnu.org/licenses/>.
+#
+#
+# gitblame
+#
+#   This script runs "git blame" for the specified file and formats the result
+#   to match the gendiffcov(1) age/ownership annotation specification.
+
+#use strict;
+use DateTime::Format::W3CDTF;
+use POSIX qw(strftime);
+
+my $pathname = shift @ARGV;
+
+if (0 == system("git ls-files --error-unmatch $pathname >/dev/null 2>&1")) {
+  if (open(HANDLE, "-|", "git blame -e $pathname")) {
+    while (my $line = <HANDLE>) {
+      chomp $line;
+      # Also remove CR from line-end
+      s/\015$//;
+
+      if ($line =~ m/(\S+)\s+\((\S+)\s+([-0-9]+\s+[0-9:]+\s+[-+0-9]+)\s+([0-9]+)\) (.*)/) {
+        my $commit = $1;
+        my $owner = $2;
+        my $when = $3;
+        my $text = $5;
+        $owner =~ s/^.*<//;
+        $owner =~ s/>.*$//;
+        $owner =~ s/@.*$//;
+        $when =~ s/ /T/;
+        $when =~ s/ //;
+        $when =~ s/([0-9][0-9])$/:$1/;
+        printf("%s|%s|%s|%s\n", $commit, $owner, $when, $text);
+      } else {
+        printf("%s|%s|%s|%s\n", "NONE", "NONE", "NONE", $line);
+      }
+    }
+  }
+} else {
+  my @stat = stat $pathname;
+  my $tz = strftime("%z", localtime($stat[9]));
+  $tz =~ s/([0-9][0-9])$/:\1/;
+  my $mtime = strftime("%Y-%m-%dT%H:%M:%S", localtime($stat[9])) . $tz;
+  if (open(HANDLE, $pathname)) {
+    while (my $line = <HANDLE>) {
+      chomp $line;
+      # Also remove CR from line-end
+      s/\015$//;
+
+      printf("%s|%s|%s|%s\n", "NONE", "NONE", $mtime, $line);
+    }
+  }
+}

@@ -30,6 +30,9 @@ geninfo \- Generate tracefiles from .da files
 .RB [ \-\-ignore\-errors
 .IR errors  ]
 .br
+.RB [ \-\-filter
+.IR type  ]
+.br
 .RB [ \-\-no\-recursion ]
 .I directory
 .RB [ \-\-external ]
@@ -52,8 +55,8 @@ geninfo \- Generate tracefiles from .da files
 .IR pattern ]
 .RE
 .SH DESCRIPTION
-.B geninfo 
-converts all GCOV coverage data files found in 
+.B geninfo
+converts all GCOV coverage data files found in
 .I directory
 into tracefiles, which the
 .B genhtml
@@ -414,6 +417,13 @@ the gcov tool returned with a non\-zero return code.
 the source code file for a data set could not be found.
 .RE
 
+.RE
+.BI "\-\-filter "
+.I filters
+.RS
+Specify a list of coverpoint filters to apply to input data.
+See the gendiffcov man page for details.
+
 .B \-i
 .br
 .B \-\-initial
@@ -487,7 +497,7 @@ for a list of available keywords and their meaning.
 .br
 .BI "\-\-test\-name " testname
 .RS
-Use test case name 
+Use test case name
 .I testname
 for resulting data. Valid test case names can consist of letters, decimal
 digits and the underscore character ('_').

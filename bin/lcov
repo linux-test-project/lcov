@@ -10,7 +10,7 @@
 #   This program is distributed in the hope that it will be useful, but
 #   WITHOUT ANY WARRANTY;  without even the implied warranty of
 #   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-#   General Public License for more details.                 
+#   General Public License for more details.
 #
 #   You should have received a copy of the GNU General Public License
 #   along with this program;  if not, see
@@ -31,7 +31,7 @@
 #   2002-10-16 / Peter Oberparleiter: implemented --add-tracefile option
 #   2002-10-17 / Peter Oberparleiter: implemented --extract option
 #   2002-11-04 / Peter Oberparleiter: implemented --list option
-#   2003-03-07 / Paul Larson: Changed to make it work with the latest gcov 
+#   2003-03-07 / Paul Larson: Changed to make it work with the latest gcov
 #                kernel patch.  This will break it with older gcov-kernel
 #                patches unless you change the value of $gcovmod in this script
 #   2003-04-07 / Peter Oberparleiter: fixed bug which resulted in an error
@@ -69,13 +69,26 @@ use File::Spec::Functions qw /abs2rel canonpath catdir catfile catpath
 			      file_name_is_absolute rootdir splitdir splitpath/;
 use Getopt::Long;
 use Cwd qw /abs_path getcwd/;
+use FindBin;
+
+use lib "$FindBin::Bin/../lib";
+use lcovutil qw ($tool_name $quiet
+                 define_errors parse_ignore_errors ignorable_error
+                 info set_info_callback verbose $verbose
+                 debug $debug
+                 die_handler warn_handler abort_handler
+                 append_tempdir temp_cleanup
+                 parse_cov_filters summarize_cov_filters
+                 $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
+                 filterStringsAndComments simplifyCode balancedParens
+  );
 
 
 # Global constants
 our $tool_dir		= abs_path(dirname($0));
 our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --full`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
-our $tool_name		= basename($0);
+$tool_name = basename($0); # defined in lcovutil module
 
 # Directory containing gcov kernel files
 our $gcov_dir;
@@ -93,6 +106,12 @@ our $pkg_build_file = ".build_directory";
 # Branch data combination types
 our $BR_SUB = 0;
 our $BR_ADD = 1;
+
+our $ERROR_EMPTY = 0;
+our %lcovErrs = (
+    'empty'  => $ERROR_EMPTY,
+    );
+lcovutil::define_errors(\%lcovErrs);
 
 # Prototypes
 sub print_usage(*);
@@ -121,13 +140,10 @@ sub diff();
 sub system_no_output($@);
 sub read_config($);
 sub apply_config($);
-sub info(@);
+sub my_info(@);
+set_info_callback(\&my_info);
 sub create_temp_dir();
 sub transform_pattern($);
-sub warn_handler($);
-sub die_handler($);
-sub abort_handler($);
-sub temp_cleanup();
 sub setup_gkv();
 sub get_overall_line($$$$);
 sub print_overall_rate($$$$$$$$$);
@@ -149,7 +165,6 @@ our $reset;		# If set, reset all coverage data to zero
 our $capture;		# If set, capture data
 our $output_filename;	# Name for file to write coverage data to
 our $test_name = "";	# Test case name
-our $quiet = "";	# If set, suppress information messages
 our $help;		# Help option flag
 our $version;		# Version option flag
 our $convert_filenames;	# If set, convert filenames when applying diff
@@ -166,6 +181,7 @@ our $compat_libtool;	# If set, indicates that libtool mode is to be enabled
 our $no_compat_libtool;	# If set, indicates that libtool mode is to be disabled
 our $gcov_tool;
 our @opt_ignore_errors;
+our @opt_filter;
 our $initial;
 our @include_patterns; # List of source file patterns to include
 our @exclude_patterns; # List of source file patterns to exclude
@@ -176,10 +192,8 @@ our $maxdepth;
 our $no_markers;
 our $config;		# Configuration file contents
 chomp($cwd);
-our @temp_dirs;
 our $gcov_gkv;		# gcov kernel support version found on machine
 our $opt_derive_func_data;
-our $opt_debug;
 our $opt_list_full_path;
 our $opt_no_list_full_path;
 our $opt_list_width = 80;
@@ -204,10 +218,10 @@ our $br_coverage = 0;
 # Code entry point
 #
 
-$SIG{__WARN__} = \&warn_handler;
-$SIG{__DIE__} = \&die_handler;
-$SIG{'INT'} = \&abort_handler;
-$SIG{'QUIT'} = \&abort_handler;
+$SIG{__WARN__} = \&lcovutil::warn_handler;
+$SIG{__DIE__} = \&lcovutil::die_handler;
+$SIG{'INT'} = \&lcovutil::abort_handler;
+$SIG{'QUIT'} = \&lcovutil::abort_handler;
 
 # Check command line for a configuration file name
 Getopt::Long::Configure("pass_through", "no_auto_abbrev");
@@ -271,7 +285,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"output-file|o=s" => \$output_filename,
 		"test-name|t=s" => \$test_name,
 		"zerocounters|z" => \$reset,
-		"quiet|q" => \$quiet,
+		"quiet|q" => \$lcovutil::quiet,
+		"verbose|v" => \$lcovutil::verbose,
 		"help|h|?" => \$help,
 		"version|v" => \$version,
 		"follow|f" => \$follow,
@@ -283,6 +298,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"no-compat-libtool" => \$no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
 		"ignore-errors=s" => \@opt_ignore_errors,
+		"filter=s" => \@opt_filter,
 		"initial|i" => \$initial,
 		"include=s" => \@include_patterns,
 		"exclude=s" => \@exclude_patterns,
@@ -291,7 +307,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"from-package=s" => \$from_package,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
-		"debug" => \$opt_debug,
+		"debug" => \$lcovutil::debug,
 		"list-full-path" => \$opt_list_full_path,
 		"no-list-full-path" => \$opt_no_list_full_path,
 		"external" => \$opt_external,
@@ -345,6 +361,9 @@ if ($version)
 	print("$tool_name: $lcov_version\n");
 	exit(0);
 }
+lcovutil::parse_ignore_errors(@opt_ignore_errors);
+# Determine what coverpoints the user wants to filter
+parse_cov_filters(@opt_filter);
 
 # Check list width option
 if ($opt_list_width <= 40) {
@@ -484,6 +503,7 @@ if (defined($ln_overall_found)) {
 } else {
 	info("Done.\n") if (!$list && !$capture);
 }
+summarize_cov_filters();
 exit(0);
 
 #
@@ -533,6 +553,7 @@ Options:
       --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
       --ignore-errors ERRORS      Continue after ERRORS (gcov, source, graph)
+      --filter TYPE               Ignore coverpoints of TYPE (branch, line)
       --no-recursion              Exclude subdirectories from processing
       --to-package FILENAME       Store unprocessed coverage data in FILENAME
       --from-package FILENAME     Capture from unprocessed data in FILENAME
@@ -571,7 +592,7 @@ sub check_options()
 	$list && $i++;
 	$diff && $i++;
 	@opt_summary && $i++;
-	
+
 	if ($i == 0)
 	{
 		die("Need one of options -z, -c, -a, -e, -r, -l, ".
@@ -675,7 +696,7 @@ sub kernel_reset()
 
 #
 # lcov_copy_single(from, to)
-# 
+#
 # Copy single regular file FROM to TO without checking its size. This is
 # required to work with special files generated by the kernel
 # seq_file-interface.
@@ -721,7 +742,7 @@ sub lcov_find($$$;@)
 
 		if (defined($result)) {
 			return;
-		}		
+		}
 		$filename = abs2rel($filename, $dir);
 		foreach (@pattern) {
 			if ($filename =~ /$_/) {
@@ -776,7 +797,7 @@ sub lcov_copy_fn($$$)
 
 #
 # lcov_copy(from, to, subdirs)
-# 
+#
 # Copy all specified SUBDIRS and files from directory FROM to directory TO. For
 # regular files, copy file contents without checking its size. This is required
 # to work with seq_file-generated files.
@@ -820,7 +841,7 @@ sub lcov_geninfo(@)
 	{
 		@param = (@param, "--follow");
 	}
-	if ($quiet)
+	if ($lcov_util::quiet)
 	{
 		@param = (@param, "--quiet");
 	}
@@ -854,6 +875,9 @@ sub lcov_geninfo(@)
 	foreach (@opt_ignore_errors) {
 		@param = (@param, "--ignore-errors", $_);
 	}
+	foreach (@opt_filter) {
+		@param = (@param, "--filter", $_);
+	}
 	if ($no_recursion) {
 		@param = (@param, "--no-recursion");
 	}
@@ -869,7 +893,7 @@ sub lcov_geninfo(@)
 	{
 		@param = (@param, "--derive-func-data");
 	}
-	if ($opt_debug)
+	if ($lcovutil::debug)
 	{
 		@param = (@param, "--debug");
 	}
@@ -1068,7 +1092,7 @@ sub create_package($$$;$)
 	unlink("$dir/$pkg_gkv_file");
 
 	# Show number of data files
-	if (!$quiet) {
+	if (!$lcov_util::quiet) {
 		my $count = count_package_data($file);
 
 		if (defined($count)) {
@@ -1432,7 +1456,7 @@ sub package_capture()
 			$build = adjust_kernel_dir($dir, $build);
 		}
 		if (@kernel_directory) {
-			$dir = copy_gcov_dir($dir, @kernel_directory);	
+			$dir = copy_gcov_dir($dir, @kernel_directory);
 		}
 		kernel_capture_from_dir($dir, $gkv, $build);
 	} else {
@@ -1459,7 +1483,7 @@ sub package_capture()
 # is not set.
 #
 
-sub info(@)
+sub my_info(@)
 {
 	if (!$quiet)
 	{
@@ -1497,7 +1521,7 @@ sub create_temp_dir()
 	if (!defined($dir)) {
 		die("ERROR: cannot create temporary directory\n");
 	}
-	push(@temp_dirs, $dir);
+	append_tempdir($dir);
 
 	return $dir;
 }
@@ -1558,7 +1582,7 @@ sub get_br_found_and_hit($)
 # %funcdata    : function name -> line number
 # %checkdata   : line number   -> checksum of source code line
 # $brdata      : text "block,branch,taken:..."
-# 
+#
 # Note that .info file sections referring to the same file and test name
 # will automatically be combined by adding all execution counts.
 #
@@ -1786,7 +1810,7 @@ sub read_info_file($)
 							$testfnccount;
 						$testbrdata->{$testname} =
 							$testbrcount;
-					}	
+					}
 
 					set_info_entry($data, $testdata,
 						       $sumcount, $funcdata,
@@ -1862,7 +1886,9 @@ sub read_info_file($)
 
 	if (scalar(keys(%result)) == 0)
 	{
-		die("ERROR: no valid records found in tracefile $tracefile\n");
+            # make this into an ignorable errror
+	    ignorable_error($ERROR_EMPTY, "no valid records found in tracefile $tracefile");
+	    return undef;
 	}
 	if ($negative)
 	{
@@ -2451,7 +2477,7 @@ sub combine_info_entries($$$)
 			add_counts($result_sumcount,
 				   $result_testdata{$testname});
 	}
-	
+
 	# Calculate resulting sumcount
 
 	# Store result
@@ -2517,6 +2543,7 @@ sub add_traces()
 	foreach $tracefile (@add_tracefile)
 	{
 		$current_trace = read_info_file($tracefile);
+                next unless defined($current_trace);
 		if ($total_trace)
 		{
 			$total_trace = combine_info_files($total_trace,
@@ -2532,8 +2559,21 @@ sub add_traces()
 	if (!$data_stdout)
 	{
 		info("Writing data to $output_filename\n");
-		open(INFO_HANDLE, ">", $output_filename)
-			or die("ERROR: cannot write to $output_filename!\n");
+		# Check for .gz extension
+		if ($output_filename =~ /\.gz$/)
+		{
+		        # Check for availability of GZIP tool
+		        system_no_output(1, "gzip" ,"-h")
+			        and die("ERROR: gzip command not available!\n");
+
+			# Open compressed file
+			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
+			        or die("ERROR: cannot start gzip to compress ".
+				       "to file $output_filename!\n");
+		} else {
+		        open(INFO_HANDLE, ">", $output_filename)
+			        or die("ERROR: cannot write to $output_filename!\n");
+		}
 		@result = write_info_file(*INFO_HANDLE, $total_trace);
 		close(*INFO_HANDLE);
 	}
@@ -2583,6 +2623,10 @@ sub write_info_file(*$)
 	my $br_total_found = 0;
 	my $br_total_hit = 0;
 
+	my $srcReader = ReadCurrentSource->new()
+	  if (defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) ||
+	      defined($cov_filter[$FILTER_BRANCH_NO_COND]));
+
 	foreach $source_file (sort(keys(%data)))
 	{
 		$entry = $data{$source_file};
@@ -2609,6 +2653,15 @@ sub write_info_file(*$)
 
 			print(INFO_HANDLE "TN:$testname\n");
 			print(INFO_HANDLE "SF:$source_file\n");
+			if (defined($srcReader)) {
+			  $srcReader->close();
+			  if ($source_file =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
+			    debug("reading $source_file for lcov filtering\n");
+			    $srcReader->open($source_file);
+			  } else {
+			    debug("not reading $source_file: no ext match\n");
+			  }
+			}
 
 			# Write function related data
 			foreach $func (
@@ -2631,20 +2684,36 @@ sub write_info_file(*$)
 			# Write branch related data
 			$br_found = 0;
 			$br_hit = 0;
+			my $currentBranchLine;
+			my $skipBranch = 0;
+			my $branchHistogram = $cov_filter[$FILTER_BRANCH_NO_COND]
+			  if (defined($srcReader) && $srcReader->notEmpty());
 			foreach $line (sort({$a <=> $b}
 					    keys(%{$testbrcount}))) {
-				my $brdata = $testbrcount->{$line};
+			  my $brdata = $testbrcount->{$line};
+			  my @brdata = split(/:/, $brdata);
 
-				foreach my $brentry (split(/:/, $brdata)) {
-					my ($block, $branch, $taken) =
-						split(/,/, $brentry);
+			  if (defined($branchHistogram)) {
+			    $skipBranch = ! $srcReader->containsConditional($line);
+			    if ($skipBranch) {
+			      ++ $branchHistogram->[0]; # one line where we skip
+			      $branchHistogram->[1] += scalar(@brdata);
+			      verbose("skip BRDA '" .
+				      $srcReader->getLine($line) .
+				      "' $source_file:$line\n");
+			      next;
+			    }
+			  }
+			  foreach my $brentry (@brdata) {
+			    my ($block, $branch, $taken) =
+			      split(/,/, $brentry);
 
-					print(INFO_HANDLE "BRDA:$line,$block,".
-					      "$branch,$taken\n");
-					$br_found++;
-					$br_hit++ if ($taken ne '-' &&
-						      $taken > 0);
-				}
+			    print(INFO_HANDLE "BRDA:$line,$block,".
+				  "$branch,$taken\n");
+			    $br_found++;
+			    $br_hit++ if ($taken ne '-' &&
+					  $taken > 0);
+			  }
 			}
 			if ($br_found > 0) {
 				print(INFO_HANDLE "BRF:$br_found\n");
@@ -2652,19 +2721,31 @@ sub write_info_file(*$)
 			}
 
 			# Write line related data
+			my $lineHistogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
+			  if (defined($srcReader) && $srcReader->notEmpty());
+			my $prevCount;
 			foreach $line (sort({$a <=> $b} keys(%{$testcount})))
 			{
-				print(INFO_HANDLE "DA:$line,".
-				      $testcount->{$line}.
-				      (defined($checkdata->{$line}) &&
-				       $checksum ?
-				       ",".$checkdata->{$line} : "")."\n");
-				$found++;
-				if ($testcount->{$line} > 0)
-				{
-					$hit++;
-				}
+			  my $hit = $testcount->{$line};
+			  if (defined($lineHistogram) &&
+			      defined($prevCount) &&
+			      $prevCount == $hit &&
+			      $srcReader->isCloseBrace($line)) {
 
+			    verbose("skip DA '" . $srcReader->getLine($line)
+				    . "' $source_file:$line\n");
+			    ++$lineHistogram->[0]; # one location where this applied
+			    ++$lineHistogram->[1]; # one coverpoint suppressed
+			    next;
+			  }
+			  $prevCount = $hit;
+			  my $chk = $checkdata->{$line};
+			  print(INFO_HANDLE "DA:$line,$hit" .
+				(defined($chk) && $checksum ? ",". $chk : "")
+				."\n");
+			  $found++;
+			  $hit++
+			    if ($testcount->{$line} > 0);
 			}
 			print(INFO_HANDLE "LF:$found\n");
 			print(INFO_HANDLE "LH:$hit\n");
@@ -2760,8 +2841,20 @@ sub extract()
 	{
 		info("Extracted $extracted files\n");
 		info("Writing data to $output_filename\n");
-		open(INFO_HANDLE, ">", $output_filename)
-			or die("ERROR: cannot write to $output_filename!\n");
+		if ($output_filename =~ /\.gz$/)
+		{
+		        # Check for availability of GZIP tool
+		        system_no_output(1, "gzip" ,"-h")
+			        and die("ERROR: gzip command not available!\n");
+
+			# Open compressed file
+			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
+			        or die("ERROR: cannot start gzip to compress ".
+				       "to file $output_filename!\n");
+		} else {
+		        open(INFO_HANDLE, ">", $output_filename)
+			        or die("ERROR: cannot write to $output_filename!\n");
+		}
 		@result = write_info_file(*INFO_HANDLE, $data);
 		close(*INFO_HANDLE);
 	}
@@ -2816,8 +2909,20 @@ sub remove()
 	{
 		info("Deleted $removed files\n");
 		info("Writing data to $output_filename\n");
-		open(INFO_HANDLE, ">", $output_filename)
-			or die("ERROR: cannot write to $output_filename!\n");
+		if ($output_filename =~ /\.gz$/)
+		{
+		        # Check for availability of GZIP tool
+		        system_no_output(1, "gzip" ,"-h")
+			        and die("ERROR: gzip command not available!\n");
+
+			# Open compressed file
+			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
+			        or die("ERROR: cannot start gzip to compress ".
+				       "to file $output_filename!\n");
+		} else {
+		        open(INFO_HANDLE, ">", $output_filename)
+			        or die("ERROR: cannot write to $output_filename!\n");
+		}
 		@result = write_info_file(*INFO_HANDLE, $data);
 		close(*INFO_HANDLE);
 	}
@@ -3949,8 +4054,20 @@ sub diff()
 	if (!$data_stdout)
 	{
 		info("Writing data to $output_filename\n");
-		open(INFO_HANDLE, ">", $output_filename)
-			or die("ERROR: cannot write to $output_filename!\n");
+		if ($output_filename =~ /\.gz$/)
+		{
+		        # Check for availability of GZIP tool
+		        system_no_output(1, "gzip" ,"-h")
+			        and die("ERROR: gzip command not available!\n");
+
+			# Open compressed file
+			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
+			        or die("ERROR: cannot start gzip to compress ".
+				       "to file $output_filename!\n");
+		} else {
+		        open(INFO_HANDLE, ">", $output_filename)
+			        or die("ERROR: cannot write to $output_filename!\n");
+		}
 		@result = write_info_file(*INFO_HANDLE, $trace_data);
 		close(*INFO_HANDLE);
 	}
@@ -3981,6 +4098,7 @@ sub summary()
 	# Read and combine trace files
 	foreach $filename (@opt_summary) {
 		$current = read_info_file($filename);
+		next unless defined($current);
 		if (!defined($total)) {
 			$total = $current;
 		} else {
@@ -4042,7 +4160,7 @@ sub system_no_output($@)
 	# Redirect to /dev/null
 	($mode & 1) && open(STDOUT, ">", "/dev/null");
 	($mode & 2) && open(STDERR, ">", "/dev/null");
- 
+
 	system(@_);
 	$result = $?;
 
@@ -4053,7 +4171,7 @@ sub system_no_output($@)
 	# Restore old handles
 	($mode & 1) && open(STDOUT, ">>&", "OLD_STDOUT");
 	($mode & 2) && open(STDERR, ">>&", "OLD_STDERR");
- 
+
 	return $result;
 }
 
@@ -4113,7 +4231,7 @@ sub read_config($)
 #
 # where KEY_STRING is a keyword and VAR_REF is a reference to an associated
 # variable. If the global configuration hashes CONFIG or OPT_RC contain a value
-# for keyword KEY_STRING, VAR_REF will be assigned the value for that keyword. 
+# for keyword KEY_STRING, VAR_REF will be assigned the value for that keyword.
 #
 
 sub apply_config($)
@@ -4127,41 +4245,6 @@ sub apply_config($)
 		} elsif (defined($config->{$_})) {
 			${$ref->{$_}} = $config->{$_};
 		}
-	}
-}
-
-sub warn_handler($)
-{
-	my ($msg) = @_;
-
-	warn("$tool_name: $msg");
-}
-
-sub die_handler($)
-{
-	my ($msg) = @_;
-
-	temp_cleanup();
-	die("$tool_name: $msg");
-}
-
-sub abort_handler($)
-{
-	temp_cleanup();
-	exit(1);
-}
-
-sub temp_cleanup()
-{
-	# Ensure temp directory is not in use by current process
-	chdir("/");
-
-	if (@temp_dirs) {
-		info("Removing temporary directories.\n");
-		foreach (@temp_dirs) {
-			rmtree($_);
-		}
-		@temp_dirs = ();
 	}
 }
 
@@ -4308,13 +4391,13 @@ sub print_overall_rate($$$$$$$$$)
 sub rate($$;$$$)
 {
         my ($hit, $found, $suffix, $precision, $width) = @_;
-        my $rate; 
+        my $rate;
 
 	# Assign defaults if necessary
         $precision	= 1	if (!defined($precision));
 	$suffix		= ""	if (!defined($suffix));
 	$width		= 0	if (!defined($width));
-        
+
         return sprintf("%*s", $width, "-") if (!defined($found) || $found == 0);
         $rate = sprintf("%.*f", $precision, $hit * 100 / $found);
 
