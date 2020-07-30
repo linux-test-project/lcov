@@ -512,11 +512,10 @@ sub _summary {
 
   $self->{_found} = 0;
   $self->{_hit} = 0;
-  foreach my $key (($self->{_sortable} == $SORTED) ? sort({$a <=> $b} $self->keylist()) : $self->keylist()) {
+  foreach my $key ($self->keylist()) {
     my $count = $self->{_data}->{$key};
     $self->{_found}++;
     $self->{_hit}++ if ($count > 0);
-
   }
   $self->{_modified} = 0;
   return $self;
@@ -551,6 +550,19 @@ sub merge {
   foreach my $key ($info->keylist()) {
     $self->append($key, $info->value($key));
   }
+}
+
+#
+# get_found_and_hit(hash)
+#
+# Return the count for entries (found) and entries with an execution count
+# greater than zero (hit) in a hash (linenumber -> execution count) as
+# a list (found, hit)
+#
+sub get_found_and_hit {
+  my $self = shift;
+  $self->_summary();
+  return ($self->{_found}, $self->{_hit});
 }
 
 package BranchEntry;
@@ -723,6 +735,13 @@ sub value {
 sub keylist {
   my $self = shift;
   return keys(%{$self->{_data}});
+}
+
+sub get_found_and_hit {
+  my $self = shift;
+  $self->_summary();
+
+  return ($self->{_br_found}, $self->{_br_hit});
 }
 
 package TraceInfo;
@@ -1123,31 +1142,29 @@ sub containsConditional {
 
   my $src = $self->getLine($line);
   my $foundCond = 1;
-  if (defined($src)) {
 
-    my $code = "";
-    my $limit = 5; # don't look more than 5 lines ahead
-    for (my $next = $line+1
-         ; defined($src) && ($next - $line) < $limit
-         ; ++ $next) {
+  my $code = "";
+  my $limit = 5; # don't look more than 5 lines ahead
+  for (my $next = $line+1
+       ; defined($src) && ($next - $line) < $limit
+       ; ++ $next) {
 
-      $src = lcovutil::filterStringsAndComments($src);
+    $src = lcovutil::filterStringsAndComments($src);
 
-      $src = lcovutil::simplifyCode($src);
+    $src = lcovutil::simplifyCode($src);
 
-      last if ($src =~ /([?|!~><]|&&|==|!=|\b(if|switch|case|while|for)\b)/);
+    last if ($src =~ /([?|!~><]|&&|==|!=|\b(if|switch|case|while|for)\b)/);
 
-      $code = $code.$src;
+    $code = $code . $src;
 
-      if (lcovutil::balancedParens($code) ||
-          # assume we got to the end of the statement if we see semicolon
-          # or brace.
-          $src =~ /[{;]\s*$/) {
-        $foundCond = 0;
-        last;
-      }
-      $src = $self->getLine($next);
+    if (lcovutil::balancedParens($code) ||
+	# assume we got to the end of the statement if we see semicolon
+	# or brace.
+	$src =~ /[{;]\s*$/) {
+      $foundCond = 0;
+      last;
     }
+    $src = $self->getLine($next);
   }
   return $foundCond;
 }
@@ -1471,11 +1488,9 @@ sub _read_info {
         $data->func()->replace($2, $1);
 
         # Also initialize function call data
-        $data->sumfnc();
-        if (defined($testname))
-        {
-          $data->testfnc($testname);
-        }
+        $data->sumfnc()->append($2, 0);
+	$data->testfnc($testname)->append($2, 0)
+	  if (defined($testname));
         last;
       };
 
@@ -1487,10 +1502,8 @@ sub _read_info {
         $data->sumfnc()->append($2, $1);
 
         # Add test-specific counts
-        if (defined($testname))
-        {
-          $data->testfnc($testname)->append($2, $1);
-        }
+	$data->testfnc($testname)->append($2, $1)
+	  if (defined($testname));
         last;
       };
 

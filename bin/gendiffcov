@@ -196,8 +196,6 @@ sub gen_html();
 sub html_create($$);
 sub process_dir($);
 sub process_file($$$);
-sub get_info_entry($);
-sub set_info_entry($$$$$$$$$;$$$$$$);
 sub get_prefix($@);
 sub shorten_prefix($);
 sub get_dir_list(@);
@@ -206,14 +204,9 @@ sub read_testfile($);
 sub get_date_string($);
 sub create_sub_dir($);
 sub subtract_counts($$);
-sub add_counts($$);
-sub apply_baseline($$);
 sub remove_unused_descriptions();
 sub get_found_and_hit($);
 sub get_affecting_tests($$$);
-sub combine_info_files($$);
-sub merge_checksums($$$);
-sub combine_info_entries($$$);
 sub apply_prefix($@);
 sub read_config($);
 sub apply_config($);
@@ -221,8 +214,6 @@ sub get_html_prolog($);
 sub get_html_epilog($);
 sub write_dir_page($$$$$$$$$$$$$);
 sub classify_rate($$$$);
-sub combine_brcount($$$;$);
-sub get_br_found_and_hit($);
 sub parse_dir_prefix(@);
 sub rate($$;$$$);
 sub strip_directories($$);
@@ -420,17 +411,26 @@ sub new {
 }
 
 sub get {
-    my ($self, $key, $type) = @_;
-    $type = 'line'
-        if !defined($type);
+  my ($self, $key, $type) = @_;
+  $type = 'line'
+    if !defined($type);
 
-    my $hash = $self->{$type};
-    if ($key eq "total") { return $hash->{found}; }
-    else {
-        die("ERROR:  unexpected 'get' key $key")
-            unless exists($hash->{$key});
-        return $hash->{$key};
+  my $hash = $self->{$type};
+  if ($key eq "total") {
+    return $hash->{found};
+  } elsif ($key eq "not_hit" ||
+	   $key eq "missed" ) {
+    my $missed = 0;
+    foreach my $k ('UBC', 'UNC', 'UIC', 'LBC') {
+      $missed += $hash->{$k}
+        if (exists($hash->{$k}));
     }
+    return $missed;
+  } else {
+    die("ERROR:  unexpected 'get' key $key")
+      unless exists($hash->{$key});
+    return $hash->{$key};
+  }
 }
 
 sub owners {
@@ -2368,8 +2368,7 @@ sub nextBranchInOwnerBin {
 
 
 sub _load {
-  my $self = shift;
-  my $countdata = defined($1) ? shift : undef;
+  my ($self, $countdata) = @_;
 
   my $lineno = 0;
   local *HANDLE;                # File handle for reading the diff file
@@ -2434,8 +2433,7 @@ sub _load {
 }
 
 sub _synthesize {
-  my $self = shift;
-  my $countdata = defined($1) ? shift : undef;
+  my ($self, $countdata) = @_;
 
   my $lineno = 0;
   local *HANDLE;                # File handle for reading the diff file
@@ -2923,6 +2921,8 @@ Operation:
       --baseline-date DATE          Use DATE in baseline data label in report
       --annotate-script SCRIPT      Execute SCRIPT to get revision control
                                     history (wraps "git blame" or "p4 annotate")
+      --diff-file UDIFF             unified diff file UDIFF desribes source
+                                    code changes between baseline and current
       --show_owners [all]           Show owner summary table. If optional
                                     value provided, show all the owners,
                                     regardless of whether they have uncovered
@@ -3506,13 +3506,6 @@ sub process_file($$$)
   $summary->b_found($br_found);
   $summary->b_hit($br_hit);
 
-  # Return after this point in case user asked us not to generate
-  # source code view
-  if ($no_sourceview)
-  {
-    return ($testdata, $testfncdata, $testbrdata, $summary);
-  }
-
   # build coverage differential categories
   $lineCovInfo = LineCoverageInfo->new($filename, $base_data, $current_data,
                                        $diff_data
@@ -3525,357 +3518,55 @@ sub process_file($$$)
   #   in each bucket, counts in each date range
   my $srcfile = SourceFile->new($filename, $summary, $lineCovInfo, $sumcount);
 
-  # Generate source code view for this file
-  html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.$html_ext");
-  $pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
-  write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
-  write_header(*HTML_HANDLE, [2, 0], "$trunc_dir/$base_name",
-               "$rel_dir/$base_name", $summary, $srcfile);
+  # Return after this point in case user asked us not to generate
+  # source code view
+  if (! $no_sourceview)
+  {
+    # Generate source code view for this file
+    html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.$html_ext");
+    $pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
+    write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
+    write_header(*HTML_HANDLE, [2, 0], "$trunc_dir/$base_name",
+                 "$rel_dir/$base_name", $summary, $srcfile);
 
-  @source = write_source(*HTML_HANDLE, $srcfile, $sumcount, $checkdata,
-                         $lineCovInfo, $funcdata, $sumbrcount);
+    @source = write_source(*HTML_HANDLE, $srcfile, $sumcount, $checkdata,
+                           $lineCovInfo, $funcdata, $sumbrcount);
 
-  write_html_epilog(*HTML_HANDLE, $base_dir, 1);
-  close(*HTML_HANDLE);
+    write_html_epilog(*HTML_HANDLE, $base_dir, 1);
+    close(*HTML_HANDLE);
 
-  if ($func_coverage) {
-    # Create function tables
-    foreach (@funcview_sortlist) {
-      write_function_page($base_dir, $rel_dir, $trunc_dir,
-                          $base_name, $test_title,
-                          $sumcount, $funcdata, $sumfnccount,
-                          $testfncdata, $sumbrcount,
-                          $testbrdata, $_, $summary);
+    if ($func_coverage) {
+      # Create function tables
+      foreach (@funcview_sortlist) {
+        write_function_page($base_dir, $rel_dir, $trunc_dir,
+                            $base_name, $test_title,
+                            $sumcount, $funcdata, $sumfnccount,
+                            $testfncdata, $sumbrcount,
+                            $testbrdata, $_, $summary);
+      }
+    }
+
+    # Additional files are needed in case of frame output
+    if ($frames)
+    {
+      # Create overview png file
+      gen_png("$rel_dir/$base_name.gcov.png", $overview_width, $tab_size, @source);
+
+      # Create frameset page
+      html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.frameset.$html_ext");
+      write_frameset(*HTML_HANDLE, $base_dir, $base_name, $pagetitle);
+      close(*HTML_HANDLE);
+
+      # Write overview frame
+      html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.overview.$html_ext");
+      write_overview(*HTML_HANDLE, $base_dir, $base_name, $pagetitle,
+                     scalar(@source));
+      close(*HTML_HANDLE);
     }
   }
-
-  # Additional files are needed in case of frame output
-  if ($frames)
-  {
-    # Create overview png file
-    gen_png("$rel_dir/$base_name.gcov.png", $overview_width, $tab_size, @source);
-
-    # Create frameset page
-    html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.frameset.$html_ext");
-    write_frameset(*HTML_HANDLE, $base_dir, $base_name, $pagetitle);
-    close(*HTML_HANDLE);
-
-    # Write overview frame
-    html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.overview.$html_ext");
-    write_overview(*HTML_HANDLE, $base_dir, $base_name, $pagetitle,
-                   scalar(@source));
-    close(*HTML_HANDLE);
-  }
-
   return ($testdata, $testfncdata, $testbrdata, $summary, $srcfile);
 }
 
-
-sub compress_brcount($)
-{
-  my ($brcount) = @_;
-  my $db;
-
-  $db = brcount_to_db($brcount);
-  return db_to_brcount($db, $brcount);
-}
-
-#
-# get_info_entry(hash_ref)
-#
-# Retrieve data from an entry of the structure generated by read_info_file().
-# Return a list of references to hashes:
-# (test data hash ref, sum count hash ref, funcdata hash ref, checkdata hash
-#  ref, testfncdata hash ref, sumfnccount hash ref, lines found, lines hit,
-#  functions found, functions hit)
-#
-
-sub get_info_entry($)
-{
-  my $testdata_ref = $_[0]->{"test"};
-  my $sumcount_ref = $_[0]->{"sum"};
-  my $funcdata_ref = $_[0]->{"func"};
-  my $checkdata_ref = $_[0]->{"check"};
-  my $testfncdata = $_[0]->{"testfnc"};
-  my $sumfnccount = $_[0]->{"sumfnc"};
-  my $testbrdata = $_[0]->{"testbr"};
-  my $sumbrcount = $_[0]->{"sumbr"};
-  my $lines_found = $_[0]->{"found"};
-  my $lines_hit = $_[0]->{"hit"};
-  my $fn_found = $_[0]->{"f_found"};
-  my $fn_hit = $_[0]->{"f_hit"};
-  my $br_found = $_[0]->{"b_found"};
-  my $br_hit = $_[0]->{"b_hit"};
-
-  return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
-          $testfncdata, $sumfnccount, $testbrdata, $sumbrcount,
-          $lines_found, $lines_hit, $fn_found, $fn_hit,
-          $br_found, $br_hit);
-}
-
-
-#
-# set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref,
-#                checkdata_ref, testfncdata_ref, sumfcncount_ref,
-#                testbrdata_ref, sumbrcount_ref[,lines_found,
-#                lines_hit, f_found, f_hit, $b_found, $b_hit])
-#
-# Update the hash referenced by HASH_REF with the provided data references.
-#
-
-sub set_info_entry($$$$$$$$$;$$$$$$)
-{
-  my $data_ref = $_[0];
-
-  $data_ref->{"test"} = $_[1];
-  $data_ref->{"sum"} = $_[2];
-  $data_ref->{"func"} = $_[3];
-  $data_ref->{"check"} = $_[4];
-  $data_ref->{"testfnc"} = $_[5];
-  $data_ref->{"sumfnc"} = $_[6];
-  $data_ref->{"testbr"} = $_[7];
-  $data_ref->{"sumbr"} = $_[8];
-
-  if (defined($_[9])) { $data_ref->{"found"} = $_[9]; }
-  if (defined($_[10])) { $data_ref->{"hit"} = $_[10]; }
-  if (defined($_[11])) { $data_ref->{"f_found"} = $_[11]; }
-  if (defined($_[12])) { $data_ref->{"f_hit"} = $_[12]; }
-  if (defined($_[13])) { $data_ref->{"b_found"} = $_[13]; }
-  if (defined($_[14])) { $data_ref->{"b_hit"} = $_[14]; }
-}
-
-
-#
-# add_counts(data1_ref, data2_ref)
-#
-# DATA1_REF and DATA2_REF are references to hashes containing a mapping
-#
-#   line number -> execution count
-#
-# Return a list (RESULT_REF, LINES_FOUND, LINES_HIT) where RESULT_REF
-# is a reference to a hash containing the combined mapping in which
-# execution counts are added.
-#
-
-sub add_counts($$)
-{
-        my $data1_ref = $_[0];  # Hash 1
-        my $data2_ref = $_[1];  # Hash 2
-        my %result;             # Resulting hash
-        my $line;               # Current line iteration scalar
-        my $data1_count;        # Count of line in hash1
-        my $data2_count;        # Count of line in hash2
-        my $found = 0;          # Total number of lines found
-        my $hit = 0;            # Number of lines with a count > 0
-
-        foreach $line (keys(%$data1_ref))
-        {
-                $data1_count = $data1_ref->{$line};
-                $data2_count = $data2_ref->{$line};
-
-                # Add counts if present in both hashes
-                if (defined($data2_count)) { $data1_count += $data2_count; }
-
-                # Store sum in %result
-                $result{$line} = $data1_count;
-
-                $found++;
-                if ($data1_count > 0) { $hit++; }
-        }
-
-        # Add lines unique to data2_ref
-        foreach $line (keys(%$data2_ref))
-        {
-                # Skip lines already in data1_ref
-                if (defined($data1_ref->{$line})) { next; }
-
-                # Copy count from data2_ref
-                $result{$line} = $data2_ref->{$line};
-
-                $found++;
-                if ($result{$line} > 0) { $hit++; }
-        }
-
-        return (\%result, $found, $hit);
-}
-
-
-#
-# merge_checksums(ref1, ref2, filename)
-#
-# REF1 and REF2 are references to hashes containing a mapping
-#
-#   line number -> checksum
-#
-# Merge checksum lists defined in REF1 and REF2 and return reference to
-# resulting hash. Die if a checksum for a line is defined in both hashes
-# but does not match.
-#
-
-sub merge_checksums($$$)
-{
-        my $ref1 = $_[0];
-        my $ref2 = $_[1];
-        my $filename = $_[2];
-        my %result;
-        my $line;
-
-        foreach $line (keys(%{$ref1}))
-        {
-                if (defined($ref2->{$line}) &&
-                    ($ref1->{$line} ne $ref2->{$line}))
-                {
-                        die("ERROR: checksum mismatch at $filename:$line\n");
-                }
-                $result{$line} = $ref1->{$line};
-        }
-
-        foreach $line (keys(%{$ref2}))
-        {
-                $result{$line} = $ref2->{$line};
-        }
-
-        return \%result;
-}
-
-
-#
-# merge_func_data(funcdata1, funcdata2, filename)
-#
-
-sub merge_func_data($$$)
-{
-        my ($funcdata1, $funcdata2, $filename) = @_;
-        my %result;
-        my $func;
-
-        if (defined($funcdata1)) {
-                %result = %{$funcdata1};
-        }
-
-        foreach $func (keys(%{$funcdata2})) {
-                my $line1 = $result{$func};
-                my $line2 = $funcdata2->{$func};
-
-                if (defined($line1) && ($line1 != $line2)) {
-                        warn("WARNING: function data mismatch at ".
-                             "$filename:$line2\n");
-                        next;
-                }
-                $result{$func} = $line2;
-        }
-
-        return \%result;
-}
-
-
-#
-# add_fnccount(fnccount1, fnccount2)
-#
-# Add function call count data. Return list (fnccount_added, f_found, f_hit)
-#
-
-sub add_fnccount($$)
-{
-        my ($fnccount1, $fnccount2) = @_;
-        my %result;
-        my $fn_found;
-        my $fn_hit;
-        my $function;
-
-        if (defined($fnccount1)) {
-                %result = %{$fnccount1};
-        }
-        foreach $function (keys(%{$fnccount2})) {
-                $result{$function} += $fnccount2->{$function};
-        }
-        $fn_found = scalar(keys(%result));
-        $fn_hit = 0;
-        foreach $function (keys(%result)) {
-                if ($result{$function} > 0) {
-                        $fn_hit++;
-                }
-        }
-
-        return (\%result, $fn_found, $fn_hit);
-}
-
-#
-# add_testfncdata(testfncdata1, testfncdata2)
-#
-# Add function call count data for several tests. Return reference to
-# added_testfncdata.
-#
-
-sub add_testfncdata($$)
-{
-        my ($testfncdata1, $testfncdata2) = @_;
-        my %result;
-        my $testname;
-
-        foreach $testname (keys(%{$testfncdata1})) {
-                if (defined($testfncdata2->{$testname})) {
-                        my $fnccount;
-
-                        # Function call count data for this testname exists
-                        # in both data sets: add
-                        ($fnccount) = add_fnccount(
-                                $testfncdata1->{$testname},
-                                $testfncdata2->{$testname});
-                        $result{$testname} = $fnccount;
-                        next;
-                }
-                # Function call count data for this testname is unique to
-                # data set 1: copy
-                $result{$testname} = $testfncdata1->{$testname};
-        }
-
-        # Add count data for testnames unique to data set 2
-        foreach $testname (keys(%{$testfncdata2})) {
-                if (!defined($result{$testname})) {
-                        $result{$testname} = $testfncdata2->{$testname};
-                }
-        }
-        return \%result;
-}
-
-
-#
-# brcount_to_db(brcount)
-#
-# Convert brcount data to the following format:
-#
-# db:          line number    -> block hash
-# block hash:  block number   -> branch hash
-# branch hash: branch number  -> taken value
-#
-
-sub brcount_to_db($)
-{
-        my ($brcount) = @_;
-        my $line;
-        my $db;
-
-        # Add branches to database
-        foreach $line (keys(%{$brcount})) {
-                my $brdata = $brcount->{$line};
-
-                foreach my $entry (split(/:/, $brdata)) {
-                        my ($block, $branch, $taken) = split(/,/, $entry);
-                        my $old = $db->{$line}->{$block}->{$branch};
-
-                        if (!defined($old) || $old eq "-") {
-                                $old = $taken;
-                        } elsif ($taken ne "-") {
-                                $old += $taken;
-                        }
-
-                        $db->{$line}->{$block}->{$branch} = $old;
-                }
-        }
-
-        return $db;
-}
 
 
 #
@@ -3953,249 +3644,6 @@ sub brcount_db_combine($$$)
                         }
                 }
         }
-}
-
-
-#
-# brcount_db_get_found_and_hit(db)
-#
-# Return (br_found, br_hit) for db.
-#
-
-sub brcount_db_get_found_and_hit($)
-{
-        my ($db) = @_;
-        my ($br_found , $br_hit) = (0, 0);
-
-        foreach my $line (keys(%{$db})) {
-                my $ldata = $db->{$line};
-
-                foreach my $block (keys(%{$ldata})) {
-                        my $bdata = $ldata->{$block};
-
-                        foreach my $branch (keys(%{$bdata})) {
-                                my $taken = $bdata->{$branch};
-
-                                $br_found++;
-                                $br_hit++ if ($taken ne "-" && $taken > 0);
-                        }
-                }
-        }
-
-        return ($br_found, $br_hit);
-}
-
-
-# combine_brcount(brcount1, brcount2, type, inplace)
-#
-# If add is BR_ADD, add branch coverage data and return list brcount_added.
-# If add is BR_SUB, subtract the taken values of brcount2 from brcount1 and
-# return brcount_sub. If inplace is set, the result is inserted into brcount1.
-#
-
-sub combine_brcount($$$;$)
-{
-        my ($brcount1, $brcount2, $type, $inplace) = @_;
-        my ($db1, $db2);
-
-        $db1 = brcount_to_db($brcount1);
-        $db2 = brcount_to_db($brcount2);
-        brcount_db_combine($db1, $db2, $type);
-
-        return db_to_brcount($db1, $inplace ? $brcount1 : undef);
-}
-
-
-#
-# add_testbrdata(testbrdata1, testbrdata2)
-#
-# Add branch coverage data for several tests. Return reference to
-# added_testbrdata.
-#
-
-sub add_testbrdata($$)
-{
-        my ($testbrdata1, $testbrdata2) = @_;
-        my %result;
-        my $testname;
-
-        foreach $testname (keys(%{$testbrdata1})) {
-                if (defined($testbrdata2->{$testname})) {
-                        my $brcount;
-
-                        # Branch coverage data for this testname exists
-                        # in both data sets: add
-                        ($brcount) = combine_brcount($testbrdata1->{$testname},
-                                         $testbrdata2->{$testname}, $BR_ADD);
-                        $result{$testname} = $brcount;
-                        next;
-                }
-                # Branch coverage data for this testname is unique to
-                # data set 1: copy
-                $result{$testname} = $testbrdata1->{$testname};
-        }
-
-        # Add count data for testnames unique to data set 2
-        foreach $testname (keys(%{$testbrdata2})) {
-                if (!defined($result{$testname})) {
-                        $result{$testname} = $testbrdata2->{$testname};
-                }
-        }
-        return \%result;
-}
-
-
-#
-# combine_info_entries(entry_ref1, entry_ref2, filename)
-#
-# Combine .info data entry hashes referenced by ENTRY_REF1 and ENTRY_REF2.
-# Return reference to resulting hash.
-#
-
-sub combine_info_entries($$$)
-{
-        my $entry1 = $_[0];     # Reference to hash containing first entry
-        my $testdata1;
-        my $sumcount1;
-        my $funcdata1;
-        my $checkdata1;
-        my $testfncdata1;
-        my $sumfnccount1;
-        my $testbrdata1;
-        my $sumbrcount1;
-
-        my $entry2 = $_[1];     # Reference to hash containing second entry
-        my $testdata2;
-        my $sumcount2;
-        my $funcdata2;
-        my $checkdata2;
-        my $testfncdata2;
-        my $sumfnccount2;
-        my $testbrdata2;
-        my $sumbrcount2;
-
-        my %result;             # Hash containing combined entry
-        my %result_testdata;
-        my $result_sumcount = {};
-        my $result_funcdata;
-        my $result_testfncdata;
-        my $result_sumfnccount;
-        my $result_testbrdata;
-        my $result_sumbrcount;
-        my $lines_found;
-        my $lines_hit;
-        my $fn_found;
-        my $fn_hit;
-        my $br_found;
-        my $br_hit;
-
-        my $testname;
-        my $filename = $_[2];
-
-        # Retrieve data
-        ($testdata1, $sumcount1, $funcdata1, $checkdata1, $testfncdata1,
-         $sumfnccount1, $testbrdata1, $sumbrcount1) = get_info_entry($entry1);
-        ($testdata2, $sumcount2, $funcdata2, $checkdata2, $testfncdata2,
-         $sumfnccount2, $testbrdata2, $sumbrcount2) = get_info_entry($entry2);
-
-        # Merge checksums
-        $checkdata1 = merge_checksums($checkdata1, $checkdata2, $filename);
-
-        # Combine funcdata
-        $result_funcdata = merge_func_data($funcdata1, $funcdata2, $filename);
-
-        # Combine function call count data
-        $result_testfncdata = add_testfncdata($testfncdata1, $testfncdata2);
-        ($result_sumfnccount, $fn_found, $fn_hit) =
-                add_fnccount($sumfnccount1, $sumfnccount2);
-
-        # Combine branch coverage data
-        $result_testbrdata = add_testbrdata($testbrdata1, $testbrdata2);
-        ($result_sumbrcount, $br_found, $br_hit) =
-                combine_brcount($sumbrcount1, $sumbrcount2, $BR_ADD);
-
-        # Combine testdata
-        foreach $testname (keys(%{$testdata1}))
-        {
-                if (defined($testdata2->{$testname}))
-                {
-                        # testname is present in both entries, requires
-                        # combination
-                        ($result_testdata{$testname}) =
-                                add_counts($testdata1->{$testname},
-                                           $testdata2->{$testname});
-                }
-                else
-                {
-                        # testname only present in entry1, add to result
-                        $result_testdata{$testname} = $testdata1->{$testname};
-                }
-
-                # update sum count hash
-                ($result_sumcount, $lines_found, $lines_hit) =
-                        add_counts($result_sumcount,
-                                   $result_testdata{$testname});
-        }
-
-        foreach $testname (keys(%{$testdata2}))
-        {
-                # Skip testnames already covered by previous iteration
-                if (defined($testdata1->{$testname})) { next; }
-
-                # testname only present in entry2, add to result hash
-                $result_testdata{$testname} = $testdata2->{$testname};
-
-                # update sum count hash
-                ($result_sumcount, $lines_found, $lines_hit) =
-                        add_counts($result_sumcount,
-                                   $result_testdata{$testname});
-        }
-
-        # Calculate resulting sumcount
-
-        # Store result
-        set_info_entry(\%result, \%result_testdata, $result_sumcount,
-                       $result_funcdata, $checkdata1, $result_testfncdata,
-                       $result_sumfnccount, $result_testbrdata,
-                       $result_sumbrcount, $lines_found, $lines_hit,
-                       $fn_found, $fn_hit, $br_found, $br_hit);
-
-        return(\%result);
-}
-
-
-#
-# combine_info_files(info_ref1, info_ref2)
-#
-# Combine .info data in hashes referenced by INFO_REF1 and INFO_REF2. Return
-# reference to resulting hash.
-#
-
-sub combine_info_files($$)
-{
-        my %hash1 = %{$_[0]};
-        my %hash2 = %{$_[1]};
-        my $filename;
-
-        foreach $filename (keys(%hash2))
-        {
-                if ($hash1{$filename})
-                {
-                        # Entry already exists in hash1, combine them
-                        $hash1{$filename} =
-                                combine_info_entries($hash1{$filename},
-                                                     $hash2{$filename},
-                                                     $filename);
-                }
-                else
-                {
-                        # Entry is unique in both hashes, simply add to
-                        # resulting hash
-                        $hash1{$filename} = $hash2{$filename};
-                }
-        }
-
-        return(\%hash1);
 }
 
 
@@ -5708,7 +5156,7 @@ sub write_file_table_entry(*$$@)
       # href to anchor in frame doesnt seem to work in either firefox
       #   or chrome.  However, this seems like the right syntax.
       $tableHref .= "href=\"$file_link#__LINE__\" target=\"source\""
-	if 0;
+        if 0;
     } else {
       $tableHref = "href=\"$file_link#__LINE__\"";
     }
@@ -7757,60 +7205,6 @@ sub write_file_table(*$$$$$$$)
 
 
 #
-# get_found_and_hit(hash)
-#
-# Return the count for entries (found) and entries with an execution count
-# greater than zero (hit) in a hash (linenumber -> execution count) as
-# a list (found, hit)
-#
-
-sub get_found_and_hit($)
-{
-  my %hash = %{$_[0]};
-  my $found = 0;
-  my $hit = 0;
-
-  # Calculate sum
-  foreach (keys(%hash)) {
-    $found++;
-    $hit++
-      if ($hash{$_} > 0);
-  }
-  return ($found, $hit);
-}
-
-
-#
-# get_func_found_and_hit(sumfnccount)
-#
-# Return (f_found, f_hit) for sumfnccount
-#
-
-sub get_func_found_and_hit($)
-{
-  my ($sumfnccount) = @_;
-
-  my $fn_found = scalar(keys(%{$sumfnccount}));
-  my $fn_hit = 0;
-  foreach my $function (keys(%{$sumfnccount})) {
-    $fn_hit++
-      if ($sumfnccount->{$function} > 0);
-  }
-  return ($fn_found, $fn_hit);
-}
-
-
-sub get_br_found_and_hit($)
-{
-  my ($brcount) = @_;
-
-  my $db = brcount_to_db($brcount);
-
-  return brcount_db_get_found_and_hit($db);
-}
-
-
-#
 # get_affecting_tests(testdata, testfncdata, testbrdata)
 #
 # HASHREF contains a mapping filename -> (linenumber -> exec count). Return
@@ -7823,16 +7217,16 @@ sub get_affecting_tests($$$)
   my ($testdata, $testfncdata, $testbrdata) = @_;
   my %result;
 
-  foreach my $testname (keys(%{$testdata})) {
+  foreach my $testname ($testdata->keylist()) {
     # Get (line number -> count) hash for this test case
-    my $testcount = $testdata->{$testname};
-    my $testfnccount = $testfncdata->{$testname};
-    my $testbrcount = $testbrdata->{$testname};
+    my $testcount = $testdata->value($testname);
+    my $testfnccount = $testfncdata->value($testname);
+    my $testbrcount = $testbrdata->value($testname);
 
     # Calculate sum
-    my ($found, $hit) = get_found_and_hit($testcount);
-    my ($fn_found, $fn_hit) = get_func_found_and_hit($testfnccount);
-    my ($br_found, $br_hit) = get_br_found_and_hit($testbrcount);
+    my ($found, $hit) = $testcount->get_found_and_hit();
+    my ($fn_found, $fn_hit) = $testfnccount->get_found_and_hit();
+    my ($br_found, $br_hit) = $testbrcount->get_found_and_hit();
 
     $result{$testname} = "$found,$hit,$fn_found,$fn_hit,$br_found,$br_hit"
       if ($hit > 0);
@@ -8151,108 +7545,6 @@ sub subtract_fnccounts($$)
     }
   }
   return (\%data, $fn_found, $fn_hit);
-}
-
-
-#
-# apply_baseline(data_ref, baseline_ref)
-#
-# Subtract the execution counts found in the baseline hash referenced by
-# BASELINE_REF from actual data in DATA_REF.
-#
-
-sub apply_baseline($$)
-{
-  my %data_hash = %{$_[0]};
-  my %base_hash = %{$_[1]};
-  my $data_testdata;
-  my $data_funcdata;
-  my $data_checkdata;
-  my $data_testfncdata;
-  my $data_testbrdata;
-
-  my $base_checkdata;
-  my $base_sumfnccount;
-  my $base_sumbrcount;
-  my $base_count;
-  my $found;
-  my $hit;
-  my $fn_found;
-  my $fn_hit;
-  my $br_found;
-  my $br_hit;
-
-  foreach my $filename (keys(%data_hash)) {
-    # Get data set for data and baseline
-    my $data = $data_hash{$filename};
-    my $base = $base_hash{$filename};
-
-    # Skip data entries for which no base entry exists
-    next
-      if (!defined($base));
-
-    # Get set entries for data and baseline
-    ($data_testdata, undef, $data_funcdata, $data_checkdata,
-     $data_testfncdata, undef, $data_testbrdata) =
-         get_info_entry($data);
-    (undef, $base_count, undef, $base_checkdata, undef,
-     $base_sumfnccount, undef, $base_sumbrcount) =
-         get_info_entry($base);
-
-    # Check for compatible checksums
-    merge_checksums($data_checkdata, $base_checkdata, $filename);
-
-    # sumcount has to be calculated anew
-    my $sumcount = {};
-    my $sumfnccount = {};
-    my $sumbrcount = {};
-
-    # For each test case, subtract test specific counts
-    foreach my $testname (keys(%{$data_testdata})) {
-      # Get counts of both data and baseline
-      my $data_count = $data_testdata->{$testname};
-      my $data_testfnccount = $data_testfncdata->{$testname};
-      my $data_testbrcount = $data_testbrdata->{$testname};
-
-      ($data_count, undef, $hit) = subtract_counts($data_count, $base_count);
-      ($data_testfnccount) = subtract_fnccounts($data_testfnccount,
-                                                $base_sumfnccount);
-      ($data_testbrcount) = combine_brcount($data_testbrcount,
-                                            $base_sumbrcount, $BR_SUB);
-
-      # Check whether this test case did hit any line at all
-      if ($hit > 0) {
-        # Write back resulting hash
-        $data_testdata->{$testname} = $data_count;
-        $data_testfncdata->{$testname} = $data_testfnccount;
-        $data_testbrdata->{$testname} = $data_testbrcount;
-      }
-      else {
-        # Delete test case which did not impact this file
-        delete($data_testdata->{$testname});
-        delete($data_testfncdata->{$testname});
-        delete($data_testbrdata->{$testname});
-      }
-
-      # Add counts to sum of counts
-      ($sumcount, $found, $hit) = add_counts($sumcount, $data_count);
-      ($sumfnccount, $fn_found, $fn_hit) = add_fnccount($sumfnccount,
-                                                        $data_testfnccount);
-      ($sumbrcount, $br_found, $br_hit) = combine_brcount($sumbrcount,
-                                                          $data_testbrcount,
-                                                          $BR_ADD);
-    }
-
-    # Write back resulting entry
-    set_info_entry($data, $data_testdata, $sumcount, $data_funcdata,
-                   $data_checkdata, $data_testfncdata, $sumfnccount,
-                   $data_testbrdata, $sumbrcount, $found, $hit,
-                   $fn_found, $fn_hit, $br_found, $br_hit);
-
-    $data_hash{$filename} = $data;
-  }
-
-  return (\%data_hash);
 }
 
 

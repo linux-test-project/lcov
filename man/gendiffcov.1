@@ -317,7 +317,7 @@ and
 .IR tracefile(s) .
 A suitable
 .I unified\-diff\-file
-can be generated using the command "p4 diff baseline-cl curent-cl", or using the "gitdiff" sample script (found in the share/lcov/support-scripts directory shipped as part of this release).
+can be generated using the command "git diff \-\-relative SHA_base SHA_current", or using the "p4udiff" sample script (found in the share/lcov/support-scripts directory shipped as part of this release).
 The
 .I unified\-diff\-file
 is ignored if the
