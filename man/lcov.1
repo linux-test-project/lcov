@@ -497,6 +497,10 @@ command line switches. The
 will be interpreted as shell wildcard patterns (note that they may need to be
 escaped accordingly to prevent the shell from expanding them first).
 
+Note: The pattern must be specified to match the
+.B absolute
+path of each source file.
+
 Can be combined with the
 .B --include
 command line switch. If a given file matches both the include pattern and the
@@ -539,6 +543,10 @@ escaped accordingly to prevent the shell from expanding them first).
 Every file entry in
 .I tracefile
 which matches at least one of those patterns will be extracted.
+
+Note: The pattern must be specified to match the
+.B absolute
+path of each source file.
 
 The result of the extract operation will be written to stdout or the tracefile
 specified with \-o.
@@ -598,6 +606,10 @@ command line switches. The
 .I patterns
 will be interpreted as shell wildcard patterns (note that they may need to be
 escaped accordingly to prevent the shell from expanding them first).
+
+Note: The pattern must be specified to match the
+.B absolute
+path of each source file.
 .RE
 
 .B \-\-ignore\-errors
@@ -798,6 +810,10 @@ escaped accordingly to prevent the shell from expanding them first).
 Every file entry in
 .I tracefile
 which matches at least one of those patterns will be removed.
+
+Note: The pattern must be specified to match the
+.B absolute
+path of each source file.
 
 The result of the remove operation will be written to stdout or the tracefile
 specified with \-o.
