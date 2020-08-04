@@ -8,6 +8,8 @@
 # test log file. Must be run after testsuite_init.
 #
 
+trap 'echo ; exit 1' SIGINT
+
 TOPDIR=$(realpath $(dirname $0)/..) && source "$TOPDIR/bin/common"
 EXCERPTLEN=10
 TESTNAME="$1"

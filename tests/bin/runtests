@@ -15,17 +15,19 @@ if [[ -z "${_TESTS_RUNNING}" ]] ; then
 
 	testsuite_init
 	trap testsuite_exit exit
+	# Suppress test results on keyboard interrupt
+	trap "trap exit ; exit 1" SIGINT
 fi
 
 for TEST in ${TESTS} ; do
 	if [[ -d "${TEST}" ]] ; then
 		# Enter sub-directory
-		${MAKE} -C "${TEST}" check
+		${MAKE} -C "${TEST}" check || exit 1
 	else
 		# Enter test
 		ABS_TEST="$PWD/$TEST"
 		REL_TEST="${ABS_TEST##$TOPDIR}"
-		test_run "${REL_TEST}" "${ABS_TEST}" </dev/null
+		test_run "${REL_TEST}" "${ABS_TEST}" </dev/null || exit 1
 	fi
 done
 

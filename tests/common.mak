@@ -43,14 +43,27 @@ endif
 #   make TESTS=subdir
 MAKEOVERRIDES := $(filter-out TESTS=%,$(MAKEOVERRIDES))
 
-check: prepare
+# Default target
+check:
 	runtests "$(MAKE)" $(TESTS)
+
+ifeq ($(_ONCE),)
+
+# Do these only once during initialization
+export _ONCE := 1
+
+check: checkdeps prepare
+
+checkdeps:
+	checkdeps $(TOPDIR)/../bin/* $(TOPDIR)/bin/*
 
 prepare: $(INFOFILES) $(COUNTFILES)
 
 # Create artificial info files as test data
 $(INFOFILES) $(COUNTFILES):
 	cd $(TOPDIR) && mkinfo profiles/$(SIZE) -o src/
+
+endif
 
 clean: clean_echo clean_subdirs
 
