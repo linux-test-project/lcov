@@ -169,6 +169,16 @@ genhtml_desc_html=0
 #genhtml_demangle_cpp=1
 .br
 
+# Name of the tool used for demangling C++ function names
+.br
+#genhtml_demangle_cpp_tool = c++filt
+.br
+
+# Specify extra parameters to be passed to the demangling tool
+.br
+#genhtml_demangle_cpp_params = ""
+.br
+
 # Location of the gcov tool
 .br
 #geninfo_gcov_tool = gcov
@@ -589,6 +599,32 @@ This option corresponds to the \-\-demangle\-cpp command line option of
 .br
 
 Default is 0.
+.PP
+
+.BR genhtml_demangle_cpp_tool " ="
+.I path_to_c++filt
+.IP
+Specify the location of the demangle tool (see
+.BR c++filt (1))
+used to convert C++ internal function names to human readable format
+for display on the HTML function overview page.
+.br
+
+Default is 'c++filt'.
+.PP
+
+.BR genhtml_demangle_cpp_params " ="
+.I parameters
+.IP
+Specify extra parameters to be passed to the demangling tool
+
+Use this option if your environment requires additional parameters such
+as --no-strip-underscore for correctly demangling C++ internal function
+names. See also
+.BR c++filt (1)).
+.br
+
+Default is "".
 .PP
 
 .BR genhtml_desc_html " ="

@@ -287,6 +287,8 @@ our $html_epilog;	# Actual HTML epilog
 our $html_ext = "html";	# Extension for generated HTML files
 our $html_gzip = 0;	# Compress with gzip
 our $demangle_cpp = 0;	# Demangle C++ function names
+our $demangle_cpp_tool = "c++filt"; # Default demangler for C++ function names
+our $demangle_cpp_params = ""; # Extra parameters for demangling
 our @opt_ignore_errors;	# Ignore certain error classes during processing
 our @ignore;
 our $opt_config_file;	# User-specified configuration file location
@@ -379,6 +381,8 @@ if ($config || %opt_rc)
 		"genhtml_charset"		=> \$charset,
 		"genhtml_desc_html"		=> \$rc_desc_html,
 		"genhtml_demangle_cpp"		=> \$demangle_cpp,
+		"genhtml_demangle_cpp_tool"	=> \$demangle_cpp_tool,
+		"genhtml_demangle_cpp_params"	=> \$demangle_cpp_params,
 		"genhtml_missed"		=> \$opt_missed,
 		"lcov_function_coverage"	=> \$lcov_func_coverage,
 		"lcov_branch_coverage"		=> \$lcov_branch_coverage,
@@ -547,8 +551,8 @@ if ($frames)
 # Ensure that the c++filt tool is available when using --demangle-cpp
 if ($demangle_cpp)
 {
-	if (system_no_output(3, "c++filt", "--version")) {
-		die("ERROR: could not find c++filt tool needed for ".
+	if (system_no_output(3, $demangle_cpp_tool, "--version")) {
+		die("ERROR: could not find $demangle_cpp_tool tool needed for ".
 		    "--demangle-cpp\n");
 	}
 }
@@ -5246,7 +5250,7 @@ sub demangle_list($)
 	my $tmpfile;
 	my $handle;
 	my %demangle;
-	my $demangle_arg = "";
+	my $demangle_arg = $demangle_cpp_params;
 	my %versions;
 
 	# Write function names to file
@@ -5257,12 +5261,12 @@ sub demangle_list($)
 
 	# Extra flag necessary on OS X so that symbols listed by gcov get demangled
 	# properly.
-	if ($^O eq "darwin") {
+	if ($demangle_arg eq "" && $^O eq "darwin") {
 		$demangle_arg = "--no-strip-underscores";
 	}
 
 	# Build translation hash from c++filt output
-	open($handle, "-|", "c++filt $demangle_arg < $tmpfile") or
+	open($handle, "-|", "$demangle_cpp_tool $demangle_arg < $tmpfile") or
 		die("ERROR: could not run c++filt: $!\n");
 	foreach my $func (@$list) {
 		my $translated = <$handle>;

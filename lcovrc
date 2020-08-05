@@ -102,6 +102,12 @@ genhtml_desc_html=0
 # Demangle C++ symbols
 #genhtml_demangle_cpp=1
 
+# Name of the tool used for demangling C++ function names
+#genhtml_demangle_cpp_tool = c++filt
+
+# Specify extra parameters to be passed to the demangling tool
+#genhtml_demangle_cpp_params = ""
+
 # Location of the gcov tool (same as --gcov-info option of geninfo)
 #geninfo_gcov_tool = gcov
 
