@@ -10,12 +10,15 @@
 
 trap 'echo ; exit 1' SIGINT
 
-TOPDIR=$(realpath $(dirname $0)/..) && source "$TOPDIR/bin/common"
+[[ -z "$TOPDIR" ]] && TOPDIR=$(realpath $(dirname $0)/..)
+
+source "$TOPDIR/bin/common"
+
 EXCERPTLEN=10
 TESTNAME="$1"
 shift
 
-TIME=$(which time 2>/dev/null)
+TIME=$(type -P time 2>/dev/null)
 if [ ! -z "$TIME" ] ; then
 	TIME="$TIME -v -o $TIMEFILE"
 	if ! $TIME true 2>/dev/null ; then
