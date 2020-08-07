@@ -2398,7 +2398,7 @@ sub intermediate_json_to_info($$$)
 					}
 
 					$branches_found++;
-					$branches_hit++ if ($brcount > 0);
+					$branches_hit++ if ($brcount ne "-" && $brcount > 0);
 					$branch_num++;
 				}
 			}
