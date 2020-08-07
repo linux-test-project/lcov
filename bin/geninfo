@@ -2938,7 +2938,7 @@ sub get_source_data($)
 	}
 	close(HANDLE);
 
-	if ($flag || $brflag) {
+	if ($flag || $brflag || $exceptionbrflag) {
 		warn("WARNING: unterminated exclusion section in $filename\n");
 	}
 
