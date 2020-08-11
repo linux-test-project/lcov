@@ -60,7 +60,7 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
-use JSON qw(decode_json);
+use JSON:PP qw(decode_json);
 
 if( $^O eq "msys" )
 {
