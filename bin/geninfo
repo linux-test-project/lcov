@@ -2160,6 +2160,12 @@ sub read_intermediate_json($$$)
 
 	$$basedir_ref = $json->{"current_working_directory"};
 
+	# Workaround for bug in MSYS GCC 9.x that encodes \ as \n in gcov JSON
+	# output
+	if ($^O eq "msys" && $$basedir_ref =~ /\n/) {
+		$$basedir_ref =~ s#\n#/#g;
+	}
+
 	for my $file (@{$json->{"files"}}) {
 		my $filename = $file->{"file"};
 
