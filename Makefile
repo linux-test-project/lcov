@@ -95,7 +95,8 @@ lcov-$(VERSION).tar.gz: $(FILES)
 	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(RELEASE) $(FULL)
 	bin/get_changes.sh > $(TMP_DIR)/lcov-$(VERSION)/CHANGES
 	cd $(TMP_DIR) ; \
-	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION)
+	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION) \
+	    --owner root --group root
 	mv $(TMP_DIR)/lcov-$(VERSION).tar.gz .
 	rm -rf $(TMP_DIR)
 
@@ -112,7 +113,8 @@ rpms: lcov-$(VERSION).tar.gz
 	cd $(TMP_DIR)/BUILD ; \
 	tar xfz $(TMP_DIR)/SOURCES/lcov-$(VERSION).tar.gz \
 		lcov-$(VERSION)/rpm/lcov.spec
-	rpmbuild --define '_topdir $(TMP_DIR)' \
+	rpmbuild --define '_topdir $(TMP_DIR)' --define '_buildhost localhost' \
+		 --undefine vendor --undefine packager \
 		 -ba $(TMP_DIR)/BUILD/lcov-$(VERSION)/rpm/lcov.spec
 	mv $(TMP_DIR)/RPMS/noarch/lcov-$(VERSION)-$(RELEASE).noarch.rpm .
 	mv $(TMP_DIR)/SRPMS/lcov-$(VERSION)-$(RELEASE).src.rpm .
