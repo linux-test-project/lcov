@@ -1,8 +1,46 @@
 #!/bin/sh
-set -x
+set +x
 
-#LCOV_HOME=/home/hcox/lcov
-LCOV_HOME=../../../../releng/coverage/lcov
+CLEAN_ONLY=0
+LCOV_HOME=
+
+while [ $# -gt 0 ] ; do
+
+    OPT=$1
+    shift
+    case $OPT in
+
+        --clean | clean )
+            CLEAN_ONLY=1
+            ;;
+
+        -v | --verbose | verbose )
+            set -x
+            ;;
+        
+        --home | home )
+            LCOV_HOME=$1
+            shift
+            if [ ! -f $LCOV_HOME/bin/lcov ] ; then
+                echo "LCOV_HOME '$LCOV_HOME' does not exist"
+                exit 1
+            fi
+            ;;
+        
+        * )
+            echo "Error: unexpected option '$OPT'"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "x" == ${LCOV_HOME}x ]] ; then 
+       if [ -f ../../../bin/lcov ] ; then
+           LCOV_HOME=../../..
+       else
+           LCOV_HOME=../../../../releng/coverage/lcov
+       fi
+fi
 
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
@@ -15,6 +53,10 @@ DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp -
 
 rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt 
 rm -rf ./baseline ./current ./differential ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter noncode_differential
+
+if [[ 1 == $CLEAN_ONLY ]] ; then
+    exit 0
+fi
 
 echo *
 

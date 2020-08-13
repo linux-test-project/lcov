@@ -3257,7 +3257,7 @@ sub gen_html()
   # Generate overview page
   info("Writing directory view page.\n");
 
-  # Create sorted pagesaa
+  # Create sorted pages
   foreach my $prefix (@main::fileview_prefixes) {
     foreach (@fileview_sortlist) {
       write_dir_page($prefix, $fileview_sortname[$_], ".", "", $test_title,
@@ -3304,12 +3304,6 @@ sub write_dir_page($$$$$$$$$$$$$)
       $overview, $testhash, $testfnchash, $testbrhash,
       $view_type, $sort_type, $summary) = @_;
 
-  if ('' ne $prefix &&
-      ('sort-l' ne $name &&
-       '' ne $name)) {
-      # we don't do date- or owner-binning for function or branch coverage, yet
-      return;
-  }
   # Generate directory overview page including details
   html_create(*HTML_HANDLE, "$rel_dir/index$prefix$name.$html_ext");
   if (!defined($trunc_dir)) {
@@ -3567,84 +3561,6 @@ sub process_file($$$)
   return ($testdata, $testfncdata, $testbrdata, $summary, $srcfile);
 }
 
-
-
-#
-# db_to_brcount(db[, brcount])
-#
-# Convert branch coverage data back to brcount format. If brcount is specified,
-# the converted data is directly inserted in brcount.
-#
-
-sub db_to_brcount($;$)
-{
-        my ($db, $brcount) = @_;
-        my $line;
-        my $br_found = 0;
-        my $br_hit = 0;
-
-        # Convert database back to brcount format
-        foreach $line (sort({$a <=> $b} keys(%{$db}))) {
-                my $ldata = $db->{$line};
-                my $brdata;
-                my $block;
-
-                foreach $block (sort({$a <=> $b} keys(%{$ldata}))) {
-                        my $bdata = $ldata->{$block};
-                        my $branch;
-
-                        foreach $branch (sort({$a <=> $b} keys(%{$bdata}))) {
-                                my $taken = $bdata->{$branch};
-
-                                $br_found++;
-                                $br_hit++ if ($taken ne "-" && $taken > 0);
-                                $brdata .= "$block,$branch,$taken:";
-                        }
-                }
-                $brcount->{$line} = $brdata;
-        }
-
-        return ($brcount, $br_found, $br_hit);
-}
-
-
-#
-# brcount_db_combine(db1, db2, op)
-#
-# db1 := db1 op db2, where
-#   db1, db2: brcount data as returned by brcount_to_db
-#   op:       one of $BR_ADD and BR_SUB
-#
-sub brcount_db_combine($$$)
-{
-        my ($db1, $db2, $op) = @_;
-
-        foreach my $line (keys(%{$db2})) {
-                my $ldata = $db2->{$line};
-
-                foreach my $block (keys(%{$ldata})) {
-                        my $bdata = $ldata->{$block};
-
-                        foreach my $branch (keys(%{$bdata})) {
-                                my $taken = $bdata->{$branch};
-                                my $new = $db1->{$line}->{$block}->{$branch};
-
-                                if (!defined($new) || $new eq "-") {
-                                        $new = $taken;
-                                } elsif ($taken ne "-") {
-                                        if ($op == $BR_ADD) {
-                                                $new += $taken;
-                                        } elsif ($op == $BR_SUB) {
-                                                $new -= $taken;
-                                                $new = 0 if ($new < 0);
-                                        }
-                                }
-
-                                $db1->{$line}->{$block}->{$branch} = $new;
-                        }
-                }
-        }
-}
 
 
 #
@@ -6814,17 +6730,17 @@ sub get_sort_code($$$)
                'alt="'.$alt.'" title="'.$alt.'" border=0>'.$link_end.'</span>';
 }
 
-sub get_file_code($$$$)
+sub get_file_code($$$$$)
 {
-        my ($type, $text, $sort_button, $base) = @_;
+        my ($type, $text, $sort_button, $detail_type, $base) = @_;
         my $result = $text;
         my $link;
 
         if ($sort_button) {
                 if ($type == $HEAD_NO_DETAIL) {
-                        $link = "index.$html_ext";
+                        $link = "index$detail_type.$html_ext";
                 } else {
-                        $link = "index-detail.$html_ext";
+                        $link = "index-detail$detail_type.$html_ext";
                 }
         }
         $result .= get_sort_code($link, "Sort by name", $base);
@@ -6832,32 +6748,32 @@ sub get_file_code($$$$)
         return $result;
 }
 
-sub get_line_code($$$$$)
+sub get_line_code($$$$$$)
 {
-        my ($type, $sort_type, $text, $sort_button, $base) = @_;
+        my ($type, $sort_type, $text, $sort_button, $detail_type, $base) = @_;
         my $result = $text;
         my $sort_link;
 
         if ($type == $HEAD_NO_DETAIL) {
                 # Just text
                 if ($sort_button) {
-                        $sort_link = "index-sort-l.$html_ext";
+                        $sort_link = "index${detail_type}-sort-l.$html_ext";
                 }
         } elsif ($type == $HEAD_DETAIL_HIDDEN) {
                 # Text + link to detail view
-                $result .= ' ( <a class="detail" href="index-detail'.
+                $result .= ' ( <a class="detail" href="index${detail_type}-detail'.
                            $fileview_sortname[$sort_type].'.'.$html_ext.
                            '">show details</a> )';
                 if ($sort_button) {
-                        $sort_link = "index-sort-l.$html_ext";
+                        $sort_link = "index${detail_type}-sort-l.$html_ext";
                 }
         } else {
                 # Text + link to standard view
-                $result .= ' ( <a class="detail" href="index'.
+                $result .= ' ( <a class="detail" href="index'.$detail_type.
                            $fileview_sortname[$sort_type].'.'.$html_ext.
                            '">hide details</a> )';
                 if ($sort_button) {
-                        $sort_link = "index-detail-sort-l.$html_ext";
+                        $sort_link = "index${detail_type}-detail-sort-l.$html_ext";
                 }
         }
         # Add sort button
@@ -6963,36 +6879,44 @@ sub write_file_table(*$$$$$$$)
                                $HEAD_NO_DETAIL,
                                $fileview ? "Filename" : "Directory",
                                $sort && $sort_type != $SORT_FILE,
+			       $detail_type,
                                $base_dir);
     $line_code = get_line_code($detailed ? $HEAD_DETAIL_SHOWN :
                                $HEAD_DETAIL_HIDDEN,
                                $sort_type,
                                "Line Coverage",
                                $sort && $sort_type != $SORT_LINE,
+			       $detail_type,
                                $base_dir);
     $func_code = get_func_code($detailed ? $HEAD_DETAIL_HIDDEN :
                                $HEAD_NO_DETAIL,
                                "Functions",
                                $sort && $sort_type != $SORT_FUNC,
+			       $detail_type,
                                $base_dir);
     $br_code = get_br_code($detailed ? $HEAD_DETAIL_HIDDEN :
                            $HEAD_NO_DETAIL,
                            "Branches",
                            $sort && $sort_type != $SORT_BRANCH,
+			   $detail_type,
                            $base_dir);
   } else {
     $file_code = get_file_code($HEAD_NO_DETAIL,
                                $fileview ? "Filename" : "Directory",
                                $sort && $sort_type != $SORT_FILE,
+			       $detail_type,
                                $base_dir);
     $line_code = get_line_code($HEAD_NO_DETAIL, $sort_type, "Line Coverage",
                                $sort && $sort_type != $SORT_LINE,
+			       $detail_type,
                                $base_dir);
     $func_code = get_func_code($HEAD_NO_DETAIL, "Functions",
                                $sort && $sort_type != $SORT_FUNC,
+			       $detail_type,
                                $base_dir);
     $br_code = get_br_code($HEAD_NO_DETAIL, "Branches",
                            $sort && $sort_type != $SORT_BRANCH,
+			   $detail_type,
                            $base_dir);
   }
   my @lineCovCols = (["coverage", 2], "Total", "Hit");
