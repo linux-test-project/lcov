@@ -205,7 +205,6 @@ sub get_date_string($);
 sub create_sub_dir($);
 sub subtract_counts($$);
 sub remove_unused_descriptions();
-sub get_found_and_hit($);
 sub get_affecting_tests($$$);
 sub apply_prefix($@);
 sub read_config($);
@@ -419,7 +418,7 @@ sub get {
   if ($key eq "total") {
     return $hash->{found};
   } elsif ($key eq "not_hit" ||
-	   $key eq "missed" ) {
+           $key eq "missed" ) {
     my $missed = 0;
     foreach my $k ('UBC', 'UNC', 'UIC', 'LBC') {
       $missed += $hash->{$k}
@@ -2479,6 +2478,70 @@ sub _bare_load {
 }
 
 
+# a class to hold either line or branch counts for each testcase -
+#   used by the "--show-details" feature.
+package TestcaseTlaCount;
+
+sub new {
+  # $testcaseCounts: either 'CountData' or 'BranchData' structure 
+  #     - the data for this testcase
+  # $fileDetails: SourceFile structure - data for the filename
+  # $covtype:  'line' or 'branch'
+  my ($class, $testcaseCounts, $fileDetails, $covtype) = @_;
+
+  my %tlaData;
+  $tlaData{found} = $testcaseCounts->found();
+  $tlaData{hit} = $testcaseCounts->hit();
+  if ($main::show_tla &&
+      defined($fileDetails) ) {
+    for my $tla (("CBC", "GBC", "GIC", "GNC")) {
+      $tlaData{$tla} = 0;
+    }
+    if ('line' eq $covtype) {
+      foreach my $line ($testcaseCounts->keylist()) {
+	# skip uncovered lines...
+	next if $testcaseCounts->value($line) == 0;
+	my $lineData = $fileDetails->line($line); # "SourceLine" structure
+	my $tla = $lineData->tla();
+	die("unexpected TLA '$tla' in CounntData for $line")
+	  unless exists($tlaData{$tla});
+	$tlaData{$tla} += 1;
+	}
+    } else {
+      die("$covtype not supported yet") unless $covtype eq 'branch';
+      foreach my $line ($testcaseCounts->keylist()) {
+	my $lineData = $fileDetails->line($line); # "SourceLine" structure
+	my $branchEntry = $lineData->branchElem();
+	foreach my $id ($branchEntry->blocks()) {
+	  my $block = $branchEntry->getBlock($id);
+	  foreach my $data (@$block) {
+	    my ($count, $tla) = @$data;
+	    $count = 0 if ($count eq '-');
+	    die("unexpected branch TLA $tla for count $count") 
+	      unless ( ($count != 0) == exists($tlaData{$tla}) );
+	    next if (0 == $count);
+	    $tlaData{$tla} += 1;
+	  }
+	}
+      }
+    }
+  }
+  my $self = [$testcaseCounts, $fileDetails, \%tlaData, $covtype];
+  bless $self, $class;
+  return $self;
+}
+
+sub covtype {
+  my $self = shift;
+  return $self->[3];
+}
+
+sub count {
+  my ($self, $tla) = @_;
+
+  my $tlaCounts = $self->[2];
+  return exists($tlaCounts->{$tla}) ? $tlaCounts->{$tla} : 0;
+}
 
 
 package main;
@@ -2738,6 +2801,17 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
       if ($show_dateBins);
   push(@fileview_prefixes, "-owner")
       if (defined($show_ownerBins));
+
+  # use LCOV original colors if no baseline file 
+  #  (so no differential coverage)
+  if (! $show_tla) {
+    for my $tla (('CBC', 'GNC', 'GIC', 'GBC')) {
+      $SummaryInfo::tlaColor{$tla} = "#CAD7FE";
+    }
+    for my $tla (('UBC', 'UNC', 'UIC', 'LBC')) {
+      $SummaryInfo::tlaColor{$tla} = "#FF6230";
+    }
+  }  
 }
 
 @info_filenames = @ARGV;
@@ -5038,7 +5112,7 @@ END_OF_HTML
 
 
 # write_file_table_entry(handle, base_dir,
-#                        [name, [filenameame, fileDetails, fileHref],
+#                        [name, [filename, fileDetails, fileHref],
 #                         rowspan, page_type,
 #                         page_link, dirSummary, showDetailColumn, callback,
 #                         covType ],
@@ -5226,19 +5300,27 @@ sub write_file_table_detail_entry(*$@)
 END_OF_HTML
   # Test data
   foreach my $entry (@entries) {
-    my ($found, $hit) = @{$entry};
+    my ($found, $hit, $covtype, $callback) = @{$entry};
     my $rate = rate($hit, $found, "&nbsp;%");
-
-    write_html($handle, <<END_OF_HTML);
-              <td class="testPer">$rate</td>
-              <td class="testNum">$hit&nbsp;/&nbsp;$found</td>
+    write_html($handle, "    <td class=\"testPer\">$rate</td>\n");
+    if ($covtype ne 'function') {
+      write_html($handle, <<END_OF_HTML);
+              <td class="testNum">$hit</td>
+              <td class='testNum'>$found</td>
 END_OF_HTML
+      if ($main::show_tla) {
+        foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
+	  my $count = $callback->count($tla);
+	  $count = "" if 0 == $count;
+          write_html($handle, "    <td class=coverNumDflt>$count</td>\n");
+        }
+      }
+    } else {
+      write_html($handle, 
+                "    <td class=\"testNum\">$hit&nbsp;/&nbsp;$found</td>\n");
+    }
   }
-
-  write_html($handle, <<END_OF_HTML);
-            </tr>
-
-END_OF_HTML
+  write_html($handle, "    </tr>\n");
 }
 
 
@@ -6737,11 +6819,10 @@ sub get_file_code($$$$$)
         my $link;
 
         if ($sort_button) {
-                if ($type == $HEAD_NO_DETAIL) {
-                        $link = "index$detail_type.$html_ext";
-                } else {
-                        $link = "index-detail$detail_type.$html_ext";
-                }
+         $link = "index$detail_type";
+         $link .= '-detail'
+           unless ($type == $HEAD_NO_DETAIL);
+         $link .= ".$html_ext";
         }
         $result .= get_sort_code($link, "Sort by name", $base);
 
@@ -6757,15 +6838,16 @@ sub get_line_code($$$$$$)
         if ($type == $HEAD_NO_DETAIL) {
                 # Just text
                 if ($sort_button) {
-                        $sort_link = "index${detail_type}-sort-l.$html_ext";
+                        $sort_link = "index" . $detail_type . "-sort-l.$html_ext";
                 }
         } elsif ($type == $HEAD_DETAIL_HIDDEN) {
                 # Text + link to detail view
-                $result .= ' ( <a class="detail" href="index${detail_type}-detail'.
+                $result .= ' ( <a class="detail" href="index' .
+                           $detail_type . '-detail' .
                            $fileview_sortname[$sort_type].'.'.$html_ext.
                            '">show details</a> )';
                 if ($sort_button) {
-                        $sort_link = "index${detail_type}-sort-l.$html_ext";
+                        $sort_link = "index" . $detail_type . "-sort-l.$html_ext";
                 }
         } else {
                 # Text + link to standard view
@@ -6773,7 +6855,7 @@ sub get_line_code($$$$$$)
                            $fileview_sortname[$sort_type].'.'.$html_ext.
                            '">hide details</a> )';
                 if ($sort_button) {
-                        $sort_link = "index${detail_type}-detail-sort-l.$html_ext";
+                        $sort_link = "index" . $detail_type. "-detail-sort-l.$html_ext";
                 }
         }
         # Add sort button
@@ -6782,35 +6864,33 @@ sub get_line_code($$$$$$)
         return $result;
 }
 
-sub get_func_code($$$$)
+sub get_func_code($$$$$)
 {
-        my ($type, $text, $sort_button, $base) = @_;
+        my ($type, $text, $sort_button, $detail_type, $base) = @_;
         my $result = $text;
         my $link;
 
         if ($sort_button) {
-                if ($type == $HEAD_NO_DETAIL) {
-                        $link = "index-sort-f.$html_ext";
-                } else {
-                        $link = "index-detail-sort-f.$html_ext";
-                }
+          $link = "index$detail_type";
+          $link .= '-detail'
+            unless ($type == $HEAD_NO_DETAIL);
+          $link .= "-sort-f.$html_ext";
         }
         $result .= get_sort_code($link, "Sort by function coverage", $base);
         return $result;
 }
 
-sub get_br_code($$$$)
+sub get_br_code($$$$$)
 {
-        my ($type, $text, $sort_button, $base) = @_;
+        my ($type, $text, $sort_button, $detail_type, $base) = @_;
         my $result = $text;
         my $link;
 
         if ($sort_button) {
-                if ($type == $HEAD_NO_DETAIL) {
-                        $link = "index-sort-b.$html_ext";
-                } else {
-                        $link = "index-detail-sort-b.$html_ext";
-                }
+          $link = "index$detail_type";
+          $link .= '-detail'
+            unless ($type == $HEAD_NO_DETAIL);
+          $link .= "-sort-b.$html_ext";
         }
         $result .= get_sort_code($link, "Sort by branch coverage", $base);
         return $result;
@@ -6879,44 +6959,44 @@ sub write_file_table(*$$$$$$$)
                                $HEAD_NO_DETAIL,
                                $fileview ? "Filename" : "Directory",
                                $sort && $sort_type != $SORT_FILE,
-			       $detail_type,
+                               $detail_type,
                                $base_dir);
     $line_code = get_line_code($detailed ? $HEAD_DETAIL_SHOWN :
                                $HEAD_DETAIL_HIDDEN,
                                $sort_type,
                                "Line Coverage",
                                $sort && $sort_type != $SORT_LINE,
-			       $detail_type,
+                               $detail_type,
                                $base_dir);
     $func_code = get_func_code($detailed ? $HEAD_DETAIL_HIDDEN :
                                $HEAD_NO_DETAIL,
                                "Functions",
                                $sort && $sort_type != $SORT_FUNC,
-			       $detail_type,
+                               $detail_type,
                                $base_dir);
     $br_code = get_br_code($detailed ? $HEAD_DETAIL_HIDDEN :
                            $HEAD_NO_DETAIL,
                            "Branches",
                            $sort && $sort_type != $SORT_BRANCH,
-			   $detail_type,
+                           $detail_type,
                            $base_dir);
   } else {
     $file_code = get_file_code($HEAD_NO_DETAIL,
                                $fileview ? "Filename" : "Directory",
                                $sort && $sort_type != $SORT_FILE,
-			       $detail_type,
+                               $detail_type,
                                $base_dir);
     $line_code = get_line_code($HEAD_NO_DETAIL, $sort_type, "Line Coverage",
                                $sort && $sort_type != $SORT_LINE,
-			       $detail_type,
+                               $detail_type,
                                $base_dir);
     $func_code = get_func_code($HEAD_NO_DETAIL, "Functions",
                                $sort && $sort_type != $SORT_FUNC,
-			       $detail_type,
+                               $detail_type,
                                $base_dir);
     $br_code = get_br_code($HEAD_NO_DETAIL, "Branches",
                            $sort && $sort_type != $SORT_BRANCH,
-			   $detail_type,
+                           $detail_type,
                            $base_dir);
   }
   my @lineCovCols = (["coverage", 2], "Total", "Hit");
@@ -7105,9 +7185,8 @@ sub write_file_table(*$$$$$$$)
 
     foreach $testname (keys(%affecting_tests))
     {
-      my @results;
       ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit) =
-          split(",", $affecting_tests{$testname});
+          @{$affecting_tests{$testname}};
 
       # Insert link to description of available
       if ($test_description{$testname})
@@ -7117,9 +7196,17 @@ sub write_file_table(*$$$$$$$)
               "$testname</a>";
       }
 
-      push(@results, [$found, $hit]);
-      push(@results, [$fn_found, $fn_hit]) if ($func_coverage);
-      push(@results, [$br_found, $br_hit]) if ($br_coverage);
+      my $showgraph=0;
+      my @results;
+      push(@results, [$found, $hit, 'line', 
+		      TestcaseTlaCount->new($testdata->value($testname),
+					    $fileDetails, 'line')]);
+      push(@results, [$br_found, $br_hit, 'branch',
+		      TestcaseTlaCount->new($testbrdata->value($testname),
+					    $fileDetails, 'branch')])
+        if ($br_coverage);
+      push(@results, [$fn_found, $fn_hit, 'function']) 
+        if ($func_coverage);
       write_file_table_detail_entry(*HTML_HANDLE, $testname, @results);
     }
   }
@@ -7152,7 +7239,7 @@ sub get_affecting_tests($$$)
     my ($fn_found, $fn_hit) = $testfnccount->get_found_and_hit();
     my ($br_found, $br_hit) = $testbrcount->get_found_and_hit();
 
-    $result{$testname} = "$found,$hit,$fn_found,$fn_hit,$br_found,$br_hit"
+    $result{$testname} = [$found,$hit,$fn_found,$fn_hit,$br_found,$br_hit]
       if ($hit > 0);
   }
   return(\%result);

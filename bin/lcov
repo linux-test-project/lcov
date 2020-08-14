@@ -81,6 +81,10 @@ use lcovutil qw ($tool_name $quiet
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  filterStringsAndComments simplifyCode balancedParens
+
+                 %geninfoErrs $ERROR_GCOV $ERROR_SOURCE 
+                 $ERROR_GRAPH
+                 is_external $opt_external @internal_dirs
   );
 
 
@@ -107,10 +111,12 @@ our $pkg_build_file = ".build_directory";
 our $BR_SUB = 0;
 our $BR_ADD = 1;
 
-our $ERROR_EMPTY = 0;
+lcovutil::define_errors(\%lcovutil::geninfoErrs);
+
+our $ERROR_EMPTY	= scalar(keys(%lcovutil::geninfoErrs));
 our %lcovErrs = (
-    'empty'  => $ERROR_EMPTY,
-    );
+  "empty" => $ERROR_EMPTY, 
+);
 lcovutil::define_errors(\%lcovErrs);
 
 # Prototypes
@@ -198,7 +204,6 @@ our $opt_list_full_path;
 our $opt_no_list_full_path;
 our $opt_list_width = 80;
 our $opt_list_truncate_max = 20;
-our $opt_external;
 our $opt_no_external;
 our $opt_config_file;
 our %opt_rc;
@@ -310,7 +315,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"debug" => \$lcovutil::debug,
 		"list-full-path" => \$opt_list_full_path,
 		"no-list-full-path" => \$opt_no_list_full_path,
-		"external" => \$opt_external,
+		"external" => \$lcovutil::opt_external,
 		"no-external" => \$opt_no_external,
 		"summary=s" => \@opt_summary,
 		"compat=s" => \$opt_compat,
@@ -342,6 +347,8 @@ else
 		$opt_no_list_full_path = undef;
 	}
 
+	push(@lcovutil::internal_dirs, $base_directory)
+	  if defined($base_directory);
 	if (defined($opt_no_external)) {
 		$opt_external = 0;
 		$opt_no_external = undef;
@@ -873,7 +880,9 @@ sub lcov_geninfo(@)
 		@param = (@param, "--gcov-tool", $gcov_tool);
 	}
 	foreach (@opt_ignore_errors) {
-		@param = (@param, "--ignore-errors", $_);
+	  # pass only the 'ignore' options that geninfo understands
+	  @param = (@param, "--ignore-errors", $_)
+	    if exists($lcovutil::geninfoErrs{$_});
 	}
 	foreach (@opt_filter) {
 		@param = (@param, "--filter", $_);
@@ -2555,6 +2564,9 @@ sub add_traces()
 		}
 	}
 
+	if (! defined($total_trace)) {
+	  die("ERROR: no valid records found in any of the added tracefiles");
+	}
 	# Write combined data
 	if (!$data_stdout)
 	{
@@ -2629,6 +2641,7 @@ sub write_info_file(*$)
 
 	foreach $source_file (sort(keys(%data)))
 	{
+	        next if is_external($source_file);
 		$entry = $data{$source_file};
 		($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
 		 $sumfnccount, $testbrdata, $sumbrcount, $found, $hit,

@@ -43,4 +43,3 @@
 1|henry.cox|274|    std::cout << "cond == " << cond << "... code exercised" << std::endl;
 1|henry.cox|274|  return 0;
 1|henry.cox|274|}
-

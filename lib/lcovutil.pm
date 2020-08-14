@@ -21,6 +21,10 @@ our @EXPORT_OK =
      parse_cov_filters summarize_cov_filters
      filterStringsAndComments simplifyCode balancedParens
 
+     %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH
+
+     is_external @internal_dirs $opt_external
+
      system_no_output
 );
 
@@ -32,6 +36,20 @@ our $quiet = "";        # If set, suppress information messages
 
 our $debug = 0;  # if set, emit debug messages
 our $verbose = 0;  # if set, enable additional logging
+
+# geninfo errors are shared by 'lcov' - so we put them in a common location
+our $ERROR_GCOV         = 0;
+our $ERROR_SOURCE       = 1;
+our $ERROR_GRAPH        = 2;
+our %geninfoErrs = (
+    "gcov" => $ERROR_GCOV,
+    "source" => $ERROR_SOURCE,
+    "graph" => $ERROR_GRAPH,
+);
+
+# for external file filtering
+our @internal_dirs;
+our $opt_external;
 
 sub default_info_impl(@);
 
@@ -377,6 +395,26 @@ sub balancedParens {
   #return $close == $open;
   return $close >= $open;
 }
+
+
+#
+# is_external(filename)
+#
+# Determine if a file is located outside of the specified data directories.
+#
+
+sub is_external($)
+{
+  my $filename = shift;
+
+  return 0 unless (defined($opt_external) && $opt_external);
+
+  foreach my $dir (@internal_dirs) {
+    return 0 if ($filename =~ /^\Q$dir\/\E/);
+  }
+  return 1;
+}
+
 
 package MapData;
 
@@ -1158,9 +1196,9 @@ sub containsConditional {
     $code = $code . $src;
 
     if (lcovutil::balancedParens($code) ||
-	# assume we got to the end of the statement if we see semicolon
-	# or brace.
-	$src =~ /[{;]\s*$/) {
+        # assume we got to the end of the statement if we see semicolon
+        # or brace.
+        $src =~ /[{;]\s*$/) {
       $foundCond = 0;
       last;
     }
@@ -1489,8 +1527,8 @@ sub _read_info {
 
         # Also initialize function call data
         $data->sumfnc()->append($2, 0);
-	$data->testfnc($testname)->append($2, 0)
-	  if (defined($testname));
+        $data->testfnc($testname)->append($2, 0)
+          if (defined($testname));
         last;
       };
 
@@ -1502,8 +1540,8 @@ sub _read_info {
         $data->sumfnc()->append($2, $1);
 
         # Add test-specific counts
-	$data->testfnc($testname)->append($2, $1)
-	  if (defined($testname));
+        $data->testfnc($testname)->append($2, $1)
+          if (defined($testname));
         last;
       };
 
@@ -1692,6 +1730,5 @@ sub rename_functions($$)
     my $data = $self->data($filename)->rename_functions($conv, $filename);
   }
 }
-
 
 1;

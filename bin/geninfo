@@ -4586,23 +4586,6 @@ sub get_gcov_capabilities()
 }
 
 #
-# is_external(filename)
-#
-# Determine if a file is located outside of the specified data directories.
-#
-
-sub is_external($)
-{
-	my ($filename) = @_;
-	my $dir;
-
-	foreach $dir (@internal_dirs) {
-		return 0 if ($filename =~ /^\Q$dir\/\E/);
-	}
-	return 1;
-}
-
-#
 # compat_name(mode)
 #
 # Return the name of compatibility mode MODE.
