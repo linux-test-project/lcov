@@ -2079,7 +2079,7 @@ sub read_intermediate_text($$)
 	while (my $line = <$fd>) {
 		if ($line =~ /^file:(.*)$/) {
 			$filename = $1;
-			chomp($filename);
+			$filename =~ s/[\r\n]$//g;
 		} elsif (defined($filename)) {
 			$data->{$filename} .= $line;
 		}
