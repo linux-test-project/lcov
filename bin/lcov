@@ -112,6 +112,7 @@ sub merge_checksums($$$);
 sub combine_info_entries($$$);
 sub combine_info_files($$);
 sub write_info_file(*$);
+sub check_file_pattern($$);
 sub extract();
 sub remove();
 sub list();
@@ -2714,6 +2715,27 @@ sub transform_pattern($)
 	return $pattern;
 }
 
+#
+# check_file_pattern(filename, pattern)
+# compare filename with input pattern
+#
+
+sub check_file_pattern($$)
+{
+	my $filename = $_[0];
+	my $pattern = $_[1];
+	my $os = $^O;
+
+	# path of win32 is case insensitive
+	if ($os eq "MSWin32" || $os eq "msys")
+	{
+		return ($filename =~ (/^$pattern$/i));
+	}
+	else
+	{
+		return ($filename =~ (/^$pattern$/));
+	}
+}
 
 #
 # extract()
@@ -2740,7 +2762,7 @@ sub extract()
 
 		foreach $pattern (@pattern_list)
 		{
-			$keep ||= ($filename =~ (/^$pattern$/));
+			$keep ||= check_file_pattern($filename, $pattern);
 		}
 
 
@@ -2799,7 +2821,7 @@ sub remove()
 
 		foreach $pattern (@pattern_list)
 		{
-			$match_found ||= ($filename =~ (/^$pattern$/));
+			$match_found ||= check_file_pattern($filename, $pattern);
 		}
 
 
