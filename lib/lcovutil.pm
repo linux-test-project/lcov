@@ -30,6 +30,7 @@ our @EXPORT_OK =
 
 our @ignore;
 our %ERROR_ID;
+our %ERROR_NAME;
 our $tool_name;
 our @temp_dirs;
 our $quiet = "";        # If set, suppress information messages
@@ -229,7 +230,9 @@ sub define_errors($)
 {
   my $hash = shift;
   foreach my $k (keys(%$hash)) {
-    $ERROR_ID{$k} = $hash->{$k};
+    my $id = $hash->{$k};
+    $ERROR_ID{$k} = $id;
+    $ERROR_NAME{$id} = $k;
     $ignore[$ERROR_ID{$k}] = 0;
   }
 }
@@ -273,18 +276,12 @@ sub parse_ignore_errors(@)
 sub ignorable_error($$;$) {
   my ($code, $msg, $quiet) = @_;
 
+  my $errName = $ERROR_NAME{$code};
   if (! $ignore[$code] ) {
-    my $ignoreOpt = "";
-    foreach my $opt (keys(%ERROR_ID)) {
-      if ($ERROR_ID{$opt} == $code) {
-        $ignoreOpt = "\t(use \"$tool_name --ignore $opt ...\" to bypass this error)\n";
-        last;
-      }
-    }
+    my $ignoreOpt = "\t(use \"$tool_name --ignore-errors $errName ...\" to bypass this error)\n";
     die_handler("Error: $msg\n$ignoreOpt");
   }
-
-  warn_handler("Warning: $msg\n") unless (defined($quiet) && $quiet);
+  warn_handler("Warning: ($errName') $msg\n") unless (defined($quiet) && $quiet);
 }
 
 
@@ -1169,6 +1166,8 @@ sub isCloseBrace {
   my ($self, $line) = @_;
 
   my $code = $self->getLine($line);
+  return 0
+    unless defined($code);
   # remove comments
   $code =~ s|//.*$||;
   $code =~ s|/\*.*\*/||g;
@@ -1179,6 +1178,8 @@ sub containsConditional {
   my ($self, $line) = @_;
 
   my $src = $self->getLine($line);
+  return 1
+    unless defined($src);
   my $foundCond = 1;
 
   my $code = "";
@@ -1592,7 +1593,7 @@ sub _read_info {
         if (exists($branchRenumber{$key})) {
           my ($count, $lastBranch) = @{$branchRenumber{$key}};
           $branch > $lastBranch or die("branch ID not sorted for $line");
-          main::verbose("line $line branch IDs not contiguous")
+          main::verbose("line $line branch IDs not contiguous\n")
             if ($branch != ($lastBranch + 1));
           $branchRenumber{$key} = [$count + 1, $branch];
           $branch = $count;

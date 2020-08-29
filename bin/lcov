@@ -82,7 +82,7 @@ use lcovutil qw ($tool_name $quiet
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  filterStringsAndComments simplifyCode balancedParens
 
-                 %geninfoErrs $ERROR_GCOV $ERROR_SOURCE 
+                 %geninfoErrs $ERROR_GCOV $ERROR_SOURCE
                  $ERROR_GRAPH
                  is_external $opt_external @internal_dirs
   );
@@ -115,7 +115,7 @@ lcovutil::define_errors(\%lcovutil::geninfoErrs);
 
 our $ERROR_EMPTY	= scalar(keys(%lcovutil::geninfoErrs));
 our %lcovErrs = (
-  "empty" => $ERROR_EMPTY, 
+  "empty" => $ERROR_EMPTY,
 );
 lcovutil::define_errors(\%lcovErrs);
 

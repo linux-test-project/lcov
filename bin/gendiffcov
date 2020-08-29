@@ -69,6 +69,7 @@
 #                Add support for differential branch coverage categorization,
 #                Add a bunch of navigation features - href to next code block
 #                of type T, of type T in date- or owner bin B, etc.
+#                Add sorted tables for date/owner bin summaries.
 #
 
 use strict;
@@ -211,7 +212,7 @@ sub read_config($);
 sub apply_config($);
 sub get_html_prolog($);
 sub get_html_epilog($);
-sub write_dir_page($$$$$$$$$$$$$);
+sub write_dir_page($$$$$$$$;$);
 sub classify_rate($$$$);
 sub parse_dir_prefix(@);
 sub rate($$;$$$);
@@ -236,8 +237,8 @@ sub write_header_prolog(*$);
 sub write_header_line(*@);
 sub write_header_epilog(*$);
 
-sub write_file_table(*$$$$$$$);
-sub write_file_table_prolog(*$$@);
+sub write_file_table(*$$$$$);
+sub write_file_table_prolog(*$$$@);
 sub write_file_table_entry(*$$@);
 sub write_file_table_detail_entry(*$@);
 sub write_file_table_epilog(*);
@@ -332,6 +333,7 @@ our %tlaColor = (
 our @defaultCutpoints = ( 7, 30, 180 );
 our @cutpoints;
 our @ageGroupHeader;
+our %ageHeaderToBin;
 
 sub _initCounts {
     my ($self, $type) = @_;
@@ -354,6 +356,7 @@ sub setAgeGroups {
     #my $numGroups = scalar(@_) + 1;
     @cutpoints = sort({$a <=> $b} @_);
     @ageGroupHeader = ();
+    %ageHeaderToBin = ();
     my $prefix = "[..";
     foreach my $days (@cutpoints) {
         my $header = $prefix . $days . "] days";
@@ -361,6 +364,11 @@ sub setAgeGroups {
         $prefix = "(" . $days . ",";
     }
     push(@ageGroupHeader, "(" . $cutpoints[-1] . "..) days");
+    my $bin = 0;
+    foreach my $header (@ageGroupHeader) {
+      $ageHeaderToBin{$header} = $bin;
+      ++ $bin;
+    }
 }
 
 sub findAgeBin {
@@ -409,6 +417,26 @@ sub new {
   return $self;
 }
 
+sub name {
+  my $self = shift;
+  return $self->{name};
+}
+
+sub is_directory {
+  my $self = shift;
+  return 0 != scalar($self->sources());
+}
+
+sub sources {
+  my $self = shift;
+  return keys(%{$self->{sources}});
+}
+
+sub get_source {
+  my ($self, $name) = @_;
+  return $self->{sources}->{$name};
+}
+
 sub get {
   my ($self, $key, $type) = @_;
   $type = 'line'
@@ -432,31 +460,43 @@ sub get {
   }
 }
 
-sub owners {
-    # return possibly empty list of line owners in this file
-    #   - filter only those which have 'missed' lines
-    my ($self, $showAll) = @_;
-
-    my @rtn;
-  OWNER:
-    foreach my $name (keys(%{$self->{owners}})) {
-        if ($showAll) {
-            push(@rtn, $name);
-        }
-        else {
-            my $h = $self->{owners}->{$name};
-            foreach my $tla ('UNC', 'UBC', 'UIC', 'LBC') {
-                if (exists($h->{$tla})) {
-                    die("unexpected 0 (zero) value for $tla of $name in $self->path()")
-                        if (0 == $h->{$tla});
-                    push(@rtn, $name);
-                    next OWNER;
-                }
-            }
-        }
-    }
-    return @rtn;
+sub contains_owner {
+  my ($self, $owner) = @_;
+  return exists($self->{owners}->{$owner});
 }
+
+sub owners {
+  # return possibly empty list of line owners in this file
+  #   - filter only those which have 'missed' lines
+  my ($self, $showAll, $covType) = @_;
+
+  (! defined($covType) || $covType eq 'line' || $covType eq 'branch')
+    or die("unsupported coverage type '$covType'");
+
+  my $hash = $self->{owners}
+    if (!defined($covType) || $covType eq 'line');
+  $hash = $self->{owners_branch}
+    if ($covType eq 'branch');
+
+  return keys(%$hash)
+    if $showAll;
+
+  my @rtn;
+ OWNER:
+  foreach my $name (keys(%$hash)) {
+    my $h = $hash->{$name};
+    foreach my $tla ('UNC', 'UBC', 'UIC', 'LBC') {
+      if (exists($h->{$tla})) {
+        die("unexpected 0 (zero) value for $tla of $name in $self->path()")
+          if (0 == $h->{$tla});
+        push(@rtn, $name);
+        next OWNER;
+      }
+    }
+  }
+  return @rtn;
+}
+
 
 sub owner_tlaCount {
     my ($self, $name, $tla, $covType) = @_;
@@ -528,9 +568,13 @@ sub findOwnerList {
 
     if ((0 != $lineMissed || 0 != $branchMissed) ||
         $all) {
-        my $lineTotal = $self->owner_tlaCount($owner, 'found');
-        my $branchTotal = $main::br_coverage ? $self->owner_tlaCount($owner, 'found', 'branch') : 0;
-        push(@owners, [$owner, [$lineMissed, $lineTotal], [$branchMissed, $branchTotal]]);
+      my $lineCb = OwnerDetailCallback->new($self, $owner, 'line');
+      my $branchCb = OwnerDetailCallback->new($self, $owner, 'branch');
+      my $lineTotal = $self->owner_tlaCount($owner, 'found');
+      my $branchTotal = $main::br_coverage ? $self->owner_tlaCount($owner, 'found', 'branch') : 0;
+      push(@owners, [$owner,
+                     [$lineMissed, $lineTotal, $lineCb],
+                     [$branchMissed, $branchTotal, $branchCb]]);
     }
   }
   @owners = sort({ $b->[1]->[0] <=> $a->[1]->[0] || # missed
@@ -608,12 +652,20 @@ sub lineCovCount {
   my $age = ($group eq "age") ? shift : undef;
   my $delta = defined($_[0]) ? shift : 0;
 
+  if ($key eq 'total') {
+    $key = 'found';
+  } elsif ($key eq 'missed') {
+    my $found = $self->lineCovCount('found', $group, $age);
+    my $hit = $self->lineCovCount('hit', $group, $age);
+    return $found - $hit;
+  }
+
   $key = 'found' if $key eq 'total';
   if ($group eq "age") {
     my $a = $self->{age};
     my $bin = SummaryInfo::findAgeBin($age);
     exists($a->[$bin]) && exists($a->[$bin]->{$key})
-      or die("unexpected key");
+      or die("unexpected key '$key' for bin '$bin'");
     $a->[$bin]->{$key} += $delta;
     return $a->[$bin]->{$key};
   }
@@ -634,7 +686,14 @@ sub branchCovCount {
   my $age = ($group eq "age") ? shift : undef;
   my $delta = defined($_[0]) ? shift : 0;
 
-  $key = 'found' if $key eq 'total';
+  if ($key eq 'total') {
+    $key = 'found';
+  } elsif ($key eq 'missed') {
+    my $found = $self->branchCovCount('found', $group, $age);
+    my $hit = $self->branchCovCount('hit', $group, $age);
+    return $found - $hit;
+  }
+
   my $g = "branch_" . $group;
   if ($group eq "age") {
     my $a = $self->{$g};
@@ -715,6 +774,16 @@ sub new {
   return $self;
 }
 
+sub label {
+  my $self = shift;
+  return $self->owner();
+}
+
+sub cb_type {
+  my $self = shift;
+  return 'owner';
+}
+
 sub get {
   my ($self, $key, $type) = @_;
 
@@ -764,6 +833,16 @@ sub get {
   return $summary->branchCovCount($key, 'age', $age);
 }
 
+sub label {
+  my $self = shift;
+  return $self->age();
+}
+
+sub cb_type {
+  my $self = shift;
+  return 'date';
+}
+
 sub age {
   my $self = shift;
   return $self->[1];
@@ -777,6 +856,314 @@ sub bin {
 sub covType {
   my $self = shift;
   return $self->[2];
+}
+
+
+package FileOrDirectoryCallback;
+# callback class used by 'write_file_table' to retrieve count of the
+# various coverpoint categories in the file or directory (i.e., total
+# number).
+# Other callbacks classes are used to retrieve per-owner counts, etc.
+
+sub new {
+  # dirSummary: SummaryInfo object
+  my ($class, $path, $overview, $dirSummary) = @_;
+
+  my $fullpath = ($dirSummary->{type} eq "top" ? "" : $dirSummary->{name} . "/") . $path;
+
+  my $source = $dirSummary->{sources}->{$fullpath}
+    if (defined $dirSummary && exists($dirSummary->{sources}->{$fullpath}));
+
+  my $self = [$path, $overview, $source];
+
+  bless $self, $class;
+  return $self;
+}
+
+sub data {
+  my $self = shift;
+  # ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit, $page_link,
+  #  $fileSummary, $fileDetails)
+
+  my $fileElement = $self->[1];
+  my $summary = $fileElement->summary();
+  my @rtn;
+  foreach my $type ('line', 'function', 'branch') {
+    my $hash = $summary->{$type};
+    push(@rtn, $hash->{found}, $hash->{hit});
+  }
+  push(@rtn, $fileElement->page_link(), $summary, $fileElement->sourceFile());
+  return @rtn;
+}
+
+sub secondaryElementFileData {
+  my ($self, $name) = @_;
+  my $fileElement = $self->[1];
+  my $summary = $fileElement->summary();
+  return [$summary->name(), $fileElement->sourceFile(), $fileElement->page_link()];
+}
+
+sub name {
+  my $self = shift;
+  return $self->[0];
+}
+
+sub summary {
+  # return undef or SummaryInfo object
+  my $self = shift;
+  return $self->[2];
+}
+
+sub findOwnerList {
+  my ($self, $all) = @_;
+  # return [ [owner, lineCovData, branchCovData]] for each owner
+  #  where lineCovData = [missedCount, totalCount, callback]
+  #        branchCovData = [missed, total, callback] or undef if not enabled
+  #   - sorted in decending order number of missed lines
+  return $self->summary()->findOwnerList($all);
+}
+
+sub dateDetailCallback {
+  # callback to compute count in particular date bin
+  my ($self, $ageval, $covtype) = @_;
+  $covtype eq 'line' || $covtype eq 'branch'
+    or die("'$covtype' type not supported");
+
+  return DateDetailCallback->new($self->summary(), $ageval, $covtype);
+}
+
+sub ownerDetailCallback {
+  # callback to compute count in particular owner bin
+  my ($self, $owner, $covtype) = @_;
+  $covtype eq 'line' || $covtype eq 'branch'
+    or die("'$covtype' type not supported");
+
+  return OwnerDetailCallback->new($self->summary(), $owner, $covtype);
+}
+
+sub branchTotalCallback {
+  # callback to compute total branches in each TLA
+  my $self = shift;
+  return BranchCovSummaryCallback->new($self->summary());
+}
+
+sub lineTotalCallback {
+  # callback to compute total branches in each TLA
+  my $self = shift;
+  return $self->summary();
+}
+
+
+package FileOrDirectoryOwnerCallback;
+# callback class used by 'write_file_table' to retrieve owner-
+#  specific coverage numbers (for all entries in the directory)
+
+sub new {
+  my ($class, $owner, $overview, $dirSummary) = @_;
+
+  my $self = [$owner, $overview, $dirSummary];
+  bless $self, $class;
+  return $self;
+}
+
+sub name {
+  my $self = shift;
+  return $self->[0];
+}
+
+sub data {
+  my $self = shift;
+
+  my $lineCb = OwnerDetailCallback->new($self->[2], $self->[0], 'line');
+  my $found = $lineCb->get('found');
+  my $hit =  $lineCb->get('hit');
+  my $branchCb = OwnerDetailCallback->new($self->[2], $self->[0], 'branch');
+  my $fn_found = 0;
+  # ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit, $page_link,
+  #  $fileSummary, $fileDetails)
+  # this is the 'totals' callback for this owner - so there is no
+  #  associated file or summary info.  Pass undef.
+  return ($lineCb->get('found'), $lineCb->get('hit'),
+          0, 0, # fn_found, fn_hit
+          $branchCb->get('found'), $branchCb->get('hit'));
+}
+
+sub branchTotalCallback {
+  # callback to compute total branches in each TLA
+  my $self = shift;
+  return OwnerDetailCallback->new($self->[2], $self->name(), 'branch');
+}
+
+sub lineTotalCallback {
+  # callback to compute total branches in each TLA
+  my $self = shift;
+  return OwnerDetailCallback->new($self->[2], $self->name(), 'line');
+}
+
+sub findFileList {
+  my ($self, $all) = @_;
+
+  # return [ [filename, lineCovData, branchCovData]] for each file
+  #   such that this owner has at least 1 line.
+  #  where lineCovData = [missedCount, totalCount, OwnerDetailCallback]
+  #        branchCovData = [missed, total, dateDetailCallback]
+  #                         or undef if not enabled
+  #   - sorted in decending order number of missed lines
+  my $dirSummary = $self->[2];
+  my $owner = $self->[0];
+  my @files;
+  foreach my $file ($dirSummary->sources()) {
+    my $source = $dirSummary->get_source($file);
+    next unless $source->contains_owner($owner);
+
+    my $lineCb = OwnerDetailCallback->new($source, $owner, 'line');
+    my $brCb = OwnerDetailCallback->new($source, $owner, 'branch');
+    my $total = $lineCb->get('found');
+    my $br_total = $main::br_coverage ? $brCb->get('found') : 0;
+    next if (0 == $total &&
+             0 == $br_total);
+
+    my $missed = $lineCb->get('missed');
+    my $br_missed = $main::br_coverage ? $brCb->get('missed') : 0;
+    if ($all ||
+        0 != $missed ||
+        0 != $br_missed) {
+      push(@files, [$file,
+                    [$missed, $total, $lineCb],
+                    [$br_missed, $br_total, $brCb]]);
+    }
+  }
+  return @files;
+}
+
+sub secondaryElementFileData {
+  my ($self, $name) = @_;
+  my $dirSummary = $self->[2];
+  my $file = File::Basename::basename($name);
+  my $fileElem = $self->[1]->{$file};
+  my $source = $dirSummary->get_source($name);
+
+  my $page_link;
+  if ($source->is_directory()) {
+    $page_link = $name . "/index-bin_owner." . $main::html_ext;
+  } elsif ($main::no_sourceview) {
+    $page_link = "";
+  } else {
+    $name = File::Basename::basename($name);
+    $page_link = $name . ".gcov.";
+    $page_link .= "frameset."
+      if $main::frames;
+    $page_link .= $main::html_ext;
+  }
+  # pass owner in callback data
+  return [$name, defined($fileElem) ? $fileElem->sourceFile() : undef,
+          $page_link, $self->[0]];
+}
+
+
+package FileOrDirectoryDateCallback;
+# callback class used by 'write_file_table' to retrieve date-
+#  specific coverage numbers (for all entries in the directory)
+
+sub new {
+  my ($class, $bin, $overview, $dirSummary) = @_;
+
+  my $self = [$bin, $dirSummary->age_sample($bin), $overview, $dirSummary];
+  bless $self, $class;
+  return $self;
+}
+
+sub name {
+  my $self = shift;
+  return $SummaryInfo::ageGroupHeader[$self->[0]];
+}
+
+sub data {
+  my $self = shift;
+
+  my $lineCb = DateDetailCallback->new($self->[3], $self->[1], 'line');
+  my $found = $lineCb->get('found');
+  my $hit =  $lineCb->get('hit');
+  my $branchCb = DateDetailCallback->new($self->[3], $self->[1], 'branch');
+  my $fn_found = 0;
+  # ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit, $page_link,
+  #  $fileSummary, $fileDetails)
+  # this is the top-level 'total' callback - so no associated file or
+  # summary info
+  return ($lineCb->get('found'), $lineCb->get('hit'),
+          0, 0, # fn_found, fn_hit
+          $branchCb->get('found'), $branchCb->get('hit'));
+}
+
+sub branchTotalCallback {
+  # callback to compute total branches in each TLA
+  my $self = shift;
+  return DateDetailCallback->new($self->[3], $self->[1], 'branch');
+}
+
+sub lineTotalCallback {
+  # callback to compute total branches in each TLA
+  my $self = shift;
+  return DateDetailCallback->new($self->[3], $self->[1], 'line');
+}
+
+sub findFileList {
+  my ($self, $all) = @_;
+
+  # return [ [filename, lineCovData, branchCovData]] for each file
+  #   such that this owner has at least 1 line.
+  #  where lineCovData = [missedCount, totalCount, OwnerDetailCallback]
+  #        branchCovData = [missed, total, dateDetailCallback]
+  #                         or undef if not enabled
+  #   - sorted in decending order number of missed lines
+  my $dirSummary = $self->[3];
+  my $ageval = $self->[1];
+  my @files;
+  foreach my $file ($dirSummary->sources()) {
+    my $source = $dirSummary->get_source($file);
+
+    my $lineCb = DateDetailCallback->new($source, $ageval, 'line');
+    my $brCb = DateDetailCallback->new($source, $ageval, 'branch');
+    my $total = $lineCb->get('found');
+    my $br_total = $main::br_coverage ? $brCb->get('found') : 0;
+    next if (0 == $total &&
+             0 == $br_total);
+
+    my $missed = $lineCb->get('missed');
+    my $br_missed = $main::br_coverage ? $brCb->get('missed') : 0;
+    if ($all ||
+        0 != $missed ||
+        0 != $br_missed) {
+      push(@files, [$file,
+                    [$missed, $total, $lineCb],
+                    [$br_missed, $br_total, $brCb]]);
+    }
+  }
+  return @files;
+}
+
+sub secondaryElementFileData {
+  my ($self, $name) = @_;
+  my $dirSummary = $self->[3];
+  my $file = File::Basename::basename($name);
+  my $fileElem = $self->[2]->{$file};
+  my $source = $dirSummary->get_source($name);
+
+  my $page_link;
+  if ($source->is_directory()) {
+    $page_link = $name . "/index-bin_date." . $main::html_ext;
+  } elsif ($main::no_sourceview) {
+    $page_link = "";
+  } else {
+    $name = File::Basename::basename($name);
+    $page_link = $name . ".gcov.";
+    $page_link .= "frameset."
+      if $main::frames;
+    $page_link .= $main::html_ext;
+  }
+  # pass bin index in callback data
+  return [$name, defined($fileElem) ? $fileElem->sourceFile() : undef,
+          $page_link, $self->[0]];
 }
 
 package BranchCovSummaryCallback;
@@ -932,6 +1319,64 @@ sub nextDate {
   return $map->{$key};
 }
 
+
+# hold data used to compute file table layout
+package FileTableElement;
+
+sub new {
+  my ($class, $summary, $page_link, $sourceFile) = @_;
+  # $summary is the SummaryInfo for this element
+  # $page_link is HTML reference to file table page next level down -
+  #   for top-level page:  link to directory-level page
+  #   for directory-level page:  link to source file details
+  # $sourceFile is undef unless this entry corresponds to a file
+  #  (we use the SourceFile info to build HTML refs into the file view)
+  my $self = [$summary, $page_link, $sourceFile];
+  bless $self, $class;
+  return $self;
+}
+
+sub summary {
+  my $self = shift;
+  return $self->[0];
+}
+
+sub page_link {
+  my $self = shift;
+  return $self->[1];
+}
+
+sub sourceFile {
+  my $self = shift;
+  return $self->[2];
+}
+
+# Return a relative value for the specified found&hit values
+# which is used for sorting the corresponding entries in a
+# file list.
+#
+sub get_rate {
+  my ($self, $covtype) = @_;
+
+  my $hash = $self->[0]->{$covtype};
+  my $found = $hash->{found};
+  my $hit = $hash->{hit};
+
+  if ($found == 0) {
+    return 10000;
+  }
+  return int($hit * 1000 / $found) * 10 + 2 - (1 / $found);
+}
+
+sub get_missed {
+  my ($self, $covtype) = @_;
+
+  my $hash = $self->[0]->{$covtype};
+  my $found = $hash->{found};
+  my $hit = $hash->{hit};
+
+  return $found - $hit;
+}
 
 package ReadBaselineSource;
 
@@ -1582,7 +2027,7 @@ sub _read_udiff {
   # Check if file exists and is readable
   stat($diff_file);
   if (!(-r _)) {
-    die("ERROR: cannot read file $diff_file!\n");
+    die("ERROR: cannot read udiff file $diff_file!\n");
   }
 
   ## Check if this is really a plain file
@@ -1608,7 +2053,7 @@ sub _read_udiff {
   #} else {
     # Open decompressed file
     open(HANDLE, "<", $diff_file)
-      or die("ERROR: cannot read file $diff_file!\n");
+      or die("ERROR: cannot open diff file $diff_file!\n");
   #}
 
   my $chunk;
@@ -2165,8 +2610,11 @@ sub nextTlaGroup {
     #    13 = nextTlaGroup('CBC', 5)  : skip contiguous group of CBC lines
     #  undef = nexTlaGroup('CBC', 13) : no following group
     my ($self, $tla, $after) = @_;
-    die("unknown TLA '$tla'")
-        unless exists($SummaryInfo::tlaLocation{$tla});
+    if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
+      lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+                                "unknown TLA '$tla'");
+      return undef;
+    }
 
     # note the the "$self->line(...)" argument is 1-based (not zero-base)
     my $line;
@@ -2199,8 +2647,11 @@ sub nextBranchTlaGroup {
   # note that all branch lines are independent - so we will
   # report and go the next branch, even if it is on the adjacent line
   my ($self, $tla, $after) = @_;
-  die("unknown TLA '$tla'")
-    unless exists($SummaryInfo::tlaLocation{$tla});
+  if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
+    lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+                              "unknown TLA '$tla'");
+    return undef;
+  }
   die("no branch data for TLA '$tla'")
     unless exists($self->{_categories_branch}->{$tla});
 
@@ -2214,8 +2665,11 @@ sub nextBranchTlaGroup {
 sub nextInDateBin {
   my ($self, $dateBin, $tla, $after) = @_;
 
-  exists($SummaryInfo::tlaLocation{$tla})
-    or die("unknown TLA '$tla'");
+  if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
+    lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+                              "unknown TLA '$tla'");
+    return undef;
+  }
   $dateBin <= $#SummaryInfo::ageGroupHeader
     or die("unexpected age group $dateBin");
 
@@ -2270,8 +2724,11 @@ sub nextInDateBin {
 sub nextInOwnerBin {
   my ($self, $owner, $tla, $after) = @_;
 
-  exists($SummaryInfo::tlaLocation{$tla})
-    or die("unknown TLA '$tla'");
+  if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
+    lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+                              "unknown TLA '$tla'");
+    return undef;
+  }
   exists($self->{_owners}->{$owner}) && exists($self->{_owners}->{$owner}->{$tla})
     or die("$owner not responsible for any $tla lines in" . $self->path());
 
@@ -2311,8 +2768,11 @@ sub nextInOwnerBin {
 sub nextBranchInDateBin {
   my ($self, $dateBin, $tla, $after) = @_;
 
-  exists($SummaryInfo::tlaLocation{$tla})
-    or die("unknown TLA '$tla'");
+  if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
+    lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+                              "unknown TLA '$tla'");
+    return undef;
+  }
   $dateBin <= $#SummaryInfo::ageGroupHeader
     or die("unexpected age group $dateBin");
 
@@ -2348,8 +2808,11 @@ sub nextBranchInDateBin {
 sub nextBranchInOwnerBin {
   my ($self, $owner, $tla, $after) = @_;
 
-  exists($SummaryInfo::tlaLocation{$tla})
-    or die("unknown TLA '$tla'");
+  if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
+    lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+                              "unknown TLA '$tla'");
+    return undef;
+  }
 
   # note the the "$self->line(...)" argument is 1-based (not zero-base)
   $after = defined($after) ? $after + 1 : 1;
@@ -2483,7 +2946,7 @@ sub _bare_load {
 package TestcaseTlaCount;
 
 sub new {
-  # $testcaseCounts: either 'CountData' or 'BranchData' structure 
+  # $testcaseCounts: either 'CountData' or 'BranchData' structure
   #     - the data for this testcase
   # $fileDetails: SourceFile structure - data for the filename
   # $covtype:  'line' or 'branch'
@@ -2499,30 +2962,30 @@ sub new {
     }
     if ('line' eq $covtype) {
       foreach my $line ($testcaseCounts->keylist()) {
-	# skip uncovered lines...
-	next if $testcaseCounts->value($line) == 0;
-	my $lineData = $fileDetails->line($line); # "SourceLine" structure
-	my $tla = $lineData->tla();
-	die("unexpected TLA '$tla' in CounntData for $line")
-	  unless exists($tlaData{$tla});
-	$tlaData{$tla} += 1;
-	}
+        # skip uncovered lines...
+        next if $testcaseCounts->value($line) == 0;
+        my $lineData = $fileDetails->line($line); # "SourceLine" structure
+        my $tla = $lineData->tla();
+        die("unexpected TLA '$tla' in CounntData for $line")
+          unless exists($tlaData{$tla});
+        $tlaData{$tla} += 1;
+        }
     } else {
       die("$covtype not supported yet") unless $covtype eq 'branch';
       foreach my $line ($testcaseCounts->keylist()) {
-	my $lineData = $fileDetails->line($line); # "SourceLine" structure
-	my $branchEntry = $lineData->branchElem();
-	foreach my $id ($branchEntry->blocks()) {
-	  my $block = $branchEntry->getBlock($id);
-	  foreach my $data (@$block) {
-	    my ($count, $tla) = @$data;
-	    $count = 0 if ($count eq '-');
-	    die("unexpected branch TLA $tla for count $count") 
-	      unless ( ($count != 0) == exists($tlaData{$tla}) );
-	    next if (0 == $count);
-	    $tlaData{$tla} += 1;
-	  }
-	}
+        my $lineData = $fileDetails->line($line); # "SourceLine" structure
+        my $branchEntry = $lineData->branchElem();
+        foreach my $id ($branchEntry->blocks()) {
+          my $block = $branchEntry->getBlock($id);
+          foreach my $data (@$block) {
+            my ($count, $tla) = @$data;
+            $count = 0 if ($count eq '-');
+            die("unexpected branch TLA $tla for count $count")
+              unless ( ($count != 0) == exists($tlaData{$tla}) );
+            next if (0 == $count);
+            $tlaData{$tla} += 1;
+          }
+        }
       }
     }
   }
@@ -2797,12 +3260,16 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
       die("'--diff-file $diff_filename' ignored when '--baseline lcovInfoFile' is not used.\n");
       $diff_filename = undef;
   }
+  if (! defined($diff_filename)) {
+    # not a differential report, if no baseline...
+    $title =~ s/ differential//;
+  }
   push(@fileview_prefixes, "-date")
       if ($show_dateBins);
   push(@fileview_prefixes, "-owner")
       if (defined($show_ownerBins));
 
-  # use LCOV original colors if no baseline file 
+  # use LCOV original colors if no baseline file
   #  (so no differential coverage)
   if (! $show_tla) {
     for my $tla (('CBC', 'GNC', 'GIC', 'GBC')) {
@@ -2811,7 +3278,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
     for my $tla (('UBC', 'UNC', 'UIC', 'LBC')) {
       $SummaryInfo::tlaColor{$tla} = "#FF6230";
     }
-  }  
+  }
 }
 
 @info_filenames = @ARGV;
@@ -3061,25 +3528,6 @@ sub strip_directories($$)
 }
 
 #
-# get_rate(found, hit)
-#
-# Return a relative value for the specified found&hit values
-# which is used for sorting the corresponding entries in a
-# file list.
-#
-
-sub get_rate($$)
-{
-        my ($found, $hit) = @_;
-
-        if ($found == 0) {
-                return 10000;
-        }
-        return int($hit * 1000 / $found) * 10 + 2 - (1 / $found);
-}
-
-
-#
 # get_overall_line(found, hit, name_singular, name_plural)
 #
 # Return a string containing overall information for the specified
@@ -3315,15 +3763,7 @@ sub gen_html()
       $link_name = $dir_name."/index.$html_ext";
     }
 
-    $overview{$dir_name} =
-        [$dir_summary->l_found(), $dir_summary->l_hit(),
-         $dir_summary->f_found(), $dir_summary->f_hit(),
-         $dir_summary->b_found(), $dir_summary->b_hit(),
-         $link_name,
-         get_rate($dir_summary->l_found(), $dir_summary->l_hit()),
-         get_rate($dir_summary->f_found(), $dir_summary->f_hit()),
-         get_rate($dir_summary->b_found(), $dir_summary->b_hit()),
-         $dir_summary];
+    $overview{$dir_name} = FileTableElement->new($dir_summary, $link_name);
 
     $summary->append($dir_summary);
   }
@@ -3332,10 +3772,26 @@ sub gen_html()
   info("Writing directory view page.\n");
 
   # Create sorted pages
-  foreach my $prefix (@main::fileview_prefixes) {
-    foreach (@fileview_sortlist) {
-      write_dir_page($prefix, $fileview_sortname[$_], ".", "", $test_title,
-                     undef, \%overview, {}, {}, {}, 0, $_, $summary);
+  my @summaryBins;
+  push(@summaryBins, 'owner') if defined($main::show_ownerBins);
+  push(@summaryBins, 'date') if defined($main::show_dateBins);
+
+  foreach my $sort_type (@fileview_sortlist) {
+    my @ctrls = (0, # 0 == 'list directories'
+                 "name", # primary key
+                 $sort_type, "");
+    my $sort_str = $fileview_sortname[$sort_type];
+    foreach my $bin_prefix (@main::fileview_prefixes) {
+      # no per-testcase data...
+      $ctrls[3] = $bin_prefix;
+      write_dir_page(\@ctrls, $sort_str, $test_title,
+                     ".", "", undef, \%overview, $summary);
+    }
+    $ctrls[3] = "";
+    foreach my $primary_key (@summaryBins) {
+      $ctrls[1] = $primary_key;
+      write_dir_page(\@ctrls, '-bin_' .$primary_key . $sort_str, $test_title,
+                     ".", "", undef, \%overview, $summary);
     }
   }
 
@@ -3372,24 +3828,25 @@ sub html_create($$)
   }
 }
 
-sub write_dir_page($$$$$$$$$$$$$)
+# $ctrls = [$view_type, $sort_type, $bin_prefix]
+# $perTestcaseResult = [\%line, \%func, \%branch]
+sub write_dir_page($$$$$$$$;$)
 {
-  my ($prefix, $name, $rel_dir, $base_dir, $title, $trunc_dir,
-      $overview, $testhash, $testfnchash, $testbrhash,
-      $view_type, $sort_type, $summary) = @_;
+  my ($ctrls, $page_suffix, $title, $rel_dir, $base_dir, $trunc_dir,
+      $overview, $summary, $perTestcaseResult) = @_;
 
+  my $bin_prefix = $ctrls->[3];
   # Generate directory overview page including details
-  html_create(*HTML_HANDLE, "$rel_dir/index$prefix$name.$html_ext");
+  html_create(*HTML_HANDLE, "$rel_dir/index$bin_prefix$page_suffix.$html_ext");
   if (!defined($trunc_dir)) {
     $trunc_dir = "";
   }
   $title .= " - " if ($trunc_dir ne "");
   write_html_prolog(*HTML_HANDLE, $base_dir, "LCOV - $title$trunc_dir");
-  write_header(*HTML_HANDLE, [$view_type, $sort_type, $prefix],
+  write_header(*HTML_HANDLE, $ctrls,
                $trunc_dir, $rel_dir, $summary, undef);
-  write_file_table(*HTML_HANDLE, $base_dir, $overview, $testhash,
-                   $testfnchash, $testbrhash, $summary,
-                   [$view_type, $sort_type, $prefix, $name]);
+  write_file_table(*HTML_HANDLE, $base_dir, $overview, $perTestcaseResult,
+                   $summary, $ctrls);
   write_html_epilog(*HTML_HANDLE, $base_dir);
   close(*HTML_HANDLE);
 }
@@ -3422,10 +3879,7 @@ sub process_dir($)
   my $summary = SummaryInfo->new("directory", $trunc_dir);
 
   # Remove leading /
-  if ($rel_dir =~ /^\/(.*)$/)
-  {
-    $rel_dir = substr($rel_dir, 1);
-  }
+  $rel_dir =~ s/^\/(.*)$/$1/;
 
   # Handle files in root directory gracefully
   $rel_dir = "root" if ($rel_dir eq "");
@@ -3455,15 +3909,8 @@ sub process_dir($)
       $page_link = "$base_name.gcov.$html_ext";
     }
 
-    $overview{$base_name} =
-        [$file_summary->l_found(), $file_summary->l_hit(),
-         $file_summary->f_found(), $file_summary->f_hit(),
-         $file_summary->b_found(), $file_summary->b_hit(),
-         $page_link,
-         get_rate($file_summary->l_found(), $file_summary->l_hit()),
-         get_rate($file_summary->f_found(), $file_summary->f_hit()),
-         get_rate($file_summary->b_found(), $file_summary->b_hit()),
-         $file_summary, $fileDetails];
+    $overview{$base_name} = FileTableElement->new($file_summary, $page_link,
+                                                  $fileDetails);
 
     $testhash{$base_name} = $testdata;
     $testfnchash{$base_name} = $testfncdata;
@@ -3473,20 +3920,34 @@ sub process_dir($)
   }
 
   # Create sorted pages
-  foreach my $prefix (@fileview_prefixes) {
-    foreach (@fileview_sortlist) {
+  my @summaryBins;
+  push(@summaryBins, 'owner') if defined($main::show_ownerBins);
+  push(@summaryBins, 'date') if defined($main::show_dateBins);
+  foreach my $sort_type (@fileview_sortlist) {
+    my @ctrls = (1, # 1 == 'list files'
+                 "name", # primary key
+                 $sort_type, "");
+    my $sort_str = $fileview_sortname[$sort_type];
+    foreach my $bin_prefix (@fileview_prefixes) {
       # Generate directory overview page (without details)
-      write_dir_page($prefix, $fileview_sortname[$_], $rel_dir, $base_dir,
-                     $test_title, $trunc_dir, \%overview, {},
-                     {}, {}, 1, $_, $summary);
-      next
-        unless $show_details;
+      # no per-testcase data in this page...
+      $ctrls[3] = $bin_prefix;
+      write_dir_page(\@ctrls, $sort_str, $test_title,
+                     $rel_dir, $base_dir, $trunc_dir, \%overview, $summary);
 
-      # Generate directory overview page including details
-      write_dir_page($prefix, "-detail".$fileview_sortname[$_], $rel_dir,
-                     $base_dir, $test_title, $trunc_dir,
-                     \%overview, \%testhash, \%testfnchash,
-                     \%testbrhash, 1, $_, $summary);
+      if ($show_details) {
+        # Generate directory overview page including details
+        write_dir_page(\@ctrls, "-detail" . $sort_str, $test_title, $rel_dir,
+                       $base_dir, $trunc_dir, \%overview, $summary,
+                       [\%testhash, \%testfnchash, \%testbrhash]);
+      }
+    }
+    $ctrls[3] = ""; # no bin...
+    foreach my $primary_key (@summaryBins) {
+      $ctrls[1] = $primary_key;
+      write_dir_page(\@ctrls, '-bin_' .$primary_key . $sort_str, $test_title,
+                     $rel_dir, $base_dir, $trunc_dir, \%overview,
+                     $summary);
     }
   }
 
@@ -3512,7 +3973,7 @@ sub write_function_page($$$$$$$$$$$$$)
   html_create(*HTML_HANDLE, $filename);
   $pagetitle = "LCOV - $title - $trunc_dir/$base_name - functions";
   write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
-  write_header(*HTML_HANDLE, [4, $sort_type], "$trunc_dir/$base_name",
+  write_header(*HTML_HANDLE, [4, 'name', $sort_type,], "$trunc_dir/$base_name",
                "$rel_dir/$base_name", $summary, undef);
   write_function_table(*HTML_HANDLE, "$base_name.gcov.$html_ext",
                        $sumcount, $funcdata,
@@ -3594,7 +4055,7 @@ sub process_file($$$)
     html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.$html_ext");
     $pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
     write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
-    write_header(*HTML_HANDLE, [2, 0], "$trunc_dir/$base_name",
+    write_header(*HTML_HANDLE, [2, 'name', 0], "$trunc_dir/$base_name",
                  "$rel_dir/$base_name", $summary, $srcfile);
 
     @source = write_source(*HTML_HANDLE, $srcfile, $sumcount, $checkdata,
@@ -3963,7 +4424,7 @@ sub write_description_file($$)
 
   html_create(*HTML_HANDLE,"descriptions.$html_ext");
   write_html_prolog(*HTML_HANDLE, "", "LCOV - test case descriptions");
-  write_header(*HTML_HANDLE, [3, 0], "", "", $summary, undef);
+  write_header(*HTML_HANDLE, [3, 'name', 0], "", "", $summary, undef);
 
   write_test_table_prolog(*HTML_HANDLE,
                           "Test case descriptions - alphabetical list");
@@ -5004,14 +5465,14 @@ END_OF_HTML
 
 
 #
-# write_file_table_prolog(handle, file_heading, binHeading, ([heading, num_cols], ...))
+# write_file_table_prolog(handle, file_heading, binHeading, primary_key, ([heading, num_cols], ...))
 #
 # Write heading for file table.
 #
 
-sub write_file_table_prolog(*$$@)
+sub write_file_table_prolog(*$$$@)
 {
-  my ($handle, $file_heading, $bin_heading, @columns) = @_;
+  my ($handle, $file_heading, $bin_heading, $primary_key, @columns) = @_;
   my $num_columns = 0;
   my $file_width;
   my $col;
@@ -5056,13 +5517,36 @@ END_OF_HTML
     }
   }
   # Next row
-  my $spanType = defined($bin_heading) ? "colspan" : "rowspan";
-  write_html($handle, <<END_OF_HTML);
+  if ($primary_key eq "name") {
+    my $spanType = defined($bin_heading) ? "colspan" : "rowspan";
+    write_html($handle, <<END_OF_HTML);
             </tr>
 
             <tr>
               <td class="tableHead" $spanType=2>$file_heading</td>
 END_OF_HTML
+  } else {
+    my $t = ucfirst($primary_key);
+    # a bit of a hack...just subtitute the primary key and related
+    #   strings into the 'file heading' link - so we display the
+    #   'sort' widget
+    if ($primary_key eq 'owner' &&
+        $file_heading =~ /^([^ ]+) <span/) {
+      my $viewType = $1;
+      $file_heading =~ s/$viewType/$t/;
+      $file_heading =~ s/file name/$primary_key/g;
+      $t = $file_heading;
+      $file_heading = $viewType;
+    }
+    write_html($handle, <<END_OF_HTML);
+            </tr>
+
+            <tr>
+              <td class="tableHead" rowspan=2>$t</td>
+              <td class="tableHead" rowspan=2>$file_heading</td>
+END_OF_HTML
+
+  }
   # Heading row
   foreach $col (@columns) {
     my ($heading, $cols, $titles) = @{$col};
@@ -5082,11 +5566,13 @@ END_OF_HTML
   # title row
   if (defined($bin_heading)) {
     # Next row
+    my $str = ucfirst($bin_heading);
     write_html($handle, <<END_OF_HTML);
               <td class="tableHead">Name</td>
-              <td class="tableHead">$bin_heading</td>
+              <td class="tableHead">$str</td>
 END_OF_HTML
   }
+
   foreach $col (@columns) {
     my ($heading, $cols, $titles) = @{$col};
     my $colspan = "";
@@ -5095,12 +5581,16 @@ END_OF_HTML
     if (defined($titles)) {
       foreach my $t (@$titles) {
         my $span = "";
+        my $popup ='';
         if ("ARRAY" eq ref($t)) {
-          $span = " colspan=" . $t->[1];
-          $t = $t->[0];
+          my ($tla, $num, $help) = @$t;
+          $span = " colspan=" . $num if $num > 1;
+          $popup = " title=\"$help\""
+            if (defined $help);
+          $t = $tla;
         }
         write_html($handle, <<END_OF_HTML);
-                    <td class="tableHead"$span> $t</td>
+                    <td class="tableHead"$span$popup> $t</td>
 END_OF_HTML
       }
     }
@@ -5112,38 +5602,58 @@ END_OF_HTML
 
 
 # write_file_table_entry(handle, base_dir,
-#                        [name, [filename, fileDetails, fileHref],
-#                         rowspan, page_type,
-#                         page_link, dirSummary, showDetailColumn, callback,
-#                         covType ],
+#                        [ name, [filename, fileDetails, fileHref],
+#                          rowspan, primary_key, is_secondary, fileview,
+#                          page_type, page_link, dirSummary, showDetailCol ],
 #                        ([ found, hit, med_limit, hi_limit, graph ], ..)
 #
 # Write an entry of the file table.
+# $fileview:  0 == 'table is listing directories', 1 == 'list files'
 #
 
 sub write_file_table_entry(*$$@)
 {
   my ($handle, $base_dir, $data, @entries) = @_;
-  my ($name, $callbackData, $rowspan, $page_type, $page_link,
-      $dirSummary, $showBinDetailColumn) = @$data;
-  my $namecode;
-  my $entry;
+  my ($name, $callbackData, $rowspan, $primary_key, $is_secondary,
+      $fileview, $page_type, $page_link, $dirSummary, $showBinDetailColumn)
+    = @$data;
   my $esc_name = escape_html($name);
+  my $namecode = $esc_name;
   my $owner;
+
+  my ($filename, $fileDetails, $file_link, $cbData) = @$callbackData;
   # Add link to source if provided
-  if ($page_type eq "fileOrDir" &&
+  my $anchor = 'NAME';
+  if (! $is_secondary &&
       defined($page_link) && $page_link ne "") {
     $namecode = "<a href=\"$page_link\">$esc_name</a>";
     $owner = "";
-  }
-  else {
+  } elsif ($is_secondary &&
+           $primary_key ne 'name' &&
+           defined($file_link) && $file_link ne "") {
+
+    $namecode = "<a href=\"$file_link\">" . escape_html($filename) . "</a>";
+
+  } elsif (defined($primary_key)) {
     $namecode = $esc_name;
+    # we want the the HREF anchor on the column 1 entry -
+    #   the column 0 entry may span many rows - so navigation to that
+    #   entry (e.g., to find all the files in the "(7..30] days" bin)
+    #   may be rendered such that the first element in the bin is not
+    #   visible (you have to scroll up to see it).
+    # the fix is to put the anchor in the next column
+    if ($primary_key eq 'owner') {
+      $anchor = "<a name=$name>NAME</a>";
+    } elsif ($primary_key eq 'date') {
+      my $bin = $SummaryInfo::ageHeaderToBin{$name};
+      $anchor = "<a name=$bin>NAME</a>";
+    }
   }
-  my ($filename, $fileDetails, $file_link) = @$callbackData;
+
   my $tableHref;
   if (defined($file_link)) {
     if ($main::frames) {
-      # href to anchor in frame doesnt seem to work in either firefox
+      # href to anchor in frame doesn't seem to work in either firefox
       #   or chrome.  However, this seems like the right syntax.
       $tableHref .= "href=\"$file_link#__LINE__\" target=\"source\""
         if 0;
@@ -5153,13 +5663,45 @@ sub write_file_table_entry(*$$@)
   }
   # First column: name
   my ($nameClass, $prefix);
-  if ('owner' eq $page_type ||
-      'date' eq $page_type) {
-    $nameClass = "ownerName";
+  if ($is_secondary) {
+    $nameClass = $primary_key ne 'name' ? "ownerName" : 'coverFile';
     $prefix = "owner_";
   } else {
     $nameClass = 'coverFile';
     $prefix = "";
+  }
+  if ($is_secondary &&
+      ( $primary_key eq 'name' ||
+        ( $primary_key ne 'name' &&
+          $fileview == 0 ) )) {
+    # link to the entry in date/owner 'summary' table
+    my $href = "<a href=\"";
+    my $bin = "";
+    if ($fileview == 0 &&
+        $primary_key ne 'name') {
+      $href .= $filename . '/';
+      $bin = $cbData if defined($cbData);
+    }
+    $href .= "index";
+
+    my $help;
+    if ( $page_type eq 'owner') {
+      $bin = $esc_name
+        if ($primary_key eq 'name');
+      $href .= "-bin_owner." . $html_ext . "#" . $bin;
+      $help = "owner $bin";
+    } elsif ( $page_type eq 'date') {
+      $bin = $SummaryInfo::ageHeaderToBin{$name}
+        if ($primary_key eq 'name');
+
+      $href .= "-bin_date." . $html_ext . "#$bin";
+      $help = "the period '" . $SummaryInfo::ageGroupHeader[$bin] . "'";
+    } else {
+      die("unexpected type '$page_type'");
+    }
+
+    $href .= "\" title=\"go to coverage summary for $help\">$esc_name</a>";
+    $namecode = $href;
   }
   my $span = (1 == $rowspan) ? "" : " rowspan=$rowspan";
   write_html($handle, <<END_OF_HTML);
@@ -5169,13 +5711,17 @@ END_OF_HTML
 
   # no 'owner' column if the entire directory is not part of the project
   #  (i.e., no files in this directory are in the repo)
-  if (defined($showBinDetailColumn) &&
-      $dirSummary->hasOwnerInfo()) {
-      write_html($handle, <<END_OF_HTML);
-              <td class="overallOwner">Total</td>
+  if ((defined($showBinDetailColumn) &&
+       $dirSummary->hasOwnerInfo()) ||
+      (defined($primary_key) &&
+       $primary_key ne 'name' &&
+       ! $is_secondary)) {
+    $anchor =~ s/NAME/Total/;
+    write_html($handle, <<END_OF_HTML);
+              <td class="overallOwner">$anchor</td>
 END_OF_HTML
   }
-  foreach $entry (@entries) {
+  foreach my $entry (@entries) {
     my ($found, $hit, $med, $hi, $graph, $summary, $covType) = @{$entry};
     my $bar_graph;
     my $class;
@@ -5183,9 +5729,16 @@ END_OF_HTML
 
     # Generate bar graph if requested
     if ($graph) {
-      $bar_graph = get_bar_graph_code($base_dir, $found, $hit);
-            write_html($handle, <<END_OF_HTML);
-              <td class="${prefix}coverBar" align="center">
+      if (! $is_secondary) {
+        $class = $prefix . 'coverBar';
+        $bar_graph = get_bar_graph_code($base_dir, $found, $hit);
+      } else {
+        # graph is distracting for the second-level elements - skip them
+        $bar_graph = "";
+        $class = 'coverFile';
+      }
+      write_html($handle, <<END_OF_HTML);
+              <td class="$class" align="center">
                 $bar_graph
               </td>
 END_OF_HTML
@@ -5310,13 +5863,13 @@ END_OF_HTML
 END_OF_HTML
       if ($main::show_tla) {
         foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
-	  my $count = $callback->count($tla);
-	  $count = "" if 0 == $count;
+          my $count = $callback->count($tla);
+          $count = "" if 0 == $count;
           write_html($handle, "    <td class=coverNumDflt>$count</td>\n");
         }
       }
     } else {
-      write_html($handle, 
+      write_html($handle,
                 "    <td class=\"testNum\">$hit&nbsp;/&nbsp;$found</td>\n");
     }
   }
@@ -5797,9 +6350,15 @@ sub write_source_line(*$$$$)
         }
         $source_format  = "<span class=\"tla$bucket\">";
 
-        exists($pngChar{$bucket})
-            or die("unexpected TLA '$bucket'");
-        my $pchar = $pngChar{$bucket};
+        my $pchar;
+        if ( exists($pngChar{$bucket}) ) {
+          $pchar = $pngChar{$bucket};
+        } else {
+          lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+                                    "unexpected TLA '$bucket'");
+          $pchar = '';
+          $count = 0 unless defined($count);
+        }
         if ($bucket eq "ECB" ||
             $bucket eq "EUB" ) {
             ! defined($count) or
@@ -6213,7 +6772,7 @@ sub buildDateSummaryTable($$$$$$$$) {
   my ($summary, $covType, $covCountCallback, $fileDetail,
       $nextLocationCallback, $title, $detailLink, $numRows) = @_;
 
-  $title = "<a href=\"$detailLink\">$title</a>"
+  $title = "<a href=\"$detailLink\" title=\"Click to include date bin details in file table below\">$title</a>"
     if (defined($detailLink));
 
   my @table;
@@ -6225,6 +6784,12 @@ sub buildDateSummaryTable($$$$$$$$) {
     ];
   # only insert the label if there is data
   my $first = 1;
+  my $page = $detailLink;
+  if (defined($page)) {
+    $page =~ s/^index/index-bin_/;
+    $page =~ s/^index-bin_-/index-bin_/;
+  }
+
   for (my $bin = 0 ; $bin <= $#SummaryInfo::ageGroupHeader ; ++ $bin) {
     my $ageval = $summary->age_sample($bin);
     my $found = &$covCountCallback($summary, "found", "age", $ageval);
@@ -6233,7 +6798,11 @@ sub buildDateSummaryTable($$$$$$$$) {
     my $hit = &$covCountCallback($summary, "hit", "age", $ageval);
     my $style = $rate_name[classify_rate($found, $hit, $med_limit, $hi_limit)];
     my $rate = rate($hit, $found, "&nbsp;%");
-    my @dataRow = ([undef, "headerItem", $SummaryInfo::ageGroupHeader[$bin].":"],
+    my $href = $SummaryInfo::ageGroupHeader[$bin];
+    if (defined($detailLink)) {
+      $href = "<a href=\"$page#$bin\" title=\"click to go to coverage summary for the period '$href'\">$href</a>";
+    }
+    my @dataRow = ([undef, "headerItem", $href . ":"],
                    [undef, "headerCovTableEntry$style", $rate],
                    [undef, "headerCovTableEntry", $found],
                    [undef, "headerCovTableEntry", $hit]);
@@ -6274,15 +6843,20 @@ sub buildDateSummaryTable($$$$$$$$) {
 }
 
 sub buildOwnerSummaryTable($$$$$$$$) {
-  my ($ownerList, $summary, $covType,
-      $fileDetail, $nextLocationCallback,
+  my ($ownerList, $summary, $covType, $fileDetail, $nextLocationCallback,
       $title, $detailLink, $numRows) = @_;
 
   $title .= " (containing " .
     ($main::show_ownerBins ? "" : "un-exercised ") . "code)";
 
-  $title = "<a href=\"$detailLink\">$title</a>"
+  $title = "<a href=\"$detailLink\" title=\"Click to include ownership details in file table\">$title</a>"
     if (defined($detailLink));
+
+  my $page = $detailLink;
+  if (defined($page)) {
+    $page =~ s/^index/index-bin_/;
+    $page =~ s/^index-bin_-/index-bin_/;
+  }
 
   my @table;
   my @ownerSummary = [undef, #width
@@ -6310,7 +6884,11 @@ sub buildOwnerSummaryTable($$$$$$$$) {
     my $style = $rate_name[classify_rate($found, $hit, $med_limit, $hi_limit)];
     my $rate = rate($hit, $found, '&nbsp;%');
 
-    my @dataRow = ([undef, "headerItem", $name . ":"],
+    my $href = $name;
+    if (defined($detailLink)) {
+      $href = "<a href=\"$page#$name\" title=\"click to go to coverage summary for owner '$name'\">$name</a>";
+    }
+    my @dataRow = ([undef, "headerItem", $href . ":"],
                    [undef, "owner_coverPer$style", $rate],
                    [undef, "ownerTla", $found],
                    [undef, "ownerTla", $hit]);
@@ -6375,7 +6953,7 @@ sub buildHeaderSummaryTableRow {
 #
 # write_header(filehandle, ctrl, trunc_file_name, rel_file_name,
 #              summaryInfo, optionalFileDetailInfo))
-#  ctrl = (type, sort_type, bin_type)
+#  ctrl = (type, primary_key, sort_type, bin_type)
 #
 # Write a complete standard page header. TYPE may be (0, 1, 2, 3, 4)
 # corresponding to (directory view header, file view header, source view
@@ -6395,7 +6973,7 @@ sub write_header(*$$$$$)
   my $rel_filename = $_[3];
   my $summary = $_[4];
   my $fileDetail = $_[5];
-  my ($type, $sort_type, $bin_type) = @$ctrl;
+  my ($type, $primary_key, $sort_type, $bin_type) = @$ctrl;
   my $base_dir;
   my $view;
   my $test;
@@ -6415,16 +6993,17 @@ sub write_header(*$$$$$)
       $main::show_dateBins &&
       (! defined($fileDetail) || $fileDetail->isProjectFile());
 
+  my $key = $primary_key ne "name" ? "-bin_$primary_key" : "";
   # Prepare text for "current view" field
   if ($type == $HDR_DIR)
   {
     # Main overview
     $base_dir = "";
-    if ($bin_type ne "") {
-      # this is the header of the 'top-level' page, for some
-      #   either 'owner' or 'date' binning - link back to
-      #   vanilla top-level page
-      $view = "<a href=\"index.$html_ext\">$overview_title</a>";
+    if ($bin_type ne "" ||
+        $primary_key ne 'name') {
+      # this is the header of the 'top-level' page, for either 'owner'
+      #   or 'date' binning - link back to vanilla top-level page
+      $view = "<a href=\"index.$html_ext\" title=\"Click to return to 'flat' top-level page.\">$overview_title</a>";
     } else {
       $view = $overview_title;
     }
@@ -6433,10 +7012,13 @@ sub write_header(*$$$$$)
   {
     # Directory overview
     $base_dir = get_relative_base_path($rel_filename);
-    my $self_link = (("" eq $bin_type)
-                     ? $esc_trunc_name
-                     : "<a href=\"index.$html_ext\">$esc_trunc_name</a>");
-    $view = "<a href=\"$base_dir"."index$bin_type.$html_ext\">".
+    my $self_link = $esc_trunc_name;
+    if ('name' ne $primary_key ||
+      '' ne $bin_type) {
+      # go back to the 'vanilla' view of this directory
+      $self_link = "<a href=\"index.$html_ext\" title=\"Click to return to 'flat' view of this directory.\">$esc_trunc_name</a>";
+    }
+    $view = "<a href=\"$base_dir"."index$key$bin_type.$html_ext\">".
         "$overview_title</a> - $self_link";
   }
   elsif ($type == $HDR_SOURCE || $type == $HDR_FUNC)
@@ -6540,7 +7122,15 @@ sub write_header(*$$$$$)
     } else {
         $bin_type eq ""
             or die("unexpected bin detail type $bin_type");
-        $thisView = "Flat";
+        if ($primary_key eq 'name') {
+          $thisView = "Flat";
+        } elsif ($primary_key eq 'date') {
+          $thisView = "Date bin summary";
+        }  else {
+          die("inexpected key $primary_key")
+            unless ($primary_key eq 'owner');
+          $thisView = "Owner bin summary";
+        }
     }
     push(@row_left, [[undef, 'headerItem', 'View type:'],
                      [undef, 'headerValue', $thisView]]);
@@ -6726,46 +7316,43 @@ END_OF_HTML
 
 sub get_sorted_by_rate($$)
 {
-        my ($hash, $type) = @_;
+  my ($hash, $type) = @_;
 
-        if ($type == $SORT_LINE) {
-                # Sort by line coverage
-                return sort({$hash->{$a}[7] <=> $hash->{$b}[7]} keys(%{$hash}));
-        } elsif ($type == $SORT_FUNC) {
-                # Sort by function coverage;
-                return sort({$hash->{$a}[8] <=> $hash->{$b}[8]} keys(%{$hash}));
-        } elsif ($type == $SORT_BRANCH) {
-                # Sort by br coverage;
-                return sort({$hash->{$a}[9] <=> $hash->{$b}[9]} keys(%{$hash}));
-        }
+  my $covtype;
+  if ($type == $SORT_LINE) {
+    # Sort by line coverage
+    $covtype = 'line';
+  } elsif ($type == $SORT_FUNC) {
+    # Sort by function coverage;
+    $covtype = 'function';
+  } elsif ($type == $SORT_BRANCH) {
+    # Sort by br coverage;
+    $covtype = 'branch';
+  }
+  return sort({ my $va = $hash->{$a}->get_rate($covtype);
+                my $vb = $hash->{$b}->get_rate($covtype);
+                $va <=> $vb; }
+              keys(%{$hash}));
 }
 
 sub get_sorted_by_missed($$)
 {
-        my ($hash, $type) = @_;
+  my ($hash, $type) = @_;
 
-        if ($type == $SORT_LINE) {
-                # Sort by number of instrumented lines without coverage
-                return sort(
-                        {
-                                ($hash->{$b}[0] - $hash->{$b}[1]) <=>
-                                ($hash->{$a}[0] - $hash->{$a}[1])
-                        } keys(%{$hash}));
-        } elsif ($type == $SORT_FUNC) {
-                # Sort by number of instrumented functions without coverage
-                return sort(
-                        {
-                                ($hash->{$b}[2] - $hash->{$b}[3]) <=>
-                                ($hash->{$a}[2] - $hash->{$a}[3])
-                        } keys(%{$hash}));
-        } elsif ($type == $SORT_BRANCH) {
-                # Sort by number of instrumented branches without coverage
-                return sort(
-                        {
-                                ($hash->{$b}[4] - $hash->{$b}[5]) <=>
-                                ($hash->{$a}[4] - $hash->{$a}[5])
-                        } keys(%{$hash}));
-        }
+  my $covtype;
+  if ($type == $SORT_LINE) {
+    # Sort by number of instrumented lines without coverage
+    $covtype = 'line';
+  } elsif ($type == $SORT_FUNC) {
+    # Sort by number of instrumented functions without coverage
+    $covtype = 'function';
+  } elsif ($type == $SORT_BRANCH) {
+    # Sort by number of instrumented branches without coverage
+    $covtype = 'branch';
+  }
+
+  return sort( { $hash->{$b}->get_missed() <=> $hash->{$a}->get_missed() }
+               keys(%{$hash}));
 }
 
 #
@@ -6806,100 +7393,111 @@ sub get_sort_code($$$)
                 $link_start = '<a href="'.$link.'">';
                 $link_end = "</a>";
         }
-
-        return ' <span class="tableHeadSort">'.$link_start.
+        my $help = " title=\"Click to sort table by $alt\"";
+        $alt = "Sort by $alt";
+        return ' <span $help class="tableHeadSort">'.$link_start.
                '<img src="'.$base.$png.'" width=10 height=14 '.
-               'alt="'.$alt.'" title="'.$alt.'" border=0>'.$link_end.'</span>';
+               'alt="'.$alt.'"'.$help.' border=0>'.$link_end.'</span>';
 }
 
-sub get_file_code($$$$$)
+sub get_file_code($$$$$$)
 {
-        my ($type, $text, $sort_button, $detail_type, $base) = @_;
-        my $result = $text;
-        my $link;
+  my ($type, $text, $sort_button, $bin_type, $primary_key, $base) = @_;
+  my $result = $text;
+  my $link;
 
-        if ($sort_button) {
-         $link = "index$detail_type";
-         $link .= '-detail'
-           unless ($type == $HEAD_NO_DETAIL);
-         $link .= ".$html_ext";
-        }
-        $result .= get_sort_code($link, "Sort by name", $base);
+  my $key = 'name' ne $primary_key ? "-bin_$primary_key" : "";
+  if ($sort_button) {
+    $link = "index$key$bin_type";
+    $link .= '-detail'
+      unless ($type == $HEAD_NO_DETAIL);
+    $link .= ".$html_ext";
+  }
+  $result .= get_sort_code($link, "file name", $base);
 
-        return $result;
+  return $result;
 }
 
-sub get_line_code($$$$$$)
+sub get_line_code($$$$$$$)
 {
-        my ($type, $sort_type, $text, $sort_button, $detail_type, $base) = @_;
-        my $result = $text;
-        my $sort_link;
+  my ($type, $sort_type, $text, $sort_button, $bin_type,
+      $primary_key, $base) = @_;
+  my $result = $text;
+  my $sort_link;
+  my $key = 'name' ne $primary_key ? "-bin_$primary_key" : "";
 
-        if ($type == $HEAD_NO_DETAIL) {
-                # Just text
-                if ($sort_button) {
-                        $sort_link = "index" . $detail_type . "-sort-l.$html_ext";
-                }
-        } elsif ($type == $HEAD_DETAIL_HIDDEN) {
-                # Text + link to detail view
-                $result .= ' ( <a class="detail" href="index' .
-                           $detail_type . '-detail' .
-                           $fileview_sortname[$sort_type].'.'.$html_ext.
-                           '">show details</a> )';
-                if ($sort_button) {
-                        $sort_link = "index" . $detail_type . "-sort-l.$html_ext";
-                }
-        } else {
-                # Text + link to standard view
-                $result .= ' ( <a class="detail" href="index'.$detail_type.
-                           $fileview_sortname[$sort_type].'.'.$html_ext.
-                           '">hide details</a> )';
-                if ($sort_button) {
-                        $sort_link = "index" . $detail_type. "-detail-sort-l.$html_ext";
-                }
-        }
-        # Add sort button
-        $result .= get_sort_code($sort_link, "Sort by line coverage", $base);
+  if ($type == $HEAD_NO_DETAIL) {
+    # Just text
+    if ($sort_button) {
+      $sort_link = "index" . $key . $bin_type . "-sort-l.$html_ext";
+    }
+  } elsif ($type == $HEAD_DETAIL_HIDDEN) {
+    # Text + link to detail view
+    my $help = "title=\"Click to show per-testcase coverage details\"";
+    $result .= " ( <a $help " .
+      'class="detail" href="index' .
+      $key . $bin_type . '-detail' .
+      $fileview_sortname[$sort_type].'.'.$html_ext.
+      '">show details</a> )';
+    if ($sort_button) {
+      $sort_link = "index" . $bin_type . "-sort-l.$html_ext";
+    }
+  } else {
+    # Text + link to standard view
+    my $help = "title=\"Click to hide per-testcase coverage details\"";
+    $result .= " ( <a $help " .
+      'class="detail" href="index' . $key . $bin_type.
+      $fileview_sortname[$sort_type].'.'.$html_ext.
+      '">hide details</a> )';
+    if ($sort_button) {
+      $sort_link = "index" . $bin_type. "-detail-sort-l.$html_ext";
+    }
+  }
+  # Add sort button
+  $result .= get_sort_code($sort_link, "line coverage", $base);
 
-        return $result;
+  return $result;
 }
 
-sub get_func_code($$$$$)
+sub get_func_code($$$$$$)
 {
-        my ($type, $text, $sort_button, $detail_type, $base) = @_;
-        my $result = $text;
-        my $link;
+  my ($type, $text, $sort_button, $bin_type, $primary_key, $base) = @_;
+  my $result = $text;
+  my $link;
+  my $key = 'name' ne $primary_key ? "-bin_$primary_key" : "";
 
-        if ($sort_button) {
-          $link = "index$detail_type";
-          $link .= '-detail'
-            unless ($type == $HEAD_NO_DETAIL);
-          $link .= "-sort-f.$html_ext";
-        }
-        $result .= get_sort_code($link, "Sort by function coverage", $base);
-        return $result;
+  if ($sort_button) {
+    $link = "index$key$bin_type";
+    $link .= '-detail'
+      unless ($type == $HEAD_NO_DETAIL);
+    $link .= "-sort-f.$html_ext";
+    }
+  $result .= get_sort_code($link, "function coverage", $base);
+  return $result;
 }
 
-sub get_br_code($$$$$)
+sub get_br_code($$$$$$)
 {
-        my ($type, $text, $sort_button, $detail_type, $base) = @_;
-        my $result = $text;
-        my $link;
+  my ($type, $text, $sort_button, $bin_type, $primary_key, $base) = @_;
+  my $result = $text;
+  my $link;
+  my $key = 'name' ne $primary_key ? "-bin_$primary_key" : "";
 
-        if ($sort_button) {
-          $link = "index$detail_type";
-          $link .= '-detail'
-            unless ($type == $HEAD_NO_DETAIL);
-          $link .= "-sort-b.$html_ext";
-        }
-        $result .= get_sort_code($link, "Sort by branch coverage", $base);
-        return $result;
+  if ($sort_button) {
+    $link = "index$key$bin_type";
+    $link .= '-detail'
+      unless ($type == $HEAD_NO_DETAIL);
+    $link .= "-sort-b.$html_ext";
+    }
+  $result .= get_sort_code($link, "branch coverage", $base);
+  return $result;
 }
 
 #
-# write_file_table(filehandle, base_dir, overview, testhash, testfnchash,
-#                  testbrhash, parentSummary, ctrlSettings)
+# write_file_table(filehandle, base_dir, overview, perTestcaseData,
+#                  parentSummary, ctrlSettings)
 #   ctrlSettings = [fileview, sort_type, details_type, sort_name]
+#   perTestcaseData = [testhash, testfnchash, testbrhash]
 #
 # Write a complete file table. OVERVIEW is a reference to a hash containing
 # the following mapping:
@@ -6917,93 +7515,69 @@ sub get_br_code($$$$$)
 # otherwise.
 #
 
-sub write_file_table(*$$$$$$$)
+sub write_file_table(*$$$$$)
 {
   local *HTML_HANDLE = $_[0];
   my $base_dir = $_[1];
   my $overview = $_[2]; # hash of filename->file_summary
-  my $testhash = $_[3];
-  my $testfnchash = $_[4];
-  my $testbrhash = $_[5];
-  my $dirSummary = $_[6];
-  my $ctrls = $_[7];
+  my $perTestcaseData = $_[3]; # undef or [lineCov, funcCov, branchCov]
+  my $dirSummary = $_[4]; # SummaryInfo object
+  my ($fileview, $primary_key, $sort_type, $bin_type) = @{$_[5]};
   # $fileview == 0 if listing directories, 1 if listing files
-  # detail_type in ("", "-owner", "-date")
-  my ($fileview, $sort_type, $detail_type, $sort_name) = @$ctrls;
-  my $filename;
-  my $bar_graph;
-  my $hit;
-  my $found;
-  my $fn_found;
-  my $fn_hit;
-  my $br_found;
-  my $br_hit;
-  my $page_link;
-  my $testname;
-  my $testdata;
-  my $testfncdata;
-  my $testbrdata;
-  my %affecting_tests;
-  my $line_code = "";
-  my $func_code;
-  my $br_code;
-  my $file_code;
-  my @head_columns;
+  # $primary_key in ("name", "owner", "date"). If $primary_key is:
+  #   - 'name': leftmost column is file/directory name -
+  #     this is the original/vanilla genhtml behaviour
+  #   - 'owner': leftmost column is author name.  Details for that owner
+  #     (for all files in the project, or for all files in this directory)
+  #     are shown in a contiguous block.
+  #   - 'date': leftmost column is date bin.  Details for that bin are
+  #     shown in a contiguous block.
+  # $sort_type in ("", "-sort-l", "-sort-b", "-sort-b")
+  # $bin_type in ("", "-owner", "-date")
+  #   - if $bin_type not "", expand non-empty entries after file/directory
+  #     overall count (i.e. - show all the "owners" for this file/directory,
+  #     or all date bins for this file/directory)
+  #   - $bin_type is applied only if $primary_key is "name"
+
+  $primary_key eq "name" || $bin_type eq ""
+    or die("primary key '$primary_key' does not support '$bin_type' detail reporting");
 
   # Determine HTML code for column headings
-  if (($base_dir ne "") && $show_details)
+  my $hide = $HEAD_NO_DETAIL;
+  my $show = $HEAD_NO_DETAIL;
+  if (($base_dir ne "") && $show_details && defined($perTestcaseData))
   {
-    my $detailed = keys(%{$testhash});
-
-    $file_code = get_file_code($detailed ? $HEAD_DETAIL_HIDDEN :
-                               $HEAD_NO_DETAIL,
-                               $fileview ? "Filename" : "Directory",
-                               $sort && $sort_type != $SORT_FILE,
-                               $detail_type,
-                               $base_dir);
-    $line_code = get_line_code($detailed ? $HEAD_DETAIL_SHOWN :
-                               $HEAD_DETAIL_HIDDEN,
-                               $sort_type,
-                               "Line Coverage",
-                               $sort && $sort_type != $SORT_LINE,
-                               $detail_type,
-                               $base_dir);
-    $func_code = get_func_code($detailed ? $HEAD_DETAIL_HIDDEN :
-                               $HEAD_NO_DETAIL,
-                               "Functions",
-                               $sort && $sort_type != $SORT_FUNC,
-                               $detail_type,
-                               $base_dir);
-    $br_code = get_br_code($detailed ? $HEAD_DETAIL_HIDDEN :
-                           $HEAD_NO_DETAIL,
-                           "Branches",
-                           $sort && $sort_type != $SORT_BRANCH,
-                           $detail_type,
-                           $base_dir);
-  } else {
-    $file_code = get_file_code($HEAD_NO_DETAIL,
-                               $fileview ? "Filename" : "Directory",
-                               $sort && $sort_type != $SORT_FILE,
-                               $detail_type,
-                               $base_dir);
-    $line_code = get_line_code($HEAD_NO_DETAIL, $sort_type, "Line Coverage",
-                               $sort && $sort_type != $SORT_LINE,
-                               $detail_type,
-                               $base_dir);
-    $func_code = get_func_code($HEAD_NO_DETAIL, "Functions",
-                               $sort && $sort_type != $SORT_FUNC,
-                               $detail_type,
-                               $base_dir);
-    $br_code = get_br_code($HEAD_NO_DETAIL, "Branches",
-                           $sort && $sort_type != $SORT_BRANCH,
-                           $detail_type,
-                           $base_dir);
+    # "detailed" if line coverage hash not empty
+    my $detailed = keys(%{$perTestcaseData->[0]});
+    $hide = $detailed ? $HEAD_DETAIL_HIDDEN : $HEAD_NO_DETAIL;
+    $show = $detailed ? $HEAD_DETAIL_SHOWN : $HEAD_DETAIL_HIDDEN;
   }
+  my $file_col_title =
+    $fileview ? ('' eq $bin_type ? 'Filename' : 'File') : "Directory";
+  my $file_code =  get_file_code($hide, $file_col_title,
+                                 $sort && $sort_type != $SORT_FILE,
+                                 $bin_type, $primary_key, $base_dir);
+  my $line_code =  get_line_code($show, $sort_type, "Line Coverage",
+                                 $sort && $sort_type != $SORT_LINE,
+                                 $bin_type, $primary_key, $base_dir);
+  my $func_code = get_func_code($hide, "Function Coverage",
+                                $sort && $sort_type != $SORT_FUNC,
+                                $bin_type, $primary_key, $base_dir);
+  my $br_code = get_br_code($hide, "Branch Coverage",
+                            $sort && $sort_type != $SORT_BRANCH,
+                            $bin_type, $primary_key, $base_dir);
+
+  my @head_columns;
+
   my @lineCovCols = (["coverage", 2], "Total", "Hit");
   my @branchCovCols = ("coverage", "Total", "Hit");
   if ($main::show_tla) {
-    push(@lineCovCols, @SummaryInfo::tlaPriorityOrder);
-    push(@branchCovCols, @SummaryInfo::tlaPriorityOrder);
+    my @col_details;
+    foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
+      push(@col_details, [$tla, 1, $SummaryInfo::tlaToTitle{$tla}]);
+    }
+    push(@lineCovCols, @col_details);
+    push(@branchCovCols, @col_details);
   }
   push(@head_columns, [ $line_code, $#lineCovCols + 2, \@lineCovCols]);
   push(@head_columns, [ $br_code, $#branchCovCols + 1, \@branchCovCols])
@@ -7011,64 +7585,148 @@ sub write_file_table(*$$$$$$$)
   push(@head_columns, [ $func_code, 2]) if ($func_coverage);
 
   my $showBinDetail = undef;
-  if ($detail_type eq '-date' &&
+  if ($bin_type eq '-date' &&
       $dirSummary && $dirSummary->hasDateInfo()) {
     $showBinDetail = 'date';
-  } elsif ($detail_type eq '-owner' &&
+  } elsif ($bin_type eq '-owner' &&
            $dirSummary && $dirSummary->hasOwnerInfo()) {
     $showBinDetail = 'owner';
   }
   write_file_table_prolog(*HTML_HANDLE, $file_code,
-                          defined($showBinDetail) ? ucfirst($showBinDetail) : undef,
+                          defined($showBinDetail) ? $showBinDetail : undef,
+                          $primary_key,
                           @head_columns);
 
-  foreach $filename (get_sorted_keys($overview, $sort_type)) {
+  my @tableRows;
+  if ($primary_key eq 'name') {
+
+    # sorted list of all the file or directory names
+    foreach my $filename (get_sorted_keys($overview, $sort_type)) {
+      push(@tableRows,
+           FileOrDirectoryCallback->new($filename, $overview->{$filename},
+                                        $dirSummary));
+    }
+
+  } elsif ($primary_key eq 'owner') {
+
+    # retrieve sorted list of owner names - alphabetically, by name
+    #   or by number of missed lines or missed branches
+    my $all = defined($main::show_ownerBins) && $main::show_ownerBins;
+
+    # line coverage...
+    my %owners;
+    foreach my $owner ($dirSummary->owners($all, 'line')) {
+
+      $owners{$owner} = [[$dirSummary->owner_tlaCount($owner, 'found'),
+                          $dirSummary->owner_tlaCount($owner, 'hit')],
+                         [0,0]]; # no branch data, yet
+    }
+    if ($br_coverage) {
+      foreach my $owner ($dirSummary->owners($all, 'branch')) {
+
+        $owners{$owner} = [[0, 0]]
+          unless exists($owners{$owner});
+
+        $owners{$owner}->[1] =
+          [$dirSummary->owner_tlaCount($owner, 'found', 'branch'),
+           $dirSummary->owner_tlaCount($owner, 'hit', 'branch')];
+      }
+    }
+    my @sorted;
+    # now, sort the owner list...
+    if ( $sort_type eq "-sort-l") {
+      # sort by number of missed lines
+      @sorted = sort( { my $la = $owners{$a}->[0];
+                        my $lb = $owners{$b}->[0];
+                        ($lb->[0] - $lb->[0]) <=> ($la->[0] - $la->[0]) ||
+                          $a cmp $b # then by name
+                      } keys(%owners));
+    } elsif ( $sort_type eq "-sort-b") {
+      # sort by number of missed branches
+      @sorted = sort( { my $la = $owners{$a}->[1];
+                        my $lb = $owners{$b}->[1];
+                        ($lb->[0] - $lb->[0]) <=> ($la->[0] - $la->[0]) ||
+                          $a cmp $b # then by name
+                      } keys(%owners));
+    } else {
+      @sorted = sort(keys(%owners));
+    }
+    foreach my $owner (@sorted) {
+      push(@tableRows, FileOrDirectoryOwnerCallback->new($owner, $overview,
+                                                         $dirSummary));
+    }
+
+  }  elsif ($primary_key eq 'date') {
+
+    for (my $bin = 0 ; $bin <= $#SummaryInfo::ageGroupHeader ; ++ $bin) {
+      my $ageval = $dirSummary->age_sample($bin);
+      my $lines = $dirSummary->lineCovCount('found', 'age', $ageval);
+      if ( 0 != $lines ||
+           ($br_coverage &&
+            0 != $dirSummary->branchCovCount('found', 'age', $ageval)) ) {
+        push(@tableRows, FileOrDirectoryDateCallback->new($bin, $overview,
+                                                          $dirSummary));
+      }
+    }
+  } else {
+    die("unsupported primary key '$primary_key'");
+  }
+
+  my $all = defined($main::show_ownerBins) && $main::show_ownerBins eq 'all';
+
+  foreach my $primaryCb (@tableRows) {
 
     # we need to find the 'owner' and 'date' row data for this file before
     #   we write anything else, because we need to know the number of
-    #   rows that the $filename cell will span
-    my $source; # a SourceFile object
-    my $ownerBins; # developers who modified this file recently
-    my $dateBins; # dates which contain code
+    #   rows that the $primary cell will span
+
+    my @secondaryRows;
 
     if (defined($showBinDetail)) {
-      my $fullpath = ($dirSummary->{type} eq "top" ? "" : $dirSummary->{name} . "/") . $filename;
-      if ( exists($dirSummary->{sources}->{$fullpath}) ) {
-        $source = $dirSummary->{sources}->{$fullpath};
+
+      if (defined($primaryCb->summary())) {
+        my $source = $primaryCb->summary();
 
         if ($showBinDetail eq 'owner') {
           # do I need an option to suppress the list of owners?
           #  maybe too much information, in some circumstances?
           # are there any non-empty owner tables here?
-          $ownerBins = $source->findOwnerList($main::show_ownerBins eq 'all');
+          my $ownerList = $primaryCb->findOwnerList($all);
+          push(@secondaryRows, @$ownerList)
+            if defined($ownerList);
         }
 
         if ($showBinDetail eq 'date') {
           for (my $bin=0 ; $bin <= $#SummaryInfo::ageGroupHeader ; ++ $bin) {
             my $ageval = $source->age_sample($bin);
-            my $lineCbDate = DateDetailCallback->new($source, $ageval);
-            my $lineTotal = $lineCbDate->get('found');
+            my $lineCb = $primaryCb->dateDetailCallback($ageval, 'line');
+            my $lineTotal = $lineCb->get('found');
+            my $hit = $lineCb->get('hit');
+            my $lineMissed = $lineTotal - $hit;
 
-            my $branchCbDate = DateDetailCallback->new($source, $ageval,
-                                                       'branch');
-            my $branchTotal = $br_coverage ? $branchCbDate->get('found') : 0;
+            my $branchCb = $primaryCb->dateDetailCallback($ageval, 'branch');
+            my $branchTotal = $br_coverage ? $branchCb->get('found') : 0;
+            $hit = $br_coverage ? $branchCb->get('hit') : 0;
+            my $branchMissed = $branchTotal - $hit;
 
             next if 0 == $lineTotal && 0 == $branchTotal;
 
-            $dateBins = [] if (!defined($dateBins));
-            push(@$dateBins, [$ageval, $SummaryInfo::ageGroupHeader[$bin],
-                              [$lineCbDate, $lineTotal],
-                              [$branchCbDate, $branchTotal]]);
+            push(@secondaryRows,
+                 [$SummaryInfo::ageGroupHeader[$bin],
+                  [$lineMissed, $lineTotal, $lineCb],
+                  [$branchMissed, $branchTotal, $branchCb]]);
           }
         }
       }
+    } # if showBinDetail
+    elsif ($primary_key ne 'name')
+    {
+      push(@secondaryRows, $primaryCb->findFileList($all));
     }
 
-    my @columns;
-    my ($lineRate, $funcRate, $branchRate, $fileSummary, $fileDetails);
-    ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit, $page_link,
-     $lineRate, $funcRate, $branchRate, $fileSummary, $fileDetails)
-        = @{$overview->{$filename}};
+    my ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit, $page_link,
+        $fileSummary, $fileDetails)
+      = $primaryCb->data();
     # a bit of a hack: if this is top-level page (such that the links
     #   are to directory pages rather than to source code detail pages)
     #   and this is the 'owner bin detail' (or the 'date bin detail') view,
@@ -7077,18 +7735,20 @@ sub write_file_table(*$$$$$$$)
     #   user (or on a particular date) to go link-to-link without having
     #   to select the 'bin' link in the destination header.
     if ($fileview == 0 &&
-        $detail_type ne "") {
-      $page_link =~ s/index.$html_ext$/index$detail_type.$html_ext/;
+        $bin_type ne "") {
+      $page_link =~ s/index.$html_ext$/index$bin_type.$html_ext/;
     }
 
-    my @tableCallbackData = ($filename, $fileDetails, $page_link);
+    my @columns;
+
+    my @tableCallbackData = ($primaryCb->name(), $fileDetails, $page_link);
     my $showLineGraph = 1;
     # Line coverage
     push(@columns, [$found, $hit, $med_limit, $hi_limit, $showLineGraph,
-                    $fileSummary, 'line']);
+                    $primaryCb->lineTotalCallback(), 'line']);
     # Branch coverage
     if ($br_coverage) {
-      my $cbStruct = BranchCovSummaryCallback->new($fileSummary);
+      my $cbStruct = $primaryCb->branchTotalCallback();
       push(@columns, [$br_found, $br_hit, $br_med_limit, $br_hi_limit, 0,
                       $cbStruct, 'branch']);
     }
@@ -7100,90 +7760,70 @@ sub write_file_table(*$$$$$$$)
     # pass 'dirSummary' to print method:  we omit the 'owner' column if
     #  none of the files in this directory have any owner information
     #  (i.e., none of them are found in the repo)
-    my $numRows = (1
-                   + (defined($ownerBins) ? scalar(@$ownerBins) : 0)
-                   + (defined($dateBins) ? scalar(@$dateBins) : 0));
+    my $numRows = (1 + scalar(@secondaryRows));
 
     write_file_table_entry(*HTML_HANDLE, $base_dir,
-                           [$filename, \@tableCallbackData, $numRows,
+                           [$primaryCb->name(), \@tableCallbackData,
+                            $numRows, $primary_key, 0, $fileview,
                             "fileOrDir", $page_link, $dirSummary,
                             $showBinDetail],
                            @columns);
 
-    if (defined($ownerBins)) {
-      # print owners in order from most uncovered code
-      foreach my $od (@$ownerBins) {
-        my ($name, $line, $branch) = @$od;
-        my ($lineMissed, $lineTotal) = @$line;
-        my $lineHit = $lineTotal - $lineMissed;
+    foreach my $secondary (@secondaryRows) {
+      my ($name, $line, $branch) = @$secondary;
+      my ($lineMissed, $lineTotal, $lineCb) = @$line;
+      my $lineHit = $lineTotal - $lineMissed;
 
-        my $tmp = OwnerDetailCallback->new($source, $name);
-        my @ownerColData;
-        push(@ownerColData, [$lineTotal, $lineHit, $med_limit, $hi_limit,
-                             $showLineGraph, $tmp, 'line']);
-        if ($br_coverage) {
-          my ($branchMissed, $branchTotal) = @$branch;
-          my $brCallback = OwnerDetailCallback->new($source, $name, 'branch');
-          # need to compute the totals...
-          push(@ownerColData, [$branchTotal, $branchTotal - $branchMissed,
-                               $br_med_limit, $br_hi_limit, 0,
-                               $brCallback, 'branch']);
-        }
-        if ($func_coverage) {
-          # not broken down by owner, yet
-          push(@ownerColData, [0, 0]);
-        }
-        write_file_table_entry(*HTML_HANDLE, $base_dir,
-                               # 'owner' page type - no span, no page link
-                               [$name, \@tableCallbackData, 1,
-                                "owner", undef],
-                               @ownerColData);
-      }
-    }
-    if (defined($dateBins)) {
-      foreach my $dd (@$dateBins) {
-        my ($ageVal, $ageLabel, $lineData, $branchData) = @$dd;
-        my ($lineCbDate, $lineTotal) = @$lineData;
-        my $lineHit = $lineCbDate->get('hit');
-        my @dateColumnData;
-        push(@dateColumnData, [$lineTotal, $lineHit, $med_limit, $hi_limit,
-                               $showLineGraph, $lineCbDate, 'line']);
+      my $fileInfo = $primaryCb->secondaryElementFileData($name);
 
-        if ($br_coverage) {
-          my ($brCallback, $branchTotal) = @$branchData;
-          # need to compute the totals...
-          push(@dateColumnData, [$branchTotal,
-                                 $brCallback->get("hit"),
-                                 $br_med_limit, $br_hi_limit, 0,
-                                 $brCallback, 'branch']);
-        }
-        if ($func_coverage) {
-          # not broken down by owner, yet
-          push(@dateColumnData, [0, 0]);
-        }
-        write_file_table_entry(*HTML_HANDLE, $base_dir,
-                               # 'date' page type - no span, no page link
-                               [$ageLabel, \@tableCallbackData,
-                                1, "date", undef],
-                               @dateColumnData);
+      my $entry_type = $lineCb->cb_type();
+
+      my @ownerColData;
+      push(@ownerColData, [$lineTotal, $lineHit, $med_limit, $hi_limit,
+                           $showLineGraph, $lineCb, 'line']);
+      if ($br_coverage) {
+        my ($branchMissed, $branchTotal, $brCallback) = @$branch;
+        # need to compute the totals...
+        push(@ownerColData, [$branchTotal, $branchTotal - $branchMissed,
+                             $br_med_limit, $br_hi_limit, 0,
+                             $brCallback, 'branch']);
       }
+      if ($func_coverage) {
+        # not broken down by owner, yet
+        push(@ownerColData, [0, 0]);
+      }
+      write_file_table_entry(*HTML_HANDLE, $base_dir,
+                             # 'owner' page type - no span, no page link
+                             [ $name, $fileInfo, 1, $primary_key, 1,
+                               $fileview, $entry_type ],
+                             @ownerColData);
     }
 
-    $testdata = $testhash->{$filename};
-    $testfncdata = $testfnchash->{$filename};
-    $testbrdata = $testbrhash->{$filename};
+    next unless ($show_details &&
+                 defined($perTestcaseData) &&
+                 $primary_key eq "name");
+
+    # we know that the top-level callback item must hold a file.
+    my $filename = $primaryCb->name();
+
+    my ($testhash, $testfnchash, $testbrhash) = @$perTestcaseData;
+
+    my $testdata = $testhash->{$filename};
 
     # Check whether we should write test specific coverage as well
-    if (!($show_details && $testdata)) { next; }
+    next if (! defined($testdata));
+
+    my $testfncdata = $testfnchash->{$filename};
+    my $testbrdata = $testbrhash->{$filename};
 
     # Filter out those tests that actually affect this file
-    %affecting_tests = %{ get_affecting_tests($testdata,
-                                              $testfncdata, $testbrdata) };
+    my %affecting_tests = %{ get_affecting_tests($testdata, $testfncdata,
+                                                 $testbrdata) };
 
     # Does any of the tests affect this file at all?
     if (!%affecting_tests) { next; }
 
-    foreach $testname (keys(%affecting_tests))
+    foreach my $testname (keys(%affecting_tests))
     {
       ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit) =
           @{$affecting_tests{$testname}};
@@ -7198,14 +7838,14 @@ sub write_file_table(*$$$$$$$)
 
       my $showgraph=0;
       my @results;
-      push(@results, [$found, $hit, 'line', 
-		      TestcaseTlaCount->new($testdata->value($testname),
-					    $fileDetails, 'line')]);
+      push(@results, [$found, $hit, 'line',
+                      TestcaseTlaCount->new($testdata->value($testname),
+                                            $fileDetails, 'line')]);
       push(@results, [$br_found, $br_hit, 'branch',
-		      TestcaseTlaCount->new($testbrdata->value($testname),
-					    $fileDetails, 'branch')])
+                      TestcaseTlaCount->new($testbrdata->value($testname),
+                                            $fileDetails, 'branch')])
         if ($br_coverage);
-      push(@results, [$fn_found, $fn_hit, 'function']) 
+      push(@results, [$fn_found, $fn_hit, 'function'])
         if ($func_coverage);
       write_file_table_detail_entry(*HTML_HANDLE, $testname, @results);
     }
