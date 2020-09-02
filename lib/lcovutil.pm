@@ -600,6 +600,65 @@ sub get_found_and_hit {
   return ($self->{_found}, $self->{_hit});
 }
 
+package BranchBlock;
+# branch element:  index, taken/not-taken count, optional expression
+sub new {
+  my ($class, $id, $taken, $expr) = @_;
+  my $self = [$id, $taken, $expr];
+  bless $self, $class;
+  return $self;
+}
+
+sub isTaken {
+  my $self = shift;
+  return $self->[1] ne '-';
+}
+
+sub id {
+  my $self = shift;
+  return $self->[0];
+}
+
+sub data {
+  my $self = shift;
+  return $self->[1];
+}
+
+sub count {
+  my $self = shift;
+  return $self->[1] eq '-' ? 0 : $self->[1];
+}
+
+sub expr {
+  my $self = shift;
+  return $self->[2];
+}
+
+sub exprString {
+  my $self = shift;
+  my $e = $self->[2];
+  return defined($e) ? $e : 'undef';
+}
+
+sub merge {
+  my ($self, $that) = @_;
+  die("mismatched expressionf for " . $self->id() . ", " . $that->id()
+      . ": '" . $self->exprString() . "' -> '" . $that->exprString())
+    unless($self->exprString() eq $that->exprString());
+
+  my $t = $that->[1];
+  return if $t eq '-';
+
+  my $count = $self->[1];
+  if ($count ne '-') {
+    $count += $t
+  } else {
+    $count = $t;
+  }
+  $self->[1] = $count;
+}
+
+
 package BranchEntry;
 # hash of blockID -> array of 'taken' entries for each sequential branch ID
 # for baseline or current data, 'taken' is just a number (or '-')
@@ -636,7 +695,7 @@ sub blocks {
 sub addBlock {
   my ($self, $blockId) = @_;
 
-  ! exists($self->[1]->{$blockId}) or die "duplicaate blockID";
+  ! exists($self->[1]->{$blockId}) or die "duplicate blockID";
   my $blockData = [];
   $self->[1]->{$blockId} = $blockData;
   return $blockData;
@@ -662,8 +721,9 @@ sub new {
 }
 
 sub append {
-  my ($self, $line, $block, $branch, $taken) = @_;
+  my ($self, $line, $block, $br) = @_;
 
+  my $branch = $br->id();
   my $branchElem;
   if (exists($self->{_data}->{$line})) {
     $branchElem = $self->{_data}->{$line};
@@ -676,7 +736,7 @@ sub append {
   if (! $branchElem->hasBlock($block)) {
     $branch == 0 or die("unexpected non-zero initial branch");
     my $l = $branchElem->addBlock($block);
-    push(@$l, $taken);
+    push(@$l, BranchBlock->new($branch, $br->data(), $br->expr()));
   } else {
     $block = $branchElem->getBlock($block);
 
@@ -684,17 +744,14 @@ sub append {
       unless $branch <= scalar(@$block);
 
     if (! exists($block->[$branch])) {
-      $block->[$branch] = $taken;
+      $block->[$branch] = BranchBlock->new($branch,
+                                           $br->data(), $br->expr());
       $self->{_modified} = 1;
     } else {
-      my $count = $block->[$branch];
-      if ($count eq '-') {
-        $self->{_modified} = 1;
-        $count = $taken;
-      } elsif ($taken ne '-') {
-        $count += $taken;
-      }
-      $block->[$branch] = $count;
+      my $me = $block->[$branch];
+      $self->{_modified} = 1
+        if (0 == $me->count() && 0 != $br->count());
+      $me->merge($br);
     }
   }
   return $self;
@@ -719,9 +776,10 @@ sub _summary {
     foreach my $blockId (sort($branch->blocks())) {
       my $bdata = $branch->getBlock($blockId);
 
-      foreach my $taken (@$bdata) {
+      foreach my $br (@$bdata) {
+        my $count = $br->count();
         $self->{_br_found}++;
-        $self->{_br_hit}++ if ($taken ne "-" && $taken > 0);
+        $self->{_br_hit}++ if (0 != $count);
       }
     }
   }
@@ -750,8 +808,8 @@ sub merge {
     foreach my $blockId ($branch->blocks()) {
       my $bdata = $branch->getBlock($blockId);
       my $branch = 0;
-      foreach my $taken (@$bdata) {
-        $self->append($line, $blockId, $branch, $taken);
+      foreach my $br (@$bdata) {
+        $self->append($line, $blockId, $branch, $br);
         ++ $branch;
       }
     }
@@ -1419,8 +1477,8 @@ sub _read_info {
             !$notified_about_relative_paths)
         {
           lcovutil::info("Resolved relative source file ".
-               "path \"$1\" with CWD to ".
-               "\"$filename\".\n");
+                         "path \"$1\" with CWD to ".
+                         "\"$filename\".\n");
           $notified_about_relative_paths = 1;
         }
 
@@ -1546,11 +1604,17 @@ sub _read_info {
         last;
       };
 
-      /^BRDA:(\d+),(\d+),(\d+),(\d+|-)/ && do {
+      /^BRDA:(\d+),(\d+),(.+)$/ && do {
         last if (!$main::br_coverage);
 
         # Branch coverage data found
-        my ($line, $block, $branch, $taken) = ($1, $2, $3, $4);
+        # line data is "lineNo,blockId,(branchIdx|branchExpr),taken
+        #   - so grab the last two elements, split on the last comma,
+        #     and check whether we found an integer or an expression
+        my ($line, $block, $d) = ($1, $2, $3);
+        my $comma = rindex($d, ',');
+        my $taken = substr($d, $comma + 1);
+        my $expr = substr($d, 0, $comma);
 
         my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND];
         if (defined($histogram) &&
@@ -1579,37 +1643,36 @@ sub _read_info {
         #     contiguious BRDA entry).
         #     There should always be at least 2.
         #   - not sure what the $block is used for.
-        #   - $taken can be a number or '-'n
+        #   - $taken can be a number or '-'
         #     '-' means that the first clause of the branch short-circuited -
         #     so this branch was not evaluated at all.
         #     In any branch pair, either all should have a 'taken' of '-'
         #     or at least one should have a non-zero taken count and
         #     the others should be zero.
+        #   - in order to support Verilog expressions, we treat the
+        #     'branchId' as an arbitrary string (e.g., ModelSim will
+        #     generate an CNF or truth-table like entry corresponding
+        #     to the branch.
 
         $block = -1 if ($block == $UNNAMED_BLOCK);
 
         # re-number, if necessary
         my $key = "$line,$block";
-        if (exists($branchRenumber{$key})) {
-          my ($count, $lastBranch) = @{$branchRenumber{$key}};
-          $branch > $lastBranch or die("branch ID not sorted for $line");
-          main::verbose("line $line branch IDs not contiguous\n")
-            if ($branch != ($lastBranch + 1));
-          $branchRenumber{$key} = [$count + 1, $branch];
-          $branch = $count;
-        } else {
-          main::verbose("line $line branch IDs not zero-base")
-            if ($branch != 0);
-          $branchRenumber{$key} = [1, $branch];
-          $branch = 0;
-        }
+        my $branch =
+          exists($branchRenumber{$key}) ? $branchRenumber{$key} : 0;
+        $branchRenumber{$key} = $branch + 1;
 
-        $data->sumbr()->append($line, $block, $branch, $taken);
+        if ($expr eq $branch) {
+          # branchID is not an expression - go back to legacy behaviour
+          $expr = undef;
+        }
+        my $br = BranchBlock->new($branch, $taken, $expr);
+        $data->sumbr()->append($line, $block, $br);
 
         # Add test-specific counts
         if (defined($testname)) {
           #$testbrcount->{$line} .=  "$block,$branch,$taken:";
-          $data->testbr($testname)->append($line, $block, $branch, $taken);
+          $data->testbr($testname)->append($line, $block, $br);
         }
         last;
       };

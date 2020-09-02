@@ -158,6 +158,7 @@ sub create_package($$$;$);
 sub get_func_found_and_hit($);
 sub summary();
 sub rate($$;$$$);
+sub split_branch($);
 
 # Global variables & initialization
 our @directory;		# Specifies where to get coverage data from
@@ -1535,6 +1536,17 @@ sub create_temp_dir()
 	return $dir;
 }
 
+sub split_branch($)
+{
+  my $data = shift;
+  my $comma = index($data, ',');
+  my $block = substr($data, 0, $comma);
+  my $last = rindex($data, ',');
+  my $taken = substr($data, $last + 1);
+  my $branch = substr($data, $comma + 1, $last - $comma - 1);
+  return ($block, $branch, $taken);
+}
+
 sub compress_brcount($)
 {
 	my ($brcount) = @_;
@@ -1788,10 +1800,13 @@ sub read_info_file($)
 				last;
 			};
 
-			/^BRDA:(\d+),(\d+),(\d+),(\d+|-)/ && do {
+			/^BRDA:(\d+),(\d+),(.+)$/ && do {
 				# Branch coverage data found
-				my ($line, $block, $branch, $taken) =
-				   ($1, $2, $3, $4);
+				my ($line, $block, $d) = ($1, $2, $3);
+
+				my $comma = rindex($d, ',');
+				my $taken = substr($d, $comma + 1);
+				my $branch = substr($d, 0, $comma);
 
 				last if (!$br_coverage);
 				$sumbrcount->{$line} .=
@@ -2196,7 +2211,7 @@ sub brcount_to_db($)
 		my $brdata = $brcount->{$line};
 
 		foreach my $entry (split(/:/, $brdata)) {
-			my ($block, $branch, $taken) = split(/,/, $entry);
+			my ($block, $branch, $taken) = split_branch($entry);
 			my $old = $db->{$line}->{$block}->{$branch};
 
 			if (!defined($old) || $old eq "-") {
@@ -2719,7 +2734,7 @@ sub write_info_file(*$)
 			  }
 			  foreach my $brentry (@brdata) {
 			    my ($block, $branch, $taken) =
-			      split(/,/, $brentry);
+			      split_branch($brentry);
 
 			    print(INFO_HANDLE "BRDA:$line,$block,".
 				  "$branch,$taken\n");

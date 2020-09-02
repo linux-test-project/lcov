@@ -91,6 +91,8 @@ gendiffcov \- Generate HTML differential coverage view from LCOV coverage data f
 .br
 .RB [ \-\-show-noncode ]
 .br
+.RB [ \-\-simplified-colors ]
+.br
 .RB [ \-\-filter
 .IR filters ]
 .br
@@ -175,6 +177,10 @@ requires both a
 .I baseline\-trace\-file
 and a
 .I unified\-diff\-file .
+
+The differential coverage report colorizes categorized regions in the source code view using unique colors for each.  You can use the
+.I \-\-simplified\-colors
+option to instead use one color for 'covered' code an another for 'uncovered'.
 
 
 If the
@@ -369,6 +375,11 @@ By default, the source code detail view does not show owner or date annotations 
 option is used, then the source code view will show annotations for both code and non-code lines.
 This argument has no effect if there is no
 .I source\-annotation\-script .
+
+.RE
+.BI "\-\-simplified\-colors "
+.RS
+By default, each differential category is colorized uniquely in the source code detail view.  With this option, only two colors are used:  one for coveraged code and another for uncovered code.  Note that ECB and EUB code is neither covered nor uncovered - and so may be difficult to distinguish in the source code view, as they will be presented in normal background color.
 
 .RE
 .BI "\-\-filter "

@@ -183,10 +183,12 @@ our $BR_ADD = 1;
 our $ERROR_SOURCE        = 0;
 our $ERROR_UNMAPPED_LINE = 1;
 our $ERROR_UNKNOWN_CATEGORY = 2;
+our $ERROR_INCONSISTENT_PATH = 3;
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
         "unmapped" => $ERROR_UNMAPPED_LINE,
         "category" => $ERROR_UNKNOWN_CATEGORY,
+        "path"     => $ERROR_INCONSISTENT_PATH,
 );
 lcovutil::define_errors(\%htmlErrs);
 
@@ -257,7 +259,7 @@ sub write_overview_line(*$$$);
 sub write_overview(*$$$$);
 
 # External prototype (defined in genpng)
-sub gen_png($$$@);
+sub gen_png($$$$@);
 
 
 package SummaryInfo;
@@ -434,7 +436,7 @@ sub sources {
 
 sub get_source {
   my ($self, $name) = @_;
-  return $self->{sources}->{$name};
+  return exists($self->{sources}->{$name}) ? $self->{sources}->{$name} : undef;
 }
 
 sub get {
@@ -871,8 +873,8 @@ sub new {
 
   my $fullpath = ($dirSummary->{type} eq "top" ? "" : $dirSummary->{name} . "/") . $path;
 
-  my $source = $dirSummary->{sources}->{$fullpath}
-    if (defined $dirSummary && exists($dirSummary->{sources}->{$fullpath}));
+  my $source = $dirSummary->get_source($fullpath)
+    if (defined $dirSummary);
 
   my $self = [$path, $overview, $source];
 
@@ -1170,6 +1172,8 @@ package BranchCovSummaryCallback;
 # callback class to return total branches in each TLA categroy
 sub new {
   my ($class, $summary) = @_;
+  defined($summary)
+    or die("no summary");
   my $self = [$summary];
   bless $self, $class;
   return $self;
@@ -1419,7 +1423,7 @@ sub getLine {
     my $currLine = $map->lookup($filename, "old", $line);
     return $reader->getLine($currLine);
   } else {
-    # deleted line...we don't really care what it looked line
+    # deleted line...we don't really care what it looked like
     #  return empty - so the line gets treated as not conditional
     return undef;
   }
@@ -1539,12 +1543,8 @@ sub _mergeBranchData {
         or die("inconsistent data for branch ID $branchId for line " .
                $self->lineNo());
       for (my $i = scalar(@$c)-1 ; $i >= 0 ; --$i) {
-        my $taken = $d->[$i];
-        if ('-' eq $c->[$i]) {
-          $c->[$i] = $taken;
-        } elsif ('-' ne $taken) {
-          $c->[$i] += $taken;
-        }
+        my $br = $d->[$i];
+        $c->[$i]->merge($br);
       }
     }
   } else {
@@ -1812,18 +1812,20 @@ sub _categorizeBranchCov {
       ! defined($base) or die("baseline branch data should not be defined for inserted line $line");
       foreach my $branchId (@currBlocks) {
         my $block = $categorized->addBlock($branchId);
-        foreach my $taken (@{$curr->getBlock($branchId)}) {
-          my $tla = ('-' eq $taken || 0 == $taken) ? 'UNC': 'GNC';
-          push(@$block, [$taken, $tla]);
+        foreach my $br (@{$curr->getBlock($branchId)}) {
+          my $count = $br->count();
+          my $tla = (0 == $count) ? 'UNC': 'GNC';
+          push(@$block, [$br, $tla]);
         }
       }
     } elsif ($type eq 'delete') {
       ! defined($curr) or die("current branch data should not be defined for deleted line");
       foreach my $branchId (@baseBlocks) {
         my $block = $categorized->addBlock($branchId);
-        foreach my $taken (@{$base->getBlock($branchId)}) {
-          my $tla = ('-' eq $taken || 0 == $taken) ? 'DCB': 'DUB';
-          push(@$block, [$taken, $tla]);
+        foreach my $br (@{$base->getBlock($branchId)}) {
+          my $count = $br->count();
+          my $tla = (0 == $count) ? 'DCB': 'DUB';
+          push(@$block, [$br, $tla]);
         }
       }
     } else {
@@ -1844,32 +1846,31 @@ sub _categorizeBranchCov {
           for (my $i=0 ; $i < $max ; ++ $i) {
             if ( $i < $num_base &&
                  $i < $num_curr) {
-              my $base_taken = $b->[$i];
-              my $curr_taken = $c->[$i];
-              if ('-' eq $base_taken ||
-                  0 == $base_taken) {
-                $tla = ($curr_taken eq '-' || 0 == $curr_taken) ? 'UBC' : 'GBC';
-              } elsif ($curr_taken eq '-' || 0 == $curr_taken) {
+              my $base_br = $b->[$i];
+              my $curr_br = $c->[$i];
+              if (0 == $base_br->count()) {
+                $tla = ($curr_br->count() == 0) ? 'UBC' : 'GBC';
+              } elsif (0 == $curr_br->count()) {
                 $tla = 'LBC';
               } else {
                 $tla = 'CBC';
               }
-              push(@$branchData, [$curr_taken, $tla]);
+              push(@$branchData, [$curr_br, $tla]);
             } elsif ($i < $num_base) {
-              my $base_taken = $b->[$i];
-              $tla = ('-' eq $base_taken || 0 == $base_taken) ? 'EUB' : 'ECB';
-              push(@$branchData, [$base_taken, $tla]);
+              my $base_br = $b->[$i];
+              $tla = (0 == $base_br->count()) ? 'EUB' : 'ECB';
+              push(@$branchData, [$base_br, $tla]);
             } else {
-              my $curr_taken = $c->[$i];
-              $tla = ('-' eq $curr_taken || 0 == $curr_taken) ? 'UIC' : 'GIC';
-              push(@$branchData, [$curr_taken, $tla]);
+              my $curr_br = $c->[$i];
+              $tla = (0 == $curr_br->count()) ? 'UIC' : 'GIC';
+              push(@$branchData, [$curr_br, $tla]);
             }
           }
         } else {
           # branch not found in current...
-          foreach my $base_taken (@$b) {
-            my $tla = ('-' eq $base_taken || 0 == $base_taken) ? 'EUB' : 'ECB';
-            push(@$branchData, [$base_taken, $tla]);
+          foreach my $base_br (@$b) {
+            my $tla = (0 == $base_br->count()) ? 'EUB' : 'ECB';
+            push(@$branchData, [$base_br, $tla]);
           }
         }
       }
@@ -1878,9 +1879,9 @@ sub _categorizeBranchCov {
         next if defined($base) && $base->hasBlock($branchId); # already processed
         my $c = $curr->getBlock($branchId);
         my $branchData = $categorized->addBlock($branchId);
-        foreach my $curr_taken (@$c) {
-          my $tla = ('-' eq $curr_taken || 0 == $curr_taken) ? 'UIC' : 'GIC';
-          push(@$branchData, [$curr_taken, $tla]);
+        foreach my $curr_br (@$c) {
+          my $tla = (0 == $curr_br->count()) ? 'UIC' : 'GIC';
+          push(@$branchData, [$curr_br, $tla]);
         }
       } # foreach branchId in current that isn't in base
     }
@@ -1969,6 +1970,10 @@ sub type {
   return $chunk->{type};
 }
 
+sub files {
+  my $self = shift;
+  return keys(%{$self->{filemap}});
+}
 
 sub dump_map {
   my $self = shift;
@@ -1988,6 +1993,89 @@ sub dump_map {
   return $self;
 }
 
+sub check_path_consistency {
+  # check that paths which appear in diff also appear in baseline or current
+  #  .info files - if not, then there is likely a path consistency issue
+  # $baseline and $current are both TraceFile structs -
+  # return 0 if inconsistency found
+
+  my ($self, $baseline, $current) = @_;
+  (ref($baseline) eq 'TraceFile' && ref($current) eq 'TraceFile')
+    or die("wrong arg types");
+
+  my %diffMap;
+  my %diffBaseMap;
+  foreach my $f ($self->files()) {
+    $diffMap{$f} = 0;
+    my $b = File::Basename::basename($f);
+    $diffBaseMap{$b} = [[], {}]
+      unless exists($diffBaseMap{$b});
+    push(@{$diffBaseMap{$b}->[0]}, $f);
+  }
+  my %missed;
+  foreach my $curr ($current->files()) {
+    my $b = File::Basename::basename($curr);
+    if (exists($diffMap{$curr})) {
+      $diffMap{$curr} |= 1; # used in current
+      $diffBaseMap{$b}->[1]->{$curr} = 0
+        unless exists($diffBaseMap{$b}->[1]->{$curr});
+      ++ $diffBaseMap{$b}->[1]->{$curr};
+    } else {
+      $missed{$curr} = 1; # in current but not in diff
+    }
+  }
+  foreach my $base ($baseline->files()) {
+    my $b = File::Basename::basename($base);
+    if (exists($diffMap{$base})) {
+      $diffMap{$base} |= 2; # used in baseline
+      $diffBaseMap{$b}->[1]->{$base} = 0
+        unless exists($diffBaseMap{$b}->[1]->{$base});
+      ++ $diffBaseMap{$b}->[1]->{$base};
+    } else {
+      # in baseline but not in diff
+      if (exists($missed{$base})) {
+        $missed{$base} |= 2;
+      } else {
+        $missed{$base} = 2;
+      }
+    }
+  }
+  my $ok = 1;
+  foreach my $f (sort keys(%missed)) {
+    my $b = File::Basename::basename($f);
+    if (exists($diffBaseMap{$b})) {
+      # this basename is in the diff file and didn't match any other
+      #   trace filename entry (i.e., same filename in more than one
+      #   source code directory) - then warn about possible pathname issue
+      my ($diffFiles, $sourceFiles) = @{$diffBaseMap{$b}};
+      # find the files which appear in the 'diff' list which have the
+      #   same basename and were not matched - those might be candidates
+      my @unused;
+      for my $d (@$diffFiles) {
+        push(@unused, $d)
+          unless exists($sourceFiles->{$d});
+      }
+      if (scalar(@unused)) {
+        my $type;
+        if ( 2 == $missed{$f} ) {
+          $type = "baseline";
+        } elsif ( 1 == $missed{$f} ) {
+          $type = "current";
+        } else {
+          $type = "baseline and current";
+        }
+        my $single = 1==scalar(@unused);
+        warn("source file '$f' (in $type .info files) has same basename as 'diff' "
+             . ($single ? 'entry ' : 'entries:\n\t') . "'"
+             . join("'\n\t", @unused)
+             . "' - but a different path." . ($single ? "  " : "\n\t")
+             . "Possible pathname mismatch?");
+        $ok = 0;
+      }
+    }
+  }
+  return $ok;
+}
 
 sub show_map {
   my $self = shift;
@@ -2062,6 +2150,7 @@ sub _read_udiff {
   # Parse diff file line by line
   while (<HANDLE>) {
     chomp($_);
+    s/\R//g;
     $line = $_;
 
     foreach ($line) {
@@ -2072,7 +2161,8 @@ sub _read_udiff {
           if ($filename) {
             push(@{$self->{linemap}->{$filename}}, $chunk);
           }
-          $file_old = main::strip_directories($1, $main::strip);
+          $file_old = File::Spec->rel2abs($1, $main::cwd);
+          $file_old = main::strip_directories($file_old, $main::strip);
           #$in_block = 0;
           last;
         };
@@ -2081,7 +2171,8 @@ sub _read_udiff {
       /^\+\+\+ (\S+)/ && do
         {
           # Add last file to resulting hash
-          $file_new = main::strip_directories($1, $main::strip);
+          $file_new = File::Spec->rel2abs($1, $main::cwd);
+          $file_new = main::strip_directories($file_new, $main::strip);
           $filename = ($file_new ne "/dev/null") ? $file_new : undef;
           if ($filename) {
             $self->{linemap}->{$filename} = [ ];
@@ -2365,7 +2456,7 @@ sub _countBranchTlaData {
   if (! defined($srcLine)) {
     lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
                               "no data for 'branch' line:$line, file:"
-                              . $self->path())
+                              . $self->path());
   } else {
     # if this line is not in the project (e.g., from some 3rd party
     #   library - then we might not have file history for it.
@@ -2685,6 +2776,12 @@ sub nextInDateBin {
     for ($line = $after + 1 ; $line <= $lastline ; ++ $line) {
       my $t = $self->line($line)->tla();
       my $a = $self->line($line)->age();
+      if (! defined($a)) {
+        lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+                                  "no age data for line:$line, file:"
+                                  . $self->path());
+        return undef;
+      }
       last
         if (defined($t) &&
             ($t ne $tla ||
@@ -2706,9 +2803,15 @@ sub nextInDateBin {
       lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
                                 "no data for line:$line, file:"
                                 . $self->path());
-        next;
+      return undef;
     }
     my $a = $l->age();
+    if (! defined($a)) {
+      lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+                                "no age data for line:$line, file:"
+                                . $self->path());
+      return undef;
+    }
     my $bin = SummaryInfo::findAgeBin($a);
 
     if ($bin == $dateBin) {
@@ -2747,10 +2850,16 @@ sub nextInOwnerBin {
         lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
                                   "no data for line:$line, file:"
                                   . $self->path());
-        next;
+        return undef;
       }
       my $t = $l->tla();
       my $o = $l->owner();
+      if (! defined($o)) {
+        lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+                                  "no owber data for line:$line, file:"
+                                  . $self->path());
+        return undef;
+      }
       last
         if (defined($t) &&
             ($t ne $tla ||
@@ -2797,6 +2906,12 @@ sub nextBranchInDateBin {
       next;
     }
     my $a = $l->age();
+    if (! defined($a)) {
+      lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+                                "no age data for line:$line, file:"
+                                . $self->path());
+      return undef;
+    }
     my $bin = SummaryInfo::findAgeBin($a);
     if ($bin == $dateBin) {
       return $line;
@@ -2853,9 +2968,11 @@ sub _load {
   splice(@cmd, 1, 0, $repo_path);
   my $cmd = join(' ', @cmd);
   lcovutil::info("annotate: '$cmd'\n");
+  my $found; # check that either all lines are annotated or none are
   if (open(HANDLE, "-|", $cmd)) {
     while (my $line = <HANDLE>) {
       chomp $line;
+      $line =~ s/\R//g;
       ++ $lineNum;
       # Also remove CR from line-end
       s/\015$//;
@@ -2863,11 +2980,15 @@ sub _load {
       my ($commit, $owner, $when, $text) = split(/\|/, $line, 4);
       my $age;
       if ($commit ne 'NONE') {
+          die("inconsistent 'annotate' data for '$repo_path': both 'commit' and 'no commit' lines")
+            if (defined($found) && !$found);
+          $found = 1;
+          $found = 1;
           if ($when =~ /^[0-9]+$/) {
-              # a hack for the production of my paper:
+              # a hack for the production of stable examples for publication:
               #   if the 'when' value is an integer, treat it as a day count
-              #   (rather than a date) - so I can have a stable HTML result
-              #   (where age does not change every time I run the example).
+              #   (rather than a date) - so the HTML result is stable
+              #   (where age does not change every time the example runs).
               $age = $when;
           } else {
               $age = DateTime::Format::W3CDTF->parse_datetime($when)->delta_days(DateTime->now())->in_units('days');
@@ -2881,8 +3002,11 @@ sub _load {
             unless exists($dhash->{lines});
           push(@{$dhash->{lines}}, $lineNum);
       } else {
-          $age = undef;
-          $owner = undef;
+        die("inconsistent 'annotate' data for '$repo_path': both 'no commit' and 'commit' lines")
+          if (defined($found) && $found);
+        $found = 0;
+        $age = undef;
+        $owner = undef;
       }
       push @{$self->{_lines}}, SourceLine->new($owner, $age, $lineNum, $text);
     }
@@ -2929,6 +3053,7 @@ sub _bare_load {
   if (open(HANDLE, "<", $self->path())) {
     while (my $line = <HANDLE>) {
       chomp $line;
+      $line =~ s/\R//g;
       # Also remove CR from line-end
       s/\015$//;
 
@@ -2978,8 +3103,8 @@ sub new {
         foreach my $id ($branchEntry->blocks()) {
           my $block = $branchEntry->getBlock($id);
           foreach my $data (@$block) {
-            my ($count, $tla) = @$data;
-            $count = 0 if ($count eq '-');
+            my ($br, $tla) = @$data;
+            my $count = $br->count();
             die("unexpected branch TLA $tla for count $count")
               unless ( ($count != 0) == exists($tlaData{$tla}) );
             next if (0 == $count);
@@ -3047,6 +3172,7 @@ our $show_ownerBins;    # show list of people who have edited code
                         #   (in this file/this directory/etc)
 our $show_nonCodeOwners;# show last modified and last author info for
                         #  non-code lines (e.g., comments)
+our $show_simplifiedColors;
 
 our $sort = 1;          # If set, provide directory listings with sorted entries
 our $no_sort;           # Disable sort
@@ -3192,6 +3318,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 #    regardless of whether thay have uncovered code or not
                 'show-owners:s'         => \$show_ownerBins,
                 'show-noncode'          => \$show_nonCodeOwners,
+                'simplified-colors'     => \$show_simplifiedColors,
                 "date=s"                => \@datebins,
                 "prefix|p=s"            => \@opt_dir_prefix,
                 "num-spaces=i"          => \$tab_size,
@@ -3271,12 +3398,17 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
 
   # use LCOV original colors if no baseline file
   #  (so no differential coverage)
-  if (! $show_tla) {
+  if (! $show_tla ||
+      (defined($show_simplifiedColors) &&
+       $show_simplifiedColors)) {
     for my $tla (('CBC', 'GNC', 'GIC', 'GBC')) {
       $SummaryInfo::tlaColor{$tla} = "#CAD7FE";
     }
     for my $tla (('UBC', 'UNC', 'UIC', 'LBC')) {
       $SummaryInfo::tlaColor{$tla} = "#FF6230";
+    }
+    for my $tla (('EUB', 'ECB')) {
+      $SummaryInfo::tlaColor{$tla} = "#FFFFFF";
     }
   }
 }
@@ -3659,7 +3791,17 @@ sub gen_html()
     info("Reading baseline file $base_filename\n");
     $new_info = TraceFile->load($base_filename, $readBaseSource);
     $base_data->append_tracefile($new_info);
-    info("Found %d entries.\n", scalar($base_data->files()));
+    info("Found %d baseline entries.\n", scalar($base_data->files()));
+  }
+
+  if ($diff_filename) {
+    # check for files which appear in the udiff but which dont appear
+    # in either the current or baseline trace data.  Those may be
+    # mapping issues - different pathname in .info file vs udiff
+    if (! $diff_data->check_path_consistency($base_data, $current_data) ) {
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_PATH,
+                                "possible path inconsistency in baseline/current/udiff data");
+    }
   }
 
   @dir_list = get_dir_list($current_data->files());
@@ -4079,7 +4221,8 @@ sub process_file($$$)
     if ($frames)
     {
       # Create overview png file
-      gen_png("$rel_dir/$base_name.gcov.png", $overview_width, $tab_size, @source);
+      my $simplified = defined($main::show_simplifiedColors) && $main::show_simplifiedColors;
+      gen_png("$rel_dir/$base_name.gcov.png", $main::show_tla && ! $simplified, $overview_width, $tab_size, @source);
 
       # Create frameset page
       html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.frameset.$html_ext");
@@ -4274,7 +4417,7 @@ sub read_testfile($)
         while (<TEST_HANDLE>)
         {
                 chomp($_);
-
+                s/\R//g;
                 # Match lines beginning with TN:<whitespace(s)>
                 if (/^TN:\s+(.*?)\s*$/)
                 {
@@ -5631,9 +5774,13 @@ sub write_file_table_entry(*$$@)
   } elsif ($is_secondary &&
            $primary_key ne 'name' &&
            defined($file_link) && $file_link ne "") {
-
-    $namecode = "<a href=\"$file_link\">" . escape_html($filename) . "</a>";
-
+    $namecode = "<a href=\"$file_link\">" . $esc_name . "</a>";
+  } elsif ($is_secondary &&
+           $primary_key ne 'name' &&
+           $name eq $filename) {
+    # get here when we suppressed the sourceview - so the file link
+    # is not defined
+    $namecode = $esc_name;
   } elsif (defined($primary_key)) {
     $namecode = $esc_name;
     # we want the the HREF anchor on the column 1 entry -
@@ -5775,7 +5922,8 @@ END_OF_HTML
 
           # want to look in file details to build link to first
           #   line...
-          if (defined($tableHref) &&
+          if (!$main::no_sourceview &&
+              defined($tableHref) &&
               defined($fileDetails) &&
               'D' ne substr($key,0,1) &&
               grep(/^$key$/, @SummaryInfo::tlaPriorityOrder)) {
@@ -6052,13 +6200,13 @@ sub get_branch_blocks($)
   foreach my $block_num (sort $brdata->blocks()) {
     my $blockData = $brdata->getBlock($block_num);
     my $branch = 0;
-    foreach my $taken (@$blockData) {
+    foreach my $br (@$blockData) {
 
       if (defined($last_block_num) && $block_num != $last_block_num) {
         push(@blocks, $block);
         $block = [];
       }
-      my $br = [$block_num, $branch, $taken, 3, 0, 0];
+      my $br = [$block_num, $branch, $br, 3, 0, 0];
       push(@{$block}, $br);
       $last_block_num = $block_num;
       ++ $branch;
@@ -6175,18 +6323,18 @@ sub get_branch_html($$)
         next;
       }
 
-      my ($block_num, $br_num, $taken, $len, $open, $close) = @{$branch};
+      my ($block_num, $br_num, $br, $len, $open, $close) = @{$branch};
 
       my $class;
       my $prefix;
       my $tla;
-      if ('ARRAY' ne ref($taken)) {
+      if ('ARRAY' ne ref($br)) {
         # vanilla case - no differential coverage info
         die("differential branch coverage but no TLA")
           if defined($differentialBranch);
-        if ($taken eq '-') {
+        if ($br->data() eq '-') {
           $class  = "tlaUNC";
-        } elsif ($taken == 0) {
+        } elsif ($br->data() == 0) {
           $class  = "tlaUNC";
         } else {
           $class  = 'tlaGBC';
@@ -6194,28 +6342,31 @@ sub get_branch_html($$)
         $prefix = '';
       } else {
         die("differential branch coverage but no TLA") unless defined($differentialBranch);
-        $tla = $taken->[1];
-        $taken = $taken->[0];
+        $tla = $br->[1];
+        $br = $br->[0];
         $class = "tla$tla";
         $prefix = $tla . ": ";
       }
-      my $char;
-      my $title;
+      my ($char, $title);
 
+      my $br_name = defined($br->expr()) ? '"' . $br->expr() . '"' : $br_num;
+      my $taken = $br->data();
       if ($taken eq '-') {
         $char   = "#";
-        $title  = "${prefix}Branch $br_num was not executed";
+        $title  = "${prefix}Branch $br_name was not executed";
       } elsif ($taken == 0) {
         $char   = "-";
-        $title  = "${prefix}Branch $br_num was not taken";
+        $title  = "${prefix}Branch $br_name was not taken";
       } else {
         $char   =  "+";
-        $title  = "${prefix}Branch $br_num was taken $taken time"
+        $title  = "${prefix}Branch $br_name was taken $taken time"
             . (($taken > 1) ? "s" :"");
       }
+      $title = escape_html($title) if defined($br->expr());
       $current .= "[" if ($open);
 
-      if (defined($differentialBranch)) {
+      if (!$main::no_sourceview &&
+          defined($differentialBranch)) {
         my $href;
         if (exists($tlaLinks{$tla})) {
           $href = $tlaLinks{$tla};
@@ -6224,9 +6375,10 @@ sub get_branch_html($$)
           my $next = $fileDetail->nextBranchTlaGroup($tla, $line);
 
           $href = "<a href=\"#" . (defined($next) ? $next : 'top')
-                . "\" style=\"background-color:$SummaryInfo::tlaColor{$tla}\" title=\"$title\">$char</a>";
+                . "\" style=\"background-color:$SummaryInfo::tlaColor{$tla}\" title=\"TITLE\">$char</a>";
           $tlaLinks{$tla} = $href;
         }
+        $href =~ s#TITLE#$title#;
         my $space = "<span class=\"$class\"> </span>";
         $current .= $space . $href . $space;
       } else {
@@ -6814,7 +6966,8 @@ sub buildDateSummaryTable($$$$$$$$) {
         # suppress zeros - make table less busy/easier to read
         if ("0" eq $value) {
           $value = "";
-        } elsif (defined($fileDetail) &&
+        } elsif (!$main::no_sourceview &&
+                 defined($fileDetail) &&
                  defined($nextLocationCallback) &&
                  $tla ne 'DCB' &&
                  $tla ne 'DUB') {
@@ -6901,7 +7054,8 @@ sub buildOwnerSummaryTable($$$$$$$$) {
           0 != $value && grep(/^$tla$/, ("UNC", "LBC", "UIC")) ? "tla$tla" : "ownerTla";
         if ("0" eq $value) {
           $value = "";
-        } elsif (defined($fileDetail) &&
+        } elsif (! $main::no_sourceview &&
+                 defined($fileDetail) &&
                  defined($nextLocationCallback)) {
           my $firstAppearance = &$nextLocationCallback($fileDetail,
                                                        $name, $tla);
@@ -6933,7 +7087,8 @@ sub buildHeaderSummaryTableRow {
     # suppress zeros - make table less busy/easier to read
     if ( "0" eq $value) {
       $value = "";
-    } elsif (defined($fileDetail) &&
+    } elsif (!$main::no_sourceview &&
+             defined($fileDetail) &&
              ! ($tla eq "DCB" || $tla eq "DUB")) {
       # deleted lines don't appear..
       my $firstAppearance = &$nextLocationCallback($fileDetail, $tla);
@@ -8024,6 +8179,7 @@ sub demangle_list($)
 
                 last if (!defined($translated));
                 chomp($translated);
+                $translated =~ s/\R//g;
 
                 $version = ++$versions{$translated};
                 $translated .= ".$version" if ($version > 1);
@@ -8284,6 +8440,7 @@ sub read_config($)
         while (<HANDLE>)
         {
                 chomp;
+                s/\R//g; # linefeed, if there is one
                 # Skip comments
                 s/#.*//;
                 # Remove leading blanks

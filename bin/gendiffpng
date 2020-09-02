@@ -10,7 +10,7 @@
 #   This program is distributed in the hope that it will be useful, but
 #   WITHOUT ANY WARRANTY;  without even the implied warranty of
 #   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-#   General Public License for more details.                 
+#   General Public License for more details.
 #
 #   You should have received a copy of the GNU General Public License
 #   along with this program;  if not, see
@@ -31,7 +31,7 @@
 
 use strict;
 use warnings;
-use File::Basename; 
+use File::Basename;
 use Getopt::Long;
 use Cwd qw/abs_path/;
 
@@ -44,7 +44,7 @@ our $tool_name		= basename($0);
 
 
 # Prototypes
-sub gen_png($$$@);
+sub gen_png($$$$@);
 sub check_and_load_module($);
 sub genpng_print_usage(*);
 sub genpng_process_file($$$$);
@@ -215,7 +215,7 @@ sub genpng_process_file($$$$)
 	}
 	close(HANDLE);
 
-	gen_png($out_filename, $width, $tab_size, @source);
+	gen_png($out_filename, 1, $width, $tab_size, @source);
 }
 
 
@@ -232,9 +232,10 @@ sub genpng_process_file($$$$)
 # Die on error.
 #
 
-sub gen_png($$$@)
+sub gen_png($$$$@)
 {
 	my $filename = shift(@_);	# Filename for PNG file
+	my $show_tla = shift(@_);       # differential categories
 	my $overview_width = shift(@_);	# Imagewidth for image
 	my $tab_size = shift(@_);	# Replacement string for tab signs
 	my @source = @_;	# Source code as passed via argument 2
@@ -302,40 +303,68 @@ sub gen_png($$$@)
 	$col_hi_back = $overview->colorAllocate(0x00, 0xff, 0x00);
 	$col_hi_text = $overview->colorAllocate(0x00, 0xaa, 0x00);
 
-	#$col_baseonly_back = $overview->colorAllocate(0xcc, 0xcc, 0xcc);
-	#$col_baseonly_text = $overview->colorAllocate(0x77, 0x77, 0x77);
-	#$col_newonly_back = $overview->colorAllocate(0x00, 0xff, 0x00);
-	#$col_newonly_text = $overview->colorAllocate(0x00, 0xaa, 0x00);
-	$col_UBC_back = $overview->colorAllocate(0xfd, 0xe0, 0x07);
-	$col_UBC_text = $overview->colorAllocate(0xaa, 0xa0, 0x05);
+	if ($show_tla) {
+	  $col_GBC_back = $overview->colorAllocate(0x44, 0x88, 0x44);
+	  $col_GBC_text = $overview->colorAllocate(0x33, 0x66, 0x33);
 
-	$col_GBC_back = $overview->colorAllocate(0x44, 0x88, 0x44);
-	$col_GBC_text = $overview->colorAllocate(0x33, 0x66, 0x33);
+	  $col_CBC_back = $overview->colorAllocate(0xca, 0xd7, 0xfe);
+	  $col_CBC_text = $overview->colorAllocate(0x98, 0xa0, 0xaa);
 
-	$col_LBC_back = $overview->colorAllocate(0xcc, 0x66, 0x66);
-	$col_LBC_text = $overview->colorAllocate(0x99, 0x44, 0x44);
+	  $col_GNC_back = $overview->colorAllocate(0xb5, 0xf7, 0xaf);
+	  $col_GNC_text = $overview->colorAllocate(0x90, 0xa3, 0x80);
 
-	$col_CBC_back = $overview->colorAllocate(0xca, 0xd7, 0xfe);
-	$col_CBC_text = $overview->colorAllocate(0x98, 0xa0, 0xaa);
+	  $col_GIC_back = $overview->colorAllocate(0x30, 0xcc, 0x37);
+	  $col_GIC_text = $overview->colorAllocate(0x18, 0x66, 0x1c);
 
-	$col_GNC_back = $overview->colorAllocate(0xb5, 0xf7, 0xaf);
-	$col_GNC_text = $overview->colorAllocate(0x90, 0xa3, 0x80);
+	  $col_UBC_back = $overview->colorAllocate(0xfd, 0xe0, 0x07);
+	  $col_UBC_text = $overview->colorAllocate(0xaa, 0xa0, 0x05);
 
-	$col_UNC_back = $overview->colorAllocate(0xff, 0x62, 0x30);
-	$col_UNC_text = $overview->colorAllocate(0xaa, 0x40, 0x20);
+	  $col_LBC_back = $overview->colorAllocate(0xcc, 0x66, 0x66);
+	  $col_LBC_text = $overview->colorAllocate(0x99, 0x44, 0x44);
 
-	$col_ECB_back = $overview->colorAllocate(0xcc, 0x66, 0xff);
-	$col_ECB_text = $overview->colorAllocate(0x66, 0x33, 0x88);
+	  $col_UNC_back = $overview->colorAllocate(0xff, 0x62, 0x30);
+	  $col_UNC_text = $overview->colorAllocate(0xaa, 0x40, 0x20);
 
-	$col_EUB_back = $overview->colorAllocate(0xdd, 0xdd, 0xdd);
-	$col_EUB_text = $overview->colorAllocate(0x77, 0x77, 0x77);
+	  $col_UIC_back = $overview->colorAllocate(0xee, 0xaa, 0x30);
+	  $col_UIC_text = $overview->colorAllocate(0xaa, 0x77, 0x18);
 
-	$col_GIC_back = $overview->colorAllocate(0x30, 0xcc, 0x37);
-	$col_GIC_text = $overview->colorAllocate(0x18, 0x66, 0x1c);
+	  $col_ECB_back = $overview->colorAllocate(0xcc, 0x66, 0xff);
+	  $col_ECB_text = $overview->colorAllocate(0x66, 0x33, 0x88);
 
-	$col_UIC_back = $overview->colorAllocate(0xee, 0xaa, 0x30);
-	$col_UIC_text = $overview->colorAllocate(0xaa, 0x77, 0x18);
+	  $col_EUB_back = $overview->colorAllocate(0xdd, 0xdd, 0xdd);
+	  $col_EUB_text = $overview->colorAllocate(0x77, 0x77, 0x77);
+	} else {
+	  # no differential categories - use vanilla color
+	  $col_GBC_back = $col_cov_back;
+	  $col_GBC_text = $col_cov_text;
 
+	  $col_CBC_back = $col_cov_back;
+	  $col_CBC_text = $col_cov_text;
+
+	  $col_GNC_back = $col_cov_back;
+	  $col_GNC_text = $col_cov_text;
+
+	  $col_GIC_back = $col_cov_back;
+	  $col_GIC_text = $col_cov_text;
+
+	  $col_UBC_back = $col_nocov_back;
+	  $col_UBC_text = $col_nocov_text;
+
+	  $col_LBC_back = $col_nocov_back;
+	  $col_LBC_text = $col_nocov_text;
+
+	  $col_UNC_back = $col_nocov_back;
+	  $col_UNC_text = $col_nocov_text;
+
+	  $col_UIC_back = $col_nocov_back;
+	  $col_UIC_text = $col_nocov_text;
+
+	  $col_ECB_back = $col_plain_back;
+	  $col_ECB_text = $col_plain_text;
+
+	  $col_EUB_back = $col_plain_back;
+	  $col_EUB_text = $col_plain_text;
+	}
 	# Visualize each line
 	foreach $line (@source)
 	{
@@ -437,7 +466,7 @@ sub gen_png($$$@)
 			}
 		}
 
-		# Fill rest of line		
+		# Fill rest of line
 		while ($column < $overview_width)
 		{
 			$overview->setPixel($column++, $row, $color_back);
