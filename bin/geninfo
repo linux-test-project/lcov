@@ -69,7 +69,7 @@ if( $^O eq "msys" )
 
 # Constants
 our $tool_dir		= abs_path(dirname($0));
-our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --full`;
+our $lcov_version	= 'LCOV version '.`"$tool_dir"/get_version.sh --full`;
 our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
@@ -2666,7 +2666,7 @@ sub get_gcov_version()
 	#       Default target: x86_64-apple-darwin16.0.0
 	#       Host CPU: haswell
 
-	open(GCOV_PIPE, "-|", "$gcov_tool --version")
+	open(GCOV_PIPE, "-|", "\"$gcov_tool\" --version")
 		or die("ERROR: cannot retrieve gcov version!\n");
 	local $/;
 	$version_string = <GCOV_PIPE>;
@@ -4472,7 +4472,7 @@ sub debug($)
 
 sub get_gcov_capabilities()
 {
-	my $help = `$gcov_tool --help`;
+	my $help = `"$gcov_tool" --help`;
 	my %capabilities;
 	my %short_option_translations = (
 		'a' => 'all-blocks',
