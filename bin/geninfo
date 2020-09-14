@@ -2393,6 +2393,9 @@ sub intermediate_text_to_info($$$)
 		  }
 		  $prevLineCount = $hit;
 
+		  ++ $lines_found;
+		  ++ $lines_hit 
+		    if (0 != $hit);
 		  # lcount:<line>,<count>
 		  # lcount:<line>,<count>,<has_unexecuted_blocks>
 		  if ($checksum && exists($checksums->{$lineNo})) {
@@ -2976,7 +2979,7 @@ sub apply_config($)
 
 sub get_source_data($)
 {
-w  my ($filename) = @_;
+  my ($filename) = @_;
   my %list;
   my $flag = 0;
   my %brdata;

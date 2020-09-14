@@ -2754,10 +2754,10 @@ sub write_info_file(*$)
 			my $prevCount;
 			foreach $line (sort({$a <=> $b} keys(%{$testcount})))
 			{
-			  my $hit = $testcount->{$line};
+			  my $l_hit = $testcount->{$line};
 			  if (defined($lineHistogram) &&
 			      defined($prevCount) &&
-			      $prevCount == $hit &&
+			      $prevCount == $l_hit &&
 			      $srcReader->isCloseBrace($line)) {
 
 			    verbose("skip DA '" . $srcReader->getLine($line)
@@ -2766,14 +2766,14 @@ sub write_info_file(*$)
 			    ++$lineHistogram->[1]; # one coverpoint suppressed
 			    next;
 			  }
-			  $prevCount = $hit;
+			  $prevCount = $l_hit;
 			  my $chk = $checkdata->{$line};
-			  print(INFO_HANDLE "DA:$line,$hit" .
+			  print(INFO_HANDLE "DA:$line,$l_hit" .
 				(defined($chk) && $checksum ? ",". $chk : "")
 				."\n");
 			  $found++;
 			  $hit++
-			    if ($testcount->{$line} > 0);
+			    if ($l_hit > 0);
 			}
 			print(INFO_HANDLE "LF:$found\n");
 			print(INFO_HANDLE "LH:$hit\n");
