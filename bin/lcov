@@ -57,6 +57,7 @@
 #   2004-03-30 / Peter Oberparleiter: added --path option
 #   2004-08-09 / Peter Oberparleiter: added configuration file support
 #   2008-08-13 / Peter Oberparleiter: added function coverage support
+#   2020-09-15 / Henry Cox:  refactor to use common utilities.
 #
 
 use strict;
@@ -82,9 +83,10 @@ use lcovutil qw ($tool_name $quiet
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  filterStringsAndComments simplifyCode balancedParens
 
-                 %geninfoErrs $ERROR_GCOV $ERROR_SOURCE
-                 $ERROR_GRAPH
+                 %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
                  is_external $opt_external @internal_dirs
+                 system_no_output
+                 rate
   );
 
 
@@ -113,9 +115,11 @@ our $BR_ADD = 1;
 
 lcovutil::define_errors(\%lcovutil::geninfoErrs);
 
-our $ERROR_EMPTY	= scalar(keys(%lcovutil::geninfoErrs));
+$lcovutil::ERROR_MISMATCH   = scalar(keys(%lcovutil::geninfoErrs));
+our $ERROR_EMPTY  = $ERROR_MISMATCH + 1;
 our %lcovErrs = (
   "empty" => $ERROR_EMPTY,
+  "mismatch" => $lcovutil::ERROR_MISMATCH,
 );
 lcovutil::define_errors(\%lcovErrs);
 
@@ -129,14 +133,6 @@ sub kernel_capture();
 sub kernel_capture_initial();
 sub package_capture();
 sub add_traces();
-sub read_info_file($);
-sub get_info_entry($);
-sub set_info_entry($$$$$$$$$;$$$$$$);
-sub add_counts($$);
-sub merge_checksums($$$);
-sub combine_info_entries($$$);
-sub combine_info_files($$);
-sub write_info_file(*$);
 sub extract();
 sub remove();
 sub list();
@@ -155,37 +151,34 @@ sub get_overall_line($$$$);
 sub print_overall_rate($$$$$$$$$);
 sub lcov_geninfo(@);
 sub create_package($$$;$);
-sub get_func_found_and_hit($);
 sub summary();
-sub rate($$;$$$);
-sub split_branch($);
 
 # Global variables & initialization
-our @directory;		# Specifies where to get coverage data from
-our @kernel_directory;	# If set, captures only from specified kernel subdirs
-our @add_tracefile;	# If set, reads in and combines all files in list
-our $list;		# If set, list contents of tracefile
-our $extract;		# If set, extracts parts of tracefile
-our $remove;		# If set, removes parts of tracefile
-our $diff;		# If set, modifies tracefile according to diff
-our $reset;		# If set, reset all coverage data to zero
-our $capture;		# If set, capture data
-our $output_filename;	# Name for file to write coverage data to
-our $test_name = "";	# Test case name
-our $help;		# Help option flag
-our $version;		# Version option flag
-our $convert_filenames;	# If set, convert filenames when applying diff
-our $strip;		# If set, strip leading directories when applying diff
-our $temp_dir_name;	# Name of temporary directory
-our $cwd = `pwd`;	# Current working directory
-our $data_stdout;	# If set, indicates that data is written to stdout
-our $follow;		# If set, indicates that find shall follow links
-our $diff_path = "";	# Path removed from tracefile when applying diff
-our $base_directory;	# Base directory (cwd of gcc during compilation)
-our $checksum;		# If set, calculate a checksum for each line
-our $no_checksum;	# If set, don't calculate a checksum for each line
-our $compat_libtool;	# If set, indicates that libtool mode is to be enabled
-our $no_compat_libtool;	# If set, indicates that libtool mode is to be disabled
+our @directory;	 # Specifies where to get coverage data from
+our @kernel_directory;  # If set, captures only from specified kernel subdirs
+our @add_tracefile;     # If set, reads in and combines all files in list
+our $list;	      # If set, list contents of tracefile
+our $extract;	   # If set, extracts parts of tracefile
+our $remove;	    # If set, removes parts of tracefile
+our $diff;	      # If set, modifies tracefile according to diff
+our $reset;	     # If set, reset all coverage data to zero
+our $capture;	   # If set, capture data
+our $output_filename;   # Name for file to write coverage data to
+our $test_name = "";    # Test case name
+our $help;	      # Help option flag
+our $version;	   # Version option flag
+our $convert_filenames; # If set, convert filenames when applying diff
+our $strip;	     # If set, strip leading directories when applying diff
+our $temp_dir_name;     # Name of temporary directory
+our $cwd = `pwd`;       # Current working directory
+our $data_stdout;       # If set, indicates that data is written to stdout
+our $follow;	    # If set, indicates that find shall follow links
+our $diff_path = "";    # Path removed from tracefile when applying diff
+our $base_directory;    # Base directory (cwd of gcc during compilation)
+our $checksum;	  # If set, calculate a checksum for each line
+our $no_checksum;       # If set, don't calculate a checksum for each line
+our $compat_libtool;    # If set, indicates that libtool mode is to be enabled
+our $no_compat_libtool; # If set, indicates that libtool mode is to be disabled
 our $gcov_tool;
 our @opt_ignore_errors;
 our @opt_filter;
@@ -197,9 +190,9 @@ our $to_package;
 our $from_package;
 our $maxdepth;
 our $no_markers;
-our $config;		# Configuration file contents
+our $config;	    # Configuration file contents
 chomp($cwd);
-our $gcov_gkv;		# gcov kernel support version found on machine
+our $gcov_gkv;	  # gcov kernel support version found on machine
 our $opt_derive_func_data;
 our $opt_list_full_path;
 our $opt_no_list_full_path;
@@ -1536,1052 +1529,25 @@ sub create_temp_dir()
 	return $dir;
 }
 
-sub split_branch($)
-{
-  my $data = shift;
-  my $comma = index($data, ',');
-  my $block = substr($data, 0, $comma);
-  my $last = rindex($data, ',');
-  my $taken = substr($data, $last + 1);
-  my $branch = substr($data, $comma + 1, $last - $comma - 1);
-  return ($block, $branch, $taken);
-}
-
-sub compress_brcount($)
-{
-	my ($brcount) = @_;
-	my $db;
-
-	$db = brcount_to_db($brcount);
-	return db_to_brcount($db, $brcount);
-}
-
-sub get_br_found_and_hit($)
-{
-	my ($brcount) = @_;
-	my $db;
-
-	$db = brcount_to_db($brcount);
-
-	return brcount_db_get_found_and_hit($db);
-}
-
-
 #
-# read_info_file(info_filename)
-#
-# Read in the contents of the .info file specified by INFO_FILENAME. Data will
-# be returned as a reference to a hash containing the following mappings:
-#
-# %result: for each filename found in file -> \%data
-#
-# %data: "test"  -> \%testdata
-#        "sum"   -> \%sumcount
-#        "func"  -> \%funcdata
-#        "found" -> $lines_found (number of instrumented lines found in file)
-#	 "hit"   -> $lines_hit (number of executed lines in file)
-#        "f_found" -> $fn_found (number of instrumented functions found in file)
-#	 "f_hit"   -> $fn_hit (number of executed functions in file)
-#        "b_found" -> $br_found (number of instrumented branches found in file)
-#	 "b_hit"   -> $br_hit (number of executed branches in file)
-#        "check" -> \%checkdata
-#        "testfnc" -> \%testfncdata
-#        "sumfnc"  -> \%sumfnccount
-#        "testbr"  -> \%testbrdata
-#        "sumbr"   -> \%sumbrcount
-#
-# %testdata   : name of test affecting this file -> \%testcount
-# %testfncdata: name of test affecting this file -> \%testfnccount
-# %testbrdata:  name of test affecting this file -> \%testbrcount
-#
-# %testcount   : line number   -> execution count for a single test
-# %testfnccount: function name -> execution count for a single test
-# %testbrcount : line number   -> branch coverage data for a single test
-# %sumcount    : line number   -> execution count for all tests
-# %sumfnccount : function name -> execution count for all tests
-# %sumbrcount  : line number   -> branch coverage data for all tests
-# %funcdata    : function name -> line number
-# %checkdata   : line number   -> checksum of source code line
-# $brdata      : text "block,branch,taken:..."
-#
-# Note that .info file sections referring to the same file and test name
-# will automatically be combined by adding all execution counts.
-#
-# Note that if INFO_FILENAME ends with ".gz", it is assumed that the file
-# is compressed using GZIP. If available, GUNZIP will be used to decompress
-# this file.
-#
-# Die on error.
-#
-
-sub read_info_file($)
-{
-	my $tracefile = $_[0];		# Name of tracefile
-	my %result;			# Resulting hash: file -> data
-	my $data;			# Data handle for current entry
-	my $testdata;			#       "             "
-	my $testcount;			#       "             "
-	my $sumcount;			#       "             "
-	my $funcdata;			#       "             "
-	my $checkdata;			#       "             "
-	my $testfncdata;
-	my $testfnccount;
-	my $sumfnccount;
-	my $testbrdata;
-	my $testbrcount;
-	my $sumbrcount;
-	my $line;			# Current line read from .info file
-	my $testname;			# Current test name
-	my $filename;			# Current filename
-	my $hitcount;			# Count for lines hit
-	my $count;			# Execution count of current line
-	my $negative;			# If set, warn about negative counts
-	my $changed_testname;		# If set, warn about changed testname
-	my $line_checksum;		# Checksum of current line
-	local *INFO_HANDLE;		# Filehandle for .info file
-
-	info("Reading tracefile $tracefile\n");
-
-	# Check if file exists and is readable
-	stat($_[0]);
-	if (!(-r _))
-	{
-		die("ERROR: cannot read file $_[0]!\n");
-	}
-
-	# Check if this is really a plain file
-	if (!(-f _))
-	{
-		die("ERROR: not a plain file: $_[0]!\n");
-	}
-
-	# Check for .gz extension
-	if ($_[0] =~ /\.gz$/)
-	{
-		# Check for availability of GZIP tool
-		system_no_output(1, "gunzip" ,"-h")
-			and die("ERROR: gunzip command not available!\n");
-
-		# Check integrity of compressed file
-		system_no_output(1, "gunzip", "-t", $_[0])
-			and die("ERROR: integrity check failed for ".
-				"compressed file $_[0]!\n");
-
-		# Open compressed file
-		open(INFO_HANDLE, "-|", "gunzip -c '$_[0]'")
-			or die("ERROR: cannot start gunzip to decompress ".
-			       "file $_[0]!\n");
-	}
-	else
-	{
-		# Open decompressed file
-		open(INFO_HANDLE, "<", $_[0])
-			or die("ERROR: cannot read file $_[0]!\n");
-	}
-
-	$testname = "";
-	while (<INFO_HANDLE>)
-	{
-		chomp($_);
-		$line = $_;
-
-		# Switch statement
-		foreach ($line)
-		{
-			/^TN:([^,]*)(,diff)?/ && do
-			{
-				# Test name information found
-				$testname = defined($1) ? $1 : "";
-				if ($testname =~ s/\W/_/g)
-				{
-					$changed_testname = 1;
-				}
-				$testname .= $2 if (defined($2));
-				last;
-			};
-
-			/^[SK]F:(.*)/ && do
-			{
-				# Filename information found
-				# Retrieve data for new entry
-				$filename = $1;
-
-				$data = $result{$filename};
-				($testdata, $sumcount, $funcdata, $checkdata,
-				 $testfncdata, $sumfnccount, $testbrdata,
-				 $sumbrcount) =
-					get_info_entry($data);
-
-				if (defined($testname))
-				{
-					$testcount = $testdata->{$testname};
-					$testfnccount = $testfncdata->{$testname};
-					$testbrcount = $testbrdata->{$testname};
-				}
-				else
-				{
-					$testcount = {};
-					$testfnccount = {};
-					$testbrcount = {};
-				}
-				last;
-			};
-
-			/^DA:(\d+),(-?\d+)(,[^,\s]+)?/ && do
-			{
-				# Fix negative counts
-				$count = $2 < 0 ? 0 : $2;
-				if ($2 < 0)
-				{
-					$negative = 1;
-				}
-				# Execution count found, add to structure
-				# Add summary counts
-				$sumcount->{$1} += $count;
-
-				# Add test-specific counts
-				if (defined($testname))
-				{
-					$testcount->{$1} += $count;
-				}
-
-				# Store line checksum if available
-				if (defined($3))
-				{
-					$line_checksum = substr($3, 1);
-
-					# Does it match a previous definition
-					if (defined($checkdata->{$1}) &&
-					    ($checkdata->{$1} ne
-					     $line_checksum))
-					{
-						die("ERROR: checksum mismatch ".
-						    "at $filename:$1\n");
-					}
-
-					$checkdata->{$1} = $line_checksum;
-				}
-				last;
-			};
-
-			/^FN:(\d+),([^,]+)/ && do
-			{
-				last if (!$func_coverage);
-
-				# Function data found, add to structure
-				$funcdata->{$2} = $1;
-
-				# Also initialize function call data
-				if (!defined($sumfnccount->{$2})) {
-					$sumfnccount->{$2} = 0;
-				}
-				if (defined($testname))
-				{
-					if (!defined($testfnccount->{$2})) {
-						$testfnccount->{$2} = 0;
-					}
-				}
-				last;
-			};
-
-			/^FNDA:(\d+),([^,]+)/ && do
-			{
-				last if (!$func_coverage);
-
-				# Function call count found, add to structure
-				# Add summary counts
-				$sumfnccount->{$2} += $1;
-
-				# Add test-specific counts
-				if (defined($testname))
-				{
-					$testfnccount->{$2} += $1;
-				}
-				last;
-			};
-
-			/^BRDA:(\d+),(\d+),(.+)$/ && do {
-				# Branch coverage data found
-				my ($line, $block, $d) = ($1, $2, $3);
-
-				my $comma = rindex($d, ',');
-				my $taken = substr($d, $comma + 1);
-				my $branch = substr($d, 0, $comma);
-
-				last if (!$br_coverage);
-				$sumbrcount->{$line} .=
-					"$block,$branch,$taken:";
-
-				# Add test-specific counts
-				if (defined($testname)) {
-					$testbrcount->{$line} .=
-						"$block,$branch,$taken:";
-				}
-				last;
-			};
-
-			/^end_of_record/ && do
-			{
-				# Found end of section marker
-				if ($filename)
-				{
-					# Store current section data
-					if (defined($testname))
-					{
-						$testdata->{$testname} =
-							$testcount;
-						$testfncdata->{$testname} =
-							$testfnccount;
-						$testbrdata->{$testname} =
-							$testbrcount;
-					}
-
-					set_info_entry($data, $testdata,
-						       $sumcount, $funcdata,
-						       $checkdata, $testfncdata,
-						       $sumfnccount,
-						       $testbrdata,
-						       $sumbrcount);
-					$result{$filename} = $data;
-					last;
-				}
-			};
-
-			# default
-			last;
-		}
-	}
-	close(INFO_HANDLE);
-
-	# Calculate hit and found values for lines and functions of each file
-	foreach $filename (keys(%result))
-	{
-		$data = $result{$filename};
-
-		($testdata, $sumcount, undef, undef, $testfncdata,
-		 $sumfnccount, $testbrdata, $sumbrcount) =
-			get_info_entry($data);
-
-		# Filter out empty files
-		if (scalar(keys(%{$sumcount})) == 0)
-		{
-			delete($result{$filename});
-			next;
-		}
-		# Filter out empty test cases
-		foreach $testname (keys(%{$testdata}))
-		{
-			if (!defined($testdata->{$testname}) ||
-			    scalar(keys(%{$testdata->{$testname}})) == 0)
-			{
-				delete($testdata->{$testname});
-				delete($testfncdata->{$testname});
-			}
-		}
-
-		$data->{"found"} = scalar(keys(%{$sumcount}));
-		$hitcount = 0;
-
-		foreach (keys(%{$sumcount}))
-		{
-			if ($sumcount->{$_} > 0) { $hitcount++; }
-		}
-
-		$data->{"hit"} = $hitcount;
-
-		# Get found/hit values for function call data
-		$data->{"f_found"} = scalar(keys(%{$sumfnccount}));
-		$hitcount = 0;
-
-		foreach (keys(%{$sumfnccount})) {
-			if ($sumfnccount->{$_} > 0) {
-				$hitcount++;
-			}
-		}
-		$data->{"f_hit"} = $hitcount;
-
-		# Combine branch data for the same branches
-		(undef, $data->{"b_found"}, $data->{"b_hit"}) =
-			compress_brcount($sumbrcount);
-		foreach $testname (keys(%{$testbrdata})) {
-			compress_brcount($testbrdata->{$testname});
-		}
-	}
-
-	if (scalar(keys(%result)) == 0)
-	{
-            # make this into an ignorable errror
-	    ignorable_error($ERROR_EMPTY, "no valid records found in tracefile $tracefile");
-	    return undef;
-	}
-	if ($negative)
-	{
-		warn("WARNING: negative counts found in tracefile ".
-		     "$tracefile\n");
-	}
-	if ($changed_testname)
-	{
-		warn("WARNING: invalid characters removed from testname in ".
-		     "tracefile $tracefile\n");
-	}
-
-	return(\%result);
-}
-
-
-#
-# get_info_entry(hash_ref)
-#
-# Retrieve data from an entry of the structure generated by read_info_file().
-# Return a list of references to hashes:
-# (test data hash ref, sum count hash ref, funcdata hash ref, checkdata hash
-#  ref, testfncdata hash ref, sumfnccount hash ref, testbrdata hash ref,
-#  sumbrcount hash ref, lines found, lines hit, functions found,
-#  functions hit, branches found, branches hit)
-#
-
-sub get_info_entry($)
-{
-	my $testdata_ref = $_[0]->{"test"};
-	my $sumcount_ref = $_[0]->{"sum"};
-	my $funcdata_ref = $_[0]->{"func"};
-	my $checkdata_ref = $_[0]->{"check"};
-	my $testfncdata = $_[0]->{"testfnc"};
-	my $sumfnccount = $_[0]->{"sumfnc"};
-	my $testbrdata = $_[0]->{"testbr"};
-	my $sumbrcount = $_[0]->{"sumbr"};
-	my $lines_found = $_[0]->{"found"};
-	my $lines_hit = $_[0]->{"hit"};
-	my $f_found = $_[0]->{"f_found"};
-	my $f_hit = $_[0]->{"f_hit"};
-	my $br_found = $_[0]->{"b_found"};
-	my $br_hit = $_[0]->{"b_hit"};
-
-	return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
-		$testfncdata, $sumfnccount, $testbrdata, $sumbrcount,
-		$lines_found, $lines_hit, $f_found, $f_hit,
-		$br_found, $br_hit);
-}
-
-
-#
-# set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref,
-#                checkdata_ref, testfncdata_ref, sumfcncount_ref,
-#                testbrdata_ref, sumbrcount_ref[,lines_found,
-#                lines_hit, f_found, f_hit, $b_found, $b_hit])
-#
-# Update the hash referenced by HASH_REF with the provided data references.
-#
-
-sub set_info_entry($$$$$$$$$;$$$$$$)
-{
-	my $data_ref = $_[0];
-
-	$data_ref->{"test"} = $_[1];
-	$data_ref->{"sum"} = $_[2];
-	$data_ref->{"func"} = $_[3];
-	$data_ref->{"check"} = $_[4];
-	$data_ref->{"testfnc"} = $_[5];
-	$data_ref->{"sumfnc"} = $_[6];
-	$data_ref->{"testbr"} = $_[7];
-	$data_ref->{"sumbr"} = $_[8];
-
-	if (defined($_[9])) { $data_ref->{"found"} = $_[9]; }
-	if (defined($_[10])) { $data_ref->{"hit"} = $_[10]; }
-	if (defined($_[11])) { $data_ref->{"f_found"} = $_[11]; }
-	if (defined($_[12])) { $data_ref->{"f_hit"} = $_[12]; }
-	if (defined($_[13])) { $data_ref->{"b_found"} = $_[13]; }
-	if (defined($_[14])) { $data_ref->{"b_hit"} = $_[14]; }
-}
-
-
-#
-# add_counts(data1_ref, data2_ref)
-#
-# DATA1_REF and DATA2_REF are references to hashes containing a mapping
-#
-#   line number -> execution count
-#
-# Return a list (RESULT_REF, LINES_FOUND, LINES_HIT) where RESULT_REF
-# is a reference to a hash containing the combined mapping in which
-# execution counts are added.
-#
-
-sub add_counts($$)
-{
-	my $data1_ref = $_[0];	# Hash 1
-	my $data2_ref = $_[1];	# Hash 2
-	my %result;		# Resulting hash
-	my $line;		# Current line iteration scalar
-	my $data1_count;	# Count of line in hash1
-	my $data2_count;	# Count of line in hash2
-	my $found = 0;		# Total number of lines found
-	my $hit = 0;		# Number of lines with a count > 0
-
-	foreach $line (keys(%$data1_ref))
-	{
-		$data1_count = $data1_ref->{$line};
-		$data2_count = $data2_ref->{$line};
-
-		# Add counts if present in both hashes
-		if (defined($data2_count)) { $data1_count += $data2_count; }
-
-		# Store sum in %result
-		$result{$line} = $data1_count;
-
-		$found++;
-		if ($data1_count > 0) { $hit++; }
-	}
-
-	# Add lines unique to data2_ref
-	foreach $line (keys(%$data2_ref))
-	{
-		# Skip lines already in data1_ref
-		if (defined($data1_ref->{$line})) { next; }
-
-		# Copy count from data2_ref
-		$result{$line} = $data2_ref->{$line};
-
-		$found++;
-		if ($result{$line} > 0) { $hit++; }
-	}
-
-	return (\%result, $found, $hit);
-}
-
-
-#
-# merge_checksums(ref1, ref2, filename)
-#
-# REF1 and REF2 are references to hashes containing a mapping
-#
-#   line number -> checksum
-#
-# Merge checksum lists defined in REF1 and REF2 and return reference to
-# resulting hash. Die if a checksum for a line is defined in both hashes
-# but does not match.
-#
-
-sub merge_checksums($$$)
-{
-	my $ref1 = $_[0];
-	my $ref2 = $_[1];
-	my $filename = $_[2];
-	my %result;
-	my $line;
-
-	foreach $line (keys(%{$ref1}))
-	{
-		if (defined($ref2->{$line}) &&
-		    ($ref1->{$line} ne $ref2->{$line}))
-		{
-			die("ERROR: checksum mismatch at $filename:$line\n");
-		}
-		$result{$line} = $ref1->{$line};
-	}
-
-	foreach $line (keys(%{$ref2}))
-	{
-		$result{$line} = $ref2->{$line};
-	}
-
-	return \%result;
-}
-
-
-#
-# merge_func_data(funcdata1, funcdata2, filename)
-#
-
-sub merge_func_data($$$)
-{
-	my ($funcdata1, $funcdata2, $filename) = @_;
-	my %result;
-	my $func;
-
-	if (defined($funcdata1)) {
-		%result = %{$funcdata1};
-	}
-
-	foreach $func (keys(%{$funcdata2})) {
-		my $line1 = $result{$func};
-		my $line2 = $funcdata2->{$func};
-
-		if (defined($line1) && ($line1 != $line2)) {
-			warn("WARNING: function data mismatch at ".
-			     "$filename:$line2\n");
-			next;
-		}
-		$result{$func} = $line2;
-	}
-
-	return \%result;
-}
-
-
-#
-# add_fnccount(fnccount1, fnccount2)
-#
-# Add function call count data. Return list (fnccount_added, f_found, f_hit)
-#
-
-sub add_fnccount($$)
-{
-	my ($fnccount1, $fnccount2) = @_;
-	my %result;
-	my $f_found;
-	my $f_hit;
-	my $function;
-
-	if (defined($fnccount1)) {
-		%result = %{$fnccount1};
-	}
-	foreach $function (keys(%{$fnccount2})) {
-		$result{$function} += $fnccount2->{$function};
-	}
-	$f_found = scalar(keys(%result));
-	$f_hit = 0;
-	foreach $function (keys(%result)) {
-		if ($result{$function} > 0) {
-			$f_hit++;
-		}
-	}
-
-	return (\%result, $f_found, $f_hit);
-}
-
-#
-# add_testfncdata(testfncdata1, testfncdata2)
-#
-# Add function call count data for several tests. Return reference to
-# added_testfncdata.
-#
-
-sub add_testfncdata($$)
-{
-	my ($testfncdata1, $testfncdata2) = @_;
-	my %result;
-	my $testname;
-
-	foreach $testname (keys(%{$testfncdata1})) {
-		if (defined($testfncdata2->{$testname})) {
-			my $fnccount;
-
-			# Function call count data for this testname exists
-			# in both data sets: merge
-			($fnccount) = add_fnccount(
-				$testfncdata1->{$testname},
-				$testfncdata2->{$testname});
-			$result{$testname} = $fnccount;
-			next;
-		}
-		# Function call count data for this testname is unique to
-		# data set 1: copy
-		$result{$testname} = $testfncdata1->{$testname};
-	}
-
-	# Add count data for testnames unique to data set 2
-	foreach $testname (keys(%{$testfncdata2})) {
-		if (!defined($result{$testname})) {
-			$result{$testname} = $testfncdata2->{$testname};
-		}
-	}
-	return \%result;
-}
-
-
-#
-# brcount_to_db(brcount)
-#
-# Convert brcount data to the following format:
-#
-# db:          line number    -> block hash
-# block hash:  block number   -> branch hash
-# branch hash: branch number  -> taken value
-#
-
-sub brcount_to_db($)
-{
-	my ($brcount) = @_;
-	my $line;
-	my $db = {};
-
-	# Add branches to database
-	foreach $line (keys(%{$brcount})) {
-		my $brdata = $brcount->{$line};
-
-		foreach my $entry (split(/:/, $brdata)) {
-			my ($block, $branch, $taken) = split_branch($entry);
-			my $old = $db->{$line}->{$block}->{$branch};
-
-			if (!defined($old) || $old eq "-") {
-				$old = $taken;
-			} elsif ($taken ne "-") {
-				$old += $taken;
-			}
-
-			$db->{$line}->{$block}->{$branch} = $old;
-		}
-	}
-
-	return $db;
-}
-
-
-#
-# db_to_brcount(db[, brcount])
-#
-# Convert branch coverage data back to brcount format. If brcount is specified,
-# the converted data is directly inserted in brcount.
-#
-
-sub db_to_brcount($;$)
-{
-	my ($db, $brcount) = @_;
-	my $line;
-	my $br_found = 0;
-	my $br_hit = 0;
-
-	# Convert database back to brcount format
-	foreach $line (sort({$a <=> $b} keys(%{$db}))) {
-		my $ldata = $db->{$line};
-		my $brdata;
-		my $block;
-
-		foreach $block (sort({$a <=> $b} keys(%{$ldata}))) {
-			my $bdata = $ldata->{$block};
-			my $branch;
-
-			foreach $branch (sort({$a <=> $b} keys(%{$bdata}))) {
-				my $taken = $bdata->{$branch};
-
-				$br_found++;
-				$br_hit++ if ($taken ne "-" && $taken > 0);
-				$brdata .= "$block,$branch,$taken:";
-			}
-		}
-		$brcount->{$line} = $brdata;
-	}
-
-	return ($brcount, $br_found, $br_hit);
-}
-
-
-#
-# brcount_db_combine(db1, db2, op)
-#
-# db1 := db1 op db2, where
-#   db1, db2: brcount data as returned by brcount_to_db
-#   op:       one of $BR_ADD and BR_SUB
-#
-sub brcount_db_combine($$$)
-{
-	my ($db1, $db2, $op) = @_;
-
-	foreach my $line (keys(%{$db2})) {
-		my $ldata = $db2->{$line};
-
-		foreach my $block (keys(%{$ldata})) {
-			my $bdata = $ldata->{$block};
-
-			foreach my $branch (keys(%{$bdata})) {
-				my $taken = $bdata->{$branch};
-				my $new = $db1->{$line}->{$block}->{$branch};
-
-				if (!defined($new) || $new eq "-") {
-					$new = $taken;
-				} elsif ($taken ne "-") {
-					if ($op == $BR_ADD) {
-						$new += $taken;
-					} elsif ($op == $BR_SUB) {
-						$new -= $taken;
-						$new = 0 if ($new < 0);
-					}
-				}
-
-				$db1->{$line}->{$block}->{$branch} = $new;
-			}
-		}
-	}
-}
-
-
-#
-# brcount_db_get_found_and_hit(db)
-#
-# Return (br_found, br_hit) for db.
-#
-
-sub brcount_db_get_found_and_hit($)
-{
-	my ($db) = @_;
-	my ($br_found , $br_hit) = (0, 0);
-
-	foreach my $line (keys(%{$db})) {
-		my $ldata = $db->{$line};
-
-		foreach my $block (keys(%{$ldata})) {
-			my $bdata = $ldata->{$block};
-
-			foreach my $branch (keys(%{$bdata})) {
-				my $taken = $bdata->{$branch};
-
-				$br_found++;
-				$br_hit++ if ($taken ne "-" && $taken > 0);
-			}
-		}
-	}
-
-	return ($br_found, $br_hit);
-}
-
-
-# combine_brcount(brcount1, brcount2, type, inplace)
-#
-# If add is BR_ADD, add branch coverage data and return list brcount_added.
-# If add is BR_SUB, subtract the taken values of brcount2 from brcount1 and
-# return brcount_sub. If inplace is set, the result is inserted into brcount1.
-#
-
-sub combine_brcount($$$;$)
-{
-	my ($brcount1, $brcount2, $type, $inplace) = @_;
-	my ($db1, $db2);
-
-	$db1 = brcount_to_db($brcount1);
-	$db2 = brcount_to_db($brcount2);
-	brcount_db_combine($db1, $db2, $type);
-
-	return db_to_brcount($db1, $inplace ? $brcount1 : undef);
-}
-
-
-#
-# add_testbrdata(testbrdata1, testbrdata2)
-#
-# Add branch coverage data for several tests. Return reference to
-# added_testbrdata.
-#
-
-sub add_testbrdata($$)
-{
-	my ($testbrdata1, $testbrdata2) = @_;
-	my %result;
-	my $testname;
-
-	foreach $testname (keys(%{$testbrdata1})) {
-		if (defined($testbrdata2->{$testname})) {
-			my $brcount;
-
-			# Branch coverage data for this testname exists
-			# in both data sets: add
-			($brcount) = combine_brcount(
-				$testbrdata1->{$testname},
-				$testbrdata2->{$testname}, $BR_ADD);
-			$result{$testname} = $brcount;
-			next;
-		}
-		# Branch coverage data for this testname is unique to
-		# data set 1: copy
-		$result{$testname} = $testbrdata1->{$testname};
-	}
-
-	# Add count data for testnames unique to data set 2
-	foreach $testname (keys(%{$testbrdata2})) {
-		if (!defined($result{$testname})) {
-			$result{$testname} = $testbrdata2->{$testname};
-		}
-	}
-	return \%result;
-}
-
-
-#
-# combine_info_entries(entry_ref1, entry_ref2, filename)
-#
-# Combine .info data entry hashes referenced by ENTRY_REF1 and ENTRY_REF2.
-# Return reference to resulting hash.
-#
-
-sub combine_info_entries($$$)
-{
-	my $entry1 = $_[0];	# Reference to hash containing first entry
-	my $testdata1;
-	my $sumcount1;
-	my $funcdata1;
-	my $checkdata1;
-	my $testfncdata1;
-	my $sumfnccount1;
-	my $testbrdata1;
-	my $sumbrcount1;
-
-	my $entry2 = $_[1];	# Reference to hash containing second entry
-	my $testdata2;
-	my $sumcount2;
-	my $funcdata2;
-	my $checkdata2;
-	my $testfncdata2;
-	my $sumfnccount2;
-	my $testbrdata2;
-	my $sumbrcount2;
-
-	my %result;		# Hash containing combined entry
-	my %result_testdata;
-	my $result_sumcount = {};
-	my $result_funcdata;
-	my $result_testfncdata;
-	my $result_sumfnccount;
-	my $result_testbrdata;
-	my $result_sumbrcount;
-	my $lines_found;
-	my $lines_hit;
-	my $f_found;
-	my $f_hit;
-	my $br_found;
-	my $br_hit;
-
-	my $testname;
-	my $filename = $_[2];
-
-	# Retrieve data
-	($testdata1, $sumcount1, $funcdata1, $checkdata1, $testfncdata1,
-	 $sumfnccount1, $testbrdata1, $sumbrcount1) = get_info_entry($entry1);
-	($testdata2, $sumcount2, $funcdata2, $checkdata2, $testfncdata2,
-	 $sumfnccount2, $testbrdata2, $sumbrcount2) = get_info_entry($entry2);
-
-	# Merge checksums
-	$checkdata1 = merge_checksums($checkdata1, $checkdata2, $filename);
-
-	# Combine funcdata
-	$result_funcdata = merge_func_data($funcdata1, $funcdata2, $filename);
-
-	# Combine function call count data
-	$result_testfncdata = add_testfncdata($testfncdata1, $testfncdata2);
-	($result_sumfnccount, $f_found, $f_hit) =
-		add_fnccount($sumfnccount1, $sumfnccount2);
-
-	# Combine branch coverage data
-	$result_testbrdata = add_testbrdata($testbrdata1, $testbrdata2);
-	($result_sumbrcount, $br_found, $br_hit) =
-		combine_brcount($sumbrcount1, $sumbrcount2, $BR_ADD);
-
-	# Combine testdata
-	foreach $testname (keys(%{$testdata1}))
-	{
-		if (defined($testdata2->{$testname}))
-		{
-			# testname is present in both entries, requires
-			# combination
-			($result_testdata{$testname}) =
-				add_counts($testdata1->{$testname},
-					   $testdata2->{$testname});
-		}
-		else
-		{
-			# testname only present in entry1, add to result
-			$result_testdata{$testname} = $testdata1->{$testname};
-		}
-
-		# update sum count hash
-		($result_sumcount, $lines_found, $lines_hit) =
-			add_counts($result_sumcount,
-				   $result_testdata{$testname});
-	}
-
-	foreach $testname (keys(%{$testdata2}))
-	{
-		# Skip testnames already covered by previous iteration
-		if (defined($testdata1->{$testname})) { next; }
-
-		# testname only present in entry2, add to result hash
-		$result_testdata{$testname} = $testdata2->{$testname};
-
-		# update sum count hash
-		($result_sumcount, $lines_found, $lines_hit) =
-			add_counts($result_sumcount,
-				   $result_testdata{$testname});
-	}
-
-	# Calculate resulting sumcount
-
-	# Store result
-	set_info_entry(\%result, \%result_testdata, $result_sumcount,
-		       $result_funcdata, $checkdata1, $result_testfncdata,
-		       $result_sumfnccount, $result_testbrdata,
-		       $result_sumbrcount, $lines_found, $lines_hit,
-		       $f_found, $f_hit, $br_found, $br_hit);
-
-	return(\%result);
-}
-
-
-#
-# combine_info_files(info_ref1, info_ref2)
-#
-# Combine .info data in hashes referenced by INFO_REF1 and INFO_REF2. Return
-# reference to resulting hash.
-#
-
-sub combine_info_files($$)
-{
-	my %hash1 = %{$_[0]};
-	my %hash2 = %{$_[1]};
-	my $filename;
-
-	foreach $filename (keys(%hash2))
-	{
-		if ($hash1{$filename})
-		{
-			# Entry already exists in hash1, combine them
-			$hash1{$filename} =
-				combine_info_entries($hash1{$filename},
-						     $hash2{$filename},
-						     $filename);
-		}
-		else
-		{
-			# Entry is unique in both hashes, simply add to
-			# resulting hash
-			$hash1{$filename} = $hash2{$filename};
-		}
-	}
-
-	return(\%hash1);
-}
-
-
 #
 # add_traces()
 #
 
 sub add_traces()
 {
-	my $total_trace;
-	my $current_trace;
-	my $tracefile;
+	my $total_trace = TraceFile->new();
 	my @result;
 	local *INFO_HANDLE;
 
 	info("Combining tracefiles.\n");
-
-	foreach $tracefile (@add_tracefile)
+	my $readSourceFile = ReadCurrentSource->new();
+	foreach my $tracefile (@add_tracefile)
 	{
-		$current_trace = read_info_file($tracefile);
-                next unless defined($current_trace);
-		if ($total_trace)
-		{
-			$total_trace = combine_info_files($total_trace,
-							  $current_trace);
-		}
-		else
-		{
-			$total_trace = $current_trace;
-		}
+		my $current = TraceFile->load($tracefile, $readSourceFile);
+		$total_trace->append_tracefile($current);
 	}
 
-	if (! defined($total_trace)) {
-	  die("ERROR: no valid records found in any of the added tracefiles");
-	}
 	# Write combined data
 	if (!$data_stdout)
 	{
@@ -2601,189 +1567,17 @@ sub add_traces()
 		        open(INFO_HANDLE, ">", $output_filename)
 			        or die("ERROR: cannot write to $output_filename!\n");
 		}
-		@result = write_info_file(*INFO_HANDLE, $total_trace);
+		@result = $total_trace->write_info(*INFO_HANDLE, $checksum);
 		close(*INFO_HANDLE);
 	}
 	else
 	{
-		@result = write_info_file(*STDOUT, $total_trace);
+		@result = $total_trace->write_info(*STDOUT, $checksum);
 	}
 
 	return @result;
 }
 
-
-#
-# write_info_file(filehandle, data)
-#
-
-sub write_info_file(*$)
-{
-	local *INFO_HANDLE = $_[0];
-	my %data = %{$_[1]};
-	my $source_file;
-	my $entry;
-	my $testdata;
-	my $sumcount;
-	my $funcdata;
-	my $checkdata;
-	my $testfncdata;
-	my $sumfnccount;
-	my $testbrdata;
-	my $sumbrcount;
-	my $testname;
-	my $line;
-	my $func;
-	my $testcount;
-	my $testfnccount;
-	my $testbrcount;
-	my $found;
-	my $hit;
-	my $f_found;
-	my $f_hit;
-	my $br_found;
-	my $br_hit;
-	my $ln_total_found = 0;
-	my $ln_total_hit = 0;
-	my $fn_total_found = 0;
-	my $fn_total_hit = 0;
-	my $br_total_found = 0;
-	my $br_total_hit = 0;
-
-	my $srcReader = ReadCurrentSource->new()
-	  if (defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) ||
-	      defined($cov_filter[$FILTER_BRANCH_NO_COND]));
-
-	foreach $source_file (sort(keys(%data)))
-	{
-	        next if is_external($source_file);
-		$entry = $data{$source_file};
-		($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-		 $sumfnccount, $testbrdata, $sumbrcount, $found, $hit,
-		 $f_found, $f_hit, $br_found, $br_hit) =
-			get_info_entry($entry);
-
-		# Add to totals
-		$ln_total_found += $found;
-		$ln_total_hit += $hit;
-		$fn_total_found += $f_found;
-		$fn_total_hit += $f_hit;
-		$br_total_found += $br_found;
-		$br_total_hit += $br_hit;
-
-		foreach $testname (sort(keys(%{$testdata})))
-		{
-			$testcount = $testdata->{$testname};
-			$testfnccount = $testfncdata->{$testname};
-			$testbrcount = $testbrdata->{$testname};
-			$found = 0;
-			$hit   = 0;
-
-			print(INFO_HANDLE "TN:$testname\n");
-			print(INFO_HANDLE "SF:$source_file\n");
-			if (defined($srcReader)) {
-			  $srcReader->close();
-			  if ($source_file =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
-			    debug("reading $source_file for lcov filtering\n");
-			    $srcReader->open($source_file);
-			  } else {
-			    debug("not reading $source_file: no ext match\n");
-			  }
-			}
-
-			# Write function related data
-			foreach $func (
-				sort({$funcdata->{$a} <=> $funcdata->{$b}}
-				keys(%{$funcdata})))
-			{
-				print(INFO_HANDLE "FN:".$funcdata->{$func}.
-				      ",$func\n");
-			}
-			foreach $func (keys(%{$testfnccount})) {
-				print(INFO_HANDLE "FNDA:".
-				      $testfnccount->{$func}.
-				      ",$func\n");
-			}
-			($f_found, $f_hit) =
-				get_func_found_and_hit($testfnccount);
-			print(INFO_HANDLE "FNF:$f_found\n");
-			print(INFO_HANDLE "FNH:$f_hit\n");
-
-			# Write branch related data
-			$br_found = 0;
-			$br_hit = 0;
-			my $currentBranchLine;
-			my $skipBranch = 0;
-			my $branchHistogram = $cov_filter[$FILTER_BRANCH_NO_COND]
-			  if (defined($srcReader) && $srcReader->notEmpty());
-			foreach $line (sort({$a <=> $b}
-					    keys(%{$testbrcount}))) {
-			  my $brdata = $testbrcount->{$line};
-			  my @brdata = split(/:/, $brdata);
-
-			  if (defined($branchHistogram)) {
-			    $skipBranch = ! $srcReader->containsConditional($line);
-			    if ($skipBranch) {
-			      ++ $branchHistogram->[0]; # one line where we skip
-			      $branchHistogram->[1] += scalar(@brdata);
-			      verbose("skip BRDA '" .
-				      $srcReader->getLine($line) .
-				      "' $source_file:$line\n");
-			      next;
-			    }
-			  }
-			  foreach my $brentry (@brdata) {
-			    my ($block, $branch, $taken) =
-			      split_branch($brentry);
-
-			    print(INFO_HANDLE "BRDA:$line,$block,".
-				  "$branch,$taken\n");
-			    $br_found++;
-			    $br_hit++ if ($taken ne '-' &&
-					  $taken > 0);
-			  }
-			}
-			if ($br_found > 0) {
-				print(INFO_HANDLE "BRF:$br_found\n");
-				print(INFO_HANDLE "BRH:$br_hit\n");
-			}
-
-			# Write line related data
-			my $lineHistogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
-			  if (defined($srcReader) && $srcReader->notEmpty());
-			my $prevCount;
-			foreach $line (sort({$a <=> $b} keys(%{$testcount})))
-			{
-			  my $l_hit = $testcount->{$line};
-			  if (defined($lineHistogram) &&
-			      defined($prevCount) &&
-			      $prevCount == $l_hit &&
-			      $srcReader->isCloseBrace($line)) {
-
-			    verbose("skip DA '" . $srcReader->getLine($line)
-				    . "' $source_file:$line\n");
-			    ++$lineHistogram->[0]; # one location where this applied
-			    ++$lineHistogram->[1]; # one coverpoint suppressed
-			    next;
-			  }
-			  $prevCount = $l_hit;
-			  my $chk = $checkdata->{$line};
-			  print(INFO_HANDLE "DA:$line,$l_hit" .
-				(defined($chk) && $checksum ? ",". $chk : "")
-				."\n");
-			  $found++;
-			  $hit++
-			    if ($l_hit > 0);
-			}
-			print(INFO_HANDLE "LF:$found\n");
-			print(INFO_HANDLE "LH:$hit\n");
-			print(INFO_HANDLE "end_of_record\n");
-		}
-	}
-
-	return ($ln_total_found, $ln_total_hit, $fn_total_found, $fn_total_hit,
-		$br_total_found, $br_total_hit);
-}
 
 
 #
@@ -2830,24 +1624,20 @@ sub transform_pattern($)
 
 sub extract()
 {
-	my $data = read_info_file($extract);
-	my $filename;
-	my $keep;
-	my $pattern;
-	my @pattern_list;
+	my $readSourceFile = ReadCurrentSource->new();
+	my $data = TraceFile->load($extract, $readSourceFile);
 	my $extracted = 0;
 	my @result;
 	local *INFO_HANDLE;
 
 	# Need perlreg expressions instead of shell pattern
-	@pattern_list = map({ transform_pattern($_); } @ARGV);
+	my @pattern_list = map({ transform_pattern($_); } @ARGV);
 
 	# Filter out files which do not match any pattern
-	foreach $filename (sort(keys(%{$data})))
-	{
-		$keep = 0;
+	foreach my $filename (sort($data->files())) {
+		my $keep = 0;
 
-		foreach $pattern (@pattern_list)
+		foreach my $pattern (@pattern_list)
 		{
 			$keep ||= ($filename =~ (/^$pattern$/));
 		}
@@ -2855,7 +1645,7 @@ sub extract()
 
 		if (!$keep)
 		{
-			delete($data->{$filename});
+			$data->remove($filename);
 		}
 		else
 		{
@@ -2871,24 +1661,24 @@ sub extract()
 		info("Writing data to $output_filename\n");
 		if ($output_filename =~ /\.gz$/)
 		{
-		        # Check for availability of GZIP tool
-		        system_no_output(1, "gzip" ,"-h")
-			        and die("ERROR: gzip command not available!\n");
+			# Check for availability of GZIP tool
+			system_no_output(1, "gzip" ,"-h")
+				and die("ERROR: gzip command not available!\n");
 
 			# Open compressed file
 			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
-			        or die("ERROR: cannot start gzip to compress ".
+				or die("ERROR: cannot start gzip to compress ".
 				       "to file $output_filename!\n");
 		} else {
-		        open(INFO_HANDLE, ">", $output_filename)
-			        or die("ERROR: cannot write to $output_filename!\n");
+			open(INFO_HANDLE, ">", $output_filename)
+				or die("ERROR: cannot write to $output_filename!\n");
 		}
-		@result = write_info_file(*INFO_HANDLE, $data);
+		@result = $data->write_info(*INFO_HANDLE, $checksum);
 		close(*INFO_HANDLE);
 	}
 	else
 	{
-		@result = write_info_file(*STDOUT, $data);
+		@result = $data->write_info(*STDOUT, $checksum);
 	}
 
 	return @result;
@@ -2901,10 +1691,8 @@ sub extract()
 
 sub remove()
 {
-	my $data = read_info_file($remove);
-	my $filename;
-	my $match_found;
-	my $pattern;
+	my $readSourceFile = ReadCurrentSource->new();
+	my $data = TraceFile->load($remove, $readSourceFile);
 	my @pattern_list;
 	my $removed = 0;
 	my @result;
@@ -2914,11 +1702,10 @@ sub remove()
 	@pattern_list = map({ transform_pattern($_); } @ARGV);
 
 	# Filter out files that match the pattern
-	foreach $filename (sort(keys(%{$data})))
-	{
-		$match_found = 0;
+	foreach my $filename (sort($data->files())) {
+		my $match_found = 0;
 
-		foreach $pattern (@pattern_list)
+		foreach my $pattern (@pattern_list)
 		{
 			$match_found ||= ($filename =~ (/^$pattern$/));
 		}
@@ -2926,7 +1713,7 @@ sub remove()
 
 		if ($match_found)
 		{
-			delete($data->{$filename});
+			$data->remove($filename);
 			info("Removing $filename\n"),
 			$removed++;
 		}
@@ -2939,24 +1726,24 @@ sub remove()
 		info("Writing data to $output_filename\n");
 		if ($output_filename =~ /\.gz$/)
 		{
-		        # Check for availability of GZIP tool
-		        system_no_output(1, "gzip" ,"-h")
-			        and die("ERROR: gzip command not available!\n");
+			# Check for availability of GZIP tool
+			system_no_output(1, "gzip" ,"-h")
+				and die("ERROR: gzip command not available!\n");
 
 			# Open compressed file
 			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
-			        or die("ERROR: cannot start gzip to compress ".
+				or die("ERROR: cannot start gzip to compress ".
 				       "to file $output_filename!\n");
 		} else {
-		        open(INFO_HANDLE, ">", $output_filename)
-			        or die("ERROR: cannot write to $output_filename!\n");
+			open(INFO_HANDLE, ">", $output_filename)
+				or die("ERROR: cannot write to $output_filename!\n");
 		}
-		@result = write_info_file(*INFO_HANDLE, $data);
+		@result = $data->write_info(*INFO_HANDLE, $data, $checksum);
 		close(*INFO_HANDLE);
 	}
 	else
 	{
-		@result = write_info_file(*STDOUT, $data);
+		@result = $data->write_info(*STDOUT, $checksum);
 	}
 
 	return @result;
@@ -2986,11 +1773,11 @@ sub get_prefix($$@)
 		my ($v, $d, $f) = splitpath($path);
 		my @dirs = splitdir($d);
 		my $p_len = length($path);
-		my $i;
 
 		# Remove trailing '/'
-		pop(@dirs) if ($dirs[scalar(@dirs) - 1] eq '');
-		for ($i = 0; $i < scalar(@dirs); $i++) {
+		pop(@dirs)
+		  if (0 != scalar(@dirs) && $dirs[scalar(@dirs) - 1] eq '');
+		for (my $i = 0; $i < scalar(@dirs); $i++) {
 			my $subpath = catpath($v, catdir(@dirs[0..$i]), '');
 			my $entry = $prefix{$subpath};
 
@@ -3077,8 +1864,8 @@ sub shorten_rate($$$)
 
 sub list()
 {
-	my $data = read_info_file($list);
-	my $filename;
+	my $readSourceFile = ReadCurrentSource->new();
+	my $data = TraceFile->load($list, $readSourceFile);
 	my $found;
 	my $hit;
 	my $entry;
@@ -3092,13 +1879,8 @@ sub list()
 	my $fn_total_hit = 0;
 	my $br_total_found = 0;
 	my $br_total_hit = 0;
-	my $prefix;
 	my $strlen = length("Filename");
-	my $format;
-	my $heading1;
-	my $heading2;
 	my @footer;
-	my $barlen;
 	my $rate;
 	my $fnrate;
 	my $brrate;
@@ -3112,32 +1894,27 @@ sub list()
 	my @fwidth_narrow = (5, 5, 3, 5, 4, 5);
 	my @fwidth_wide = (6, 5, 5, 5, 6, 5);
 	my @fwidth = @fwidth_wide;
-	my $w;
 	my $max_width = $opt_list_width;
 	my $max_long = $opt_list_truncate_max;
-	my $fwidth_narrow_length;
-	my $fwidth_wide_length;
-	my $got_prefix = 0;
-	my $root_prefix = 0;
 
 	# Calculate total width of narrow fields
-	$fwidth_narrow_length = 0;
-	foreach $w (@fwidth_narrow) {
+	my $fwidth_narrow_length = 0;
+	foreach my $w (@fwidth_narrow) {
 		$fwidth_narrow_length += $w + 1;
 	}
 	# Calculate total width of wide fields
-	$fwidth_wide_length = 0;
-	foreach $w (@fwidth_wide) {
+	my $fwidth_wide_length = 0;
+	foreach my $w (@fwidth_wide) {
 		$fwidth_wide_length += $w + 1;
 	}
 	# Get common file path prefix
-	$prefix = get_prefix($max_width - $fwidth_narrow_length, $max_long,
-			     keys(%{$data}));
-	$root_prefix = 1 if ($prefix eq rootdir());
-	$got_prefix = 1 if (length($prefix) > 0);
+	my $prefix = get_prefix($max_width - $fwidth_narrow_length,
+				$max_long, keys(%{$data}));
+	my $root_prefix = ($prefix eq rootdir());
+	my $got_prefix = (length($prefix) > 0);
 	$prefix =~ s/\/$//;
 	# Get longest filename length
-	foreach $filename (keys(%{$data})) {
+	foreach my $filename ($data->files()) {
 		if (!$opt_list_full_path) {
 			if (!$got_prefix || !$root_prefix &&
 			    !($filename =~ s/^\Q$prefix\/\E//)) {
@@ -3152,9 +1929,8 @@ sub list()
 		}
 	}
 	if (!$opt_list_full_path) {
-		my $blanks;
 
-		$w = $fwidth_wide_length;
+		my $w = $fwidth_wide_length;
 		# Check if all columns fit into max_width characters
 		if ($strlen + $fwidth_wide_length > $max_width) {
 			# Use narrow fields
@@ -3166,7 +1942,7 @@ sub list()
 			}
 		}
 		# Add some blanks between filename and fields if possible
-		$blanks = int($strlen * 0.5);
+		my $blanks = int($strlen * 0.5);
 		$blanks = 4 if ($blanks < 4);
 		$blanks = 8 if ($blanks > 8);
 		if (($strlen + $w + $blanks) < $max_width) {
@@ -3176,51 +1952,51 @@ sub list()
 		}
 	}
 	# Filename
-	$w = $strlen;
-	$format		= "%-${w}s|";
-	$heading1 	= sprintf("%*s|", $w, "");
-	$heading2 	= sprintf("%-*s|", $w, "Filename");
-	$barlen		= $w + 1;
+	my $w = $strlen;
+	my $format      = "%-${w}s|";
+	my $heading1    = sprintf("%*s|", $w, "");
+	my $heading2    = sprintf("%-*s|", $w, "Filename");
+	my $barlen      = $w + 1;
 	# Line coverage rate
 	$w = $fwidth[$F_LN_RATE];
-	$format		.= "%${w}s ";
-	$heading1 	.= sprintf("%-*s |", $w + $fwidth[$F_LN_NUM],
+	$format	 .= "%${w}s ";
+	$heading1       .= sprintf("%-*s |", $w + $fwidth[$F_LN_NUM],
 				   "Lines");
-	$heading2 	.= sprintf("%-*s ", $w, "Rate");
-	$barlen		+= $w + 1;
+	$heading2       .= sprintf("%-*s ", $w, "Rate");
+	$barlen	 += $w + 1;
 	# Number of lines
 	$w = $fwidth[$F_LN_NUM];
-	$format		.= "%${w}s|";
-	$heading2	.= sprintf("%*s|", $w, "Num");
-	$barlen		+= $w + 1;
+	$format	 .= "%${w}s|";
+	$heading2       .= sprintf("%*s|", $w, "Num");
+	$barlen	 += $w + 1;
 	# Function coverage rate
 	$w = $fwidth[$F_FN_RATE];
-	$format		.= "%${w}s ";
-	$heading1 	.= sprintf("%-*s|", $w + $fwidth[$F_FN_NUM] + 1,
+	$format	 .= "%${w}s ";
+	$heading1       .= sprintf("%-*s|", $w + $fwidth[$F_FN_NUM] + 1,
 				   "Functions");
-	$heading2 	.= sprintf("%-*s ", $w, "Rate");
-	$barlen		+= $w + 1;
+	$heading2       .= sprintf("%-*s ", $w, "Rate");
+	$barlen	 += $w + 1;
 	# Number of functions
 	$w = $fwidth[$F_FN_NUM];
-	$format		.= "%${w}s|";
-	$heading2	.= sprintf("%*s|", $w, "Num");
-	$barlen		+= $w + 1;
+	$format	 .= "%${w}s|";
+	$heading2       .= sprintf("%*s|", $w, "Num");
+	$barlen	 += $w + 1;
 	# Branch coverage rate
 	$w = $fwidth[$F_BR_RATE];
-	$format		.= "%${w}s ";
-	$heading1 	.= sprintf("%-*s", $w + $fwidth[$F_BR_NUM] + 1,
+	$format	 .= "%${w}s ";
+	$heading1       .= sprintf("%-*s", $w + $fwidth[$F_BR_NUM] + 1,
 				   "Branches");
-	$heading2 	.= sprintf("%-*s ", $w, "Rate");
-	$barlen		+= $w + 1;
+	$heading2       .= sprintf("%-*s ", $w, "Rate");
+	$barlen	 += $w + 1;
 	# Number of branches
 	$w = $fwidth[$F_BR_NUM];
-	$format		.= "%${w}s";
-	$heading2	.= sprintf("%*s", $w, "Num");
-	$barlen		+= $w;
+	$format	 .= "%${w}s";
+	$heading2       .= sprintf("%*s", $w, "Num");
+	$barlen	 += $w;
 	# Line end
-	$format		.= "\n";
-	$heading1	.= "\n";
-	$heading2	.= "\n";
+	$format	 .= "\n";
+	$heading1       .= "\n";
+	$heading2       .= "\n";
 
 	# Print heading
 	print($heading1);
@@ -3228,12 +2004,11 @@ sub list()
 	print(("="x$barlen)."\n");
 
 	# Print per file information
-	foreach $filename (sort(keys(%{$data})))
-	{
+	foreach my $filename (sort($data->files())) {
 		my @file_data;
 		my $print_filename = $filename;
 
-		$entry = $data->{$filename};
+		my $entry = $data->data($filename);
 		if (!$opt_list_full_path) {
 			my $p;
 
@@ -3260,7 +2035,7 @@ sub list()
 
 		(undef, undef, undef, undef, undef, undef, undef, undef,
 		 $found, $hit, $fn_found, $fn_hit, $br_found, $br_hit) =
-			get_info_entry($entry);
+			$entry->get_info();
 
 		# Assume zero count if there is no function data for this file
 		if (!defined($fn_found) || !defined($fn_hit)) {
@@ -3342,8 +2117,8 @@ sub list()
 
 sub get_common_filename($$)
 {
-        my @list1 = split("/", $_[0]);
-        my @list2 = split("/", $_[1]);
+	my @list1 = split("/", $_[0]);
+	my @list2 = split("/", $_[1]);
 	my @result;
 
 	# Work in reverse order, i.e. beginning with the filename itself
@@ -3356,7 +2131,7 @@ sub get_common_filename($$)
 	# Did we find any similarities?
 	if (scalar(@result) > 0)
 	{
-	        return (join("/", @result), join("/", @list1),
+		return (join("/", @result), join("/", @list1),
 			join("/", @list2));
 	}
 	else
@@ -3408,18 +2183,18 @@ sub strip_directories($$)
 
 sub read_diff($)
 {
-	my $diff_file = $_[0];	# Name of diff file
-	my %diff;		# Resulting mapping filename -> line hash
-	my %paths;		# Resulting mapping old path  -> new path
-	my $mapping;		# Reference to current line hash
-	my $line;		# Contents of current line
-	my $num_old;		# Current line number in old file
-	my $num_new;		# Current line number in new file
-	my $file_old;		# Name of old file in diff section
-	my $file_new;		# Name of new file in diff section
-	my $filename;		# Name of common filename of diff section
-	my $in_block = 0;	# Non-zero while we are inside a diff block
-	local *HANDLE;		# File handle for reading the diff file
+	my $diff_file = $_[0];  # Name of diff file
+	my %diff;	       # Resulting mapping filename -> line hash
+	my %paths;	      # Resulting mapping old path  -> new path
+	my $mapping;	    # Reference to current line hash
+	my $line;	       # Contents of current line
+	my $num_old;	    # Current line number in old file
+	my $num_new;	    # Current line number in new file
+	my $file_old;	   # Name of old file in diff section
+	my $file_new;	   # Name of new file in diff section
+	my $filename;	   # Name of common filename of diff section
+	my $in_block = 0;       # Non-zero while we are inside a diff block
+	local *HANDLE;	  # File handle for reading the diff file
 
 	info("Reading diff $diff_file\n");
 
@@ -3587,60 +2362,39 @@ sub read_diff($)
 
 sub apply_diff($$)
 {
-	my $count_data = $_[0];	# Reference to data hash: line -> hash
-	my $line_hash = $_[1];	# Reference to line hash: new line -> old line
-	my %result;		# Resulting hash
-	my $last_new = 0;	# Last new line number found in line hash
-	my $last_old = 0;	# Last old line number found in line hash
+	my $count_data = $_[0]; # CountData: line -> hit count
+	my $line_hash = $_[1];  # Reference to line hash: new line -> old line
+	my $result = eval ref($count_data) . "->new()";
+	my $last_new = 0;       # Last new line number found in line hash
+	my $last_old = 0;       # Last old line number found in line hash
 
 	# Iterate all new line numbers found in the diff
 	foreach (sort({$a <=> $b} keys(%{$line_hash})))
 	{
 		$last_new = $_;
 		$last_old = $line_hash->{$last_new};
-
+		my $old_line = $line_hash->{$_};
 		# Is there data associated with the corresponding old line?
-		if (defined($count_data->{$line_hash->{$_}}))
+		my $hit = $count_data->value($old_line);
+		if (defined($hit))
 		{
 			# Copy data to new hash with a new line number
-			$result{$_} = $count_data->{$line_hash->{$_}};
+			$result->append($_, $hit);
 		}
 	}
 	# Transform all other lines which come after the last diff entry
-	foreach (sort({$a <=> $b} keys(%{$count_data})))
-	{
+	my $delta = $last_new - $last_old;
+	foreach (sort({$a <=> $b} $count_data->keylist())) {
 		if ($_ <= $last_old)
 		{
 			# Skip lines which were covered by line hash
 			next;
 		}
 		# Copy data to new hash with an offset
-		$result{$_ + ($last_new - $last_old)} = $count_data->{$_};
+		$result->append($_ + $delta, $count_data->value($_));
 	}
 
-	return \%result;
-}
-
-
-#
-# apply_diff_to_brcount(brcount, linedata)
-#
-# Adjust line numbers of branch coverage data according to linedata.
-#
-
-sub apply_diff_to_brcount($$)
-{
-	my ($brcount, $linedata) = @_;
-	my $db;
-
-	# Convert brcount to db format
-	$db = brcount_to_db($brcount);
-	# Apply diff to db format
-	$db = apply_diff($db, $linedata);
-	# Convert db format back to brcount format
-	($brcount) = db_to_brcount($db);
-
-	return $brcount;
+	return $result->_summary(); # set counts, etc
 }
 
 
@@ -3687,20 +2441,21 @@ sub apply_diff_to_funcdata($$)
 	my $last_new = get_hash_max($linedata);
 	my $last_old = $linedata->{$last_new};
 	my $func;
-	my %result;
+	my $result = MapData->new();
 	my $line_diff = get_hash_reverse($linedata);
 
-	foreach $func (keys(%{$funcdata})) {
-		my $line = $funcdata->{$func};
+	foreach $func ($funcdata->keylist()) {
+		my $line = $funcdata->value($func);
 
 		if (defined($line_diff->{$line})) {
-			$result{$func} = $line_diff->{$line};
+			$result->replace($func, $line_diff->{$line});
 		} elsif ($line > $last_old) {
-			$result{$func} = $line + $last_new - $last_old;
+			$result->replace($func,
+					 $line + $last_new - $last_old);
 		}
 	}
 
-	return \%result;
+	return $result;
 }
 
 
@@ -3785,8 +2540,7 @@ sub get_line_hash($$$)
 
 sub convert_paths($$)
 {
-	my $trace_data = $_[0];
-	my $path_conversion_data = $_[1];
+	my ($trace_data, $path_conversion_data) = @_;
 	my $filename;
 	my $new_path;
 
@@ -3809,8 +2563,8 @@ sub convert_paths($$)
 	}
 
 	# Adjust paths
-	FILENAME: foreach $filename (keys(%{$trace_data}))
-	{
+	FILENAME: foreach $filename ($trace_data->files()) {
+
 		# Find a path in our conversion table that matches, starting
 		# with the longest path
 		foreach (sort({length($b) <=> length($a)}
@@ -3825,22 +2579,21 @@ sub convert_paths($$)
 
 			# Make sure not to overwrite an existing entry under
 			# that path name
-			if ($trace_data->{$new_path})
+			my $file_data = $trace_data->data($filename);
+			if ($trace_data->file_exists($new_path))
 			{
 				# Need to combine entries
-				$trace_data->{$new_path} =
-					combine_info_entries(
-						$trace_data->{$filename},
-						$trace_data->{$new_path},
-						$filename);
+				$trace_data->data($new_path)
+				  ->merge($file_data, $filename);
 			}
 			else
 			{
 				# Simply rename entry
-				$trace_data->{$new_path} =
-					$trace_data->{$filename};
+				$trace_data->insert($new_path, $file_data);
 			}
-			delete($trace_data->{$filename});
+			$filename ne $new_path
+			  or die("about to remove data we just inserted");
+			$trace_data->remove($filename);
 			next FILENAME;
 		}
 		info("No conversion available for filename $filename\n");
@@ -3864,89 +2617,44 @@ sub adjust_fncdata($$$)
 
 	# Remove count data in testfncdata for functions which are no longer
 	# in funcdata
-	foreach $testname (keys(%{$testfncdata})) {
-		my $fnccount = $testfncdata->{$testname};
+	foreach $testname ($testfncdata->keylist()) {
+		my $fnccount = $testfncdata->value($testname);
+		# '$fnccount' is a CountData struct
 
-		foreach $func (keys(%{$fnccount})) {
-			if (!defined($funcdata->{$func})) {
-				delete($fnccount->{$func});
-			}
+		foreach $func ($fnccount->keylist()) {
+			$fnccount->remove($func)
+			  unless $funcdata->mapped($func);
 		}
 	}
 	# Remove count data in sumfnccount for functions which are no longer
 	# in funcdata
-	foreach $func (keys(%{$sumfnccount})) {
-		if (!defined($funcdata->{$func})) {
-			delete($sumfnccount->{$func});
-		}
+	foreach $func ($sumfnccount->keylist()) {
+		$sumfnccount->remove($func)
+		  unless $funcdata->mapped($func);
 	}
 }
 
 #
-# get_func_found_and_hit(sumfnccount)
-#
-# Return (f_found, f_hit) for sumfnccount
-#
-
-sub get_func_found_and_hit($)
-{
-	my ($sumfnccount) = @_;
-	my $function;
-	my $f_found;
-	my $f_hit;
-
-	$f_found = scalar(keys(%{$sumfnccount}));
-	$f_hit = 0;
-	foreach $function (keys(%{$sumfnccount})) {
-		if ($sumfnccount->{$function} > 0) {
-			$f_hit++;
-		}
-	}
-	return ($f_found, $f_hit);
-}
-
 #
 # diff()
 #
 
 sub diff()
 {
-	my $trace_data = read_info_file($diff);
-	my $diff_data;
-	my $path_data;
-	my $old_path;
-	my $new_path;
+	my $readSourceFile = ReadCurrentSource->new();
+	my $trace_data = TraceFile->load($diff, $readSourceFile);
 	my %path_conversion_data;
-	my $filename;
-	my $line_hash;
-	my $new_name;
-	my $entry;
-	my $testdata;
-	my $testname;
-	my $sumcount;
-	my $funcdata;
-	my $checkdata;
-	my $testfncdata;
-	my $sumfnccount;
-	my $testbrdata;
-	my $sumbrcount;
-	my $found;
-	my $hit;
-	my $f_found;
-	my $f_hit;
-	my $br_found;
-	my $br_hit;
 	my $converted = 0;
 	my $unchanged = 0;
 	my @result;
 	local *INFO_HANDLE;
 
-	($diff_data, $path_data) = read_diff($ARGV[0]);
+	my ($diff_data, $path_data) = read_diff($ARGV[0]);
 
-        foreach $filename (sort(keys(%{$trace_data})))
-        {
+	foreach my $filename (sort($trace_data->files())) {
+
 		# Find a diff section corresponding to this file
-		($line_hash, $old_path, $new_path) =
+		my ($line_hash, $old_path, $new_path) =
 			get_line_hash($filename, $diff_data, $path_data);
 		if (!$line_hash)
 		{
@@ -3963,100 +2671,91 @@ sub diff()
 		if (scalar(keys(%{$line_hash})) == 0)
 		{
 			info("Removing $filename\n");
-			delete($trace_data->{$filename});
+			$trace_data->remove($filename);
 			next;
 		}
 		info("Converting $filename\n");
-		$entry = $trace_data->{$filename};
-		($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-		 $sumfnccount, $testbrdata, $sumbrcount) =
-			get_info_entry($entry);
+		my $entry = $trace_data->data($filename);
+		my ($testdata, $sumcount, $funcdata, $checkdata,
+		    $testfncdata, $sumfnccount, $testbrdata, $sumbrcount) =
+			$entry->get_info($entry);
 		# Convert test data
-		foreach $testname (keys(%{$testdata}))
-		{
+		foreach my $testname ($testdata->keylist()) {
+
+			my $ldata = $testdata->value($testname);
 			# Adjust line numbers of line coverage data
-			$testdata->{$testname} =
-				apply_diff($testdata->{$testname}, $line_hash);
-			# Adjust line numbers of branch coverage data
-			$testbrdata->{$testname} =
-				apply_diff_to_brcount($testbrdata->{$testname},
-						      $line_hash);
-			# Remove empty sets of test data
-			if (scalar(keys(%{$testdata->{$testname}})) == 0)
-			{
-				delete($testdata->{$testname});
-				delete($testfncdata->{$testname});
-				delete($testbrdata->{$testname});
+			$testdata->replace($testname,
+					   apply_diff($ldata, $line_hash));
+			$ldata = $testdata->value($testname);
+			if (scalar(keys(%$ldata)) == 0 ) {
+			  $testdata->remove($testname);
+			  $testfncdata->remove($testname);
+			  $testbrdata->remove($testname);
+			  next;
 			}
+
+			# Adjust line numbers of branch coverage data
+			my $brdata = $testbrdata->value($testname);
+			$testbrdata->replace($testname,
+					     apply_diff($brdata, $line_hash));
 		}
 		# Rename test data to indicate conversion
-		foreach $testname (keys(%{$testdata}))
-		{
+		foreach my $testname ($testdata->keylist()) {
+
 			# Skip testnames which already contain an extension
 			if ($testname =~ /,[^,]+$/)
 			{
 				next;
 			}
+			my $diffname = $testname . ",diff";
 			# Check for name conflict
-			if (defined($testdata->{$testname.",diff"}))
+			if ($testdata->mapped($diffname))
 			{
 				# Add counts
-				($testdata->{$testname}) = add_counts(
-					$testdata->{$testname},
-					$testdata->{$testname.",diff"});
-				delete($testdata->{$testname.",diff"});
+				$testdata->value($testname)->append(
+					$testdata->value($diffname));
+				$testdata->remove($diffname);
 				# Add function call counts
-				($testfncdata->{$testname}) = add_fnccount(
-					$testfncdata->{$testname},
-					$testfncdata->{$testname.",diff"});
-				delete($testfncdata->{$testname.",diff"});
+				$testfncdata->value($testname)->append(
+					$testfncdata->value($diffname));
+				$testfncdata->remove($diffname);
 				# Add branch counts
-				combine_brcount(
-					$testbrdata->{$testname},
-					$testbrdata->{$testname.",diff"},
-					$BR_ADD, 1);
-				delete($testbrdata->{$testname.",diff"});
+				  $testbrdata->value($testname)->append(
+					$testbrdata->value($diffname));
+				$testbrdata->remove($diffname);
 			}
 			# Move test data to new testname
-			$testdata->{$testname.",diff"} = $testdata->{$testname};
-			delete($testdata->{$testname});
+			$testdata->replace($diffname,
+					   $testdata->value($testname));
+			$testdata->remove($testname);
 			# Move function call count data to new testname
-			$testfncdata->{$testname.",diff"} =
-				$testfncdata->{$testname};
-			delete($testfncdata->{$testname});
+			$testfncdata->replace($diffname,
+				$testfncdata->value($testname));
+			$testfncdata->remove($testname);
 			# Move branch count data to new testname
-			$testbrdata->{$testname.",diff"} =
-				$testbrdata->{$testname};
-			delete($testbrdata->{$testname});
+			$testbrdata->replace($diffname,
+				$testbrdata->value($testname));
+			$testbrdata->remove($testname);
 		}
 		# Convert summary of test data
 		$sumcount = apply_diff($sumcount, $line_hash);
 		# Convert function data
 		$funcdata = apply_diff_to_funcdata($funcdata, $line_hash);
 		# Convert branch coverage data
-		$sumbrcount = apply_diff_to_brcount($sumbrcount, $line_hash);
+		$sumbrcount = apply_diff($sumbrcount, $line_hash);
 		# Update found/hit numbers
 		# Convert checksum data
 		$checkdata = apply_diff($checkdata, $line_hash);
 		# Convert function call count data
 		adjust_fncdata($funcdata, $testfncdata, $sumfnccount);
-		($f_found, $f_hit) = get_func_found_and_hit($sumfnccount);
-		($br_found, $br_hit) = get_br_found_and_hit($sumbrcount);
+		my ($f_found, $f_hit) = $sumfnccount->get_found_and_hit();
+		my ($br_found, $br_hit) = $sumbrcount->get_found_and_hit();
 		# Update found/hit numbers
-		$found = 0;
-		$hit = 0;
-		foreach (keys(%{$sumcount}))
-		{
-			$found++;
-			if ($sumcount->{$_} > 0)
-			{
-				$hit++;
-			}
-		}
+		my ($found, $hit) = $sumcount->get_found_and_hit();
 		if ($found > 0)
 		{
 			# Store converted entry
-			set_info_entry($entry, $testdata, $sumcount, $funcdata,
+			$entry->set_info($testdata, $sumcount, $funcdata,
 				       $checkdata, $testfncdata, $sumfnccount,
 				       $testbrdata, $sumbrcount, $found, $hit,
 				       $f_found, $f_hit, $br_found, $br_hit);
@@ -4064,9 +2763,9 @@ sub diff()
 		else
 		{
 			# Remove empty data set
-			delete($trace_data->{$filename});
+			$trace_data->remove($filename);
 		}
-        }
+	}
 
 	# Convert filenames as well if requested
 	if ($convert_filenames)
@@ -4084,24 +2783,24 @@ sub diff()
 		info("Writing data to $output_filename\n");
 		if ($output_filename =~ /\.gz$/)
 		{
-		        # Check for availability of GZIP tool
-		        system_no_output(1, "gzip" ,"-h")
-			        and die("ERROR: gzip command not available!\n");
+			# Check for availability of GZIP tool
+			system_no_output(1, "gzip" ,"-h")
+				and die("ERROR: gzip command not available!\n");
 
 			# Open compressed file
 			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
-			        or die("ERROR: cannot start gzip to compress ".
+				or die("ERROR: cannot start gzip to compress ".
 				       "to file $output_filename!\n");
 		} else {
-		        open(INFO_HANDLE, ">", $output_filename)
-			        or die("ERROR: cannot write to $output_filename!\n");
+			open(INFO_HANDLE, ">", $output_filename)
+				or die("ERROR: cannot write to $output_filename!\n");
 		}
-		@result = write_info_file(*INFO_HANDLE, $trace_data);
+		@result = $trace_data->write_info(*INFO_HANDLE);
 		close(*INFO_HANDLE);
 	}
 	else
 	{
-		@result = write_info_file(*STDOUT, $trace_data);
+		@result = $trace_data->write_info(*STDOUT);
 	}
 
 	return @result;
@@ -4113,30 +2812,24 @@ sub diff()
 
 sub summary()
 {
-	my $filename;
-	my $current;
-	my $total;
-	my $ln_total_found;
-	my $ln_total_hit;
-	my $fn_total_found;
-	my $fn_total_hit;
-	my $br_total_found;
-	my $br_total_hit;
+	my $total = TraceFile->new();
+	my $readSourceFile = ReadCurrentSource->new();
+	my $ln_total_found = 0;
+	my $ln_total_hit = 0;
+	my $fn_total_found = 0;
+	my $fn_total_hit = 0;
+	my $br_total_found = 0;
+	my $br_total_hit = 0;
 
 	# Read and combine trace files
-	foreach $filename (@opt_summary) {
-		$current = read_info_file($filename);
-		next unless defined($current);
-		if (!defined($total)) {
-			$total = $current;
-		} else {
-			$total = combine_info_files($total, $current);
-		}
+	foreach my $filename (@opt_summary) {
+		my $current = TraceFile->load($filename);
+		$total->append_tracefile($current);
 	}
 	# Calculate coverage data
-	foreach $filename (keys(%{$total}))
+	foreach my $filename ($total->files())
 	{
-		my $entry = $total->{$filename};
+		my $entry = $total->data($filename);
 		my $ln_found;
 		my $ln_hit;
 		my $fn_found;
@@ -4146,63 +2839,21 @@ sub summary()
 
 		(undef, undef, undef, undef, undef, undef, undef, undef,
 			$ln_found, $ln_hit, $fn_found, $fn_hit, $br_found,
-			$br_hit) = get_info_entry($entry);
+			$br_hit) = $entry->get_info();
 
 		# Add to totals
-		$ln_total_found	+= $ln_found;
-		$ln_total_hit	+= $ln_hit;
+		$ln_total_found += $ln_found;
+		$ln_total_hit   += $ln_hit;
 		$fn_total_found += $fn_found;
-		$fn_total_hit	+= $fn_hit;
+		$fn_total_hit   += $fn_hit;
 		$br_total_found += $br_found;
-		$br_total_hit	+= $br_hit;
+		$br_total_hit   += $br_hit;
 	}
 
 
 	return ($ln_total_found, $ln_total_hit, $fn_total_found, $fn_total_hit,
 		$br_total_found, $br_total_hit);
 }
-
-#
-# system_no_output(mode, parameters)
-#
-# Call an external program using PARAMETERS while suppressing depending on
-# the value of MODE:
-#
-#   MODE & 1: suppress STDOUT
-#   MODE & 2: suppress STDERR
-#
-# Return 0 on success, non-zero otherwise.
-#
-
-sub system_no_output($@)
-{
-	my $mode = shift;
-	my $result;
-	local *OLD_STDERR;
-	local *OLD_STDOUT;
-
-	# Save old stdout and stderr handles
-	($mode & 1) && open(OLD_STDOUT, ">>&", "STDOUT");
-	($mode & 2) && open(OLD_STDERR, ">>&", "STDERR");
-
-	# Redirect to /dev/null
-	($mode & 1) && open(STDOUT, ">", "/dev/null");
-	($mode & 2) && open(STDERR, ">", "/dev/null");
-
-	system(@_);
-	$result = $?;
-
-	# Close redirected handles
-	($mode & 1) && close(STDOUT);
-	($mode & 2) && close(STDERR);
-
-	# Restore old handles
-	($mode & 1) && open(STDOUT, ">>&", "OLD_STDOUT");
-	($mode & 2) && open(STDERR, ">>&", "OLD_STDERR");
-
-	return $result;
-}
-
 
 #
 # read_config(filename)
@@ -4382,7 +3033,7 @@ sub get_overall_line($$$$)
 
 #
 # print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
-#                    br_found, br_hit)
+#		    br_found, br_hit)
 #
 # Print overall coverage rates for the specified coverage types.
 #
@@ -4402,39 +3053,4 @@ sub print_overall_rate($$$$$$$$$)
 	info("  branches...: %s\n",
 	     get_overall_line($br_found, $br_hit, "branch", "branches"))
 		if ($br_do);
-}
-
-
-#
-# rate(hit, found[, suffix, precision, width])
-#
-# Return the coverage rate [0..100] for HIT and FOUND values. 0 is only
-# returned when HIT is 0. 100 is only returned when HIT equals FOUND.
-# PRECISION specifies the precision of the result. SUFFIX defines a
-# string that is appended to the result if FOUND is non-zero. Spaces
-# are added to the start of the resulting string until it is at least WIDTH
-# characters wide.
-#
-
-sub rate($$;$$$)
-{
-        my ($hit, $found, $suffix, $precision, $width) = @_;
-        my $rate;
-
-	# Assign defaults if necessary
-        $precision	= 1	if (!defined($precision));
-	$suffix		= ""	if (!defined($suffix));
-	$width		= 0	if (!defined($width));
-
-        return sprintf("%*s", $width, "-") if (!defined($found) || $found == 0);
-        $rate = sprintf("%.*f", $precision, $hit * 100 / $found);
-
-	# Adjust rates if necessary
-        if ($rate == 0 && $hit > 0) {
-		$rate = sprintf("%.*f", $precision, 1 / 10 ** $precision);
-        } elsif ($rate == 100 && $hit != $found) {
-		$rate = sprintf("%.*f", $precision, 100 - 1 / 10 ** $precision);
-	}
-
-	return sprintf("%*s", $width, $rate.$suffix);
 }

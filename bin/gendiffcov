@@ -91,10 +91,12 @@ use FindBin;
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  system_no_output
-                 ignorable_error info verbose $verbose
+                 ignorable_error $ERROR_MISMATCH
+                 info verbose $verbose
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  filterStringsAndComments simplifyCode balancedParens
+                 rate $default_precision check_precision
                  die_handler warn_handler $tool_name);
 
 # Global constants
@@ -103,9 +105,6 @@ our $tool_dir           = abs_path(dirname($0));
 our $lcov_version       = 'LCOV version '.`$tool_dir/get_version.sh --full`;
 our $lcov_url           = "http://ltp.sourceforge.net/coverage/lcov.php";
 lcovutil::set_tool_name(basename($0));
-
-# Specify coverage rate default precision
-our $default_precision = 1;
 
 # Specify coverage rate limits (in %) for classifying file entries
 # HI:   $hi_limit <= rate <= 100          graph color: green
@@ -184,11 +183,13 @@ our $ERROR_SOURCE        = 0;
 our $ERROR_UNMAPPED_LINE = 1;
 our $ERROR_UNKNOWN_CATEGORY = 2;
 our $ERROR_INCONSISTENT_PATH = 3;
+$ERROR_MISMATCH = 4;
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
         "unmapped" => $ERROR_UNMAPPED_LINE,
         "category" => $ERROR_UNKNOWN_CATEGORY,
         "path"     => $ERROR_INCONSISTENT_PATH,
+        "mismatch" => $ERROR_MISMATCH,
 );
 lcovutil::define_errors(\%htmlErrs);
 
@@ -217,7 +218,6 @@ sub get_html_epilog($);
 sub write_dir_page($$$$$$$$;$);
 sub classify_rate($$$$);
 sub parse_dir_prefix(@);
-sub rate($$;$$$);
 sub strip_directories($$);
 
 # HTML related prototypes
@@ -2065,7 +2065,7 @@ sub check_path_consistency {
           $type = "both baseline and current";
         }
         my $single = 1==scalar(@unused);
-        warn("source file '$f' (in $type .info file" 
+        warn("source file '$f' (in $type .info file"
              . ($missed{$f}==3 ? "s" : "") . ") has same basename as 'diff' "
              . ($single ? 'entry ' : 'entries:\n\t') . "'"
              . join("'\n\t", @unused)
@@ -3278,7 +3278,7 @@ if ($config || %opt_rc)
                 "genhtml_html_epilog"           => \$html_epilog_file,
                 "genhtml_html_extension"        => \$html_ext,
                 "genhtml_html_gzip"             => \$html_gzip,
-                "genhtml_precision"             => \$default_precision,
+                "genhtml_precision"             => \$lcovutil::default_precision,
                 "genhtml_function_hi_limit"     => \$fn_hi_limit,
                 "genhtml_function_med_limit"    => \$fn_med_limit,
                 "genhtml_function_coverage"     => \$func_coverage,
@@ -3351,7 +3351,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "ignore-errors=s"       => \@opt_ignore_errors,
                 "config-file=s"         => \$opt_config_file,
                 "rc=s%"                 => \%opt_rc,
-                "precision=i"           => \$default_precision,
+                "precision=i"           => \$lcovutil::default_precision,
                 "missed"                => \$opt_missed,
                 "filter=s"              => \@opt_filter,
                 ))
@@ -3540,11 +3540,7 @@ if ($demangle_cpp)
 }
 
 # Make sure precision is within valid range
-if ($default_precision < 1 || $default_precision > 4)
-{
-        die("ERROR: specified precision is out of range (1 to 4)\n");
-}
-
+check_precision();
 
 # Make sure output_directory exists, create it if necessary
 if ($output_directory)
@@ -8414,10 +8410,10 @@ sub apply_prefix($@)
   if (@dir_prefix) {
     foreach my $prefix (@dir_prefix) {
       if ($prefix eq $filename) {
-	return "root";
+        return "root";
       }
       if ($prefix ne "" && $filename =~ /^\Q$prefix\E\/(.*)$/) {
-	return substr($filename, length($prefix) + 1);
+        return substr($filename, length($prefix) + 1);
       }
     }
   }
@@ -8593,38 +8589,4 @@ sub parse_dir_prefix(@)
       push(@dir_prefix, $item);
     }
   }
-}
-
-#
-# rate(hit, found[, suffix, precision, width])
-#
-# Return the coverage rate [0..100] for HIT and FOUND values. 0 is only
-# returned when HIT is 0. 100 is only returned when HIT equals FOUND.
-# PRECISION specifies the precision of the result. SUFFIX defines a
-# string that is appended to the result if FOUND is non-zero. Spaces
-# are added to the start of the resulting string until it is at least WIDTH
-# characters wide.
-#
-
-sub rate($$;$$$)
-{
-  my ($hit, $found, $suffix, $precision, $width) = @_;
-  my $rate;
-
-  # Assign defaults if necessary
-  $precision      = $default_precision if (!defined($precision));
-  $suffix         = ""    if (!defined($suffix));
-  $width          = 0     if (!defined($width));
-
-  return sprintf("%*s", $width, "-") if (!defined($found) || $found == 0);
-  $rate = sprintf("%.*f", $precision, $hit * 100 / $found);
-
-  # Adjust rates if necessary
-  if ($rate == 0 && $hit > 0) {
-    $rate = sprintf("%.*f", $precision, 1 / 10 ** $precision);
-  } elsif ($rate == 100 && $hit != $found) {
-    $rate = sprintf("%.*f", $precision, 100 - 1 / 10 ** $precision);
-  }
-
-  return sprintf("%*s", $width, $rate.$suffix);
 }

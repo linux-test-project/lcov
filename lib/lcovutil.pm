@@ -21,9 +21,10 @@ our @EXPORT_OK =
      parse_cov_filters summarize_cov_filters
      filterStringsAndComments simplifyCode balancedParens
 
-     %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH
+     %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
 
      is_external @internal_dirs $opt_external
+     rate $default_precision check_precision
 
      system_no_output
 );
@@ -42,6 +43,7 @@ our $verbose = 0;  # if set, enable additional logging
 our $ERROR_GCOV         = 0;
 our $ERROR_SOURCE       = 1;
 our $ERROR_GRAPH        = 2;
+our $ERROR_MISMATCH     = 3;
 our %geninfoErrs = (
     "gcov" => $ERROR_GCOV,
     "source" => $ERROR_SOURCE,
@@ -51,6 +53,9 @@ our %geninfoErrs = (
 # for external file filtering
 our @internal_dirs;
 our $opt_external;
+
+# Specify coverage rate default precision
+our $default_precision = 1;
 
 sub default_info_impl(@);
 
@@ -277,7 +282,8 @@ sub ignorable_error($$;$) {
   my ($code, $msg, $quiet) = @_;
 
   my $errName = $ERROR_NAME{$code};
-  if (! $ignore[$code] ) {
+  if ($code >= scalar(@ignore) ||
+      ! $ignore[$code] ) {
     my $ignoreOpt = "\t(use \"$tool_name --ignore-errors $errName ...\" to bypass this error)\n";
     die_handler("Error: $msg\n$ignoreOpt");
   }
@@ -413,6 +419,47 @@ sub is_external($)
 }
 
 
+#
+# rate(hit, found[, suffix, precision, width])
+#
+# Return the coverage rate [0..100] for HIT and FOUND values. 0 is only
+# returned when HIT is 0. 100 is only returned when HIT equals FOUND.
+# PRECISION specifies the precision of the result. SUFFIX defines a
+# string that is appended to the result if FOUND is non-zero. Spaces
+# are added to the start of the resulting string until it is at least WIDTH
+# characters wide.
+#
+
+sub rate($$;$$$)
+{
+        my ($hit, $found, $suffix, $precision, $width) = @_;
+
+        # Assign defaults if necessary
+        $precision      = $default_precision
+          if (!defined($precision));
+        $suffix         = ""    if (!defined($suffix));
+        $width          = 0     if (!defined($width));
+
+        return sprintf("%*s", $width, "-") if (!defined($found) || $found == 0);
+        my $rate = sprintf("%.*f", $precision, $hit * 100 / $found);
+
+        # Adjust rates if necessary
+        if ($rate == 0 && $hit > 0) {
+                $rate = sprintf("%.*f", $precision, 1 / 10 ** $precision);
+        } elsif ($rate == 100 && $hit != $found) {
+                $rate = sprintf("%.*f", $precision, 100 - 1 / 10 ** $precision);
+        }
+
+        return sprintf("%*s", $width, $rate.$suffix);
+}
+
+# Make sure precision is within valid range [1:4]
+sub check_precision() {
+  die("ERROR: specified precision is out of range (1 to 4)\n")
+    if ($default_precision < 1 || $default_precision > 4);
+}
+
+
 package MapData;
 
 sub new {
@@ -483,6 +530,12 @@ sub keylist {
 sub entries {
   my $self = shift;
   return scalar(keys(%{$self->{_data}}));
+}
+
+sub _summary {
+  # dummy method - to parallelize calling sequence with CountData, BranchData
+  my $self = shift;
+  return $self;
 }
 
 # Class definitions
@@ -602,9 +655,13 @@ sub get_found_and_hit {
 
 package BranchBlock;
 # branch element:  index, taken/not-taken count, optional expression
+# for baseline or current data, 'taken' is just a number (or '-')
+# for differential data: 'taken' is an array [$taken, tla]
+
 sub new {
   my ($class, $id, $taken, $expr) = @_;
-  my $self = [$id, $taken, $expr];
+  # if branchID is not an expression - go back to legacy behaviour
+  my $self = [$id, $taken, (defined($expr) && $expr eq $id) ? undef : $expr];
   bless $self, $class;
   return $self;
 }
@@ -642,10 +699,14 @@ sub exprString {
 
 sub merge {
   my ($self, $that) = @_;
-  die("mismatched expressionf for " . $self->id() . ", " . $that->id()
-      . ": '" . $self->exprString() . "' -> '" . $that->exprString())
-    unless($self->exprString() eq $that->exprString());
-
+  if ($self->exprString() ne $that->exprString()) {
+    lcovutil::ignorable_error($ERROR_MISMATCH, "mismatched expressions for id "
+                              . $self->id() . ", " . $that->id() . ": '"
+                              . $self->exprString() . "' -> '" . $that->exprString()
+                              . "'");
+    # else - ngore the issue and merge data even thought the expressions
+    #  look different
+  }
   my $t = $that->[1];
   return if $t eq '-';
 
@@ -660,9 +721,7 @@ sub merge {
 
 
 package BranchEntry;
-# hash of blockID -> array of 'taken' entries for each sequential branch ID
-# for baseline or current data, 'taken' is just a number (or '-')
-# for differential data: 'taken' is an array [$taken, tla]
+# hash of blockID -> array of BranchBlock refs for each sequential branch ID
 
 sub new {
   my ($class, $line) = @_;
@@ -723,6 +782,17 @@ sub new {
 sub append {
   my ($self, $line, $block, $br) = @_;
 
+  if (! defined($br) ) {
+    die("expected 'BranchEntry' or 'integer, BranchBlock'")
+      unless ('BranchEntry' eq ref($block));
+
+    die("line $line already contains element")
+      if exists($self->{_data}->{$line});
+    $self->{_data}->{$line} = $block;
+    return $self;
+  }
+  die("BranchData::append expected BranchBock got '" . ref($br) . "'")
+    unless ('BranchBlock' eq ref($br));
   my $branch = $br->id();
   my $branchElem;
   if (exists($self->{_data}->{$line})) {
@@ -807,10 +877,8 @@ sub merge {
     my $branch = $info->{_data}->{$line};
     foreach my $blockId ($branch->blocks()) {
       my $bdata = $branch->getBlock($blockId);
-      my $branch = 0;
       foreach my $br (@$bdata) {
-        $self->append($line, $blockId, $branch, $br);
-        ++ $branch;
+        $self->append($line, $blockId, $br);
       }
     }
   }
@@ -1200,7 +1268,8 @@ sub open {
 
 sub setData {
   my ($self, $filename, $data) = @_;
-  ref($data) eq 'ARRAY' or die("expected array");
+  die("expected array")
+    unless (ref($data) eq 'ARRAY');
   $self->[0] = $filename;
   $self->[1] = $data;
 }
@@ -1302,6 +1371,12 @@ sub files {
   return keys %{$self->{_data}};
 }
 
+sub file_exists {
+  my ($self, $name) = @_;
+
+  return exists($self->{_data}->{$name});
+}
+
 sub data {
   my $self = shift;
   my $file = shift;
@@ -1311,6 +1386,22 @@ sub data {
   }
 
   return $self->{_data}->{$file};
+}
+
+sub remove {
+  my ($self, $filename) = @_;
+  $self->file_exists($filename)
+    or die("remove nonexistent file $filename");
+  delete($self->{_data}->{$filename});
+}
+
+sub insert {
+  my ($self, $filename, $data) = @_;
+  die("insert existing file $filename")
+    if $self->file_exists($filename);
+  die("expected TraceInfo got '" . ref($data) . "'")
+    unless (ref($data) eq 'TraceInfo');
+  $self->{_data}->{$filename} = $data;
 }
 
 sub append_tracefile {
@@ -1327,6 +1418,10 @@ sub append_tracefile {
   return $self;
 }
 
+sub is_rtl_file {
+  my $filename = shift;
+  return $filename =~ /\.(v|sv|vhdl?)$/;
+}
 
 # Read in the contents of the .info file specified by INFO_FILENAME. Data will
 # be returned as a reference to a hash containing the following mappings:
@@ -1441,11 +1536,14 @@ sub _read_info {
   $testname = "";
   my $data;
   # HGC:  somewhat of a hack.
-  #  in the SS simjet testcase, I find a list of branch IDs which
-  #  is not zero-based and is also not contiguous - but is sorted.
-  #  I hack, to renumber branches to be both zero-base and continguous.
-  #  This hack assumes that branches are at least sorted.
-  my %branchRenumber;
+  # There are duplicate lines in the geninfo output result - for example, 
+  #   line '2095' may have multiple DA (line) entries, and may have multiple
+  #   'BRDA' entries - each with a different number of branches and different
+  #   count
+  # The hack is to put branches into a hash keyed by branch ID - and
+  #   merge elements with the same key if we run into them in the multiple
+  #   times in the same 'file' data (within an SF entry).
+  my %branchRenumber; # line -> block -> branch -> branchentry
   my ($currentBranchLine, $skipBranch);
   while (<INFO_HANDLE>)
   {
@@ -1640,7 +1738,7 @@ sub _read_info {
         }
         # Notes:
         #   - there may be other branches on the same line (..the next
-        #     contiguious BRDA entry).
+        #     contiguous BRDA entry).
         #     There should always be at least 2.
         #   - not sure what the $block is used for.
         #   - $taken can be a number or '-'
@@ -1656,23 +1754,35 @@ sub _read_info {
 
         $block = -1 if ($block == $UNNAMED_BLOCK);
 
-        # re-number, if necessary
-        my $key = "$line,$block";
-        my $branch =
-          exists($branchRenumber{$key}) ? $branchRenumber{$key} : 0;
-        $branchRenumber{$key} = $branch + 1;
+        if ( is_rtl_file($filename) ) {
+          # Verilog/SystemVerilog/VHDL
+          my $key = "$line,$block";
+          my $branch = exists($branchRenumber{$key}) ? $branchRenumber{$key} : 0;
+          $branchRenumber{$key} = $branch + 1;
 
-        if ($expr eq $branch) {
-          # branchID is not an expression - go back to legacy behaviour
-          $expr = undef;
-        }
-        my $br = BranchBlock->new($branch, $taken, $expr);
-        $data->sumbr()->append($line, $block, $br);
+          my $br = BranchBlock->new($branch, $taken, $expr);
+          $data->sumbr()->append($line, $block, $br);
 
-        # Add test-specific counts
-        if (defined($testname)) {
-          #$testbrcount->{$line} .=  "$block,$branch,$taken:";
-          $data->testbr($testname)->append($line, $block, $br);
+          # Add test-specific counts
+          if (defined($testname)) {
+            #$testbrcount->{$line} .=  "$block,$branch,$taken:";
+            $data->testbr($testname)->append($line, $block, $br);
+          }
+        } else {
+          # not an HDL file
+          $branchRenumber{$line} = {}
+            unless exists($branchRenumber{$line});
+          $branchRenumber{$line}->{$block} = {}
+            unless exists($branchRenumber{$line}->{$block});
+          my $table = $branchRenumber{$line}->{$block};
+          
+          my $entry = BranchBlock->new($expr, $taken, $expr);
+          if (exists($table->{$expr})) {
+             # merge
+             $table->{$expr}->merge($entry);
+          } else {
+            $table->{$expr} = $entry;
+          }
         }
         last;
       };
@@ -1680,8 +1790,29 @@ sub _read_info {
       /^end_of_record/ && do
       {
         # Found end of section marker
-        if ($filename)
-        {
+        if ($filename) {
+          if (! is_rtl_file($filename)) {
+            # RTL code was added directly - no issue with duplicate
+            #  data entries in geninfo result
+            foreach my $line (sort {$a <=> $b} keys(%branchRenumber)) {
+              my $l_data = $branchRenumber{$line};
+              foreach my $block (sort {$a <=> $b} keys(%$l_data)) {
+                my $bdata = $l_data->{$block};
+                my $branchId = 0;
+                foreach my $b_id (sort {$a <=> $b} keys(%$bdata)) {
+                  my $br = $bdata->{$b_id};
+                  my $b = BranchBlock->new($branchId, $br->data());
+                  $data->sumbr()->append($line, $block, $b);
+
+                  if (defined($testname)) {
+                    #$testbrcount->{$line} .=  "$block,$branch,$taken:";
+                    $data->testbr($testname)->append($line, $block, $br);
+                  }
+                  ++ $branchId;
+                }
+              }
+            }
+          }
           # Store current section data
           if (defined($testname))
           {
@@ -1776,6 +1907,157 @@ sub _read_info {
     warn("WARNING: invalid characters removed from testname in ".
          "tracefile $tracefile\n");
   }
+}
+
+#
+# write data in .info format
+#
+sub write_info($$) {
+  my $self = $_[0];
+  local *INFO_HANDLE = $_[1];
+  my $checksum = defined($_[2]) ? $_[2] : 0;
+  my $br_found;
+  my $br_hit;
+  my $ln_total_found = 0;
+  my $ln_total_hit = 0;
+  my $fn_total_found = 0;
+  my $fn_total_hit = 0;
+  my $br_total_found = 0;
+  my $br_total_hit = 0;
+
+  my $srcReader = ReadCurrentSource->new()
+    if (defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) ||
+        defined($cov_filter[$FILTER_BRANCH_NO_COND]));
+
+  foreach my $source_file (sort($self->files())) {
+    next if lcovutil::is_external($source_file);
+    my $entry = $self->data($source_file);
+    die("expected TraceInfo, got '" . ref($entry) . "'")
+      unless('TraceInfo' eq ref($entry));
+
+    my ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
+        $sumfnccount, $testbrdata, $sumbrcount, $found, $hit,
+        $f_found, $f_hit, $br_found, $br_hit) = $entry->get_info();
+
+    # Add to totals
+    $ln_total_found += $found;
+    $ln_total_hit += $hit;
+    $fn_total_found += $f_found;
+    $fn_total_hit += $f_hit;
+    $br_total_found += $br_found;
+    $br_total_hit += $br_hit;
+
+    foreach my $testname (sort($testdata->keylist())) {
+      my $testcount = $testdata->value($testname);
+      my $testfnccount = $testfncdata->value($testname);
+      my $testbrcount = $testbrdata->value($testname);
+      $found = 0;
+      $hit   = 0;
+
+      print(INFO_HANDLE "TN:$testname\n");
+      print(INFO_HANDLE "SF:$source_file\n");
+      if (defined($srcReader)) {
+        $srcReader->close();
+        if ($source_file =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
+          debug("reading $source_file for lcov filtering\n");
+          $srcReader->open($source_file);
+        } else {
+          debug("not reading $source_file: no ext match\n");
+        }
+      }
+
+      # Write function related data - sort  by line number
+      foreach my $func ( sort({$funcdata->value($a) <=> $funcdata->value($b)}
+                              $funcdata->keylist())) {
+        print(INFO_HANDLE "FN:".$funcdata->value($func). ",$func\n");
+      }
+      foreach my $func ($testfnccount->keylist()) {
+        print(INFO_HANDLE "FNDA:".
+              $testfnccount->value($func).
+              ",$func\n");
+      }
+      my ($f_found, $f_hit) = $testfnccount->get_found_and_hit();
+      print(INFO_HANDLE "FNF:$f_found\n");
+      print(INFO_HANDLE "FNH:$f_hit\n");
+
+      # Write branch related data
+      $br_found = 0;
+      $br_hit = 0;
+      my $currentBranchLine;
+      my $skipBranch = 0;
+      my $branchHistogram = $cov_filter[$FILTER_BRANCH_NO_COND]
+        if (defined($srcReader) && $srcReader->notEmpty());
+      foreach my $line (sort({$a <=> $b}
+                             $testbrcount->keylist())) {
+
+        my $brdata = $testbrcount->value($line);
+        if (defined($branchHistogram)) {
+          $skipBranch = ! $srcReader->containsConditional($line);
+          if ($skipBranch) {
+            ++ $branchHistogram->[0]; # one line where we skip
+            $branchHistogram->[1] += scalar($brdata->blocks());
+            verbose("skip BRDA '" .
+                    $srcReader->getLine($line) .
+                    "' $source_file:$line\n");
+            next;
+          }
+        }
+        # want the block_id to be treated as 32-bit unsigned integer
+        #  (need masking to match regression tests)
+        my $mask =  (1<<32) -1;
+        foreach my $block_id ($brdata->blocks()) {
+          my $blockData = $brdata->getBlock($block_id);
+          $block_id &= $mask;
+          foreach my $br (@$blockData) {
+            my $taken = $br->data();
+            my $branch_id = $br->id();
+            printf(INFO_HANDLE "BRDA:%u,%u,%s,%s\n",
+                   $line,$block_id,$branch_id,$taken);
+            $br_found++;
+            $br_hit++
+              if ($taken ne '-' && $taken > 0);
+          }
+        }
+      }
+      if ($br_found > 0) {
+        print(INFO_HANDLE "BRF:$br_found\n");
+        print(INFO_HANDLE "BRH:$br_hit\n");
+      }
+
+      # Write line related data
+      my $lineHistogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
+        if (defined($srcReader) && $srcReader->notEmpty());
+      my $prevCount;
+      foreach my $line (sort({$a <=> $b} $testcount->keylist())) {
+        my $l_hit = $testcount->value($line);
+        if (defined($lineHistogram) &&
+            defined($prevCount) &&
+            $prevCount == $l_hit &&
+            $srcReader->isCloseBrace($line)) {
+
+          verbose("skip DA '" . $srcReader->getLine($line)
+                  . "' $source_file:$line\n");
+          ++$lineHistogram->[0]; # one location where this applied
+          ++$lineHistogram->[1]; # one coverpoint suppressed
+          next;
+        }
+        $prevCount = $l_hit;
+        my $chk = $checkdata->{$line};
+        print(INFO_HANDLE "DA:$line,$l_hit" .
+              (defined($chk) && $checksum ? ",". $chk : "")
+              ."\n");
+        $found++;
+        $hit++
+          if ($l_hit > 0);
+      }
+      print(INFO_HANDLE "LF:$found\n");
+      print(INFO_HANDLE "LH:$hit\n");
+      print(INFO_HANDLE "end_of_record\n");
+    }
+  }
+
+  return ($ln_total_found, $ln_total_hit, $fn_total_found, $fn_total_hit,
+          $br_total_found, $br_total_hit);
 }
 
 #

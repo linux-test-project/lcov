@@ -63,7 +63,7 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
-use JSON::PP qw(decode_json);
+use JSON qw(decode_json);
 use FindBin;
 
 use lib "$FindBin::Bin/../lib";
@@ -2394,7 +2394,7 @@ sub intermediate_text_to_info($$$)
 		  $prevLineCount = $hit;
 
 		  ++ $lines_found;
-		  ++ $lines_hit 
+		  ++ $lines_hit
 		    if (0 != $hit);
 		  # lcount:<line>,<count>
 		  # lcount:<line>,<count>,<has_unexecuted_blocks>

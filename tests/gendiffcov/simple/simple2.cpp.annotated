@@ -11,11 +11,11 @@
 1|henry.cox|274|main(int ac, char ** av)
 1|henry.cox|274|{
 1|henry.cox|274|  int cond = 0;
-4|agustus.finknottle|4|  std::cout << "this is GNC" << std::endl;
+4|augustus.finknottle|4|  std::cout << "this is GNC" << std::endl;
 1|henry.cox|274|  if (ac == 1)
 1|henry.cox|274|  {
 1|henry.cox|274|    std::cout << "ac == 1 - code exercised" << std::endl;// CBC
-5|agustus.finknottle|13|    cond = 3;// GNC
+5|augustus.finknottle|13|    cond = 3;// GNC
 1|henry.cox|274|#ifdef ADD_CODE
 1|henry.cox|274|    std::cout << " this code will be GIC" << std::endl;
 1|henry.cox|274|#endif
@@ -29,7 +29,7 @@
 7|pelham.wodehouse|122|    // this code not hit in 'regress'
 1|henry.cox|274|    cond = 2;
 1|henry.cox|274|    std::cout << "ac = " << ac << std::endl;// UBC
-5|agustus.finknottle|13|    std::cout << "this is UNC" << std::endl;
+5|roderick.glossop|13|    std::cout << "this is UNC" << std::endl;
 1|henry.cox|274|#ifdef ADD_CODE
 1|henry.cox|274|    std::cout << " this code will be UIC" << std::endl;
 1|henry.cox|274|#endif
