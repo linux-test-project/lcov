@@ -2390,6 +2390,13 @@ sub intermediate_json_to_info($$$)
 			# Branch data
 			if ($br_coverage && (!defined($brexcl->{$line}) || 
 					($brexcl->{$line} != 1))) {
+				my $branch_index = 0;
+				for my $b (@$branches) {
+					if($b->{"throw"}) {
+						@$branches[$branch_index-1]->{"throw"} = 1;
+					}
+					$branch_index++;
+				}
 				for my $b (@$branches) {
 					my $brcount = $b->{"count"};
 					my $is_exception = $b->{"throw"};
