@@ -43,18 +43,29 @@ if (0 == system("git rev-parse --show-toplevel >/dev/null 2>&1")) {
         # Also remove CR from line-end
         s/\015$//;
 
-        if ($line =~ m/(\S+)\s+\((<[^>]+>)\s+([-0-9]+\s+[0-9:]+\s+[-+0-9]+)\s+([0-9]+)\) (.*)/) {
+        if ($line =~ m/(\S+)\s+\(<([^>]+)>\s+([-0-9]+\s+[0-9:]+\s+[-+0-9]+)\s+([0-9]+)\) (.*)/) {
           my $commit = $1;
           my $owner = $2;
           my $when = $3;
           my $text = $5;
-          $owner =~ s/^.*<//;
-          $owner =~ s/>.*$//;
+
+          # line owner filtering to canonical form
           $owner =~ s/ dot /./g;
-          $owner =~ s/ at /@/;
-          $owner =~ s/@.*$//;
-          $when =~ s/ /T/;
-          $when =~ s/ //;
+          $owner =~ s/ at /\@/;
+          # strip domain part (disable if using alternate policy below)
+          $owner =~ s/\@.*$//;
+          ### Sample alternate policy for use in private annotation script
+          ## strip domain part for MediaTek line owners
+          #$owner =~ s/\@mediatek\.com//;
+          ## replace domain-qualified line owners with "Other"
+          #$owner =~ s/.*\@.*/Other/;
+
+          # Convert Git date/time to diffcov canonical format
+          # replace space between date and time with 'T'
+          $when =~ s/\s/T/;
+          # remove space between time and zone offset
+          $when =~ s/\s//;
+          # insert ':' between hour and minute digits of zone offset
           $when =~ s/([0-9][0-9])$/:$1/;
           printf("%s|%s|%s|%s\n", $commit, $owner, $when, $text);
         } else {

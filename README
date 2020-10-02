@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (LCOV) -
-- Last changes: 2019-02-28                      -
+- Last changes: 2020-09-23
 -------------------------------------------------
 
 Description
@@ -21,6 +21,10 @@ Description
   LCOV was initially designed to support Linux kernel coverage measurements,
   but works as well for coverage measurements on standard user space
   applications.
+
+  LCOV has recently been enhanced to support differential coverage, as well
+  as date- and owner-binning.  See https://arxiv.org/abs/2008.07947 for 
+  a detailed explanation of the concepts.
 
 
 Further README contents
@@ -115,6 +119,10 @@ Assuming the compile directory is called "appdir", do the following:
   c) Getting HTML output
 
      genhtml app.info
+
+  d) Generating a differential coverage report
+
+     See the examples in .../tests/gendiffcov.
 
 Point the web browser of your choice to the resulting index.html file.
 

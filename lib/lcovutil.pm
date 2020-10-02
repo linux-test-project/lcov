@@ -273,7 +273,7 @@ sub parse_ignore_errors(@)
       die("ERROR: unknown argument for --ignore-errors: ".
         "$item\n");
     }
-    $ignore[$item_id] = 1;
+    $ignore[$item_id] += 1;
   }
 }
 
@@ -287,7 +287,9 @@ sub ignorable_error($$;$) {
     my $ignoreOpt = "\t(use \"$tool_name --ignore-errors $errName ...\" to bypass this error)\n";
     die_handler("Error: $msg\n$ignoreOpt");
   }
-  warn_handler("Warning: ($errName') $msg\n") unless (defined($quiet) && $quiet);
+  my $ignoreOpt = "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
+  warn_handler("Warning: ($errName') $msg\n$ignoreOpt")
+    unless $ignore[$code] > 1 || (defined($quiet) && $quiet);
 }
 
 
@@ -1289,7 +1291,20 @@ sub getLine {
   return $self->[1]->[$line-1];
 }
 
-sub isCloseBrace {
+sub isCharacter {
+  my ($self, $line, $char) = @_;
+
+  my $code = $self->getLine($line);
+  return 0
+    unless defined($code);
+  # remove comments
+  $code =~ s|//.*$||;
+  $code =~ s|/\*.*\*/||g;
+  return ($code =~ /^\s*${char}\s*$/ );
+}
+
+# is line empty
+sub isBlank {
   my ($self, $line) = @_;
 
   my $code = $self->getLine($line);
@@ -1298,7 +1313,7 @@ sub isCloseBrace {
   # remove comments
   $code =~ s|//.*$||;
   $code =~ s|/\*.*\*/||g;
-  return ($code =~ /^\s*}\s*$/ );
+  return ($code =~ /^\s*$/ );
 }
 
 sub containsConditional {
@@ -1536,7 +1551,7 @@ sub _read_info {
   $testname = "";
   my $data;
   # HGC:  somewhat of a hack.
-  # There are duplicate lines in the geninfo output result - for example, 
+  # There are duplicate lines in the geninfo output result - for example,
   #   line '2095' may have multiple DA (line) entries, and may have multiple
   #   'BRDA' entries - each with a different number of branches and different
   #   count
@@ -1626,24 +1641,61 @@ sub _read_info {
         my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE];
         if (defined($histogram) &&
             $readSourceCallback->notEmpty()) {
-          # does this line contain only a closing brace and have the same
-          #   count as the previous line?
-          my $prevLine = $line - 1;
-          my $prev;
-          while ($prevLine >= 0) {
-            $prev = $linesum->value($prevLine);
-            last if defined($prev);
-            $prevLine = $prevLine - 1;
-          }
-          if (defined($prev) && # previous line was executable
-              $prev == $count &&
-            $readSourceCallback->isCloseBrace($line)) {
+          # does this line contain only a closing brace and
+          #   - previous line is hit, OR
+          #   - previous line is not an open-brace which has no associated
+          #     count - i.e., this is not an empty block where the zero
+          #     count is tagged to the closing brace.
+          if ($readSourceCallback->isCharacter($line, '}')) {
 
-            main::verbose("skip DA '" . $readSourceCallback->getLine($line)
-                          . "' $filename:$line\n");
-            ++ $histogram->[0]; # one location where this applied
-            ++ $histogram->[1]; # one coverpoint suppressed
-            last;
+            my $suppress = 0;
+            for (my $prevLine = $line - 1 ; $prevLine >= 0 ; -- $prevLine) {
+              my $prev = $linesum->value($prevLine);
+              if (defined($prev)) {
+                # previous line was executable
+                $suppress = 1
+                  if ($prev == $count ||
+                      ($count == 0 &&
+                       $prev > 0));
+                last;
+              } elsif ($count == 0 &&
+                       # previous line not executable - was it an open brace?
+                       $readSourceCallback->isCharacter($prevLine, '{')) {
+                # look 'up' from the open brace to find the first
+                #   line which has an associated count -
+                my $code = "";
+                for (my $l = $prevLine - 1 ; $l >= 0 ; -- $l) {
+                  $code = $readSourceCallback->getLine($l) . $code;
+                  my $prevCount = $linesum->value($l);
+                  if (defined($prevCount)) {
+                    # don't suppress if previous line not hit either
+                    last
+                      if $prevCount == 0;
+                    # if first non-whitespace character is a colon -
+                    #  then this looks like a C++ initialization list.
+                    #  suppress.
+                    if ( $code =~ /^\s*:(\s|[^:])/ ) {
+                      $suppress = 1;
+                    } else {
+                      $code = lcovutil::filterStringsAndComments($code);
+                      $code = lcovutil::simplifyCode($code);
+                      # don't suppress if this looks like a conditional
+                      $suppress = 1
+                        unless ($code =~ /\b(if|switch|case|while|for)\b/);
+                    }
+                    last;
+                  }
+                } # for each prior line (looking for statement before block)
+                last;
+              } # if (line was an open brace
+            } # for each prior line (looking for open brace)
+            if ($suppress) {
+              main::verbose("skip DA '" . $readSourceCallback->getLine($line)
+                            . "' $filename:$line\n");
+              ++ $histogram->[0]; # one location where this applied
+              ++ $histogram->[1]; # one coverpoint suppressed
+              last;
+            }
           }
         }
         # Execution count found, add to structure
@@ -1775,7 +1827,7 @@ sub _read_info {
           $branchRenumber{$line}->{$block} = {}
             unless exists($branchRenumber{$line}->{$block});
           my $table = $branchRenumber{$line}->{$block};
-          
+
           my $entry = BranchBlock->new($expr, $taken, $expr);
           if (exists($table->{$expr})) {
              # merge
@@ -1959,10 +2011,10 @@ sub write_info($$) {
       if (defined($srcReader)) {
         $srcReader->close();
         if ($source_file =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
-          debug("reading $source_file for lcov filtering\n");
+          lcovutil::debug("reading $source_file for lcov filtering\n");
           $srcReader->open($source_file);
         } else {
-          debug("not reading $source_file: no ext match\n");
+          lcovutil::debug("not reading $source_file: no ext match\n");
         }
       }
 
@@ -1996,9 +2048,9 @@ sub write_info($$) {
           if ($skipBranch) {
             ++ $branchHistogram->[0]; # one line where we skip
             $branchHistogram->[1] += scalar($brdata->blocks());
-            verbose("skip BRDA '" .
-                    $srcReader->getLine($line) .
-                    "' $source_file:$line\n");
+            lcovutil::verbose("skip BRDA '" .
+                              $srcReader->getLine($line) .
+                              "' $source_file:$line\n");
             next;
           }
         }
@@ -2028,20 +2080,27 @@ sub write_info($$) {
       my $lineHistogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
         if (defined($srcReader) && $srcReader->notEmpty());
       my $prevCount;
+      my $prevIsOpenBrace = 0;
       foreach my $line (sort({$a <=> $b} $testcount->keylist())) {
         my $l_hit = $testcount->value($line);
-        if (defined($lineHistogram) &&
-            defined($prevCount) &&
-            $prevCount == $l_hit &&
-            $srcReader->isCloseBrace($line)) {
-
-          verbose("skip DA '" . $srcReader->getLine($line)
-                  . "' $source_file:$line\n");
-          ++$lineHistogram->[0]; # one location where this applied
-          ++$lineHistogram->[1]; # one coverpoint suppressed
-          next;
+        if (defined($lineHistogram)) {
+          if ($srcReader->isCharacter($line, '}')) {
+            if ( (defined($prevCount) &&
+                  $prevCount == $l_hit) ||
+                 ($prevIsOpenBrace &&
+                  0 == $l_hit) ) {
+              lcovutil::verbose("skip DA '" . $srcReader->getLine($line)
+                                . "' $source_file:$line\n");
+              ++$lineHistogram->[0]; # one location where this applied
+              ++$lineHistogram->[1]; # one coverpoint suppressed
+              $prevIsOpenBrace = 0;
+              next;
+            }
+          }
+          $prevCount = $l_hit;
+          $prevIsOpenBrace = $srcReader->isCharacter($line, '{')
+            if ! $srcReader->isBlank($line);
         }
-        $prevCount = $l_hit;
         my $chk = $checkdata->{$line};
         print(INFO_HANDLE "DA:$line,$l_hit" .
               (defined($chk) && $checksum ? ",". $chk : "")

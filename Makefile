@@ -50,10 +50,10 @@ clean:
 install:
 	bin/install.sh bin/lcov $(DESTDIR)$(BIN_DIR)/lcov -m 755
 	bin/install.sh bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml -m 755
-	bin/install.sh bin/gendiffcov $(DESTDIR)$(BIN_DIR)/gendiffcov -m 755
+	(cd $(DESTDIR)$(BIN_DIR) ; rm -f gendiffcov ; ln -s genhtml gendiffcov)
 	bin/install.sh bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo -m 755
 	bin/install.sh bin/genpng $(DESTDIR)$(BIN_DIR)/genpng -m 755
-	bin/install.sh bin/gendiffpng $(DESTDIR)$(BIN_DIR)/gendiffpng -m 755
+	(cd $(DESTDIR)$(BIN_DIR) ; rm -f gendiffpng ; ln -s genpng gendiffpng)
 	bin/install.sh bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc -m 755
 	bin/install.sh bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff -m 755
 	bin/install.sh bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate -m 755
@@ -61,36 +61,32 @@ install:
 	bin/install.sh lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm -m 755
 	bin/install.sh man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1 -m 644
 	bin/install.sh man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 -m 644
-	bin/install.sh man/gendiffcov.1 $(DESTDIR)$(MAN_DIR)/man1/gendiffcov.1 -m 644
+	(cd $(DESTDIR)$(MAN_DIR)/man1 ; rm -f gendiffcov.1 ; ln -s genhtml.1 gendiffcov.1)
 	bin/install.sh man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 -m 644
 	bin/install.sh man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1 -m 644
-	bin/install.sh man/gendiffpng.1 $(DESTDIR)$(MAN_DIR)/man1/gendiffpng.1 -m 644
+	(cd $(DESTDIR)$(MAN_DIR)/man1 ; rm -f gendiffpng.1 ; ln -s genpng.1 gendiffpng.1)
 	bin/install.sh man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 -m 644
 	bin/install.sh man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 -m 644
 	bin/install.sh lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/lcov $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genhtml $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/gendiffcov $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/geninfo $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genpng $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/gendiffpng $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/gendesc $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/lcov.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/gendiffcov.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genpng.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/gendiffpng.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 $(VERSION) $(RELEASE) $(FULL)
 	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 $(VERSION) $(RELEASE) $(FULL)
 
 uninstall:
 	bin/install.sh --uninstall bin/lcov $(DESTDIR)$(BIN_DIR)/lcov
 	bin/install.sh --uninstall bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml
-	bin/install.sh --uninstall bin/gendiffcov $(DESTDIR)$(BIN_DIR)/gendiffcov
+	(cd $(DESTDIR)$(BIN_DIR) ; rm -f gendiffcov)
 	bin/install.sh --uninstall bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo
 	bin/install.sh --uninstall bin/genpng $(DESTDIR)$(BIN_DIR)/genpng
-	bin/install.sh --uninstall bin/gendiffpng $(DESTDIR)$(BIN_DIR)/gendiffpng
+	(cd $(DESTDIR)$(BIN_DIR) ; rm -f gendiffpng)
 	bin/install.sh --uninstall bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc
 	bin/install.sh --uninstall bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff
 	bin/install.sh --uninstall bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate
@@ -98,10 +94,10 @@ uninstall:
 	bin/install.sh --uninstall lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm
 	bin/install.sh --uninstall man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1
 	bin/install.sh --uninstall man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1
-	bin/install.sh --uninstall man/gendiffcov.1 $(DESTDIR)$(MAN_DIR)/man1/gendiffcov.1
+	(cd $(DESTDIR)$(MAN_DIR) ; rm -f man1/gendiffcov.1)
 	bin/install.sh --uninstall man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1
 	bin/install.sh --uninstall man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1
-	bin/install.sh --uninstall man/gendiffpng.1 $(DESTDIR)$(MAN_DIR)/man1/gendiffpng.1
+	(cd $(DESTDIR)$(MAN_DIR) ; rm -f man1/gendiffpng.1)
 	bin/install.sh --uninstall man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1
 	bin/install.sh --uninstall man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5
 	bin/install.sh --uninstall lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc

@@ -46,13 +46,15 @@ export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
 ROOT=`pwd`
+PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS='--rc lcov_branch_coverage=1'
-DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp --frame --show-details'
+#DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT"
+DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt 
-rm -rf ./baseline ./current ./differential ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter noncode_differential
+rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter noncode_differential
 
 if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
@@ -81,10 +83,10 @@ fi
 gzip -c baseline_nobranch.info > baseline_nobranch.info.gz
 #genhtml baseline.info --output-directory ./baseline
 
-echo gendiffcov $DIFFCOV_OPTS baseline.info --output-directory ./baseline
-gendiffcov $DIFFCOV_OPTS baseline.info --output-directory ./baseline
+echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline
+genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov baseline failed"
+    echo "ERROR: genhtml baseline failed"
     exit 1
 fi
 # expect not to see differential categories...
@@ -97,10 +99,10 @@ if [ 0 != $? ] ; then
 fi
 gzip -c baseline-filter.info > baseline-filter.info.gz
 #genhtml baseline.info --output-directory ./baseline
-echo gendiffcov $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter
-gendiffcov $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter
+echo genhtml $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter
+genhtml $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov baseline-filter failed"
+    echo "ERROR: genhtml baseline-filter failed"
     exit 1
 fi
 
@@ -120,19 +122,19 @@ fi
 gzip -c current.info > current.info.gz
 
 #genhtml current.info --output-directory ./current
-echo gendiffcov $DIFFCOV_OPTS current.info --output-directory ./current
-gendiffcov $DIFFCOV_OPTS current.info --output-directory ./current
+echo genhtml $DIFFCOV_OPTS --show-details current.info --output-directory ./current
+genhtml $DIFFCOV_OPTS current.info --show-details --output-directory ./current
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov current failed"
+    echo "ERROR: genhtml current failed"
     exit 1
 fi
 
 diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff.txt
 
-echo ${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source -o ./noncode_differential ./current.info.gz
-${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source -o ./noncode_differential ./current.info.gz
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source -o ./noncode_differential ./current.info.gz
+${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source -o ./noncode_differential ./current.info.gz
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov noncode_differential failed"
+    echo "ERROR: genhtml noncode_differential failed"
     exit 1
 fi
 # expect to see non-code owners 'rupert.psmith' and 'pelham.wodehouse' in file annotations
@@ -145,42 +147,84 @@ for owner in rupert.psmith pelham.wodehouse ; do
     fi
 done
 
-echo ${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o ./differential ./current.info
-${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o ./differential ./current.info
-if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov differential failed"
-    exit 1
-fi
-# expect to not to see non-code owners 'rupert.psmith' and 'pelham.wodehose' in file annotations
-FILE=`find differential -name test.cpp.gcov.html`
-for owner in rupert.psmith pelham.wodehose ; do
-    grep $owner $FILE
-    if [ 1 != $? ] ;then
-        echo "ERROR: found $owner in differential annotations"
-        exit 1
-    fi
-done
-# expect to see augustus.finknottle in owner table (100% coverage)
-for owner in augustus.finknottle ; do
-    grep $owner differential/index.html
-    if [ 0 != $? ] ;then
-        echo "ERROR: did not find $owner in differential owner summary"
-        exit 1
-    fi
-done
-for summary in Branch Line ; do
-    grep "$summary coverage" differential/index.html
-    if [ 0 != $? ] ;then
-        echo "ERROR: did not find $summary in differential summary"
-        exit 1
-    fi
+# run with several different combinations of options - and see
+#   if they do what we expect
+TEST_OPTS=$DIFFCOV_OPTS
+EXT=""
+for opt in "" "--show-details" "--hier" ; do
+
+    for o in "" $opt ; do
+        OPTS="$TEST_OPTS $o"
+        outdir=./differential${EXT}${o}
+        echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info
+        ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info
+        if [ 0 != $? ] ; then
+            echo "ERROR: genhtml $outdir failed"
+            exit 1
+        fi
+
+        if [[ $OPTS =~ "show-details" ]] ; then
+            found=0
+        else
+            found=1
+        fi
+        grep "show details" $outdir/simple/index.html
+        # expect to find the string (0 return val) if flag is present
+        if [ $found != $? ] ;then
+            echo "ERROR: '--show-details' mismatch in $outdir"
+            exit 1
+        fi
+
+        if [[ $OPTS =~ "hier" ]] ; then
+            found=0
+        else
+            found=1
+        fi
+        # look for full path name (starting from '/' in the index.html file..
+        #   we aren't sure where gcc is installed - so we aren't sure what
+        #   path to look for
+        grep "index.html\">/[^/]*/[^/]*/[^/]*/" $outdir/index.html
+        #grep "/mtkoss/gcc" $outdir/index.html
+        # expect to find the string (0 return val) if flag is NOT present
+        if [ $found == $? ] ;then
+            echo "ERROR: '--hierarchical' path mismatch in $outdir"
+            exit 1
+        fi
+        
+        # expect to not to see non-code owners 'rupert.psmith' and 'pelham.wodehose' in file annotations
+        FILE=`find $outdir -name test.cpp.gcov.html`
+        for owner in rupert.psmith pelham.wodehose ; do
+            grep $owner $FILE
+            if [ 1 != $? ] ;then
+                echo "ERROR: found $owner in $outdir annotations"
+                exit 1
+            fi
+        done
+        # expect to see augustus.finknottle in owner table (100% coverage)
+        for owner in augustus.finknottle ; do
+            grep $owner $outdir/index.html
+            if [ 0 != $? ] ;then
+                echo "ERROR: did not find $owner in $outdir owner summary"
+                exit 1
+            fi
+        done
+        for summary in Branch Line ; do
+            grep "$summary coverage" $outdir/index.html
+            if [ 0 != $? ] ;then
+                echo "ERROR: did not find $summary in $outdir summary"
+                exit 1
+            fi
+        done
+    done
+    TEST_OPTS="$TEST_OPTS $opt"
+    EXT=${EXT}${opt}
 done
 
 
-echo ${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info
-${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info
+${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov differential_nobranch failed"
+    echo "ERROR: genhtml differential_nobranch failed"
     exit 1
 fi
 # should not be a branch table
@@ -204,24 +248,24 @@ done
 # and the inverse difference
 diff -u simple2.cpp simple.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff_r.txt
 
-echo gendiffcov $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz
-gendiffcov $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz
+echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz
+genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov branch failed"
+    echo "ERROR: genhtml branch failed"
     exit 1
 fi
 
-echo gendiffcov $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz
-gendiffcov $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz
+echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz
+genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov reverse_nobranch failed"
+    echo "ERROR: genhtml reverse_nobranch failed"
     exit 1
 fi
 
-echo ${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script annotate.sh -o ./no_owners ./current.info
-${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script annotate.sh -o ./no_owners ./current.info
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script annotate.sh -o ./no_owners ./current.info
+${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script annotate.sh -o ./no_owners ./current.info
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov no_owners failed"
+    echo "ERROR: genhtml no_owners failed"
     exit 1
 fi
 # expect to not find ownership summary table...
@@ -233,10 +277,10 @@ for summary in ownership ; do
     fi
 done
 
-echo ${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info
-${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info
+${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov no_annotation failed"
+    echo "ERROR: genhtml no_annotation failed"
     exit 1
 fi
 # expect to find differential TLAs - but don't expec ownership and date tables
@@ -255,10 +299,10 @@ for key in "date bins" "ownership bins" ; do
     fi
 done
 
-echo ${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info
-${LCOV_HOME}/bin/gendiffcov $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info
+${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info
 if [ 0 != $? ] ; then
-    echo "ERROR: gendiffcov no_baseline failed"
+    echo "ERROR: genhtml no_baseline failed"
     exit 1
 fi
 # don't expect to find differential TLAs - but still expect ownership and date tables

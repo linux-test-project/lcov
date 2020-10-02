@@ -1520,12 +1520,19 @@ sub process_dafile($$)
 		  # Check for instrumented line
 		  if ($gcov_content[0]) {
 		    my $hit = $gcov_content[1];
+		    # NOTE: the 'gcov' content array hold only instrumented
+		    #   lines - so we would need to look at previous source
+		    #   code lines to decide if one of them was an open
+		    #   brace/if this block is empty.
+		    # For the moment:  not bothering to do that.  Wait for
+		    #   a more extensive refactoring of geninfo - to re-use
+		    #   the common lcovutil implementation.
 		    if (defined($srcReader) &&
 			defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) &&
 			defined($prevCount) &&
 			$prevCount == $hit &&
 			$srcReader->notEmpty() &&
-			$srcReader->isCloseBrace($line_number)) {
+			$srcReader->isCharacter($line_number, '}')) {
 		      info("skip DA '" . $srcReader->getLine($line_number)
 			   . "' $source_filename:$line_number\n");
 		      ++$histogram->[0]; # one location where this applied
@@ -2001,7 +2008,7 @@ sub read_gcov_file($)
 					}
 				}
 				# Check for exclusion markers (exception branch exclude)
-				if (!$no_markers && 
+				if (!$no_markers &&
 					/($EXCL_EXCEPTION_BR_STOP|$EXCL_EXCEPTION_BR_START|$excl_exception_br_line)/) {
 					warn("WARNING: $1 found at $filename:$last_line but ".
 					"branch exceptions exclusion is not supported with ".
@@ -2053,7 +2060,7 @@ sub read_gcov_file($)
 				next if (!$br_coverage);
 				next if ($exclude_line);
 				next if ($exclude_branch);
-				next if (($exclude_exception_branch || $no_exception_br) && 
+				next if (($exclude_exception_branch || $no_exception_br) &&
 						 defined($3) && ($3 eq "throw"));
 				$branches = br_gvec_push($branches, $last_line,
 						$last_block, $1, $2);
@@ -2384,7 +2391,7 @@ sub intermediate_text_to_info($$$)
 		  if (defined($lineHistogram) &&
 		      defined($prevLineCount) &&
 		      $prevLineCount == $hit &&
-		      $srcReader->isCloseBrace($lineNo)) {
+		      $srcReader->isCharacter($lineNo, '}')) {
 		    info("skip DA '" . $srcReader->getLine($lineNo)
 			 . "' $filename:$lineNo\n");
 		    ++$lineHistogram->[0]; # one location where this applied
@@ -2406,7 +2413,7 @@ sub intermediate_text_to_info($$$)
 		  print($fd "DA:$lineNo,$hit$c\n")
 		    if (!$excl->{$lineNo});
 		}
-		
+
 		if ($functions_found > 0) {
 			printf($fd "FNF:%s\n", $functions_found);
 			printf($fd "FNH:%s\n", $functions_hit);
@@ -2541,7 +2548,7 @@ sub intermediate_json_to_info($$$)
 			#  the closing brace of the function...
 			$branch_num = 0;
 			# Branch data
-			if ($br_coverage && (!defined($brexcl->{$line}) || 
+			if ($br_coverage && (!defined($brexcl->{$line}) ||
 					     ($brexcl->{$line} != 1))) {
 
 			        if (defined($branchHist) &&
@@ -2557,7 +2564,7 @@ sub intermediate_json_to_info($$$)
 					my $brcount = $b->{"count"};
 					my $is_exception = $b->{"throw"};
 
-					if (!$is_exception || ((!defined($brexcl->{$line}) || 
+					if (!$is_exception || ((!defined($brexcl->{$line}) ||
 							($brexcl->{$line} != 2)) && !$no_exception_br)) {
 						if (!defined($brcount) || $unexec) {
 							$brcount = "-";

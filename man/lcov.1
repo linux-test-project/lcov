@@ -623,6 +623,11 @@ Specify a list of errors after which to continue processing.
 
 Use this option to specify a list of one or more classes of errors after which
 lcov should continue processing instead of aborting.
+Note that the tool will generate a warning (rather than a fatal error) unless you ignore the error two (or more) times:
+.br
+.RS
+lcov ... --ignore-errors source,source ...
+.RE
 
 .I errors
 can be a comma\-separated list of the following keywords:

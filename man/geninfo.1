@@ -135,14 +135,14 @@ affected.
 .RE
 LCOV_EXCL_EXCEPTION_BR_START
 .RS
-Marks the beginning of a section which is excluded from exception branch 
+Marks the beginning of a section which is excluded from exception branch
 coverage. The current line is part of this section.
 .br
 .RE
 LCOV_EXCL_EXCEPTION_BR_STOP
 .RS
 Marks the end of a section which is excluded from exception branch coverage. 
-The current line not part of this section.
+The current line not part of this section
 .RE
 .br
 
@@ -406,6 +406,11 @@ Specify a list of errors after which to continue processing.
 
 Use this option to specify a list of one or more classes of errors after which
 geninfo should continue processing instead of aborting.
+Note that the tool will generate a warning (rather than a fatal error) unless you ignore the error two (or more) times:
+.br
+.RS
+geninfo ... --ignore-errors unmapped,unmapped ...
+.RE
 
 .I errors
 can be a comma\-separated list of the following keywords:
