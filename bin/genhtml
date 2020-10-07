@@ -93,7 +93,7 @@ use FindBin;
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  system_no_output
-                 ignorable_error $ERROR_MISMATCH
+                 ignorable_error $ERROR_MISMATCH $ERROR_BRANCH
                  info verbose $verbose
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
@@ -186,12 +186,14 @@ our $ERROR_UNMAPPED_LINE = 1;
 our $ERROR_UNKNOWN_CATEGORY = 2;
 our $ERROR_INCONSISTENT_PATH = 3;
 $ERROR_MISMATCH = 4;
+$ERROR_BRANCH = 5;
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
         "unmapped" => $ERROR_UNMAPPED_LINE,
         "category" => $ERROR_UNKNOWN_CATEGORY,
         "path"     => $ERROR_INCONSISTENT_PATH,
         "mismatch" => $ERROR_MISMATCH,
+        "branch"   => $ERROR_BRANCH,
 );
 lcovutil::define_errors(\%htmlErrs);
 
@@ -2131,7 +2133,7 @@ sub check_path_consistency {
         my $single = 1==scalar(@unused);
         warn("source file '$f' (in $type .info file"
              . ($missed{$f}==3 ? "s" : "") . ") has same basename as 'diff' "
-             . ($single ? 'entry ' : 'entries:\n\t') . "'"
+             . ($single ? 'entry ' : "entries:\n\t") . "'"
              . join("'\n\t", @unused)
              . "' - but a different path." . ($single ? "  " : "\n\t")
              . "Possible pathname mismatch?");

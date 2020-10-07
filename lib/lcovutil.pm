@@ -17,11 +17,13 @@ our @EXPORT_OK =
 
      verbose debug $debug $verbose
 
-     $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
+     $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE $FILTER_FUNCTION_ALIAS
+     @cov_filter
      parse_cov_filters summarize_cov_filters
      filterStringsAndComments simplifyCode balancedParens
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
+     $ERROR_BRANCH
 
      is_external @internal_dirs $opt_external
      rate $default_precision check_precision
@@ -44,6 +46,7 @@ our $ERROR_GCOV         = 0;
 our $ERROR_SOURCE       = 1;
 our $ERROR_GRAPH        = 2;
 our $ERROR_MISMATCH     = 3;
+our $ERROR_BRANCH       = 4; # branch numbering is not correct
 our %geninfoErrs = (
     "gcov" => $ERROR_GCOV,
     "source" => $ERROR_SOURCE,
@@ -69,9 +72,13 @@ our $FILTER_BRANCH_NO_COND = 0;
 # don't report line coverage for closing brace of a function
 #   or basic block, if the immediate predecessor line has the same count.
 our $FILTER_LINE_CLOSE_BRACE = 1;
+# merge functions which appear on same file/line - guess that that
+#   they are all the same
+our $FILTER_FUNCTION_ALIAS = 2;
 our %COVERAGE_FILTERS = (
   "branch" => $FILTER_BRANCH_NO_COND,
   'line' => $FILTER_LINE_CLOSE_BRACE,
+  'function' => $FILTER_FUNCTION_ALIAS,
 );
 our @cov_filter;        # 'undef' if filter is not enabled,
                         # [line_count, coverpoint_count] histogram if
@@ -244,39 +251,26 @@ sub define_errors($)
 
 sub parse_ignore_errors(@)
 {
-  my (@ignore_errors) = @_;
-  my @items;
-  my $item;
+  my @ignore_errors = split(',', join(',', @_));
 
   # first, mark that all known errors are not ignored
-  foreach $item (keys(%ERROR_ID)) {
+  foreach my $item (keys(%ERROR_ID)) {
     my $id = $ERROR_ID{$item};
     $ignore[$id] = 0;
   }
 
   return if (!@ignore_errors);
 
-  foreach $item (@ignore_errors) {
-    $item =~ s/\s//g;
-    if ($item =~ /,/) {
-      # Split and add comma-separated parameters
-      push(@items, split(/,/, $item));
-    } else {
-      # Add single parameter
-      push(@items, $item);
-    }
-  }
-  foreach $item (@items) {
+  foreach my $item (@ignore_errors) {
+    die("ERROR: unknown argument for --ignore-errors: '$item'")
+      unless exists($ERROR_ID{lc($item)});
     my $item_id = $ERROR_ID{lc($item)};
-
-    if (!defined($item_id)) {
-      die("ERROR: unknown argument for --ignore-errors: ".
-        "$item\n");
-    }
     $ignore[$item_id] += 1;
   }
 }
 
+
+our %didwarning;
 
 sub ignorable_error($$;$) {
   my ($code, $msg, $quiet) = @_;
@@ -287,7 +281,9 @@ sub ignorable_error($$;$) {
     my $ignoreOpt = "\t(use \"$tool_name --ignore-errors $errName ...\" to bypass this error)\n";
     die_handler("Error: $msg\n$ignoreOpt");
   }
-  my $ignoreOpt = "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
+  # only tell the user how to suppress this on the first occurrence
+  my $ignoreOpt = exists($didwarning{$code}) ? "" : "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
+  $didwarning{$code} = 1;
   warn_handler("Warning: ($errName') $msg\n$ignoreOpt")
     unless $ignore[$code] > 1 || (defined($quiet) && $quiet);
 }
@@ -295,31 +291,19 @@ sub ignorable_error($$;$) {
 
 sub parse_cov_filters(@)
 {
-  my (@filters) = @_;
-  my @items;
-  my $item;
+  my @filters = split(',', join(',', @_));
 
   # first, mark that all known filters are disabled
-  foreach $item (keys(%COVERAGE_FILTERS)) {
+  foreach my $item (keys(%COVERAGE_FILTERS)) {
     my $id = $COVERAGE_FILTERS{$item};
     $cov_filter[$id] = undef;
   }
 
   return if (!@filters);
 
-  foreach $item (@filters) {
-    $item =~ s/\s//g;
-    if ($item =~ /,/) {
-      # Split and add comma-separated parameters
-      push(@items, split(/,/, $item));
-    } else {
-      # Add single parameter
-      push(@items, $item);
-    }
-  }
-  foreach $item (@items) {
-    exists($COVERAGE_FILTERS{lc($item)})
-      or die("ERROR: unknown argument for --filter: '$item'\n");
+  foreach my $item (@filters) {
+    die("ERROR: unknown argument for --filter: '$item'\n")
+      unless exists($COVERAGE_FILTERS{lc($item)});
     my $item_id = $COVERAGE_FILTERS{lc($item)};
 
     $cov_filter[$item_id] = [0, 0];
@@ -333,7 +317,7 @@ sub summarize_cov_filters {
     my $histogram = $lcovutil::cov_filter[$id];
     next if 0 == $histogram->[0];
     info("Filter suppressions '$key':\n    "
-         . $histogram->[0] . " line"
+         . $histogram->[0] . " instance"
          . ($histogram->[0] > 1 ? "s" : "") . "\n    "
          . $histogram->[1] . " coverpoint"
          . ($histogram->[1] > 1 ? "s" : "") . "\n");
@@ -806,14 +790,20 @@ sub append {
   }
 
   if (! $branchElem->hasBlock($block)) {
-    $branch == 0 or die("unexpected non-zero initial branch");
+    $branch == 0 or
+      lcovutil::ignorable_error($ERROR_BRANCH,
+                                "unexpected non-zero initial branch");
+    $branch = 0;
     my $l = $branchElem->addBlock($block);
     push(@$l, BranchBlock->new($branch, $br->data(), $br->expr()));
   } else {
     $block = $branchElem->getBlock($block);
 
-    die("unexpected non-sequential branch ID $branch for block $block of line $line: " . scalar(@$block) )
-      unless $branch <= scalar(@$block);
+    if ( $branch > scalar(@$block) ) {
+      lcovutil::ignorable_error($ERROR_BRANCH,
+                                "unexpected non-sequential branch ID $branch for block $block of line $line: " . scalar(@$block));
+      $branch = scalar(@$block);
+    }
 
     if (! exists($block->[$branch])) {
       $block->[$branch] = BranchBlock->new($branch,
@@ -1560,6 +1550,8 @@ sub _read_info {
   #   times in the same 'file' data (within an SF entry).
   my %branchRenumber; # line -> block -> branch -> branchentry
   my ($currentBranchLine, $skipBranch);
+  my %functionData; # "file:line" -> [file, line, count, {name -> count}]
+  my %functionAlias; # name -> functionDataElement
   while (<INFO_HANDLE>)
   {
     chomp($_);
@@ -1730,27 +1722,52 @@ sub _read_info {
       /^FN:(\d+),([^,]+)/ && do
       {
         last if (!$main::func_coverage);
-
         # Function data found, add to structure
-        $data->func()->replace($2, $1);
+        my $lineNo = $1;
+        my $fnName = $2;
 
-        # Also initialize function call data
-        $data->sumfnc()->append($2, 0);
-        $data->testfnc($testname)->append($2, 0)
-          if (defined($testname));
+        # want to keep a list of all the functions/all the function aliases
+        #  at a particular line in the file.  THey must all be the
+        #  same function - perhaps just templatized differently.
+        if (defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS])) {
+          !defined($functionAlias{$fnName})
+            or die("found duplicate function $fnName");
+          my $key = $filename . ':' . $lineNo;
+          $functionData{$key} = [$filename, $lineNo, 0, {}]
+            unless exists($functionData{$key});
+          my $data = $functionData{$key};
+          $data->[3]->{$fnName} = 0;
+          $functionAlias{$fnName} = $data;
+        } else {
+          $data->func()->replace($fnName, $lineNo);
+
+          # Also initialize function call data
+          $data->sumfnc()->append($fnName, 0);
+          $data->testfnc($testname)->append($fnName, 0)
+            if (defined($testname));
+        }
         last;
       };
 
       /^FNDA:(\d+),([^,]+)/ && do
       {
         last if (!$main::func_coverage);
-        # Function call count found, add to structure
-        # Add summary counts
-        $data->sumfnc()->append($2, $1);
+        my $fnName = $2;
+        my $hit = $1;
 
-        # Add test-specific counts
-        $data->testfnc($testname)->append($2, $1)
-          if (defined($testname));
+        if (defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS])) {
+          my $data = $functionAlias{$fnName};
+          $data->[2] += $hit;
+          $data->[3]->{$fnName} += $hit;
+        } else {
+          # Function call count found, add to structure
+          # Add summary counts
+          $data->sumfnc()->append($fnName, $hit);
+
+          # Add test-specific counts
+          $data->testfnc($testname)->append($fnName, $hit)
+            if (defined($testname));
+        }
         last;
       };
 
@@ -1858,12 +1875,36 @@ sub _read_info {
 
                   if (defined($testname)) {
                     #$testbrcount->{$line} .=  "$block,$branch,$taken:";
-                    $data->testbr($testname)->append($line, $block, $br);
+                    $data->testbr($testname)->append($line, $block, $b);
                   }
                   ++ $branchId;
                 }
               }
             }
+          } # end "if (! rtl)"
+          if (defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS])) {
+            my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS];
+            for my $key (keys(%functionData)) {
+              my ($fileName, $lineNo, $hit, $aliases) = @{$functionData{$key}};
+              ++$histogram->[0];
+              # pick the shortest name...
+              my $name = "";
+              my $len = 1000000;
+              foreach my $alias (keys(%$aliases)) {
+                ++$histogram->[1];
+                my $l = length($alias);
+                if ($l < $len) {
+                  $len = $l;
+                  $name = $alias;
+                }
+              }
+              $data->func()->replace($name, $lineNo);
+              $data->sumfnc()->append($name, $hit);
+              $data->testfnc($testname)->append($name, $hit)
+                if defined($testname);
+            }
+            %functionAlias = ();
+            %functionData = ();
           }
           # Store current section data
           if (defined($testname))

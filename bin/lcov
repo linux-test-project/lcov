@@ -84,6 +84,7 @@ use lcovutil qw ($tool_name $quiet
                  filterStringsAndComments simplifyCode balancedParens
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
+                 $ERROR_BRANCH
                  is_external $opt_external @internal_dirs
                  system_no_output
                  rate
@@ -116,10 +117,12 @@ our $BR_ADD = 1;
 lcovutil::define_errors(\%lcovutil::geninfoErrs);
 
 $lcovutil::ERROR_MISMATCH   = scalar(keys(%lcovutil::geninfoErrs));
-our $ERROR_EMPTY  = $ERROR_MISMATCH + 1;
+$lcovutil::ERROR_BRANCH     = $lcovutil::ERROR_MISMATCH + 1;
+$lcovutil::ERROR_EMPTY      = $lcovutil::ERROR_BRANCH + 1;
 our %lcovErrs = (
   "empty" => $ERROR_EMPTY,
   "mismatch" => $lcovutil::ERROR_MISMATCH,
+  "branch"   => $lcovutil::ERROR_BRANCH,
 );
 lcovutil::define_errors(\%lcovErrs);
 

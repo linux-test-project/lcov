@@ -1,4 +1,4 @@
-.TH genhtml 1 "LCOV 1.14" 2018\-01\-30 "User Manuals"
+.TH genhtml 1 "LCOV 1.15" 2019\-03\-04 "User Manuals"
 .SH NAME
 genhtml \- Generate HTML differential coverage view from LCOV coverage data files
 .SH SYNOPSIS
@@ -421,6 +421,12 @@ is used.
 .B line:
 ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceeding line has the same count or if the close brace has a zero count and either the preceding line has a non-zero count or the close brace is not the body of a conditional.
 These lines seem to appear and disappear in gcov output - and cause differential coverage to report bogus LBC and/or GIC and/or UIC counts.  Bogus LBC or UIC counts are a problem because an automated regression which uses pass criteria "LBC + UIC + UNC == 0" will fail.
+
+.B function:
+combine data for every "unique" function which is defined at the same file/line.
+.I geninfo/gcov
+seem to have a bug such that they create multiple entries for the same function.
+This feature also merges all instances of the same template function/template method.
 
 .RE
 .BI "\-o " output\-directory

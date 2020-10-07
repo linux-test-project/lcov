@@ -49,8 +49,8 @@ ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS='--rc lcov_branch_coverage=1'
-#DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT"
-DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
+DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT"
+#DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt 
