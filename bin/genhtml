@@ -319,23 +319,6 @@ our %tlaToTitle = (
     "DCB" => "Deleted Covered Baseline",
     );
 
-our %tlaColor = (
-    "UBC" => "#FDE007",
-    "GBC" => "#448844",
-    "LBC" => "#CC6666",
-    "CBC" => "#CAD7FE",
-    "GNC" => "#B5F7AF",
-    "UNC" => "#FF6230",
-    "ECB" => "#CC66FF",
-    "EUB" => "#DDDDDD",
-    "GIC" => "#30CC37",
-    "UIC" => "#EEAA30",
-    # we don't actually use a color for deleted code.
-    #  ... it is deleted.  Does not appear
-    "DUB" => "#FFFFFF",
-    "DCB" => "#FFFFFF",
-    );
-
 our @defaultCutpoints = ( 7, 30, 180 );
 our @cutpoints;
 our @ageGroupHeader;
@@ -2519,26 +2502,30 @@ sub _countBranchTlaData {
   my $differentialData = $lineData->differential_branch();
 
   my %foundBranchTlas;
-  my ($src_age, $developer);
-  my $srcLine = $self->line($line);
-  if (! defined($srcLine)) {
-    lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
-                              "no data for 'branch' line:$line, file:"
-                              . $self->path());
-  } else {
-    # if this line is not in the project (e.g., from some 3rd party
-    #   library - then we might not have file history for it.
-    $src_age = $srcLine->age();
-    $developer = $srcLine->owner();
-    $srcLine->branchElem($differentialData);
+  my ($src_age, $developer, $srcLine);
+  my $lineTla = $lineData->tla();
+  if ('D' ne substr($lineTla,0,1)) {
+    # deleted lines don't have owner data...
+    $srcLine = $self->line($line);
+    if (! defined($srcLine)) {
+      lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+                                "no data for 'branch' line:$line, file:"
+                                . $self->path());
+    } else {
+      # if this line is not in the project (e.g., from some 3rd party
+      #   library - then we might not have file history for it.
+      $src_age = $srcLine->age();
+      $developer = $srcLine->owner();
+      $srcLine->branchElem($differentialData);
 
-    if (defined($developer)) {
-      my $shash = $self->{_owners_branch};
-      if (! exists($shash->{$developer})) {
-        $shash->{$developer} = {};
-        $shash->{$developer}->{lines} = [];
+      if (defined($developer)) {
+        my $shash = $self->{_owners_branch};
+        if (! exists($shash->{$developer})) {
+          $shash->{$developer} = {};
+          $shash->{$developer}->{lines} = [];
+        }
+        push(@{$shash->{$developer}->{lines}}, $line);
       }
-      push(@{$shash->{$developer}->{lines}}, $line);
     }
   }
 
@@ -2724,6 +2711,8 @@ sub isProjectFile {
 sub line {
   my $self = shift;
   my $i = shift;
+  die("bad line index '$i'")
+    unless ( $i =~ /^[0-9]+$/ );
   return ${$self->{_lines}}[$i - 1];
 }
 
@@ -3472,15 +3461,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
   if (! $show_tla ||
       (defined($show_simplifiedColors) &&
        $show_simplifiedColors)) {
-    for my $tla (('CBC', 'GNC', 'GIC', 'GBC')) {
-      $SummaryInfo::tlaColor{$tla} = "#CAD7FE";
-    }
-    for my $tla (('UBC', 'UNC', 'UIC', 'LBC')) {
-      $SummaryInfo::tlaColor{$tla} = "#FF6230";
-    }
-    for my $tla (('EUB', 'ECB')) {
-      $SummaryInfo::tlaColor{$tla} = "#FFFFFF";
-    }
+    lcovutil::use_vanilla_color();
   }
 }
 
@@ -5406,7 +5387,7 @@ END_OF_CSS
   # 'span' tags for all the TLA's
   foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
     my $title = $SummaryInfo::tlaToTitle{$tla};
-    my $color = $SummaryInfo::tlaColor{$tla};
+    my $color = $lcovutil::tlaColor{$tla};
     foreach my $elem ("td", "span") {
       my $align = $elem eq 'td' ? "right" : "left";
       $css_data .= ($_=<<"END_OF_SPAN")
@@ -5994,7 +5975,7 @@ END_OF_HTML
               die("unexpected page detail type '$page_type'");
             }
             $title .= "in $filename\"";
-            my $color = $class eq "tla$key" ? "style=\"background-color:$SummaryInfo::tlaColor{$key}\" " : "";
+            my $color = $class eq "tla$key" ? "style=\"background-color:$lcovutil::tlaColor{$key}\" " : "";
             if (defined($line)) {
               my $href = $tableHref;
               $href =~ s/__LINE__/$line/;
@@ -6051,8 +6032,8 @@ END_OF_HTML
     write_html($handle, "    <td class=\"testPer\">$rate</td>\n");
     if ($covtype ne 'function') {
       write_html($handle, <<END_OF_HTML);
-              <td class="testNum">$hit</td>
               <td class='testNum'>$found</td>
+              <td class="testNum">$hit</td>
 END_OF_HTML
       if ($main::show_tla) {
         foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
@@ -6063,7 +6044,7 @@ END_OF_HTML
       }
     } else {
       write_html($handle,
-                "    <td class=\"testNum\">$hit&nbsp;/&nbsp;$found</td>\n");
+                "    <td class=\"testNum\">$found&nbsp;/&nbsp;$hit</td>\n");
     }
   }
   write_html($handle, "    </tr>\n");
@@ -6420,7 +6401,7 @@ sub get_branch_html($$)
           my $next = $fileDetail->nextBranchTlaGroup($tla, $line);
 
           $href = "<a href=\"#" . (defined($next) ? $next : 'top')
-                . "\" style=\"background-color:$SummaryInfo::tlaColor{$tla}\" title=\"TITLE\">$char</a>";
+                . "\" style=\"background-color:$lcovutil::tlaColor{$tla}\" title=\"TITLE\">$char</a>";
           $tlaLinks{$tla} = $href;
         }
         $href =~ s#TITLE#$title#;
@@ -6540,8 +6521,9 @@ sub write_source_line(*$$$$)
             $tlaIsHref = 1;
             # if no next segment in this category - then go to top to page.
             $next = 'top' if (!defined($next));
-            my $color =
-                " style=\"background-color:$SummaryInfo::tlaColor{$bucket}\"";
+            my $color = ($tla ne 'UNK'
+			 ? " style=\"background-color:$lcovutil::tlaColor{$bucket}\""
+			 : '');
             my $popup = "title=\"Next $bucket group\"";
             $tla = "<a href=\"#$next\"$color$popup>$tla</a>";
         }
@@ -6613,7 +6595,7 @@ sub write_source_line(*$$$$)
         # probably want to pick a color based on which
         #   date bin it is in.
         # right now, picking based on TLA.
-        $bgcolor = " style=\"background-color:$SummaryInfo::tlaColor{$bucket}\""
+        $bgcolor = " style=\"background-color:$lcovutil::tlaColor{$bucket}\""
           if (defined($bucket) && $bucket ne "EUB" && $bucket ne "ECB");
 
         #$html .= "<span class=\"missBins\">";

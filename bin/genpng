@@ -34,7 +34,10 @@ use warnings;
 use File::Basename;
 use Getopt::Long;
 use Cwd qw/abs_path/;
+use FindBin;
 
+use lib "$FindBin::Bin/../lib";
+use lcovutil qw (%tlaColor %tlaTextColor);
 
 # Constants
 our $tool_dir		= abs_path(dirname($0));
@@ -251,26 +254,10 @@ sub gen_png($$$$@)
 				# covered (count == 0)
 	my $col_hi_back;	# Color for background of highlighted lines
 	my $col_hi_text;	# Color for text of highlighted lines
-	my $col_ECB_back;	# Color for background of highlighted lost lines
-	my $col_ECB_text;	# Color for text of highlighted lost lines
-	my $col_EUB_back;	# Color for background of highlighted gain lines
-	my $col_EUB_text;	# Color for text of highlighted gain lines
-	my $col_GIC_back;	# Color for background of highlighted lost lines
-	my $col_GIC_text;	# Color for text of highlighted lost lines
-	my $col_UIC_back;	# Color for background of highlighted gain lines
-	my $col_UIC_text;	# Color for text of highlighted gain lines
-	my $col_CBC_back;	# Color for background of highlighted lost lines
-	my $col_CBC_text;	# Color for text of highlighted lost lines
-	my $col_LBC_back;	# Color for background of highlighted gain lines
-	my $col_LBC_text;	# Color for text of highlighted gain lines
-	my $col_GBC_back;	# Color for background of highlighted lost lines
-	my $col_GBC_text;	# Color for text of highlighted lost lines
-	my $col_UBC_back;	# Color for background of highlighted gain lines
-	my $col_UBC_text;	# Color for text of highlighted gain lines
-	my $col_GNC_back;	# Color for background of highlighted lost lines
-	my $col_GNC_text;	# Color for text of highlighted lost lines
-	my $col_UNC_back;	# Color for background of highlighted gain lines
-	my $col_UNC_text;	# Color for text of highlighted gain lines
+
+	my %col_tla_back;       # Color for background of TLA lines
+	my %col_tla_text;       # Color for text of TLA lines
+
 	my $line;		# Current line during iteration
 	my $row = 0;		# Current row number during iteration
 	my $column;		# Current column number during iteration
@@ -303,67 +290,36 @@ sub gen_png($$$$@)
 	$col_hi_back = $overview->colorAllocate(0x00, 0xff, 0x00);
 	$col_hi_text = $overview->colorAllocate(0x00, 0xaa, 0x00);
 
-	if ($show_tla) {
-	  $col_GBC_back = $overview->colorAllocate(0x44, 0x88, 0x44);
-	  $col_GBC_text = $overview->colorAllocate(0x33, 0x66, 0x33);
+	foreach my $tla (keys(%lcovutil::tlaColor)) {
+	  next if 'D' eq substr($tla,0,1); # skip deleted TLAs..they don't apper
 
-	  $col_CBC_back = $overview->colorAllocate(0xca, 0xd7, 0xfe);
-	  $col_CBC_text = $overview->colorAllocate(0x98, 0xa0, 0xaa);
+	  if ($show_tla) {
+	    my $text = $tlaTextColor{$tla};
+	    my $back = $tlaColor{$tla};
+	    $text =~ s/^#/0x/;
+	    $back =~ s/^#/0x/;
+	    $text = hex($text);
+	    $back = hex($back);
 
-	  $col_GNC_back = $overview->colorAllocate(0xb5, 0xf7, 0xaf);
-	  $col_GNC_text = $overview->colorAllocate(0x90, 0xa3, 0x80);
-
-	  $col_GIC_back = $overview->colorAllocate(0x30, 0xcc, 0x37);
-	  $col_GIC_text = $overview->colorAllocate(0x18, 0x66, 0x1c);
-
-	  $col_UBC_back = $overview->colorAllocate(0xfd, 0xe0, 0x07);
-	  $col_UBC_text = $overview->colorAllocate(0xaa, 0xa0, 0x05);
-
-	  $col_LBC_back = $overview->colorAllocate(0xcc, 0x66, 0x66);
-	  $col_LBC_text = $overview->colorAllocate(0x99, 0x44, 0x44);
-
-	  $col_UNC_back = $overview->colorAllocate(0xff, 0x62, 0x30);
-	  $col_UNC_text = $overview->colorAllocate(0xaa, 0x40, 0x20);
-
-	  $col_UIC_back = $overview->colorAllocate(0xee, 0xaa, 0x30);
-	  $col_UIC_text = $overview->colorAllocate(0xaa, 0x77, 0x18);
-
-	  $col_ECB_back = $overview->colorAllocate(0xcc, 0x66, 0xff);
-	  $col_ECB_text = $overview->colorAllocate(0x66, 0x33, 0x88);
-
-	  $col_EUB_back = $overview->colorAllocate(0xdd, 0xdd, 0xdd);
-	  $col_EUB_text = $overview->colorAllocate(0x77, 0x77, 0x77);
-	} else {
-	  # no differential categories - use vanilla color
-	  $col_GBC_back = $col_cov_back;
-	  $col_GBC_text = $col_cov_text;
-
-	  $col_CBC_back = $col_cov_back;
-	  $col_CBC_text = $col_cov_text;
-
-	  $col_GNC_back = $col_cov_back;
-	  $col_GNC_text = $col_cov_text;
-
-	  $col_GIC_back = $col_cov_back;
-	  $col_GIC_text = $col_cov_text;
-
-	  $col_UBC_back = $col_nocov_back;
-	  $col_UBC_text = $col_nocov_text;
-
-	  $col_LBC_back = $col_nocov_back;
-	  $col_LBC_text = $col_nocov_text;
-
-	  $col_UNC_back = $col_nocov_back;
-	  $col_UNC_text = $col_nocov_text;
-
-	  $col_UIC_back = $col_nocov_back;
-	  $col_UIC_text = $col_nocov_text;
-
-	  $col_ECB_back = $col_plain_back;
-	  $col_ECB_text = $col_plain_text;
-
-	  $col_EUB_back = $col_plain_back;
-	  $col_EUB_text = $col_plain_text;
+	    $col_tla_back{$tla} = $overview->colorAllocate($back >> 16,
+							   ($back >> 8) & 0xFF,
+							   $back & 0xFF);
+	    $col_tla_text{$tla} =  $overview->colorAllocate($text >> 16,
+							   ($text >> 8) & 0xFF,
+							   $text & 0xFF);
+	  } else {
+	    # no differential categories...use vanilla colors
+	    if (grep(/^$tla$/, ("GBC", "CBC", "GIC", "GNC"))) {
+	      $col_tla_back{$tla} = $col_cov_back;
+	      $col_tla_text{$tla} = $col_cov_text;
+	    } elsif (grep(/^$tla$/, ("ECB", "EUB"))) {
+	      $col_tla_back{$tla} = $col_plain_back;
+	      $col_tla_text{$tla} = $col_plain_text;
+	    } else {
+	      $col_tla_back{$tla} = $col_nocov_back;
+	      $col_tla_text{$tla} = $col_nocov_text;
+	    }
+	  }
 	}
 	# Visualize each line
 	foreach $line (@source)
@@ -385,6 +341,7 @@ sub gen_png($$$$@)
 		$source = $3;
 
 		# Decide which color pair to use
+		my $tla = undef;
 
 		# If this line was not instrumented but the one before was,
 		# take the color of that line to widen color areas in
@@ -404,47 +361,43 @@ sub gen_png($$$$@)
 		}
 		elsif ($tag eq "-")
 		{
-			# Line was highlighted
-			$color_text = ($count > 0) ? $col_GBC_text : $col_UBC_text;
-			$color_back = ($count > 0) ? $col_GBC_back : $col_UBC_back;
+		  # Line was highlighted
+		  $tla = ($count > 0) ? 'GBC' : 'UBC';
 		}
 		elsif ($tag eq "*")
 		{
-			# Line was highlighted
-			$color_text = $col_GBC_text;
-			$color_back = $col_GBC_back;
+		  # Line was highlighted
+		  $tla = 'GBC';
 		}
 		elsif ($tag eq "+")
 		{
-			# Line was highlighted
-			$color_text = ($count > 0) ? $col_GNC_text : $col_UNC_text;
-			$color_back = ($count > 0) ? $col_GNC_back : $col_UNC_back;
+		  # Line was highlighted
+		  $tla = ($count > 0) ? 'GNC' : 'UNC';
 		}
 		elsif ($tag eq "<")
 		{
-			# Line was highlighted
-			$color_text = ($count > 0) ? $col_ECB_text : $col_EUB_text;
-			$color_back = ($count > 0) ? $col_ECB_back : $col_EUB_back;
+		  # Line was highlighted
+		  $tla = ($count > 0) ? 'ECB' : 'EUB';
 		}
 		elsif ($tag eq ">")
 		{
-			# Line was highlighted
-			$color_text = ($count > 0) ? $col_GIC_text : $col_UIC_text;
-			$color_back = ($count > 0) ? $col_GIC_back : $col_UIC_back;
+		  # Line was highlighted
+		  $tla = ($count > 0) ? 'ECB' : 'EUB';
 		}
 		elsif ($count == 0)
 		{
-			# Line was instrumented but not executed
-			$color_text = $col_LBC_text;
-			$color_back = $col_LBC_back;
+		  # Line was instrumented but not executed
+		  $tla = 'LBC';
 		}
 		else
 		{
-			# Line was instrumented and executed
-			$color_text = $col_CBC_text;
-			$color_back = $col_CBC_back;
+		  # Line was instrumented and executed
+		  $tla = 'CBC';
 		}
-
+		if (defined($tla)) {
+		  $color_text = $col_tla_text{$tla};
+		  $color_back = $col_tla_back{$tla};
+		}
 		# Write one pixel for each source character
 		$column = 0;
 		foreach (split("", $source))

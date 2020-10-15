@@ -35,6 +35,7 @@ sub check_file($)
 			next if ($line !~ /^\s*use\s+(\S+).*;\s*$/);
 
 			$module = $1;
+			next if $module eq 'lcovutil';
 			print("Checking for $module\n") if ($verbose);
 			if (!eval("require $module")) {
 				warn("Error: Missing Perl module '$module' ".

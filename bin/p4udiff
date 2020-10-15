@@ -122,7 +122,25 @@ my $curr_changelist = shift @ARGV;
 my $base_files = P4FileList->new();
 my $curr_files = P4FileList->new();
 
-if (open(HANDLE, "-|", "p4 files $depot_path/...\@$base_changelist")) {
+# need "/..." on the pathname if this is a directory.
+#  - depot_path may not be the same as the client workspace path.
+#  - If the name is local, then append if it is a directory - otherwise, ask P4
+# Don't go to P4 unless necessary - as the interatction is pretty slow.
+
+# Ask the Perforce server to lookup the path and append a directory recursion
+# pattern if the depot_path is not a file_type.
+my $p4_path = $depot_path;
+if ( -e $p4_path) {
+  $p4_path .= "/..."
+    if (-d $p4_path);
+} else {
+  system("p4 fstat $depot_path|grep depotFile >/dev/null 2>&1");
+  if (($? >> 8) != 0) {
+    $p4_path .= "/..."
+  }
+}
+
+if (open(HANDLE, "-|", "p4 files ${p4_path}\@$base_changelist")) {
   while (my $line = <HANDLE>) {
     chomp $line;
     s/\015$//;
@@ -132,7 +150,7 @@ if (open(HANDLE, "-|", "p4 files $depot_path/...\@$base_changelist")) {
   close(HANDLE);
 }
 
-if (open(HANDLE, "-|", "p4 files $depot_path/...\@$curr_changelist")) {
+if (open(HANDLE, "-|", "p4 files ${p4_path}\@$curr_changelist")) {
   while (my $line = <HANDLE>) {
     chomp $line;
     s/\015$//;
@@ -250,9 +268,9 @@ foreach my $f (sort keys %union) {
     while (my $line = <HANDLE>) {
       chomp $line;
       if ($line =~ m/^(---|\+\+\+)/) {
-	$line =~ s/^(---\s+\S+).*$/$1/;
-	$line =~ s/^(\+\+\+\s+\S+).*$/$1/;
-	$line = reloc($line);
+        $line =~ s/^(---\s+\S+).*$/$1/;
+        $line =~ s/^(\+\+\+\s+\S+).*$/$1/;
+        $line = reloc($line);
       }
       printf("%s\n", $line);
     }

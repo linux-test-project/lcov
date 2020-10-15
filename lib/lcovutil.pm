@@ -23,12 +23,14 @@ our @EXPORT_OK =
      filterStringsAndComments simplifyCode balancedParens
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
-     $ERROR_BRANCH
+     $ERROR_BRANCH $ERROR_EMPTY
 
      is_external @internal_dirs $opt_external
      rate $default_precision check_precision
 
      system_no_output
+
+     %tlaColor %tlaTextColor use_vanilla_color
 );
 
 our @ignore;
@@ -47,6 +49,7 @@ our $ERROR_SOURCE       = 1;
 our $ERROR_GRAPH        = 2;
 our $ERROR_MISMATCH     = 3;
 our $ERROR_BRANCH       = 4; # branch numbering is not correct
+our $ERROR_EMPTY        = 10; # no records found in info file
 our %geninfoErrs = (
     "gcov" => $ERROR_GCOV,
     "source" => $ERROR_SOURCE,
@@ -85,6 +88,40 @@ our @cov_filter;        # 'undef' if filter is not enabled,
                         #   filter is enabled: nubmer of applications
                         #   of this filter
 
+
+our %tlaColor = (
+    "UBC" => "#FDE007",
+    "GBC" => "#448844",
+    "LBC" => "#CC6666",
+    "CBC" => "#CAD7FE",
+    "GNC" => "#B5F7AF",
+    "UNC" => "#FF6230",
+    "ECB" => "#CC66FF",
+    "EUB" => "#DDDDDD",
+    "GIC" => "#30CC37",
+    "UIC" => "#EEAA30",
+    # we don't actually use a color for deleted code.
+    #  ... it is deleted.  Does not appear
+    "DUB" => "#FFFFFF",
+    "DCB" => "#FFFFFF",
+    );
+# colors for the text in the PNG image of the corresponding TLA line
+our %tlaTextColor = (
+    "UBC" => "#aaa005",
+    "GBC" => "#336633",
+    "LBC" => "#994444",
+    "CBC" => "#98a0aa",
+    "GNC" => "#90a380",
+    "UNC" => "#aa4020",
+    "ECB" => "#663388",
+    "EUB" => "#777777",
+    "GIC" => "#18661c",
+    "UIC" => "#aa7718",
+    # we don't actually use a color for deleted code.
+    #  ... it is deleted.  Does not appear
+    "DUB" => "#FFFFFF",
+    "DCB" => "#FFFFFF",
+  );
 
 sub set_tool_name($) {
   $tool_name = shift;
@@ -445,6 +482,22 @@ sub check_precision() {
     if ($default_precision < 1 || $default_precision > 4);
 }
 
+# use vanilla color palette.
+sub use_vanilla_color()
+{
+  for my $tla (('CBC', 'GNC', 'GIC', 'GBC')) {
+    $lcovutil::tlaColor{$tla} = "#CAD7FE";
+    $lcovutil::tlaTextColor{$tla} = "#98A0AA";
+  }
+  for my $tla (('UBC', 'UNC', 'UIC', 'LBC')) {
+    $lcovutil::tlaColor{$tla} = "#FF6230";
+    $lcovutil::tlaTextColor{$tla} = "#AA4020";
+  }
+  for my $tla (('EUB', 'ECB')) {
+    $lcovutil::tlaColor{$tla} = "#FFFFFF";
+    $lcovutil::tlaTextColor{$tla} = "#AAAAAA";
+  }
+}
 
 package MapData;
 
@@ -1564,9 +1617,10 @@ sub _read_info {
       {
         # Test name information found
         $testname = defined($1) ? $1 : "";
+        my $orig = $testname;
         if ($testname =~ s/\W/_/g)
         {
-          $changed_testname = 1;
+          $changed_testname = $orig;
         }
         $testname .= $2 if (defined($2));
         last;
@@ -1988,24 +2042,25 @@ sub _read_info {
 
   if (scalar(keys(%{$self->{_data}})) == 0)
   {
-    die("ERROR: no valid records found in tracefile $tracefile\n");
+    ignorable_error($lcovutil::ERROR_EMPTY,
+                    "no valid records found in tracefile $tracefile\n");
   }
   if ($negative)
   {
     warn("WARNING: negative counts found in tracefile ".
          "$tracefile\n");
   }
-  if ($changed_testname)
+  if (defined($changed_testname))
   {
     warn("WARNING: invalid characters removed from testname in ".
-         "tracefile $tracefile\n");
+         "tracefile $tracefile: '$changed_testname'->'$testname'\n");
   }
 }
 
 #
 # write data in .info format
 #
-sub write_info($$) {
+sub write_info($$$) {
   my $self = $_[0];
   local *INFO_HANDLE = $_[1];
   my $checksum = defined($_[2]) ? $_[2] : 0;
@@ -2104,8 +2159,11 @@ sub write_info($$) {
           foreach my $br (@$blockData) {
             my $taken = $br->data();
             my $branch_id = $br->id();
+            my $branch_expr = $br->expr();
+            # mostly for Verilog:  if there is a branch expression: use it.
             printf(INFO_HANDLE "BRDA:%u,%u,%s,%s\n",
-                   $line,$block_id,$branch_id,$taken);
+                   $line, $block_id,
+                   defined($branch_expr) ? $branch_expr : $branch_id, $taken);
             $br_found++;
             $br_hit++
               if ($taken ne '-' && $taken > 0);
