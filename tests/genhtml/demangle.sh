@@ -36,7 +36,7 @@ EOF
 }
 
 function run() {
-        local CMDLINE="${GENHTML} --ignore unmapped,unmapped ${INFO} -o ${OUTDIR} $*"
+        local CMDLINE="${GENHTML} --ignore unmapped,unmapped,category,category ${INFO} -o ${OUTDIR} $*"
 
         rm -rf "${OUTDIR}"
 

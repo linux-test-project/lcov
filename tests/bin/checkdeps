@@ -27,7 +27,8 @@ sub check_file($)
 	open($fd, "<", $file) or die("Could not open $file: $!\n");
 	$line = <$fd>;
 
-	if ($line =~ /^#.*perl/) {
+	if (defined($line) &&
+	    $line =~ /^#.*perl/) {
 		while ($line = <$fd>) {
 			my $module;
 

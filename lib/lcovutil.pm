@@ -15,6 +15,7 @@ our @EXPORT_OK =
      define_errors parse_ignore_errors ignorable_error info
      die_handler warn_handler abort_handler
 
+     $cpp_demangle
      verbose debug $debug $verbose
 
      $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE $FILTER_FUNCTION_ALIAS
@@ -23,10 +24,10 @@ our @EXPORT_OK =
      filterStringsAndComments simplifyCode balancedParens
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
-     $ERROR_BRANCH $ERROR_EMPTY
+     $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT
 
      is_external @internal_dirs $opt_external
-     rate $default_precision check_precision
+     rate get_overall_line $default_precision check_precision
 
      system_no_output
 
@@ -47,18 +48,23 @@ our $verbose = 0;  # if set, enable additional logging
 our $ERROR_GCOV         = 0;
 our $ERROR_SOURCE       = 1;
 our $ERROR_GRAPH        = 2;
-our $ERROR_MISMATCH     = 3;
-our $ERROR_BRANCH       = 4; # branch numbering is not correct
+our $ERROR_FORMAT       = 3; # bad record in .info file
+our $ERROR_MISMATCH     = 4;
+our $ERROR_BRANCH       = 5; # branch numbering is not correct
 our $ERROR_EMPTY        = 10; # no records found in info file
 our %geninfoErrs = (
     "gcov" => $ERROR_GCOV,
     "source" => $ERROR_SOURCE,
     "graph" => $ERROR_GRAPH,
+    "format" => $ERROR_FORMAT,
 );
 
 # for external file filtering
 our @internal_dirs;
 our $opt_external;
+
+# C++ demangling
+our $cpp_demangle;
 
 # Specify coverage rate default precision
 our $default_precision = 1;
@@ -312,7 +318,9 @@ our %didwarning;
 sub ignorable_error($$;$) {
   my ($code, $msg, $quiet) = @_;
 
-  my $errName = $ERROR_NAME{$code};
+  my $errName = "code_$code";
+  $errName = $ERROR_NAME{$code}
+    if exists($ERROR_NAME{$code});
   if ($code >= scalar(@ignore) ||
       ! $ignore[$code] ) {
     my $ignoreOpt = "\t(use \"$tool_name --ignore-errors $errName ...\" to bypass this error)\n";
@@ -476,6 +484,25 @@ sub rate($$;$$$)
         return sprintf("%*s", $width, $rate.$suffix);
 }
 
+#
+# get_overall_line(found, hit, type)
+#
+# Return a string containing overall information for the specified
+# found/hit data.
+#
+
+sub get_overall_line($$$)
+{
+  my ($found, $hit, $name) = @_;
+  return "no data found" if (!defined($found) || $found == 0);
+
+  my $plural =
+    ($found == 1) ? "" : (('ch' eq substr($name, -2, 2)) ? 'es' : 's');
+
+  return rate($hit, $found, "% ($hit of $found $name$plural)");
+}
+
+
 # Make sure precision is within valid range [1:4]
 sub check_precision() {
   die("ERROR: specified precision is out of range (1 to 4)\n")
@@ -506,9 +533,6 @@ sub new {
   my $self = {};
   bless $self, $class;
 
-  $self->{_data} = {};
-  $self->{_modified} = 0;
-
   return $self;
 }
 
@@ -517,10 +541,9 @@ sub append_if_unset {
   my $key = shift;
   my $data = shift;
 
-  if (!defined($self->{_data}->{$key})) {
-    $self->{_data}->{$key} = $data;
+  if (!defined($self->{$key})) {
+    $self->{$key} = $data;
   }
-
   return $self;
 }
 
@@ -529,7 +552,7 @@ sub replace {
   my $key = shift;
   my $data = shift;
 
-  $self->{_data}->{$key} = $data;
+  $self->{$key} = $data;
 
   return $self;
 }
@@ -538,19 +561,18 @@ sub value {
   my $self = shift;
   my $key = shift;
 
-  if (!defined($self->{_data}->{$key})) {
+  if (!defined($self->{$key})) {
     return undef;
   }
 
-  return $self->{_data}->{$key};
+  return $self->{$key};
 }
 
 sub remove {
   my $self = shift;
   my $key = shift;
 
-  delete $self->{_data}->{$key};
-  $self->{_modified} = 1;
+  delete $self->{$key};
   return $self;
 }
 
@@ -558,17 +580,17 @@ sub mapped {
   my $self = shift;
   my $key = shift;
 
-  return defined($self->{_data}->{$key}) ? 1 : 0;
+  return defined($self->{$key}) ? 1 : 0;
 }
 
 sub keylist {
   my $self = shift;
-  return keys(%{$self->{_data}});
+  return keys(%$self);
 }
 
 sub entries {
   my $self = shift;
-  return scalar(keys(%{$self->{_data}}));
+  return scalar(keys(%$self));
 }
 
 sub _summary {
@@ -593,7 +615,6 @@ sub new {
   $self->{_sortable} = $sortable;
   $self->{_found} = 0;
   $self->{_hit} = 0;
-  $self->{_modified} = 0;
 
   return $self;
 }
@@ -604,10 +625,15 @@ sub append {
   my $count = shift;
 
   if (!defined($self->{_data}->{$key})) {
-    $self->{_data}->{$key} = 0;
+    $self->{_data}->{$key} = $count;
+    ++$self->{_found};
+    ++$self->{_hit} if ($count > 0);
+  } else {
+    my $current = $self->{_data}->{$key};
+    ++ $self->{_hit} if ($count > 0 &&
+                         $current == 0);
+    $self->{_data}->{$key} = $count + $current;
   }
-  $self->{_data}->{$key} += $count;
-  $self->{_modified} = 1;
   return $self;
 }
 
@@ -625,39 +651,33 @@ sub remove {
   my $self = shift;
   my $key = shift;
 
+  die("$key not found")
+    unless exists($self->{_data}->{$key});
+  -- $self->{_found};
+  -- $self->{_hit}
+    if ($self->{_data}->{$key} > 0);
+
   delete $self->{_data}->{$key};
-  $self->{_modified} = 1;
+
   return $self;
 }
 
 sub _summary {
   my $self = shift;
 
-  if (!$self->{_modified}) {
-    return $self;
-  }
-
-  $self->{_found} = 0;
-  $self->{_hit} = 0;
-  foreach my $key ($self->keylist()) {
-    my $count = $self->{_data}->{$key};
-    $self->{_found}++;
-    $self->{_hit}++ if ($count > 0);
-  }
-  $self->{_modified} = 0;
   return $self;
 }
 
 sub found {
   my $self = shift;
 
-  return $self->_summary()->{_found};
+  return $self->{_found};
 }
 
 sub hit {
   my $self = shift;
 
-  return $self->_summary()->{_hit};
+  return $self->{_hit};
 }
 
 sub keylist {
@@ -799,6 +819,278 @@ sub addBlock {
   return $blockData;
 }
 
+
+package FunctionEntry;
+  # keep track of all the functions/all the function aliases
+  #  at a particular line in the file.  THey must all be the
+  #  same function - perhaps just templatized differently.
+
+sub new {
+  my ($class, $name, $filename, $startLine, $endLine) = @_;
+  my %aliases = ( $name => 0 ); # not hit, yet
+  my $self = [$name, \%aliases, $filename, $startLine, 0];
+
+  bless $self, $class;
+  return $self;
+}
+
+sub name {
+  my $self = shift;
+  return $self->[0];
+}
+
+sub hit {
+  my $self = shift;
+  return $self->[4];
+}
+
+sub count {
+  my ($self, $alias, $merged) = @_;
+
+  exists($self->aliases()->{$alias}) or
+    die("$alias is not an alias of " . $self->name());
+
+  return $self->[4]
+    if (defined($merged) && $merged);
+
+  return $self->aliases()->{$alias};
+}
+
+sub aliases {
+  my $self = shift;
+  return $self->[1];
+}
+
+sub numAliases {
+  my $self = shift;
+  return scalar(keys %{$self->[1]});
+}
+
+sub file {
+  my $self = shift;
+  return $self->[2];
+}
+
+sub line {
+  my $self = shift;
+  return $self->[3];
+}
+
+sub addAlias {
+  my ($self, $name, $count) = @_;
+
+  if (exists($self->[1]->{$name})) {
+    $self->[1]->{$name} += $count;
+  } else {
+    $self->[1]->{$name} = $count;
+    # keep track of the shortest name as the function represntative
+    my $curlen = length($self->[0]);
+    my $len = length($name);
+    $self->[0] = $name
+      if ($len < $curlen);
+  }
+  $self->[4] += $count;
+}
+
+sub merge {
+  my ($self, $that) = @_;
+
+  foreach my $name (keys(%{$that->[1]})) {
+    $self->addAlias($name, $that->[1]->{$name});
+  }
+}
+
+sub addAliasDifferential {
+  my ($self, $name, $data) = @_;
+  die("alias $name exists")
+    if exists($self->[1]->{$name}) && $name ne $self->name();
+  die("expected array")
+    unless ref($data) eq "ARRAY" && 2 == scalar(@$data);
+  $self->[1]->{$name} = $data;
+}
+
+sub setCountDifferential {
+  my ($self, $data) = @_;
+  die("expected array")
+    unless ref($data) eq "ARRAY" && 2 == scalar(@$data);
+  $self->[4] = $data;
+}
+
+package FunctionMap;
+
+sub new {
+  my $class = shift;
+  my $self = [{}, {}];
+  bless $self, $class;
+}
+
+sub keylist {
+  # return list of file:lineNo keys..
+  my $self = shift;
+  return keys(%{$self->[0]})
+}
+
+sub list_functions {
+  # return list of all the functions/function aliases that we know about
+  my $self = shift;
+  return keys(%{$self->[1]})
+}
+
+sub define_function {
+  my ($self, $fnName, $filename, $lineNo) = @_;
+
+  my ($locationMap, $nameMap) = @$self;
+
+  my $key = $filename . ":" . $lineNo;
+  my $data;
+  if (exists($locationMap->{$key})) {
+    $data = $locationMap->{$key};
+  } else {
+    $data = FunctionEntry->new($fnName, $filename, $lineNo);
+    $locationMap->{$key} = $data;
+  }
+  if (! exists($nameMap->{$fnName})) {
+    $nameMap->{$fnName} = $data;
+    $data->addAlias($fnName, 0);
+  }
+  return $data;
+}
+
+sub findName {
+  my ($self, $name) = @_;
+  my $nameMap = $self->[1];
+  return exists($nameMap->{$name}) ? $nameMap->{$name} : undef;
+}
+
+sub findKey {
+  my ($self, $key) = @_;
+  my $locationMap = $self->[0];
+  return exists($locationMap->{$key}) ? $locationMap->{$key} : undef;
+}
+
+sub numFunc {
+  my ($self, $merged) = @_;
+
+  if (defined($merged) && $merged) {
+    return scalar($self->keylist());
+  }
+  my $n = 0;
+  foreach my $key ($self->keylist()) {
+    my $data = $self->findKey($key);
+    $n += $data->numAliases();
+  }
+  return $n;
+}
+
+sub numHit {
+  my ($self, $merged) = @_;
+
+  my $n = 0;
+  foreach my $key ($self->keylist()) {
+    my $data = $self->findKey($key);
+    if (defined($merged) && $merged) {
+      ++ $n
+        if $data->hit() > 0;
+    } else {
+      my $aliases = $data->aliases();
+      foreach my $alias (keys(%$aliases)) {
+        my $c = $aliases->{$alias};
+        ++ $n if $c > 0;
+      }
+    }
+  }
+  return $n;
+}
+
+sub get_found_and_hit {
+  my $self = shift;
+  my $merged = defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
+  return ($self->numFunc($merged), $self->numHit($merged));
+}
+
+sub add_count {
+  my ($self, $fnName, $count) = @_;
+  my $nameMap = $self->[1];
+  exists($nameMap->{$fnName}) or
+    die("unknown function '$fnName'");
+  my $data = $nameMap->{$fnName};
+  $data->addAlias($fnName, $count);
+}
+
+sub merge {
+  my ($self, $that) = @_;
+
+  foreach my $key (keys(%{$that->[0]})) {
+    my $thatData = $that->[0]->{$key};
+    my $thisData;
+    if (! exists($self->[0]->{$key})) {
+      $thisData = $self->define_function($thatData->name(), $thatData->file(),
+                                         $thatData->line());
+    } else {
+      $thisData = $self->[0]->{$key};
+      if ($thisData->line() != $thatData->line() ||
+          $thisData->file() ne $thatData->file()) {
+        warn("ERROR: function data mismatch at ".
+             $thatData->file() . ":" . $thatData->line());
+        next;
+      }
+    }
+    my $aliases = $thatData->aliases();
+    foreach my $alias (keys %$aliases) {
+      my $count = $aliases->{$alias};
+      $self->define_function($alias, $thisData->file(), $thisData->line())
+        unless defined($self->findName($alias));
+      $thisData->addAlias($alias, $count);
+    }
+  }
+}
+
+sub cloneWithRename {
+  my ($self, $conv) = @_;
+
+  my $newData = FunctionMap->new();
+  foreach my $key ($self->keylist()) {
+    my $data = $self->findKey($key);
+    my $aliases = $data->aliases();
+    foreach my $alias (keys %$aliases) {
+      my $cn = $conv->{$alias};
+      my $hit = $aliases->{$alias};
+
+      # Abort if two functions on different lines map to the
+      # same demangled name.
+      die("ERROR: Demangled function name $cn maps to different lines (".
+          $newData->findName($cn)->line() . " vs " . $data->line() .
+          ") in " . $newData->file())
+        if (defined($newData->findName($cn)) &&
+            $newData->findName($cn)->line() != $data->line());
+      $newData->define_function($cn, $data->file(), $data->line());
+      $newData->add_count($cn, $hit);
+    }
+  }
+  return $newData;
+}
+
+sub insert {
+  my ($self, $entry) = @_;
+  die("expected FunctionEntry - " . ref($entry))
+    unless 'FunctionEntry' eq ref($entry);
+  my ($locationMap, $nameMap) = @$self;
+  my $key = $entry->file() . ":" . $entry->line();
+  #die("duplicate entry \@$key")
+  #  if exists($locationMap->{$key});
+  if (exists($locationMap->{$key})) {
+    my $current = $locationMap->{$key};
+    print("DUP:  " . $current->name() . " -> " . $entry->name() . "\n"
+	  . $current->file() . ":" . $current->line() . " -> " . $entry->file() . $entry->line() . "\n");
+    die("duplicate entry \@$key");
+  }
+  $locationMap->{$key} = $entry;
+  foreach my $alias (keys %{$entry->aliases()}) {
+    die("duplicate alias '$alias'")
+      if (exists($nameMap->{$alias}));
+    $nameMap->{$alias} = $entry;
+  }
+}
 
 package BranchData;
 
@@ -953,32 +1245,33 @@ sub get_found_and_hit {
 package TraceInfo;
 
 sub new {
-  my $class = shift;
+  my ($class, $filename) = @_;
   my $self = {};
   bless $self, $class;
 
-  # _testdata          : test name  -> CountData ( line number -> execution count )
-  $self->{_testdata} = MapData->new();
+  $self->{_filename} = $filename;
+  # _checkdata         : line number  -> source line checksum
+  $self->{_checkdata} = MapData->new();
   # _sumcount          : line number  -> execution count
   $self->{_sumcount} = CountData->new($CountData::SORTED);
-  # _funcdata          : function name  -> line number
-  $self->{_funcdata} = MapData->new();
+  # _funcdata          : function name or function location  -> FunctionEntry
+  $self->{_funcdata} = FunctionMap->new();
+  # _sumbrcount        : line number  -> branch coverage
+  $self->{_sumbrcount} = BranchData->new();
+
   $self->{_found} = 0;
   $self->{_hit} = 0;
   $self->{_f_found} = 0;
   $self->{_f_hit} = 0;
   $self->{_b_found} = 0;
   $self->{_b_hit} = 0;
-  # _checkdata         : line number  -> source line checksum
-  $self->{_checkdata} = MapData->new();
-  # _testfncdata       : test name  -> CountData ( function name -> execution count )
+
+  # _testdata    : test name  -> CountData ( line number -> execution count )
+  $self->{_testdata} = MapData->new();
+  # _testfncdata : test name  -> FunctionMap ( function name -> FunctionEntry )
   $self->{_testfncdata} = MapData->new();
-  # _sumfnccount       : function name  -> CountData ( line number -> execution count )
-  $self->{_sumfnccount} = CountData->new($CountData::UNSORTED);
-  # _testbrdata        : test name  -> BranchData ( line number -> branch coverage )
+  # _testbrdata  : test name  -> BranchData ( line number -> branch coverage )
   $self->{_testbrdata} = MapData->new();
-  # _sumbrcount        : line number  -> branch coverage
-  $self->{_sumbrcount} = BranchData->new();
 
   return $self;
 }
@@ -1021,12 +1314,12 @@ sub hit {
 
 sub f_found {
   my $self = shift;
-  return $self->sumfnc()->found();
+  return $self->func()->numFunc(defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]));
 }
 
 sub f_hit {
   my $self = shift;
-  return $self->sumfnc()->hit();
+  return $self->func()->numHit(defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]));
 }
 
 sub b_found {
@@ -1054,15 +1347,10 @@ sub testfnc {
   }
 
   if (!$self->{_testfncdata}->mapped($name)) {
-    $self->{_testfncdata}->append_if_unset($name, CountData->new(0));
+    $self->{_testfncdata}->append_if_unset($name, FunctionMap->new());
   }
 
   return $self->{_testfncdata}->value($name);
-}
-
-sub sumfnc {
-  my $self = shift;
-  return $self->{_sumfnccount};
 }
 
 # branch coverage
@@ -1089,14 +1377,14 @@ sub sumbr {
 
 #
 # set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref,
-#                checkdata_ref, testfncdata_ref, sumfcncount_ref,
+#                checkdata_ref, testfncdata_ref,
 #                testbrdata_ref, sumbrcount_ref[,lines_found,
 #                lines_hit, f_found, f_hit, $b_found, $b_hit])
 #
 # Update the hash referenced by HASH_REF with the provided data references.
 #
 
-sub set_info($$$$$$$$$;$$$$$$)
+sub set_info($$$$$$$$;$$$$$$)
 {
   my $self = shift;
 
@@ -1105,7 +1393,6 @@ sub set_info($$$$$$$$$;$$$$$$)
   $self->{_funcdata} = shift;
   $self->{_checkdata} = shift;
   $self->{_testfncdata} = shift;
-  $self->{_sumfnccount} = shift;
   $self->{_testbrdata} = shift;
   $self->{_sumbrcount} = shift;
 
@@ -1123,7 +1410,7 @@ sub set_info($$$$$$$$$;$$$$$$)
 # Retrieve data from an entry of the structure generated by TraceFile::_read_info().
 # Return a list of references to hashes:
 # (test data hash ref, sum count hash ref, funcdata hash ref, checkdata hash
-#  ref, testfncdata hash ref, sumfnccount hash ref, lines found, lines hit,
+#  ref, testfncdata hash ref hash ref, lines found, lines hit,
 #  functions found, functions hit)
 #
 
@@ -1135,7 +1422,6 @@ sub get_info($)
   my $funcdata_ref = $self->{_funcdata};
   my $checkdata_ref = $self->{_checkdata};
   my $testfncdata = $self->{_testfncdata};
-  my $sumfnccount = $self->{_sumfnccount};
   my $testbrdata = $self->{_testbrdata};
   my $sumbrcount = $self->{_sumbrcount};
   my $lines_found = $self->found();
@@ -1146,10 +1432,11 @@ sub get_info($)
   my $br_hit = $self->b_hit();
 
   return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
-          $testfncdata, $sumfnccount, $testbrdata, $sumbrcount,
+          $testfncdata, $testbrdata, $sumbrcount,
           $lines_found, $lines_hit, $fn_found, $fn_hit,
           $br_found, $br_hit);
 }
+
 
 #
 # rename_functions(info, conv)
@@ -1163,68 +1450,16 @@ sub rename_functions($$)
 {
   my ($self, $conv, $filename) = @_;
 
-  my $newfuncdata = MapData->new();
-  my $newsumfnccount = CountData->new(0);
-
-  # funcdata: function name -> line number
-  my $funcdata = $self->func();
-  foreach my $fn ($funcdata->keylist()) {
-    my $cn = $conv->{$fn};
-
-    # Abort if two functions on different lines map to the
-    # same demangled name.
-    die("ERROR: Demangled function name $cn maps to different lines (".
-        $newfuncdata->value($cn) . " vs " . $funcdata->value($fn) .
-        ") in $filename\n")
-      if ($newfuncdata->mapped($cn) &&
-          $newfuncdata->value($cn) != $funcdata->value($fn));
-
-    $newfuncdata->replace($cn, $funcdata->value($fn));
-  }
-  #$data->{"func"} = \%newfuncdata;
+  my $newData = $self->func()->cloneWithRename($conv);
+  $self->{_funcdata} = $newData;
 
   # testfncdata: test name -> testfnccount
   # testfnccount: function name -> execution count
   my $testfncdata = $self->testfnc();
   foreach my $tn ($testfncdata->keylist()) {
     my $testfnccount = $testfncdata->value($tn);
-    my $newtestfnccount = CountData->new(1);
-
-    foreach my $fn ($testfnccount->keylist()) {
-      my $cn = $conv->{$fn};
-
-      # Add counts for different functions that map
-      # to the same name.
-      $newtestfnccount->append($cn, $testfnccount->value($fn));
-    }
+    my $newtestfnccount = $testfnccount->cloneWithRename($conv);
     $testfncdata->replace($tn, $newtestfnccount);
-  }
-
-  # sumfnccount: function name -> execution count
-  my $sumfnccount = $self->sumfnc();
-  foreach my $fn ($sumfnccount->keylist()) {
-    my $cn = $conv->{$fn};
-
-    # Add counts for different functions that map
-    # to the same name.
-    $newsumfnccount->append($cn, $sumfnccount->value($fn));
-  }
-  $self->{_sumfnccount} = $newsumfnccount;
-}
-
-sub _merge_funcdata {
-  my $self = shift;
-  my $info = shift;
-  my $filename = shift;
-
-  foreach my $func ($info->func()->keylist()) {
-    my $line2 = $info->func()->value($func);
-    if ($self->func()->mapped($func) &&
-        $self->func()->value($func) != $line2) {
-      warn("ERROR: function data mismatch at $filename:$line2\n");
-      next
-    }
-    $self->func()->replace($func, $line2);
   }
 }
 
@@ -1254,13 +1489,12 @@ sub merge {
   }
   $self->sum()->merge($info->sum());
 
-  $self->_merge_funcdata($info, $filename);
+  $self->func()->merge($info->func());
   $self->_merge_checksums($info, $filename);
 
   foreach my $name ($info->testfnc()->keylist()) {
     $self->testfnc($name)->merge($info->testfnc($name));
   }
-  $self->sumfnc()->merge($info->sumfnc());
 
   foreach my $name ($info->testbr()->keylist()) {
     $self->testbr($name)->merge($info->testbr($name));
@@ -1440,7 +1674,7 @@ sub data {
   my $file = shift;
 
   if (!defined($self->{_data}->{$file})) {
-    $self->{_data}->{$file} = TraceInfo->new();
+    $self->{_data}->{$file} = TraceInfo->new($file);
   }
 
   return $self->{_data}->{$file};
@@ -1497,7 +1731,6 @@ sub is_rtl_file {
 #        "b_hit"   -> $br_hit (number of executed branches in file)
 #        "check" -> \%checkdata
 #        "testfnc" -> \%testfncdata
-#        "sumfnc"  -> \%sumfnccount
 #        "testbr"  -> \%testbrdata
 #        "sumbr"   -> \%sumbrcount
 #
@@ -1509,11 +1742,10 @@ sub is_rtl_file {
 # %testfnccount: function name -> execution count for a single test
 # %testbrcount : line number   -> branch coverage data for a single test
 # %sumcount    : line number   -> execution count for all tests
-# %sumfnccount : function name -> execution count for all tests
 # %sumbrcount  : line number   -> branch coverage data for all tests
-# %funcdata    : function name -> line number
+# %funcdata    : FunctionMap: function name -> FunctionEntry
 # %checkdata   : line number   -> checksum of source code line
-# $brdata      : vector of items: block, branch, taken
+# $brdata      : BranchData vector of items: block, branch, taken
 #
 # Note that .info file sections referring to the same file and test name
 # will automatically be combined by adding all execution counts.
@@ -1524,6 +1756,7 @@ sub is_rtl_file {
 #
 # Die on error.
 #
+my $didMangleCheck = 0;
 sub _read_info {
   my ($self, $tracefile, $readSourceCallback) = @_;
 
@@ -1538,7 +1771,6 @@ sub _read_info {
   my $checkdata;                  #       "             "
   my $testfncdata;
   my $testfnccount;
-  my $sumfnccount;
   my $testbrdata;
   my $testbrcount;
   my $sumbrcount;
@@ -1568,6 +1800,21 @@ sub _read_info {
     die("ERROR: not a plain file: $tracefile!\n");
   }
 
+  if (defined($lcovutil::cpp_demangle) &&
+      ! $didMangleCheck) {
+    $didMangleCheck = 1;
+    my @params = split(" ", $lcovutil::cpp_demangle);
+    my $tool = $params[0];
+    die("ERROR: could not find $tool tool needed for --demangle-cpp")
+      if (lcovutil::system_no_output(3, "echo \"\" | $tool"));
+
+    # Extra flag necessary on OS X so that symbols listed by gcov get demangled
+    # properly.
+    $lcovutil::cpp_demangle .= " --no-strip-underscores"
+      if (scalar(@params) == 1 &&
+	  $^ eq "darwin");
+  }
+
   # Check for .gz extension
   if ($tracefile =~ /\.gz$/)
   {
@@ -1581,11 +1828,17 @@ sub _read_info {
               . $tracefile . "!\n");
 
     # Open compressed file
-    open(INFO_HANDLE, "-|", "gunzip -c '$tracefile'")
+    my $cmd = "gunzip -c '$tracefile'";
+    $cmd .=  " | " . $lcovutil::cpp_demangle
+      if defined($lcovutil::cpp_demangle);
+    open(INFO_HANDLE, "-|", $cmd)
       or die("ERROR: cannot start gunzip to decompress file $tracefile!\n");
   }
-  else
-  {
+  elsif (defined($lcovutil::cpp_demangle)) {
+
+    open(INFO_HANDLE, "-|", $lcovutil::cpp_demangle . " < $tracefile")
+      or die("ERROR: cannot start demangler for file $tracefile!\n");
+  } else {
     # Open decompressed file
     open(INFO_HANDLE, "<", $tracefile)
       or die("ERROR: cannot read file $tracefile!\n");
@@ -1603,8 +1856,7 @@ sub _read_info {
   #   times in the same 'file' data (within an SF entry).
   my %branchRenumber; # line -> block -> branch -> branchentry
   my ($currentBranchLine, $skipBranch);
-  my %functionData; # "file:line" -> [file, line, count, {name -> count}]
-  my %functionAlias; # name -> functionDataElement
+  my $functionMap;
   while (<INFO_HANDLE>)
   {
     chomp($_);
@@ -1656,8 +1908,9 @@ sub _read_info {
         }
         $data = $self->data($filename);
         ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-         $sumfnccount, $testbrdata, $sumbrcount) =
+         $testbrdata, $sumbrcount) =
              $data->get_info();
+        $functionMap = defined($testname) ? FunctionMap->new() : $funcdata;
 
         if (defined($testname))
         {
@@ -1773,55 +2026,28 @@ sub _read_info {
         last;
       };
 
-      /^FN:(\d+),([^,]+)/ && do
+      /^FN:(\d+),(.+)$/ && do
       {
         last if (!$main::func_coverage);
         # Function data found, add to structure
         my $lineNo = $1;
         my $fnName = $2;
+        # the function may already be defined by another testcase (for the
+        #  same file)
+        $functionMap->define_function($fnName, $filename, $lineNo)
+          unless defined($functionMap->findName($fnName));
 
-        # want to keep a list of all the functions/all the function aliases
-        #  at a particular line in the file.  THey must all be the
-        #  same function - perhaps just templatized differently.
-        if (defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS])) {
-          !defined($functionAlias{$fnName})
-            or die("found duplicate function $fnName");
-          my $key = $filename . ':' . $lineNo;
-          $functionData{$key} = [$filename, $lineNo, 0, {}]
-            unless exists($functionData{$key});
-          my $data = $functionData{$key};
-          $data->[3]->{$fnName} = 0;
-          $functionAlias{$fnName} = $data;
-        } else {
-          $data->func()->replace($fnName, $lineNo);
-
-          # Also initialize function call data
-          $data->sumfnc()->append($fnName, 0);
-          $data->testfnc($testname)->append($fnName, 0)
-            if (defined($testname));
-        }
         last;
       };
 
-      /^FNDA:(\d+),([^,]+)/ && do
+      /^FNDA:(\d+),(.+)$/ && do
       {
         last if (!$main::func_coverage);
         my $fnName = $2;
         my $hit = $1;
+        # we expect to find a function with ths name...
+        $functionMap->add_count($fnName, $hit);
 
-        if (defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS])) {
-          my $data = $functionAlias{$fnName};
-          $data->[2] += $hit;
-          $data->[3]->{$fnName} += $hit;
-        } else {
-          # Function call count found, add to structure
-          # Add summary counts
-          $data->sumfnc()->append($fnName, $hit);
-
-          # Add test-specific counts
-          $data->testfnc($testname)->append($fnName, $hit)
-            if (defined($testname));
-        }
         last;
       };
 
@@ -1936,29 +2162,20 @@ sub _read_info {
               }
             }
           } # end "if (! rtl)"
-          if (defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS])) {
-            my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS];
-            for my $key (keys(%functionData)) {
-              my ($fileName, $lineNo, $hit, $aliases) = @{$functionData{$key}};
-              ++$histogram->[0];
-              # pick the shortest name...
-              my $name = "";
-              my $len = 1000000;
-              foreach my $alias (keys(%$aliases)) {
-                ++$histogram->[1];
-                my $l = length($alias);
-                if ($l < $len) {
-                  $len = $l;
-                  $name = $alias;
-                }
-              }
-              $data->func()->replace($name, $lineNo);
-              $data->sumfnc()->append($name, $hit);
-              $data->testfnc($testname)->append($name, $hit)
-                if defined($testname);
+          if ($main::func_coverage) {
+
+            my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]
+              if defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
+            if (defined($histogram)) {
+              $histogram->[0] += $functionMap->numFunc(1);
+              $histogram->[1] += $functionMap->numFunc(0);
             }
-            %functionAlias = ();
-            %functionData = ();
+            if ($funcdata != $functionMap) {
+              $funcdata->merge($functionMap);
+            }
+            if (defined($testname)) {
+              $data->testfnc($testname)->merge($functionMap);
+            }
           }
           # Store current section data
           if (defined($testname))
@@ -1970,13 +2187,19 @@ sub _read_info {
 
           $self->data($filename)->set_info($testdata, $sumcount, $funcdata,
                                            $checkdata, $testfncdata,
-                                           $sumfnccount, $testbrdata,
-                                           $sumbrcount);
-          # $result{$filename} = $data;
+                                           $testbrdata, $sumbrcount);
           last;
         }
       };
+      /^(FN|BR|L)[HF]/ && do {
+	last; # ignore count records
+      };
+      /^\s*$/ && do {
+	last; # ignore empty line
+      };
 
+      lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+				"unexpected .info file record '$_'");
       # default
       last;
     }
@@ -1988,9 +2211,8 @@ sub _read_info {
   {
     #$data = $result{$filename};
 
-    ($testdata, $sumcount, undef, undef, $testfncdata,
-     $sumfnccount, $testbrdata, $sumbrcount) =
-      $self->data($filename)->get_info();
+    ($testdata, $sumcount, undef, undef, $testfncdata, $testbrdata, $sumbrcount)
+      = $self->data($filename)->get_info();
 
     # Filter out empty files
     if ($self->data($filename)->sum()->entries() == 0)
@@ -1998,52 +2220,48 @@ sub _read_info {
       delete($self->{_data}->{$filename});
       next;
     }
+    my $filedata = $self->data($filename);
     # Filter out empty test cases
-    foreach $testname ($self->data($filename)->test()->keylist())
+    foreach $testname ($filedata->test()->keylist())
     {
-      if (!$self->data($filename)->test()->mapped($testname) ||
-          scalar($self->data($filename)->test($testname)->keylist()) == 0)
+      if (!$filedata->test()->mapped($testname) ||
+          scalar($filedata->test($testname)->keylist()) == 0)
       {
-        $self->data($filename)->test()->remove($testname);
-        $self->data($filename)->testfnc()->remove($testname);
+        $filedata->test()->remove($testname);
+        $filedata->testfnc()->remove($testname);
       }
     }
 
     next;
 
-    $self->data($filename)->{_found} = scalar(keys(%{$self->data($filename)->{_sumcount}}));
+    $filedata->{_found} = scalar(keys(%{$filedata->{_sumcount}}));
     $hitcount = 0;
 
-    foreach (keys(%{$self->data($filename)->{_sumcount}}))
+    foreach (keys(%{$filedata->{_sumcount}}))
     {
-      if ($self->data($filename)->{_sumcount}->{$_} > 0) { $hitcount++; }
+      if ($filedata->{_sumcount}->{$_} > 0) { $hitcount++; }
     }
 
-    $self->data($filename)->{_hit} = $hitcount;
+    $filedata->{_hit} = $hitcount;
 
     # Get found/hit values for function call data
-    $data->{_f_found} = scalar(keys(%{$self->data($filename)->{_sumfnccount}}));
-    $hitcount = 0;
-
-    foreach (keys(%{$self->data($filename)->{_sumfnccount}})) {
-      if ($self->data($filename)->{_sumfnccount}->{$_} > 0) {
-        $hitcount++;
-      }
-    }
-    $self->data($filename)->{_f_hit} = $hitcount;
+    my $funcData = $filedata->func();
+    $data->{_f_found} = $filedata->f_found();
+    $hitcount = $filedata->f_hit();
+    $filedata->{_f_hit} = $hitcount;
 
     # Combine branch data for the same branches
-    (undef, $self->data($filename)->{_b_found}, $self->data($filename)->{_b_hit}) =
-      compress_brcount($self->data($filename)->{_sumbrcount});
-    foreach $testname (keys(%{$self->data($filename)->{_testbrdata}})) {
-      compress_brcount($self->data($filename)->{_testbrdata}->{$testname});
+    (undef, $filedata->{_b_found}, $filedata->{_b_hit}) =
+      compress_brcount($filedata->{_sumbrcount});
+    foreach $testname (keys(%{$filedata->{_testbrdata}})) {
+      compress_brcount($filedata->{_testbrdata}->{$testname});
     }
   }
 
   if (scalar(keys(%{$self->{_data}})) == 0)
   {
-    ignorable_error($lcovutil::ERROR_EMPTY,
-                    "no valid records found in tracefile $tracefile\n");
+    lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                              "no valid records found in tracefile $tracefile\n");
   }
   if ($negative)
   {
@@ -2084,7 +2302,7 @@ sub write_info($$$) {
       unless('TraceInfo' eq ref($entry));
 
     my ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-        $sumfnccount, $testbrdata, $sumbrcount, $found, $hit,
+        $testbrdata, $sumbrcount, $found, $hit,
         $f_found, $f_hit, $br_found, $br_hit) = $entry->get_info();
 
     # Add to totals
@@ -2113,18 +2331,28 @@ sub write_info($$$) {
           lcovutil::debug("not reading $source_file: no ext match\n");
         }
       }
-
+      my $functionMap = $testfncdata->{$testname};
       # Write function related data - sort  by line number
-      foreach my $func ( sort({$funcdata->value($a) <=> $funcdata->value($b)}
-                              $funcdata->keylist())) {
-        print(INFO_HANDLE "FN:".$funcdata->value($func). ",$func\n");
+      foreach my $key ( sort({$functionMap->findKey($a)->line() <=> $functionMap->findKey($b)->line()}
+                              $functionMap->keylist())) {
+        my $data = $functionMap->findKey($key);
+        my $aliases = $data->aliases();
+        foreach my $alias (keys %$aliases) {
+          print(INFO_HANDLE "FN:" . $data->line(). ",$alias\n");
+        }
       }
-      foreach my $func ($testfnccount->keylist()) {
-        print(INFO_HANDLE "FNDA:".
-              $testfnccount->value($func).
-              ",$func\n");
+      my $f_found = 0;
+      my $f_hit = 0;
+      foreach my $key ($functionMap->keylist()) {
+        my $data = $functionMap->findKey($key);
+        my $aliases = $data->aliases();
+        foreach my $alias (keys %$aliases) {
+          my $hit = $aliases->{$alias};
+          ++ $f_found;
+          ++ $f_hit if $hit > 0;
+          print(INFO_HANDLE "FNDA:$hit,$alias\n");
+        }
       }
-      my ($f_found, $f_hit) = $testfnccount->get_found_and_hit();
       print(INFO_HANDLE "FNF:$f_found\n");
       print(INFO_HANDLE "FNH:$f_hit\n");
 

@@ -383,11 +383,15 @@ This argument has no effect if there is no
 .BI "\-\-show\-owners " [all]
 .RS
 If the
-.I \-\-show-owners
+.I \-\-show\-owners
 option is used, each coverage report header report contain a summary table, showing counts in the various coverage categories for everyone who appears in the revision control annotation as the most recent editor of the corresponding line.  If the optional argument 'all' is not specified, the table will show only users who are responsible for un-excercised code lines.  If the optional argument is specified, then users responsible for any code lines will appear.  In both cases, users who are responsible for non-code lines (e.g, comments) are not shown.
 This option does nothing if
 .I \-\-annotate\-script
 is not used; it needs revision control information provided by calling the script.
+
+Please note: if the
+.I all
+option is not specified, the the summary table will contain "Total" rows for all date/owner bins which are not empty - but there will be no secondary "File/Directory" entries for elements which have no "missed" coverpoints.
 
 .RE
 .BI "\-\-show\-noncode "
@@ -699,15 +703,16 @@ Use \-\-function\-coverage to enable function coverage summaries or
 .B enabled
 by default
 
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_function_coverage .
+
 When function coverage summaries are enabled, each overview page will contain
 the number of functions found and hit per file or directory, together with
 the resulting coverage rate. In addition, each source code view will contain
 a link to a page which lists all functions found in that file plus the
 respective call count for those functions.
-
-This option can also be configured permanently using the configuration file
-option
-.IR genhtml_function_coverage .
+The function coverage page groups the data for every alias of each function, sorted by name or execution count.  The representative name of the group of functions is the shorted (i.e., containing the fewest characters).
 
 .RE
 .B \-\-branch\-coverage
@@ -769,6 +774,9 @@ genhtml ... --ignore-errors unmapped,unmapped ...
 
 .I errors
 can be a comma\-separated list of the following keywords:
+
+.B format:
+unexpected syntax found in .info file.
 
 .B source:
 the source code file for a data set could not be found.

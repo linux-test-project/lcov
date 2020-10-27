@@ -93,12 +93,12 @@ use FindBin;
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  system_no_output
-                 ignorable_error $ERROR_MISMATCH $ERROR_BRANCH
-                 info verbose $verbose
+                 ignorable_error $ERROR_MISMATCH $ERROR_BRANCH $ERROR_FORMAT
+                 info verbose $verbose $cpp_demangle
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  filterStringsAndComments simplifyCode balancedParens
-                 rate $default_precision check_precision
+                 rate get_overall_line $default_precision check_precision
                  die_handler warn_handler $tool_name);
 
 # Global constants
@@ -187,6 +187,7 @@ our $ERROR_UNKNOWN_CATEGORY = 2;
 our $ERROR_INCONSISTENT_PATH = 3;
 $ERROR_MISMATCH = 4;
 $ERROR_BRANCH = 5;
+$ERROR_FORMAT = 6;
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
         "unmapped" => $ERROR_UNMAPPED_LINE,
@@ -194,6 +195,7 @@ our %htmlErrs = (
         "path"     => $ERROR_INCONSISTENT_PATH,
         "mismatch" => $ERROR_MISMATCH,
         "branch"   => $ERROR_BRANCH,
+        "format"   => $ERROR_FORMAT,
 );
 lcovutil::define_errors(\%htmlErrs);
 
@@ -211,7 +213,6 @@ sub get_relative_base_path($);
 sub read_testfile($);
 sub get_date_string($);
 sub create_sub_dir($);
-sub subtract_counts($$);
 sub remove_unused_descriptions();
 sub get_affecting_tests($$$);
 sub apply_prefix($@);
@@ -394,7 +395,7 @@ sub new {
   _initCounts($self, 'function');
   _initCounts($self, 'branch');
 
-  for my $prefix ("", "branch_") {
+  for my $prefix ("", "branch_", "function_") {
     my $g = $prefix . "age";
     $self->{$g} = [ ];
     foreach my $i (0..$#cutpoints + 1) {
@@ -587,6 +588,10 @@ sub owner_tlaCount {
     my ($self, $name, $tla, $covType) = @_;
     die("$name not found in owner data for $self->path()")
         unless exists($self->{owners}->{$name});
+
+    return 0 # not supported, yet
+      if defined($covType) && $covType eq 'function';
+
     my $ownerKey = 'owners';
     $ownerKey .= "_$covType"
       if defined($covType) && $covType ne 'line';
@@ -639,9 +644,10 @@ sub hasDateInfo {
 }
 
 sub findOwnerList {
-  # return [ [owner, lineCovData, branchCovData][ for each owner
+  # return [ [owner, lineCovData, branchCovData, functionCov]] for each owner
   #  where lineCovData = [missedCount, totalCount]
   #        branchCovData = [missed, total] or undef if not enabled
+  #        functionCov = [missed, total] or undef if not enabled
   #   - sorted in decending order number of missed lines
   my ($self, $all) = @_;
 
@@ -649,17 +655,20 @@ sub findOwnerList {
   foreach my $owner (keys(%{$self->{owners}})) {
     my $lineMissed = $self->owner_tlaCount($owner, 'missed');
     my $branchMissed = $main::br_coverage ? $self->owner_tlaCount($owner, 'missed', 'branch') : 0;
+    my $funcMissed = $main::func_coverage ? $self->owner_tlaCount($owner, 'missed', 'function') : 0;
     # filter owners who have unexercised code, if requested
 
-    if ((0 != $lineMissed || 0 != $branchMissed) ||
-        $all) {
+    if ($all || (0 != $lineMissed || 0 != $branchMissed || 0 != $funcMissed)) {
       my $lineCb = OwnerDetailCallback->new($self, $owner, 'line');
       my $branchCb = OwnerDetailCallback->new($self, $owner, 'branch');
+      my $functionCb = OwnerDetailCallback->new($self, $owner, 'function');
       my $lineTotal = $self->owner_tlaCount($owner, 'found');
       my $branchTotal = $main::br_coverage ? $self->owner_tlaCount($owner, 'found', 'branch') : 0;
+      my $funcTotal = $main::func_coverage ? $self->owner_tlaCount($owner, 'found', 'function') : 0;
       push(@owners, [$owner,
                      [$lineMissed, $lineTotal, $lineCb],
-                     [$branchMissed, $branchTotal, $branchCb]]);
+                     [$branchMissed, $branchTotal, $branchCb],
+                     [$funcMissed, $funcTotal, $functionCb]]);
     }
   }
   @owners = sort({ $b->[1]->[0] <=> $a->[1]->[0] || # missed
@@ -693,7 +702,7 @@ sub append {
   #   merge the date- and owner data, if if we aren't going to display it
   #   (In future, probably want to serialize the data for future processing)
   if (%{$record->{owners}}) {
-    foreach my $covType ("line", "branch") {
+    foreach my $covType ("line", "branch", "function") {
       for (my $bin = 0 ; $bin <= $#ageGroupHeader ; ++ $bin) {
         foreach my $key (keys %{$self->{$covType}}) {
           # duplicate line-coverage buckets
@@ -701,10 +710,13 @@ sub append {
           if ($covType eq 'line') {
             $self->lineCovCount($key, "age", $ageval,
                                 $record->lineCovCount($key, "age", $ageval));
-          } else {
+          } elsif ($covType eq 'branch') {
             $self->branchCovCount($key, "age", $ageval,
-                                $record->branchCovCount($key, "age", $ageval));
-          }
+				  $record->branchCovCount($key, "age", $ageval));
+	  } else {
+	    $self->functionCovCount($key, 'age', $ageval,
+				    $record->functionCovCount($key, "age", $ageval));
+	  }
         }
       }
       my $ownerKey = "owners";
@@ -797,6 +809,39 @@ sub branchCovCount {
     or die("SummaryInfo::value: unrecognized branch group $group\n");
   defined($self->{$g}->{$key})
     or die("SummaryInfo::value: unrecognized branch key $key\n");
+
+  $self->{$g}->{$key} += $delta;
+  return $self->{$g}->{$key};
+}
+
+sub functionCovCount {
+  my $self = shift;
+  my $key = shift;
+  my $group = shift;
+  my $age = ($group eq "age") ? shift : undef;
+  my $delta = defined($_[0]) ? shift : 0;
+
+  if ($key eq 'total') {
+    $key = 'found';
+  } elsif ($key eq 'missed') {
+    my $found = $self->functionCovCount('found', $group, $age);
+    my $hit = $self->functionCovCount('hit', $group, $age);
+    return $found - $hit;
+  }
+
+  my $g = "function_" . $group;
+  if ($group eq "age") {
+    my $a = $self->{$g};
+    my $bin = SummaryInfo::findAgeBin($age);
+    exists($a->[$bin]) && exists($a->[$bin]->{$key})
+      or die("unexpected key");
+    $a->[$bin]->{$key} += $delta;
+    return $a->[$bin]->{$key};
+  }
+  defined($self->{$g})
+    or die("SummaryInfo::value: unrecognized function group $group\n");
+  defined($self->{$g}->{$key})
+    or die("SummaryInfo::value: unrecognized function key $key\n");
 
   $self->{$g}->{$key} += $delta;
   return $self->{$g}->{$key};
@@ -918,7 +963,10 @@ sub get {
   return $summary->lineCovCount($key, 'age', $age)
     if $covType eq 'line';
 
-  die('function coverage not yet implemented') if $covType ne 'branch';
+  return $summary->functionCovCount($key, 'age', $age)
+    if $covType eq 'function';
+
+  die('$covType coverage not yet implemented') if $covType ne 'branch';
 
   return $summary->branchCovCount($key, 'age', $age);
 }
@@ -1035,7 +1083,7 @@ sub findOwnerList {
 sub dateDetailCallback {
   # callback to compute count in particular date bin
   my ($self, $ageval, $covtype) = @_;
-  $covtype eq 'line' || $covtype eq 'branch'
+  $covtype eq 'line' || $covtype eq 'branch' || $covtype eq 'function'
     or die("'$covtype' type not supported");
 
   return DateDetailCallback->new($self->summary(), $ageval, $covtype);
@@ -1050,17 +1098,16 @@ sub ownerDetailCallback {
   return OwnerDetailCallback->new($self->summary(), $owner, $covtype);
 }
 
-sub branchTotalCallback {
-  # callback to compute total branches in each TLA
-  my $self = shift;
-  return BranchCovSummaryCallback->new($self->summary());
+sub totalCallback {
+  my ($self, $covtype) = @_;
+  # callback to compute total elements of 'covtype' in each TLA
+  if ('line' eq $covtype) {
+    return $self->summary();
+  } else {
+    return CovTypeSummaryCallback->new($self->summary(), $covtype);
+  }
 }
 
-sub lineTotalCallback {
-  # callback to compute total branches in each TLA
-  my $self = shift;
-  return $self->summary();
-}
 
 
 package FileOrDirectoryOwnerCallback;
@@ -1097,16 +1144,13 @@ sub data {
           $branchCb->get('found'), $branchCb->get('hit'));
 }
 
-sub branchTotalCallback {
-  # callback to compute total branches in each TLA
-  my $self = shift;
-  return OwnerDetailCallback->new($self->[1], $self->name(), 'branch');
-}
+sub totalCallback {
+  # callback to compute total 'covtype' elements in each TLA
+  my ($self, $covtype) = @_;
+  die("$covtype not supported by OwnerDetail callback")
+    unless ($covtype eq 'line' || $covtype eq 'branch');
 
-sub lineTotalCallback {
-  # callback to compute total branches in each TLA
-  my $self = shift;
-  return OwnerDetailCallback->new($self->[1], $self->name(), 'line');
+  return OwnerDetailCallback->new($self->[1], $self->name(), $covtype);
 }
 
 sub findFileList {
@@ -1127,19 +1171,25 @@ sub findFileList {
 
     my $lineCb = OwnerDetailCallback->new($source, $owner, 'line');
     my $brCb = OwnerDetailCallback->new($source, $owner, 'branch');
+    my $funcCb = OwnerDetailCallback->new($source, $owner, 'function');
     my $total = $lineCb->get('found');
     my $br_total = $main::br_coverage ? $brCb->get('found') : 0;
+    my $fn_total = $main::func_coverage ? $funcCb->get('found') : 0;
     next if (0 == $total &&
-             0 == $br_total);
+             0 == $br_total &&
+	     0 == $fn_total);
 
     my $missed = $lineCb->get('missed');
     my $br_missed = $main::br_coverage ? $brCb->get('missed') : 0;
+    my $fn_missed = $main::func_coverage ? $funcCb->get('missed') : 0;
     if ($all ||
         0 != $missed ||
-        0 != $br_missed) {
+        0 != $br_missed ||
+	0 != $fn_missed) {
       push(@files, [$file,
                     [$missed, $total, $lineCb],
-                    [$br_missed, $br_total, $brCb]]);
+                    [$br_missed, $br_total, $brCb],
+                    [$fn_missed, $fn_total, $funcCb]]);
     }
   }
   return @files;
@@ -1190,30 +1240,22 @@ sub name {
 sub data {
   my $self = shift;
 
-  my $lineCb = DateDetailCallback->new($self->[2], $self->[1], 'line');
-  my $found = $lineCb->get('found');
-  my $hit =  $lineCb->get('hit');
-  my $branchCb = DateDetailCallback->new($self->[2], $self->[1], 'branch');
-  my $fn_found = 0;
+  my @rtn;
+  foreach my $covType ('line', 'function', 'branch') {
+    my $cb = DateDetailCallback->new($self->[2], $self->[1], $covType);
+    push(@rtn, $cb->get('found'), $cb->get('hit'));
+  }
   # ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit, $page_link,
   #  $fileSummary, $fileDetails)
   # this is the top-level 'total' callback - so no associated file or
   # summary info
-  return ($lineCb->get('found'), $lineCb->get('hit'),
-          0, 0, # fn_found, fn_hit
-          $branchCb->get('found'), $branchCb->get('hit'));
+  return @rtn;
 }
 
-sub branchTotalCallback {
-  # callback to compute total branches in each TLA
-  my $self = shift;
-  return DateDetailCallback->new($self->[2], $self->[1], 'branch');
-}
-
-sub lineTotalCallback {
-  # callback to compute total branches in each TLA
-  my $self = shift;
-  return DateDetailCallback->new($self->[2], $self->[1], 'line');
+sub totalCallback {
+  # callback to compute total elements of 'covtype' in each TLA
+  my ($self, $covtype) = @_;
+  return DateDetailCallback->new($self->[2], $self->[1], $covtype);
 }
 
 sub findFileList {
@@ -1233,19 +1275,25 @@ sub findFileList {
 
     my $lineCb = DateDetailCallback->new($source, $ageval, 'line');
     my $brCb = DateDetailCallback->new($source, $ageval, 'branch');
+    my $funcCb = DateDetailCallback->new($source, $ageval, 'function');
     my $total = $lineCb->get('found');
     my $br_total = $main::br_coverage ? $brCb->get('found') : 0;
+    my $fn_total = $main::func_coverage ? $funcCb->get('found') : 0;
     next if (0 == $total &&
-             0 == $br_total);
+             0 == $br_total &&
+	     0 == $fn_total);
 
     my $missed = $lineCb->get('missed');
     my $br_missed = $main::br_coverage ? $brCb->get('missed') : 0;
+    my $fn_missed = $main::func_coverage ? $funcCb->get('missed') : 0;
     if ($all ||
         0 != $missed ||
-        0 != $br_missed) {
+        0 != $br_missed ||
+        0 != $fn_missed) {
       push(@files, [$file,
                     [$missed, $total, $lineCb],
-                    [$br_missed, $br_total, $brCb]]);
+                    [$br_missed, $br_total, $brCb],
+                    [$fn_missed, $fn_total, $funcCb]]);
     }
   }
   return @files;
@@ -1275,13 +1323,15 @@ sub secondaryElementFileData {
   return [$name, $sourceFile, $page_link, $self->[0]];
 }
 
-package BranchCovSummaryCallback;
+package CovTypeSummaryCallback;
 # callback class to return total branches in each TLA categroy
 sub new {
-  my ($class, $summary) = @_;
+  my ($class, $summary, $covType) = @_;
   defined($summary)
     or die("no summary");
-  my $self = [$summary];
+  die("$covType not supported yet")
+    unless ($covType eq 'line' || $covType eq 'branch' || $covType eq 'function');
+  my $self = [$summary, $covType];
   bless $self, $class;
   return $self;
 }
@@ -1289,11 +1339,13 @@ sub new {
 sub get {
   my ($self, $key) = @_;
 
-  return $self->[0]->get($key, 'branch');
+  return $self->[0]->get($key, $self->[1]);
 }
 
 sub owner {
   my $self = shift;
+  die ("CovTypeSummaryCallback::owner not supported for " . $self->[1])
+    unless($self->[1] eq 'branch');
   return $self->[0]->owner();
 }
 
@@ -1309,7 +1361,7 @@ sub bin {
 
 sub covType {
   my $self = shift;
-  return 'branch';
+  return $self->[1];
 }
 
 
@@ -1510,16 +1562,20 @@ sub new {
   #   bucket, base_count, curr_count    <- line coverage count data
   #   base_branch, curr_branch, differential_branch ] <- branch coverage count data
   # $type in ('insert', 'equal', 'delete')
-  my $self = [$type, undef, undef, 'UNK', 0, 0, undef, undef, undef];
+  my $self = [$type, undef, undef,
+	      ['UNK', 0, 0], # line coveage data
+	      [], # branch coverge data
+	      []]; # function coverage
   bless $self, $class;
   return $self;
 }
 
 sub tla {
   my ($self, $tla) = @_;
-  $self->[3] = $tla
+  my $linecov = $self->[3];
+  $linecov->[1] = $tla
     if defined($tla);
-  return $self->[3];
+  return $linecov->[1];
 }
 
 sub type {
@@ -1533,11 +1589,11 @@ sub lineNo {
   if ($which eq "current") {
     $loc = 2;
   } else {
-      die("unknown key $which - should be 'base' or 'current'")
-          unless $which eq "base";
-      $loc = 1;
+    die("unknown key $which - should be 'base' or 'current'")
+      unless $which eq "base";
+    $loc = 1;
   }
-  die("inconsistent $which line location: " . $self->[$loc] . " -> $lineNo")
+  die("inconsistent $which line location $loc: " . $self->[$loc] . " -> $lineNo")
     if (defined($lineNo) && defined($self->[$loc]) && $self->[$loc] != $lineNo);
 
   $self->[$loc] = $lineNo
@@ -1561,28 +1617,31 @@ sub base_count {
   my ($self, $inc) = @_;
   die("non-zero count but not in base")
     if (defined($inc) && ! defined($self->[1]));
-  $self->[4] += $inc
+  my $linecov = $self->[3];
+  $linecov->[1] += $inc
       if defined($inc);
 
-  return $self->[4];
+  return $linecov->[1];
 }
 
 sub curr_count {
   # return line hit count in current
   my ($self, $inc) = @_;
   die("non-zero count but not in current")
-    if (defined($inc) && ! defined($self->[3]));
-  $self->[5] += $inc
+    if (defined($inc) && ! defined($self->[2]));
+  my $linecov = $self->[3];
+  $linecov->[2] += $inc
     if defined($inc);
 
-  return $self->[5];
+  return $linecov->[2];
 }
 
 sub _mergeBranchData {
   my ($self, $loc, $branchData) = @_;
-  if (defined($self->[$loc])) {
+  my $branch = $self->[4];
+  if (defined($branch->[$loc])) {
 
-    my $current = $self->[$loc];
+    my $current = $branch->[$loc];
     foreach my $branchId ($current->blocks()) {
       $branchData->hasBlock($branchId)
         or die("missing branch ID $branchId for line " . $self->lineNo());
@@ -1597,7 +1656,7 @@ sub _mergeBranchData {
       }
     }
   } else {
-    $self->[$loc] = Storable::dclone($branchData);
+    $branch->[$loc] = Storable::dclone($branchData);
   }
 }
 
@@ -1606,39 +1665,87 @@ sub baseline_branch {
   die("has baseline branch data but not in baseline")
     if (defined($branchData) && ! defined($self->[1]));
   if (defined($branchData)) {
-    $self->_mergeBranchData(6, $branchData);
+    $self->_mergeBranchData(0, $branchData);
   }
-  return $self->[6];
+  my $branch = $self->[4];
+  return $branch->[0];
 }
 
 sub current_branch {
   my ($self, $branchData) = @_;
-  die("has baseline branch data but not in current")
+  die("has current branch data but not in current")
     if (defined($branchData) && ! defined($self->[2]));
   if (defined($branchData)) {
-    $self->_mergeBranchData(7, $branchData);
+    $self->_mergeBranchData(1, $branchData);
   }
-  return $self->[7];
+  my $branch = $self->[4];
+  return $branch->[1];
 }
 
 sub differential_branch {
   my ($self, $differential) = @_;
+  my $branch = $self->[4];
   if (defined($differential)) {
-    $self->[8] = $differential;
+    $branch->[2] = $differential;
   }
-  return $self->[8];
+  return $branch->[2];
+}
+
+sub _mergeFunctionData {
+  my ($self, $loc, $functionData) = @_;
+  my $function = $self->[5];
+  if (defined($function->[$loc])) {
+    my $current = $function->[$loc];
+    $current->merge($functionData);
+  } else {
+    $function->[$loc] = Storable::dclone($functionData);
+  }
+}
+
+sub baseline_function {
+  my ($self, $functionData) = @_;
+  die("has baseline function data but not in baseline")
+    if (defined($functionData) && ! defined($self->[1]));
+  if (defined($functionData)) {
+    $self->_mergeFunctionData(0, $functionData);
+  }
+  my $function = $self->[5];
+  return $function->[0];
+}
+
+sub current_function {
+  my ($self, $functionData) = @_;
+  die("has current function data but not in current")
+    if (defined($functionData) && ! defined($self->[2]));
+  if (defined($functionData)) {
+    $self->_mergeFunctionData(1, $functionData);
+  }
+  my $function = $self->[5];
+  return $function->[1];
+}
+
+sub differential_function {
+  my ($self, $differential) = @_;
+  my $function = $self->[5];
+  if (defined($differential)) {
+    $function->[2] = $differential;
+  }
+  return $function->[2];
 }
 
 
-# structure holding coverage data which has an associated line number:
-#   - line coverage
-#   - branch coverage
-package LineCoverageInfo;
+# structure holding coverage data for a particular file:
+#  - associated with a line line number:
+#     - line coverage
+#     - branch coverage
+#  - function coverage (not directly associated with line number
+package FileCoverageInfo;
 
 sub new {
   my ($class, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
 
-  my $self = {};  # hash of lineNumber -> LineData struct
+  my $self = [{}];  # [hash of lineNumber -> LineData struct,
+                    #  optional FunctionMap]
   bless $self, $class;
 
   $linemap->show_map($filename)
@@ -1652,18 +1759,46 @@ sub new {
   $self->_categorizeBranchCov($filename, $base_data, $current_data,
                               $linemap, $verbose)
     if ($main::br_coverage);
+  $self->_categorizeFunctionCov($filename, $base_data, $current_data,
+				$linemap, $verbose)
+    if ($main::func_coverage);
   return $self;
+}
+
+sub lineMap {
+  my $self = shift;
+  return $self->[0];
+}
+
+sub functionMap {
+  # simply a map of funtion leader name -> differeential FunctionEntry
+  my $self = shift;
+  return (scalar(@$self) > 1) ? $self->[1] : undef;
 }
 
 sub line {
   my ($self, $lineNo) = @_;
+  my $lineMap = $self->lineMap();
+  return exists($lineMap->{$lineNo}) ? $lineMap->{$lineNo} : undef;
+}
 
-  return exists($self->{$lineNo}) ? $self->{$lineNo} : undef;
+sub _categorize {
+  my ($baseCount, $currCount) = @_;
+  my $tla;
+  if (0 == $baseCount) {
+    $tla = (0 == $currCount) ? "UBC" : "GBC";
+  } elsif (0 == $currCount) {
+    $tla = "LBC";
+  } else {
+    $tla = "CBC";
+  }
+  return $tla;
 }
 
 # categorize line coverage numbers
 sub _categorizeLineCov {
   my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
+  my $lineDataMap = $self->lineMap();
 
   my $lineCovBase = $base_data->data($filename)->test();
   my $lineCovCurrent = $current_data->data($filename)->test();
@@ -1672,15 +1807,19 @@ sub _categorizeLineCov {
     my $testcount = $lineCovCurrent->value($testcase);
     foreach my $line ($testcount->keylist()) {
       my $type = $linemap->type($filename, "new", $line);
-      if ($type ne "delete") {
-        if (!defined($self->{$line})) {
-          $self->{$line} = LineData->new($type);
-        }
-        my $val = $testcount->value($line);
-        my $linedata = $self->{$line};
-        $linedata->lineNo("current", $line);
-        $linedata->curr_count($val);
+      $type ne 'delete' or
+	die("'current' line $filename:$line should not be marked 'delete'");
+      # next if ($type ne "delete");
+      my $linedata;
+      if (!exists($lineDataMap->{$line})) {
+	$linedata = LineData->new($type);
+	$lineDataMap->{$line} = $linedata;
+      } else {
+	$linedata = $lineDataMap->{$line};
       }
+      my $val = $testcount->value($line);
+      $linedata->lineNo("current", $line);
+      $linedata->curr_count($val);
     }
   }
   foreach my $testcase ($lineCovBase->keylist()) {
@@ -1690,18 +1829,18 @@ sub _categorizeLineCov {
       my $type = $linemap->type($filename, "old", $bline);
       my $linedata;
       if ($type ne "delete") {
-        if (!defined($self->{$cline})) {
-          $self->{$cline} = LineData->new($type);
+        if (!defined($lineDataMap->{$cline})) {
+          $lineDataMap->{$cline} = LineData->new($type);
         }
-        $linedata = $self->{$cline};
+        $linedata = $lineDataMap->{$cline};
       } else {
         # nothing walks the keylist so a prefix is sufficient to distiguish
         # records that should be summarized but not displayed
         my $dline = "<<<".$bline;
-        if (!defined($self->{$dline})) {
-          $self->{$dline} = LineData->new($type);
+        if (!defined($lineDataMap->{$dline})) {
+          $lineDataMap->{$dline} = LineData->new($type);
         }
-        $linedata = $self->{$dline};
+        $linedata = $lineDataMap->{$dline};
       }
       my $val = $testcount->value($bline);
       $linedata->lineNo("base", $bline);
@@ -1709,72 +1848,32 @@ sub _categorizeLineCov {
     }
   }
 
-  foreach my $line (keys %$self) {
-    my $linedata = $self->{$line};
+  foreach my $line (keys %$lineDataMap) {
+    my $linedata = $lineDataMap->{$line};
+    my $tla;
     if ($linedata->type() eq "insert") {
-      if ($linedata->curr_count() > 0) {
-        $linedata->tla("GNC");
-      } elsif ($linedata->curr_count() == 0) {
-        $linedata->tla("UNC");
-      } else {
-        warn "LineCoverageInfo:: negative count for insert line=$line file=$filename\n";
-      }
+      $tla = ($linedata->curr_count() > 0) ? "GNC" : "UNC";
+      $linedata->tla($tla);
     } elsif ($linedata->type() eq "delete") {
-      if ($linedata->base_count() > 0) {
-        $linedata->tla("DCB");
-      } elsif ($linedata->base_count() == 0) {
-        $linedata->tla("DUB");
-      } else {
-        warn "LineCoverageInfo:: negative count for delete line=$line file=$filename\n";
-      }
-    } elsif ($linedata->type() eq "equal") {
-      if ($linedata->in_base() && $linedata->in_curr()) {
-        if ($linedata->base_count() > 0 &&
-            $linedata->curr_count() > 0) {
-          $linedata->tla("CBC");
-        } elsif ($linedata->base_count() == 0 &&
-                 $linedata->curr_count() > 0) {
-          $linedata->tla("GBC");
-        } elsif ($linedata->base_count() > 0 &&
-                 $linedata->curr_count() == 0) {
-          $linedata->tla("LBC");
-        } elsif ($linedata->base_count() == 0 &&
-                 $linedata->curr_count() == 0) {
-          $linedata->tla("UBC");
-        } else {
-          my $basecnt = $linedata->base_count();
-          my $currcnt = $linedata->curr_count();
-          my $type = $linedata->type();
-          lcovutil::info("        UNK:base/curr line=$line type=$type base=$basecnt curr=$currcnt file=$filename\n");
-        }
-      } elsif ($linedata->in_base()) {
-        if ($linedata->base_count() > 0) {
-          $linedata->tla("ECB");
-        } elsif ($linedata->base_count() == 0) {
-          $linedata->tla("EUB");
-        } else {
-          my $basecnt = $linedata->base_count();
-          my $currcnt = $linedata->curr_count();
-          my $type = $linedata->type();
-          lcovutil::info("        UNK:base line=$line type=$type base=$basecnt curr=$currcnt file=$filename\n");
-        }
-      } elsif ($linedata->in_curr()) {
-        if ($linedata->curr_count() > 0) {
-          $linedata->tla("GIC");
-        } elsif ($linedata->curr_count() == 0) {
-          $linedata->tla("UIC");
-        } else {
-          my $basecnt = $linedata->base_count();
-          my $currcnt = $linedata->curr_count();
-          my $type = $linedata->{type};
-          lcovutil::info("        UNK:curr line=$line type=$type base=$basecnt curr=$currcnt file=$filename\n");
-        }
-      } else {
-        warn "LineCoverageInfo:: non-executed line line=$line file=$filename\n";
-      }
+      $tla = ($linedata->base_count() > 0) ? "DCB" : "DUB";
     } else {
-      warn "LineCoverageInfo:: deleted segment line=$line file=$filename\n";
+      $linedata->type() eq "equal" or
+	die("FileCoverageInfo:: deleted segment line=$line file=$filename");
+
+      if ($linedata->in_base() && $linedata->in_curr()) {
+	$tla = _categorize($linedata->base_count(),
+			   $linedata->curr_count);
+      } elsif ($linedata->in_base()) {
+	$tla = ($linedata->base_count() > 0) ? "ECB" : "EUB";
+	$linedata->tla($tla);
+      } else {
+	$linedata->in_curr() or
+	  die("FileCoverageInfo:: non-executed line line=$line file=$filename");
+
+	$tla = ($linedata->curr_count() > 0) ? "GIC" : "UIC";
+      }
     }
+    $linedata->tla($tla);
   }
 }
 
@@ -1782,6 +1881,7 @@ sub _categorizeLineCov {
 # categorize branch coverage numbers
 sub _categorizeBranchCov {
   my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
+  my $lineDataMap = $self->lineMap();
 
   my $branchCovBase = $base_data->data($filename)->testbr();
   my $branchCovCurrent = $current_data->data($filename)->testbr();
@@ -1792,18 +1892,20 @@ sub _categorizeBranchCov {
     my $branchCurrent = $branchCovCurrent->value($testcase);
     foreach my $line ($branchCurrent->keylist()) {
       my $type = $linemap->type($filename, "new", $line);
-      next if $type eq 'delete';
+      $type ne 'delete' or
+	die("'current' line $filename:$line should not be marked 'delete'");
+      #next if $type eq 'delete';
 
       $branchCovLines{$line} = 1;
       my $data;
-      if (! exists($self->{$line})) {
+      if (! exists($lineDataMap->{$line})) {
         $data = LineData->new($type);
-        $self->{$line} = $data;
+        $lineDataMap->{$line} = $data;
         # we expect the associated line to also have line coverage data
         lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
                         "line $line of $filename has branchcov but no linecov data");
       } else {
-        $data = $self->{$line};
+        $data = $lineDataMap->{$line};
       }
       # we expect that the line number matches...
       $data->lineNo("current", $line);
@@ -1822,21 +1924,21 @@ sub _categorizeBranchCov {
       my $data;
       if ($type ne 'delete') {
         $branchCovLines{$curr_line} = 1;
-        if (! exists($self->{$curr_line}) ) {
+        if (! exists($lineDataMap->{$curr_line}) ) {
           $data = LineData->new($type);
-          $self->{$curr_line} = $data;
+          $lineDataMap->{$curr_line} = $data;
         } else {
-          $data = $self->{$curr_line};
+          $data = $lineDataMap->{$curr_line};
         }
       } else {
         # the line has been deleted...just record the data
-        my $deleteKey = "<<<" . $ base_line;
+        my $deleteKey = "<<<" . $base_line;
         $branchCovLines{$deleteKey} = 1;
-        if (! exists($self->{$deleteKey}) ) {
+        if (! exists($lineDataMap->{$deleteKey}) ) {
           $data = LineData->new($type);
-          $self->{$deleteKey} = $data;
+          $lineDataMap->{$deleteKey} = $data;
         } else {
-          $data = $self->{$deleteKey};
+          $data = $lineDataMap->{$deleteKey};
         }
       }
       $data->lineNo("base", $base_line);
@@ -1847,7 +1949,7 @@ sub _categorizeBranchCov {
 
   # now go through all the branch data for each line, and categorize everything
   foreach my $line (keys(%branchCovLines)) {
-    my $data = $self->{$line};
+    my $data = $self->lineMap()->{$line};
     my $type = $data->type();
     my $curr = $data->current_branch();
     my $base = $data->baseline_branch();
@@ -1873,7 +1975,7 @@ sub _categorizeBranchCov {
         my $block = $categorized->addBlock($branchId);
         foreach my $br (@{$base->getBlock($branchId)}) {
           my $count = $br->count();
-          my $tla = (0 == $count) ? 'DCB': 'DUB';
+          my $tla = (0 == $count) ? 'DUB': 'DCB';
           push(@$block, [$br, $tla]);
         }
       }
@@ -1897,13 +1999,8 @@ sub _categorizeBranchCov {
                  $i < $num_curr) {
               my $base_br = $b->[$i];
               my $curr_br = $c->[$i];
-              if (0 == $base_br->count()) {
-                $tla = ($curr_br->count() == 0) ? 'UBC' : 'GBC';
-              } elsif (0 == $curr_br->count()) {
-                $tla = 'LBC';
-              } else {
-                $tla = 'CBC';
-              }
+	      $tla = _categorize($base_br->count(),
+				 $curr_br->count());
               push(@$branchData, [$curr_br, $tla]);
             } elsif ($i < $num_base) {
               my $base_br = $b->[$i];
@@ -1933,6 +2030,156 @@ sub _categorizeBranchCov {
           push(@$branchData, [$curr_br, $tla]);
         }
       } # foreach branchId in current that isn't in base
+    }
+  }
+}
+
+sub _categorizeFunctionCov {
+  my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
+  !defined($self->functionMap()) or die("map should not be defined yet");
+  my $differentialMap = {};
+  push(@$self, $differentialMap);
+  my $lineDataMap = $self->lineMap();
+
+  my $funcBase = $base_data->data($filename)->testfnc();
+  my $funcCurrent = $current_data->data($filename)->testfnc();
+
+  my %funcCovLines;
+  foreach my $testcase ($funcCurrent->keylist()) {
+    my $test = $funcCurrent->value($testcase);
+    foreach my $key ($test->keylist()) {
+      my $func = $test->findKey($key);
+      my $line = $func->line();
+      my $type = $linemap->type($filename, 'new', $line);
+      $funcCovLines{$line} = 1;
+      $type ne 'delete' or
+	die("'current' line $filename:$line should not be marked 'delete'");
+      my $data;
+      if (!exists($lineDataMap->{$line})) {
+	$data = LineData->new($type);
+	$lineDataMap->{$line} = $data;
+      } else {
+	$data = $lineDataMap->{$line};
+	die("type mismatch " . $data->type() . " -> $type for $filename:$line")
+	  unless $data->type() eq $type;
+      }
+      # we expect that the line number matches...
+      $data->lineNo("current", $line);
+      # function data for the line
+      $data->current_function($func);
+    }
+  } # foreach current testcase
+  # now look through the baseline to find matching data
+  foreach my $testcase ($funcBase->keylist()) {
+    my $test = $funcBase->value($testcase);
+    foreach my $key ($test->keylist()) {
+      my $func = $test->findKey($key);
+      my $line = $func->line();
+      my $type = $linemap->type($filename, 'old', $line);
+      my $curr_line = $linemap->lookup($filename, "old", $line);
+      my $data;
+      if ($type ne 'delete') {
+	$funcCovLines{$curr_line} = 1;
+
+        if (! exists($lineDataMap->{$curr_line}) ) {
+          $data = LineData->new($type);
+          $lineDataMap->{$curr_line} = $data;
+        } else {
+          $data = $lineDataMap->{$curr_line};
+        }
+      } else {
+        # the line has been deleted...just record the data
+        my $deleteKey = "<<<" . $line;
+        $funcCovLines{$deleteKey} = 1;
+        if (! exists($lineDataMap->{$deleteKey}) ) {
+          $data = LineData->new($type);
+          $lineDataMap->{$deleteKey} = $data;
+        } else {
+          $data = $lineDataMap->{$deleteKey};
+        }
+      }
+      die("inconsistent 'base' line number")
+	if (defined($data->lineNo("base")) && $data->lineNo("base") != $line);
+      $data->lineNo("base", $line);
+      $data->baseline_function($func);
+    } # foreach line in baseline data for this test..
+  } # foreach baseline testcase
+
+  # now go through function data for each line and categorize...
+  foreach my $line (keys %funcCovLines) {
+    my $data = $lineDataMap->{$line};
+    my $type = $data->type();
+    my $curr = $data->current_function();
+    my $base = $data->baseline_function();
+    my $name = defined($curr) ? $curr->name() : $base->name();
+    my $categorized = FunctionEntry->new($name, $filename, $line);
+    $differentialMap->{$name} = $categorized;
+
+    $data->differential_function($categorized);
+
+    if (! defined($base)) {
+      # either this line was inserted or the line hasn't changed but
+      #   wasn't recognized as a function before (e.g., unused template)
+      $type ne 'delete'
+	or die("baseline function data should not undef for deleted $line");
+      my $hit = $curr->hit();
+      my $tla = ((0 == $hit)
+           ? ($type eq 'insert' ? 'UNC' : 'UIC')
+           : ($type eq 'insert' ? 'GNC' : 'GIC'));
+      $categorized->setCountDifferential([$hit, $tla]);
+      my $aliases = $curr->aliases();
+      foreach my $alias (keys %$aliases) {
+	$hit = $aliases->{$alias};
+	$tla = ((0 == $hit)
+		? ($type eq 'insert' ? 'UNC' : 'UIC')
+		: ($type eq 'insert' ? 'GNC' : 'GIC'));
+	$categorized->addAliasDifferential($alias, [$hit, $tla]);
+      }
+    } elsif (! defined($curr)) {
+      $type ne 'insert'
+	or die("current function data should not undef for inserted $line");
+      my $hit = $base->hit();
+      my $tla = ((0 == $hit)
+           ? ($type eq 'delete' ? 'DUB' : 'EUB')
+           : ($type eq 'delete' ? 'DCB' : 'ECB'));
+      $categorized->setCountDifferential([$hit, $tla]);
+      my $aliases = $base->aliases();
+      foreach my $alias (keys %$aliases) {
+	$hit = $aliases->{$alias};
+	$tla = ((0 == $hit)
+		? ($type eq 'delete' ? 'DUB' : 'EUB')
+		: ($type eq 'delete' ? 'DCB' : 'ECB'));
+	$categorized->addAliasDifferential($alias, [$hit, $tla]);
+      }
+    } else {
+      $type eq 'equal' or die("unexpected function coverage type $type");
+      my $tla = _categorize($base->hit(), $curr->hit());
+      $categorized->setCountDifferential([$curr->hit(), $tla]);
+
+      # particular alias may be in both versions
+      my $base_aliases = $base->aliases();
+      my $curr_aliases = $curr->aliases();
+      foreach my $alias (keys %$base_aliases) {
+	my $hit = $base_aliases->{$alias};
+
+	my $tla;
+	if (exists($curr_aliases->{$alias})) {
+	  my $hitCurr = $curr_aliases->{$alias};
+	  $tla = _categorize($hit, $hitCurr);
+	  $hit = $hitCurr;
+	} else {
+	  $tla = (0 == $hit) ? 'EUB' : 'ECB';
+	}
+	$categorized->addAliasDifferential($alias, [$hit, $tla]);
+      }
+      # now look for aliases that are in current but not in baseline
+      foreach my $alias (keys %$curr_aliases) {
+	next if exists($base_aliases->{$alias});
+
+	my $hit = $curr_aliases->{$alias};
+	my $tla = (0 == $hit) ? "UIC" : "GIC";
+	$categorized->addAliasDifferential($alias, [$hit, $tla]);
+      }
     }
   }
 }
@@ -1995,7 +2242,7 @@ sub type {
 
   if (!defined($self->{filemap}->{$file})) {
     #mapping with no filemap when baseline file was deleted
-    return "delete"
+    return "delete";
   }
 
   # ->{start} equal $line only if beginning of range or omitted in ->{type}
@@ -2407,6 +2654,8 @@ sub new {
     if scalar(@$self) < 5; # set TLA
   $self->[5] = undef
     if scalar(@$self) < 6; # set branch data
+  $self->[6] = undef
+    if scalar(@$self) < 7; # set function data
   return $self;
 }
 
@@ -2430,6 +2679,13 @@ sub branchElem {
   return $self->[5];
 }
 
+sub functionElem {
+  my ($self, $funcElem) = @_;
+  $self->[6] = $funcElem
+    if defined($funcElem);
+  return $self->[6];
+}
+
 sub age {
   my $self = shift;
   return $self->[1];
@@ -2450,9 +2706,9 @@ our $annotateScript;
 
 sub new {
   # countdata may be 'undef'
-  my ($class, $filepath, $fileSummary, $lineCovInfo, $countdata) = @_;
+  my ($class, $filepath, $fileSummary, $fileCovInfo, $countdata) = @_;
 
-  (ref($fileSummary) eq 'SummaryInfo' && ref($lineCovInfo) eq "LineCoverageInfo")
+  (ref($fileSummary) eq 'SummaryInfo' && ref($fileCovInfo) eq "FileCoverageInfo")
     or die("unexpected input args");
 
   my $self = {};
@@ -2483,15 +2739,19 @@ sub new {
   #  in order to compare
   my $currentTla;
   my $regionStartLine;
+  my $lineCovData = $fileCovInfo->lineMap();
   foreach my $line
     (sort( { my $ka = ("<" ne substr($a,0,1)) ? $a : substr($a,3);
              my $kb = ("<" ne substr($b,0,1)) ? $b : substr($b,3);
-             $ka <=> $kb } keys(%{$lineCovInfo}))) {
-    my $lne = $lineCovInfo->{$line};
+             $ka <=> $kb } keys(%{$lineCovData}))) {
+    my $lne = $lineCovData->{$line};
     $self->_countLineTlaData($line, $lne, $fileSummary);
 
     $self->_countBranchTlaData($line, $lne, $fileSummary)
-      if (defined($lne->differential_branch()));
+      if ($main::br_coverage && defined($lne->differential_branch()));
+
+    $self->_countFunctionTlaData($line, $lne, $fileSummary)
+      if ($main::func_coverage && defined($lne->differential_function()));
   }
   return $self;
 }
@@ -2690,6 +2950,59 @@ sub _countLineTlaData {
     }
   }
 }
+
+sub _accountFunction {
+  my ($fileSummary, $tla, $src_age) = @_;
+
+  $fileSummary->{function}->{$tla} += 1;
+
+  if (defined($src_age)) {
+    $fileSummary->functionCovCount($tla, 'age', $src_age, 1);
+
+    my $hit = ($tla eq 'GBC' ||
+	       $tla eq 'GIC' ||
+	       $tla eq 'GNC' ||
+	       $tla eq 'CBC');
+    $fileSummary->functionCovCount("found", "age", $src_age, 1);
+    $fileSummary->functionCovCount("hit", "age", $src_age, 1)
+      if $hit;
+  }
+}
+
+sub _countFunctionTlaData {
+  my ($self, $line, $lineData, $fileSummary) = @_;
+  my $func = $lineData->differential_function();
+
+  my %foundFunctionTlas;
+  my ($src_age, $developer, $srcLine);
+
+  my $merged = defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
+  my $mergedTla = $func->hit()->[1];
+
+  if ('D' ne substr($mergedTla,0,1)) {
+    # deleted lines don't have owner data...
+    $srcLine = $self->line($line);
+    # info might not be available, if no annotations
+    if (defined($srcLine)) {
+      # should probably look at the source code to find the open/close
+      #  parens - then claim the age is the youngest line
+      $src_age = $srcLine->age();
+      $srcLine->functionElem($func);
+    }
+  }
+
+  if ($merged) {
+    _accountFunction($fileSummary, $mergedTla, $src_age);
+  } else {
+    my $aliases = $func->aliases();
+    foreach my $alias (keys %$aliases) {
+      my $data = $aliases->{$alias};
+      my $tla = $data->[1];
+      _accountFunction($fileSummary, $tla, $src_age);
+    }
+  }
+}
+
 
 sub path {
   my $self = shift;
@@ -3130,9 +3443,15 @@ sub new {
   # $covtype:  'line' or 'branch'
   my ($class, $testcaseCounts, $fileDetails, $covtype) = @_;
 
+  my $merged = defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
   my %tlaData;
-  $tlaData{found} = $testcaseCounts->found();
-  $tlaData{hit} = $testcaseCounts->hit();
+  if ($covtype ne 'function') {
+    $tlaData{found} = $testcaseCounts->found();
+    $tlaData{hit} = $testcaseCounts->hit();
+  } else {
+    $tlaData{found} = $testcaseCounts->numFunc($merged);
+    $tlaData{hit} = $testcaseCounts->numHit($merged);
+  }
   if ($main::show_tla &&
       defined($fileDetails) ) {
     for my $tla (("CBC", "GBC", "GIC", "GNC")) {
@@ -3144,12 +3463,11 @@ sub new {
         next if $testcaseCounts->value($line) == 0;
         my $lineData = $fileDetails->line($line); # "SourceLine" structure
         my $tla = $lineData->tla();
-        die("unexpected TLA '$tla' in CounntData for $line")
+        die("unexpected TLA '$tla' in CounntData for line $line")
           unless exists($tlaData{$tla});
         $tlaData{$tla} += 1;
         }
-    } else {
-      die("$covtype not supported yet") unless $covtype eq 'branch';
+    } elsif ('branch' eq $covtype) {
       foreach my $line ($testcaseCounts->keylist()) {
         my $lineData = $fileDetails->line($line); # "SourceLine" structure
         my $branchEntry = $lineData->branchElem();
@@ -3164,6 +3482,31 @@ sub new {
             $tlaData{$tla} += 1;
           }
         }
+      }
+    } else {
+      die("$covtype not supported yet") unless $covtype eq 'function';
+      foreach my $key ($testcaseCounts->keylist()) {
+	my $func = $testcaseCounts->findKey($key);
+	my $line = $func->line();
+	# differential FunctionEntry
+	my $lineData = $fileDetails->line($line);
+	my $differential = $lineData->functionElem();
+	my @data;
+	if ($merged) {
+	  push(@data, $differential->hit());
+	} else {
+	  my $aliases = $differential->aliases();
+	  foreach my $alias (keys %$aliases) {
+	    push(@data, $aliases->{$alias});
+	  }
+        }
+	foreach my $d (@data) {
+	  my ($count, $tla) = @$d;
+	  die("unexpected branch TLA $tla for count $count")
+	    unless ( ($count != 0) == exists($tlaData{$tla}) );
+	  #next if (0 == $count);
+	  $tlaData{$tla} += 1;
+	}
       }
     }
   }
@@ -3580,10 +3923,10 @@ if ($frames)
 # Ensure that the c++filt tool is available when using --demangle-cpp
 if ($demangle_cpp)
 {
-        if (system_no_output(3, $demangle_cpp_tool, "--version")) {
-                die("ERROR: could not find $demangle_cpp_tool tool needed for ".
-                    "--demangle-cpp\n");
-        }
+  $lcovutil::cpp_demangle = $demangle_cpp_tool;
+  $lcovutil::cpp_demangle .= ' ' . $demangle_cpp_params
+    if defined($demangle_cpp_params);
+  $lcovutil::cpp_demangle =~ s/^\s*(\S+)\s*$/$1/;
 }
 
 # Make sure precision is within valid range
@@ -3710,24 +4053,6 @@ sub strip_directories($$)
 }
 
 #
-# get_overall_line(found, hit, name_singular, name_plural)
-#
-# Return a string containing overall information for the specified
-# found/hit data.
-#
-
-sub get_overall_line($$$$)
-{
-        my ($found, $hit, $name_sn, $name_pl) = @_;
-        my $name;
-
-        return "no data found" if (!defined($found) || $found == 0);
-        $name = ($found == 1) ? $name_sn : $name_pl;
-        return rate($hit, $found, "% ($hit of $found $name)");
-}
-
-
-#
 # print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
 #                    br_found, br_hit)
 #
@@ -3736,57 +4061,28 @@ sub get_overall_line($$$$)
 
 sub print_overall_rate($$$$)
 {
-        #my $summary = shift;
-        #my ($ln_do, $fn_do, $br_do) = @_;
-        my ($ln_do, $fn_do, $br_do, $summary) = @_;
+  my ($ln_do, $fn_do, $br_do, $summary) = @_;
 
-        info("Overall coverage rate:\n");
-        if ($ln_do) {
-          info("  lines......: %s\n",
-               get_overall_line($summary->l_found(), $summary->l_hit(), "line", "lines"));
-          if ($main::show_tla) {
-            for my $tla (@SummaryInfo::tlaPriorityOrder) {
-              my $v = $summary->get($tla);
-              info("       $tla...: $v\n")
-                if $v != 0;
-            }
-          }
-        }
-        info("  functions..: %s\n",
-             get_overall_line($summary->f_found(), $summary->f_hit(), "function", "functions"))
-                if ($fn_do);
-        if ($br_do) {
-          info("  branches...: %s\n",
-               get_overall_line($summary->b_found(), $summary->b_hit(), "branch", "branches"));
-          if ($main::show_tla) {
-            for my $tla (@SummaryInfo::tlaPriorityOrder) {
-              my $v = $summary->get($tla, 'branch');
-              info("       $tla...: $v\n")
-                if 0 != $v;
-            }
-          }
-        }
-        summarize_cov_filters();
-}
+  info("Overall coverage rate:\n");
+  my @types;
+  push(@types, 'line') if $ln_do;
+  push(@types, 'function') if $fn_do;
+  push(@types, 'branch') if $br_do;
 
-sub get_fn_list($)
-{
-        my ($info) = @_;
-        my %fns;
-        my @result;
-
-        foreach my $filename ($info->files()) {
-                foreach my $func_name ($info->data($filename)->func()->keylist()) {
-                        $fns{$func_name} = 1;
-                }
-                foreach my $func_name ($info->data($filename)->sumfnc()->keylist()) {
-                        $fns{$func_name} = 1;
-                }
-        }
-
-        @result = keys(%fns);
-
-        return \@result;
+  for my $type (@types) {
+    my $plural = "ch" eq substr($type, -2, 2) ? "es" : "s";
+    info("  $type$plural......: %s\n",
+	 get_overall_line($summary->get("found", $type),
+			  $summary->get("hit", $type), $type));
+    if ($main::show_tla) {
+      for my $tla (@SummaryInfo::tlaPriorityOrder) {
+	my $v = $summary->get($tla, $type);
+	info("       $tla...: $v\n")
+	  if $v != 0;
+      }
+    }
+  }
+  summarize_cov_filters();
 }
 
 #
@@ -4146,8 +4442,8 @@ sub process_dir($$$)
 
 sub write_function_page($$$$$$$$$$$$$)
 {
-  my ($base_dir, $rel_dir, $trunc_dir, $base_name, $title,
-      $sumcount, $funcdata, $sumfnccount, $testfncdata, $sumbrcount,
+  my ($fileCovInfo, $base_dir, $rel_dir, $trunc_dir, $base_name, $title,
+      $sumcount, $funcdata, $testfncdata, $sumbrcount,
       $testbrdata, $sort_type, $summary) = @_;
   my $pagetitle;
   my $filename;
@@ -4163,9 +4459,9 @@ sub write_function_page($$$$$$$$$$$$$)
   write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
   write_header(*HTML_HANDLE, [4, 'name', $sort_type,], "$trunc_dir/$base_name",
                "$rel_dir/$base_name", $summary, undef);
-  write_function_table(*HTML_HANDLE, "$base_name.gcov.$html_ext",
+  write_function_table(*HTML_HANDLE, $fileCovInfo, "$base_name.gcov.$html_ext",
                        $sumcount, $funcdata,
-                       $sumfnccount, $testfncdata, $sumbrcount,
+                       $testfncdata, $sumbrcount,
                        $testbrdata, $base_name,
                        $base_dir, $sort_type);
   write_html_epilog(*HTML_HANDLE, $base_dir, 1);
@@ -4191,7 +4487,7 @@ sub process_file($$$$)
   local *HTML_HANDLE;
 
   my ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-      $sumfnccount, $testbrdata, $sumbrcount, $lines_found, $lines_hit,
+      $testbrdata, $sumbrcount, $lines_found, $lines_hit,
       $fn_found, $fn_hit, $br_found, $br_hit)
     = $current_data->data($filename)->get_info();
 
@@ -4205,8 +4501,8 @@ sub process_file($$$$)
   $summary->b_hit($br_hit);
 
   # build coverage differential categories
-  my $lineCovInfo =
-    LineCoverageInfo->new($filename, $base_data, $current_data, $diff_data
+  my $fileCovInfo =
+    FileCoverageInfo->new($filename, $base_data, $current_data, $diff_data
                           #, scalar($filename =~ /vcsapi_type/
     );
 
@@ -4214,7 +4510,7 @@ sub process_file($$$$)
 
   # NOTE: $summary struct is also modified: update total counts
   #   in each bucket, counts in each date range
-  my $srcfile = SourceFile->new($filename, $summary, $lineCovInfo, $sumcount);
+  my $srcfile = SourceFile->new($filename, $summary, $fileCovInfo, $sumcount);
   $parent_dir_summary->append($summary);
 
   # Return after this point in case user asked us not to generate
@@ -4229,17 +4525,21 @@ sub process_file($$$$)
                  "$rel_dir/$base_name", $summary, $srcfile);
 
     @source = write_source(*HTML_HANDLE, $srcfile, $sumcount, $checkdata,
-                           $lineCovInfo, $funcdata, $sumbrcount);
+                           $fileCovInfo, $funcdata, $sumbrcount);
 
     write_html_epilog(*HTML_HANDLE, $base_dir, 1);
     close(*HTML_HANDLE);
 
     if ($func_coverage) {
       # Create function tables
+      my $lineCovMap = $fileCovInfo->lineMap();
+      # simply map between function leader name and differential data
+      my $differentialMap = $fileCovInfo->functionMap();
+
       foreach (@funcview_sortlist) {
-        write_function_page($base_dir, $rel_dir, $trunc_dir,
+        write_function_page($differentialMap, $base_dir, $rel_dir, $trunc_dir,
                             $base_name, $test_title,
-                            $sumcount, $funcdata, $sumfnccount,
+                            $sumcount, $funcdata,
                             $testfncdata, $sumbrcount,
                             $testbrdata, $_, $summary);
       }
@@ -5268,6 +5568,39 @@ sub write_css_file()
 
         /* Source code view: function entry nonzero count*/
         td.coverFnHi
+        {
+          text-align: right;
+          padding-left: 10px;
+          padding-right: 10px;
+          background-color: #DAE7FE;
+          font-weight: bold;
+          font-family: sans-serif;
+        }
+
+        td.coverFnAlias
+        {
+          text-align: right;
+          padding-left: 10px;
+          padding-right: 20px;
+          color: #284FA8;
+          /* make this a slightly different color than the leader - otherewise,
+             otherwise the alias is hard to distinguish in the table */
+          background-color: "#E5DBDB"; # very light pale grey/blue
+          font-family: monospace;
+        }
+
+        /* Source code view: function entry zero count*/
+        td.coverFnAliasLo
+        {
+          text-align: right;
+          padding-left: 10px;
+          padding-right: 10px;
+          background-color: $ownerCovLo; # lighter red
+          font-family: sans-serif;
+        }
+
+        /* Source code view: function entry nonzero count*/
+        td.coverFnAliasHi
         {
           text-align: right;
           padding-left: 10px;
@@ -6460,7 +6793,7 @@ sub write_source_line(*$$$$)
 {
     my ($handle, $srcline, $count, $brdata, $cbdata) = @_;
     my $line = $cbdata->lineNo();
-    my $lineCovInfo = $cbdata->lineData();
+    my $fileCovInfo = $cbdata->lineData();
     my $source = $srcline->text();
     my $src_owner = $srcline->owner();
     $src_owner =~ s/@.*// if defined($src_owner);
@@ -6497,7 +6830,7 @@ sub write_source_line(*$$$$)
     # Get branch HTML data for this line
     @br_html = get_branch_html($brdata, $cbdata) if ($main::br_coverage);
 
-    my $thisline = $lineCovInfo->{$line};
+    my $thisline = $fileCovInfo->lineMap()->{$line};
     my $tlaIsHref;
     if (!defined($thisline) ||
         (!defined($count) &&
@@ -7181,12 +7514,8 @@ sub build_html_path($$$$$) {
 
 sub write_header(*$$$$$)
 {
-  local *HTML_HANDLE = $_[0];
-  my $ctrl = $_[1];
-  my $trunc_name = $_[2];
-  my $rel_filename = $_[3];
-  my $summary = $_[4];
-  my $fileDetail = $_[5];
+  local *HTML_HANDLE = shift;
+  my ($ctrl, $trunc_name, $rel_filename, $summary, $fileDetail) = @_;
   my ($type, $primary_key, $sort_type, $bin_type) = @$ctrl;
   my $base_dir;
   my $view;
@@ -7445,10 +7774,14 @@ END_OF_HTML
                    [undef, "headerCovTableEntry", $summary->f_found()],
                    [undef, "headerCovTableEntry", $summary->f_hit()]);
     if ($main::show_tla) {
+      # no file position for funcion (yet)
+      my @tlaRow = buildHeaderSummaryTableRow($summary, 'function',
+					      undef, undef);
+      push(@dataRow, @tlaRow);
       # no differential counts for functions, yet
-      for my $tla (@SummaryInfo::tlaPriorityOrder) {
-          push(@dataRow, [undef, "headerCovTableEntry", ""]);
-      }
+      #for my $tla (@SummaryInfo::tlaPriorityOrder) {
+      #  push(@dataRow, [undef, "headerCovTableEntry", ""]);
+      #}
     }
     push(@row_right, \@dataRow)
         if ($type != $HDR_TESTDESC);
@@ -7484,6 +7817,16 @@ END_OF_HTML
                               "Line coverage date bins:",
                               $dateBinDetailPage, scalar(@dataRow));
     push(@row_right, @$table);
+
+    if ($func_coverage) {
+      my $fn_table =
+        buildDateSummaryTable($summary, "function",
+                              \&SummaryInfo::functionCovCount, $fileDetail,
+                              undef,
+                              "Function coverage date bins:",
+                              $dateBinDetailPage, scalar(@dataRow));
+      push(@row_right, @$fn_table);
+    }
 
     if ($br_coverage) {
       my $br_table =
@@ -7695,7 +8038,7 @@ sub write_file_table(*$$$$)
   #   - 'name': leftmost column is file/directory name -
   #     this is the original/vanilla genhtml behaviour
   #   - 'owner': leftmost column is author name.  Details for that owner
-  #     (for all files in the project, or for all files in this directory)
+  #     (for all files in the project, or for all files in this drectory)
   #     are shown in a contiguous block.
   #   - 'date': leftmost column is date bin.  Details for that bin are
   #     shown in a contiguous block.
@@ -7738,6 +8081,7 @@ sub write_file_table(*$$$$)
 
   my @lineCovCols = (["coverage", 2], "Total", "Hit");
   my @branchCovCols = ("coverage", "Total", "Hit");
+  my @functionCovCols = ("coverage", "Total", "Hit");
   if ($main::show_tla) {
     my @col_details;
     foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
@@ -7745,11 +8089,13 @@ sub write_file_table(*$$$$)
     }
     push(@lineCovCols, @col_details);
     push(@branchCovCols, @col_details);
+    push(@functionCovCols, @col_details);
   }
   push(@head_columns, [ $line_code, $#lineCovCols + 2, \@lineCovCols]);
   push(@head_columns, [ $br_code, $#branchCovCols + 1, \@branchCovCols])
     if ($br_coverage);
-  push(@head_columns, [ $func_code, 2]) if ($func_coverage);
+  push(@head_columns, [ $func_code, $#functionCovCols + 1, \@functionCovCols])
+    if ($func_coverage);
 
   my $showBinDetail = undef;
   if ($bin_type eq '-date' &&
@@ -7798,12 +8144,13 @@ sub write_file_table(*$$$$)
 
       $owners{$owner} = [[$dirSummary->owner_tlaCount($owner, 'found'),
                           $dirSummary->owner_tlaCount($owner, 'hit')],
-                         [0,0]]; # no branch data, yet
+                         [0,0], # no branch owner data
+			 [0,0]]; # no function owner
     }
     if ($br_coverage) {
       foreach my $owner ($dirSummary->owners($all, 'branch')) {
 
-        $owners{$owner} = [[0, 0]]
+        $owners{$owner} = [[0, 0], [0,0], [0,0]]
           unless exists($owners{$owner});
 
         $owners{$owner}->[1] =
@@ -7835,14 +8182,16 @@ sub write_file_table(*$$$$)
            FileOrDirectoryOwnerCallback->new($owner, $dirSummary));
     }
 
-  }  elsif ($primary_key eq 'date') {
+  } elsif ($primary_key eq 'date') {
 
     for (my $bin = 0 ; $bin <= $#SummaryInfo::ageGroupHeader ; ++ $bin) {
       my $ageval = $dirSummary->age_sample($bin);
       my $lines = $dirSummary->lineCovCount('found', 'age', $ageval);
       if ( 0 != $lines ||
            ($br_coverage &&
-            0 != $dirSummary->branchCovCount('found', 'age', $ageval)) ) {
+            0 != $dirSummary->branchCovCount('found', 'age', $ageval)) ||
+           ($func_coverage &&
+            0 != $dirSummary->functionCovCount('found', 'age', $ageval)) ) {
         push(@tableRows,
              FileOrDirectoryDateCallback->new($bin, $dirSummary));
       }
@@ -7888,12 +8237,18 @@ sub write_file_table(*$$$$)
             $hit = $br_coverage ? $branchCb->get('hit') : 0;
             my $branchMissed = $branchTotal - $hit;
 
-            next if 0 == $lineTotal && 0 == $branchTotal;
+            my $functionCb = $primaryCb->dateDetailCallback($ageval, 'function');
+            my $functionTotal = $func_coverage ? $functionCb->get('found') : 0;
+            $hit = $func_coverage ? $functionCb->get('hit') : 0;
+            my $functionMissed = $functionTotal - $hit;
+
+            next if 0 == $lineTotal && 0 == $branchTotal && 0 == $functionTotal;
 
             push(@secondaryRows,
                  [$SummaryInfo::ageGroupHeader[$bin],
                   [$lineMissed, $lineTotal, $lineCb],
-                  [$branchMissed, $branchTotal, $branchCb]]);
+                  [$branchMissed, $branchTotal, $branchCb],
+                  [$functionMissed, $functionTotal, $functionCb]]);
           }
         }
       }
@@ -7924,17 +8279,19 @@ sub write_file_table(*$$$$)
     my $showLineGraph = 1;
     # Line coverage
     push(@columns, [$found, $hit, $med_limit, $hi_limit, $showLineGraph,
-                    $primaryCb->lineTotalCallback(), 'line']);
+                    $primaryCb->totalCallback('line'), 'line']);
     # Branch coverage
     if ($br_coverage) {
-      my $cbStruct = $primaryCb->branchTotalCallback();
       push(@columns, [$br_found, $br_hit, $br_med_limit, $br_hi_limit, 0,
-                      $cbStruct, 'branch']);
+		      $primaryCb->totalCallback('branch'), 'branch']);
     }
     # Function coverage
     if ($func_coverage) {
-        push(@columns, [$fn_found, $fn_hit, $fn_med_limit, $fn_hi_limit, 0,
-                        undef, 'function']);
+      # no 'owner' callbacks for function...
+      my $cbStruct = $primaryCb->totalCallback('function')
+	if ('owner' ne $primary_key);
+      push(@columns, [$fn_found, $fn_hit, $fn_med_limit, $fn_hi_limit, 0,
+		      $cbStruct, 'function']);
     }
     # pass 'dirSummary' to print method:  we omit the 'owner' column if
     #  none of the files in this directory have any owner information
@@ -7949,7 +8306,7 @@ sub write_file_table(*$$$$)
                            @columns);
 
     foreach my $secondary (@secondaryRows) {
-      my ($name, $line, $branch) = @$secondary;
+      my ($name, $line, $branch, $func) = @$secondary;
       my ($lineMissed, $lineTotal, $lineCb) = @$line;
       my $lineHit = $lineTotal - $lineMissed;
 
@@ -7968,8 +8325,11 @@ sub write_file_table(*$$$$)
                              $brCallback, 'branch']);
       }
       if ($func_coverage) {
-        # not broken down by owner, yet
-        push(@ownerColData, [0, 0]);
+        my ($funcMissed, $funcTotal, $funcCallback) = @$func;
+        # need to compute the totals...
+        push(@ownerColData, [$funcTotal, $funcTotal - $funcMissed,
+                             $fn_med_limit, $fn_hi_limit, 0,
+                             $funcCallback, 'function']);
       }
       write_file_table_entry(*HTML_HANDLE, $base_dir,
                              # 'owner' page type - no span, no page link
@@ -8024,7 +8384,9 @@ sub write_file_table(*$$$$)
                       TestcaseTlaCount->new($testbrdata->value($testname),
                                             $fileDetails, 'branch')])
         if ($br_coverage);
-      push(@results, [$fn_found, $fn_hit, 'function'])
+      push(@results, [$fn_found, $fn_hit, 'function',
+                      TestcaseTlaCount->new($testfncdata->value($testname),
+                                            $fileDetails, 'function')])
         if ($func_coverage);
       write_file_table_detail_entry(*HTML_HANDLE, $base_dir,
                                     $testname, $showBinDetail, @results);
@@ -8066,18 +8428,6 @@ sub get_affecting_tests($$$)
 }
 
 
-sub get_hash_reverse($)
-{
-  my ($hash) = @_;
-  my %result;
-
-  foreach (keys(%{$hash})) {
-    $result{$hash->{$_}} = $_;
-  }
-
-  return \%result;
-}
-
 #
 # write_source(filehandle, source_filename, count_data, checksum_data,
 #              converted_data, func_data, sumbrcount)
@@ -8090,25 +8440,14 @@ sub get_hash_reverse($)
 
 sub write_source($$$$$$$)
 {
-  local *HTML_HANDLE = $_[0];
-  my $srcfile = $_[1];
-  my $count_data;
-  my $line_number;
+  local *HTML_HANDLE = shift;
+  my ($srcfile, $count_data, $checkdata, $fileCovInfo, $funcdata, $sumbrcount)
+    = @_;
   my @result;
-  my $checkdata = $_[3];
-  my $lineCovInfo = $_[4];
-  my $funcdata  = $_[5];
-  my $sumbrcount = $_[6];
-  my $datafunc = get_hash_reverse($funcdata);
-  my @file;
-
-  if ($_[2]) {
-    $count_data = $_[2];
-  }
 
   write_source_prolog(*HTML_HANDLE, $srcfile->isProjectFile());
-  $line_number = 0;
-  my $cbdata = PrintCallback->new($srcfile, $lineCovInfo);
+  my $line_number = 0;
+  my $cbdata = PrintCallback->new($srcfile, $fileCovInfo);
 
   foreach my $srcline (@{$srcfile->lines()}) {
     $line_number++;
@@ -8154,7 +8493,7 @@ sub funcview_get_count_code($$$)
 }
 
 #
-# funcview_get_sorted(funcdata, sumfncdata, sort_type)
+# funcview_get_sorted(funcdata, sort_type, mergedView)
 #
 # Depending on the value of sort_type, return a list of functions sorted
 # by name (type 0) or by the associated call count (type 1).
@@ -8162,69 +8501,21 @@ sub funcview_get_count_code($$$)
 
 sub funcview_get_sorted($$$)
 {
-        my ($funcdata, $sumfncdata, $type) = @_;
+  my ($differential_func, $type, $merged) = @_;
 
-        if ($type == 0) {
-                return sort($funcdata->keylist());
-        }
-        return sort({
-                $sumfncdata->value($b) == $sumfncdata->value($a) ?
-                        $a cmp $b : $sumfncdata->value($a) <=> $sumfncdata->value($b)
-                } $sumfncdata->keylist());
-}
+  my @rtn = keys(%$differential_func);
 
-sub demangle_list($)
-{
-        my ($list) = @_;
-        my $tmpfile;
-        my $handle;
-        my %demangle;
-        my $demangle_arg = $demangle_cpp_params;
-        my %versions;
-
-        # Write function names to file
-        ($handle, $tmpfile) = tempfile();
-        die("ERROR: could not create temporary file") if (!defined($tmpfile));
-        print($handle join("\n", @$list));
-        close($handle);
-
-        # Extra flag necessary on OS X so that symbols listed by gcov get demangled
-        # properly.
-        if ($demangle_arg eq "" && $^O eq "darwin") {
-                $demangle_arg = "--no-strip-underscores";
-        }
-
-        # Build translation hash from c++filt output
-        open($handle, "-|", "$demangle_cpp_tool $demangle_arg < $tmpfile") or
-                die("ERROR: could not run $demangle_cpp_tool: $!\n");
-        foreach my $func (@$list) {
-                my $translated = <$handle>;
-                my $version;
-
-                last if (!defined($translated));
-                chomp($translated);
-                $translated =~ s/\R//g;
-
-                $version = ++$versions{$translated};
-                $translated .= ".$version" if ($version > 1);
-                $demangle{$func} = $translated;
-        }
-        close($handle);
-
-        if (scalar(keys(%demangle)) != scalar(@$list)) {
-                die("ERROR: c++filt output not as expected (".
-                    scalar(keys(%demangle))." vs ".scalar(@$list).") lines\n");
-        }
-
-        unlink($tmpfile) or
-                warn("WARNING: could not remove temporary file $tmpfile: $!\n");
-
-        return \%demangle;
+  @rtn = sort({ my $da = $differential_func->{$a}->hit();
+		my $db = $differential_func->{$b}->hit();
+		$da->[0] == $db->[0] ? $a cmp $b : $da->[0] <=> $db->[0] }
+	      @rtn)
+    if $type != 0;
+  return @rtn;
 }
 
 #
-# write_function_table(filehandle, source_file, sumcount, funcdata,
-#                      sumfnccount, testfncdata, sumbrcount, testbrdata,
+# write_function_table(filehandle, differentialMap, source_file, sumcount, funcdata,
+#                      testfncdata, sumbrcount, testbrdata,
 #                      base_name, base_dir, sort_type)
 #
 # Write an HTML table listing all functions in a source file, including
@@ -8235,147 +8526,93 @@ sub demangle_list($)
 
 sub write_function_table(*$$$$$$$$$$)
 {
-        local *HTML_HANDLE = $_[0];
-        my $source = $_[1];
-        my $sumcount = $_[2];
-        my $funcdata = $_[3];
-        my $sumfncdata = $_[4];
-        my $testfncdata = $_[5];
-        my $sumbrcount = $_[6];
-        my $testbrdata = $_[7];
-        my $name = $_[8];
-        my $base = $_[9];
-        my $type = $_[10];
-        my $func;
-        my $func_code;
-        my $count_code;
-        my $demangle;
+  local *HTML_HANDLE = shift;
+  my ($differentialMap, $source, $sumcount, $funcdata, $testfncdata,
+      $sumbrcount, $testbrdata, $name, $base, $type) = @_;
 
-        # Get HTML code for headings
-        $func_code = funcview_get_func_code($name, $base, $type);
-        $count_code = funcview_get_count_code($name, $base, $type);
-        write_html(*HTML_HANDLE, <<END_OF_HTML);
+  # Get HTML code for headings
+  my $func_code = funcview_get_func_code($name, $base, $type);
+  my $count_code = funcview_get_count_code($name, $base, $type);
+  my $showTlas = $main::show_tla && 0 != scalar(keys %$differentialMap);
+  my $tlaRow = "";
+  my $countWidth = 20;
+  if ($showTlas) {
+    $tlaRow = "<td width=\"10%\" class=\"tableHead\">TLA</td>";
+    $countWidth = 10;
+  }
+  write_html(*HTML_HANDLE, <<END_OF_HTML);
           <center>
           <table width="60%" cellpadding=1 cellspacing=1 border=0>
             <tr><td><br></td></tr>
             <tr>
               <td width="80%" class="tableHead">$func_code</td>
-              <td width="20%" class="tableHead">$count_code</td>
+	      $tlaRow
+              <td width="${countWidth}%" class="tableHead">$count_code</td>
             </tr>
 END_OF_HTML
 
-        # Get demangle translation hash
-        if ($demangle_cpp) {
-                $demangle = demangle_list([ sort($funcdata->keylist()) ]);
-        }
+  my $merged = defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
+  foreach my $func (funcview_get_sorted($differentialMap, $type, $merged)) {
 
-        # Get a sorted table
-        foreach $func (funcview_get_sorted($funcdata, $sumfncdata, $type)) {
-                if (!$funcdata->mapped($func))
-                {
-                        next;
-                }
+    my $funcEntry = $differentialMap->{$func};
+    my ($count, $tla) = @{$funcEntry->hit()};
+    next if 'D' eq substr($tla, 0, 1); # don't display deleted functions
+    my $startline = $funcEntry->line() - $func_offset;
+    my $name = $func;
+    my $countstyle;
 
-                my $startline = $funcdata->value($func) - $func_offset;
-                my $name = $func;
-                my $count = $sumfncdata->value($name);
-                my $countstyle;
-
-                # Replace function name with demangled version if available
-                $name = $demangle->{$name} if (exists($demangle->{$name}));
-
-                # Escape special characters
-                $name = escape_html($name);
-                if ($startline < 1) {
-                        $startline = 1;
-                }
-                if ($count == 0) {
-                        $countstyle = "coverFnLo";
-                } else {
-                        $countstyle = "coverFnHi";
-                }
-
-                write_html(*HTML_HANDLE, <<END_OF_HTML);
+    # Escape special characters
+    $name = escape_html($name);
+    if ($startline < 1) {
+      $startline = 1;
+    }
+    if ($count == 0) {
+      $countstyle = "coverFnLo";
+    } else {
+      $countstyle = "coverFnHi";
+    }
+    my $tlaRow = "";
+    if ($showTlas) {
+      $tlaRow = "<td class=\"tla$tla\">$tla</td>";
+    }
+    write_html(*HTML_HANDLE, <<END_OF_HTML);
             <tr>
               <td class="coverFn"><a href="$source#$startline">$name</a></td>
+	      $tlaRow
               <td class="$countstyle">$count</td>
             </tr>
 END_OF_HTML
-        }
-        write_html(*HTML_HANDLE, <<END_OF_HTML);
+
+    if ($funcEntry->numAliases() > 1) {
+      my $aliases = $funcEntry->aliases();
+      my @aliasList = keys(%$aliases);
+      @aliasList = sort({ my $da = $aliases->{$a};
+			  my $db = $aliases->{$a};
+			  $da->[0] <=> $db->[0] } @aliasList)
+	if 0 != $type;
+      foreach my $alias (@aliasList) {
+	my ($hit, $tla) = @{$aliases->{$alias}};
+	next if 'D' eq substr($tla, 0, 1); # don't display deleted functions
+	my $style = "coverFnAlias" . ($hit == 0 ? "Lo" : "Hi");
+	$tlaRow = "";
+	if ($showTlas) {
+	  $tlaRow = "<td class=\"tla$tla\">$tla</td>";
+	}
+	write_html(*HTML_HANDLE, <<END_OF_HTML);
+            <tr>
+              <td class="coverFnAlias"><a href="$source#$startline">$alias</a></td>
+	      $tlaRow
+              <td class="$style">$hit</td>
+            </tr>
+END_OF_HTML
+      }
+    }
+  }
+  write_html(*HTML_HANDLE, <<END_OF_HTML);
           </table>
           <br>
           </center>
 END_OF_HTML
-}
-
-
-#
-# subtract_counts(data_ref, base_ref)
-#
-
-sub subtract_counts($$)
-{
-  my %data = %{$_[0]};
-  my %base = %{$_[1]};
-  my $hit = 0;
-  my $found = 0;
-
-  foreach my $line (keys(%data)) {
-    $found++;
-    my $data_count = $data{$line};
-    my $base_count = $base{$line};
-
-    if (defined($base_count)) {
-      $data_count -= $base_count;
-
-      # Make sure we don't get negative numbers
-      if ($data_count<0) {
-        $data_count = 0; }
-    }
-
-    $data{$line} = $data_count;
-    if ($data_count > 0) {
-      $hit++;
-    }
-  }
-  return (\%data, $found, $hit);
-}
-
-
-#
-# subtract_fnccounts(data, base)
-#
-# Subtract function call counts found in base from those in data.
-# Return (data, f_found, f_hit).
-#
-
-sub subtract_fnccounts($$)
-{
-  my $fn_hit = 0;
-  my $fn_found = 0;
-
-  my %data = %{$_[0]} if (defined($_[0]));
-  my %base = %{$_[1]} if (defined($_[1]));
-  foreach my $func (keys(%data)) {
-    $fn_found++;
-    my $data_count = $data{$func};
-    my $base_count = $base{$func};
-
-    if (defined($base_count)) {
-      $data_count -= $base_count;
-
-      # Make sure we don't get negative numbers
-      if ($data_count < 0) {
-        $data_count = 0;
-      }
-    }
-    $data{$func} = $data_count;
-    if ($data_count > 0) {
-      $fn_hit++;
-    }
-  }
-  return (\%data, $fn_found, $fn_hit);
 }
 
 

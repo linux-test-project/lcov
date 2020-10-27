@@ -84,10 +84,10 @@ use lcovutil qw ($tool_name $quiet
                  filterStringsAndComments simplifyCode balancedParens
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
-                 $ERROR_BRANCH $ERROR_EMPTY
+                 $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT
                  is_external $opt_external @internal_dirs
                  system_no_output
-                 rate
+                 rate get_overall_line
   );
 
 
@@ -151,7 +151,6 @@ set_info_callback(\&my_info);
 sub create_temp_dir();
 sub transform_pattern($);
 sub setup_gkv();
-sub get_overall_line($$$$);
 sub print_overall_rate($$$$$$$$$);
 sub lcov_geninfo(@);
 sub create_package($$$;$);
@@ -2441,25 +2440,28 @@ sub get_hash_reverse($)
 
 sub apply_diff_to_funcdata($$)
 {
-	my ($funcdata, $linedata) = @_;
-	my $last_new = get_hash_max($linedata);
-	my $last_old = $linedata->{$last_new};
-	my $func;
-	my $result = MapData->new();
-	my $line_diff = get_hash_reverse($linedata);
+  my ($funcdata, $linedata) = @_;
+  my $last_new = get_hash_max($linedata);
+  my $last_old = $linedata->{$last_new};
+  my $result = FunctionMap->new();
+  my $line_diff = get_hash_reverse($linedata);
 
-	foreach $func ($funcdata->keylist()) {
-		my $line = $funcdata->value($func);
+  foreach my $key ($funcdata->keylist()) {
+    my $func = $funcdata->findKey($key);
+    my $line = $func->line();
 
-		if (defined($line_diff->{$line})) {
-			$result->replace($func, $line_diff->{$line});
-		} elsif ($line > $last_old) {
-			$result->replace($func,
-					 $line + $last_new - $last_old);
-		}
-	}
-
-	return $result;
+    if (defined($line_diff->{$line})) {
+      $line = $line_diff->{$line};
+    } elsif ($line > $last_old) {
+      $line += $last_new - $last_old;
+    }
+    my $aliases = $func->aliases();
+    foreach my $alias (keys %$aliases) {
+      $result->define_function($alias, $func->file(), $line);
+      $result->add_count($alias, $aliases->{$alias});
+    }
+  }
+  return $result;
 }
 
 
@@ -2681,7 +2683,7 @@ sub diff()
 		info("Converting $filename\n");
 		my $entry = $trace_data->data($filename);
 		my ($testdata, $sumcount, $funcdata, $checkdata,
-		    $testfncdata, $sumfnccount, $testbrdata, $sumbrcount) =
+		    $testfncdata, $testbrdata, $sumbrcount) =
 			$entry->get_info($entry);
 		# Convert test data
 		foreach my $testname ($testdata->keylist()) {
@@ -2724,7 +2726,7 @@ sub diff()
 					$testfncdata->value($diffname));
 				$testfncdata->remove($diffname);
 				# Add branch counts
-				  $testbrdata->value($testname)->append(
+				$testbrdata->value($testname)->append(
 					$testbrdata->value($diffname));
 				$testbrdata->remove($diffname);
 			}
@@ -2734,7 +2736,7 @@ sub diff()
 			$testdata->remove($testname);
 			# Move function call count data to new testname
 			$testfncdata->replace($diffname,
-				$testfncdata->value($testname));
+				apply_diff_to_funcdata($testfncdata->value($testname), $line_hash));
 			$testfncdata->remove($testname);
 			# Move branch count data to new testname
 			$testbrdata->replace($diffname,
@@ -2751,8 +2753,7 @@ sub diff()
 		# Convert checksum data
 		$checkdata = apply_diff($checkdata, $line_hash);
 		# Convert function call count data
-		adjust_fncdata($funcdata, $testfncdata, $sumfnccount);
-		my ($f_found, $f_hit) = $sumfnccount->get_found_and_hit();
+		my ($f_found, $f_hit) = $funcdata->get_found_and_hit();
 		my ($br_found, $br_hit) = $sumbrcount->get_found_and_hit();
 		# Update found/hit numbers
 		my ($found, $hit) = $sumcount->get_found_and_hit();
@@ -2760,7 +2761,7 @@ sub diff()
 		{
 			# Store converted entry
 			$entry->set_info($testdata, $sumcount, $funcdata,
-				       $checkdata, $testfncdata, $sumfnccount,
+				       $checkdata, $testfncdata,
 				       $testbrdata, $sumbrcount, $found, $hit,
 				       $f_found, $f_hit, $br_found, $br_hit);
 		}
@@ -2841,9 +2842,9 @@ sub summary()
 		my $br_found;
 		my $br_hit;
 
-		(undef, undef, undef, undef, undef, undef, undef, undef,
-			$ln_found, $ln_hit, $fn_found, $fn_hit, $br_found,
-			$br_hit) = $entry->get_info();
+		(undef, undef, undef, undef, undef, undef, undef,
+		 $ln_found, $ln_hit, $fn_found, $fn_hit, $br_found, $br_hit)
+		  = $entry->get_info();
 
 		# Add to totals
 		$ln_total_found += $ln_found;
@@ -3017,25 +3018,6 @@ sub setup_gkv()
 
 
 #
-# get_overall_line(found, hit, name_singular, name_plural)
-#
-# Return a string containing overall information for the specified
-# found/hit data.
-#
-
-sub get_overall_line($$$$)
-{
-	my ($found, $hit, $name_sn, $name_pl) = @_;
-	my $name;
-
-	return "no data found" if (!defined($found) || $found == 0);
-	$name = ($found == 1) ? $name_sn : $name_pl;
-
-	return rate($hit, $found, "% ($hit of $found $name)");
-}
-
-
-#
 # print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
 #		    br_found, br_hit)
 #
@@ -3049,12 +3031,12 @@ sub print_overall_rate($$$$$$$$$)
 
 	info("Summary coverage rate:\n");
 	info("  lines......: %s\n",
-	     get_overall_line($ln_found, $ln_hit, "line", "lines"))
+	     get_overall_line($ln_found, $ln_hit, "line"))
 		if ($ln_do);
 	info("  functions..: %s\n",
-	     get_overall_line($fn_found, $fn_hit, "function", "functions"))
+	     get_overall_line($fn_found, $fn_hit, "function"))
 		if ($fn_do);
 	info("  branches...: %s\n",
-	     get_overall_line($br_found, $br_hit, "branch", "branches"))
+	     get_overall_line($br_found, $br_hit, "branch"))
 		if ($br_do);
 }
