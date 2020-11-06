@@ -329,7 +329,7 @@ sub ignorable_error($$;$) {
   # only tell the user how to suppress this on the first occurrence
   my $ignoreOpt = exists($didwarning{$code}) ? "" : "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
   $didwarning{$code} = 1;
-  warn_handler("Warning: ($errName') $msg\n$ignoreOpt")
+  warn_handler("Warning: ('$errName') $msg\n$ignoreOpt")
     unless $ignore[$code] > 1 || (defined($quiet) && $quiet);
 }
 
@@ -1081,7 +1081,7 @@ sub insert {
   if (exists($locationMap->{$key})) {
     my $current = $locationMap->{$key};
     print("DUP:  " . $current->name() . " -> " . $entry->name() . "\n"
-	  . $current->file() . ":" . $current->line() . " -> " . $entry->file() . $entry->line() . "\n");
+          . $current->file() . ":" . $current->line() . " -> " . $entry->file() . $entry->line() . "\n");
     die("duplicate entry \@$key");
   }
   $locationMap->{$key} = $entry;
@@ -1812,7 +1812,7 @@ sub _read_info {
     # properly.
     $lcovutil::cpp_demangle .= " --no-strip-underscores"
       if (scalar(@params) == 1 &&
-	  $^ eq "darwin");
+          $^ eq "darwin");
   }
 
   # Check for .gz extension
@@ -2192,14 +2192,14 @@ sub _read_info {
         }
       };
       /^(FN|BR|L)[HF]/ && do {
-	last; # ignore count records
+        last; # ignore count records
       };
       /^\s*$/ && do {
-	last; # ignore empty line
+        last; # ignore empty line
       };
 
       lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-				"unexpected .info file record '$_'");
+                                "unexpected .info file record '$_'");
       # default
       last;
     }
