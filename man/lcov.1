@@ -648,7 +648,9 @@ the source code file for a data set could not be found.
 the graph file could not be found or is corrupted.
 
 .B mismatch:
-branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match.
+Inconsistent entries found in trace file:
+ - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
+ - function execution count (FNDA:...) but no function declaration (FN:...).
 
 .B branch:
 branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.

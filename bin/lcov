@@ -85,7 +85,7 @@ use lcovutil qw ($tool_name $quiet
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
                  $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT
-                 is_external $opt_external @internal_dirs
+                 is_external $opt_no_external @internal_dirs
                  system_no_output
                  rate get_overall_line
   );
@@ -201,7 +201,7 @@ our $opt_list_full_path;
 our $opt_no_list_full_path;
 our $opt_list_width = 80;
 our $opt_list_truncate_max = 20;
-our $opt_no_external;
+our $opt_external;
 our $opt_config_file;
 our %opt_rc;
 our @opt_summary;
@@ -312,8 +312,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"debug" => \$lcovutil::debug,
 		"list-full-path" => \$opt_list_full_path,
 		"no-list-full-path" => \$opt_no_list_full_path,
-		"external" => \$lcovutil::opt_external,
-		"no-external" => \$opt_no_external,
+		"external" => \$opt_external,
+		"no-external" => \$lcovutil::opt_no_external,
 		"summary=s" => \@opt_summary,
 		"compat=s" => \$opt_compat,
 		"config-file=s" => \$opt_config_file,
@@ -346,9 +346,9 @@ else
 
 	push(@lcovutil::internal_dirs, $base_directory)
 	  if defined($base_directory);
-	if (defined($opt_no_external)) {
-		$opt_external = 0;
-		$opt_no_external = undef;
+	if (defined($opt_external)) {
+		$lcovutil::opt_no_external = 0;
+		$opt_external = undef;
 	}
 }
 
@@ -845,7 +845,7 @@ sub lcov_geninfo(@)
 	{
 		@param = (@param, "--follow");
 	}
-	if ($lcov_util::quiet)
+	if ($lcovutil::quiet)
 	{
 		@param = (@param, "--quiet");
 	}
@@ -876,7 +876,7 @@ sub lcov_geninfo(@)
 	{
 		@param = (@param, "--gcov-tool", $gcov_tool);
 	}
-	foreach (@opt_ignore_errors) {
+	foreach (split(',', join(',', @opt_ignore_errors))) {
 	  # pass only the 'ignore' options that geninfo understands
 	  @param = (@param, "--ignore-errors", $_)
 	    if exists($lcovutil::geninfoErrs{$_});
@@ -907,7 +907,7 @@ sub lcov_geninfo(@)
 	{
 		@param = (@param, "--external");
 	}
-	if (defined($opt_external) && !$opt_external)
+	if (defined($lcovutil::opt_no_external) && $lcovutil::opt_no_external)
 	{
 		@param = (@param, "--no-external");
 	}
@@ -928,7 +928,7 @@ sub lcov_geninfo(@)
 	foreach (@exclude_patterns) {
 		@param = (@param, "--exclude", $_);
 	}
-
+	info("geninfo cmd: '" . join(' ', @param) . "'\n");
 	system(@param) and exit($? >> 8);
 }
 
@@ -1098,7 +1098,7 @@ sub create_package($$$;$)
 	unlink("$dir/$pkg_gkv_file");
 
 	# Show number of data files
-	if (!$lcov_util::quiet) {
+	if (!$lcovutil::quiet) {
 		my $count = count_package_data($file);
 
 		if (defined($count)) {

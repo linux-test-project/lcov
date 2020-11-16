@@ -77,7 +77,7 @@ use lcovutil qw (define_errors parse_ignore_errors ignorable_error
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE
                  $ERROR_GRAPH
-                 is_external $opt_external @internal_dirs
+                 is_external $opt_no_external @internal_dirs
                 );
 
 if( $^O eq "msys" )
@@ -263,8 +263,7 @@ our $no_recursion = 0;
 our $maxdepth;
 our $no_markers = 0;
 our $opt_derive_func_data = 0;
-our $opt_external = 1;
-our $opt_no_external;
+our $opt_external;
 our $gcov_caps;
 our @gcov_options;
 our $opt_config_file;
@@ -415,7 +414,7 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"derive-func-data" => \$opt_derive_func_data,
 		"debug" => \$lcovutil::debug,
 		"external|e" => \$opt_external,
-		"no-external" => \$opt_no_external,
+		"no-external" => \$lcovutil::opt_no_external,
 		"compat=s" => \$opt_compat,
 		"config-file=s" => \$opt_config_file,
 		"rc=s%" => \%opt_rc,
@@ -439,9 +438,9 @@ else
 		$opt_no_compat_libtool = undef;
 	}
 
-	if (defined($opt_no_external)) {
-		$opt_external = 0;
-		$opt_no_external = undef;
+	if (defined($opt_external)) {
+		$lcovutil::opt_no_external = 0;
+		$opt_external = undef;
 	}
 
 	if(@include_patterns) {
@@ -1353,13 +1352,11 @@ sub process_dafile($$)
 		}
 
 		# Skip external files if requested
-		if (!$opt_external) {
-			if (is_external($source_filename)) {
-				info("  ignoring data for external file ".
-				     "$source_filename\n");
-				unlink($gcov_file);
-				next;
-			}
+		if (is_external($source_filename)) {
+		  info("  ignoring data for external file ".
+		       "$source_filename\n");
+		  unlink($gcov_file);
+		  next;
 		}
 
 		# Write absolute path of source file
@@ -3292,12 +3289,9 @@ sub process_graphfile($$)
 		my $linedata;
 
 		# Skip external files if requested
-		if (!$opt_external) {
-			if (is_external($filename)) {
-				info("  ignoring data for external file ".
-				     "$filename\n");
-				next;
-			}
+		if (is_external($filename)) {
+		  info("  ignoring data for external file $filename\n");
+		  next;
 		}
 
 		print(INFO_HANDLE "SF:$filename\n");
@@ -3635,7 +3629,7 @@ sub filter_source_files($)
 
 	foreach my $filename (keys(%{$hash})) {
 		# Skip external files if requested
-		goto del if (!$opt_external && is_external($filename));
+		goto del if (is_external($filename));
 
 		# Apply include patterns
 		if (@include_patterns) {

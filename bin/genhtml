@@ -85,6 +85,7 @@ use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path realpath cwd/;
 use DateTime;
 use DateTime::Format::W3CDTF;
+use Date::Parse;
 use FileHandle;
 use Carp;
 use Storable qw(dclone);
@@ -1556,6 +1557,7 @@ sub containsConditional {
 
 
 package LineData;
+
 sub new {
   my ($class, $type) = @_;
   # [ type, lineNo_base, lineNo_current,
@@ -1782,6 +1784,58 @@ sub line {
   return exists($lineMap->{$lineNo}) ? $lineMap->{$lineNo} : undef;
 }
 
+sub recategorizeTlaAsBaseline {
+  # intended use:  this file appears to have been added to the "coverage"
+  # suite - but the file itself is old/has been around for a long time.
+  #   - by default, we will see this as "Included Code"
+  #      - which means that 'un-exercised' code will be "UIC"
+  #   - but:  non-zero UIC will fail our Jenkins coverage ratchet.
+  # As a workaround:  treat this file as if the baseline data was the same
+  # as 'current' - so code will be categorized as "CBC/UBC" - which will not
+  # trigger the coverage criteria.
+  my $self = shift;
+  my $lineMap = $self->lineMap();
+  my %remap = ( 'UIC' => 'UBC',
+                'GIC' => 'CBC',
+                'UNK' => 'UNK' );
+
+  foreach my $line (keys %$lineMap) {
+    my $data = $lineMap->{$line};
+    die("unexpected $line 'in_base'") if $data->in_base();
+
+    my $lineTla = $data->tla();
+    $data->tla($remap{$lineTla});
+
+    # branch coverage...
+    if ($main::br_coverage && defined($data->differential_branch())) {
+      my $br = $data->differential_branch();
+
+      foreach my $branchId ($br->blocks()) {
+        my $diff = $br->getBlock($branchId);
+        foreach my $b (@$diff) {
+          my $tla = $b->[1];
+          $b->[1] = $remap{$tla};
+        }
+      }
+    } # if branch data
+
+    # function coverage..
+    if ($main::func_coverage && defined($data->differential_function())) {
+      my $func = $data->differential_function();
+      my $hit = $func->hit();
+      my $tla = $hit->[1];
+      $hit->[1] = $remap{$tla};
+
+      my $aliases = $func->aliases();
+      foreach my $alias (keys %$aliases) {
+        my $data = $aliases->{$alias};
+        my $tla = $data->[1];
+        $data->[1] = $remap{$tla};
+      }
+    }
+  } # if function data
+}
+
 sub _categorize {
   my ($baseCount, $currCount) = @_;
   my $tla;
@@ -1800,8 +1854,8 @@ sub _categorizeLineCov {
   my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
   my $lineDataMap = $self->lineMap();
 
-  my $lineCovBase = $base_data->data($filename)->test();
-  my $lineCovCurrent = $current_data->data($filename)->test();
+  my $lineCovBase = $base_data->test();
+  my $lineCovCurrent = $current_data->test();
 
   foreach my $testcase ($lineCovCurrent->keylist()) {
     my $testcount = $lineCovCurrent->value($testcase);
@@ -1882,8 +1936,8 @@ sub _categorizeBranchCov {
   my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
   my $lineDataMap = $self->lineMap();
 
-  my $branchCovBase = $base_data->data($filename)->testbr();
-  my $branchCovCurrent = $current_data->data($filename)->testbr();
+  my $branchCovBase = $base_data->testbr();
+  my $branchCovCurrent = $current_data->testbr();
 
   my %branchCovLines;
   # look through the 'current' data, to find all the branch data
@@ -2040,8 +2094,8 @@ sub _categorizeFunctionCov {
   push(@$self, $differentialMap);
   my $lineDataMap = $self->lineMap();
 
-  my $funcBase = $base_data->data($filename)->testfnc();
-  my $funcCurrent = $current_data->data($filename)->testfnc();
+  my $funcBase = $base_data->testfnc();
+  my $funcCurrent = $current_data->testfnc();
 
   my %funcCovLines;
   foreach my $testcase ($funcCurrent->keylist()) {
@@ -2719,7 +2773,8 @@ our $annotateScript;
 
 sub new {
   # countdata may be 'undef'
-  my ($class, $filepath, $fileSummary, $fileCovInfo, $countdata) = @_;
+  my ($class, $filepath, $fileSummary, $fileCovInfo, $countdata,
+      $hasNoBaselineData) = @_;
 
   (ref($fileSummary) eq 'SummaryInfo' && ref($fileCovInfo) eq "FileCoverageInfo")
     or die("unexpected input args");
@@ -2739,8 +2794,19 @@ sub new {
   #   find an actual file
   $self->_load($countdata);
 
+  if ($hasNoBaselineData) {
+    my $fileAge = $self->age();
+    if (defined($fileAge) &&
+        $fileAge > $main::age_basefile) {
+      # go through the fileCov data and change UIC->UBC, GIC->CBC
+      #  - pretend that we already saw this file data - this is the first
+      #    coverage report which contains this data.
+      $fileCovInfo->recategorizeTlaAsBaseline();
+    }
+  }
+
   if (defined($main::show_dateBins) &&
-      $self->notProjectFile()) {
+      ! $self->isProjectFile()) {
     lcovutil::info("no owner/date info for '$filepath'\n");
   }
 
@@ -3023,12 +3089,6 @@ sub path {
   return $self->{_path};
 }
 
-sub notProjectFile {
-    # return 'true' if no owner/date information for this file.
-    my $self = shift;
-    return ! scalar(%{$self->{_owners}});
-}
-
 sub isProjectFile {
     # return 'true' if no owner/date information for this file.
     my $self = shift;
@@ -3040,7 +3100,21 @@ sub line {
   my $i = shift;
   die("bad line index '$i'")
     unless ( $i =~ /^[0-9]+$/ );
-  return ${$self->{_lines}}[$i - 1];
+  return $self->{_lines}->[$i - 1];
+}
+
+sub age {
+  my $self = shift;
+  # how old is the oldest line in this file?
+  return undef unless $self->isProjectFile();
+
+  my $age = $self->line(1)->age();
+  foreach my $line (@{$self->lines()}) {
+    my $a = $line->age();
+    $age = $a
+      if ($a > $age);
+  }
+  return $age;
 }
 
 sub lines {
@@ -3561,6 +3635,7 @@ our @info_filenames;    # List of .info files to use as data source
 our $test_title;        # Title for output as written to each page header
 our $output_directory;  # Name of directory in which to store output
 our $base_filename;     # Optional name of file containing baseline data
+our $age_basefile;      # how old is the baseline data file?
 our $baseline_title;    # Optional name of baseline - written to page headers
 our $baseline_date;     # Optional date that baseline was created
 our $diff_filename;     # Optional name of file containing baseline data
@@ -3583,6 +3658,7 @@ our $show_ownerBins;    # show list of people who have edited code
 our $show_nonCodeOwners;# show last modified and last author info for
                         #  non-code lines (e.g., comments)
 our $show_simplifiedColors;
+our $treatNewFileAsBaseline;
 our $hierarchical = 0;  # if true: show directory hierarchy
                         # default: legacy two-level report
 
@@ -3729,6 +3805,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "baseline-date=s"       => \$baseline_date,
                 "diff-file=s"           => \$diff_filename,
                 "annotate-script=s"     => \$SourceFile::annotateScript,
+                "new-file-as-baseline" => \$treatNewFileAsBaseline,
                 # if 'show-owners' is set: generate the owner table
                 #    if it is passed a value: show all the owners,
                 #    regardless of whether thay have uncovered code or not
@@ -3793,6 +3870,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
     }
     SummaryInfo::setAgeGroups(@datebins);
   } else {
+    $treatNewFileAsBaseline = undef;
     die("\"--show-owners\" option requires \"--annotate-script\" for revision control integration")
         if defined($show_ownerBins);
     die ("\"--date\" option requires \"--annotate-script\" for revision control integraion")
@@ -3870,13 +3948,29 @@ if (!$test_title)
 }
 
 if ($base_filename) {
-    if (!$baseline_title) {
-        $baseline_title = basename($base_filename);
+  if (!$baseline_title) {
+    $baseline_title = basename($base_filename);
+  }
+  my $baseline_create;
+
+  if ($baseline_date) {
+    eval {
+      my $epoch = Date::Parse::str2time($baseline_date);
+      $baseline_create =  DateTime->from_epoch(epoch => $epoch);
+    };
+    if ($@) {
+      #did not parse
+      info("failed to parse date '$baseline_date' - falling back to file creation time");
     }
-    if (!$baseline_date) {
-        # if not specified, use 'last modified' of baseline trace file
-        $baseline_date = get_date_string((stat($base_filename))[9]);
-    }
+  }
+  if (! defined($baseline_create)) {
+    # if not specified, use 'last modified' of baseline trace file
+    my $create = (stat($base_filename))[9];
+    $baseline_create =  DateTime->from_epoch(epoch => $create);
+    $baseline_date = get_date_string($create)
+      unless defined($baseline_date);
+  }
+  $age_basefile = $baseline_create->delta_days(DateTime->now())->in_units('days');
 }
 
 
@@ -4515,16 +4609,31 @@ sub process_file($$$$)
   $summary->b_hit($br_hit);
 
   # build coverage differential categories
+  my $fileBase = $base_data->data($filename);
+  my $fileCurrent = $current_data->data($filename);
   my $fileCovInfo =
-    FileCoverageInfo->new($filename, $base_data, $current_data, $diff_data
+    FileCoverageInfo->new($filename, $fileBase, $fileCurrent, $diff_data
                           #, scalar($filename =~ /vcsapi_type/
     );
 
   info("  lines=".$lines_found." hit=".$lines_hit."\n");
 
-  # NOTE: $summary struct is also modified: update total counts
-  #   in each bucket, counts in each date range
-  my $srcfile = SourceFile->new($filename, $summary, $fileCovInfo, $sumcount);
+  my $fileHasNoBaselineInfo = ($fileBase->is_empty() &&
+                               $main::treatNewFileAsBaseline &&
+                               defined($main::base_filename));
+  # if this file is older than the baseline and there is no associated baseline
+  #   data - then it appears to have been added to the build recently
+  # We want to treat the code as "CBC" or "UBC" (not "GIC" and "UIC")
+  #   because we only just turned section "on" - and we don't want the
+  #   coverage ratchet to fail the build if UIC is nonzero
+
+  # NOTE:  SourceFile constructor modifies some input data:
+  #   - $summary struct is also modified: update total counts in each bucket,
+  #     counts in each date range
+  #   - $fileCovInfo: change GIC->CBC, UIC->UBC if $fineNotInBaseline and
+  #     source code is older than baseline file
+  my $srcfile = SourceFile->new($filename, $summary, $fileCovInfo, $sumcount,
+                                $fileHasNoBaselineInfo);
   $parent_dir_summary->append($summary);
 
   # Return after this point in case user asked us not to generate
@@ -7458,7 +7567,7 @@ sub buildHeaderSummaryTableRow {
   my ($summary, $covType, $fileDetail, $nextLocationCallback) = @_;
 
   $fileDetail = undef
-    if (defined($fileDetail) && $fileDetail->notProjectFile());
+    if (defined($fileDetail) && ! $fileDetail->isProjectFile());
   my @row;
   for my $tla (@SummaryInfo::tlaPriorityOrder) {
     my $value = $summary->get($tla, $covType);

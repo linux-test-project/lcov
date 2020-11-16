@@ -83,13 +83,15 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-annotate\-script
 .IR source\-annotation\-script ]
 .br
+.RB [ \-\-new\-files\-as\-baseline]
+.br
 .RB [ \-\-date
 .IR day[,day,...]]
 .br
-.RB [ \-\-show-owners
+.RB [ \-\-show\-owners
 .IR [ all ] ]
 .br
-.RB [ \-\-show-noncode ]
+.RB [ \-\-show\-noncode ]
 .br
 .RB [ \-\-simplified-colors ]
 .br
@@ -371,6 +373,28 @@ is specified, the HTML header will contain a summary table, showing counts in th
 Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support-scripts directory which is shipped as part of this release.
 
 .RE
+.BI "\-\-new\-file\-as\-baseline "
+.RS
+By default, when code is identified on source lines in the 'current' data which where not identified as code in the 'baseline' data but the source text has not changed, their coverpoints are categorized as "included code":
+.I GIC
+or
+.I UIC.
+However, if the configuration of the coverage job has been recently changed to instrument additional files (
+.I i.e.
+, to measure more than we had previously), then all un-exercised coverpoints in those files will fall into the
+.I GIC
+category - which may cause our Jenkins "coverage ratchet" to fail.
+When this option is specified, genhtml pretends that the baseline data for the file is the same as the current data - so coverpoints are categorized as
+.I CBC
+or
+.I UBC
+which do not trigger the coverage criteria check.
+
+Please note that coverpoints in the file are re-categorized only if:
+  - There is no 'baseline' data for any coverpoint in this file, AND
+  - The file pre-dates the baseline:  the oldest line in the file is older than the 'baseline' data file (or the value specified by the "--baseline\-date" option).
+
+.RE
 .BI "\-\-date " day[,day,...]
 .RS
 The
@@ -397,7 +421,7 @@ option is not specified, the the summary table will contain "Total" rows for all
 .BI "\-\-show\-noncode "
 .RS
 By default, the source code detail view does not show owner or date annotations in the far left column for non-code lines (e.g., comments). If the
-.I \-\-show-noncode
+.I \-\-show\-noncode
 option is used, then the source code view will show annotations for both code and non-code lines.
 This argument has no effect if there is no
 .I source\-annotation\-script .
@@ -786,6 +810,14 @@ coverage data for a particular line cannot be found (possibly because the source
 
 .B category:
 line number categorizations are incorrect in the .info file, so branch coverage line number turns out to not be an executable source line.
+
+.B mismatch:
+Inconsistent entries found in trace file:
+ - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
+ - function execution count (FNDA:...) but no function declaration (FN:...).
+
+.B path:
+File name found in '\-\-diff\-file' file but does not appear in either baseline or current trace data.  These may be mapping issues - different pathname in the tracefile vs. the diff file.
 .RE
 
 .B \-\-config\-file

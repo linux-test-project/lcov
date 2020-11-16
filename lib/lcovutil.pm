@@ -26,7 +26,7 @@ our @EXPORT_OK =
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT
 
-     is_external @internal_dirs $opt_external
+     is_external @internal_dirs $opt_no_external
      rate get_overall_line $default_precision check_precision
 
      system_no_output
@@ -61,7 +61,7 @@ our %geninfoErrs = (
 
 # for external file filtering
 our @internal_dirs;
-our $opt_external;
+our $opt_no_external;
 
 # C++ demangling
 our $cpp_demangle;
@@ -441,7 +441,7 @@ sub is_external($)
 {
   my $filename = shift;
 
-  return 0 unless (defined($opt_external) && $opt_external);
+  return 0 unless (defined($opt_no_external) && $opt_no_external);
 
   foreach my $dir (@internal_dirs) {
     return 0 if ($filename =~ /^\Q$dir\/\E/);
@@ -534,6 +534,11 @@ sub new {
   bless $self, $class;
 
   return $self;
+}
+
+sub is_empty {
+  my $self = shift;
+  return 0 == scalar(keys %$self);
 }
 
 sub append_if_unset {
@@ -1011,10 +1016,12 @@ sub get_found_and_hit {
 sub add_count {
   my ($self, $fnName, $count) = @_;
   my $nameMap = $self->[1];
-  exists($nameMap->{$fnName}) or
-    die("unknown function '$fnName'");
-  my $data = $nameMap->{$fnName};
-  $data->addAlias($fnName, $count);
+  if (exists($nameMap->{$fnName})) {
+    my $data = $nameMap->{$fnName};
+    $data->addAlias($fnName, $count);
+  } else {
+    lcovutil::ignorable_error($ERROR_MISMATCH, "unknown function '$fnName'");
+  }
 }
 
 sub merge {
@@ -1274,6 +1281,14 @@ sub new {
   $self->{_testbrdata} = MapData->new();
 
   return $self;
+}
+
+# return true if no line, branch, or function coverage data
+sub is_empty {
+  my $self = shift;
+  return ( $self->test()->is_empty() && # line cov
+	   $self->testbr()->is_empty() &&
+	   $self->testfnc()->is_empty() );
 }
 
 # line coverage data
