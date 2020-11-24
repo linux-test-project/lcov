@@ -488,15 +488,16 @@ sub get_sorted_keys {
   if ($main::opt_missed) {
     # sort by directory first then secondary key
     return sort({ my $da = $sources->{$a};
-                  my $db = $sources->{$a};
+                  my $db = $sources->{$b};
+                  # directories then files if list includes both
                   $da->type() cmp $db->type() or
                   $db->get_missed($covtype) <=> $da->get_missed($covtype) }
                 @l);
   } else {
     return sort({ my $da = $sources->{$a};
-                  my $db = $sources->{$a};
+                  my $db = $sources->{$b};
                   $da->type() cmp $db->type() or
-                  $db->get_rate($covtype) <=> $da->get_rate($covtype) }
+                  $da->get_rate($covtype) <=> $db->get_rate($covtype) }
                 @l);
   }
 }
@@ -514,8 +515,7 @@ sub get {
   my $hash = $self->{$type};
   if ($key eq "total") {
     return $hash->{found};
-  } elsif ($key eq "not_hit" ||
-           $key eq "missed" ) {
+  } elsif ($key eq "missed" ) {
     my $missed = 0;
     foreach my $k ('UBC', 'UNC', 'UIC', 'LBC') {
       $missed += $hash->{$k}
@@ -541,9 +541,21 @@ sub get_rate {
   my $hit = $hash->{hit};
 
   if ($found == 0) {
-    return 10000;
+    #return 100;
+    return 1000;
   }
+  #return (100.0 * $hit) / $found;
   return int($hit * 1000 / $found) * 10 + 2 - (1 / $found);
+}
+
+sub get_missed {
+  my ($self, $covtype) = @_;
+
+  my $hash = $self->{$covtype};
+  my $found = $hash->{found};
+  my $hit = $hash->{hit};
+
+  return $found - $hit;
 }
 
 
@@ -617,8 +629,7 @@ sub owner_tlaCount {
               if (exists($hash->{$k}));
         }
         return $hit;
-    } elsif ($tla eq "missed" ||
-             $tla eq "not_hit" ) {
+    } elsif ($tla eq "missed") {
         my $missed = 0;
         foreach my $k ('UBC', 'UNC', 'UIC', 'LBC') {
             $missed += $hash->{$k}
@@ -3103,16 +3114,21 @@ sub line {
   return $self->{_lines}->[$i - 1];
 }
 
+# how old is the oldest (or youngest) line in this file?
 sub age {
-  my $self = shift;
-  # how old is the oldest line in this file?
+  my ($self, $youngest) = @_;
   return undef unless $self->isProjectFile();
 
   my $age = $self->line(1)->age();
   foreach my $line (@{$self->lines()}) {
     my $a = $line->age();
-    $age = $a
-      if ($a > $age);
+    if (defined($youngest)) {
+      $age = $a
+        if ($a < $age);
+    } else {
+      $age = $a
+        if ($a > $age);
+    }
   }
   return $age;
 }
@@ -6225,7 +6241,8 @@ END_OF_HTML
 # write_file_table_entry(handle, base_dir,
 #                        [ name, [filename, fileDetails, fileHref],
 #                          rowspan, primary_key, is_secondary, fileview,
-#                          page_type, page_link, dirSummary, showDetailCol ],
+#                          page_type, page_link, dirSummary, showDetailCol,
+#                          asterisk ],
 #                        ([ found, hit, med_limit, hi_limit, graph ], ..)
 #
 # Write an entry of the file table.
@@ -6236,9 +6253,11 @@ sub write_file_table_entry(*$$@)
 {
   my ($handle, $base_dir, $data, @entries) = @_;
   my ($name, $callbackData, $rowspan, $primary_key, $is_secondary,
-      $fileview, $page_type, $page_link, $dirSummary, $showBinDetailColumn)
-    = @$data;
+      $fileview, $page_type, $page_link, $dirSummary, $showBinDetailColumn,
+      $asterisk) = @$data;
   my $esc_name = escape_html($name);
+  #$esc_name .= "<sup>" . escape_html($asterisk) . "</sup>"
+  #  if defined($asterisk);
   my $namecode = $esc_name;
   my $owner;
 
@@ -6342,6 +6361,8 @@ END_OF_HTML
        $primary_key ne 'name' &&
        ! $is_secondary)) {
     $anchor =~ s/NAME/Total/;
+    $anchor .= "<sup>" . escape_html($asterisk) . "</sup>"
+      if defined($asterisk);
     write_html($handle, <<END_OF_HTML);
               <td class="overallOwner">$anchor</td>
 END_OF_HTML
@@ -6376,15 +6397,15 @@ END_OF_HTML
       $rate = rate($hit, $found, "&nbsp;%");
       $class = $rate_name[classify_rate($found, $hit, $med, $hi)];
     }
-    if ($opt_missed) {
-      # Show negative number of items without coverage
-        $hit = -($found - $hit);
-    }
+    # Show negative number of items without coverage
+    $hit -= $found # negative number
+      if ($main::opt_missed);
+
     write_html($handle, <<END_OF_HTML);
               <td class="${prefix}coverPer$class">$rate</td>
 END_OF_HTML
     if ($summary) {
-      my @keys = ("found", $opt_missed ? "not_hit" : "hit");
+      my @keys = ("found", $opt_missed ? "missed" : "hit");
       if ($main::show_tla) {
         push(@keys, @SummaryInfo::tlaPriorityOrder);
       }
@@ -6394,7 +6415,7 @@ END_OF_HTML
         $class = $page_type ne "owner" ? "coverNumDflt" : "ownerTla";
         my $v = "";
         if ( defined($count) && 0 != $count ) {
-          $v = $count;
+          $v = $key eq 'missed' ? -$count : $count;
           # want to colorize the UNC, LBC, UIC rows if not zero
           $class = "tla$key" if grep(/^$key$/, ("UNC", "LBC", "UIC"));
 
@@ -7441,6 +7462,8 @@ sub buildDateSummaryTable($$$$$$$$) {
     if (defined($detailLink)) {
       $href = "<a href=\"$page#$bin\" title=\"click to go to coverage summary for the period '$href'\">$href</a>";
     }
+    $hit -= $found # negative number
+      if ($main::opt_missed);
     my @dataRow = ([undef, "headerItem", $href . ":"],
                    [undef, "headerCovTableEntry$style", $rate],
                    [undef, "headerCovTableEntry", $found],
@@ -7528,6 +7551,8 @@ sub buildOwnerSummaryTable($$$$$$$$) {
     if (defined($detailLink)) {
       $href = "<a href=\"$page#$name\" title=\"click to go to coverage summary for owner '$name'\">$name</a>";
     }
+    $hit -= $found # negative number
+      if ($main::opt_missed);
     my @dataRow = ([undef, "headerItem", $href . ":"],
                    [undef, "owner_coverPer$style", $rate],
                    [undef, "ownerTla", $found],
@@ -7554,7 +7579,7 @@ sub buildOwnerSummaryTable($$$$$$$$) {
           $popup .= "in &ldquo;$name&rdquo; bin\"";
           my $color = " style=\"background-color:$class\"";
           $value = "<a href=\"#$firstAppearance\"$popup$color>$value</a>";
-          }
+        }
         push(@dataRow, [undef, $class, $value]);
       }
     }
@@ -7865,7 +7890,7 @@ END_OF_HTML
                      ["5%", "headerCovTableHead\" title=\" $totalTitle\"",
                       "Total" ],
                      ["5%", "headerCovTableHead\" title=\" $hitTitle\"",
-                      "Hit" ]);
+                      $main::opt_missed ? "Missed" : "Hit" ]);
     if ( $main::show_tla) {
       for my $tla (@SummaryInfo::tlaPriorityOrder) {
         my $title = $SummaryInfo::tlaToTitle{$tla};
@@ -7876,14 +7901,16 @@ END_OF_HTML
     push(@row_right, \@headerRow);
   }
   # Line coverage
-  my $style = $rate_name[classify_rate($summary->l_found(), $summary->l_hit(),
-                                    $med_limit, $hi_limit)];
-  my $rate = rate($summary->l_hit(), $summary->l_found(), "&nbsp;%");
+  my $tot = $summary->l_found();
+  my $hit = $summary->l_hit();
+  my $style = $rate_name[classify_rate($tot, $hit, $med_limit, $hi_limit)];
+  my $rate = rate($hit, $tot, "&nbsp;%");
+  $hit -= $tot
+    if $main::opt_missed; # negative number
   my @dataRow = ( [undef, "headerItem", "Lines:"],
                   [undef, "headerCovTableEntry$style", $rate],
-                  [undef, "headerCovTableEntry", $summary->l_found()],
-                  [undef, "headerCovTableEntry", $summary->l_hit()]
-      );
+                  [undef, "headerCovTableEntry", $tot],
+                  [undef, "headerCovTableEntry", $hit] );
   if ($main::show_tla) {
     my @tlaRow = buildHeaderSummaryTableRow($summary, 'line', $fileDetail,
                                             \&SourceFile::nextTlaGroup);
@@ -7893,35 +7920,38 @@ END_OF_HTML
       if ($type != $HDR_TESTDESC);
   # Function coverage
   if ($func_coverage) {
-    $style = $rate_name[classify_rate($summary->f_found(), $summary->f_hit(),
-                                      $fn_med_limit, $fn_hi_limit)];
-    $rate = rate($summary->f_hit(), $summary->f_found(), "&nbsp;%");
+    my $tot = $summary->f_found();
+    my $hit = $summary->f_hit();
+    $style = $rate_name[classify_rate($tot, $hit, $fn_med_limit, $fn_hi_limit)];
+    $rate = rate($hit, $tot, "&nbsp;%");
+    $hit -= $tot
+      if $main::opt_missed; # negative number
     my @dataRow = ([undef, "headerItem", "Functions:"],
                    [undef, "headerCovTableEntry$style", $rate],
-                   [undef, "headerCovTableEntry", $summary->f_found()],
-                   [undef, "headerCovTableEntry", $summary->f_hit()]);
+                   [undef, "headerCovTableEntry", $tot],
+                   [undef, "headerCovTableEntry", $hit] );
+
     if ($main::show_tla) {
       # no file position for funcion (yet)
       my @tlaRow = buildHeaderSummaryTableRow($summary, 'function',
                                               undef, undef);
       push(@dataRow, @tlaRow);
-      # no differential counts for functions, yet
-      #for my $tla (@SummaryInfo::tlaPriorityOrder) {
-      #  push(@dataRow, [undef, "headerCovTableEntry", ""]);
-      #}
     }
     push(@row_right, \@dataRow)
         if ($type != $HDR_TESTDESC);
   }
   # Branch coverage
   if ($br_coverage) {
-    $style = $rate_name[classify_rate($summary->b_found(), $summary->b_hit(),
-                                      $br_med_limit, $br_hi_limit)];
-    $rate = rate($summary->b_hit(), $summary->b_found(), "&nbsp;%");
+    my $tot = $summary->b_found();
+    my $hit = $summary->b_hit();
+    $style = $rate_name[classify_rate($tot, $hit, $br_med_limit, $br_hi_limit)];
+    $rate = rate($hit, $tot, "&nbsp;%");
+    $hit -= $tot
+      if $main::opt_missed; # negative number
     my @dataRow = ([undef, "headerItem", "Branches:"],
                    [undef, "headerCovTableEntry$style", $rate],
-                   [undef, "headerCovTableEntry", $summary->b_found()],
-                   [undef, "headerCovTableEntry", $summary->b_hit()]);
+                   [undef, "headerCovTableEntry", $tot],
+                   [undef, "headerCovTableEntry", $hit] );
     if ($main::show_tla) {
       my @tlaRow =
         buildHeaderSummaryTableRow($summary, 'branch', $fileDetail,
@@ -8206,9 +8236,10 @@ sub write_file_table(*$$$$)
 
   my @head_columns;
 
-  my @lineCovCols = (["coverage", 2], "Total", "Hit");
-  my @branchCovCols = ("coverage", "Total", "Hit");
-  my @functionCovCols = ("coverage", "Total", "Hit");
+  my $t = $main::opt_missed ? "Missed" : "Hit";
+  my @lineCovCols = (["coverage", 2], "Total", $t);
+  my @branchCovCols = ("coverage", "Total", $t);
+  my @functionCovCols = ("coverage", "Total", $t);
   if ($main::show_tla) {
     my @col_details;
     foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
@@ -8287,18 +8318,18 @@ sub write_file_table(*$$$$)
     }
     my @sorted;
     # now, sort the owner list...
-    if ( $sort_type eq "-sort-l") {
+    if ( $sort_type eq $SORT_LINE) {
       # sort by number of missed lines
       @sorted = sort( { my $la = $owners{$a}->[0];
                         my $lb = $owners{$b}->[0];
-                        ($lb->[0] - $lb->[0]) <=> ($la->[0] - $la->[0]) ||
+                        ($lb->[0] - $lb->[1]) <=> ($la->[0] - $la->[1]) ||
                           $a cmp $b # then by name
                       } keys(%owners));
-    } elsif ( $sort_type eq "-sort-b") {
+    } elsif ( $sort_type eq $SORT_BRANCH) {
       # sort by number of missed branches
       @sorted = sort( { my $la = $owners{$a}->[1];
                         my $lb = $owners{$b}->[1];
-                        ($lb->[0] - $lb->[0]) <=> ($la->[0] - $la->[0]) ||
+                        ($lb->[0] - $lb->[1]) <=> ($la->[0] - $la->[1]) ||
                           $a cmp $b # then by name
                       } keys(%owners));
     } else {
@@ -8328,6 +8359,14 @@ sub write_file_table(*$$$$)
   }
 
   my $all = defined($main::show_ownerBins) && $main::show_ownerBins eq 'all';
+  my $useAsterisk = 0;
+  if ($primary_key eq 'owner') {
+    $useAsterisk = $main::show_ownerBins ne 'all';
+  } elsif ($primary_key eq 'date') {
+    $useAsterisk = 1;
+  }
+  my $needAsterisk = 0;
+  my $asterisk_note = "<sup>&lowast;</sup> 'Detail' entries with no 'missed' coverpoints are elided.";
 
   foreach my $primaryCb (@tableRows) {
 
@@ -8424,14 +8463,37 @@ sub write_file_table(*$$$$)
     #  none of the files in this directory have any owner information
     #  (i.e., none of them are found in the repo)
     my $numRows = (1 + scalar(@secondaryRows));
-
+    my $asterisk;
+    if ($useAsterisk && 1 == $numRows) {
+      $asterisk = '*';
+      $needAsterisk = 1;
+    }
     write_file_table_entry(*HTML_HANDLE, $base_dir,
                            [$primaryCb->name(), \@tableCallbackData,
                             $numRows, $primary_key, 0, $fileview,
                             "fileOrDir", $page_link, $dirSummary,
-                            $showBinDetail],
+                            $showBinDetail, $asterisk],
                            @columns);
 
+    # sort secondary rows...
+    if ($sort_type == $SORT_FILE) {
+      # alphabetic
+      @secondaryRows = sort( { $a->[0] cmp $b->[0] } @secondaryRows);
+    } else {
+      my $sortElem;
+      if ($sort_type == $SORT_LINE) {
+        $sortElem = 1;
+      } elsif ($sort_type == $SORT_BRANCH) {
+        $sortElem = 2;
+      } elsif ($sort_type == $SORT_FUNC) {
+        $sortElem = 3;
+      }
+      @secondaryRows = sort( { my $ca = $a->[$sortElem];
+                               my $cb = $b->[$sortElem];
+                               # sort based on 'missed'
+                               $cb->[0] <=> $ca->[0]; }
+                             @secondaryRows);
+    }
     foreach my $secondary (@secondaryRows) {
       my ($name, $line, $branch, $func) = @$secondary;
       my ($lineMissed, $lineTotal, $lineCb) = @$line;
@@ -8521,6 +8583,9 @@ sub write_file_table(*$$$$)
   }
 
   write_file_table_epilog(*HTML_HANDLE);
+  if ($needAsterisk) {
+    write_html(* HTML_HANDLE, "$asterisk_note\n");
+  }
 }
 
 
@@ -8714,7 +8779,7 @@ END_OF_HTML
       my $aliases = $funcEntry->aliases();
       my @aliasList = keys(%$aliases);
       @aliasList = sort({ my $da = $aliases->{$a};
-                          my $db = $aliases->{$a};
+                          my $db = $aliases->{$b};
                           $da->[0] <=> $db->[0] } @aliasList)
         if 0 != $type;
       foreach my $alias (@aliasList) {
