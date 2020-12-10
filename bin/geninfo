@@ -60,7 +60,6 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
-use JSON::PP qw(decode_json);
 
 if( $^O eq "msys" )
 {
@@ -275,6 +274,7 @@ our $br_coverage = 0;
 our $no_exception_br = 0;
 our $rc_auto_base = 1;
 our $rc_intermediate = "auto";
+our $rc_json_module = "auto";
 our $intermediate;
 our $excl_line = "LCOV_EXCL_LINE";
 our $excl_br_line = "LCOV_EXCL_BR_LINE";
@@ -345,6 +345,7 @@ if ($config || %opt_rc)
 		"geninfo_adjust_src_path"	=> \$rc_adjust_src_path,
 		"geninfo_auto_base"		=> \$rc_auto_base,
 		"geninfo_intermediate"		=> \$rc_intermediate,
+		"lcov_json_module"		=> \$rc_json_module,
 		"geninfo_no_exception_branch"	=> \$no_exception_br,
 		"lcov_function_coverage"	=> \$func_coverage,
 		"lcov_branch_coverage"		=> \$br_coverage,
@@ -492,6 +493,18 @@ if ($rc_intermediate eq "0") {
 	die("ERROR: invalid value for geninfo_intermediate: ".
 	    "'$rc_intermediate'\n");
 }
+
+# Determine JSON module
+my $current_json_module = "JSON::PP";
+if ($rc_json_module ne "auto") {
+	$current_json_module = $rc_json_module
+}
+
+use Module::Load;
+eval "load $current_json_module, 'decode_json'";
+if ($@) {
+	die("Module is not installed: ". "'$current_json_module'\n");
+};
 
 if ($intermediate) {
 	info("Using intermediate gcov format\n");
