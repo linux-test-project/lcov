@@ -3176,20 +3176,13 @@ sub process_graphfile($$)
 
 	# Write test name
 	printf(INFO_HANDLE "TN:%s\n", $test_name);
-	foreach $filename (sort(keys(%{$instr})))
+	my %data = %{$instr};
+	filter_source_files(\%data);
+	foreach $filename (sort(keys(%data)))
 	{
 		my $funcdata = $graph->{$filename};
 		my $line;
 		my $linedata;
-
-		# Skip external files if requested
-		if (!$opt_external) {
-			if (is_external($filename)) {
-				info("  ignoring data for external file ".
-				     "$filename\n");
-				next;
-			}
-		}
 
 		print(INFO_HANDLE "SF:$filename\n");
 
