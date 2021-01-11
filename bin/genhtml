@@ -2267,9 +2267,14 @@ sub new {
   my $class = shift;
   my $self = {};
   bless $self, $class;
-  $self->{hunks} = [ ];
   $self->{linemap} = { };
   $self->{filemap} = { };
+  $self->{diffFileName} = undef;
+  # keep track of line number where file entry is found in diff file
+  #   - use line number in error messages.
+  $self->{defLocation} = [{}, {}]; # element 0: old filename -> line number where this
+                                   #             entry starts
+                                   # element 1: new filename -> line numbern
   return $self;
 }
 
@@ -2426,11 +2431,18 @@ sub check_path_consistency {
       #   same basename and were not matched - those might be candidates
       my @unused;
       for my $d (@$diffFiles) {
+	# my $location = $self->{diffFileName} . ':' . $self->{defLocation}->[1]->{$d};
         push(@unused, $d)
           unless exists($sourceFiles->{$d});
       }
       if (scalar(@unused)) {
         my $type;
+
+	# my $baseData = $baseline->data($f);
+	# my $baseLocation = join(":", ${$baseData->location()});
+	# my $currData = $current->data($f);
+	# my $currLocation = join(":", ${$currData->location()});
+
         if ( 2 == $missed{$f} ) {
           $type = "baseline";
         } elsif ( 1 == $missed{$f} ) {
@@ -2439,13 +2451,22 @@ sub check_path_consistency {
           $type = "both baseline and current";
         }
         my $single = 1==scalar(@unused);
+	# @todo could print line numbers in baseline, current .info files and
+	#   in diff file ..
         warn("source file '$f' (in $type .info file"
              . ($missed{$f}==3 ? "s" : "") . ") has same basename as 'diff' "
              . ($single ? 'entry ' : "entries:\n\t") . "'"
              . join("'\n\t", @unused)
              . "' - but a different path." . ($single ? "  " : "\n\t")
              . "Possible pathname mismatch?");
-        $ok = 0;
+	if ($main::elide_path_mismatch &&
+	    $missed{$f} == 3 &&
+	    $single) {
+	  $self->{filemap}->{$f} = $f;
+	  $self->{linemap}->{$f} = $self->{linemap}->{$unused[0]};
+	} else {
+	  $ok = 0;
+	}
       }
     }
   }
@@ -2493,6 +2514,7 @@ sub _read_udiff {
     die("ERROR: cannot read udiff file $diff_file!\n");
   }
 
+  $self->{diffFileName} = $diff_file;
   ## Check if this is really a plain file
   #if (!(-f _)) {
   #  die("ERROR: not a plain file: $diff_file!\n");
@@ -2538,6 +2560,7 @@ sub _read_udiff {
           }
           $file_old = File::Spec->rel2abs($1, $main::cwd);
           $file_old = main::strip_directories($file_old, $main::strip);
+	  $self->{defLocation}->[0]->{$file_old} = $.;
           #$in_block = 0;
           last;
         };
@@ -2554,8 +2577,9 @@ sub _read_udiff {
           }
           if ($file_new ne "/dev/null") {
             $self->{filemap}->{$file_new} = $file_old;
+	    # keep track of location where this file was found
+	    $self->{defLocation}->[1]->{$file_new} = $.;
           }
-
           $chunk = { };
           $chunk->{from} = { };
           $chunk->{to} = { };
@@ -3675,6 +3699,10 @@ our $show_nonCodeOwners;# show last modified and last author info for
                         #  non-code lines (e.g., comments)
 our $show_simplifiedColors;
 our $treatNewFileAsBaseline;
+our $elide_path_mismatch = 0; # handle case that file in 'baseline' and 'current' .info
+                              # data matches some name in the 'diff' file such that
+                              # the basename is the same but the pathname is different
+                              # - then pretend that the names DID match
 our $hierarchical = 0;  # if true: show directory hierarchy
                         # default: legacy two-level report
 
@@ -3822,6 +3850,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "diff-file=s"           => \$diff_filename,
                 "annotate-script=s"     => \$SourceFile::annotateScript,
                 "new-file-as-baseline" => \$treatNewFileAsBaseline,
+		'elide-path-mismatch'   => \$elide_path_mismatch,
                 # if 'show-owners' is set: generate the owner table
                 #    if it is passed a value: show all the owners,
                 #    regardless of whether thay have uncovered code or not
@@ -3892,16 +3921,17 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
     die ("\"--date\" option requires \"--annotate-script\" for revision control integraion")
       if (0 != scalar(@datebins));
   }
-  #ignore 'diff' file if no baseline
-  if (defined($diff_filename) &&
-      ! defined($base_filename) ) {
-      die("'--diff-file $diff_filename' ignored when '--baseline lcovInfoFile' is not used.\n");
-      $diff_filename = undef;
+  if (0 != (defined($diff_filename) ^ defined($base_filename))) {
+    die("must specify both '--diff-file udiff' and '--baseline-file lcovInfoFile' in order to compute differential coverage");
+
+    $diff_filename = undef;
+    $base_filename = undef;
   }
-  if (! defined($diff_filename)) {
-    # not a differential report, if no baseline...
-    $title =~ s/ differential//;
-  }
+
+  # not a differential report, if no baseline...
+  $title =~ s/ differential//
+    unless defined($diff_filename);
+
   push(@fileview_prefixes, "-date")
       if ($show_dateBins);
   push(@fileview_prefixes, "-owner")
@@ -4147,7 +4177,7 @@ HTML output:
       --hierarchical                Generate multilevel HTML report,
                                     matching source code directory structure.
 
-For more information see: $lcov_url
+For more information see: $lcov_url and/or the genhtml man page.
 END_OF_USAGE
         ;
 }

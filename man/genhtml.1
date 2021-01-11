@@ -85,6 +85,8 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .br
 .RB [ \-\-new\-files\-as\-baseline]
 .br
+.RB [ \-\-elide\-path\-mismatch]
+.br
 .RB [ \-\-date
 .IR day[,day,...]]
 .br
@@ -319,9 +321,15 @@ as coverage baseline.
 
 The tracefile specified by
 .I baseline\-trace\-file
- is read and used as the baseline for classifying the change in coverage
- represented by the coverage counts in
+ is read and used as the baseline for classifying the change in coverage represented by the coverage counts in
 .IR tracefile .
+
+Note that you must specfiy
+.I \-\-diff\-file unfied\-diff\-file
+when you specify
+.I \-\-baseline\-file .
+Both are needed for differential coverage categorization.
+
 .RE
 .BI "\-\-baseline\-title " baseline\-title\-string
 .RS
@@ -351,11 +359,12 @@ and
 A suitable
 .I unified\-diff\-file
 can be generated using the command "git diff \-\-relative SHA_base SHA_current", or using the "p4udiff" sample script (found in the share/lcov/support-scripts directory shipped as part of this release).
-The
-.I unified\-diff\-file
-is ignored if the
-.I baseline\-trace\-file
-is not available.
+
+Note that you must specfiy
+.I \-\-baseline\-file baseline\-trace\-file
+when you specify
+.I \-\-diff\-file .
+Both are needed for differential coverage categorization.
 
 .RE
 .BI "\-\-annotate\-script " source\-annotation\-script
@@ -370,7 +379,7 @@ represent it in the format expected by
 When a
 .I source\-annotation\-script
 is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
-Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support-scripts directory which is shipped as part of this release.
+Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.
 
 .RE
 .BI "\-\-new\-file\-as\-baseline "
@@ -393,6 +402,25 @@ which do not trigger the coverage criteria check.
 Please note that coverpoints in the file are re-categorized only if:
   - There is no 'baseline' data for any coverpoint in this file, AND
   - The file pre-dates the baseline:  the oldest line in the file is older than the 'baseline' data file (or the value specified by the "--baseline\-date" option).
+
+.RE
+.BI "\-\-elide\-path\-mismatch"
+.RS
+
+Differential categorization uses file pathnames to match coverage entries from the ".info" file with file difference entries in the unified\-diff\-file.  If the entries are not identical, then categorization may be incorrect or strange.
+
+When paths do not match, genhtml will produce "path" error messages to tell you about the mismatches.
+
+If mismatches occur, the best solution is to fix the incorrect entries in the .info and/or unified\-diff\-file files.  However, if you do not able to fix the entries, then you can use this option to attempt to automatically work around them.
+When this option is specified, genhtml will pretend that the unified\-diff\-file entry matches the .info file entries if:
+.RS
+
+\- the same path is found in both the 'baseline' and 'current' .info files, and
+
+\- the basename of the path in the .info file and the path in the unified\-diff\-file are the same, and
+
+\- there is only one unmatched unified\-diff\-file entry with that basename.
+.RE
 
 .RE
 .BI "\-\-date " day[,day,...]

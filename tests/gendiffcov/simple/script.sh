@@ -41,6 +41,7 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
            LCOV_HOME=../../../../releng/coverage/lcov
        fi
 fi
+LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
@@ -53,8 +54,8 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
-rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt 
-rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter noncode_differential
+rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log
+rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter noncode_differential broken mismatchPath elidePath
 
 if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
@@ -65,6 +66,9 @@ echo *
 ln -s simple.cpp test.cpp
 g++ --coverage test.cpp
 ./a.out
+
+echo `which gcov`
+echo `which lcov`
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info
 lcov $LCOV_OPTS --capture --directory . --output-file baseline.info
@@ -320,6 +324,59 @@ for key in UNC LBC UIC UBC GBC GIC GNC CBC EUB ECB DUB DCB ; do
         exit 1
     fi
 done
+
+
+echo "now some error checking and issue workaround tests..."
+
+# - first, create a 'diff' file whose pathname is not quite right..
+sed -e "s#/simple/test#/badPath/test#g" diff.txt > diff_broken.txt
+
+# now run genhtml - expect to see an error:
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz
+${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz > err.log 2>&1
+
+if [ 0 == $? ] ; then
+    echo "ERROR:  expected error but didn't see it"
+    exit 1
+fi
+
+grep "Error: possible path inconsistency" err.log
+if [ 0 != $? ] ; then
+    echo "ERROR:  can't find expected error message"
+    exit 1
+fi
+
+
+# now run genhtml - expect to see an warning:
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz
+${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz > warn.log 2>&1
+
+if [ 0 != $? ] ; then
+    echo "ERROR:  expected warning but didn't see it"
+    exit 1
+fi
+
+grep 'Warning: .* possible path inconsistency' warn.log
+if [ 0 != $? ] ; then
+    echo "ERROR:  can't find expected warning message"
+    exit 1
+fi
+
+# now use the 'elide' feature to avoid the error
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz
+${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz > elide.log 2>&1
+
+if [ 0 != $? ] ; then
+    echo "ERROR:  expected success but didn't see it"
+    exit 1
+fi
+
+grep "has same basename" elide.log
+if [ 0 != $? ] ; then
+    echo "ERROR:  can't find expected warning message"
+    exit 1
+fi
+
 
 echo "Tests passed"
 

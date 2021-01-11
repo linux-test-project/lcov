@@ -1256,6 +1256,10 @@ sub new {
   my $self = {};
   bless $self, $class;
 
+  # keep track of location in .info file that this file data was found
+  #  - useful in error messages
+  $self->{_location} = []; # will fill with file/line
+
   $self->{_filename} = $filename;
   # _checkdata         : line number  -> source line checksum
   $self->{_checkdata} = MapData->new();
@@ -1289,6 +1293,16 @@ sub is_empty {
   return ( $self->test()->is_empty() && # line cov
 	   $self->testbr()->is_empty() &&
 	   $self->testfnc()->is_empty() );
+}
+
+sub location {
+  my ($self, $filename, $lineNo) = @_;
+  my $l = $self->{_location};
+  if (defined($filename)) {
+    $l->[0] = $filename;
+    $l->[1] = $lineNo;
+  }
+  return $l;
 }
 
 # line coverage data
@@ -1922,6 +1936,8 @@ sub _read_info {
           }
         }
         $data = $self->data($filename);
+	# record line number where file entry found - can use it in error messsages
+	$data->location($tracefile, $.);
         ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
          $testbrdata, $sumbrcount) =
              $data->get_info();
