@@ -25,7 +25,20 @@
 #use strict;
 use DateTime::Format::W3CDTF;
 use POSIX qw(strftime);
+use File::Basename;
 my $pathname = shift @ARGV;
+
+if ( -e $pathname && -l $pathname) {
+  $pathname = File::Basename::dirname($pathname) . '/' . readlink($pathname);
+  my @c;
+  foreach my $component (split(m@/@, $pathname)) {
+    next unless length($component);
+    if ($component eq ".") { next; }
+    if ($component eq "..") { pop @c; next }
+    push @c, $component;
+  }
+  $pathname = join("/", @c);
+}
 
 if (0 == system("p4 files $pathname 2>/dev/null|grep -qv -- '- no such file' >/dev/null")) {
   # -i: follow history across branches

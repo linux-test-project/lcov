@@ -1291,8 +1291,8 @@ sub new {
 sub is_empty {
   my $self = shift;
   return ( $self->test()->is_empty() && # line cov
-	   $self->testbr()->is_empty() &&
-	   $self->testfnc()->is_empty() );
+           $self->testbr()->is_empty() &&
+           $self->testfnc()->is_empty() );
 }
 
 sub location {
@@ -1932,12 +1932,17 @@ sub _read_info {
           $readSourceCallback->close();
           undef $currentBranchLine;
           if ($filename =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
-            $readSourceCallback->open($filename);
+            if (-e $filename) {
+              $readSourceCallback->open($filename);
+            } else {
+              lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                        "'$filename' not found (for filtering)");
+            }
           }
         }
         $data = $self->data($filename);
-	# record line number where file entry found - can use it in error messsages
-	$data->location($tracefile, $.);
+        # record line number where file entry found - can use it in error messsages
+        $data->location($tracefile, $.);
         ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
          $testbrdata, $sumbrcount) =
              $data->get_info();
@@ -2357,7 +2362,12 @@ sub write_info($$$) {
         $srcReader->close();
         if ($source_file =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
           lcovutil::debug("reading $source_file for lcov filtering\n");
-          $srcReader->open($source_file);
+	  if (-e $source_file) {
+            $srcReader->open($source_file);
+          } else {
+            lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                      "'$source_file' not found (for filtering)");
+          }
         } else {
           lcovutil::debug("not reading $source_file: no ext match\n");
         }

@@ -94,7 +94,8 @@ use FindBin;
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  system_no_output
-                 ignorable_error $ERROR_MISMATCH $ERROR_BRANCH $ERROR_FORMAT
+                 ignorable_error
+                 $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
                  info verbose $verbose $cpp_demangle
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
@@ -1542,6 +1543,11 @@ sub getLine {
   }
 }
 
+sub isCharacter {
+  my ($self, $line, $char) = @_;
+  return $self->[1]->isCharacter($line, $char);
+}
+
 sub isCloseBrace {
   my ($self, $line) = @_;
   my ($map, $reader, $filename) = @$self;
@@ -2431,17 +2437,17 @@ sub check_path_consistency {
       #   same basename and were not matched - those might be candidates
       my @unused;
       for my $d (@$diffFiles) {
-	# my $location = $self->{diffFileName} . ':' . $self->{defLocation}->[1]->{$d};
+        # my $location = $self->{diffFileName} . ':' . $self->{defLocation}->[1]->{$d};
         push(@unused, $d)
           unless exists($sourceFiles->{$d});
       }
       if (scalar(@unused)) {
         my $type;
 
-	# my $baseData = $baseline->data($f);
-	# my $baseLocation = join(":", ${$baseData->location()});
-	# my $currData = $current->data($f);
-	# my $currLocation = join(":", ${$currData->location()});
+        # my $baseData = $baseline->data($f);
+        # my $baseLocation = join(":", ${$baseData->location()});
+        # my $currData = $current->data($f);
+        # my $currLocation = join(":", ${$currData->location()});
 
         if ( 2 == $missed{$f} ) {
           $type = "baseline";
@@ -2451,22 +2457,22 @@ sub check_path_consistency {
           $type = "both baseline and current";
         }
         my $single = 1==scalar(@unused);
-	# @todo could print line numbers in baseline, current .info files and
-	#   in diff file ..
+        # @todo could print line numbers in baseline, current .info files and
+        #   in diff file ..
         warn("source file '$f' (in $type .info file"
              . ($missed{$f}==3 ? "s" : "") . ") has same basename as 'diff' "
              . ($single ? 'entry ' : "entries:\n\t") . "'"
              . join("'\n\t", @unused)
              . "' - but a different path." . ($single ? "  " : "\n\t")
              . "Possible pathname mismatch?");
-	if ($main::elide_path_mismatch &&
-	    $missed{$f} == 3 &&
-	    $single) {
-	  $self->{filemap}->{$f} = $f;
-	  $self->{linemap}->{$f} = $self->{linemap}->{$unused[0]};
-	} else {
-	  $ok = 0;
-	}
+        if ($main::elide_path_mismatch &&
+            $missed{$f} == 3 &&
+            $single) {
+          $self->{filemap}->{$f} = $f;
+          $self->{linemap}->{$f} = $self->{linemap}->{$unused[0]};
+        } else {
+          $ok = 0;
+        }
       }
     }
   }
@@ -2560,7 +2566,7 @@ sub _read_udiff {
           }
           $file_old = File::Spec->rel2abs($1, $main::cwd);
           $file_old = main::strip_directories($file_old, $main::strip);
-	  $self->{defLocation}->[0]->{$file_old} = $.;
+          $self->{defLocation}->[0]->{$file_old} = $.;
           #$in_block = 0;
           last;
         };
@@ -2577,8 +2583,8 @@ sub _read_udiff {
           }
           if ($file_new ne "/dev/null") {
             $self->{filemap}->{$file_new} = $file_old;
-	    # keep track of location where this file was found
-	    $self->{defLocation}->[1]->{$file_new} = $.;
+            # keep track of location where this file was found
+            $self->{defLocation}->[1]->{$file_new} = $.;
           }
           $chunk = { };
           $chunk->{from} = { };
@@ -3850,7 +3856,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "diff-file=s"           => \$diff_filename,
                 "annotate-script=s"     => \$SourceFile::annotateScript,
                 "new-file-as-baseline" => \$treatNewFileAsBaseline,
-		'elide-path-mismatch'   => \$elide_path_mismatch,
+                'elide-path-mismatch'   => \$elide_path_mismatch,
                 # if 'show-owners' is set: generate the owner table
                 #    if it is passed a value: show all the owners,
                 #    regardless of whether thay have uncovered code or not
