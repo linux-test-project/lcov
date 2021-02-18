@@ -4000,6 +4000,9 @@ if (!$test_title)
 }
 
 if ($base_filename) {
+  die("baseline data file '$base_filename' not found")
+    unless -e $base_filename;
+
   if (!$baseline_title) {
     $baseline_title = basename($base_filename);
   }

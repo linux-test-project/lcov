@@ -382,7 +382,7 @@ sub gen_png($$$$@)
 		elsif ($tag eq ">")
 		{
 		  # Line was highlighted
-		  $tla = ($count > 0) ? 'ECB' : 'EUB';
+		  $tla = ($count > 0) ? 'GIC' : 'UIC';
 		}
 		elsif ($count == 0)
 		{
