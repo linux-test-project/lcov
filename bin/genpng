@@ -335,7 +335,7 @@ sub gen_png($$$$@)
 
 		# Skip lines which do not follow the <count>:<line>
 		# specification, otherwise $1 = count, $2 = source code
-		if (!($line =~ /([-*+<>=]?)(\d*):(.*)$/)) { next; }
+		if (!($line =~ /([-+<>=]?)(\d*):(.*)$/)) { next; }
 		$tag = $1;
 		$count = $2;
 		$source = $3;
@@ -359,41 +359,14 @@ sub gen_png($$$$@)
 			$color_text = $col_plain_text;
 			$color_back = $col_plain_back;
 		}
-		elsif ($tag eq "-")
-		{
-		  # Line was highlighted
-		  $tla = ($count > 0) ? 'GBC' : 'UBC';
-		}
-		elsif ($tag eq "*")
-		{
-		  # Line was highlighted
-		  $tla = 'GBC';
-		}
-		elsif ($tag eq "+")
-		{
-		  # Line was highlighted
-		  $tla = ($count > 0) ? 'GNC' : 'UNC';
-		}
-		elsif ($tag eq "<")
-		{
-		  # Line was highlighted
-		  $tla = ($count > 0) ? 'ECB' : 'EUB';
-		}
-		elsif ($tag eq ">")
-		{
-		  # Line was highlighted
-		  $tla = ($count > 0) ? 'GIC' : 'UIC';
-		}
-		elsif ($count == 0)
-		{
-		  # Line was instrumented but not executed
-		  $tla = 'LBC';
-		}
 		else
 		{
-		  # Line was instrumented and executed
-		  $tla = 'CBC';
+		  die("unexpected PNG tag '$tag'")
+		    unless exists($lcovutil::pngMap{$tag});
+		  # index '1' if not covered (count is zero)
+		  $tla = $lcovutil::pngMap{$tag}[$count == 0];
 		}
+
 		if (defined($tla)) {
 		  $color_text = $col_tla_text{$tla};
 		  $color_back = $col_tla_back{$tla};

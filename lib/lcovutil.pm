@@ -31,7 +31,7 @@ our @EXPORT_OK =
 
      system_no_output
 
-     %tlaColor %tlaTextColor use_vanilla_color
+     %tlaColor %tlaTextColor use_vanilla_color %pngChar %pngMap
 );
 
 our @ignore;
@@ -128,6 +128,28 @@ our %tlaTextColor = (
     "DUB" => "#FFFFFF",
     "DCB" => "#FFFFFF",
   );
+
+our %pngChar = (
+  'CBC' => '=',
+  'LBC' => '=',
+  'GBC' => '-',
+  'UBC' => '-',
+  'ECB' => '<',
+  'EUB' => '<',
+  'GIC' => '>',
+  'UIC' => '>',
+  'GNC' => '+',
+  'UNC' => '+',
+  );
+
+our %pngMap = (
+  '=' => ['CBC', 'LBC'], # 0th element 'covered', 1st element 'not covered
+  '-' => ['GBC', 'UBC'],
+  '<' => ['ECB', 'EUB'],
+  '>' => ['GIC', 'UIC'],
+  '+' => ['GNC', 'UNC'],
+  );
+
 
 sub set_tool_name($) {
   $tool_name = shift;
@@ -2362,7 +2384,7 @@ sub write_info($$$) {
         $srcReader->close();
         if ($source_file =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
           lcovutil::debug("reading $source_file for lcov filtering\n");
-	  if (-e $source_file) {
+          if (-e $source_file) {
             $srcReader->open($source_file);
           } else {
             lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,

@@ -187,14 +187,16 @@ our $ERROR_SOURCE        = 0;
 our $ERROR_UNMAPPED_LINE = 1;
 our $ERROR_UNKNOWN_CATEGORY = 2;
 our $ERROR_INCONSISTENT_PATH = 3;
-$ERROR_MISMATCH = 4;
+our $ERROR_INCONSISTENT_DATA = 4;
+$ERROR_MISMATCH = 5;
 $ERROR_BRANCH = 5;
-$ERROR_FORMAT = 6;
+$ERROR_FORMAT = 7;
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
         "unmapped" => $ERROR_UNMAPPED_LINE,
         "category" => $ERROR_UNKNOWN_CATEGORY,
         "path"     => $ERROR_INCONSISTENT_PATH,
+        "inconsistent" => $ERROR_INCONSISTENT_DATA,
         "mismatch" => $ERROR_MISMATCH,
         "branch"   => $ERROR_BRANCH,
         "format"   => $ERROR_FORMAT,
@@ -1962,8 +1964,9 @@ sub _categorizeBranchCov {
     my $branchCurrent = $branchCovCurrent->value($testcase);
     foreach my $line ($branchCurrent->keylist()) {
       my $type = $linemap->type($filename, "new", $line);
-      $type ne 'delete' or
-        die("'current' line $filename:$line should not be marked 'delete'");
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                "'current' line $filename:$line should not be marked 'delete'") 
+        if $type eq 'delete';
       #next if $type eq 'delete';
 
       $branchCovLines{$line} = 1;
@@ -2030,7 +2033,9 @@ sub _categorizeBranchCov {
     my @baseBlocks = defined($base) ? $base->blocks() : ();
 
     if ($type eq 'insert') {
-      ! defined($base) or die("baseline branch data should not be defined for inserted line $line");
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                "baseline branch data should not be defined for inserted line $filename:$line")
+        if defined($base);
       foreach my $branchId (@currBlocks) {
         my $block = $categorized->addBlock($branchId);
         foreach my $br (@{$curr->getBlock($branchId)}) {
@@ -2040,7 +2045,9 @@ sub _categorizeBranchCov {
         }
       }
     } elsif ($type eq 'delete') {
-      ! defined($curr) or die("current branch data should not be defined for deleted line");
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA, 
+                                "current branch data should not be defined for deleted line $filename:$line")
+        if defined($curr);
       foreach my $branchId (@baseBlocks) {
         my $block = $categorized->addBlock($branchId);
         foreach my $br (@{$base->getBlock($branchId)}) {
@@ -2050,7 +2057,9 @@ sub _categorizeBranchCov {
         }
       }
     } else {
-      $type eq 'equal' or die("unexpected branch coverage type $type");
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                "unexpected branch coverage type $type at $filename:$line")
+        if $type ne 'equal';
 
       # branch might or might not be in both baseline and current
       foreach my $branchId (@baseBlocks) {
@@ -2122,15 +2131,18 @@ sub _categorizeFunctionCov {
       my $line = $func->line();
       my $type = $linemap->type($filename, 'new', $line);
       $funcCovLines{$line} = 1;
-      $type ne 'delete' or
-        die("'current' line $filename:$line should not be marked 'delete'");
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                "'current' line $filename:$line should not be marked 'delete'")
+        if $type eq 'delete';
+
       my $data;
       if (!exists($lineDataMap->{$line})) {
         $data = LineData->new($type);
         $lineDataMap->{$line} = $data;
       } else {
         $data = $lineDataMap->{$line};
-        die("type mismatch " . $data->type() . " -> $type for $filename:$line")
+        lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                  "type mismatch " . $data->type() . " -> $type for $filename:$line")
           unless $data->type() eq $type;
       }
       # we expect that the line number matches...
@@ -2190,8 +2202,9 @@ sub _categorizeFunctionCov {
     if (! defined($base)) {
       # either this line was inserted or the line hasn't changed but
       #   wasn't recognized as a function before (e.g., unused template)
-      $type ne 'delete'
-        or die("baseline function data should not undef for deleted $line");
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                "unexpected undef baseline function data for deleted $filename:$line")
+        if $type eq 'delete';
       my $hit = $curr->hit();
       my $tla = ((0 == $hit)
            ? ($type eq 'insert' ? 'UNC' : 'UIC')
@@ -2206,8 +2219,9 @@ sub _categorizeFunctionCov {
         $categorized->addAliasDifferential($alias, [$hit, $tla]);
       }
     } elsif (! defined($curr)) {
-      $type ne 'insert'
-        or die("current function data should not undef for inserted $line");
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                "unexpected undef current function data for inserted $filename:$line")
+        if $type eq 'insert';
       my $hit = $base->hit();
       my $tla = ((0 == $hit)
            ? ($type eq 'delete' ? 'DUB' : 'EUB')
@@ -2222,7 +2236,9 @@ sub _categorizeFunctionCov {
         $categorized->addAliasDifferential($alias, [$hit, $tla]);
       }
     } else {
-      $type eq 'equal' or die("unexpected function coverage type $type");
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                "unexpected function coverage type $type ar $filename:$line")
+        if $type ne 'equal';
       my $tla = _categorize($base->hit(), $curr->hit());
       $categorized->setCountDifferential([$curr->hit(), $tla]);
 
@@ -4136,7 +4152,8 @@ Misc:
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
       --ignore-errors ERRORS        Continue after ERRORS (source,unmapped,
-                                    empty)
+                                    empty,category,path,inconsistent,mismatch,
+                                    branch,format)
 
 Operation:
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
@@ -4150,10 +4167,14 @@ Operation:
                                     history (wraps "git blame" or "p4 annotate")
       --diff-file UDIFF             unified diff file UDIFF desribes source
                                     code changes between baseline and current
-      --show_owners [all]           Show owner summary table. If optional
+      --elide-path-mismatch         identify matching files if their basename
+                                    matches even though dirname does not.
+      --show-owners [all]           Show owner summary table. If optional
                                     value provided, show all the owners,
                                     regardless of whether they have uncovered
                                     code or not.
+      --show-noncode                Show author in summary table even if none
+                                    of their lines are recognized as code.
       --date day[,day,...]          'day' interpreted as integer number of
                                     days, used as upper bound of corresponding
                                     date bin
@@ -4161,7 +4182,7 @@ Operation:
       --no-prefix                   Do not remove prefix from directory names
       --(no-)function-coverage      Enable (disable) function coverage display
       --(no-)branch-coverage        Enable (disable) branch coverage display
-      --filter FILTERS              FILTERS (branch,line): gnore branchcov
+      --filter FILTERS              FILTERS (branch,line): ignore branchcov
                                     counts on lines which seem to have no
                                     conditionals
                                     Ignore linecov counts on closing brace
@@ -6993,18 +7014,6 @@ sub write_source_line(*$$$$)
     my $base_count;
     my $curr_count;
     my $bucket;
-    my %pngChar = (
-        'CBC' => '',
-        'LBC' => '',
-        'GBC' => '-',
-        'UBC' => '-',
-        'ECB' => '<',
-        'EUB' => '<',
-        'GIC' => '>',
-        'UIC' => '>',
-        'GNC' => '+',
-        'UNC' => '+',
-        );
 
     my @prevData = ($cbdata->current('tla'),
                     $cbdata->current('owner'),
@@ -7046,8 +7055,8 @@ sub write_source_line(*$$$$)
         $source_format  = "<span class=\"tla$bucket\">";
 
         my $pchar;
-        if ( exists($pngChar{$bucket}) ) {
-          $pchar = $pngChar{$bucket};
+        if ( exists($lcovutil::pngChar{$bucket}) ) {
+          $pchar = $lcovutil::pngChar{$bucket};
         } else {
           lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
                                     "unexpected TLA '$bucket'");

@@ -846,6 +846,9 @@ Inconsistent entries found in trace file:
 
 .B path:
 File name found in '\-\-diff\-file' file but does not appear in either baseline or current trace data.  These may be mapping issues - different pathname in the tracefile vs. the diff file.
+
+.B inconsistent:
+Files have been moved or repository history presented by '\-\-diff\-file' data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' and 'annotate' scripts.
 .RE
 
 .B \-\-config\-file
