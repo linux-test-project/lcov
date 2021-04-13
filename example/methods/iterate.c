@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
 #include "iterate.h"
 
 
@@ -28,9 +29,9 @@ int iterate_get_sum (int min, int max)
 	for (i = min; i <= max; i++)
 	{
 		/* We can detect an overflow by checking whether the new
-		   sum would become negative. */
+		   sum would exceed the maximum integer value. */
 
-		if (total + i < total)
+		if (total > INT_MAX - i)
 		{
 			printf ("Error: sum too large!\n");
 			exit (1);
