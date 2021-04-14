@@ -495,6 +495,7 @@ sub get_sorted_keys {
                   # directories then files if list includes both
                   $da->type() cmp $db->type() or
                   $db->get_missed($covtype) <=> $da->get_missed($covtype) or
+                  # sort alphabetically in case of tie
                   $da->name() cmp $db->name()
                 }
                 @l);
@@ -503,8 +504,7 @@ sub get_sorted_keys {
                   my $db = $sources->{$b};
                   $da->type() cmp $db->type() or
                   $da->get_rate($covtype) <=> $db->get_rate($covtype) or
-                  $da->name() cmp $db->name()
-                }
+                  $da->name() cmp $db->name() }
                 @l);
   }
 }
@@ -8751,7 +8751,9 @@ sub funcview_get_sorted($$$)
 
   @rtn = sort({ my $da = $differential_func->{$a}->hit();
                 my $db = $differential_func->{$b}->hit();
-                $da->[0] == $db->[0] ? $a cmp $b : $da->[0] <=> $db->[0] }
+                $da->[0] == $db->[0] ? $a cmp $b : $da->[0] <=> $db->[0] or
+                  # sort by function name if count matches
+                $a cmp $b }
               @rtn)
     if $type != 0;
   return @rtn;
@@ -8832,7 +8834,8 @@ END_OF_HTML
       my @aliasList = keys(%$aliases);
       @aliasList = sort({ my $da = $aliases->{$a};
                           my $db = $aliases->{$b};
-                          $da->[0] <=> $db->[0] } @aliasList)
+                          $da->[0] <=> $db->[0] or 
+                          $a cmp $b } @aliasList)
         if 0 != $type;
       foreach my $alias (@aliasList) {
         my ($hit, $tla) = @{$aliases->{$alias}};
@@ -9094,4 +9097,3 @@ sub parse_dir_prefix(@)
     }
   }
 }
-
