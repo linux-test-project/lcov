@@ -25,6 +25,7 @@ Description
   LCOV has recently been enhanced to support differential coverage, as well
   as date- and owner-binning.  See https://arxiv.org/abs/2008.07947 for 
   a detailed explanation of the concepts.
+  A video presentation of the basic ideas can be found at http://doi.org/10.5281/zenodo.4653252
 
 
 Further README contents
