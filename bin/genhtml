@@ -8749,13 +8749,18 @@ sub funcview_get_sorted($$$)
 
   my @rtn = keys(%$differential_func);
 
-  @rtn = sort({ my $da = $differential_func->{$a}->hit();
-                my $db = $differential_func->{$b}->hit();
-                $da->[0] == $db->[0] ? $a cmp $b : $da->[0] <=> $db->[0] or
-                  # sort by function name if count matches
-                $a cmp $b }
-              @rtn)
-    if $type != 0;
+  if ($type != 0) {
+    @rtn = sort({ my $da = $differential_func->{$a}->hit();
+		  my $db = $differential_func->{$b}->hit();
+		  $da->[0] <=> $db->[0] or
+		    # sort by function name if count matches
+		    $a cmp $b }
+		@rtn);
+  } elsif (! defined($main::no_sort)) {
+    # sort alphabetically by function name
+    @rtn = sort({ $a cmp $b }
+		@rtn);
+  }
   return @rtn;
 }
 
