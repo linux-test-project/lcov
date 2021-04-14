@@ -494,13 +494,17 @@ sub get_sorted_keys {
                   my $db = $sources->{$b};
                   # directories then files if list includes both
                   $da->type() cmp $db->type() or
-                  $db->get_missed($covtype) <=> $da->get_missed($covtype) }
+                  $db->get_missed($covtype) <=> $da->get_missed($covtype) or
+                  $da->name() cmp $db->name()
+                }
                 @l);
   } else {
     return sort({ my $da = $sources->{$a};
                   my $db = $sources->{$b};
                   $da->type() cmp $db->type() or
-                  $da->get_rate($covtype) <=> $db->get_rate($covtype) }
+                  $da->get_rate($covtype) <=> $db->get_rate($covtype) or
+                  $da->name() cmp $db->name()
+                }
                 @l);
   }
 }
