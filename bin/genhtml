@@ -8751,15 +8751,14 @@ sub funcview_get_sorted($$$)
 
   if ($type != 0) {
     @rtn = sort({ my $da = $differential_func->{$a}->hit();
-		  my $db = $differential_func->{$b}->hit();
-		  $da->[0] <=> $db->[0] or
-		    # sort by function name if count matches
-		    $a cmp $b }
-		@rtn);
+                  my $db = $differential_func->{$b}->hit();
+                  $da->[0] <=> $db->[0] or
+                  # sort by function name if count matches
+                  $a cmp $b }
+                @rtn);
   } elsif (! defined($main::no_sort)) {
     # sort alphabetically by function name
-    @rtn = sort({ $a cmp $b }
-		@rtn);
+    @rtn = sort(@rtn);
   }
   return @rtn;
 }
@@ -8837,11 +8836,14 @@ END_OF_HTML
     if ($funcEntry->numAliases() > 1) {
       my $aliases = $funcEntry->aliases();
       my @aliasList = keys(%$aliases);
-      @aliasList = sort({ my $da = $aliases->{$a};
-                          my $db = $aliases->{$b};
-                          $da->[0] <=> $db->[0] or 
-                          $a cmp $b } @aliasList)
-        if 0 != $type;
+      if (0 != $type) {
+        @aliasList = sort({ my $da = $aliases->{$a};
+                            my $db = $aliases->{$b};
+                            $da->[0] <=> $db->[0] or
+                            $a cmp $b } @aliasList);
+      } else {
+        @aliasList = sort(@aliasList);
+      }
       foreach my $alias (@aliasList) {
         my ($hit, $tla) = @{$aliases->{$alias}};
         next if 'D' eq substr($tla, 0, 1); # don't display deleted functions
