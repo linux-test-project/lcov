@@ -914,7 +914,9 @@ sub addAlias {
     my $curlen = length($self->[0]);
     my $len = length($name);
     $self->[0] = $name
-      if ($len < $curlen);
+      if ($len < $curlen ||  # alias is shorter
+          ($len == $curlen && # alias is same length but lexically first
+           $name lt $self->[0]));
   }
   $self->[4] += $count;
 }
