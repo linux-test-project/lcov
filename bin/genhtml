@@ -819,8 +819,11 @@ sub branchCovCount {
   if ($group eq "age") {
     my $a = $self->{$g};
     my $bin = SummaryInfo::findAgeBin($age);
-    exists($a->[$bin]) && exists($a->[$bin]->{$key})
-      or die("unexpected key");
+    unless ( exists($a->[$bin]) && exists($a->[$bin]->{$key}) ) {
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                "unexpected key '$key' for bin '$bin'");
+      return;
+    }
     $a->[$bin]->{$key} += $delta;
     return $a->[$bin]->{$key};
   }
@@ -852,8 +855,11 @@ sub functionCovCount {
   if ($group eq "age") {
     my $a = $self->{$g};
     my $bin = SummaryInfo::findAgeBin($age);
-    exists($a->[$bin]) && exists($a->[$bin]->{$key})
-      or die("unexpected key");
+    unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                "unexpected key '$key' for bin '$bin'");
+      return;
+    }
     $a->[$bin]->{$key} += $delta;
     return $a->[$bin]->{$key};
   }
@@ -1969,7 +1975,7 @@ sub _categorizeBranchCov {
     foreach my $line ($branchCurrent->keylist()) {
       my $type = $linemap->type($filename, "new", $line);
       lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
-                                "'current' line $filename:$line should not be marked 'delete'") 
+                                "'current' line $filename:$line should not be marked 'delete'")
         if $type eq 'delete';
       #next if $type eq 'delete';
 
@@ -2049,7 +2055,7 @@ sub _categorizeBranchCov {
         }
       }
     } elsif ($type eq 'delete') {
-      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA, 
+      lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
                                 "current branch data should not be defined for deleted line $filename:$line")
         if defined($curr);
       foreach my $branchId (@baseBlocks) {
@@ -2375,6 +2381,17 @@ sub type {
   return $chunk->{type};
 }
 
+sub baseline_file_name {
+  # file may have been moved between baseline and current...
+  my $self = shift;
+  my $current_name = shift;
+
+  if (exists($self->{filemap}->{$current_name})) {
+    return $self->{filemap}->{$current_name};
+  }
+  return $current_name;
+}
+
 sub files {
   my $self = shift;
   return keys(%{$self->{filemap}});
@@ -2573,7 +2590,7 @@ sub _read_udiff {
   # Parse diff file line by line
   while (<HANDLE>) {
     chomp($_);
-    s/\R//g;
+    s/\r//g;
     $line = $_;
 
     foreach ($line) {
@@ -2935,6 +2952,11 @@ sub _countBranchTlaData {
     my $diff = $differentialData->getBlock($branchId);
     foreach my $b (@$diff) {
       my $tla = $b->[1];
+      unless (defined($tla)) {
+        lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                  "undef TLA for branch $branchId of " . $self->path() . ":$line - lineTLA:$lineTla taken:" . $b->[0]);
+        next;
+      }
       $fileSummary->{branch}->{$tla} += 1;
       # keep track of all the branch TLAs found on this line...
       if (! exists($foundBranchTlas{$tla})) {
@@ -3095,6 +3117,12 @@ sub _countLineTlaData {
 sub _accountFunction {
   my ($fileSummary, $tla, $src_age) = @_;
 
+  unless (defined($tla)) {
+    lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                              "undef function TLA for age '$src_age' of " . $fileSummary->name());
+    return;
+  }
+
   $fileSummary->{function}->{$tla} += 1;
 
   if (defined($src_age)) {
@@ -3227,7 +3255,7 @@ sub nextTlaGroup {
     my ($self, $tla, $after) = @_;
     if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
       lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
-                                "unknown TLA '$tla'");
+                                "unknown linecov TLA '$tla'");
       return undef;
     }
 
@@ -3265,7 +3293,7 @@ sub nextBranchTlaGroup {
   my ($self, $tla, $after) = @_;
   if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
     lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
-                              "unknown TLA '$tla'");
+                              "unknown branch TLA '$tla'");
     return undef;
   }
   die("no branch data for TLA '$tla'")
@@ -3283,7 +3311,7 @@ sub nextInDateBin {
 
   if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
     lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
-                              "unknown TLA '$tla'");
+                              "unknown linecov TLA '$tla'");
     return undef;
   }
   $dateBin <= $#SummaryInfo::ageGroupHeader
@@ -3354,7 +3382,7 @@ sub nextInOwnerBin {
 
   if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
     lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
-                              "unknown TLA '$tla'");
+                              "unknown linecov TLA '$tla'");
     return undef;
   }
   exists($self->{_owners}->{$owner}) && exists($self->{_owners}->{$owner}->{$tla})
@@ -3404,7 +3432,7 @@ sub nextBranchInDateBin {
 
   if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
     lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
-                              "unknown TLA '$tla'");
+                              "unknown branch TLA '$tla'");
     return undef;
   }
   $dateBin <= $#SummaryInfo::ageGroupHeader
@@ -3450,7 +3478,7 @@ sub nextBranchInOwnerBin {
 
   if ( ! exists($SummaryInfo::tlaLocation{$tla}) ) {
     lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
-                              "unknown TLA '$tla'");
+                              "unknown branch TLA '$tla'");
     return undef;
   }
 
@@ -3468,6 +3496,18 @@ sub nextBranchInOwnerBin {
   return undef;
 }
 
+sub _computeAge {
+  my $when = shift;
+
+  # a hack for the production of stable examples for publication:
+  #   if the 'when' value is an integer, treat it as a day count
+  #   (rather than a date) - so the HTML result is stable
+  #   (where age does not change every time the example runs).
+  return $when
+    if ($when =~ /^[0-9]+$/);
+
+  return DateTime::Format::W3CDTF->parse_datetime($when)->delta_days(DateTime->now())->in_units('days');
+}
 
 sub _load {
   my ($self, $countdata) = @_;
@@ -3491,32 +3531,22 @@ sub _load {
   my @cmd = split(' ', $annotateScript);
   splice(@cmd, 1, 0, $repo_path);
   my $cmd = join(' ', @cmd);
-  lcovutil::info("annotate: '$cmd'\n");
+  lcovutil::verbose("annotate: '$cmd'\n");
   my $found; # check that either all lines are annotated or none are
   if (open(HANDLE, "-|", $cmd)) {
     while (my $line = <HANDLE>) {
       chomp $line;
-      $line =~ s/\R//g;
+      $line =~ s/\r//g; # remove CR from line-end
       ++ $lineNum;
-      # Also remove CR from line-end
-      s/\015$//;
 
       my ($commit, $owner, $when, $text) = split(/\|/, $line, 4);
-      my $age;
+      my $age = _computeAge($when);
       if ($commit ne 'NONE') {
           die("inconsistent 'annotate' data for '$repo_path': both 'commit' and 'no commit' lines")
             if (defined($found) && !$found);
           $found = 1;
           $found = 1;
-          if ($when =~ /^[0-9]+$/) {
-              # a hack for the production of stable examples for publication:
-              #   if the 'when' value is an integer, treat it as a day count
-              #   (rather than a date) - so the HTML result is stable
-              #   (where age does not change every time the example runs).
-              $age = $when;
-          } else {
-              $age = DateTime::Format::W3CDTF->parse_datetime($when)->delta_days(DateTime->now())->in_units('days');
-          }
+
           defined($owner) or
               die("owner is undef for $repo_path:$lineNum");
           $self->{_owners}->{$owner} = {}
@@ -3529,15 +3559,14 @@ sub _load {
         die("inconsistent 'annotate' data for '$repo_path': both 'no commit' and 'commit' lines")
           if (defined($found) && $found);
         $found = 0;
-        $age = undef;
-        $owner = undef;
+        $owner = "no.body";
       }
       push @{$self->{_lines}}, SourceLine->new($owner, $age, $lineNum, $text);
     }
     close(HANDLE);
   }
   else {
-    print("Error: 'open(-| $cmd)' failed");
+    print("Error: 'open(-| $cmd)' failed: \"$!\"\n");
   }
   return $self;
 }
@@ -3573,9 +3602,7 @@ sub _bare_load {
   if (open(HANDLE, "<", $self->path())) {
     while (my $line = <HANDLE>) {
       chomp $line;
-      $line =~ s/\R//g;
-      # Also remove CR from line-end
-      s/\015$//;
+      $line =~ s/\r//g; # Also remove CR from line-end
 
       $lineno++;
       push @{$self->{_lines}}, SourceLine->new(undef, undef, $lineno, $line);
@@ -4688,9 +4715,13 @@ sub process_file($$$$)
   $summary->b_found($br_found);
   $summary->b_hit($br_hit);
 
-  # build coverage differential categories
-  my $fileBase = $base_data->data($filename);
+  # handle case that file was moved between baseline and current
+  my $baseline_filename = $diff_data->baseline_file_name($filename);
+  # when looking up the baseline file, handle the case that the
+  #  pathname does not match exactly - see comment in TraceFile::data
+  my $fileBase = $base_data->data($baseline_filename, 1);
   my $fileCurrent = $current_data->data($filename);
+  # build coverage differential categories
   my $fileCovInfo =
     FileCoverageInfo->new($filename, $fileBase, $fileCurrent, $diff_data
                           #, scalar($filename =~ /vcsapi_type/
@@ -4948,7 +4979,7 @@ sub read_testfile($)
         while (<TEST_HANDLE>)
         {
                 chomp($_);
-                s/\R//g;
+                s/\r//g;
                 # Match lines beginning with TN:<whitespace(s)>
                 if (/^TN:\s+(.*?)\s*$/)
                 {
@@ -5072,7 +5103,7 @@ sub create_sub_dir($)
   my ($dir) = @_;
 
   system("mkdir", "-p" ,$dir)
-    and die("ERROR: cannot create directory $dir!\n");
+    and die("ERROR: cannot create directory $dir: $!\n");
 }
 
 
@@ -5786,7 +5817,7 @@ sub write_css_file()
           padding-left: 10px;
           padding-right: 20px;
           color: #284FA8;
-          /* make this a slightly different color than the leader - otherewise,
+          /* make this a slightly different color than the leader - otherwise,
              otherwise the alias is hard to distinguish in the table */
           background-color: "#E5DBDB"; # very light pale grey/blue
           font-family: monospace;
@@ -8958,7 +8989,7 @@ sub read_config($)
         while (<HANDLE>)
         {
                 chomp;
-                s/\R//g; # linefeed, if there is one
+                s/\r//g; # cr, if there is one
                 # Skip comments
                 s/#.*//;
                 # Remove leading blanks

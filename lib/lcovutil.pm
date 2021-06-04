@@ -1585,7 +1585,7 @@ sub open {
 
   $version = "" unless defined($version);
   if (open(SRC, "<", $filename)) {
-    lcovutil::info("reading $version$filename (for bogus branch filtering)\n");
+    lcovutil::verbose("reading $version$filename (for bogus branch filtering)\n");
     my @sourceLines;
     while (<SRC>) {
       chomp($_);
@@ -1725,8 +1725,27 @@ sub file_exists {
 sub data {
   my $self = shift;
   my $file = shift;
+  my $checkMatchingBasename = shift;
 
-  if (!defined($self->{_data}->{$file})) {
+  if (! defined($self->{_data}->{$file})) {
+    if (defined $checkMatchingBasename) {
+      # check if there is a file in the map that has the same basename
+      #  as the lone we are looking for.
+      # this can happen if the 'udiff' file refers to paths in the repo
+      #  whereas the .info files refer to paths in the build area.
+      my $base = File::Basename::basename($file);
+      my $count = 0;
+      my $found;
+      foreach my $f (keys %{$self->{_data}}) {
+        my $b = File::Basename::basename($f);
+        if ($b eq $base) {
+          $count ++;
+          $found = $self->{_data}->{$f};
+        }
+      }
+      return $found
+        if $count == 1;
+    }
     $self->{_data}->{$file} = TraceInfo->new($file);
   }
 

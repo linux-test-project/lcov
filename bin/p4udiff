@@ -10,7 +10,7 @@
 #   This program is distributed in the hope that it will be useful, but
 #   WITHOUT ANY WARRANTY;  without even the implied warranty of
 #   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-#   General Public License for more details. 
+#   General Public License for more details.
 #
 #   You should have received a copy of the GNU General Public License
 #   along with this program;  if not, see
@@ -23,6 +23,7 @@
 
 #use strict;
 use DateTime;
+use Getopt::Long;
 
 package P4File;
 sub new {
@@ -116,6 +117,24 @@ sub remove {
 
 package main;
 
+my @exclude_patterns;
+my @include_patterns;
+
+if ( ! GetOptions("exclude=s" => \@exclude_patterns,
+                  "include=s" => \@include_patterns) ||
+     3 != scalar(@ARGV) ) {
+  print(STDERR "usage: [(--exclude|include) regexp[,regexp]] depot base_changelist current_changelist\n");
+  exit(1);
+}
+@exclude_patterns = split(',', join(',', @exclude_patterns));
+@include_patterns = split(',', join(',', @include_patterns));
+if (scalar(@exclude_patterns) != 0 &&
+    scalar(@include_patterns) != 0) {
+  print(STDERR "should specify either --exclude or include - not both\n");
+  exit(1)
+}
+
+
 my $depot_path = shift @ARGV;
 my $base_changelist = shift @ARGV;
 my $curr_changelist = shift @ARGV;
@@ -125,7 +144,7 @@ my $curr_files = P4FileList->new();
 # need "/..." on the pathname if this is a directory.
 #  - depot_path may not be the same as the client workspace path.
 #  - If the name is local, then append if it is a directory - otherwise, ask P4
-# Don't go to P4 unless necessary - as the interatction is pretty slow.
+# Don't go to P4 unless necessary - as the interaction is pretty slow.
 
 # Ask the Perforce server to lookup the path and append a directory recursion
 # pattern if the depot_path is not a file_type.
@@ -141,21 +160,50 @@ if ( -e $p4_path) {
 }
 
 if (open(HANDLE, "-|", "p4 files ${p4_path}\@$base_changelist")) {
+ DIFF_FILE:
   while (my $line = <HANDLE>) {
     chomp $line;
     s/\015$//;
 
-    $base_files->append(P4File->new($line));
+    foreach my $pat (@exclude_patterns) {
+      next DIFF_FILE
+        if $line =~ /$pat/;
+    }
+    my $inc = 0 == scalar(@include_patterns);
+    if (! $inc) {
+      foreach my $pat (@include_patterns) {
+        if ($line =~ /$pat/) {
+          $inc = 1;
+          break;
+        }
+      }
+    }
+    $base_files->append(P4File->new($line))
+      if $inc;
   }
   close(HANDLE);
 }
 
 if (open(HANDLE, "-|", "p4 files ${p4_path}\@$curr_changelist")) {
+ DIFF_FILE:
   while (my $line = <HANDLE>) {
     chomp $line;
     s/\015$//;
-
-    $curr_files->append(P4File->new($line));
+    foreach my $pat (@exclude_patterns) {
+      next DIFF_FILE
+        if $line =~ /$pat/;
+    }
+    my $inc = 0 == scalar(@include_patterns);
+    if (! $inc) {
+      foreach my $pat (@include_patterns) {
+        if ($line =~ /$pat/) {
+          $inc = 1;
+          break;
+        }
+      }
+    }
+    $curr_files->append(P4File->new($line))
+      if $inc;
   }
   close(HANDLE);
 }
@@ -260,7 +308,7 @@ foreach my $f (sort keys %union) {
   } elsif (defined($b) && defined($c)) {
     # check diff
     next if ($b->type() eq "binary" || $c->type() eq "binary");
-    # "p4 diff -du ". $c->path() . '#' . $c->rev() . " " . $b->path() . '#' . $b->rev() 
+    # "p4 diff -du ". $c->path() . '#' . $c->rev() . " " . $b->path() . '#' . $b->rev()
     printf("p4 diff $f#%d $f#%d\n", $b->rev(), $c->rev());
     printf("index %d..%d\n", $base_changelist, $curr_changelist);
     my @lines;
