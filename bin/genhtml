@@ -5262,7 +5262,7 @@ sub demangle_list($)
 	# Extra flag necessary on OS X so that symbols listed by gcov get demangled
 	# properly.
 	if ($demangle_arg eq "" && $^O eq "darwin") {
-		$demangle_arg = "--no-strip-underscores";
+		$demangle_arg = "--no-strip-underscore";
 	}
 
 	# Build translation hash from c++filt output
