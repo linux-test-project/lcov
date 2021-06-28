@@ -85,6 +85,7 @@ use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path realpath cwd/;
 use DateTime;
 use DateTime::Format::W3CDTF;
+#use Regexp::Common qw(time);  # damn - not installed
 use Date::Parse;
 use FileHandle;
 use Carp;
@@ -96,6 +97,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  system_no_output
                  ignorable_error
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
+                 $ERROR_EMPTY
                  info verbose $verbose $cpp_demangle
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
@@ -191,6 +193,8 @@ our $ERROR_INCONSISTENT_DATA = 4;
 $ERROR_MISMATCH = 5;
 $ERROR_BRANCH = 5;
 $ERROR_FORMAT = 7;
+$ERROR_EMPTY = 8;
+
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
         "unmapped" => $ERROR_UNMAPPED_LINE,
@@ -200,6 +204,7 @@ our %htmlErrs = (
         "mismatch" => $ERROR_MISMATCH,
         "branch"   => $ERROR_BRANCH,
         "format"   => $ERROR_FORMAT,
+        "empty"   => $ERROR_EMPTY,
 );
 lcovutil::define_errors(\%htmlErrs);
 
@@ -2307,6 +2312,7 @@ sub new {
   $self->{defLocation} = [{}, {}]; # element 0: old filename -> line number where this
                                    #             entry starts
                                    # element 1: new filename -> line numbern
+  $self->{unchanged} = {}; # file is identical in baseline and current
   return $self;
 }
 
@@ -2433,6 +2439,10 @@ sub check_path_consistency {
     $diffBaseMap{$b} = [[], {}]
       unless exists($diffBaseMap{$b});
     push(@{$diffBaseMap{$b}->[0]}, $f);
+  }
+  foreach my $f (keys %{$self->{unchanged}}) {
+    # unchanged in baseline and current
+    $diffMap{$f} = 3;
   }
   my %missed;
   foreach my $curr ($current->files()) {
@@ -2587,19 +2597,49 @@ sub _read_udiff {
   my $chunk;
   my $old_block = 0;
   my $new_block = 0;
+  # would like to use Regexp::Common::time - but module not installed
+  #my $time = $RE{time}{iso};
+  my $time = '[1-9]{1}[0-9]{3}\-[0-9]{2}\-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]*)?( .[0-9]+)?';
   # Parse diff file line by line
   while (<HANDLE>) {
     chomp($_);
     s/\r//g;
     $line = $_;
 
+    # the 'diff' new/old file name line may be followed by a timestamp
+    #   If so, remove it so our regexp matches more easily.
+    # p4 and git diff outputs do not have the timestamp
+    if ($line =~ /^[-+=]{3} \S.*(\s+$time)$/) {
+      $line =~ s/$1$//;
+    }
     foreach ($line) {
-      # Filename of old file:
-      # --- <filename> <date>
-      /^--- (\S+)/ && do
+      # Filename of unchanged file:
+      # === <filename>
+      /^=== (.+)$/ && do  # note: filename may contain whitespace
         {
           if ($filename) {
             push(@{$self->{linemap}->{$filename}}, $chunk);
+	    undef $filename;
+          }
+          my $file = File::Spec->rel2abs($1, $main::cwd);
+          $file = main::strip_directories($file, $main::strip);
+          die("$file already in linemap - marked unchangd")
+	    if ( exists($self->{unchanged}->{$file}) );
+          warn("$file duplicate 'unchanged' entry found")
+	    if ( exists($self->{linemap}->{$file}) );
+
+          $self->{unchanged}->{$file} = 1;
+
+          last;
+        };
+
+      # Filename of old file:
+      # --- <filename>
+      /^--- (.+)$/ && do
+        {
+          if ($filename) {
+            push(@{$self->{linemap}->{$filename}}, $chunk);
+	    undef $filename;
           }
           $file_old = File::Spec->rel2abs($1, $main::cwd);
           $file_old = main::strip_directories($file_old, $main::strip);
@@ -2608,8 +2648,8 @@ sub _read_udiff {
           last;
         };
       # Filename of new file:
-      # +++ <filename> <date>
-      /^\+\+\+ (\S+)/ && do
+      # +++ <filename>
+      /^\+\+\+ (.+)$/ && do
         {
           # Add last file to resulting hash
           $file_new = File::Spec->rel2abs($1, $main::cwd);
@@ -3722,7 +3762,7 @@ our $diff_data = LineMap->new();
 our @opt_dir_prefix;    # Array of prefixes to remove from all sub directories
 our @dir_prefix;
 our %test_description;  # Hash containing test descriptions if available
-our $date = get_date_string(undef);
+our $current_date = get_date_string(undef);
 
 our @info_filenames;    # List of .info files to use as data source
 our $test_title;        # Title for output as written to each page header
@@ -3900,6 +3940,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "baseline-file|b=s"     => \$base_filename,
                 "baseline-title=s"      => \$baseline_title,
                 "baseline-date=s"       => \$baseline_date,
+                "current-date=s"        => \$current_date,
                 "diff-file=s"           => \$diff_filename,
                 "annotate-script=s"     => \$SourceFile::annotateScript,
                 "new-file-as-baseline" => \$treatNewFileAsBaseline,
@@ -3910,7 +3951,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 'show-owners:s'         => \$show_ownerBins,
                 'show-noncode'          => \$show_nonCodeOwners,
                 'simplified-colors'     => \$show_simplifiedColors,
-                "date=s"                => \@datebins,
+                "date-bins=s"           => \@datebins,
                 "prefix|p=s"            => \@opt_dir_prefix,
                 "num-spaces=i"          => \$tab_size,
                 "no-prefix"             => \$no_prefix,
@@ -3971,7 +4012,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
     $treatNewFileAsBaseline = undef;
     die("\"--show-owners\" option requires \"--annotate-script\" for revision control integration")
         if defined($show_ownerBins);
-    die ("\"--date\" option requires \"--annotate-script\" for revision control integraion")
+    die ("\"--date-bins\" option requires \"--annotate-script\" for revision control integraion")
       if (0 != scalar(@datebins));
   }
   if (0 != (defined($diff_filename) ^ defined($base_filename))) {
@@ -4194,6 +4235,7 @@ Operation:
   -b, --baseline-file BASEFILE      Use BASEFILE as baseline file
       --baseline-title STRING       Use STRING a baseline data label in report
       --baseline-date DATE          Use DATE in baseline data label in report
+      --current-date DATE           Use DATE in current data label in report
       --annotate-script SCRIPT      Execute SCRIPT to get revision control
                                     history (wraps "git blame" or "p4 annotate")
       --diff-file UDIFF             unified diff file UDIFF desribes source
@@ -4206,7 +4248,7 @@ Operation:
                                     code or not.
       --show-noncode                Show author in summary table even if none
                                     of their lines are recognized as code.
-      --date day[,day,...]          'day' interpreted as integer number of
+      --date-bins day[,day,...]     'day' interpreted as integer number of
                                     days, used as upper bound of corresponding
                                     date bin
   -p, --prefix PREFIX               Remove PREFIX from all directory names
@@ -7896,7 +7938,7 @@ sub write_header(*$$$$$)
   push(@row_left, [[undef, "headerItem", "$label:"],
                    [undef, "headerValue", $test]]);
   push(@row_left, [[undef, "headerItem", "$label Date:"],
-                   [undef, "headerValue", $date]]);
+                   [undef, "headerValue", $current_date]]);
   if (defined($baseline_title)) {
       push(@row_left, [[undef, "headerItem", "Baseline:"],
                        [undef, "headerValue", $baseline_title]]);

@@ -1,0 +1,93 @@
+#!/usr/bin/env perl
+
+use Getopt::Long;
+use strict;
+
+sub include_me {
+  my ($path, $includes, $excludes) = @_;
+
+  foreach my $pat (@$excludes) {
+    return 0
+      if $path =~ /$pat/;
+  }
+  return 1 
+    if 0 == scalar(@$includes);
+
+  foreach my $pat (@$includes) {
+    return 1
+      if ($path =~ /$pat/);
+  }
+  return 0;
+}
+
+
+my @exclude_patterns;
+my @include_patterns;
+my $suppress_unchanged;
+
+if ( ! GetOptions("exclude=s" => \@exclude_patterns,
+                  "include=s" => \@include_patterns,
+		  'no-unchanged' => \$suppress_unchanged) ||
+     (2 != scalar(@ARGV) &&
+      3 != scalar(@ARGV)) ) {
+  print(STDERR "usage: [(--exclude|include) regexp[,regexp]] [dir] base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n");
+  exit(1);
+}
+@exclude_patterns = split(',', join(',', @exclude_patterns));
+@include_patterns = split(',', join(',', @include_patterns));
+
+my $cmd;
+if (3 == scalar(@ARGV)) {
+  my $dir = shift @ARGV;
+  push(@include_patterns, "$dir");
+}
+my $base_sha = shift @ARGV;
+my $current_sha = shift @ARGV;
+
+$cmd = "git diff $base_sha $current_sha";
+
+die("failed to exec git diff")
+  unless (open(HANDLE, "-|", "git diff $base_sha $current_sha"));
+
+my $includeCurrentFile;
+my %allFiles;
+
+while (<HANDLE>) {
+  chomp($_);
+  s/\r//g;
+  my $line = $_;
+
+  if ( $line =~ /diff --git a\/(\S+) b\/(\S+)/ ) {
+    # git diff header
+    my $fileA = $1;
+    my $fileB = $2;
+    $includeCurrentFile = 
+      ( include_me($fileA, \@include_patterns, \@exclude_patterns) ||
+	include_me($fileB, \@include_patterns, \@exclude_patterns));
+    $allFiles{$fileB} = $fileA
+      if ($includeCurrentFile);
+  }
+  printf("%s\n", $line)
+  if $includeCurrentFile;
+}
+close(HANDLE);
+
+exit 0 if defined($suppress_unchanged);
+
+# now find the list of files in the current SHA - we can process that
+#  to find the list of all current files which were unchanged since the
+#  baseline SHA
+die("failed to exec git ls-tree")
+  unless (open(HANDLE, "-|", "git ls-tree -r --name-only $current_sha"));
+
+while (<HANDLE>) {
+  chomp($_);
+  s/\r//g;
+  my $filename = $_;
+  if ( ! exists($allFiles{$filename}) &&
+       include_me($filename, \@include_patterns, \@exclude_patterns)) {
+    printf("diff --git a/$filename b/$filename\n");
+    printf("=== $filename\n");
+  }
+}
+close(HANDLE);

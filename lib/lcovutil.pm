@@ -1784,7 +1784,7 @@ sub append_tracefile {
 
 sub is_rtl_file {
   my $filename = shift;
-  return $filename =~ /\.(v|sv|vhdl?)$/;
+  return $filename =~ /\.(v|vh|sv|vhdl?)$/;
 }
 
 # Read in the contents of the .info file specified by INFO_FILENAME. Data will

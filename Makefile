@@ -58,6 +58,7 @@ install:
 	bin/install.sh bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff -m 755
 	bin/install.sh bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate -m 755
 	bin/install.sh bin/gitblame $(DESTDIR)$(SCRIPT_DIR)/gitblame -m 755
+	bin/install.sh bin/gitdiff $(DESTDIR)$(SCRIPT_DIR)/gitdiff -m 755
 	bin/install.sh lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm -m 755
 	bin/install.sh man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1 -m 644
 	bin/install.sh man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 -m 644

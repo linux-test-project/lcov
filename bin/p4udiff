@@ -21,7 +21,7 @@
 #
 #   This script extracts a unified-diff between two Perforce changelists.
 
-#use strict;
+use strict;
 use DateTime;
 use Getopt::Long;
 
@@ -71,12 +71,30 @@ sub type {
 
 package P4FileList;
 sub new {
-  my $class = shift;
-  my $self = {};
+  my ($class, $include, $exclude) = @_;
+  my $self = [{}, $include, $exclude];
   bless $self, $class;
 
-  $self->{_hash} = { };
   return $self;
+}
+
+sub include_me {
+  my ($path, $include, $exclude) = @_;
+
+  if (defined($exclude)) {
+    foreach my $pat (@$exclude) {
+      return 0
+        if $path =~ /$pat/;
+    }
+  }
+  return 1 
+    if (! defined($include) || 0 == scalar(@$include));
+
+  foreach my $pat (@$include) {
+    return 1
+      if ($path =~ /$pat/);
+  }
+  return 0;
 }
 
 sub append {
@@ -84,34 +102,36 @@ sub append {
   my $entry = shift;
 
   return $self if (!defined($entry));
+  my ($hash, $include, $exclude) = @$self;
   my $key = $entry->path();
-  if (defined($self->{_hash}->{$key})) {
+  if (defined($hash->{$key})) {
     warn("WARNING: skipping duplicated path $key\n");
     return $self;
   }
-  $self->{_hash}->{$key} = $entry;
+  $hash->{$key} = $entry 
+    if include_me($key, $include, $exclude);
   return $self;
 }
 
 sub files {
   my $self = shift;
-  return sort keys %{$self->{_hash}};
+  return sort keys %{$self->[0]};
 }
 
 sub get {
   my $self = shift;
   my $key = shift;
 
-  if (!defined($self->{_hash}->{$key})) {
+  if (!defined($self->[0]->{$key})) {
     return undef;
   }
-  return $self->{_hash}->{$key};
+  return $self->[0]->{$key};
 }
 
 sub remove {
   my $self = shift;
   my $key = shift;
-  delete $self->{_hash}->{$key};
+  delete $self->[0]->{$key};
   return $self;
 }
 
@@ -119,27 +139,23 @@ package main;
 
 my @exclude_patterns;
 my @include_patterns;
+my $suppress_unchanged;
 
 if ( ! GetOptions("exclude=s" => \@exclude_patterns,
-                  "include=s" => \@include_patterns) ||
+                  "include=s" => \@include_patterns,
+		  'no-unchanged' => \$suppress_unchanged) ||
      3 != scalar(@ARGV) ) {
-  print(STDERR "usage: [(--exclude|include) regexp[,regexp]] depot base_changelist current_changelist\n");
+  print(STDERR "usage: [(--exclude|include) regexp[,regexp]] [--no-unchanged] sandbox_directory base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n");
   exit(1);
 }
 @exclude_patterns = split(',', join(',', @exclude_patterns));
 @include_patterns = split(',', join(',', @include_patterns));
-if (scalar(@exclude_patterns) != 0 &&
-    scalar(@include_patterns) != 0) {
-  print(STDERR "should specify either --exclude or include - not both\n");
-  exit(1)
-}
 
-
-my $depot_path = shift @ARGV;
+my $top_directory = shift @ARGV;
 my $base_changelist = shift @ARGV;
 my $curr_changelist = shift @ARGV;
-my $base_files = P4FileList->new();
-my $curr_files = P4FileList->new();
+my $base_files = P4FileList->new(\@include_patterns, \@exclude_patterns);
+my $curr_files = P4FileList->new(\@include_patterns, \@exclude_patterns);
 
 # need "/..." on the pathname if this is a directory.
 #  - depot_path may not be the same as the client workspace path.
@@ -148,12 +164,12 @@ my $curr_files = P4FileList->new();
 
 # Ask the Perforce server to lookup the path and append a directory recursion
 # pattern if the depot_path is not a file_type.
-my $p4_path = $depot_path;
+my $p4_path = $top_directory;
 if ( -e $p4_path) {
   $p4_path .= "/..."
     if (-d $p4_path);
 } else {
-  system("p4 fstat $depot_path|grep depotFile >/dev/null 2>&1");
+  system("p4 fstat $top_directory|grep depotFile >/dev/null 2>&1");
   if (($? >> 8) != 0) {
     $p4_path .= "/..."
   }
@@ -165,21 +181,7 @@ if (open(HANDLE, "-|", "p4 files ${p4_path}\@$base_changelist")) {
     chomp $line;
     s/\015$//;
 
-    foreach my $pat (@exclude_patterns) {
-      next DIFF_FILE
-        if $line =~ /$pat/;
-    }
-    my $inc = 0 == scalar(@include_patterns);
-    if (! $inc) {
-      foreach my $pat (@include_patterns) {
-        if ($line =~ /$pat/) {
-          $inc = 1;
-          break;
-        }
-      }
-    }
-    $base_files->append(P4File->new($line))
-      if $inc;
+    $base_files->append(P4File->new($line));
   }
   close(HANDLE);
 }
@@ -189,24 +191,12 @@ if (open(HANDLE, "-|", "p4 files ${p4_path}\@$curr_changelist")) {
   while (my $line = <HANDLE>) {
     chomp $line;
     s/\015$//;
-    foreach my $pat (@exclude_patterns) {
-      next DIFF_FILE
-        if $line =~ /$pat/;
-    }
-    my $inc = 0 == scalar(@include_patterns);
-    if (! $inc) {
-      foreach my $pat (@include_patterns) {
-        if ($line =~ /$pat/) {
-          $inc = 1;
-          break;
-        }
-      }
-    }
-    $curr_files->append(P4File->new($line))
-      if $inc;
+    $curr_files->append(P4File->new($line));
   }
   close(HANDLE);
 }
+
+my @unchanged;
 
 # prune files at the same rev; no difference to report
 foreach my $f ($base_files->files()) {
@@ -219,6 +209,9 @@ foreach my $f ($base_files->files()) {
       $b->changelist() eq $c->changelist()) {
     $curr_files->remove($f);
     $base_files->remove($f);
+    push(@unchanged, $c)
+      unless ($c->action() eq 'delete' ||
+	      $c->type() eq 'binary');
   }
 }
 
@@ -255,13 +248,15 @@ foreach my $k ($curr_files->files()) {
   $union{$k} = 1;
 }
 #exit;
-my $workspace = `p4 -F \%clientRoot\% -ztag info`;
-chomp $workspace;
+
+#my $workspace = `p4 -F \%clientRoot\% -ztag info`;
+my $where = `p4 where $p4_path`; # need the "..." in the path or p4 gets confused
+$where =~ s/\/\.\.\.//g;
+my ($depot_path, $workspace_path, $sandbox_path) = split(' ', $where);
 
 sub reloc {
   my $path = shift;
-  $path =~ s/$depot_path/$workspace$depot_path/;
-  $path =~ s|//|/|;
+  $path =~ s/$depot_path/$sandbox_path/;
   return $path;
 }
 
@@ -326,4 +321,15 @@ foreach my $f (sort keys %union) {
   } else {
     warn("WARNING: not in base or current for $f\n");
   }
+}
+
+exit 0 if defined($suppress_unchanged);
+
+foreach my $f (@unchanged) {
+  my $name = $f->path();
+  next 
+    unless P4FileList::include_me($name,
+				  \@include_patterns, \@exclude_patterns);
+  printf("p4 diff $name#%d $name\n", $f->rev());
+  printf("=== %s\n", reloc($name));
 }

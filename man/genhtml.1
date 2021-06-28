@@ -77,6 +77,9 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-baseline\-date
 .IR baseline\-date\-string ]
 .br
+.RB [ \-\-current\-date
+.IR current\-date\-string ]
+.br
 .RB [ \-\-diff\-file
 .IR unified\-diff\-file ]
 .br
@@ -87,7 +90,7 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .br
 .RB [ \-\-elide\-path\-mismatch]
 .br
-.RB [ \-\-date
+.RB [ \-\-date\-bins
 .IR day[,day,...]]
 .br
 .RB [ \-\-show\-owners
@@ -196,7 +199,7 @@ line.  For each source line, age is the interval since the most recent modificat
 and the owner is the user identity responsible for the most recent change to that line.
 Line coverage overall totals and counts for each of the 12 classification categories are
 collected for each of the specified age ranges (see the
-.I \-\-date
+.I \-\-date\-bins
 option, below).  Age and ownership reporting enhance team efforts to maintain good
 coverage discipline by spotlighting coverage shortfalls in recently modified code, even
 in the absence of baseline coverage data.
@@ -348,6 +351,15 @@ If this argument is not specified, the default is to use the creation time of th
 as the baseline date.
 
 .RE
+.BI "\-\-current\-date " current\-date\-string
+.RS
+Use the
+.I current\-date\-string
+as the collection date for the coverage baseline data.
+If this argument is not specified, the default is to use the creation time of the
+.I current\-trace\-file.
+
+.RE
 .BI "\-\-diff\-file " unified\-diff\-file
 .RS
 Use the
@@ -358,7 +370,15 @@ and
 .IR tracefile(s) .
 A suitable
 .I unified\-diff\-file
-can be generated using the command "git diff \-\-relative SHA_base SHA_current", or using the "p4udiff" sample script (found in the share/lcov/support-scripts directory shipped as part of this release).
+can be generated using the command "git diff \-\-relative SHA_base SHA_current", or using the "p4udiff" or "gitdiff" sample scripts (found in the share/lcov/support-scripts directory shipped as part of this release).
+
+These scripts post-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly not files whcih have not changed.  It is useful to note unchanged files (denoted by lines of the form
+  diff [optional header strings]
+  === file_path
+
+in the p4diff/gitdiff output) as this knowledge will help to suppres spurious 'path mismatch' warnings.  See the
+.I \-\-elide\-path\-mismatch
+option, below.
 
 Note that you must specfiy
 .I \-\-baseline\-file baseline\-trace\-file
@@ -416,17 +436,22 @@ When this option is specified, genhtml will pretend that the unified\-diff\-file
 .RS
 
 \- the same path is found in both the 'baseline' and 'current' .info files, and
-
+`<
 \- the basename of the path in the .info file and the path in the unified\-diff\-file are the same, and
 
 \- there is only one unmatched unified\-diff\-file entry with that basename.
 .RE
 
+See the
+I
+\-\-diff\-file unified\-diff\-file
+discussion above for a discussion of how to avoid spurious warnings and/or incorrect matches.
+
 .RE
-.BI "\-\-date " day[,day,...]
+.BI "\-\-date\-bins " day[,day,...]
 .RS
 The
-.I \-\-date
+.I \-\-date\-bins
 option is used to specify age boundaries (cutpoints) for date-binning classification.  If not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days.
 This argument has no effect if there is no
 .I source\-annotation\-script .
