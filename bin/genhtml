@@ -99,6 +99,8 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
                  $ERROR_EMPTY
                  info verbose $verbose $cpp_demangle
+                 %opt_rc apply_rc_params
+                 strip_directories
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  filterStringsAndComments simplifyCode balancedParens
@@ -109,7 +111,8 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
 our $title              = "LCOV - differential code coverage report";
 our $tool_dir           = abs_path(dirname($0));
 our $lcov_version       = 'LCOV version '.`$tool_dir/get_version.sh --full`;
-our $lcov_url           = "http://ltp.sourceforge.net/coverage/lcov.php";
+#our $lcov_url           = "http://ltp.sourceforge.net/coverage/lcov.php";
+our $lcov_url           = "https://github.com/henry2cox/lcov/tree/diffcov_initial";
 lcovutil::set_tool_name(basename($0));
 
 # Specify coverage rate limits (in %) for classifying file entries
@@ -225,14 +228,11 @@ sub create_sub_dir($);
 sub remove_unused_descriptions();
 sub get_affecting_tests($$$);
 sub apply_prefix($@);
-sub read_config($);
-sub apply_config($);
 sub get_html_prolog($);
 sub get_html_epilog($);
 sub write_dir_page($$$$$$$;$);
 sub classify_rate($$$$);
 sub parse_dir_prefix(@);
-sub strip_directories($$);
 
 # HTML related prototypes
 sub escape_html($);
@@ -2622,7 +2622,7 @@ sub _read_udiff {
 	    undef $filename;
           }
           my $file = File::Spec->rel2abs($1, $main::cwd);
-          $file = main::strip_directories($file, $main::strip);
+          $file = lcovutil::strip_directories($file, $main::strip);
           die("$file already in linemap - marked unchangd")
 	    if ( exists($self->{unchanged}->{$file}) );
           warn("$file duplicate 'unchanged' entry found")
@@ -2642,7 +2642,7 @@ sub _read_udiff {
 	    undef $filename;
           }
           $file_old = File::Spec->rel2abs($1, $main::cwd);
-          $file_old = main::strip_directories($file_old, $main::strip);
+          $file_old = lcovutil::strip_directories($file_old, $main::strip);
           $self->{defLocation}->[0]->{$file_old} = $.;
           #$in_block = 0;
           last;
@@ -2653,7 +2653,7 @@ sub _read_udiff {
         {
           # Add last file to resulting hash
           $file_new = File::Spec->rel2abs($1, $main::cwd);
-          $file_new = main::strip_directories($file_new, $main::strip);
+          $file_new = lcovutil::strip_directories($file_new, $main::strip);
           $filename = ($file_new ne "/dev/null") ? $file_new : undef;
           if ($filename) {
             $self->{linemap}->{$filename} = [ ];
@@ -3765,6 +3765,8 @@ our %test_description;  # Hash containing test descriptions if available
 our $current_date = get_date_string(undef);
 
 our @info_filenames;    # List of .info files to use as data source
+our $header_title;      # Title at top of HTML report page (above table)
+our $footer;            # String at bootom of HTML report page
 our $test_title;        # Title for output as written to each page header
 our $output_directory;  # Name of directory in which to store output
 our $base_filename;     # Optional name of file containing baseline data
@@ -3807,7 +3809,6 @@ our $no_sourceview;     # If set, do not create a source code view for each file
 our $highlight;         # If set, highlight lines covered by converted data only
 our $legend;            # If set, include legend in output
 our $tab_size = 8;      # Number of spaces to use in place of tab
-our $config;            # Configuration file contents
 our $html_prolog_file;  # Custom HTML prolog file (up to and including <body>)
 our $html_epilog_file;  # Custom HTML epilog file (from </body> onwards)
 our $html_prolog;       # Actual HTML prolog
@@ -3821,7 +3822,6 @@ our @opt_ignore_errors; # Ignore certain error classes during processing
 our @opt_filter;        # Filter out requested coverpoints
 our @ignore;
 our $opt_config_file;   # User-specified configuration file location
-our %opt_rc;
 our $opt_missed;        # List/sort lines by missed counts
 our $charset = "UTF-8"; # Default charset for HTML pages
 our @fileview_sortlist;
@@ -3853,38 +3853,8 @@ GetOptions("config-file=s" => \$opt_config_file,
            "rc=s%" => \%opt_rc);
 Getopt::Long::Configure("default");
 
-{
-        # Remove spaces around rc options
-        my %new_opt_rc;
-
-        while (my ($key, $value) = each(%opt_rc)) {
-                $key =~ s/^\s+|\s+$//g;
-                $value =~ s/^\s+|\s+$//g;
-
-                $new_opt_rc{$key} = $value;
-        }
-        %opt_rc = %new_opt_rc;
-}
-
-# Read configuration file if available
-if (defined($opt_config_file)) {
-        $config = read_config($opt_config_file);
-} elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
-{
-        $config = read_config($ENV{"HOME"}."/.lcovrc");
-}
-elsif (-r "/etc/lcovrc")
-{
-        $config = read_config("/etc/lcovrc");
-} elsif (-r "/usr/local/etc/lcovrc")
-{
-        $config = read_config("/usr/local/etc/lcovrc");
-}
-
-if ($config || %opt_rc)
-{
-        # Copy configuration file and --rc values to variables
-        apply_config({
+lcovutil::apply_rc_params($opt_config_file,
+			  {
                 "genhtml_css_file"              => \$css_filename,
                 "genhtml_hi_limit"              => \$hi_limit,
                 "genhtml_med_limit"             => \$med_limit,
@@ -3920,7 +3890,6 @@ if ($config || %opt_rc)
                 "lcov_function_coverage"        => \$lcov_func_coverage,
                 "lcov_branch_coverage"          => \$lcov_branch_coverage,
                 });
-}
 
 # Copy related values if not specified
 $fn_hi_limit    = $hi_limit if (!defined($fn_hi_limit));
@@ -3933,6 +3902,8 @@ $br_coverage    = $lcov_branch_coverage if (!defined($br_coverage));
 # Parse command line options
 my @datebins;
 if (!GetOptions("output-directory|o=s"  => \$output_directory,
+                "header-title=s"        => \$header_title,
+                "footer=s"              => \$footer,
                 "title|t=s"             => \$test_title,
                 "description-file|d=s"  => \$desc_filename,
                 "keep-descriptions|k"   => \$keep_descriptions,
@@ -4022,10 +3993,13 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
     $base_filename = undef;
   }
 
-  # not a differential report, if no baseline...
-  $title =~ s/ differential//
-    unless defined($diff_filename);
-
+  if (defined($header_title)) {
+    $title = $header_title;
+  } else {
+    # use the default title bar.
+    $title =~ s/ differential// # not a differential report, if no baseline...
+      unless defined($diff_filename);
+  }
   push(@fileview_prefixes, "-date")
       if ($show_dateBins);
   push(@fileview_prefixes, "-owner")
@@ -4263,8 +4237,10 @@ Operation:
 
 HTML output:
   -f, --frames                      Use HTML frames for source code view
-  -t, --title TITLE                 Display TITLE in header of all pages
+  -t, --title TITLE                 Display TITLE in table header of all pages
   -c, --css-file CSSFILE            Use external style sheet file CSSFILE
+      --header-title BANNER         Banner at top of each HTML page
+      --footer FOOTER               Footer at bottom of each HTML page
       --no-source                   Do not create source code view
       --num-spaces NUM              Replace tabs with NUM spaces in source view
       --highlight                   Highlight lines with converted-only data
@@ -4285,29 +4261,6 @@ END_OF_USAGE
         ;
 }
 
-
-#
-# strip_directories($path, $depth)
-#
-# Remove DEPTH leading directory levels from PATH.
-#
-
-sub strip_directories($$)
-{
-        my $filename = $_[0];
-        my $depth = $_[1];
-        my $i;
-
-        if (!defined($depth) || ($depth < 1))
-        {
-                return $filename;
-        }
-        for ($i = 0; $i < $depth; $i++)
-        {
-                $filename =~ s/^[^\/]*\/+(.*)$/$1/;
-        }
-        return $filename;
-}
 
 #
 # print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
@@ -7404,13 +7357,14 @@ sub write_html_epilog(*$;$)
   {
     $break_code = " target=\"_parent\"";
   }
+  my $f = defined($main::footer) ? $footer : "Generated by: <a href=\"$lcov_url\"$break_code>$lcov_version</a>";
 
   # *************************************************************
 
   write_html($_[0], <<END_OF_HTML);
           <table width="100%" border=0 cellspacing=0 cellpadding=0>
             <tr><td class="ruler"><img src="$_[1]glass.png" width=3 height=3 alt=""></td></tr>
-            <tr><td class="versionInfo">Generated by: <a href="$lcov_url"$break_code>$lcov_version</a></td></tr>
+            <tr><td class=\"versionInfo\">$f</td></tr>
           </table>
           <br>
 END_OF_HTML
@@ -9005,80 +8959,6 @@ sub apply_prefix($@)
     }
   }
   return $filename;
-}
-
-
-#
-# read_config(filename)
-#
-# Read configuration file FILENAME and return a reference to a hash containing
-# all valid key=value pairs found.
-#
-
-sub read_config($)
-{
-        my $filename = $_[0];
-        my %result;
-        my $key;
-        my $value;
-        local *HANDLE;
-
-        if (!open(HANDLE, "<", $filename))
-        {
-                warn("WARNING: cannot read configuration file $filename\n");
-                return undef;
-        }
-        while (<HANDLE>)
-        {
-                chomp;
-                s/\r//g; # cr, if there is one
-                # Skip comments
-                s/#.*//;
-                # Remove leading blanks
-                s/^\s+//;
-                # Remove trailing blanks
-                s/\s+$//;
-                next unless length;
-                ($key, $value) = split(/\s*=\s*/, $_, 2);
-                if (defined($key) && defined($value))
-                {
-                        $result{$key} = $value;
-                }
-                else
-                {
-                        warn("WARNING: malformed statement in line $. ".
-                             "of configuration file $filename\n");
-                }
-        }
-        close(HANDLE);
-        return \%result;
-}
-
-
-#
-# apply_config(REF)
-#
-# REF is a reference to a hash containing the following mapping:
-#
-#   key_string => var_ref
-#
-# where KEY_STRING is a keyword and VAR_REF is a reference to an associated
-# variable. If the global configuration hashes CONFIG or OPT_RC contain a value
-# for keyword KEY_STRING, VAR_REF will be assigned the value for that keyword.
-#
-
-sub apply_config($)
-{
-        my $ref = $_[0];
-
-        foreach (keys(%{$ref}))
-        {
-                if (defined($opt_rc{$_})) {
-                        ${$ref->{$_}} = $opt_rc{$_};
-                } elsif (defined($config->{$_})) {
-                        ${$ref->{$_}} = $config->{$_};
-                }
-        }
 }
 
 

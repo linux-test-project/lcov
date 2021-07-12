@@ -15,6 +15,9 @@ our @EXPORT_OK =
      define_errors parse_ignore_errors ignorable_error info
      die_handler warn_handler abort_handler
 
+     %opt_rc apply_rc_params
+     strip_directories  transform_pattern
+
      $cpp_demangle
      verbose debug $debug $verbose
 
@@ -150,6 +153,7 @@ our %pngMap = (
   '+' => ['GNC', 'UNC'],
   );
 
+our %opt_rc; # hash of RC file entries
 
 sub set_tool_name($) {
   $tool_name = shift;
@@ -301,6 +305,169 @@ sub abort_handler($)
 {
   temp_cleanup();
   exit(1);
+}
+
+#
+# read_config(filename)
+#
+# Read configuration file FILENAME and return a reference to a hash containing
+# all valid key=value pairs found.
+#
+
+sub read_config($)
+{
+  my $filename = $_[0];
+  my %result;
+  my $key;
+  my $value;
+  local *HANDLE;
+
+  if (!open(HANDLE, "<", $filename)) {
+    warn("WARNING: cannot read configuration file $filename\n");
+    return undef;
+  }
+  while (<HANDLE>) {
+    chomp;
+    # Skip comments
+    s/#.*//;
+    # Remove leading blanks
+    s/^\s+//;
+    # Remove trailing blanks
+    s/\s+$//;
+    next unless length;
+    ($key, $value) = split(/\s*=\s*/, $_, 2);
+    if (defined($key) && defined($value)) {
+      $result{$key} = $value;
+    }
+    else {
+      warn("WARNING: malformed statement in line $. ".
+           "of configuration file $filename\n");
+      }
+    }
+  close(HANDLE);
+  return \%result;
+}
+
+#
+# apply_config(REF, ref)
+#
+# REF is a reference to a hash containing the following mapping:
+#
+#   key_string => var_ref
+#
+# where KEY_STRING is a keyword and VAR_REF is a reference to an associated
+# variable. If the global configuration hashes CONFIG or OPT_RC contain a value
+# for keyword KEY_STRING, VAR_REF will be assigned the value for that keyword.
+#
+
+sub apply_config($$)
+{
+  my ($ref, $config) = @_;
+
+  foreach (keys(%{$ref})) {
+    if (defined($opt_rc{$_})) {
+      ${$ref->{$_}} = $opt_rc{$_};
+    } elsif (defined($config->{$_})) {
+      ${$ref->{$_}} = $config->{$_};
+    }
+  }
+}
+
+# common utility used by genhtml, geninfo, lcov to clean up RC options,
+#  check for various possible system-wide RC files, and apply the result
+sub apply_rc_params($$) {
+  my ($opt_config_file, $rcHash) = @_;
+  {
+    # Remove spaces around rc options
+    my %new_opt_rc;
+
+    while (my ($key, $value) = each(%opt_rc)) {
+      $key =~ s/^\s+|\s+$//g;
+      $value =~ s/^\s+|\s+$//g;
+
+      $new_opt_rc{$key} = $value;
+    }
+    %opt_rc = %new_opt_rc;
+  }
+  my $config; # did we see a config file or not?
+  # Read configuration file if available
+  if (defined($opt_config_file)) {
+    $config = read_config($opt_config_file);
+  }
+  elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc")) {
+    $config = read_config($ENV{"HOME"}."/.lcovrc");
+  }
+  elsif (-r "/etc/lcovrc") {
+    $config = read_config("/etc/lcovrc");
+  }
+  elsif (-r "/usr/local/etc/lcovrc") {
+    $config = read_config("/usr/local/etc/lcovrc");
+  }
+
+  if ($config || %opt_rc) {
+    # Copy configuration file and --rc values to variables
+    apply_config($rcHash, $config);
+    return 1;
+  }
+  return 0; # did not find any RC params
+}
+
+#
+# transform_pattern(pattern)
+#
+# Transform shell wildcard expression to equivalent Perl regular expression.
+# Return transformed pattern.
+#
+
+sub transform_pattern($)
+{
+  my $pattern = $_[0];
+
+  # Escape special chars
+
+  $pattern =~ s/\\/\\\\/g;
+  $pattern =~ s/\//\\\//g;
+  $pattern =~ s/\^/\\\^/g;
+  $pattern =~ s/\$/\\\$/g;
+  $pattern =~ s/\(/\\\(/g;
+  $pattern =~ s/\)/\\\)/g;
+  $pattern =~ s/\[/\\\[/g;
+  $pattern =~ s/\]/\\\]/g;
+  $pattern =~ s/\{/\\\{/g;
+  $pattern =~ s/\}/\\\}/g;
+  $pattern =~ s/\./\\\./g;
+  $pattern =~ s/\,/\\\,/g;
+  $pattern =~ s/\|/\\\|/g;
+  $pattern =~ s/\+/\\\+/g;
+  $pattern =~ s/\!/\\\!/g;
+
+  # Transform ? => (.) and * => (.*)
+
+  $pattern =~ s/\*/\(\.\*\)/g;
+  $pattern =~ s/\?/\(\.\)/g;
+
+  return $pattern;
+}
+
+#
+# strip_directories($path, $depth)
+#
+# Remove DEPTH leading directory levels from PATH.
+#
+
+sub strip_directories($$)
+{
+  my $filename = $_[0];
+  my $depth = $_[1];
+  my $i;
+
+  if (!defined($depth) || ($depth < 1)) {
+    return $filename;
+  }
+  for ($i = 0; $i < $depth; $i++) {
+    $filename =~ s/^[^\/]*\/+(.*)$/$1/;
+    }
+  return $filename;
 }
 
 sub define_errors($)

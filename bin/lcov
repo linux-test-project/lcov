@@ -88,6 +88,9 @@ use lcovutil qw ($tool_name $quiet
                  is_external $opt_no_external @internal_dirs
                  system_no_output
                  rate get_overall_line
+
+                 %opt_rc apply_rc_params
+                 strip_directories transform_pattern
   );
 
 
@@ -144,12 +147,9 @@ sub get_common_filename($$);
 sub read_diff($);
 sub diff();
 sub system_no_output($@);
-sub read_config($);
-sub apply_config($);
 sub my_info(@);
 set_info_callback(\&my_info);
 sub create_temp_dir();
-sub transform_pattern($);
 sub setup_gkv();
 sub print_overall_rate($$$$$$$$$);
 sub lcov_geninfo(@);
@@ -193,7 +193,6 @@ our $to_package;
 our $from_package;
 our $maxdepth;
 our $no_markers;
-our $config;	    # Configuration file contents
 chomp($cwd);
 our $gcov_gkv;	  # gcov kernel support version found on machine
 our $opt_derive_func_data;
@@ -203,7 +202,6 @@ our $opt_list_width = 80;
 our $opt_list_truncate_max = 20;
 our $opt_external;
 our $opt_config_file;
-our %opt_rc;
 our @opt_summary;
 our $opt_compat;
 our $ln_overall_found;
@@ -231,47 +229,15 @@ GetOptions("config-file=s" => \$opt_config_file,
 	   "rc=s%" => \%opt_rc);
 Getopt::Long::Configure("default");
 
-{
-	# Remove spaces around rc options
-	my %new_opt_rc;
-
-	while (my ($key, $value) = each(%opt_rc)) {
-		$key =~ s/^\s+|\s+$//g;
-		$value =~ s/^\s+|\s+$//g;
-
-		$new_opt_rc{$key} = $value;
-	}
-	%opt_rc = %new_opt_rc;
-}
-
-# Read configuration file if available
-if (defined($opt_config_file)) {
-	$config = read_config($opt_config_file);
-} elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
-{
-	$config = read_config($ENV{"HOME"}."/.lcovrc");
-}
-elsif (-r "/etc/lcovrc")
-{
-	$config = read_config("/etc/lcovrc");
-} elsif (-r "/usr/local/etc/lcovrc")
-{
-	$config = read_config("/usr/local/etc/lcovrc");
-}
-
-if ($config || %opt_rc)
-{
-	# Copy configuration file and --rc values to variables
-	apply_config({
-		"lcov_gcov_dir"		=> \$gcov_dir,
-		"lcov_tmp_dir"		=> \$tmp_dir,
-		"lcov_list_full_path"	=> \$opt_list_full_path,
-		"lcov_list_width"	=> \$opt_list_width,
-		"lcov_list_truncate_max"=> \$opt_list_truncate_max,
-		"lcov_branch_coverage"	=> \$br_coverage,
-		"lcov_function_coverage"=> \$func_coverage,
-	});
-}
+lcovutil::apply_rc_params($opt_config_file,
+			  { "lcov_gcov_dir"	     => \$gcov_dir,
+			    "lcov_tmp_dir"	     => \$tmp_dir,
+			    "lcov_list_full_path"    => \$opt_list_full_path,
+			    "lcov_list_width"	     => \$opt_list_width,
+			    "lcov_list_truncate_max" => \$opt_list_truncate_max,
+			    "lcov_branch_coverage"   => \$br_coverage,
+			    "lcov_function_coverage" => \$func_coverage,
+			  });
 
 # Parse command line options
 if (!GetOptions("directory|d|di=s" => \@directory,
@@ -1584,44 +1550,6 @@ sub add_traces()
 
 
 #
-# transform_pattern(pattern)
-#
-# Transform shell wildcard expression to equivalent Perl regular expression.
-# Return transformed pattern.
-#
-
-sub transform_pattern($)
-{
-	my $pattern = $_[0];
-
-	# Escape special chars
-
-	$pattern =~ s/\\/\\\\/g;
-	$pattern =~ s/\//\\\//g;
-	$pattern =~ s/\^/\\\^/g;
-	$pattern =~ s/\$/\\\$/g;
-	$pattern =~ s/\(/\\\(/g;
-	$pattern =~ s/\)/\\\)/g;
-	$pattern =~ s/\[/\\\[/g;
-	$pattern =~ s/\]/\\\]/g;
-	$pattern =~ s/\{/\\\{/g;
-	$pattern =~ s/\}/\\\}/g;
-	$pattern =~ s/\./\\\./g;
-	$pattern =~ s/\,/\\\,/g;
-	$pattern =~ s/\|/\\\|/g;
-	$pattern =~ s/\+/\\\+/g;
-	$pattern =~ s/\!/\\\!/g;
-
-	# Transform ? => (.) and * => (.*)
-
-	$pattern =~ s/\*/\(\.\*\)/g;
-	$pattern =~ s/\?/\(\.\)/g;
-
-	return $pattern;
-}
-
-
-#
 # extract()
 #
 
@@ -1634,7 +1562,7 @@ sub extract()
 	local *INFO_HANDLE;
 
 	# Need perlreg expressions instead of shell pattern
-	my @pattern_list = map({ transform_pattern($_); } @ARGV);
+	my @pattern_list = map({ lcovutil::transform_pattern($_); } @ARGV);
 
 	# Filter out files which do not match any pattern
 	foreach my $filename (sort($data->files())) {
@@ -1702,7 +1630,7 @@ sub remove()
 	local *INFO_HANDLE;
 
 	# Need perlreg expressions instead of shell pattern
-	@pattern_list = map({ transform_pattern($_); } @ARGV);
+	@pattern_list = map({ lcovutil::transform_pattern($_); } @ARGV);
 
 	# Filter out files that match the pattern
 	foreach my $filename (sort($data->files())) {
@@ -2145,30 +2073,6 @@ sub get_common_filename($$)
 
 
 #
-# strip_directories($path, $depth)
-#
-# Remove DEPTH leading directory levels from PATH.
-#
-
-sub strip_directories($$)
-{
-	my $filename = $_[0];
-	my $depth = $_[1];
-	my $i;
-
-	if (!defined($depth) || ($depth < 1))
-	{
-		return $filename;
-	}
-	for ($i = 0; $i < $depth; $i++)
-	{
-		$filename =~ s/^[^\/]*\/+(.*)$/$1/;
-	}
-	return $filename;
-}
-
-
-#
 # read_diff(filename)
 #
 # Read diff output from FILENAME to memory. The diff file has to follow the
@@ -2250,7 +2154,7 @@ sub read_diff($)
 			# --- <filename> <date>
 			/^--- (\S+)/ && do
 			{
-				$file_old = strip_directories($1, $strip);
+				$file_old = lcovutil::strip_directories($1, $strip);
 				last;
 			};
 			# Filename of new file:
@@ -2264,7 +2168,7 @@ sub read_diff($)
 					$diff{$filename} = $mapping;
 					$mapping = \%new_hash;
 				}
-				$file_new = strip_directories($1, $strip);
+				$file_new = lcovutil::strip_directories($1, $strip);
 				$filename = $file_old;
 				$paths{$filename} = $file_new;
 				$num_old = 1;
@@ -2858,78 +2762,6 @@ sub summary()
 
 	return ($ln_total_found, $ln_total_hit, $fn_total_found, $fn_total_hit,
 		$br_total_found, $br_total_hit);
-}
-
-#
-# read_config(filename)
-#
-# Read configuration file FILENAME and return a reference to a hash containing
-# all valid key=value pairs found.
-#
-
-sub read_config($)
-{
-	my $filename = $_[0];
-	my %result;
-	my $key;
-	my $value;
-	local *HANDLE;
-
-	if (!open(HANDLE, "<", $filename))
-	{
-		warn("WARNING: cannot read configuration file $filename\n");
-		return undef;
-	}
-	while (<HANDLE>)
-	{
-		chomp;
-		# Skip comments
-		s/#.*//;
-		# Remove leading blanks
-		s/^\s+//;
-		# Remove trailing blanks
-		s/\s+$//;
-		next unless length;
-		($key, $value) = split(/\s*=\s*/, $_, 2);
-		if (defined($key) && defined($value))
-		{
-			$result{$key} = $value;
-		}
-		else
-		{
-			warn("WARNING: malformed statement in line $. ".
-			     "of configuration file $filename\n");
-		}
-	}
-	close(HANDLE);
-	return \%result;
-}
-
-
-#
-# apply_config(REF)
-#
-# REF is a reference to a hash containing the following mapping:
-#
-#   key_string => var_ref
-#
-# where KEY_STRING is a keyword and VAR_REF is a reference to an associated
-# variable. If the global configuration hashes CONFIG or OPT_RC contain a value
-# for keyword KEY_STRING, VAR_REF will be assigned the value for that keyword.
-#
-
-sub apply_config($)
-{
-	my $ref = $_[0];
-
-	foreach (keys(%{$ref}))
-	{
-		if (defined($opt_rc{$_})) {
-			${$ref->{$_}} = $opt_rc{$_};
-		} elsif (defined($config->{$_})) {
-			${$ref->{$_}} = $config->{$_};
-		}
-	}
 }
 
 sub setup_gkv_sys()

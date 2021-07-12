@@ -78,6 +78,7 @@ use lcovutil qw (define_errors parse_ignore_errors ignorable_error
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE
                  $ERROR_GRAPH
                  is_external $opt_no_external @internal_dirs
+                 %opt_rc apply_rc_params transform_pattern
                 );
 
 if( $^O eq "msys" )
@@ -173,7 +174,6 @@ our $UNNAMED_BLOCK	= -1;
 
 # Prototypes
 sub print_usage(*);
-sub transform_pattern($);
 sub gen_info($);
 sub process_dafile($$);
 sub match_filename($@);
@@ -188,8 +188,6 @@ sub process_intermediate($$$);
 sub map_llvm_version($);
 sub version_to_str($);
 sub get_gcov_version();
-sub read_config($);
-sub apply_config($);
 sub apply_exclusion_data($$);
 sub process_graphfile($$);
 sub filter_fn_name($);
@@ -252,7 +250,6 @@ our $rc_adjust_src_path;# Regexp specifying parts to remove from source path
 our $adjust_src_pattern;
 our $adjust_src_replace;
 our $adjust_testname;
-our $config;		# Configuration file contents
 our @ignore_errors;	# List of errors to ignore (parameter)
 our @opt_filter;        # list of coverpoints to ignore (parameter)
 our $initial;
@@ -269,7 +266,6 @@ our @gcov_options;
 our $opt_config_file;
 our $opt_gcov_all_blocks = 1;
 our $opt_compat;
-our %opt_rc;
 our %compat_value;
 our $gcno_split_crc;
 our $func_coverage = 1;
@@ -304,91 +300,59 @@ GetOptions("config-file=s" => \$opt_config_file,
 	   "rc=s%" => \%opt_rc);
 Getopt::Long::Configure("default");
 
-{
-	# Remove spaces around rc options
-	my %new_opt_rc;
+if (lcovutil::apply_rc_params($opt_config_file,
+			      {"geninfo_gcov_tool"	 => \$gcov_tool,
+			       "geninfo_adjust_testname" => \$adjust_testname,
+			       "geninfo_checksum"	 => \$checksum,
+			       "geninfo_no_checksum"	 => \$no_checksum, # deprecated
+			       "geninfo_compat_libtool"	 => \$opt_compat_libtool,
+			       "geninfo_external"	 => \$opt_external,
+			       "geninfo_gcov_all_blocks" => \$opt_gcov_all_blocks,
+			       "geninfo_compat"		 => \$opt_compat,
+			       "geninfo_adjust_src_path" => \$rc_adjust_src_path,
+			       "geninfo_auto_base"	 => \$rc_auto_base,
+			       "geninfo_intermediate"	 => \$rc_intermediate,
+			       "geninfo_no_exception_branch" => \$no_exception_br,
+			       "lcov_function_coverage"	=> \$func_coverage,
+			       "lcov_branch_coverage"	=> \$br_coverage,
+			       "lcov_excl_line"		=> \$excl_line,
+			       "lcov_excl_br_line"	=> \$excl_br_line,
+			       "lcov_excl_exception_br_line" => \$excl_exception_br_line,
+			      })) {
+  # we set some RC values...
+  # Merge options
+  if (defined($no_checksum))
+    {
+      $checksum = ($no_checksum ? 0 : 1);
+      $no_checksum = undef;
+    }
 
-	while (my ($key, $value) = each(%opt_rc)) {
-		$key =~ s/^\s+|\s+$//g;
-		$value =~ s/^\s+|\s+$//g;
+  # Check regexp
+  if (defined($rc_adjust_src_path)) {
+    my ($pattern, $replace) = split(/\s*=>\s*/, $rc_adjust_src_path);
+    local $SIG{__DIE__};
+    eval '$adjust_src_pattern = qr>'.$pattern.'>;';
+    if (!defined($adjust_src_pattern)) {
+      my $msg = $@;
 
-		$new_opt_rc{$key} = $value;
-	}
-	%opt_rc = %new_opt_rc;
-}
-
-# Read configuration file if available
-if (defined($opt_config_file)) {
-	$config = read_config($opt_config_file);
-} elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc"))
-{
-	$config = read_config($ENV{"HOME"}."/.lcovrc");
-}
-elsif (-r "/etc/lcovrc")
-{
-	$config = read_config("/etc/lcovrc");
-} elsif (-r "/usr/local/etc/lcovrc")
-{
-	$config = read_config("/usr/local/etc/lcovrc");
-}
-
-if ($config || %opt_rc)
-{
-	# Copy configuration file and --rc values to variables
-	apply_config({
-		"geninfo_gcov_tool"		=> \$gcov_tool,
-		"geninfo_adjust_testname"	=> \$adjust_testname,
-		"geninfo_checksum"		=> \$checksum,
-		"geninfo_no_checksum"		=> \$no_checksum, # deprecated
-		"geninfo_compat_libtool"	=> \$opt_compat_libtool,
-		"geninfo_external"		=> \$opt_external,
-		"geninfo_gcov_all_blocks"	=> \$opt_gcov_all_blocks,
-		"geninfo_compat"		=> \$opt_compat,
-		"geninfo_adjust_src_path"	=> \$rc_adjust_src_path,
-		"geninfo_auto_base"		=> \$rc_auto_base,
-		"geninfo_intermediate"		=> \$rc_intermediate,
-		"geninfo_no_exception_branch"	=> \$no_exception_br,
-		"lcov_function_coverage"	=> \$func_coverage,
-		"lcov_branch_coverage"		=> \$br_coverage,
-		"lcov_excl_line"		=> \$excl_line,
-		"lcov_excl_br_line"		=> \$excl_br_line,
-		"lcov_excl_exception_br_line"	=> \$excl_exception_br_line,
-	});
-
-	# Merge options
-	if (defined($no_checksum))
-	{
-		$checksum = ($no_checksum ? 0 : 1);
-		$no_checksum = undef;
-	}
-
-	# Check regexp
-	if (defined($rc_adjust_src_path)) {
-		my ($pattern, $replace) = split(/\s*=>\s*/,
-						$rc_adjust_src_path);
-		local $SIG{__DIE__};
-		eval '$adjust_src_pattern = qr>'.$pattern.'>;';
-		if (!defined($adjust_src_pattern)) {
-			my $msg = $@;
-
-			chomp($msg);
-			$msg =~ s/at \(eval.*$//;
-			warn("WARNING: invalid pattern in ".
-			     "geninfo_adjust_src_path: $msg\n");
-		} elsif (!defined($replace)) {
-			# If no replacement is specified, simply remove pattern
-			$adjust_src_replace = "";
-		} else {
-			$adjust_src_replace = $replace;
-		}
-	}
-	for my $regexp (($excl_line, $excl_br_line, $excl_exception_br_line)) {
-		eval 'qr/'.$regexp.'/';
-		my $error = $@;
-		chomp($error);
-		$error =~ s/at \(eval.*$//;
-		die("ERROR: invalid exclude pattern: $error") if $error;
-	}
+      chomp($msg);
+      $msg =~ s/at \(eval.*$//;
+      warn("WARNING: invalid pattern in ".
+	   "geninfo_adjust_src_path: $msg\n");
+      } elsif (!defined($replace)) {
+	# If no replacement is specified, simply remove pattern
+	$adjust_src_replace = "";
+	} else {
+	  $adjust_src_replace = $replace;
+	  }
+  }
+  for my $regexp (($excl_line, $excl_br_line, $excl_exception_br_line)) {
+    eval 'qr/'.$regexp.'/';
+    my $error = $@;
+    chomp($error);
+    $error =~ s/at \(eval.*$//;
+    die("ERROR: invalid exclude pattern: $error") if $error;
+  }
 }
 
 # Parse command line options
@@ -445,12 +409,12 @@ else
 
 	if(@include_patterns) {
 		# Need perlreg expressions instead of shell pattern
-		@include_patterns = map({ transform_pattern($_); } @include_patterns);
+		@include_patterns = map({ lcovutil::transform_pattern($_); } @include_patterns);
 	}
 
 	if(@exclude_patterns) {
 		# Need perlreg expressions instead of shell pattern
-		@exclude_patterns = map({ transform_pattern($_); } @exclude_patterns);
+		@exclude_patterns = map({ lcovutil::transform_pattern($_); } @exclude_patterns);
 	}
 }
 
@@ -708,44 +672,6 @@ sequentially.
 For more information see: $lcov_url
 END_OF_USAGE
 	;
-}
-
-
-#
-# transform_pattern(pattern)
-#
-# Transform shell wildcard expression to equivalent Perl regular expression.
-# Return transformed pattern.
-#
-
-sub transform_pattern($)
-{
-	my $pattern = $_[0];
-
-	# Escape special chars
-
-	$pattern =~ s/\\/\\\\/g;
-	$pattern =~ s/\//\\\//g;
-	$pattern =~ s/\^/\\\^/g;
-	$pattern =~ s/\$/\\\$/g;
-	$pattern =~ s/\(/\\\(/g;
-	$pattern =~ s/\)/\\\)/g;
-	$pattern =~ s/\[/\\\[/g;
-	$pattern =~ s/\]/\\\]/g;
-	$pattern =~ s/\{/\\\{/g;
-	$pattern =~ s/\}/\\\}/g;
-	$pattern =~ s/\./\\\./g;
-	$pattern =~ s/\,/\\\,/g;
-	$pattern =~ s/\|/\\\|/g;
-	$pattern =~ s/\+/\\\+/g;
-	$pattern =~ s/\!/\\\!/g;
-
-	# Transform ? => (.) and * => (.*)
-
-	$pattern =~ s/\*/\(\.\*\)/g;
-	$pattern =~ s/\?/\(\.\)/g;
-
-	return $pattern;
 }
 
 
@@ -2899,78 +2825,6 @@ sub int_handler()
 
 
 #
-# read_config(filename)
-#
-# Read configuration file FILENAME and return a reference to a hash containing
-# all valid key=value pairs found.
-#
-
-sub read_config($)
-{
-	my $filename = $_[0];
-	my %result;
-	my $key;
-	my $value;
-	local *HANDLE;
-
-	if (!open(HANDLE, "<", $filename))
-	{
-		warn("WARNING: cannot read configuration file $filename\n");
-		return undef;
-	}
-	while (<HANDLE>)
-	{
-		chomp;
-		# Skip comments
-		s/#.*//;
-		# Remove leading blanks
-		s/^\s+//;
-		# Remove trailing blanks
-		s/\s+$//;
-		next unless length;
-		($key, $value) = split(/\s*=\s*/, $_, 2);
-		if (defined($key) && defined($value))
-		{
-			$result{$key} = $value;
-		}
-		else
-		{
-			warn("WARNING: malformed statement in line $. ".
-			     "of configuration file $filename\n");
-		}
-	}
-	close(HANDLE);
-	return \%result;
-}
-
-
-#
-# apply_config(REF)
-#
-# REF is a reference to a hash containing the following mapping:
-#
-#   key_string => var_ref
-#
-# where KEY_STRING is a keyword and VAR_REF is a reference to an associated
-# variable. If the global configuration hashes CONFIG or OPT_RC contain a value
-# for keyword KEY_STRING, VAR_REF will be assigned the value for that keyword.
-#
-
-sub apply_config($)
-{
-	my $ref = $_[0];
-
-	foreach (keys(%{$ref}))
-	{
-		if (defined($opt_rc{$_})) {
-			${$ref->{$_}} = $opt_rc{$_};
-		} elsif (defined($config->{$_})) {
-			${$ref->{$_}} = $config->{$_};
-		}
-	}
-}
-
-
 #
 # get_source_data(filename)
 #
