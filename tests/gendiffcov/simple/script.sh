@@ -55,7 +55,7 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log
-rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter noncode_differential broken mismatchPath elidePath
+rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath
 
 if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
@@ -110,6 +110,14 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
+#genhtml baseline.info --dark --output-directory ./baseline
+echo genhtml $DIFFCOV_OPTS --dark baseline-filter.info --output-directory ./baseline-filter-dark
+genhtml $DIFFCOV_OPTS --dark baseline-filter.info --output-directory ./baseline-filter-dark
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml baseline-filter-dark failed"
+    exit 1
+fi
+
 export PWD=`pwd`
 echo $PWD
 
@@ -135,20 +143,22 @@ fi
 
 diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff.txt
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o ./noncode_differential ./current.info.gz
-${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o ./noncode_differential ./current.info.gz
-if [ 0 != $? ] ; then
-    echo "ERROR: genhtml noncode_differential failed"
-    exit 1
-fi
-# expect to see non-code owners 'rupert.psmith' and 'pelham.wodehouse' in file annotations
-FILE=`find noncode_differential -name test.cpp.gcov.html`
-for owner in rupert.psmith pelham.wodehouse ; do
-    grep $owner $FILE
-    if [ 0 != $? ] ;then
-        echo "ERROR: did not find $owner in noncode_differential annotations"
-        exit 1
-    fi
+for dark in "" --dark-mode ; do
+  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $dark --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o ./noncode_differential$dark ./current.info.gz
+  ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $dark --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o ./noncode_differential$dark ./current.info.gz
+  if [ 0 != $? ] ; then
+      echo "ERROR: genhtml noncode_differential$dark failed"
+      exit 1
+  fi
+  # expect to see non-code owners 'rupert.psmith' and 'pelham.wodehouse' in file annotations
+  FILE=`find noncode_differential$dark -name test.cpp.gcov.html`
+  for owner in rupert.psmith pelham.wodehouse ; do
+      grep $owner $FILE
+      if [ 0 != $? ] ;then
+          echo "ERROR: did not find $owner in noncode_differential$dark annotations"
+          exit 1
+      fi
+  done
 done
 
 # run with several different combinations of options - and see

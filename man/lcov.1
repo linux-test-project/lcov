@@ -173,6 +173,8 @@ lcov \- a graphical GCOV front\-end
 .RS 5
 .br
 .RB [ \-q | \-\-quiet ]
+.RB [ \-\-fail-under-lines
+.IR percentage ]
 .br
 .RE
 
@@ -871,6 +873,14 @@ Note that you may specify this option more than once.
 
 Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
 specified at a time.
+.RE
+
+.B \-\-fail-under-lines
+.I percentage
+.br
+.RS
+Use this option together with \-\-summary to tell lcov to exit with a status of 1 if the total
+line coverage is less than percentage.
 .RE
 
 .B \-t

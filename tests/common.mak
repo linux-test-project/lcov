@@ -61,7 +61,7 @@ prepare: $(INFOFILES) $(COUNTFILES)
 
 # Create artificial info files as test data
 $(INFOFILES) $(COUNTFILES):
-	cd $(TOPDIR) && mkinfo profiles/$(SIZE) -o src/
+	cd $(TOPDIR) && $(TOPDIR)/bin/mkinfo profiles/$(SIZE) -o src/
 
 endif
 

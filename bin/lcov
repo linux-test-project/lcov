@@ -152,36 +152,41 @@ set_info_callback(\&my_info);
 sub create_temp_dir();
 sub setup_gkv();
 sub print_overall_rate($$$$$$$$$);
+sub check_rates($$);
 sub lcov_geninfo(@);
 sub create_package($$$;$);
 sub summary();
 
 # Global variables & initialization
-our @directory;	 # Specifies where to get coverage data from
-our @kernel_directory;  # If set, captures only from specified kernel subdirs
-our @add_tracefile;     # If set, reads in and combines all files in list
-our $list;	      # If set, list contents of tracefile
-our $extract;	   # If set, extracts parts of tracefile
-our $remove;	    # If set, removes parts of tracefile
-our $diff;	      # If set, modifies tracefile according to diff
-our $reset;	     # If set, reset all coverage data to zero
-our $capture;	   # If set, capture data
-our $output_filename;   # Name for file to write coverage data to
-our $test_name = "";    # Test case name
-our $help;	      # Help option flag
-our $version;	   # Version option flag
-our $convert_filenames; # If set, convert filenames when applying diff
-our $strip;	     # If set, strip leading directories when applying diff
-our $temp_dir_name;     # Name of temporary directory
-our $cwd = `pwd`;       # Current working directory
-our $data_stdout;       # If set, indicates that data is written to stdout
-our $follow;	    # If set, indicates that find shall follow links
-our $diff_path = "";    # Path removed from tracefile when applying diff
-our $base_directory;    # Base directory (cwd of gcc during compilation)
-our $checksum;	  # If set, calculate a checksum for each line
-our $no_checksum;       # If set, don't calculate a checksum for each line
-our $compat_libtool;    # If set, indicates that libtool mode is to be enabled
-our $no_compat_libtool; # If set, indicates that libtool mode is to be disabled
+
+our @directory;		# Specifies where to get coverage data from
+our @kernel_directory;	# If set, captures only from specified kernel subdirs
+our @add_tracefile;	# If set, reads in and combines all files in list
+our $list;		# If set, list contents of tracefile
+our $extract;		# If set, extracts parts of tracefile
+our $remove;		# If set, removes parts of tracefile
+our $diff;		# If set, modifies tracefile according to diff
+our $reset;		# If set, reset all coverage data to zero
+our $capture;		# If set, capture data
+our $output_filename;	# Name for file to write coverage data to
+our $test_name = "";	# Test case name
+our $quiet = "";	# If set, suppress information messages
+our $help;		# Help option flag
+our $version;		# Version option flag
+our $convert_filenames;	# If set, convert filenames when applying diff
+our $strip;		# If set, strip leading directories when applying diff
+our $temp_dir_name;	# Name of temporary directory
+our $cwd = `pwd`;	# Current working directory
+our $data_stdout;	# If set, indicates that data is written to stdout
+our $follow;		# If set, indicates that find shall follow links
+our $diff_path = "";	# Path removed from tracefile when applying diff
+our $opt_fail_under_lines = 0;
+our $base_directory;	# Base directory (cwd of gcc during compilation)
+our $checksum;		# If set, calculate a checksum for each line
+our $no_checksum;	# If set, don't calculate a checksum for each line
+our $compat_libtool;	# If set, indicates that libtool mode is to be enabled
+our $no_compat_libtool;	# If set, indicates that libtool mode is to be disabled
+
 our $gcov_tool;
 our @opt_ignore_errors;
 our @opt_filter;
@@ -284,6 +289,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"compat=s" => \$opt_compat,
 		"config-file=s" => \$opt_config_file,
 		"rc=s%" => \%opt_rc,
+		"fail-under-lines=s" => \$opt_fail_under_lines,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -389,6 +395,7 @@ if (!$from_package && !@directory && ($capture || $reset)) {
 	($gcov_gkv, $gcov_dir) = setup_gkv();
 }
 
+our $exit_code = 0;
 # Check for requested functionality
 if ($reset)
 {
@@ -462,6 +469,7 @@ elsif (@opt_summary)
 	($ln_overall_found, $ln_overall_hit,
 	 $fn_overall_found, $fn_overall_hit,
 	 $br_overall_found, $br_overall_hit) = summary();
+	$exit_code = check_rates($ln_overall_found, $ln_overall_hit);
 }
 
 temp_cleanup();
@@ -474,7 +482,7 @@ if (defined($ln_overall_found)) {
 	info("Done.\n") if (!$list && !$capture);
 }
 summarize_cov_filters();
-exit(0);
+exit($exit_code);
 
 #
 # print_usage(handle)
@@ -536,6 +544,8 @@ Options:
       --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN           Include files matching PATTERN
       --exclude PATTERN           Exclude files matching PATTERN
+      --fail-under-lines MIN      Exit with a status of 1 if the total line
+                                  coverage is less than MIN (summary option).
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -2871,4 +2881,31 @@ sub print_overall_rate($$$$$$$$$)
 	info("  branches...: %s\n",
 	     get_overall_line($br_found, $br_hit, "branch"))
 		if ($br_do);
+}
+
+#
+# check_rates(ln_found, ln_hit)
+#
+# Check line coverage if it meets a specified threshold.
+#
+
+sub check_rates($$)
+{
+	my ($ln_found, $ln_hit) = @_;
+
+	if ($opt_fail_under_lines <= 0) {
+		return 0;
+	}
+
+	if ($ln_found == 0) {
+		return 1;
+	}
+
+	my $actual_rate = ($ln_hit / $ln_found);
+	my $expected_rate = $opt_fail_under_lines / 100;
+	if ($actual_rate >= $expected_rate) {
+		return 0;
+	} else {
+		return 1;
+	}
 }
