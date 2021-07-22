@@ -47,11 +47,37 @@ section 'OPTIONS' below.
 #genhtml_css_file = gcov.css
 .br
 
+# Use 'dark' mode display (light foreground/dark background)
+.br
+# rather than default
+.br
+#genhtml_dark_mode = 1
+.br
+
 # Coverage rate limits
 .br
 genhtml_hi_limit = 90
 .br
 genhtml_med_limit = 75
+.br
+
+# Ignore some errors (comma-separated list)
+.br
+#ignore_errors = empty,mismatch
+.br
+
+# list of file extensions which should be treated as C/C++ code
+.br
+# (comma-separated list)
+.br
+#c_file_extensions = h,c,cpp,hpp
+.br
+
+# list of file extensions which should be treated as RTL code
+.br
+# (e.g., Verilog) (comma-separated list)
+.br
+#rtl_file_extensions = v,vh,sv
 .br
 
 # Width of line coverage field in source code view
@@ -132,6 +158,13 @@ genhtml_legend = 0
 # Include sorted overview pages
 .br
 genhtml_sort = 1
+.br
+
+# Display coverage data in hierarchical directory structure
+.br
+# (rather than flat/3 level)
+.br
+#genhtml_hirearchical = 1
 .br
 
 # Include function coverage data display
@@ -281,6 +314,13 @@ lcov_function_coverage = 1
 .br
 lcov_branch_coverage = 0
 .br
+
+# ask LCOV to return non-zero exit code if line coverage is
+.br
+# below specified threshold percentage.
+.br
+lcov_fail_under_lines = 97.5
+.br
 .PP
 
 .SH OPTIONS
@@ -299,6 +339,19 @@ This option corresponds to the \-\-css\-file command line option of
 .br
 
 By default, a standard CSS file is generated.
+.PP
+
+.BR genhtml_dark_mode " ="
+.IR  0 | 1
+.IP
+If non-zero, display using light text on dark background rather than dark text on light background.
+.br
+
+This option corresponds to the \-\-dark\-mode command line option of
+.BR genhtml .
+.br
+
+By default, a 'light' palette is used.
 .PP
 
 .BR genhtml_hi_limit "  ="
@@ -324,6 +377,46 @@ Low:    0         <= rate < med_limit   default color: red
 
 Defaults are 90 and 75 percent.
 .PP
+
+
+.BR rtl_file_extensions " ="
+.IR str[,str]+
+.IP
+Specify a comma-separage list of file extensions which should be assumed to be RTL code (e.g., Verilog).
+.br
+
+If not specified, the default set is 'v,vh,sv,vhdl?'.
+There is no command line option equivalent.
+.br
+This option is used by genhtml and lcov.
+
+.PP
+
+.BR c_file_extensions " ="
+.IR str[,str]+
+.IP
+Specify a comma-separage list of file extensions which should be assumed to be C/C++ code.
+.br
+
+If not specified, the default set is 'c,h,i,C,H,I,icc,cpp,cc,cxx,hh,hpp,hxx'.
+There is no command line option equivalent.
+.br
+This option is used by genhtml and lcov.
+
+.PP
+
+.BR ignore_errors " ="
+.IR str[,str]+
+.IP
+Specify a comma-separted list of message types which should be ignored.
+.br
+
+This option is equivalent to the \-\-ignore\-errors option to geninfo, genhtml, or lcov.  If specified, this set is appended to the list specified by the command line option.
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
 
 .BR genhtml_line_field_width " ="
 .I number_of_characters
@@ -539,6 +632,19 @@ This option can be set to 0 by using the \-\-no\-sort option of
 Default is 1.
 .PP
 
+.BR genhtml_hierarchical " ="
+.IR 0 | 1
+.IP
+If non\-zero, the HTML report will follow the hierarchical directory structure of the source code.
+.br
+
+This option is equivalent to using the \-\-hierarchical command line option of
+.BR genhtml .
+.br
+
+Default is 0.
+.PP
+
 .BR genhtml_function_coverage " ="
 .IR 0 | 1
 .IP
@@ -666,7 +772,7 @@ Default is 0.
 .IP
 Specify the location of the gcov tool (see
 .BR gcov (1))
-which is used to generate coverage information from data files. 
+which is used to generate coverage information from data files.
 .br
 
 Default is 'gcov'.
@@ -969,6 +1075,18 @@ Specify the regular expression of lines to exclude from exception branch coverag
 .br
 
 Default is 'LCOV_EXCL_EXCEPTION_BR_LINE'.
+.PP
+
+.BR lcov_fail_under_lines " ="
+.I percentage
+.IP
+Specify line coverage threshold to lcov.  If the line coverage is below this threshold, lcov will generate all the normal result files and messages, but will return a non-zero exit code.
+.br
+
+This option is eqivalent to the \-\-fail\-under\-lines lcov command line option.
+
+.br
+The default is 0 (no threshold).
 .PP
 
 .SH FILES

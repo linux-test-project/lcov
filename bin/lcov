@@ -82,6 +82,7 @@ use lcovutil qw ($tool_name $quiet
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  filterStringsAndComments simplifyCode balancedParens
+                 set_rtl_extensions set_c_extensions
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
                  $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT
@@ -234,6 +235,8 @@ GetOptions("config-file=s" => \$opt_config_file,
 	   "rc=s%" => \%opt_rc);
 Getopt::Long::Configure("default");
 
+my $rtlExtensions;
+my $cExtensions;
 lcovutil::apply_rc_params($opt_config_file,
 			  { "lcov_gcov_dir"	     => \$gcov_dir,
 			    "lcov_tmp_dir"	     => \$tmp_dir,
@@ -242,7 +245,16 @@ lcovutil::apply_rc_params($opt_config_file,
 			    "lcov_list_truncate_max" => \$opt_list_truncate_max,
 			    "lcov_branch_coverage"   => \$br_coverage,
 			    "lcov_function_coverage" => \$func_coverage,
+			    "lcov_fail_under_lines"  => \$opt_fail_under_lines,
+			    'rtl_file_extensions'    => \$rtlExtensions,
+			    'c_file_extensions'    => \$cExtensions,
+			    'ignore_errors'          => \@opt_ignore_errors,
 			  });
+
+set_rtl_extensions($rtlExtensions)
+  if $rtlExtensions;
+set_c_extensions($cExtensions)
+  if $cExtensions;
 
 # Parse command line options
 if (!GetOptions("directory|d|di=s" => \@directory,

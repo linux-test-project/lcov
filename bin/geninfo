@@ -318,6 +318,7 @@ if (lcovutil::apply_rc_params($opt_config_file,
 			       "lcov_excl_line"		=> \$excl_line,
 			       "lcov_excl_br_line"	=> \$excl_br_line,
 			       "lcov_excl_exception_br_line" => \$excl_exception_br_line,
+			       'ignore_errors'         => \@ignore_errors,
 			      })) {
   # we set some RC values...
   # Merge options

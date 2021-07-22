@@ -25,6 +25,7 @@ our @EXPORT_OK =
      @cov_filter
      parse_cov_filters summarize_cov_filters
      filterStringsAndComments simplifyCode balancedParens
+     set_rtl_extensions set_c_extensions
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT
@@ -97,6 +98,8 @@ our @cov_filter;        # 'undef' if filter is not enabled,
                         #   filter is enabled: nubmer of applications
                         #   of this filter
 
+our $rtl_file_extensions = 'v|vh|sv|vhdl?';
+our $c_file_extensions = 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx';
 
 our %tlaColor = (
     "UBC" => "#FDE007",
@@ -307,6 +310,16 @@ sub abort_handler($)
   exit(1);
 }
 
+sub set_rtl_extensions {
+  my $str = shift;
+  $rtl_file_extensions = join('|', split(',', $str));
+}
+
+sub set_c_extensions {
+  my $str = shift;
+  $c_file_extensions = join('|', split(',', $str));
+}
+
 #
 # read_config(filename)
 #
@@ -365,10 +378,20 @@ sub apply_config($$)
   my ($ref, $config) = @_;
 
   foreach (keys(%{$ref})) {
+    my $v;
     if (defined($opt_rc{$_})) {
-      ${$ref->{$_}} = $opt_rc{$_};
+      $v = $opt_rc{$_};
     } elsif (defined($config->{$_})) {
-      ${$ref->{$_}} = $config->{$_};
+      $v = $config->{$_};
+    }
+    if (defined($v)) {
+      my $r = $ref->{$_};
+      my $t = ref($r);
+      if ('ARRAY' eq $t) {
+	push(@$r, split(',', $v));
+      } else {
+	$$r = $v;
+      }
     }
   }
 }
@@ -1951,7 +1974,12 @@ sub append_tracefile {
 
 sub is_rtl_file {
   my $filename = shift;
-  return $filename =~ /\.(v|vh|sv|vhdl?)$/;
+  return $filename =~ /\.($rtl_file_extensions)$/ ? 1 : 0;
+}
+
+sub is_c_file {
+  my $filename = shift;
+  return $filename =~ /\.($c_file_extensions)$/ ? 1 : 0;
 }
 
 # Read in the contents of the .info file specified by INFO_FILENAME. Data will
@@ -2141,7 +2169,7 @@ sub _read_info {
           #   at the source for some previous file.
           $readSourceCallback->close();
           undef $currentBranchLine;
-          if ($filename =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
+          if (is_c_file($filename)) {
             if (-e $filename) {
               $readSourceCallback->open($filename);
             } else {
@@ -2570,7 +2598,7 @@ sub write_info($$$) {
       print(INFO_HANDLE "SF:$source_file\n");
       if (defined($srcReader)) {
         $srcReader->close();
-        if ($source_file =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
+        if (is_c_file($source_file)) {
           lcovutil::debug("reading $source_file for lcov filtering\n");
           if (-e $source_file) {
             $srcReader->open($source_file);

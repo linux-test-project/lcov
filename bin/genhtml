@@ -101,6 +101,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  info verbose $verbose $cpp_demangle
                  %opt_rc apply_rc_params
                  strip_directories
+                 set_rtl_extensions set_c_extensions
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  filterStringsAndComments simplifyCode balancedParens
@@ -3854,8 +3855,10 @@ GetOptions("config-file=s" => \$opt_config_file,
            "rc=s%" => \%opt_rc);
 Getopt::Long::Configure("default");
 
+my $rtlExtensions;
+my $cExtensions;
 lcovutil::apply_rc_params($opt_config_file,
-                          {
+              {
                 "genhtml_css_file"              => \$css_filename,
                 "genhtml_hi_limit"              => \$hi_limit,
                 "genhtml_med_limit"             => \$med_limit,
@@ -3888,9 +3891,14 @@ lcovutil::apply_rc_params($opt_config_file,
                 "genhtml_demangle_cpp_tool"     => \$demangle_cpp_tool,
                 "genhtml_demangle_cpp_params"   => \$demangle_cpp_params,
                 "genhtml_missed"                => \$opt_missed,
+		"genhtml_dark_mode"             => \$dark_mode,
+		"genhtml_hierarchical"          => \$hierarchical,
                 "lcov_function_coverage"        => \$lcov_func_coverage,
                 "lcov_branch_coverage"          => \$lcov_branch_coverage,
-                });
+		"ignore_errors"                 => \@opt_ignore_errors,
+		"rtl_file_extensions"           => $rtlExtensions,
+		"c_file_extensions"           => $cExtensions,
+	      });
 
 # Copy related values if not specified
 $fn_hi_limit    = $hi_limit if (!defined($fn_hi_limit));
@@ -3899,6 +3907,11 @@ $br_hi_limit    = $hi_limit if (!defined($br_hi_limit));
 $br_med_limit   = $med_limit if (!defined($br_med_limit));
 $func_coverage  = $lcov_func_coverage if (!defined($func_coverage));
 $br_coverage    = $lcov_branch_coverage if (!defined($br_coverage));
+lcovutil::set_rtl_extensions($rtlExtensions)
+  if $rtlExtensions;
+lcovutil::set_c_extensions($cExtensions)
+  if $cExtensions;
+
 
 # Parse command line options
 my @datebins;
