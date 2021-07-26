@@ -3860,6 +3860,8 @@ my $cExtensions;
 lcovutil::apply_rc_params($opt_config_file,
               {
                 "genhtml_css_file"              => \$css_filename,
+                "genhtml_header"                => \$header_title,
+                "genhtml_footer"                => \$footer,
                 "genhtml_hi_limit"              => \$hi_limit,
                 "genhtml_med_limit"             => \$med_limit,
                 "genhtml_line_field_width"      => \$line_field_width,

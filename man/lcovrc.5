@@ -54,6 +54,17 @@ section 'OPTIONS' below.
 #genhtml_dark_mode = 1
 .br
 
+# alternate header text to use at top of top of each page
+.br
+#genhtml_header = Coverage report for my project
+
+.br
+# Alternate footer text to use at the bottom of each page
+.br
+#genhtml_footer = My footer text
+.br
+
+
 # Coverage rate limits
 .br
 genhtml_hi_limit = 90
@@ -339,6 +350,32 @@ This option corresponds to the \-\-css\-file command line option of
 .br
 
 By default, a standard CSS file is generated.
+.PP
+
+.BR genhtml_header " ="
+.I string
+.IP
+Specify header text to use ta top of each HTML page.
+.br
+
+This option corresponds to the \-\-header\-title command line option of
+.BR genhtml .
+.br
+Default is "LCOV - (differential )? coverage report"
+
+.PP
+
+.BR genhtml_footer " ="
+.I string
+.IP
+Specify footer text to use at bottom of each HTML page.
+.br
+
+This option corresponds to the \-\-footer command line option of
+.BR genhtml .
+.br
+Default is LCOV tool version string.
+
 .PP
 
 .BR genhtml_dark_mode " ="

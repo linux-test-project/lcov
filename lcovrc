@@ -8,12 +8,38 @@
 # Specify an external style sheet file (same as --css-file option of genhtml)
 #genhtml_css_file = gcov.css
 
+# use 'dark' mode display (light foreground, dark background) instead of default
+# same as 'genhtml --dark-mode ....'
+#genhtml_dark_mode
+
+# header text to use at top of top of each page
+# Default is "LCOV - (differential )? coverage report"
+#genhtml_header = Coverage report for my project
+
+# footer text to use at the bottom of each page
+# Default is LCOV tool version
+#genhtml_footer = My footer text
+
 # Specify coverage rate limits (in %) for classifying file entries
 # HI:   hi_limit <= rate <= 100         graph color: green
 # MED: med_limit <= rate <  hi_limit    graph color: orange
 # LO:         0  <= rate <  med_limit   graph color: red
 genhtml_hi_limit = 90
 genhtml_med_limit = 75
+
+# Ignore some errors during geninfo/lcov/genhtml processing - comma-separated
+# string.  Same as using "--ignore-errors a,b,c" command line option.
+# See man pages for list of ignorable messsages
+#ignore_errors = empty,mismatch
+
+# List of file extensions which should be treated as RTL code (e.g., Verilog)
+# Comma-separated list.  Default is "v,vh,sv,vhd?"
+#rtl_file_extensions = v,vh,sv,vhd?
+
+# list of file extensions which should be treated as C/C++ code
+# (comma-separated list)
+#c_file_extensions = h,c,i,C,H,I,cpp,hpp,icc,cc,hh,cxx,hxx
+
 
 # Width of line coverage field in source code view
 genhtml_line_field_width = 12
@@ -78,6 +104,10 @@ genhtml_legend = 0
 # Include sorted overview pages (can be disabled by the --no-sort option of
 # genhtml)
 genhtml_sort = 1
+
+# Display coverage idata in hierarchical directory structure rather than
+# top/directory/source
+#genhtml_hierarchical = 1
 
 # Include function coverage data display (can be disabled by the
 # --no-func-coverage option of genhtml)
@@ -179,3 +209,7 @@ lcov_function_coverage = 1
 
 # Specify if branch coverage data should be collected and processed.
 lcov_branch_coverage = 0
+
+# Ask LCOV to return non-zero exit code is line coverage is below threshold
+# Default is 0.0 - i.e., do not check threshold.
+#lcov_fail_under_lines = 97.5
