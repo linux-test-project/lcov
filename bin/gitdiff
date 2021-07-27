@@ -27,7 +27,7 @@ my $suppress_unchanged;
 
 if ( ! GetOptions("exclude=s" => \@exclude_patterns,
                   "include=s" => \@include_patterns,
-		  'no-unchanged' => \$suppress_unchanged) ||
+                  'no-unchanged' => \$suppress_unchanged) ||
      (2 != scalar(@ARGV) &&
       3 != scalar(@ARGV)) ) {
   print(STDERR "usage: [(--exclude|include) regexp[,regexp]] [dir] base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n");
@@ -63,7 +63,7 @@ while (<HANDLE>) {
     my $fileB = $2;
     $includeCurrentFile = 
       ( include_me($fileA, \@include_patterns, \@exclude_patterns) ||
-	include_me($fileB, \@include_patterns, \@exclude_patterns));
+        include_me($fileB, \@include_patterns, \@exclude_patterns));
     $allFiles{$fileB} = $fileA
       if ($includeCurrentFile);
   }

@@ -3893,14 +3893,14 @@ lcovutil::apply_rc_params($opt_config_file,
                 "genhtml_demangle_cpp_tool"     => \$demangle_cpp_tool,
                 "genhtml_demangle_cpp_params"   => \$demangle_cpp_params,
                 "genhtml_missed"                => \$opt_missed,
-		"genhtml_dark_mode"             => \$dark_mode,
-		"genhtml_hierarchical"          => \$hierarchical,
+                "genhtml_dark_mode"             => \$dark_mode,
+                "genhtml_hierarchical"          => \$hierarchical,
                 "lcov_function_coverage"        => \$lcov_func_coverage,
                 "lcov_branch_coverage"          => \$lcov_branch_coverage,
-		"ignore_errors"                 => \@opt_ignore_errors,
-		"rtl_file_extensions"           => $rtlExtensions,
-		"c_file_extensions"           => $cExtensions,
-	      });
+                "ignore_errors"                 => \@opt_ignore_errors,
+                "rtl_file_extensions"           => $rtlExtensions,
+                "c_file_extensions"           => $cExtensions,
+              });
 
 # Copy related values if not specified
 $fn_hi_limit    = $hi_limit if (!defined($fn_hi_limit));

@@ -143,7 +143,7 @@ my $suppress_unchanged;
 
 if ( ! GetOptions("exclude=s" => \@exclude_patterns,
                   "include=s" => \@include_patterns,
-		  'no-unchanged' => \$suppress_unchanged) ||
+                  'no-unchanged' => \$suppress_unchanged) ||
      3 != scalar(@ARGV) ) {
   print(STDERR "usage: [(--exclude|include) regexp[,regexp]] [--no-unchanged] sandbox_directory base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n");
   exit(1);
@@ -211,7 +211,7 @@ foreach my $f ($base_files->files()) {
     $base_files->remove($f);
     push(@unchanged, $c)
       unless ($c->action() eq 'delete' ||
-	      $c->type() eq 'binary');
+              $c->type() eq 'binary');
   }
 }
 
@@ -329,7 +329,7 @@ foreach my $f (@unchanged) {
   my $name = $f->path();
   next 
     unless P4FileList::include_me($name,
-				  \@include_patterns, \@exclude_patterns);
+                                  \@include_patterns, \@exclude_patterns);
   printf("p4 diff $name#%d $name\n", $f->rev());
   printf("=== %s\n", reloc($name));
 }

@@ -388,9 +388,9 @@ sub apply_config($$)
       my $r = $ref->{$_};
       my $t = ref($r);
       if ('ARRAY' eq $t) {
-	push(@$r, split(',', $v));
+        push(@$r, split(',', $v));
       } else {
-	$$r = $v;
+        $$r = $v;
       }
     }
   }
