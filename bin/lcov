@@ -256,6 +256,7 @@ if ($config || %opt_rc)
 		"lcov_list_truncate_max"=> \$opt_list_truncate_max,
 		"lcov_branch_coverage"	=> \$br_coverage,
 		"lcov_function_coverage"=> \$func_coverage,
+		"lcov_fail_under_lines" => \$opt_fail_under_lines,
 	});
 }
 
