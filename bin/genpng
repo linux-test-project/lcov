@@ -276,8 +276,8 @@ sub gen_png($$$$@)
 	if ($dark_mode) {
 	  # just reverse foregrond and background
 	  #  there is probably a better color scheme than this.
-	  $col_plain_text = $overview->colorAllocate(0xff, 0xff, 0xff);
-	  $col_plain_back = $overview->colorAllocate(0xaa, 0xaa, 0xaa);
+	  $col_plain_text = $overview->colorAllocate(0xaa, 0xaa, 0xaa); # light grey
+	  $col_plain_back = $overview->colorAllocate(0x00, 0x00, 0x00);
 	  $col_cov_text	  = $overview->colorAllocate(0xaa, 0xa7, 0xef);
 	  $col_cov_back	  = $overview->colorAllocate(0x5d, 0x5d, 0xea);
 	  $col_nocov_text = $overview->colorAllocate(0xff, 0x00, 0x00);

@@ -1357,7 +1357,7 @@ sub process_file($$$)
 	}
 
 	# Create overview png file
-	gen_png("$rel_dir/$base_name.gcov.png", $main::dark_mode, $overview_width, $tab_size,
+	gen_png("$rel_dir/$base_name.gcov.png", $dark_mode, $overview_width, $tab_size,
 		@source);
 
 	# Create frameset page
