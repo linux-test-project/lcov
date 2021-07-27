@@ -10,7 +10,7 @@
 
 # use 'dark' mode display (light foreground, dark background) instead of default
 # same as 'genhtml --dark-mode ....'
-#genhtml_dark_mode
+#genhtml_dark_mode = 1
 
 # header text to use at top of top of each page
 # Default is "LCOV - (differential )? coverage report"

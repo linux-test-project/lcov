@@ -247,7 +247,7 @@ lcovutil::apply_rc_params($opt_config_file,
 			    "lcov_function_coverage" => \$func_coverage,
 			    "lcov_fail_under_lines"  => \$opt_fail_under_lines,
 			    'rtl_file_extensions'    => \$rtlExtensions,
-			    'c_file_extensions'    => \$cExtensions,
+			    'c_file_extensions'      => \$cExtensions,
 			    'ignore_errors'          => \@opt_ignore_errors,
 			  });
 
