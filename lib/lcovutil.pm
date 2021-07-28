@@ -6,7 +6,9 @@ require Exporter;
 
 package lcovutil;
 
-use File::Temp qw(tempfile tempdir);
+use File::Temp qw(tempfile);
+use File::Path qw(rmtree);
+use File::Basename qw(basename);
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK =
@@ -286,7 +288,7 @@ sub temp_cleanup() {
 }
 
 sub append_tempdir($) {
-  push(@temp_dirs, $_);
+  push(@temp_dirs, @_);
 }
 
 sub warn_handler($)
