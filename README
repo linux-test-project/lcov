@@ -15,16 +15,16 @@ Description
       graphs and specific colors.
 
     * Support for large projects: overview pages allow quick browsing of
-      coverage data by providing three levels of detail: directory view,
-      file view and source code view.
+      coverage data by providing either a hierarchical directory structure
+      view or a three-level detail view: directory, file and source code view.
 
   LCOV was initially designed to support Linux kernel coverage measurements,
   but works as well for coverage measurements on standard user space
   applications.
 
   LCOV has recently been enhanced to support differential coverage, as well
-  as date- and owner-binning.  See https://arxiv.org/abs/2008.07947 for 
-  a detailed explanation of the concepts.
+  as date- and owner-binning.  See https://arxiv.org/abs/2008.07947 or https://ieeexplore.ieee.org/document/9438597 for 
+  a detailed explanation of the concepts and several possible use models.
   A video presentation of the basic ideas can be found at http://doi.org/10.5281/zenodo.4653252
 
 
