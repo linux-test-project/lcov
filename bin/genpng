@@ -44,7 +44,7 @@ our $tool_name		= basename($0);
 
 
 # Prototypes
-sub gen_png($$$@);
+sub gen_png($$$$@);
 sub check_and_load_module($);
 sub genpng_print_usage(*);
 sub genpng_process_file($$$$);
@@ -215,12 +215,12 @@ sub genpng_process_file($$$$)
 	}
 	close(HANDLE);
 
-	gen_png($out_filename, $width, $tab_size, @source);
+	gen_png($out_filename, 0, $width, $tab_size, @source);
 }
 
 
 #
-# gen_png(filename, width, tab_size, source)
+# gen_png(filename, dark, width, tab_size, source)
 #
 # Write an overview PNG file to FILENAME. Source code is defined by SOURCE
 # which is a list of lines <count>:<source code> per source code line.
@@ -232,9 +232,10 @@ sub genpng_process_file($$$$)
 # Die on error.
 #
 
-sub gen_png($$$@)
+sub gen_png($$$$@)
 {
 	my $filename = shift(@_);	# Filename for PNG file
+	my $dark_mode = shift(@_);      # dark-on-light, if set
 	my $overview_width = shift(@_);	# Imagewidth for image
 	my $tab_size = shift(@_);	# Replacement string for tab signs
 	my @source = @_;	# Source code as passed via argument 2
@@ -271,14 +272,28 @@ sub gen_png($$$@)
 		or die("ERROR: cannot allocate overview image!\n");
 
 	# Define colors
-	$col_plain_back	= $overview->colorAllocate(0xff, 0xff, 0xff);
-	$col_plain_text	= $overview->colorAllocate(0xaa, 0xaa, 0xaa);
-	$col_cov_back	= $overview->colorAllocate(0xaa, 0xa7, 0xef);
-	$col_cov_text	= $overview->colorAllocate(0x5d, 0x5d, 0xea);
-	$col_nocov_back = $overview->colorAllocate(0xff, 0x00, 0x00);
-	$col_nocov_text = $overview->colorAllocate(0xaa, 0x00, 0x00);
-	$col_hi_back = $overview->colorAllocate(0x00, 0xff, 0x00);
-	$col_hi_text = $overview->colorAllocate(0x00, 0xaa, 0x00);
+	# overview->colorAllocate(red, green, blue)
+	if ($dark_mode) {
+	  # just reverse foregrond and background
+	  #  there is probably a better color scheme than this.
+	  $col_plain_text = $overview->colorAllocate(0xaa, 0xaa, 0xaa); # light grey
+	  $col_plain_back = $overview->colorAllocate(0x00, 0x00, 0x00);
+	  $col_cov_text	  = $overview->colorAllocate(0xaa, 0xa7, 0xef);
+	  $col_cov_back	  = $overview->colorAllocate(0x5d, 0x5d, 0xea);
+	  $col_nocov_text = $overview->colorAllocate(0xff, 0x00, 0x00);
+	  $col_nocov_back = $overview->colorAllocate(0xaa, 0x00, 0x00);
+	  $col_hi_text    = $overview->colorAllocate(0x00, 0xff, 0x00);
+	  $col_hi_back    = $overview->colorAllocate(0x00, 0xaa, 0x00);
+	} else {
+	  $col_plain_back = $overview->colorAllocate(0xff, 0xff, 0xff);
+	  $col_plain_text = $overview->colorAllocate(0xaa, 0xaa, 0xaa);
+	  $col_cov_back	  = $overview->colorAllocate(0xaa, 0xa7, 0xef);
+	  $col_cov_text	  = $overview->colorAllocate(0x5d, 0x5d, 0xea);
+	  $col_nocov_back = $overview->colorAllocate(0xff, 0x00, 0x00);
+	  $col_nocov_text = $overview->colorAllocate(0xaa, 0x00, 0x00);
+	  $col_hi_back    = $overview->colorAllocate(0x00, 0xff, 0x00);
+	  $col_hi_text    = $overview->colorAllocate(0x00, 0xaa, 0x00);
+	}
 
 	# Visualize each line
 	foreach $line (@source)

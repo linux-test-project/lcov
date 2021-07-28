@@ -68,6 +68,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .IR num ]
 .RB [ \-\-missed ]
 .br
+.RB [ \-\-dark\-mode ]
+.br
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -576,6 +578,13 @@ This option can also be configured permanently using the configuration file
 option
 .IR genhtml_missed .
 .RE
+
+.B \-\-dark\-mode
+.RS
+Use a light-display-on-dark-background color scheme rather than the default dark-display-on-light-background.
+
+The idea is to reduce eye strain due to viewing dark text on a bright screen - particularly at night.
+
 
 .SH FILES
 

@@ -246,7 +246,7 @@ sub write_overview_line(*$$$);
 sub write_overview(*$$$$);
 
 # External prototype (defined in genpng)
-sub gen_png($$$@);
+sub gen_png($$$$@);
 
 
 # Global variables & initialization
@@ -384,6 +384,7 @@ if ($config || %opt_rc)
 		"genhtml_demangle_cpp"		=> \$demangle_cpp,
 		"genhtml_demangle_cpp_tool"	=> \$demangle_cpp_tool,
 		"genhtml_demangle_cpp_params"	=> \$demangle_cpp_params,
+		"genhtml_dark_mode"             => \$dark_mode,
 		"genhtml_missed"		=> \$opt_missed,
 		"lcov_function_coverage"	=> \$lcov_func_coverage,
 		"lcov_branch_coverage"		=> \$lcov_branch_coverage,
@@ -1356,7 +1357,7 @@ sub process_file($$$)
 	}
 
 	# Create overview png file
-	gen_png("$rel_dir/$base_name.gcov.png", $overview_width, $tab_size,
+	gen_png("$rel_dir/$base_name.gcov.png", $dark_mode, $overview_width, $tab_size,
 		@source);
 
 	# Create frameset page
