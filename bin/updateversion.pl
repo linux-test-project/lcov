@@ -18,10 +18,9 @@ our $release = $ARGV[2];
 our $full = $ARGV[3];
 
 our @man_pages = ("man/gendesc.1",  "man/genhtml.1",  "man/geninfo.1",
-		  "man/genpng.1", "man/lcov.1", "man/lcovrc.5",
-		  "man/gendiffcov.1", "man/gendiffpng.1");
+		  "man/genpng.1", "man/lcov.1", "man/lcovrc.5");
 our @bin_tools = ("bin/gendesc", "bin/genhtml", "bin/geninfo",
-		  "bin/genpng", "bin/lcov", "bin/gendiffcov", "bin/gendiffpng");
+		  "bin/genpng", "bin/lcov");
 our @txt_files = ("README");
 our @spec_files = ("rpm/lcov.spec");
 

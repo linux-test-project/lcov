@@ -20,7 +20,7 @@
 # gitblame
 #
 #   This script runs "git blame" for the specified file and formats the result
-#   to match the gendiffcov(1) age/ownership annotation specification.
+#   to match the diffcov(1) age/ownership annotation specification.
 
 #use strict;
 use DateTime::Format::W3CDTF;
