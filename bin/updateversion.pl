@@ -117,7 +117,7 @@ sub update_man_page($)
 	close(IN);
 	chmod(oct($date[2]), "$filename.new");
 	system("mv", "-f", "$filename.new", "$filename");
-	system("touch", "$filename", "-t", $date[1]);
+	system("touch", "-t", $date[1], "$filename");
 }
 
 sub update_bin_tool($)
@@ -138,7 +138,7 @@ sub update_bin_tool($)
 	close(IN);
 	chmod(oct($date[2]), "$filename.new");
 	system("mv", "-f", "$filename.new", "$filename");
-	system("touch", "$filename", "-t", $date[1]);
+	system("touch", "-t", $date[1], "$filename");
 }
 
 sub update_txt_file($)
@@ -159,7 +159,7 @@ sub update_txt_file($)
 	close(IN);
 	chmod(oct($date[2]), "$filename.new");
 	system("mv", "-f", "$filename.new", "$filename");
-	system("touch", "$filename", "-t", $date[1]);
+	system("touch", "-t", $date[1], "$filename");
 }
 
 sub update_spec_file($)
@@ -180,7 +180,7 @@ sub update_spec_file($)
 	close(OUT);
 	close(IN);
 	system("mv", "-f", "$filename.new", "$filename");
-	system("touch", "$filename", "-t", $date[1]);
+	system("touch", "-t", $date[1], "$filename");
 }
 
 sub write_version_file($)
