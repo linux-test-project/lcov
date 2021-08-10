@@ -136,4 +136,4 @@ rpms: lcov-$(VERSION).tar.gz
 test: check
 
 check:
-	@make -s -C tests check
+	@$(MAKE) -s -C tests check

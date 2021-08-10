@@ -3,6 +3,7 @@ set +x
 
 CLEAN_ONLY=0
 LCOV_HOME=
+COVER=
 
 while [ $# -gt 0 ] ; do
 
@@ -16,6 +17,11 @@ while [ $# -gt 0 ] ; do
 
         -v | --verbose | verbose )
             set -x
+            ;;
+
+        --coverage )
+            #COVER="perl -MDevel::Cover "
+            COVER="perl -MDevel::Cover=-db,cover_db,-coverage,statement,branch,condition,subroutine "
             ;;
         
         --home | home )
@@ -55,7 +61,11 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log
-rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath
+rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db
+
+if [ "x$COVER" != 'x' ] ; then
+    cover -delete
+fi
 
 if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
@@ -71,7 +81,7 @@ echo `which gcov`
 echo `which lcov`
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info
-lcov $LCOV_OPTS --capture --directory . --output-file baseline.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     exit 1
@@ -79,7 +89,7 @@ fi
 gzip -c baseline.info > baseline.info.gz
 
 echo lcov --capture --directory . --output-file baseline_nobranch.info
-lcov --capture --directory . --output-file baseline_nobranch.info
+$COVER $LCOV_HOME/bin/lcov --capture --directory . --output-file baseline_nobranch.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (2) failed"
     exit 1
@@ -88,7 +98,7 @@ gzip -c baseline_nobranch.info > baseline_nobranch.info.gz
 #genhtml baseline.info --output-directory ./baseline
 
 echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline
-genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline failed"
     exit 1
@@ -96,7 +106,7 @@ fi
 # expect not to see differential categories...
 
 echo lcov $LCOV_OPTS --filter branch,line --capture --directory . --output-file baseline-filter.info
-lcov $LCOV_OPTS --filter branch,line --capture --directory . --output-file baseline-filter.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --filter branch,line --capture --directory . --output-file baseline-filter.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (3) failed"
     exit 1
@@ -104,7 +114,7 @@ fi
 gzip -c baseline-filter.info > baseline-filter.info.gz
 #genhtml baseline.info --output-directory ./baseline
 echo genhtml $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter
-genhtml $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline-filter failed"
     exit 1
@@ -112,7 +122,7 @@ fi
 
 #genhtml baseline.info --dark --output-directory ./baseline
 echo genhtml $DIFFCOV_OPTS --dark baseline-filter.info --output-directory ./baseline-filter-dark
-genhtml $DIFFCOV_OPTS --dark baseline-filter.info --output-directory ./baseline-filter-dark
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --dark baseline-filter.info --output-directory ./baseline-filter-dark
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline-filter-dark failed"
     exit 1
@@ -126,7 +136,7 @@ ln -s simple2.cpp test.cpp
 g++ --coverage -DADD_CODE -DREMOVE_CODE test.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current.info
-lcov $LCOV_OPTS --capture --directory . --output-file current.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (4) failed"
     exit 1
@@ -135,7 +145,7 @@ gzip -c current.info > current.info.gz
 
 #genhtml current.info --output-directory ./current
 echo genhtml $DIFFCOV_OPTS --show-details current.info --output-directory ./current
-genhtml $DIFFCOV_OPTS current.info --show-details --output-directory ./current
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS current.info --show-details --output-directory ./current
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml current failed"
     exit 1
@@ -145,7 +155,7 @@ diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > dif
 
 for dark in "" --dark-mode ; do
   echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $dark --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o ./noncode_differential$dark ./current.info.gz
-  ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $dark --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o ./noncode_differential$dark ./current.info.gz
+  $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $dark --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o ./noncode_differential$dark ./current.info.gz
   if [ 0 != $? ] ; then
       echo "ERROR: genhtml noncode_differential$dark failed"
       exit 1
@@ -171,7 +181,7 @@ for opt in "" "--show-details" "--hier" ; do
         OPTS="$TEST_OPTS $o"
         outdir=./differential${EXT}${o}
         echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info
-        ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info
+        $COVER ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info
         if [ 0 != $? ] ; then
             echo "ERROR: genhtml $outdir failed"
             exit 1
@@ -236,7 +246,7 @@ done
 
 
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info
-${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential_nobranch failed"
     exit 1
@@ -263,21 +273,21 @@ done
 diff -u simple2.cpp simple.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff_r.txt
 
 echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz
-genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml branch failed"
     exit 1
 fi
 
 echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz
-genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml reverse_nobranch failed"
     exit 1
 fi
 
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script annotate.sh -o ./no_owners ./current.info
-${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script annotate.sh -o ./no_owners ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script annotate.sh -o ./no_owners ./current.info
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml no_owners failed"
     exit 1
@@ -292,7 +302,7 @@ for summary in ownership ; do
 done
 
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info
-${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml no_annotation failed"
     exit 1
@@ -314,7 +324,7 @@ for key in "date bins" "ownership bins" ; do
 done
 
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info
-${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml no_baseline failed"
     exit 1
@@ -343,7 +353,7 @@ sed -e "s#/simple/test#/badPath/test#g" diff.txt > diff_broken.txt
 
 # now run genhtml - expect to see an error:
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz
-${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz > err.log 2>&1
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz > err.log 2>&1
 
 if [ 0 == $? ] ; then
     echo "ERROR:  expected error but didn't see it"
@@ -359,7 +369,7 @@ fi
 
 # now run genhtml - expect to see an warning:
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz
-${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz > warn.log 2>&1
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz > warn.log 2>&1
 
 if [ 0 != $? ] ; then
     echo "ERROR:  expected warning but didn't see it"
@@ -374,7 +384,7 @@ fi
 
 # now use the 'elide' feature to avoid the error
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz
-${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz > elide.log 2>&1
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz > elide.log 2>&1
 
 if [ 0 != $? ] ; then
     echo "ERROR:  expected success but didn't see it"
@@ -390,3 +400,6 @@ fi
 
 echo "Tests passed"
 
+if [ "x$COVER" != "x" ] ; then
+    cover
+fi
