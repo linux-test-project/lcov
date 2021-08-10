@@ -4003,10 +4003,13 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
       if (0 != scalar(@datebins));
   }
   if (0 != (defined($diff_filename) ^ defined($base_filename))) {
-    die("must specify both '--diff-file udiff' and '--baseline-file lcovInfoFile' in order to compute differential coverage");
-
-    $diff_filename = undef;
-    $base_filename = undef;
+    if ( defined($base_filename) ) {
+      warn("specified --baseline-file without --diff-file: assuming no source differences.  Hope that is OK.");
+    }
+    else {
+      die("bare '--diff-file udiff' found.  Must specify '--baseline-file lcovInfoFile' in order to compute differential coverage");
+      $diff_filename = undef;
+    }
   }
 
   if (defined($header_title)) {
@@ -4014,7 +4017,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
   } else {
     # use the default title bar.
     $title =~ s/ differential// # not a differential report, if no baseline...
-      unless defined($diff_filename);
+      unless defined($base_filename);
   }
   push(@fileview_prefixes, "-date")
       if ($show_dateBins);
