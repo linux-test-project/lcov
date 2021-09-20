@@ -2619,7 +2619,7 @@ sub diff()
 			$testdata->replace($testname,
 					   apply_diff($ldata, $line_hash));
 			$ldata = $testdata->value($testname);
-			if (scalar(keys(%$ldata)) == 0 ) {
+			if (0 == $ldata->found()) {
 			  $testdata->remove($testname);
 			  $testfncdata->remove($testname);
 			  $testbrdata->remove($testname);
@@ -2754,7 +2754,7 @@ sub summary()
 
 	# Read and combine trace files
 	foreach my $filename (@opt_summary) {
-		my $current = TraceFile->load($filename);
+		my $current = TraceFile->load($filename, $readSourceFile);
 		$total->append_tracefile($current);
 	}
 	# Calculate coverage data

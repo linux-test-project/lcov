@@ -827,13 +827,11 @@ our $SORTED = 1;
 sub new {
   my $class = shift;
   my $sortable = defined($_[0]) ? shift : $UNSORTED;
-  my $self = {};
+  my $self = [{},
+              $sortable,
+              0, # found
+              0]; # hit
   bless $self, $class;
-
-  $self->{_data} = {};
-  $self->{_sortable} = $sortable;
-  $self->{_found} = 0;
-  $self->{_hit} = 0;
 
   return $self;
 }
@@ -843,15 +841,16 @@ sub append {
   my $key = shift;
   my $count = shift;
 
-  if (!defined($self->{_data}->{$key})) {
-    $self->{_data}->{$key} = $count;
-    ++$self->{_found};
-    ++$self->{_hit} if ($count > 0);
+  my $data = $self->[0];
+  if (!defined($data->{$key})) {
+    $data->{$key} = $count;
+    ++$self->[2]; # found
+    ++$self->[3] if ($count > 0); # hit
   } else {
-    my $current = $self->{_data}->{$key};
-    ++ $self->{_hit} if ($count > 0 &&
-                         $current == 0);
-    $self->{_data}->{$key} = $count + $current;
+    my $current = $data->{$key};
+    ++ $self->[3] if ($count > 0 &&
+                      $current == 0);
+    $data->{$key} = $count + $current;
   }
   return $self;
 }
@@ -860,23 +859,25 @@ sub value {
   my $self = shift;
   my $key = shift;
 
-  if (!defined($self->{_data}->{$key})) {
+  my $data = $self->[0];
+  if (!defined($data->{$key})) {
     return undef;
   }
-  return $self->{_data}->{$key};
+  return $data->{$key};
 }
 
 sub remove {
   my $self = shift;
   my $key = shift;
 
+  my $data = $self->[0];
   die("$key not found")
-    unless exists($self->{_data}->{$key});
-  -- $self->{_found};
-  -- $self->{_hit}
-    if ($self->{_data}->{$key} > 0);
+    unless exists($data->{$key});
+  -- $self->[2]; # found;
+  -- $self->[3] # hit
+    if ($data->{$key} > 0);
 
-  delete $self->{_data}->{$key};
+  delete $data->{$key};
 
   return $self;
 }
@@ -890,23 +891,23 @@ sub _summary {
 sub found {
   my $self = shift;
 
-  return $self->{_found};
+  return $self->[2];
 }
 
 sub hit {
   my $self = shift;
 
-  return $self->{_hit};
+  return $self->[3];
 }
 
 sub keylist {
   my $self = shift;
-  return keys(%{$self->{_data}});
+  return keys(%{$self->[0]});
 }
 
 sub entries {
   my $self = shift;
-  return scalar(keys(%{$self->{_data}}));
+  return scalar(keys(%{$self->[0]}));
 }
 
 sub merge {
@@ -928,7 +929,7 @@ sub merge {
 sub get_found_and_hit {
   my $self = shift;
   $self->_summary();
-  return ($self->{_found}, $self->{_hit});
+  return ($self->[2], $self->[3]);
 }
 
 package BranchBlock;
@@ -1319,42 +1320,39 @@ package BranchData;
 
 sub new {
   my $class = shift;
-  my $self = {};
+  my $self = [{}, #  hash of lineNo -> BranchEntry
+                  #      hash of blockID ->
+                  #         array of 'taken' entries for each sequential
+                  #           branch ID
+              0, # branches found
+              0, # branches executed
+              0]; # "map is modified" flag - to indicate need for update
   bless $self, $class;
-
-  $self->{_data} = {}; #  hash of lineNo -> BranchEntry
-                       #      hash of blockID ->
-                       #         array of 'taken' entries for each sequential
-                       #           branch ID
-  $self->{_br_found} = 0; # number branches found
-  $self->{_br_hit} = 0;   # number branches executed
-  $self->{_modified} = 0; # "map is modified" flag - to indicate need for update
-
   return $self;
 }
 
 sub append {
   my ($self, $line, $block, $br) = @_;
-
+  my $data = $self->[0];
   if (! defined($br) ) {
     die("expected 'BranchEntry' or 'integer, BranchBlock'")
       unless ('BranchEntry' eq ref($block));
 
     die("line $line already contains element")
-      if exists($self->{_data}->{$line});
-    $self->{_data}->{$line} = $block;
+      if exists($data->{$line});
+    $data->{$line} = $block;
     return $self;
   }
   die("BranchData::append expected BranchBock got '" . ref($br) . "'")
     unless ('BranchBlock' eq ref($br));
   my $branch = $br->id();
   my $branchElem;
-  if (exists($self->{_data}->{$line})) {
-    $branchElem = $self->{_data}->{$line};
+  if (exists($data->{$line})) {
+    $branchElem = $data->{$line};
     $line == $branchElem->line() or die("wrong line mapping");
   } else {
     $branchElem = BranchEntry->new($line);
-    $self->{_data}->{$line} = $branchElem;
+    $data->{$line} = $branchElem;
   }
 
   if (! $branchElem->hasBlock($block)) {
@@ -1376,10 +1374,10 @@ sub append {
     if (! exists($block->[$branch])) {
       $block->[$branch] = BranchBlock->new($branch,
                                            $br->data(), $br->expr());
-      $self->{_modified} = 1;
+      $self->[3] = 1;
     } else {
       my $me = $block->[$branch];
-      $self->{_modified} = 1
+      $self->[3] = 1
         if (0 == $me->count() && 0 != $br->count());
       $me->merge($br);
     }
@@ -1390,51 +1388,55 @@ sub append {
 sub _summary {
   my $self = shift;
 
-  if (!$self->{_modified}) {
+  if (!$self->[3]) {
+    # 'modified flag not set
     return $self;
   }
-
-  $self->{_br_found} = 0;
-  $self->{_br_hit} = 0;
+  my $data = $self->[0];
+  my $found = 0;
+  my $hit = 0;
 
   # why are we bothering to sort?
   #  for that matter - why do this calculation at all?
   #  just keep track of counts when we insert data.
-  foreach my $line (sort({$a <=> $b} keys(%{$self->{_data}}))) {
-    my $branch = $self->{_data}->{$line};
+  foreach my $line (sort({$a <=> $b} keys(%$data))) {
+    my $branch = $data->{$line};
     $line == $branch->line() or die("lost track of line");
     foreach my $blockId (sort($branch->blocks())) {
       my $bdata = $branch->getBlock($blockId);
 
       foreach my $br (@$bdata) {
         my $count = $br->count();
-        $self->{_br_found}++;
-        $self->{_br_hit}++ if (0 != $count);
+        ++$found;
+        ++ $hit if (0 != $count);
       }
     }
   }
-  $self->{_modified} = 0;
+  $self->[1] = $found;
+  $self->[2] = $hit;
+  $self->[3] = 0; # not modified
   return $self;
 }
 
 sub found {
   my $self = shift;
 
-  return $self->_summary()->{_br_found};
+  return $self->_summary()->[1];
 }
 
 sub hit {
   my $self = shift;
 
-  return $self->_summary()->{_br_hit};
+  return $self->_summary()->[2];
 }
 
 sub merge {
   my $self = shift;
   my $info = shift;
 
+  my $idata = $info->[0];
   foreach my $line ($info->keylist()) {
-    my $branch = $info->{_data}->{$line};
+    my $branch = $idata->{$line};
     foreach my $blockId ($branch->blocks()) {
       my $bdata = $branch->getBlock($blockId);
       foreach my $br (@$bdata) {
@@ -1448,21 +1450,21 @@ sub merge {
 sub value {
   my ($self, $lineNo) = @_;
 
-  my $map = $self->{_data};
+  my $map = $self->[0];
   return exists($map->{$lineNo}) ? $map->{$lineNo} : undef;
 }
 
 # return list of lines which contain branch data
 sub keylist {
   my $self = shift;
-  return keys(%{$self->{_data}});
+  return keys(%{$self->[0]});
 }
 
 sub get_found_and_hit {
   my $self = shift;
   $self->_summary();
 
-  return ($self->{_br_found}, $self->{_br_hit});
+  return ($self->[1], $self->[2]);
 }
 
 package TraceInfo;
@@ -1879,10 +1881,8 @@ our $UNNAMED_BLOCK = vec(pack('b*', 1 x 32), 0, 32);
 
 sub load {
   my ($class, $tracefile, $readSource) = @_;
-  my $self = {};
-  bless $self, $class;
+  my $self = $class->new();
 
-  $self->{_data} = {};
   $self->_read_info($tracefile, $readSource);
   return $self;
 }
@@ -1892,26 +1892,25 @@ sub new {
   my $self = {};
   bless $self, $class;
 
-  $self->{_data} = {};
   return $self;
 }
 
 sub empty {
   my $self = shift;
 
-  return ! keys(%{$self->{_data}});
+  return ! keys(%$self);
 }
 
 sub files {
   my $self = shift;
 
-  return keys %{$self->{_data}};
+  return keys %$self;
 }
 
 sub file_exists {
   my ($self, $name) = @_;
 
-  return exists($self->{_data}->{$name});
+  return exists($self->{$name});
 }
 
 sub data {
@@ -1919,7 +1918,7 @@ sub data {
   my $file = shift;
   my $checkMatchingBasename = shift;
 
-  if (! defined($self->{_data}->{$file})) {
+  if (! defined($self->{$file})) {
     if (defined $checkMatchingBasename) {
       # check if there is a file in the map that has the same basename
       #  as the lone we are looking for.
@@ -1928,27 +1927,27 @@ sub data {
       my $base = File::Basename::basename($file);
       my $count = 0;
       my $found;
-      foreach my $f (keys %{$self->{_data}}) {
+      foreach my $f (keys %$self) {
         my $b = File::Basename::basename($f);
         if ($b eq $base) {
           $count ++;
-          $found = $self->{_data}->{$f};
+          $found = $self->{$f};
         }
       }
       return $found
         if $count == 1;
     }
-    $self->{_data}->{$file} = TraceInfo->new($file);
+    $self->{$file} = TraceInfo->new($file);
   }
 
-  return $self->{_data}->{$file};
+  return $self->{$file};
 }
 
 sub remove {
   my ($self, $filename) = @_;
   $self->file_exists($filename)
     or die("remove nonexistent file $filename");
-  delete($self->{_data}->{$filename});
+  delete($self->{$filename});
 }
 
 sub insert {
@@ -1957,7 +1956,7 @@ sub insert {
     if $self->file_exists($filename);
   die("expected TraceInfo got '" . ref($data) . "'")
     unless (ref($data) eq 'TraceInfo');
-  $self->{_data}->{$filename} = $data;
+  $self->{$filename} = $data;
 }
 
 sub append_tracefile {
@@ -1965,10 +1964,10 @@ sub append_tracefile {
   my $trace = shift;
 
   foreach my $filename ($trace->files()) {
-    if (defined($self->{_data}->{$filename})) {
+    if (defined($self->{$filename})) {
       $self->data($filename)->merge($trace->data($filename), $filename);
     } else {
-      $self->{_data}->{$filename} = $trace->data($filename);
+      $self->{$filename} = $trace->data($filename);
     }
   }
   return $self;
@@ -2493,7 +2492,7 @@ sub _read_info {
     # Filter out empty files
     if ($self->data($filename)->sum()->entries() == 0)
     {
-      delete($self->{_data}->{$filename});
+      delete($self->{$filename});
       next;
     }
     my $filedata = $self->data($filename);
@@ -2534,7 +2533,7 @@ sub _read_info {
     }
   }
 
-  if (scalar(keys(%{$self->{_data}})) == 0)
+  if (scalar(keys(%$self)) == 0)
   {
     lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
                               "no valid records found in tracefile $tracefile\n");
