@@ -7,7 +7,8 @@
 # Announce end of test suite and show aggregate results.
 #
 
-TOPDIR=$(readlink -e $(dirname $0)/..) && source "$TOPDIR/bin/common"
+TOPDIR=$(readlink -f $(dirname $0)/..) && test -d "$TOPDIR" \
+    && source "$TOPDIR/bin/common"
 
 echo "end_time $(date +%s.%N)" >>"$COUNTFILE"
 
