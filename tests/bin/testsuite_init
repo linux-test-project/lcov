@@ -7,7 +7,8 @@
 # Announce start of test suite and prepare log files.
 #
 
-TOPDIR=$(realpath $(dirname $0)/..) && source "$TOPDIR/bin/common"
+TOPDIR=$(perl -MCwd=realpath -MFile::Basename -e 'print dirname(realpath("$0"))') \
+    && source "$TOPDIR/bin/common"
 
 echo -e $BOLD"Starting tests"$RESET
 echo "start_time $(date +%s.%N)" >"$COUNTFILE"
