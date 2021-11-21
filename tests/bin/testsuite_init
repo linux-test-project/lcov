@@ -10,7 +10,7 @@
 TOPDIR=$(perl -MCwd=realpath -MFile::Basename -e 'print dirname(realpath("$0"))') \
     && source "$TOPDIR/bin/common"
 
-echo -e $BOLD"Starting tests"$RESET
+printf "${BOLD}Starting tests${RESET}\n"
 echo "start_time $(date +%s.%N)" >"$COUNTFILE"
 exec >"$LOGFILE" 2>&1
 
