@@ -22,8 +22,26 @@ lcov --version 2>&1 | t_indent
 t_detail "GCOV" ""
 gcov --version 2>&1 | t_indent
 
-t_detail "CPUINFO" ""
-t_indent < /proc/cpuinfo
+case "$OSTYPE" in
+    linux*)
+	t_detail "CPUINFO" ""
+	t_indent < /proc/cpuinfo
 
-t_detail "MEMINFO" ""
-t_indent < /proc/meminfo
+	t_detail "MEMINFO" ""
+	t_indent < /proc/meminfo
+	;;
+    darwin*)
+	t_detail "CPUINFO" ""
+	sysctl machdep.cpu | t_indent
+
+	t_detail "MEMINFO" ""
+	vm_stat | t_indent
+	;;
+    *)
+	t_detail "CPUINFO" ""
+	echo "unknown cpu info" | t_indent
+
+	t_detail "MEMINFO" ""
+	echo "unknown mem info" | t_indent
+	;;
+esac
