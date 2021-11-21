@@ -29,7 +29,14 @@ fi
 
 t_announce "$TESTNAME"
 
-let POS=$(stat -c %s "$LOGFILE")+1
+case "$OSTYPE" in
+linux*)
+    let POS=$(stat -c %s "$LOGFILE")+1
+    ;;
+*)
+    let POS=$(stat -f %z "$LOGFILE")+1
+    ;;
+esac
 
 t_detail "COMMAND" "\"$*\"" >>"$LOGFILE"
 t_detail "OUTPUT" "" >>"$LOGFILE"
