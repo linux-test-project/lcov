@@ -10,7 +10,7 @@
 TOPDIR=$(readlink -f $(dirname $0)/..) && test -d "$TOPDIR"\
     && source "$TOPDIR/bin/common"
 
-echo -e $BOLD"Starting tests"$RESET
+printf "${BOLD}Starting tests${RESET}\n"
 echo "start_time $(date +%s.%N)" >"$COUNTFILE"
 exec >"$LOGFILE" 2>&1
 
