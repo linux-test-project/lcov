@@ -1,0 +1,3908 @@
+[33mcommit 4eaca67e25bb77d9f107dd294afcdbab03c7aa74[m[33m ([m[1;36mHEAD -> [m[1;32mdev_lcov[m[33m, [m[1;31morigin/dev_lcov[m[33m)[m
+Author: Huynh Duc <ducmta1997@gmail.com>
+Date:   Tue Nov 23 22:10:47 2021 +0700
+
+    Test
+
+[33mcommit 462f71ddbad726b2c9968fefca31d60a9f0f745f[m[33m ([m[1;31morigin/master[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmaster[m[33m)[m
+Author: Lars Bilke <lars.bilke@ufz.de>
+Date:   Tue Jun 15 13:17:53 2021 +0200
+
+    Fix genhtml on macOS
+    
+    Closes #102.
+    
+    Signed-off-by: Lars Bilke <lars.bilke@ufz.de>
+
+[33mcommit d1d3024a8c82ee0a4c2afe948008a18415db9091[m
+Author: henry2cox <68852529+henry2cox@users.noreply.github.com>
+Date:   Wed Jul 28 05:25:23 2021 -0400
+
+    genhtml/genpng/lcov:  add missing rc support and man page entries
+    
+    * Add rcfile support and man page entries for --dark-mode and
+      --fail-under-lines options
+    * Add PNG support for 'dark-mode' feature
+    
+    Signed-off-by:  Henry Cox <henry.cox@mediatek.com>
+
+[33mcommit e023d6a53e9d6f5c78a9f67e36a80fe27ae10867[m
+Author: Weston Schmidt <Weston_Schmidt@alumni.purdue.edu>
+Date:   Wed May 26 01:32:10 2021 -0700
+
+    Add a dark mode option
+    
+    This adds the update to the CSS and pngs needed to make the website for
+    a project so lcov can support both normal & 'dark mode' with the
+    --dark-mode command line option.
+    
+    Signed-off-by: Weston Schmidt <Weston_Schmidt@alumni.purdue.edu>
+
+[33mcommit b9d6727cf59c1708c69fbed0b06dab6794e1992d[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Tue Apr 13 18:32:55 2021 +0200
+
+    example: Fix example relying on undefined behavior
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit d55d6eaec6ae1ea8dab90e3f548a1b488ff9c9b8[m
+Author: Miklos Vajna <vmiklos@collabora.com>
+Date:   Tue Apr 6 14:45:08 2021 +0200
+
+    lcov: add a new --fail-under-lines option
+    
+    This allows requiring a certain line coverage during CI.
+    
+    This is modeled after python's "coverage report --fail-under=100" or
+    nodejs' "nyc report --statements 100", but it's for line coverage.
+    
+    Signed-off-by: Miklos Vajna <vmiklos@collabora.com>
+
+[33mcommit d100e6cdd4c67cbe5322fa26b2ee8aa34ea7ebcf[m[33m ([m[1;33mtag: v1.15[m[33m)[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Wed Aug 12 16:17:04 2020 +0200
+
+    lcov: Finalize release 1.15
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 055b75083174a45f36282d54f1f0c10470082426[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Wed Aug 12 16:05:21 2020 +0200
+
+    Makefile: Reduce unnecessary meta-data in tar and RPM files
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 25ff79cebc249918342a6eb550ea13d20472232f[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Wed Aug 12 15:33:10 2020 +0200
+
+    geninfo: Add workaround for MSYS GCC problem
+    
+    Some versions of MSYS GCC include support for generating JSON
+    intermediate output format but incorrectly encode backslashes as \n:
+    
+      $ gcov -i example.gcda -t
+      {
+        "gcc_version": "9.2.0",
+        [...]
+        "current_working_directory": "C:\nTemp\nlcov\nexample",
+        "data_file": "example.gcda"
+      }
+    
+    This causes geninfo to abort when trying to collect coverage data:
+    
+      Processing example.gcda
+      geninfo: Unsuccessful open on filename containing newline at bin/geninfo line 2905.
+      geninfo: WARNING: could not open C:
+      Temp
+      lcov
+      example/example.c
+    
+    Fix this by converting newlines in filenames on MSYS to /.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+    Reported-by: fang.g@bigforce.cn
+
+[33mcommit d666bae4eb29f87a266c8f8d8d453ed1d9b5e97e[m
+Author: Nehal J Wani <nehaljw.kkd1@gmail.com>
+Date:   Tue Aug 11 11:54:05 2020 -0400
+
+    geninfo: Change json module
+    
+    Perl module JSON may not be present on all distributions. Switch to
+    using JSON:PP instead which is a Perl core module since Perl 5.14.0.
+    
+    xref: https://perldoc.perl.org/5.14.0/index-modules-J.html
+    
+    Note: JSON:PP is included in packages named perl-JSON-PP or
+    libjson-pp-perl on some distributions
+    
+    Signed-off-by: Nehal J Wani <nehaljw.kkd1@gmail.com>
+    [oberpar@linux.ibm.com: fixed missing colon in use]
+
+[33mcommit 41bfb00d31ff605b1c33456eab196c08d0530cf4[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Fri Aug 7 18:25:19 2020 +0200
+
+    geninfo: Fix warning due to non-numerical branch count
+    
+    Fix warning that is emitted because a non-numerical branch count ('-')
+    is used in a numerical comparison.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit be5c0cb5184b43d16679c9b0260ad571f4e0b77d[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Fri Aug 7 14:14:52 2020 +0200
+
+    geninfo: Fix missing check for unterminated exclusion marker
+    
+    When reading gcov intermediate data, geninfo does not check for
+    unterminated branch exception exclusion markers.
+    
+    Fix this my adding the corresponding check.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 7e98c6ccbaaa2da726f867740e16efab1945320b[m
+Author: Jesús González <jgonzalez@gdr-sistemas.com>
+Date:   Thu May 21 01:54:46 2020 +0200
+
+    Exclusion of exception branches
+    
+    - Added "--rc" option "geninfo_no_exception_branch" to make geninfo
+      always ignore exception branches when collecting branch coverage
+      data.
+    - Added new markers LCOV_EXCL_EXCEPTION_BR_LINE,
+      LCOV_EXCL_EXCEPTION_BR_START and LCOV_EXCL_EXCEPTION_BR_STOP to
+      selectively disable in the source code the collection of exception
+      branch data (to be used with lcov_branch_coverage=1).
+    - Modified geninfo_intermediate=auto behavior to default to no
+      intermediate file processing if geninfo_no_exception_branch is set
+      and the intermediate file has text type, because the text
+      intermediate format does not have the necessary branch info.
+    
+    Signed-off-by: Jesus Gonzalez <jgonzalez@gdr-sistemas.com>
+
+[33mcommit 894cd88b06834d80f6b344371295fc07173eeb70[m
+Author: William A. Kennington III <wak@google.com>
+Date:   Mon Mar 18 20:17:46 2019 -0700
+
+    genhtml: Fix applying prefix to a prefix filename
+    
+    Currently, if you have source code that lives in the top-level of your
+    project but you have that top-level set as a prefix, genhtml will not do
+    anything to truncate the prefix for the directory link.
+    
+    Assume genhtml is called with `--prefix /home/wak/project`
+    Example layout:
+    /home/wak/project/lib.cpp
+    /home/wak/project/test/test_lib.cpp
+    
+    This would result in generating an index.html with Directories:
+    /home/wak/project
+    test
+    
+    This is not expected. Looking at the convention for top level
+    directories, we should be calling these directories "root".
+    
+    With the patch applied, the index.html has Directories:
+    root
+    test
+    
+    Signed-off-by: William A. Kennington III <wak@google.com>
+
+[33mcommit a942cc21c9d74bbe8511468856716d9a7cfaacce[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Wed Aug 5 18:38:16 2020 +0200
+
+    genhtml: Add more demangler options
+    
+    Function name demangling doesn't work when using LCOV in Cygwin to
+    generate coverage for code compiled with MinGW-based compilers. The
+    demangling tool must be changed to c++filt.exe and the command line
+    option --no-strip-underscores must be specified.
+    
+    Provide new genhtml configuration file options to make these aspects
+    configurable:
+    
+      # Name of the tool used for demangling C++ function names
+      genhtml_demangle_cpp_tool = c++filt
+    
+      # Specify extra parameters to be passed to the demangling tool
+      genhtml_demangle_cpp_params = ""
+    
+    Based on patch by Ion Gaztañaga <igaztanaga@gmail.com> with the
+    following changes:
+    
+      - Reword commit message
+      - Use configuration file directives instead of new genhtml command
+        line options
+      - Remove unnecessary option checks
+      - Change no_strip directive to more flexible params directive
+      - Add directives to lcovrc sample file
+      - Add description to lcovrc man page
+      - Add tests
+    
+    Suggested-by: Ion Gaztañaga <igaztanaga@gmail.com>
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 951b88a3f1a22ac3a7bbb167bd730c4ed2613c89[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Wed Aug 5 16:24:08 2020 +0200
+
+    tests: Minor improvements
+    
+    Use bash built-in typeof instead of separately packaged 'which' command
+    to determine path to time binary. Also re-use TOPDIR-specification if
+    available.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit e91ec6eb53795de5a7bbe34ca223399312ce1650[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Tue Aug 4 12:26:25 2020 +0200
+
+    tests: Minor test improvements
+    
+    1. Ensure that a keyboard interrupt signal terminates a test run
+    2. Check required Perl modules before running tests
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit bee8ae7130987730bb819044481d22c25803181d[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Fri Jul 31 16:16:56 2020 +0200
+
+    man: Add clarification regarding file patterns
+    
+    Add a note the the lcov and geninfo man pages to clarify that patterns
+    used to match source code file names must be specified to match the
+    absolute path of such files.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 1508b88c6fc8cdd3163038e49f9f0e3305c0645e[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Jul 30 13:15:14 2020 +0200
+
+    geninfo: Change gzip decompression module
+    
+    Perl module PerlIO::gzip may not be present on all distributions. Switch
+    to using IO::Uncompress::Gunzip instead which is a Perl core module
+    since Perl 5.10.
+    
+    Note: IO::Uncompress:Gunzip is included in packages named
+    perl-IO-Compress or libperlio-gzip-perl on some distributions.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 72dacbeda8c754bacf58777ade0e5b24d9e8124c[m
+Author: Jesús González <jgonzalez@gdr-sistemas.com>
+Date:   Wed May 27 02:40:24 2020 +0200
+
+    Fixed processing GCOV intermediate format.
+    
+    The tracefiles now include line, function and line summary entries
+    (LF, LH, FNF, FNH, BRF and BRH) when processing GCOV text or json
+    intermediate format.
+    
+    This makes the diff test to pass again when using GCOV versions that
+    support text or json intermediate format.
+    
+    Signed-off-by: Jesus Gonzalez <jgonzalez@gdr-sistemas.com>
+
+[33mcommit b668fab257931356bfb21ec9c89944143b5855e6[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Jul 23 12:56:54 2020 +0200
+
+    tests: Fix subdirectory testing
+    
+    Ensure that specifying a subdirectory via the TESTS variable works
+    as expected.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 5825e286b015884ff072e27f083bfa6f3298d176[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Jul 23 12:16:41 2020 +0200
+
+    tests: Provide option to specify tool parameters
+    
+    Provide LCOVFLAGS and GENHTMLFLAGS parameters that can be passed via
+    make to modify the corresponding tool command lines used for testing.
+    
+    Also add information about supported make variables to the README file.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 3926d58ff311e0d7e579f1dbfa29ac8a1c951358[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Fri Jul 3 17:35:22 2020 +0200
+
+    tests: Simplify test Makefiles
+    
+    Adding new tests should be much simpler now:
+    
+      - create new testcase executable
+      - add executable name to Makefile TESTS variable
+    
+    For more information see tests/README.md
+    
+    Also rename sub-directory "test" to "tests" and make target to "check".
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 40580cd65909bc8324ae09b36bca2e178652ff3f[m
+Author: Bernhard M. Wiedemann <bwiedemann@suse.de>
+Date:   Fri Oct 4 10:11:47 2019 +0200
+
+    Allow to override man page date
+    
+    Without this patch, man page mtime would be updated by a sed call
+    in install.sh and then written here as text into the output:
+    
+    +++ /usr/share/man/man5/lcovrc.5
+    -.TH lcovrc 5 "uq2000-02-02" 2019\-06\-22 "User Manuals"
+    +.TH lcovrc 5 "uq2000-02-02" 2034\-07\-24 "User Manuals"
+    
+    For files older than SOURCE_DATE_EPOCH, the mtime is still used
+    to give more meaningful results.
+    
+    See https://reproducible-builds.org/ for why this is good
+    and https://reproducible-builds.org/specs/source-date-epoch/
+    for the definition of this variable.
+    
+    Signed-off-by: Bernhard M. Wiedemann <bwiedemann@suse.de>
+
+[33mcommit 4ff2ed639ec25c271eb9aa2fcdadd30bfab33e4b[m
+Author: Daniel P. Berrangé <berrange@redhat.com>
+Date:   Mon Jun 17 12:43:53 2019 +0200
+
+    bin: remove outdated FSF mailing address from license boilerplate
+    
+    The FSF address used in the license boilerplate text is no longer
+    correct since their offices have relocated. Rather than introduce
+    the new mailing address which will inevitably change again in the
+    future, use the website address which is more permanent.
+    
+    The main COPYING file already had the correct mailing address and
+    is not desirable to change that to the URL since it is a legal
+    document.
+    
+    Signed-off-by: Daniel P. Berrangé <berrange@redhat.com>
+
+[33mcommit 75fbae1cfc5027f818a0bb865bf6f96fab3202da[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Fri May 24 17:16:56 2019 +0200
+
+    geninfo: Add intermediate JSON format support
+    
+    This change adds support for parsing the output of gcov's intermediate
+    JSON file format as implemented by GCC version 9.
+    
+    Note: The way that the intermediate file format support is implemented
+    in geninfo removes the need to parse .gcno files directly. Since geninfo
+    does not include support for parsing GCC 9 .gcno files, using the
+    intermediate format is the only option for geninfo to collect coverage
+    data generated by GCC version 9.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit ebfeb3e179e450c69c3532f98cd5ea1fbf6ccba7[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Fri May 24 16:56:52 2019 +0200
+
+    geninfo: Add intermediate text format support
+    
+    This change adds support for parsing the output of gcov's intermediate
+    text file format as implemented by GCC versions 5 to 8.  The use of the
+    gcov intermediate format should increase processing speed. It also
+    provides branch coverage data when using the --initial command line
+    option.
+    
+    Users can control whether geninfo uses the intermediate format via the
+    geninfo_intermediate configuration file option. Valid values are:
+    
+         0: Use normal text format
+         1: Use intermediate format
+      auto: Use intermediate format if available. This is the default.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit aa56a43774e54955f5ca7ab798a7b0babdd13cb1[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Apr 4 17:22:28 2019 +0200
+
+    genhtml: Maintain order of branches in unnamed blocks
+    
+    Branch data that is reported by gcov before a block number is shown in
+    genhtml output before all other branches for that line. This can lead to
+    confusion when trying to correlated branch coverage data with code
+    constructs.
+    
+    This problem occurs because lcov assigns a '-1' as block number for
+    this branch data. During internal processing this value is converted to
+    2^32-1. When genhtml creates branch coverage output it sorts these
+    branches last.
+    
+    Fix this by converting block numbers 2^32-1 back to -1 when reading
+    coverage data in genhtml
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+    Reported-by: mueller_ja@gmx.net
+
+[33mcommit 94dc428f0cf0a613f46b483806c5d737e9b1e2cf[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Mon Mar 4 17:13:10 2019 +0100
+
+    man: Fix missing parameter in genhtml synopsis
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 6c7ad581ab9ed66f80050970c0d559c6684613b7[m[33m ([m[1;33mtag: v1.14[m[33m)[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Feb 28 18:01:39 2019 +0100
+
+    lcov: Finalize release 1.14
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 29814f18ec207ebaefa7b41f6e5acc4eca6d7a7a[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Feb 28 17:31:17 2019 +0100
+
+    geninfo: Fix missing FN: entries in result files
+    
+    geninfo sometimes fails to correctly collect function starting lines for
+    some source files, resulting in output files with missing FN: lines.
+    Also such functions are missing from the function list in HTML output.
+    
+    The problem occurs when
+      a) multiple source files contribute to a function implementation (e.g.
+         via including code), and
+      b) the source file that contains the initial function definition
+         is not the source file that contains the most function
+         definitions
+    
+    The problem occurs due to a heuristic in function graph_find_base() that
+    incorrectly determines the source file for a function in this situation.
+    
+    Fix this by using the first file that contributes to a function as the
+    base source file for that function. Only apply this change to data
+    collected using GCC versions 4 and above since earlier versions did not
+    produce stable file orders in graph files.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+    Reported-by: Joshua Cranmer
+
+[33mcommit 74bae96e8ef724eb9dbdf126adad17505375e149[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Feb 28 16:15:22 2019 +0100
+
+    Makefile: Make Perl path install-time configurable
+    
+    Add support for specifying the Perl interpreter path used in installed
+    Perl scripts. If no path is specified, the default '/usr/bin/perl' is
+    used.
+    
+    Set variable LCOV_PERL_PATH to specify a different path, for example:
+    
+      make install LCOV_PERL_PATH=/usr/local/bin/perl
+    
+    Unset this variable to keep the current path:
+    
+      make install LCOV_PERL_PATH=
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 0b378cba2c0f93d728627aa8750849d3c33de0e1[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Feb 28 14:21:18 2019 +0100
+
+    bin,test: Use /usr/bin/env to locate script interpreters
+    
+    Make use of the /usr/bin/env tool to locate script interpreters. This is
+    needed to locate the correct interpreter in non-standard environments.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+    Suggested-by: Bjørn Forsman <bjorn.forsman@gmail.com>
+    Suggested-by: Mario Costa
+
+[33mcommit 2ff99aefbd0c80fe0cfddf1e09a596d7344533e1[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Feb 28 14:09:42 2019 +0100
+
+    bin/*: Remove '-w' from interpreter specifications
+    
+    Replace '-w' flag from Perl interpreter specifications with 'use strict'
+    directive. This is done in preparation of using a more flexible
+    interpreter specification.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit 3b378b0e76be95971680056d864d0e13f4a08557[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Wed Feb 27 16:33:42 2019 +0100
+
+    geninfo: Fix errors while resolving /././ path components
+    
+    Trying to collect code coverage data for source code that contains
+    repeat ./ references in a path components fails with the following
+    error message:
+    
+      geninfo: WARNING: cannot find an entry for <name>.gcov in .gcno file,
+               skipping file!
+    
+    This is caused by a bug in path normalization function
+    solve_relative_path() that does not correctly process adjacent ./
+    references.
+    
+    Fix this by repeating the resolution of ./ references in path
+    components.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+    Reported-by: Joshua Cranmer
+
+[33mcommit 42b55f5a497d2286566d0dd411e3e52fd4d50469[m
+Author: iignatyev <igor.v.ignatiev@gmail.com>
+Date:   Wed Feb 6 11:35:02 2019 -0800
+
+    geninfo: preserve-paths makes gcov to fail for long pathnames
+    
+    geninfo uses '--preserve-paths' gcov option whenever gcov supports it, this
+    forces gcov to use a whole pathname as a filename for .gcov files. So in cases
+    of quite large pathnames, gcov isn't able to create .gcov files and hence
+    geninfo can't get any data. The fix replaces usage '--preserve-paths' with
+    '--hash-filenames' when it is available.
+    
+    Signed-off-by: Igor Ignatev <igor.v.ignatiev@gmail.com>
+
+[33mcommit 04335632c371b5066e722298c9f8c6f11b210201[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Fri Jan 11 13:53:33 2019 +0100
+
+    geninfo: Fix "Can't use an undefined value" error
+    
+    When run on data for source code that causes gcc 8 to generate
+    artificial functions, geninfo emits warnings and eventually aborts
+    processing:
+    
+      geninfo: Use of uninitialized value in hash element at
+               /usr/local/bin/geninfo line 3001.
+      geninfo: Can't use an undefined value as an ARRAY reference at
+               /usr/local/bin/geninfo line 2889.
+    
+    This problem was introduced by commit 9aa0d14a ("geninfo: Ignore
+    artificial functions during --initial"). It is the result of an
+    incomplete removal of artificial functions from internal data.
+    
+    Fix this by explicitcly removing known artificial functions after
+    parsing of graph files completes.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+    Reported-by: Steven Peters <scpeters@osrfoundation.org>
+
+[33mcommit 9aa0d14af4446ef46d80356849a97bc961a91f97[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Jan 10 13:20:15 2019 +0100
+
+    geninfo: Ignore artificial functions during --initial
+    
+    Graph files generated by gcc 8 may contain "artifical" functions that do
+    not exist in a source file. geninfo incorrectly generates coverage data
+    for these functions when run with option --initial.
+    
+    Fix this by filtering out artifical functions when generating initial
+    coverage data.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+    Reported-by: Marcin Konarski <marcin.konarski@codestation.org>
+
+[33mcommit 1e0df571198229b4701100ce5f596cf1658ede4b[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Thu Jan 10 11:39:07 2019 +0100
+
+    geninfo: Fix data collection for files containing templates
+    
+    When using gcc 8, lcov/geninfo produces corrupt coverage output for
+    source code that contains templates or other constructs that cause gcov
+    to produce multiple versions of output for some lines and branches.
+    
+    This is caused by an incorrect check for duplicate output in function
+    read_gcov_file() that is triggered when a template consists of multiple
+    lines, or contains branches.
+    
+    Fix this by ensuring that duplicate lines in per-instance gcov output are
+    correctly ignored. Only the initial occurrence of each line containing
+    the combined coverage of all instances will be processed by geninfo.
+    
+    Note that for branch coverage, gcov doesn't provide a combined view and
+    geninfo processes all branches provided. This should not be a problem
+    though as genhtml will combine the branch data when generating HTML
+    output.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit abd8bed2b013334d4ef978abadbfff6cc6f3d55d[m
+Author: MarcoFalke <falke.marco@gmail.com>
+Date:   Tue Jan 8 12:49:00 2019 +0100
+
+    genhtml: Unconditionally include anchor for each named line
+    
+    This helps with referencing the line in the html when sharing links.
+    
+    Signed-off-by: MarcoFalke <falke.marco@gmail.com>
+
+[33mcommit 28675dc7564aaa1ad231a7ac23106512a3956d68[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Tue Dec 18 13:07:58 2018 +0100
+
+    genhtml: Use gmtime for SOURCE_DATE_EPOCH conversion
+    
+    By changing that localtime to gmtime the "Known bug" section of the
+    commit message can be removed.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+    Suggested-by: Bjørn Forsman <bjorn.forsman@gmail.com>
+
+[33mcommit 180286bec651928c41de4d6ce3a8760678b38f60[m
+Author: Bjørn Forsman <bjorn.forsman@gmail.com>
+Date:   Tue Dec 4 14:30:28 2018 +0100
+
+    genhtml: honor the SOURCE_DATE_EPOCH variable
+    
+    Implement the SOURCE_DATE_EPOCH specification[1] for reproducible
+    builds. If SOURCE_DATE_EPOCH is set, use it as timestamp instead of the
+    current time.
+    
+    In this context, reproducible builds means reproducible HTML coverage
+    reports.
+    
+    Known bug: the specification[1] says to defer converting the timestamp
+    to local timezone at presentation time. This is currently not happening;
+    it's converted at build time.
+    
+    [1] https://reproducible-builds.org/specs/source-date-epoch/
+    
+    Signed-off-by: Bjørn Forsman <bjorn.forsman@gmail.com>
+
+[33mcommit 41e07cadeeae3054ac22202d5b0b0f0ef6e26467[m
+Author: Bjørn Forsman <bjorn.forsman@gmail.com>
+Date:   Tue Dec 4 14:30:27 2018 +0100
+
+    Tolerate CDPATH being set
+    
+    If CDPATH is set, cd will print the path it enters, resulting in TOOLDIR
+    containing the path twice, separated by a newline.
+    
+    Signed-off-by: Bjørn Forsman <bjorn.forsman@gmail.com>
+
+[33mcommit a3bbe8f0398a3c36b4228cc173e4739d27a863e1[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Mon Dec 10 13:58:10 2018 +0100
+
+    CONTRIBUTING: Clarify patch format requirements
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit e6750800fe4cb89eda1ff80b7a5fe70fe87ede36[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Tue Nov 13 17:28:17 2018 +0100
+
+    geninfo: Fix accounting of basic blocks in exceptional paths
+    
+    Basic blocks that are not executed and are only reachable via
+    exceptional paths are marked with a '%%%%%' marker in the GCOV output of
+    current GCC versions. Fix geninfo to also recognize this marker.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+    Reported-by: trotux (github user)
+
+[33mcommit 94eac0ee870e58630d8052dca1181b0cf802525f[m
+Author: Peter Oberparleiter <oberpar@linux.ibm.com>
+Date:   Mon Jul 16 13:24:58 2018 +0200
+
+    lcov: Fix branch coverage summary
+    
+    When combining two data files A (without branch coverage data) and B
+    (with branch coverage data), lcov will incorrectly report no branch
+    coverage data for the resulting file in program output, even though the
+    resulting file contains branch coverage data. This only happens when A
+    is specified first during the add operation.
+    
+    This is due to a bug in lcov that loses the correctly combined branch
+    coverage data internally in function brcount_db_combine() when its first
+    parameter is undefined. Fix this by ensuring that the first parameter is
+    an empty hash reference instead.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.ibm.com>
+
+[33mcommit a5dd9529f9232b8d901a4d6eb9ae54cae179e5b3[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Wed Mar 7 14:18:55 2018 +0100
+
+    geninfo: Add gcc 8 support
+    
+    Fix errors and incorrect data when trying to collect coverage data
+    for programs compiled with gcc 8.
+    
+    Covers the following gcov-related changes in gcc:
+    
+    .gcov-file format:
+      - Line coverage data can appear multiple times for the same line
+      - Line coverage count can be suffixed by '*' to indicated unexecuted
+        basic blocks in that line
+    
+    .gcno-file format:
+      - new header field 'support unexecuted blocks flag'
+      - new function record fields 'column number', 'ending line number',
+        and 'compiler-generated entity flag'
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit c30d88a3a8096dbb3f968de999480c3dc2dedb5f[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Tue Jan 30 15:12:09 2018 +0100
+
+    genhtml: Implement option to show miss counts
+    
+    Add new command line option --missed that can be used to show the
+    number of missed lines, functions, or branches.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 999abf2447b4df373b135dc3f8ee317350bd95f8[m
+Author: Benoit Belley <Benoit.Belley@autodesk.com>
+Date:   Fri Oct 6 10:01:28 2017 -0400
+
+    Adding the --include and --exclude options to lcov and geninfo
+    
+    * The --include command-line option allows the user to specify a regular
+      expression for the source files to be included. The command-line
+      option can be repeated to specify multiple patterns. The coverage
+      information is only included for the source files matching at least
+      one of the patterns.
+    
+      The "lcov --capture --include" (or "geninfo --include") option is
+      similar in functionality to the "lcov --extract" command-line
+      option. But, by directly using applying the pattern while capturing
+      coverage data one can often avoid having to run "lcov --extract" as a
+      second pass.
+    
+    * The --exclude command-line option allows the user to specify a regular
+      expression for the source files to be excluded. The command-line
+      option can be repeated to specify multiple patterns. The coverage
+      information is excluded for source files matching at least one of the
+      patterns.
+    
+      The "lcov --capture --exclude" (or "geninfo --exclude") option is
+      similar in functionality to the "lcov --extract" command-line
+      option. But, by directly using applying the pattern while capturing
+      coverage data one can often avoid having to run "lcov --remove" as a
+      second pass.
+    
+    * On one of our code base at Autodesk, this speeds-up the generation of
+      HTML code coverage reports by a factor of 3X.
+    
+    Signed-off-by: Benoit Belley <benoit.belley@autodesk.com>
+
+[33mcommit b6a11368c3cdc86c4e147ccd8e539918dfe37900[m
+Author: Ziqian SUN (Zamir) <zsun@redhat.com>
+Date:   Wed Jul 19 10:58:24 2017 +0800
+
+    Resolve some rpmlint issue in SPEC.
+    
+    Following messages reported by rpmlint on RHEL is fixed by this patch:
+    lcov.src: W: invalid-license GPL
+    lcov.src:9: W: hardcoded-path-in-buildroot-tag
+    /var/tmp/%{name}-%{version}-root
+    lcov.src: E: specfile-error warning: bogus date in %changelog: Fri Oct 8
+    2002 Peter Oberparleiter (Peter.Oberparleiter@de.ibm.com)
+    lcov.noarch: W: non-conffile-in-etc /etc/lcovrc
+    
+    Signed-off-by: Ziqian SUN (Zamir) <zsun@redhat.com>
+    [oberpar@linux.vnet.ibm.com: Corrected license to GPLv2+]
+
+[33mcommit a77a7628ef5377c525a0d4904cc0b73eeede4d7c[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Fri Apr 7 15:43:28 2017 +0200
+
+    genhtml: Reduce path resolution overhead
+    
+    Reduce overhead when reading coverage data files by consolidating
+    calls to Cwd:cwd().
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 526c5148ac0add40ef1224d2cdabdec73ce3f899[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Fri Apr 7 15:37:52 2017 +0200
+
+    genhtml: Reduce load times for complex coverage data files
+    
+    genhtml uses a significant amount of time loading coverage data files
+    containing complex branch coverage data (i.e. data with a large number
+    of branches per basic block). Most of this time is spent storing
+    branch coverage data in a vector-based data representation, with an
+    unnecessary amount of cross-checking being done for existing branch
+    data.
+    
+    Fix this by replacing the vector based data representation by two
+    separate representations, scalar for storage and hash for processing,
+    and by moving cross-checking out of the hot path. This results in a
+    significant speedup at the cost of a minor increase in memory usage.
+    
+    Test results for "make -C genhtml_output/ SIZE=large":
+    
+    Original:
+      6 tests executed, 6 passed, 0 failed, 0 skipped (time 768.4s, mem
+      893.8MB)
+    
+    Patched:
+      6 tests executed, 6 passed, 0 failed, 0 skipped (time 202.3s, mem
+      908.10MB)
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 0f07133f184af6670bdf1edf39fca9d2e90e9ad2[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Fri Apr 7 14:38:22 2017 +0200
+
+    test: Add self-tests for genhtml
+    
+    Add some tests for checking basic functionality of genhtml.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 544a6951db25679792bb0648006a897ea564d883[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Fri Apr 7 14:32:47 2017 +0200
+
+    genhtml: Ensure stable block order in branch output
+    
+    Sort order of basic blocks in output of branch coverage data. This
+    allows for a better comparison of output between test cases.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 477957fa4c6c104d5842911682ec17d6ad2d2980[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Thu Apr 6 12:28:11 2017 +0200
+
+    lcov: Reduce load times for complex coverage data files
+    
+    lcov uses a significant amount of time loading coverage data files
+    containing complex branch coverage data (i.e. data with a large number
+    of branches per basic block). Most of this time is spent storing
+    branch coverage data in a vector-based data representation, with an
+    unnecessary amount of cross-checking being done for existing branch
+    data.
+    
+    Fix this by replacing the vector based data representation by two
+    separate representations, scalar for storage and hash for processing,
+    and by moving cross-checking out of the hot path. This results in a
+    significant speedup at the cost of a minor increase in memory usage.
+    
+    Test results for "make test SIZE=large":
+    
+    Original:
+      17 tests executed, 17 passed, 0 failed, 0 skipped (time 1883.9s, mem
+      2459.0MB)
+    
+    Patched:
+      17 tests executed, 17 passed, 0 failed, 0 skipped (time 283.6s, mem
+      2544.2MB)
+    
+    Note that this fix only applies to the lcov tool. The same work is
+    necessary for genhtml.
+    
+    This approach was inspired by a patch by creich.3141592@gmail.com.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 3b397a3f3acdb62080e8366130758cb34703cfbf[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Thu Apr 6 09:01:36 2017 +0200
+
+    test: Improve test framework
+    
+    Various improvements to lcov's self-test framework:
+     - Add test case for lcov --diff
+     - Add new verbosity level
+     - Enable normalization of coverage data files from stdin
+     - Fix lcov_add_concatenated4 test name
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 53a6ce8ef604173b6de874a534a30121392d7cd0[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Thu Mar 30 15:42:56 2017 +0200
+
+    lcov: Add self-tests
+    
+    Add some tests for checking basic functionality of lcov. To run these
+    tests, type:
+    
+            make test
+    
+    in either the top-level directory, or the test/ sub-directory.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 9753d5c0da107919537e91e504551e4ab3bccc2f[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Thu Mar 30 15:31:34 2017 +0200
+
+    lcov: Fix output on stderr for --summary
+    
+    Some functions of lcov erroneously print informational output to stderr
+    instead of stdout as expected. Fix this by inverting the "to_file" logic
+    in lcov to a "data_stdout" logic. Affected functions are --summary,
+    --reset and --list.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 25f5d38abad20eeaa407f62f53c3c00dfbbd0bf3[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Mon Mar 6 09:51:00 2017 +0100
+
+    lcovrc.5: Add genhtml_demangle_cpp default and CLI reference
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 66db744a1d63c5d3b1dee2d8a2ce76e6e06c7255[m
+Author: Katsuhiko Nishimra <ktns.87@gmail.com>
+Date:   Fri Mar 3 17:47:48 2017 +0900
+
+    Support passing demangle-cpp option via lcovrc
+    
+    This patch allows users to passing the demangle-cpp option to genhtml
+    via lcovrc, alongside with CUI.
+    
+    Signed-off-by: Katsuhiko Nishimra <ktns.87@gmail.com>
+
+[33mcommit b6fb452addaa6a33dcb37c101879b8b5e1e0c34c[m[33m ([m[1;33mtag: v1.13[m[33m)[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Mon Dec 19 15:20:40 2016 +0100
+
+    lcov: Finalize release 1.13
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit daca8d9febe52ccf1976240a3b48ffc350dec902[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Mon Dec 19 14:36:00 2016 +0100
+
+    geninfo: Fix 'unexpected end of file' error
+    
+    Use the compiler version as stored in the .gcno file to determine if
+    the file contains function records with split checksums. This fixes
+    the following problem that can occur when lcov is run using a gcov
+    tool of GCC version 4.7 and above on .gcno files compiled with a
+    version below 4.7:
+    
+      # lcov -c -d . -o test.info --initial
+      [...]
+      geninfo: ERROR: test.gcno: reached unexpected end of file
+    
+    Also add missing lcov version to --debug output.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit a90d50e97cb49ea712c94d91cdef1cc21a3c7986[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Wed Dec 14 11:00:08 2016 +0100
+
+    lcov: Remove use of install -D option
+    
+    Some versions of the install tool don't support the -D option, causing
+    a 'make install' call to fail. Fix this by replacing the -D option with
+    two calls to install, first to create all target directory components,
+    then to install the actual files.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+    Reported-by: <deanyang@tencent.com>
+
+[33mcommit 6ec3f2398d22e605c1a8019541fb32d26d18044b[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Fri Oct 7 09:47:35 2016 +0200
+
+    genhtml: Fix warning with small genhtml_line_field_width
+    
+    On systems with Perl versions 5.21 and above, genhtml prints a warning
+    similar to the following during processing:
+    
+      genhtml: Negative repeat count does nothing at bin/genhtml line 3854,
+               <SOURCE_HANDLE> line 4.
+    
+    This is due to size calculations resulting in a negative number of
+    padding characters when genhtml_line_field_width is lower than the size
+    of the strings to pad (9). Fix this by disabling padding in these cases.
+    
+    Reported-by: xaizek@openmailbox.org
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit d7cc7591b3a7cc1ec95371d04e4fc46f10b3fd54[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Tue Oct 4 09:50:52 2016 +0200
+
+    geninfo: Fix gcov version detection for XCode 8.0
+    
+    The LLVM gcov version included in XCode 8.0 reports its version in a
+    format that is not understood by geninfo, resulting in the wrong format
+    of coverage data files being expected. Fix this by reworking gcov
+    version detection in geninfo to be more robust.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 68320d932c5ee5537ae1c287fe52603ae2fecf8c[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Mon Aug 22 15:54:56 2016 +0200
+
+    lcov: Update installation mechanism
+    
+    Change default installation location to /usr/local to prevent
+    conflicts with files installed by package managers (reported by
+    Gregory Fong). To achieve this, rename PREFIX to DESTDIR and
+    introduce actual PREFIX Makefile variable and update spec file
+    to install packaged files to previous locations.
+    
+    Also fix spec file to not announce ownership of system directories
+    (reported by and based on patch by Jiri Kastner <jkastner@redhat.com>).
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 04a3c0ed1b4b9750b2ac5060aac0e6d5a3b9da7f[m
+Author: Benoit Belley <benoit.belley@autodesk.com>
+Date:   Mon Apr 4 18:16:54 2016 -0400
+
+    Pass --no-strip-underscore to c++filt on OS X
+    
+    * The --no-strip-underscope flag is necessary on OS X so that symbols
+      listed by gcov get demangled properly.
+    
+       From the c++filt man page: "On some systems, both the C and C++
+       compilers put an underscore in front of every name.  For example, the
+       C name "foo" gets the low-level name "_foo". This option tells c++filt
+       not to remove the initial underscore.  Whether c++filt removes the
+       underscore by default is target dependent."
+    
+    Signed-off-by: Benoit Belley <benoit.belley@autodesk.com>
+
+[33mcommit 632c25a0d1f5e4d2f4fd5b28ce7c8b86d388c91f[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Tue Mar 8 10:51:51 2016 +0100
+
+    lcov: Fix output files being created in / directory
+    
+    When a warning is emitted by lcov before creating an output file,
+    e.g. when a negative coverage count was found while combining
+    tracefiles, lcov tries to create the output file in the root
+    directory (/) instead of the current working directory.
+    
+    This is a result of lcov's warn handler calling a temp file cleanup
+    routine that changes directories to / before trying to remove its
+    temporary directory.
+    
+    Fix this by removing the temp cleanup call from the warn handler.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit e32aab1b4c85503a6592a91326c4b362613e1d66[m
+Author: Gabriel Laskar <gabriel@lse.epita.fr>
+Date:   Wed Feb 10 09:56:18 2016 +0100
+
+    lcov: Fix --remove pattern matching
+    
+    The --remove option of lcov now consider the pattern passed as parameter
+    as a full path, and not only a part of the filename.
+    
+    This behavior was discovered by using AX_CODE_COVERAGE[1] m4 macro from
+    a directory in $HOME/tmp. The macro itself calls lcov with
+    `--remove "/tmp/*"`.
+    
+    [1]: https://www.gnu.org/software/autoconf-archive/ax_code_coverage.html
+    
+    Signed-off-by: Gabriel Laskar <gabriel@lse.epita.fr>
+
+[33mcommit 79e9f281ea893b2f6498b4bad79173b1414aa055[m
+Author: Reiner Herrmann <reiner@reiner-h.de>
+Date:   Fri Oct 30 20:26:59 2015 +0100
+
+    lcov: use UTC to get timezone-independent date
+    
+    The date is used for updating the time inside manpages.
+    If localtime is used, the date could vary depending on the user's
+    timezone. To enable reproducible builds, UTC is used instead.
+    
+    Signed-off-by: Reiner Herrmann <reiner@reiner-h.de>
+
+[33mcommit de33f51b49dc6d01a285aa73990f03e7d982beb2[m[33m ([m[1;33mtag: v1.12[m[33m)[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Mon Oct 5 17:37:40 2015 +0200
+
+    lcov: Finalize release 1.12
+    
+     - Use full git describe output as tool version
+     - Update version numbers and last-changed-dates in man pages,
+       spec and README file
+     - Replace static CHANGES file with git log
+     - Switch Makefile logic to use mktemp for generating a temporary
+       directory
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 1ad4f7779b7721e311e552209e110e08bbf18fa1[m
+Author: Denis Abramov <abramov.denis@gmail.com>
+Date:   Mon Sep 21 09:29:20 2015 +0200
+
+    geninfo: Added support for Xcode 7.0 gcov version handling
+    
+    With Xcode 7.0 LLVM gcov keeps version information on the first line.
+    E.g. gcov --version yields: Apple LLVM 7.0.0 (clang-700.0.65)
+    
+    Signed-off-by: Denis Abramov <abramov.denis@gmail.com>
+
+[33mcommit c3602ea8e598deda4afff603bb123caa98eef159[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Mon Aug 3 11:05:51 2015 +0200
+
+    genhtml: Allow prefix paths with spaces
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit a3572971367198ef0febe476052640bd09bec931[m
+Author: Gilles Gouaillardet <gilles@rist.or.jp>
+Date:   Thu Jul 30 14:11:57 2015 +0900
+
+    genhtml: support a comma separated list of prefixes
+    
+    the --prefix option of genhtml now takes a comma separated list of prefixes
+    instead of a single prefix.
+    this can be required when running lcov vs projects configure'd with VPATH
+    and in which source files are both in the source and build directories.
+    
+    Signed-off-by: Gilles Gouaillardet <gilles@rist.or.jp>
+
+[33mcommit 231cfb6afe198b44e44dfb76248bda0e46185a97[m
+Merge: 533db4e 997f32a
+Author: Peter Oberparleiter <oberpar@users.noreply.github.com>
+Date:   Tue Jun 23 09:21:23 2015 +0200
+
+    Merge pull request #7 from ggouaillardet/topic/fix_find_cli
+    
+    Fix find command line
+
+[33mcommit 997f32ae85717cd47d2305d7cd7ccce3ffa1abe6[m
+Author: Gilles Gouaillardet <gilles@rist.or.jp>
+Date:   Tue Jun 23 14:28:22 2015 +0900
+
+    Fix find command line
+    
+    find xxx -name \*.gcda -type f -o type l
+    does return :
+    - all files with the .gcda suffix
+    - all symbolic links
+    
+    the updated command line now returns
+    - all files with the .gcda suffix
+    - all symbolic links with the .gcda suffix
+    
+    Signed-off-by: Gilles Gouaillardet <gilles@rist.or.jp>
+
+[33mcommit 533db4e78b54ae01e023d00c1fec5dddaaaf37e6[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Wed Jun 17 17:54:20 2015 +0200
+
+    lcov: Fix capture for package files containing graph files
+    
+    Depending on whether package files contain graph files, data should be
+    collected from the unpacked package file directly, or from the build
+    directory after linking data files. This approach fixes problems when
+    capturing coverage data via a package from a directory containing graph
+    files.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit a2a8b376ec5e9e5082a0cbb935137d6a8f526870[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Wed Jun 17 17:34:33 2015 +0200
+
+    lcov: Fix .build_directory file not being deleted
+    
+    Using option --to-package while capturing coverage data creates a
+    temporary file named ".build_directory". Currently this file is not
+    properly removed at the end of processing due to a changed CWD. This
+    patch fixes this problem by reverting to the original CWD before trying
+    to remove the temporary file.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit b9de825f1fe018f381c8859ee0f3f4af15122c7a[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Tue Jun 16 13:53:00 2015 +0200
+
+    lcov: Enable userspace package capture with only data files
+    
+    Previously lcov's --from-package capture mechanism required
+    that .gcno files and source were present on the test machine.
+    
+    This patch modifies --from-package capturing to work when
+    only .gcda files are present in the package captured on the
+    test machine. It works by linking the .gcda files collected
+    on the test machine into their natural location on the build
+    machine. This requires existing .gcda files to be removed.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 0e4f0908aed3e1a071d5435c36c18cd493f0c309[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Tue Jun 16 13:33:54 2015 +0200
+
+    lcov: Make package handling more robust
+    
+    Apply some changes to --from-package and --to-package handling
+    to better handle failures:
+    
+     - Abort if tar tool is not available
+     - Abort if no data file is found in package file
+     - Ensure that temporary directories can be deleted
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit f87d980929a5a06d49d0a6856f6c3314418c27ef[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Tue May 12 17:28:44 2015 +0200
+
+    genhtml: Rework c++filt name demangling
+    
+    When running genhtml with command line option --demangle-cpp, do not
+    merge function call data based on demangled function names. Instead mark
+    duplicate function entries in the function view with a version suffix
+    (.<number>). This resolves problems with entries for functions that
+    demangle to the same name, but begin on different lines according to GCC
+    (e.g. virtual destructors).
+    
+    Reported-by: Lukasz Czajczyk <lukasz.czajczyk@gmail.com>
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 2e872175cbba2c09c9025da2660edf0b4abb55cb[m
+Author: Daniel Fahlgren <daniel@fahlgren.se>
+Date:   Wed Apr 22 15:17:10 2015 +0200
+
+    geninfo: make line exclusion markers configurable
+    
+    This patch exposes the variable $excl_line and $excl_br_line so they can
+    be set in the configuration file. It is not always possible to add the
+    exclusion markers to the code with reasons like third party code,
+    company policy, legacy code, no commit access etc.
+    
+    One obvious use case is to exclude assert() from the branch coverage and
+    abort() from line coverage. They are never meant to be triggered unless
+    something is wrong. Other use cases can be custom error handling macros
+    or macros that depend on endianness, like htons().
+    
+    Signed-off-by: Daniel Fahlgren <daniel@fahlgren.se>
+
+[33mcommit 10b11eaa178976d1433007adb2188d05b8605be6[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Mon Nov 10 17:17:23 2014 +0100
+
+    geninfo: Ignore empty .gcno files with --initial
+    
+    Some versions of GCC create empty .gcno files which cause geninfo
+    to abort processing with an error message:
+    
+      geninfo: ERROR: dummy.gcno: reached unexpected end of file
+    
+    Fix this problem by skipping empty .gcno files.
+    
+    Reported-by: Maarten Hoes <hoes.maarten@gmail.com>
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit f9d8079646aa906518c4ab7d326504e6837532a7[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Mon Nov 10 16:54:08 2014 +0100
+
+    lcov: Fix warning when specifying --rc
+    
+    Current Perl versions report the following warning when using the --rc
+    option of lcov:
+    
+      lcov: Use of each() on hash after insertion without resetting hash
+      iterator results in undefined behavior
+    
+    Fix this warning by not modifying the hash variable that is being
+    iterated on. Also add the missing whitespace fix-up of --rc parameters
+    to genhtml.
+    
+    Reported-by: Maarten Hoes <hoes.maarten@gmail.com>
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 2a634f6caa98f979606189ec3ee98f4cac270b97[m
+Author: Philip Withnall <philip.withnall@collabora.com>
+Date:   Mon Nov 10 14:58:34 2014 +0000
+
+    genhtml: Support relative source filenames in SF keys
+    
+    Some tools which generate .info files generate relative filenames for
+    the ‘SF’ keys. For example, nodeunit’s lcov output does. When genhtml is
+    run with --output-directory, it calls chdir() which breaks relative
+    lookup of the source files. Fix that by resolving all source filenames
+    to absolute paths when loading an info file, resolving any relative ones
+    using the info file’s path as a base.
+    
+    Signed-off-by: Philip Withnall <philip.withnall@collabora.co.uk>
+
+[33mcommit b4344c6a5d3c434ca0d801c197a09cfdeecb3f32[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Fri Sep 26 13:11:18 2014 +0200
+
+    man: Add description for --precision and genhtml_precision
+    
+    Add man page sections for genhtml's command-line option --precision
+    and lcovrc configuration setting genhtml_precision. Also add an
+    example configuration setting in lcovrc.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit aa1217412f1e8b540010fea5ca9844b9e4699e54[m
+Author: Euccas Chen <euchen@qti.qualcomm.com>
+Date:   Fri Sep 26 12:53:29 2014 +0200
+
+    genhtml: Implement option to specify coverage rate precision
+    
+    Add command line support and config file support for specifying the
+    coverage rate precision, valid precision range: [1,4].
+    
+    Signed-off-by: Euccas Chen <euchen@qti.qualcomm.com>
+
+[33mcommit 4d4eba1a8b5e7d2a6c5e93c0a50264da1a5c5540[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Wed Jun 25 09:41:59 2014 +0200
+
+    get_version.sh: Remove - characters from release string
+    
+    Replace - with . in release strings to fix the following build
+    error in the dist Makefile target:
+    
+      error: line 4: Illegal char '-' in: Release: 4-g1d44b2a
+      make: *** [rpms] Error 1
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit ffbd3e08cc0871842b2205b0b73c2ae8f3ad02e8[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Wed Jun 25 09:25:50 2014 +0200
+
+    genhtml: Improve demangle error message
+    
+    Improve error message that is shown when there are mangled function name
+    entries on different lines that demangle to the same clear text function
+    name.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 1d44b2a090aa933b15e4cafc1a440ccb390df92e[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Tue Jun 24 17:45:34 2014 +0200
+
+    geninfo: Fix error when using --demangle-cpp
+    
+    Using genhtml's --demangle-cpp option on data produced with recent GCC
+    versions (at least 4.8 and 4.9) can result in an error message similar
+    to the following:
+    
+      genhtml: ERROR: Demangled function name _ZN3subD2Ev  maps to different
+               lines (5 vs 4)
+    
+    The reason for this error is an unexpected sequence of lines records
+    in a .gcno file. These records mention line numbers as belonging to a
+    function which occur before the initial line number of that function
+    as reported by the corresponding function record.
+    
+    Fix this problem by retaining the order of lines belonging to a function
+    as found in the .gcno file. This way geninfo will consistently use the
+    initial line number as reported by the function record when merging
+    function data during the demangling process.
+    
+    Reported-by: Alexandre Duret-Lutz <adl@lrde.epita.fr>
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 566e5ec7e69a03612e1ed4961779d939af180d66[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Wed Jun 18 16:05:29 2014 +0200
+
+    lcov: Remove unused files
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit c76172bfe630520e217ecc0bca8f18481c4c33b0[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Wed Jun 18 16:01:05 2014 +0200
+
+    README: Fix typo
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit a6b10a41056cd10c7b735e259fee81f1865c2109[m
+Author: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+Date:   Wed Jun 18 15:50:04 2014 +0200
+
+    lcov: Remove CVS artifacts
+    
+    Replace CVS specifics in the build environment and tools source with
+    Git mechanisms:
+     * CONTRIBUTING and README file now refer to github for the primary
+       source location
+     * When run from a Git repository, the tools dynamically determine the
+       Git version using 'git describe'
+     * When installed into the file system, the version information is
+       fixed with the current Git version
+     * When preparing distribution files, the version at the time of
+       preparing the files is written to file ".version"
+    
+    Also add a .gitignore file to filter out the most frequent temporary
+    file types.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit fa2a991cf6fad37fec7650b95be705df143e058a[m[33m ([m[1;33mtag: v1.11[m[33m)[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri May 23 08:56:17 2014 +0000
+
+    lcov: finalizing release 1.11
+
+[33mcommit e2729beea0d7769ef0e992c27a294b0742a6ac77[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri May 23 08:47:10 2014 +0000
+
+    CHANGES: update
+
+[33mcommit 866d187602bfc2e3a8199f4e9e9430ef38f106a8[m
+Author: Jeffrey Hutzelman <jhutz@cmu.edu>
+Date:   Tue May 20 14:12:55 2014 +0000
+
+    lcov: Sort branches in unnamed blocks first
+    
+    When processing branch coverage data, consider branches in "unnamed"
+    blocks to come before other blocks on the same line, so that they
+    appear in the correct order in HTML output.
+    
+    This is accomplished by using block number -1 for unnamed blocks,
+    instead of 9999 as was previously done.  In branch data vectors, this
+    is reprsented by the value $BR_VEC_MAX, which is defined to be the
+    largest value representable in the field width used.  This same value
+    is also used in .info files, for backward-compatibility with regular
+    expressions used to parse these files.  As a result, .info files
+    generated by versions of lcov with this change can be read by older
+    versions, though branch results will still appear out of order.
+    
+    Signed-off-by: Jeffrey Hutzelman <jhutz@cmu.edu>
+
+[33mcommit 17c0edec32193b9e8058908447d3eb403d76c8de[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu May 15 10:23:45 2014 +0000
+
+    lcov: Update man page
+    
+    Add missing description for command line parameter value.
+    
+    Reported-by: sylvestre@mozilla.com
+
+[33mcommit c0958139e015805cce15b60b740c735690ad4002[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Apr 14 12:14:55 2014 +0000
+
+    genhtml: Implement option to allow HTML in test description
+    
+    Add lcovrc directive genhtml_desc_html to allow using HTML markup in
+    test case description text.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 4f2c3aefcfcf816806da83a8609bd743eb227d37[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Apr 14 11:24:05 2014 +0000
+
+    genhtml: Check for proper description file format
+    
+    Ensure that description files contain test name lines before test
+    description lines. This fixes a "use of uninitialized value" warning
+    in genhtml.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 3a68239905c28a7c3bfac52172a254872d6a7aa7[m
+Author: Jonah Petri <jonah@petri.us>
+Date:   Mon Apr 14 11:06:21 2014 +0000
+
+    lcov: make geninfo compatible with LLVM's gcov
+    
+    These changes are needed to make geninfo compatible with LLVM's gcov:
+    * Use --version rather than -v to probe version info
+    * Convert LLVM gcov version numbers to the GCC gcov version they emulate
+    * Translate short options into their equivalent long option capabilities
+    
+    Signed-off-by: Jonah Petri <jonah@petri.us>
+
+[33mcommit a74bdeeae0383b197b1dafa44d01a54129fb3d7c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 8 13:26:04 2014 +0000
+
+    genhtml: Reduce hash copying while adding up files
+    
+    Reduce copying effort and memory usage. Based on similar patch for
+    lcov by olly@survex.com.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit c6b4d91fdf667cfca17213742e2e04f6281ebed4[m
+Author: Olly Betts <olly@survex.com>
+Date:   Wed Jan 8 13:14:05 2014 +0000
+
+    lcov: Avoiding copying hashes passed to add_counts function
+    
+    This patch reduces memory usage - without it lcov was failing every time
+    for me with out of memory errors in a VM with 1GB of RAM and 1GB of
+    swap, but with it lcov completes every time.
+    
+    It's presumably also faster to avoid these copies.
+    
+    Signed-off-by: Olly Betts <olly@survex.com>
+
+[33mcommit cf6f2e685510da62bd2eb1f386f71d57c41f4594[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Dec 13 16:09:05 2013 +0000
+
+    geninfo: Tolerate garbage at end of gcno file
+    
+    Some versions of gcc produce garbage at the end of a gcno file
+    when recompiling a source code file after removing some lines.
+    
+    This patch makes geninfo's gcno file parser more robust by assuming
+    end-of-file when it finds a record that extends beyond the end-of-file.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 14286b29d076208452da6021c792ebf43552ac2c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Dec 13 15:23:27 2013 +0000
+
+    geninfo: make gcov tool version detection more robust
+    
+    Don't consider gcov tool version information in parenthesis when
+    determining the gcov tool version. This fixes problems where the
+    version string contains a different version number in parenthesis
+    before the actual gcov version.
+    
+    Signed-off-by: Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
+
+[33mcommit 0bde87338cd155af46804d77701c93ef263c3d53[m
+Author: Sebastian Stigler <s_stigler@gmx.de>
+Date:   Fri Dec 13 15:09:58 2013 +0000
+
+    geninfo: add exclude marker for branch coverage
+    
+    Sometimes it can be helpful to generally use branch coverage but to
+    disable it for some lines of code without excluding the line or function
+    coverage too.
+    
+    For example if you make heavily use of assertions in your code (which is
+    generally a good idea) you will see that for each 'assert(...)' exist
+    one branch which is taken and one that is not. Similarly you can see the
+    same phenomenon for 'delete' in C++ code.
+    
+    If you use the 'LCOV_EXCL_LINE' marker in such a situation both of these
+    branches will be omitted from the output. But in doing so, you loose the
+    ability to determine if this peace of code is genuine 'dead code' or not
+    because the line coverage is omitted too.
+    
+    The newly introduces 'LCOV_EXCL_BR_LINE', 'LCOV_EXCL_BR_START' and
+    'LCOV_EXCL_BR_STOP' marker address this problem. The usage is similar to
+    the 'LCOV_EXCL_LINE' etc. markers.
+    
+    Signed-off-by: Sebastian Stigler <s_stigler@gmx.de>
+
+[33mcommit 119be727596f567e83b03de384b4150b926911a3[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Dec 12 14:58:44 2013 +0000
+
+    geninfo: Fix handling of non-english locales
+    
+    geninfo expects gcov output in the default C locale. This isn't always
+    given, for example when running in an environment where variable
+    LANGUAGE is set to a non-english locale. In such cases gcov output
+    cannot be correctly parsed, resulting for example in the absence of
+    branch coverage data.
+    
+    gcov uses gettext() for writing internationalized messages. The info
+    page for gettext mentions the order in which locale-defining
+    environment variables are evaluated:
+    
+    LANGUAGE
+    LC_ALL
+    LC_MESSAGES
+    LANG
+    
+    In addition, gettext implements special handling where LC_ALL=C takes
+    precedence over LANGUAGE.
+    
+    geninfo currently only specifies LANG=C. Fix the issue by specifying
+    LC_ALL=C instead.
+    
+    Based on fix suggestion by Sebastian Stigler.
+    
+    Reported-by: Sebastian Stigler <s_stigler@gmx.de>
+
+[33mcommit 0f7bb3ebc8487b83ce9b7047c81a3655135876ea[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Dec 9 15:49:35 2013 +0000
+
+    lcov: Added contribution guidelines
+
+[33mcommit f83688fe27f133ef02e9ab47a435d6a5d2074932[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 2 07:29:20 2013 +0000
+
+    geninfo: fix --no-external not working with --initial
+    
+    When running lcov --capture --initial together with --no-external.
+    the --no-external has no effect. Fix this by applying the external
+    filtering also for graph files.
+    
+    Reported-by: malcolm.parsons@gmail.com
+
+[33mcommit 6a8a678046bd75aa81d30484b1817425022d71e5[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jul 1 11:49:46 2013 +0000
+
+    lcov: fix --config-file not being passed to geninfo
+    
+    Calling lcov to capture coverage data while specifying --config-file
+    will result in the configuration directives of that file not being
+    used during data collection.
+    
+    Fix this by ensuring that --config-file is passed on to geninfo.
+    
+    Reported-by: liuyhlinux@gmail.com
+
+[33mcommit c3be5b6859ef280b469b6b75cf4709fc35f91ced[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu May 2 11:02:24 2013 +0000
+
+    lcov: fix whitespace handling in --rc command line option
+    
+    Specifying blanks around --rc options results in the options not
+    being correctly recognized, for example:
+    
+    This doesn't work:
+    geninfo . -o - --rc="geninfo_adjust_src_path = /tmp => /usr"
+    
+    This works:
+    geninfo . -o - --rc="geninfo_adjust_src_path=/tmp => /usr"
+    
+    Fix this by automatically removing whitespaces at the start and end
+    of --rc options and values.
+
+[33mcommit 4699f8d391325335777ed234e388be2e2f87478c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Apr 12 07:51:34 2013 +0000
+
+    README: improve usage hint
+
+[33mcommit 36e0539737198ad1bee51103f47842f13c575239[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Mar 13 10:28:07 2013 +0000
+
+    genhtml: add time to date string
+    
+    Add the current time to the date information in the HTML output
+    generated by genhtml. This way users can differentiate results when
+    creating HTML output multiple times a day.
+    
+    Based on patch by sylvestre@debian.org.
+
+[33mcommit 38fbe93c8cd8402be8e4821825fdeeaa23e8367c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Feb 22 14:09:08 2013 +0000
+
+    geninfo: don't warn about missing .gcov files
+    
+    Newer versions of gcc remove .gcov files for source files that do
+    not contribute instrumented lines. Remove the
+    
+      WARNING: no data found for file.c
+    
+    warning that geninfo issues in this case.
+
+[33mcommit 29346542c30af221a2ffdfe097fbd858044b712a[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Feb 1 11:44:03 2013 +0000
+
+    genhtml: fix handling of user-specified prefixes with trailing /
+    
+    A trailing / in a user-specified prefix is not correctly recognized.
+    Fix this by removing any number of trailing / in a user-specified
+    prefix. Reported by ahmed_osman@mentor.com.
+
+[33mcommit 5241e2afadca5f172bd0b8cafe61e20d2153f0bf[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 30 11:46:42 2013 +0000
+
+    lcov: fix bug when converting function data in --diff operation
+    
+    When a patch is applied to a tracefile using command line option --diff
+    and the patch changes the list of functions, the operation aborts with
+    the following error:
+    
+      lcov: Use of freed value in iteration at lcov line 3718.
+    
+    Fix by applying missing calls to keys() when iterating function data
+    hashes. Reported by Nasir.Amanullah@us.fujitsu.com.
+
+[33mcommit 9ce8d8cb4f978eb80fb88ecafd52e869fab75d8f[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 25 16:30:25 2013 +0000
+
+    lcov/genhtml: fix outdated comment regarding data structure
+
+[33mcommit c85e73a36e3f8c4e7fab888ac1536bee94a6fe56[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 25 16:29:30 2013 +0000
+
+    genhtml: merge function data during demangling
+    
+    Merge function execution counts when multiple function names demangle
+    to the same name.
+
+[33mcommit 2dfafc99c1eccbb81066436845e06a868eb3c434[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 25 11:46:28 2013 +0000
+
+    genhtml: improve function table sorting
+    
+    In the function table view, the initial view should show the functions
+    sorted by execution count because - unlike with file names - the function
+    name is not a natural order for functions (the line number would be,
+    but that is not available). Also sort functions with the same execution
+    count alphabetically for a stable order.
+    
+    Base on a suggestion by paul.bignier@hotmail.fr.
+
+[33mcommit 331a29011709a27d2ec11c6cbd6ac51dfdaf70c6[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 23 16:52:06 2013 +0000
+
+    genhtml: consolidate calls to c++filt
+    
+    When using --demanglecpp, call c++filt only once instead of per
+    function. This approach can reduce the run-time for source files
+    with a lot of overloaded functions significantly. Based on idea
+    by olly@survex.com.
+
+[33mcommit 49b877160b1d28cd6c3d8332d5d47c9c74420070[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Jan 10 09:02:32 2013 +0000
+
+    geninfo: make empty data directories non-fatal
+    
+    Emit a warning when no data file is found in a data directory
+    to allow processing of additional directories.
+    
+    Based on suggestion by rich_drake@yahoo.com.
+
+[33mcommit 3836c162c2864ed180df7d80fa03c70d17102edc[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Nov 13 09:58:53 2012 +0000
+
+    geninfo: fix parsing of gcc 4.7 gcov format
+    
+    GCC 4.7 changes the gcov format for lines which can only be reached
+    by exceptions to "=====" instead of "#####". This results in the
+    following warning:
+    
+    geninfo: Argument "=====" isn't numeric in numeric gt (>) at geninfo
+    line 1281.
+    
+    Fix this by handling "=====" correctly.
+
+[33mcommit b932f94cc83c3df169c76689533336bba4de4dba[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Oct 10 09:14:17 2012 +0000
+
+    lcov.spec: back to CVS version
+
+[33mcommit 6af00fa26e1a91a39c873ff9fa6df7fb8830ec42[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Oct 10 09:12:42 2012 +0000
+
+    lcov.spec: fix Perl dependency
+
+[33mcommit 4eac16e93db328e86e44da40e3d5e96a0301d361[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Oct 10 08:36:16 2012 +0000
+
+    lcov: update CVS version to 1.11-pre1
+
+[33mcommit b5c1bdddd1380be3ad12952ed2747df3744e227e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Oct 10 08:20:21 2012 +0000
+
+    lcov: finalizing release 1.10
+
+[33mcommit 089861768a94d0f6e827539c828f19141092f529[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Oct 10 08:07:54 2012 +0000
+
+    CHANGES: update
+
+[33mcommit 9037de17458c5d9767d201bd0599d40347a9bc41[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Oct 10 08:07:01 2012 +0000
+
+    genhtml: handle source files in root directory gracefully
+
+[33mcommit 68dd0f19da0d8d6e82375e09b97f7ffc22847db4[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Oct 9 13:58:22 2012 +0000
+
+    geninfo: add automatic detection of base directory
+    
+    Add a heuristic to automatically determine the base directory
+    when collecting coverage data. This heuristic should cover many,
+    if not most cases of build systems moving files around during
+    compilation (e.g. libtool, automake, etc.). The heuristic can be
+    enabled or disabled using the configuration file directory
+    'geninfo_auto_base'.
+
+[33mcommit 631d2b11bfde56ffca4568382abf5d90653c4141[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Oct 8 15:03:23 2012 +0000
+
+    geninfo: fix missing line data after last commit
+
+[33mcommit b1e14c4a1a0f3ccaad0c665f439624cf4588a68d[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Oct 8 13:02:45 2012 +0000
+
+    lcov: add missing help text for option --rc
+
+[33mcommit a432efff6ee8485ec0724aca4eae79a4c390a328[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Oct 5 15:53:09 2012 +0000
+
+    lcov: updated CHANGES file and copyright years
+
+[33mcommit 897322ecdb858f18e4a12f4716bbb08c067b6c9c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Oct 5 15:20:41 2012 +0000
+
+    geninfo: fix warning about unhandled .gcov files
+    
+    gcov will sometimes create .gcov files that contain no instrumented
+    line. When geninfo reads .gcno files it filters out such files,
+    resulting in the following warning:
+    
+    geninfo: WARNING: cannot find an entry for #path#to#file.gcov in
+             .gcno file, skipping file!
+    
+    Avoid this warning by not filtering out non-instrumented lines.
+
+[33mcommit 37d381ae99a66f59ea55d966f1da13a726d2efe8[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Oct 5 15:09:58 2012 +0000
+
+    genhtml: fix source path prefix calculation
+    
+    Fix the following problems of the algorithm used to identify an
+    optimal source path prefix:
+    - the last two path components (filename and first parent
+      directory) are ignored when trying to identify the optimal
+      prefix
+    - if a path prefix matches a longer path prefix, the weight
+      of the filenames associated with the latter is incorrectly
+      attributed to the former
+
+[33mcommit 263de2b40e21193ef8d11e899eb55aa52b17225d[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Oct 5 12:00:57 2012 +0000
+
+    lcov: set default for branch coverage data to disabled
+    
+    Collecting branch coverage data can significantly slow down
+    coverage data collection and processing of data files. Assuming
+    that most users are more interested in line/function coverage,
+    change defaults to not collect/process branch coverage data.
+    
+    Users can still override this default using lcov_branch_coverage=1
+    in the lcovrc file or command line option --rc lcov_branch_coverage=1
+
+[33mcommit 7e04a152683ff66e24b87f2125474c6765d4524b[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Oct 5 11:49:30 2012 +0000
+
+    geninfo: fix problems with adjust_src_path option
+    
+    Fix the following problems with adjust_src_path:
+    
+     * specifying --compat libtool=on and geninfo_adjust_src_path
+       unexpectedly sets --compat libtool=off
+     * path components that are assembled from sub-directory names are
+       not correctly adjusted
+
+[33mcommit 74e4296b6e2a0b0f164c6828c28cc82449344f08[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Oct 5 08:23:06 2012 +0000
+
+    lcov: add setting to disable function and branch coverage
+    
+    Add two new configuration file settings:
+    
+     * lcov_function_coverage and
+     * lcov_branch_coverage
+    
+    When set to zero, lcov will skip the corresponding coverage data
+    type from being collected or processed, resulting in reduced
+    memory and CPU time consumption and smaller data files.
+
+[33mcommit 37bc1a1a5f721c6b88fff4c63121c1cbb794c14f[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Oct 2 14:29:57 2012 +0000
+
+    lcovrc: clarify meaning of geninfo_external in man page
+
+[33mcommit fc4b9e21efe8f3409d9b0b90cfe7a3e8bc59a74c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Oct 2 09:12:38 2012 +0000
+
+    geninfo: fix processing of pre-3.3 gcov files
+    
+    When trying to collect coverage data for programs compiled with
+    GCC versions prior to 3.3, geninfo skips each data file with the
+    following warning:
+    
+    geninfo: WARNING: cannot find an entry for test.c.gcov in .bb file,
+    skipping file!
+    
+    Fix this by deriving the source code filename from the gcov filename
+    in case the gcov files do not follow the GCC 3.3 format.
+    
+    Reported-by: georgysebastian@gmail.com
+
+[33mcommit d1014dfcabfee2f305278a14ec8e5343e3889139[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 24 11:43:18 2012 +0000
+
+    lcov: fix problems with --rc option
+    
+    Fix error "Invalid option linkage for \"rc=s%\"" when running lcov
+    with an older version of the Getopt::Long module. Also pass --rc
+    options through lcov to geninfo.
+
+[33mcommit a9f08b79e2e7ec2b4a5c9ad27a077df8dfb46890[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Jul 24 15:41:38 2012 +0000
+
+    geninfo: implement rc option geninfo_adjust_src_path
+    
+    Provide a new lcovrc file option geninfo_adjust_src_path that users
+    can use to change incorrect source paths.
+    
+    Inspired by patch by ammon.riley@gmail.com.
+
+[33mcommit 108f805788590defda99fdf252bfb71cb749f31e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Jul 19 13:12:35 2012 +0000
+
+    lcov: implement command line option --rc
+    
+    Users can now use command line option --rc to override configuration
+    file directives.
+
+[33mcommit eeeeeca74706e88a9b8ecfef2bb3451957512e20[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 18 12:56:21 2012 +0000
+
+    lcovrc: add description for geninfo_compat setting
+
+[33mcommit f842e46149b48ff316e80f68f630bf94085e4d19[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 18 12:40:56 2012 +0000
+
+    lcov: improve --compat description
+
+[33mcommit 392a690ba31092857f7d21d0008783d87954ebce[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 18 12:13:00 2012 +0000
+
+    lcov: add missing documentation for --compat option
+    
+    Add missing sections in the geninfo and lcov man-pages for the
+    newly introduced command line option --compat. Also set the
+    default value for the hammer compatibility mode to 'auto' to
+    keep the behavior of previous releases.
+
+[33mcommit 691cab3e3aaebc295c2cfe91c43c6a7c48f1ec2b[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 18 10:40:12 2012 +0000
+
+    lcov: fix extra closing parenthesis in comment
+
+[33mcommit cef6f0ff8baa9b2b3dfb437463e7a88d3380b555[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Jul 17 11:37:13 2012 +0000
+
+    lcov: make 0%/100% exclusive to no/full coverage rate
+    
+    Ensure that coverage rates 0% and 100% are only used when no or all
+    lines/functions/branches are hit respectively. This approach is
+    implemented to allow better identification of boundary cases, and
+    to be in accordance with the behavior of the gcov tool.
+    
+    Based on suggestions by: Paul.Zimmermann@loria.fr and
+    vincent@vinc17.net
+
+[33mcommit 9cec8f7e332258c9128f1c53d61acb9f0bc17085[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 11 14:09:27 2012 +0000
+
+    geninfo: more improvements to the .gcno format auto-detection
+    
+    Suggestions by garnold@google.com:
+    - rename command line setting
+    - simplify logic
+
+[33mcommit 0bbca3bd0c1ad3e3d3fd0b6eebfc3afbbc212a85[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jul 6 14:29:27 2012 +0000
+
+    geninfo: rename compatibility setting to compatibility mode
+
+[33mcommit f30fb978662996e29517c733218292a91f5fd12b[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jul 6 09:03:27 2012 +0000
+
+    geninfo: improve detection of gcc 4.7 function records
+    
+    Suggestions by garnold@google.com:
+    - perform detection only once
+    - add warning in case detection is off but overlong strings are found
+    
+    Misc:
+    - add help text for --compat
+    - isolate detection heuristic into separate function
+    - rename corresponding compatibility setting to "gcc_4_7"
+    - allow "android_4_4_0" as alias for "gcc_4_7"
+
+[33mcommit 01321c3f170e5d24ffb3bb998441c99f5b775836[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 4 16:06:10 2012 +0000
+
+    geninfo: enable auto-detection of gcc-4.7 function record format
+    
+    gcc-4.7 introduced a modified function record format. This format
+    is in use by android toolchains and has also been ported to some
+    pre-4.7 versions of gcc. Introduce a heuristic-based auto-detection
+    to correctly handle .gcno files in these cases.
+
+[33mcommit d929600a0e2133168085e5ddea7ee832afd902b7[m
+Author: Martin Hopfeld <martin.hopfeld@sse-erfurt.de>
+Date:   Fri Jun 8 14:19:49 2012 +0000
+
+    geninfo: Make geninfo work more reliably on MSYS
+    
+    Using the lcov tools on Win7 with MSYS and MinGW 4.5.1/4.5.2
+    raised some issues for us:
+    
+    geninfo created in the for one source file in the 'SF:' line
+    paths starting with a lowercase drive letter and sometimes
+    starting with uppercase drive letters.
+    
+    This lead to inaccurate coverage results on the MSYS platform.
+    
+    This patch fixes this issue.
+
+[33mcommit 5b2751854aa19e6443fdc5fecc139595988d1e99[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon May 7 16:04:49 2012 +0000
+
+    lcov: add perl version dependency to RPM spec file
+    
+    lcov CVS (1.10 pre) seems to be broken on MSYS with perl 5.6.1.
+    The issue is the following:
+    
+      genhtml: Unknown open() mode '>>&' at /usr/bin/genhtml line 5512.
+    
+      $> perl genhtml --version
+      genhtml: LCOV version 1.10 pre (CVS 1.58)
+    
+      $> perl --version
+      This is perl, v5.6.1 built for msys
+    
+    Fortunately perl v5.8.8 is available for MSYS and genhtml works like a
+    charm with that 'new' version.
+    
+    Reported-by: Martin Hopfeld <martin.hopfeld@sse-erfurt.de>
+
+[33mcommit 83957a145d243cad0f8060e4a9ccc6cb8ed8fc09[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Apr 10 11:48:52 2012 +0000
+
+    geninfo: add support for gcc 4.7 .gcno file format
+    
+    Based on patch by berrange@redhat.com.
+
+[33mcommit 91c91dbc63d1e880d106919300c2fb37737697b0[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 20 11:53:57 2012 +0000
+
+    lcov: add new command line option --compat
+    
+    Add new option to lcov and geninfo to specify compatibility settings.
+    
+    Supported settings:
+      libtool: same as --compat-libtool
+      hammer: gcc3.3 hammer patch compatibility
+      android_4_4_0: android toolchain 4_4_0 compatibility
+
+[33mcommit 9588355790a302da680eff2f664058f78439a03e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 11 08:29:21 2011 +0000
+
+    lcov: fix problem with Objective-C functions
+    
+    Fix geninfo not recognizing function entries for Objective-C functions.
+    
+    Based on patch by abrahamh@web.de:
+    current version of lcov unfortunately not support Objective-C files.
+    In details the count of tested function is zero always and the annotated
+    lines have an offset by one if the Objective-C method have one ore more
+    arguments.
+
+[33mcommit e1acd78d1e88fe51aad96badf32555c470ee029b[m
+Author: Martin Hopfeld <martin.hopfeld@sse-erfurt.de>
+Date:   Mon May 23 08:03:13 2011 +0000
+
+    geninfo: Make geninfo handle MinGW output on MSYS.
+    
+    This patch converts path mixtures from MinGW when running on MSYS to
+    correct MSYS paths.
+    
+    In solve_relative_path() an additional conversion step will be inserted
+    when running on MSYS. This will extract the drive letter and convert the
+    remaining path from Windows pathnames to Unix Paths, which are used by
+    MSYS.
+    
+    Additionally, if no drive letter is found, the (relative) path is
+    converted to Unix style. There may be the case where Windows and Unix
+    path separators are intermixed within one path string.
+
+[33mcommit ed161e3db5cd5a7c6c8b2113930c729f001cdd4e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Dec 16 08:11:22 2010 +0000
+
+    genpng: handle empty source files
+    
+    Generating an overview PNG image for an empty source code file fails.
+    Handle this case by assuming a single empty line when run for an empty
+    source code file.
+    
+    Reported by: sylvestre@debian.org
+
+[33mcommit 95e2c5c337d281b4e88144d95d29bbec183c8728[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Dec 7 08:40:09 2010 +0000
+
+    genhtml: add note to further explain branch coverage output
+
+[33mcommit b1c66916151dd4b20998c79f81edf174659ebb14[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Dec 7 08:29:45 2010 +0000
+
+    genhtml: fixed incorrect description of default coverage rates
+
+[33mcommit 1994be7d8ed472772b884063af74235f2f25ab39[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Nov 19 16:33:25 2010 +0000
+
+    geninfo: add missing man page sections
+    
+    Add sections describing options --derive-func-data and --no-markers to
+    the geninfo man page.
+
+[33mcommit 01a393ef76092e43ebd2d8bf7892ebf375481a84[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Nov 19 16:15:27 2010 +0000
+
+    geninfo: remove help text for unimplemented parameter
+    
+    Parameter --function-coverage was removed but the help text still
+    mentions it. Fix this by removing the option from the help text as
+    well.
+
+[33mcommit b92f99d9db0af131080c462300dc9baf292a8ff6[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Nov 19 16:00:22 2010 +0000
+
+    genhtml: handle special characters in file and directory names
+    
+    HTML special characters (e.g. '<') found in file or directory names are
+    not correctly shown in HTML output. Fix this by correctly escaping such
+    characters.
+
+[33mcommit 17e158d4569d25218e79901e2d8cd03bfc7752fc[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Nov 19 15:45:01 2010 +0000
+
+    gendesc/genhtml/geninfo/genpng/lcov: handle '<' in filenames
+    
+    Use 3-arg open mode to prevent that a special character (e.g. '<')
+    found in a user-specified filename interfers with the required open
+    mode for that file.
+
+[33mcommit b87e40e475c560bdc88206df4de6dc8cf094d91f[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Nov 19 15:11:53 2010 +0000
+
+    geninfo: ignore <built-in>.gcov files
+    
+    The gcov tool will sometimes create a file <built-in>.gcov for code
+    which was added by gcc itself during compilation. Since there isn't
+    any source available for such code, geninfo will fail. Fix this
+    by skipping these files while capturing code coverage data.
+
+[33mcommit 398d8f385423927b5675c1429f58c67b6a89a1a8[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Oct 28 14:17:57 2010 +0000
+
+    geninfo: add function comment
+    
+    Add comment explaining data structures used by function derive_data.
+
+[33mcommit f5c2072e0e7195d35455db50705884e7f6c5fbe5[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Oct 28 14:16:34 2010 +0000
+
+    geninfo: apply exclusion marker to derived function data
+    
+    When option --derive-func-data is used together with exclusion markers,
+    function data for excluded lines is still included. Fix this by
+    only deriving function data for lines which are instrumented and not
+    excluded.
+    
+    Reported by: bettse@gmail.com
+
+[33mcommit 82280b8a5a78e8a147c333c8850a556729d9d96d[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Aug 31 08:19:03 2010 +0000
+
+    geninfo: improve --debug output
+
+[33mcommit 6375a03010cb1bb22490b9d19a176188940e2f8b[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Aug 31 08:17:23 2010 +0000
+
+    gcov: add configuration file option to not use gcov's -a option
+    
+    lcov calls gcov while specifying its --all-blocks option to get more
+    detailed branch coverage data per line. It turns out that this option
+    is broken on many versions of gcov, resulting in an endless loop while
+    processing some gcov data files. There's also a slight performance
+    penalty when specifying -a.
+    
+    lcov users can opt to not use the -a option by setting configuration
+    option geninfo_gcov_all_blocks to 0 in the lcovrc file.
+
+[33mcommit 7706fb73ebef8060fbbd92c0e08b5d68a2cd284e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Aug 24 16:15:53 2010 +0000
+
+    lcov: add option to specify a configuration file
+    
+    Provide an option for users to specify a configuration file to lcov.
+    This option may be useful when there is a need to run several instances
+    of a tool with different configuration file options in parallel.
+
+[33mcommit a404dafc2da12608a936afeb095d68410fa49b0a[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Aug 23 16:14:37 2010 +0000
+
+    lcov: add option to display summary coverage information
+    
+    Provide an option for users to determine the summary coverage
+    information of one or more tracefiles. Example output:
+    
+    Summary coverage rate:
+      lines......: 26.0% (78132 of 300355 lines)
+      functions..: 34.9% (8413 of 24081 functions)
+      branches...: 16.9% (32610 of 193495 branches)
+
+[33mcommit 526b5b6a43f2b29f11eb02c1dd8f645293d8c295[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Aug 23 14:47:43 2010 +0000
+
+    lcov: add option to exclude external files
+    
+    Implement an option for users to specify that external source files
+    should be excluded when capturing coverage data. External source files
+    are files which are not located in the directories specified by the
+    --directory and --base-directory options of lcov/geninfo.
+
+[33mcommit c2255a0344648dc6eaef0189c53f345fdc70ed4e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 20 14:58:48 2010 +0000
+
+    lcov: pass --no-recursion to geninfo
+    
+    When specifying --no-recursion, make sure that the option is also passed
+    to the helper tool geninfo.
+
+[33mcommit 83543f3d21b5a5496b57c8d73e8e9c1819f82f34[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 20 14:31:59 2010 +0000
+
+    genhtml: fix HTML page title for directory pages
+
+[33mcommit b77df8ef1a69de3809e0b0bfa5cbbe5a84f313ae[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 20 14:27:19 2010 +0000
+
+    genhtml: make HTML charset specification customizable
+    
+    Provide a configuration file setting to adjust the charset specification
+    used by all generated HTML pages. Also change the default charset to
+    UTF-8.
+
+[33mcommit 1ff260462a67c440dc709d34c1fadf7d64760120[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 20 13:14:50 2010 +0000
+
+    lcov: follow Perl naming guidelines
+
+[33mcommit f637eb8c6ecb793b64eeb6bea57c6be8501d1484[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 20 13:08:25 2010 +0000
+
+    genhtml: add --ignore-errors option
+    
+    Provide a means for users to specify that genhtml should not abort if
+    it cannot read a source code file. Also make handling of --ignore-errors
+    parameter consistent accross lcov, geninfo and genhtml.
+
+[33mcommit 617bced393d5bb97e3409ec140768d9c8a2e2bfb[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 6 11:25:12 2010 +0000
+
+    lcov: update CVS version to 1.10
+
+[33mcommit 4dcb4f0ed014ca0f49859ef84fc9ced650f6deb8[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 6 11:14:38 2010 +0000
+
+    lcov: finalizing release 1.9
+
+[33mcommit 594779e047eed2f534905ac40912969955d3797f[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 5 16:17:44 2010 +0000
+
+    lcov: update CHANGES file in preparation of new release
+
+[33mcommit fbbd9034e7a4ea4bc59342b22bfbe9612dd4bdb8[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 5 15:11:56 2010 +0000
+
+    lcov: introduce configuration file parameters for list output
+    
+    Make some aspects of list output customizable via configuration
+    file parameters. Also introduce special handling, if the root
+    directory is chosen as prefix.
+
+[33mcommit c6e783c1a1d3fb6db7419af95f9e2dcb89836fe9[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 5 14:07:35 2010 +0000
+
+    lcov: switch coverage rate and number columns in list view
+    
+    To be more consistent with the order of output in the "Overall
+    coverage rate" case, rates are now shown first in the list output.
+
+[33mcommit 3c87b66c68c2e06811c9be479c6813cb409e5461[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 5 11:22:12 2010 +0000
+
+    lcov: fix display of total line coverage rate in list view
+
+[33mcommit 3cb6bc4ae0ef34aa63931d63f659f1ef43804c77[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Aug 4 16:15:19 2010 +0000
+
+    lcov: more lcov --list improvement
+    
+    Further improve list output to increase readability.
+
+[33mcommit dd98ff68ad143b985a728fc585c86d69e6027bd8[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 28 14:49:47 2010 +0000
+
+    lcov: minor list improvement
+
+[33mcommit d4778c75ce8cf3c9d44607b6fd0e385db71126dd[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 28 14:48:25 2010 +0000
+
+    geninfo: remove unneeded functions
+
+[33mcommit 65a15afef3430c49c9c7c0d151cc2afec5fc83cc[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 28 14:19:09 2010 +0000
+
+    geninfo: print note on branch coverage data only once
+
+[33mcommit bd8ab633298ec27acf5f7db4b2cc4766baf1f153[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 28 14:17:59 2010 +0000
+
+    geninfo: remove incorrect overall coverage rate calculation
+    
+    geninfo output showing the overall coverage rate of its current
+    operation is incorrect since it may count lines, functions and
+    branches for included files multiple times. Remove the output
+    and associated code until a fixed version is available.
+
+[33mcommit 8c54de96a1326b7ee0632773816c52eda43393e8[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 28 13:56:26 2010 +0000
+
+    lcov: more list output fixes
+
+[33mcommit 7e5fa9900d991320677c381db747c764495b2cc2[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 28 13:52:01 2010 +0000
+
+    lcov: fix list output
+    
+    Fix list output for directories with short filenames.
+
+[33mcommit badd4790c70bd8ef8b991a9d56d0e062b28006a8[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jul 26 13:33:18 2010 +0000
+
+    lcov: fix problem when using --initial and --kernel-directory
+    
+    Fix a problem in lcov that resulted in --kernel-directory options
+    being ignored when specifying --initial at the same time.
+    
+    Reported by hjia@redhat.com.
+
+[33mcommit a06c2038babb2f6d3e0a634cd298b0434041f834[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jul 19 16:06:15 2010 +0000
+
+    genhtml: change wording for branches which were not executed
+    
+    Since gcov sometimes reports both branches which were never executed
+    as well as branches which were executed in a single block, the wording
+    of the HTML alt text needs to be adjusted accordingly.
+
+[33mcommit e6b2491823ffd84c85406145031646af675170ee[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jul 19 15:50:02 2010 +0000
+
+    geninfo: handle branches in unnamed blocks
+    
+    gcov will sometimes report branches outside of a block. In that case,
+    account these branches to a special block so that they are not
+    accidentally merged with subsequently reported blocks.
+
+[33mcommit d6c82edf2117ce8b6232c998baf06c7a87269081[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jul 19 15:23:10 2010 +0000
+
+    genhtml: fix branch formatting code
+    
+    Fix the vertical alignment of the HTML representation of branches in
+    the source code view.
+
+[33mcommit 44ac74a47e25064ad1b421f65a28d057fdb9925d[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jul 19 14:27:08 2010 +0000
+
+    lcov: improve list output
+    
+    Improve list output by separating directory and file names. Also provide
+    an option to show full path names.
+
+[33mcommit 0ab6f7507f3c4f074bec41e571ff1afbeb943185[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jul 19 12:12:43 2010 +0000
+
+    genhtml: fix large numbers being shown as negative in html output
+    
+    genhtml uses a "%d" format string for printing execution counts. For
+    counts exceeding integer range, the output becomes negative. Fix this
+    by using the "%.0f" format string instead.
+    
+    Reported by kkyriako@yahoo.com.
+
+[33mcommit bbf0ef40a51dd716c544f91576cffde7986bb6ec[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jun 7 12:22:18 2010 +0000
+
+    geninfo: ensure that exclusion markers apply to --initial
+    
+    Fix a problem where exclusion markers are ignored when gathering
+    initial coverage data.
+    
+    Problem was reported by ahmed_osman@mentor.com.
+
+[33mcommit b371fc59fa52f7176f62f382457fba498f39f4b2[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Jun 1 13:48:29 2010 +0000
+
+    lcov: fix problem with relative path names
+    
+    Fix a problem where coverage data is missing because gcov produces
+    output files starting with a dot.
+    
+    Problem reported by weston_schmidt@open-roadster.com.
+
+[33mcommit 93c70ddd0edbc2b0addf9d135dfd76871cc7a160[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Sun Feb 28 20:57:37 2010 +0000
+
+    lcov: fix problem with relative paths in build paths
+    
+    When binaries are built using relative paths, lcov cannot find any
+    coverage data. Instead, warnings similar to the following are printed:
+    
+    geninfo: WARNING: cannot find an entry for ^#src#test.c.gcov in .gcno
+    file, skipping file!
+    
+    The reason for this is that File::Spec::rel2abs does not remove ../ from
+    paths which results in lcov not being able to match the relative and
+    absolute versions of the corresponding filenames. Fix this by using the
+    internal function solve_relative_path instead.
+
+[33mcommit fad24a75cc69364d002d40e4fb75736b0efbdb37[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Sun Feb 21 14:57:52 2010 +0000
+
+    geninfo: write all debugging output to STDERR
+
+[33mcommit c0943385fa0acb927f63f9f78c9aeaebe3a8ece1[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Sun Feb 21 14:56:46 2010 +0000
+
+    geninfo: fix problem with some .gcno files
+    
+    Some .gcno files contain more data in a line record than
+    expected. Skip unhandled bytes of a .gcno file record.
+    This prevents the following unexpected error message:
+    
+    geninfo: ERROR: file.gcno: reached unexpected end of file
+
+[33mcommit 4b9ee7598e991b503425148eb43a35de2702aded[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Sun Feb 7 13:07:09 2010 +0000
+
+    lcov: add COPYING file
+
+[33mcommit de0e43a098ade45d6624ea43a53e6fad9a176469[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 29 11:07:25 2010 +0000
+
+    lcov: update CVS version to 1.9
+
+[33mcommit 4a33269fa3a73ea2577f7616d90bd3f1d14ae460[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 29 10:09:53 2010 +0000
+
+    lcov: finalizing release 1.8
+
+[33mcommit 310ffb28d8847f96e02b5a5db3d16bdcb406a876[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 29 10:01:35 2010 +0000
+
+    lcov: updated CHANGES file
+
+[33mcommit 9e12808e6108e05dca42b5e682bd8be121f3608d[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 29 09:21:22 2010 +0000
+
+    genhtml: use sans-serif font for function table
+
+[33mcommit 71baabb6a1c15228213f8b25359346ee202300ce[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 29 09:12:55 2010 +0000
+
+    lcov: improve list output
+
+[33mcommit cc61a28dbc3c46ac84340141fafbfa559e1bf318[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 29 08:56:19 2010 +0000
+
+    lcov: fix overall rate display for tracefiles with more than one testcase
+
+[33mcommit b89028529db5110b3b76d117df788768a593d7dd[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 29 08:44:47 2010 +0000
+
+    lcov/genhtml: fix warning while merging branch data
+
+[33mcommit b7c69f31d9b1bfbd4bfc0fcb880cb8e514bcdb3f[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Jan 28 15:59:23 2010 +0000
+
+    lcov: fix branch coverage related issues
+    
+    - warnings when combining certain combinations of branch data
+    - branches are not merged correctly when multiple input files are specified
+      to genhtml or when lcov -a is used
+
+[33mcommit 817875459df122fa3536a5e57c05ddfae19a089e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 27 16:37:50 2010 +0000
+
+    gendesc: fix problem with single word descriptions
+
+[33mcommit 33f60f48747b5ba12a6fdfb505bb662c922496bd[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 27 12:10:04 2010 +0000
+
+    lcov: remove temporary files when creating a package
+
+[33mcommit 6775457cbd3fa86acba4655d77b4ba2054b13253[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 27 12:00:05 2010 +0000
+
+    lcov: correctly retain information about converted test data
+
+[33mcommit f4d13eccc54f31a53ad109c3c4b86e4b52d6dfcb[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 27 10:17:43 2010 +0000
+
+    lcov. fixed overview output for function data
+
+[33mcommit aa00c65b7514c93320c1c787b848c8277593dcb0[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Jan 26 09:36:19 2010 +0000
+
+    genhtml: don't use too much gcc-specific terms (basic block -> block)
+
+[33mcommit 3562f60b9500d8ad167c4629e9d95485308aa665[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:17:37 2010 +0000
+
+    lcov: consolidate coverage rate classification limits
+    
+    Classifying coverage rates per coverage type (line, function or branch
+    coverage) is not useful in most cases. Also the respective
+    color legend takes up too much space in the HTML output. Remove
+    function and branch coverage rates from the documentation and from
+    the color legend. Instead the original limits will be applied to those
+    coverage types as well. The per type rates can still be used if required
+    but it is recommended to only use one rate set.
+
+[33mcommit d77dc6a0adf259e322ac9f35c93241d446269a5b[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:16:47 2010 +0000
+
+    lcov: minor code cleanup
+    
+    - remove unused function definitions and declarations
+    - remove unused CSS declarations
+    - add missing function declarations
+    - fix function prototypes
+
+[33mcommit b3243d1fdc17571ca9b1ed6a1ea975a9b3f1b86b[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:16:15 2010 +0000
+
+    geninfo: consolidate similar functions
+
+[33mcommit 739e2bca054c69975594c2570049e8aa9ae1b5ce[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:15:35 2010 +0000
+
+    lcov: add coverage result output to more operations
+
+[33mcommit 0a31d3c0696015c5e4878e821529eba45451c3dd[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:14:57 2010 +0000
+
+    lcov: minor cosmetic HTML changes
+    
+    - top level view is now named "top-level"
+    - use sans-serif font for coverage values in file list
+    - use smaller font for show/hide details link
+    - use smaller font for function/source view link
+    - use smaller font for show descriptions link
+
+[33mcommit b631fa0cb9aabdf18f9365423f0b0bf85d6b8e16[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:14:27 2010 +0000
+
+    lcov: improve color legend
+    
+    Move color legend closer to the table containing coverage rates.
+
+[33mcommit 2aeeeafb31c36ccd1a51051f040e29a9fcf59df2[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:13:58 2010 +0000
+
+    lcov: implement branch coverage
+
+[33mcommit 49dfe22f41b6c3edcb774dfb89b1a807ce7aee6c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:13:34 2010 +0000
+
+    genhtml: implement branch coverage
+
+[33mcommit 6aa2422401bb854c9710f5ed2936f06e487848c5[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:13:07 2010 +0000
+
+    geninfo: implement branch coverage
+
+[33mcommit ca2c9781b0a512bd6789eac2b6840405e2d87330[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 22 16:12:27 2010 +0000
+
+    geninfo: consolidate handling of extra gcov parameters
+
+[33mcommit 9d9c964eb6ece00b15ef068f176c68cb0eedfda0[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Jan 21 11:26:34 2010 +0000
+
+    lcov: minor fix for lcov --diff
+
+[33mcommit 4306f81d1e8446a89fe83d20cd71abe075a3cd61[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Jan 21 10:23:35 2010 +0000
+
+    lcov: improve lcov --list output
+
+[33mcommit 3242ce1bae94cfd859c3bc964fab11f85bd7d1ed[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 20 17:13:28 2010 +0000
+
+    lcov: unify data order in tracefiles
+
+[33mcommit 8f53b2e8dbbe5580050fbe0c604bd9a9322735a7[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 20 16:05:56 2010 +0000
+
+    lcov: fix bug when applying baseline files without function coverage data
+    
+    Fix the following error that occurs when genthml's --baseline-file option
+    is used on files which do not contain any function data:
+    
+    genhtml: Can't use an undefined value as a HASH reference at ./lcov/bin/genhtml line 4441.
+
+[33mcommit 96fcd676d5ac9c1eb9f83f3dc4c3089ba478baad[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 20 15:28:21 2010 +0000
+
+    lcov: resolve short-name option ambiguities
+
+[33mcommit f1d34d49b394a13c33c7a5b51f04e5dfbded5d26[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 20 14:47:50 2010 +0000
+
+    lcov: fix error messages
+
+[33mcommit 89ff61aa7cd2ca23b8cacd649288ecf7f67746de[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 20 08:35:20 2010 +0000
+
+    lcov: fix bug when using genhtml's --baseline-file option
+    
+    Fix the following error message when trying to use genhtml's
+    --baseline-file option:
+    
+    genhtml: Undefined subroutine &main::add_fnccounts called at
+    /home/oberpar/bin/genhtml line 4560.
+    
+    Reported by Brian DeGeeter <sixarm@gmail.com>
+
+[33mcommit c3df3a8504b06ca32b9863fdb2abb8cf0ce62251[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jan 18 09:17:17 2010 +0000
+
+    lcov: ensure LANG=C before calling gcov
+    
+    Fix problem calling lcov when LANG is not set to an english locale.
+    Reported by benoit_belbezet@yahoo.fr.
+
+[33mcommit d945f23345e02ca535d740782e7ae10cb3396b8c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Nov 18 09:39:21 2009 +0000
+
+    lcov: more version fixup
+
+[33mcommit 413249e6336cff432083954e6ed47236dd35f647[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Nov 18 09:38:03 2009 +0000
+
+    lcov: fix version fixup
+
+[33mcommit d0b7148e2d76164e5ea091fe56035c24f7dce22a[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Nov 18 09:34:45 2009 +0000
+
+    lcov: add more CVS versioning
+
+[33mcommit 4e0219f918a15cbc9ff40d0e0e4dab91ac073f72[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Nov 18 09:14:56 2009 +0000
+
+    lcov: add CVS revision number to version output
+
+[33mcommit 34154c2d48497d9aad41ec1452ba94dd4cbce881[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Oct 30 14:18:45 2009 +0000
+
+    lcov: further clarification in the README
+
+[33mcommit 7a4ab1340dd7f88ba0fb56a7b0eb368bf2d0112e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Oct 30 13:58:56 2009 +0000
+
+    lcov: update README to mention required -lgcov switch during linking
+
+[33mcommit 3fa5b311b123af84debbd774baa4a1cd30e7085b[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Oct 27 16:54:41 2009 +0000
+
+    lcov: remove further unneeded warning
+    
+    ... + use correct source for list of filenames
+
+[33mcommit cd4051719e72129f4abf1ad177269bf14031f83a[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Oct 27 16:19:05 2009 +0000
+
+    lcov: fix problem with matching filename
+    
+    - used correct source for filenames
+    - converted match_filenames to portable version
+
+[33mcommit 0d0ff8a9945260eebed6d316aa08c0021faf3549[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Oct 27 15:29:41 2009 +0000
+
+    lcov: remove unnecessary warning
+
+[33mcommit 6c711d664c38d18f788ee8a5239586cd4a5b77d9[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Oct 26 14:21:40 2009 +0000
+
+    lcov: improve derive-func-data option
+    
+    - rewrite graph file handling
+    - make derive data look at all lines belonging to a function to find
+      out whether it has been hit or not
+    - introduce --debug option to better debug problems with graph files
+
+[33mcommit 214cda20c4b591a823045f35b73f2a16221c9aa1[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Oct 1 15:26:58 2009 +0000
+
+    lcov: introduce new options --derive-func-data
+    
+    When using a gcov version that does not provide function data,
+    this option will attempt to guess the function coverage data
+    for a function by looking at the number of times that the first
+    line of that function was called.
+
+[33mcommit 9a75125895fd07a775a2a25f2cbe66b9fbf332d6[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Oct 1 11:49:53 2009 +0000
+
+    lcov: ignore incomplete function names in .bb files
+    
+    - don't abort processing when an incomplete function name is
+      encountered in a .bb file (gcc 2.95.3 adds those)
+    - fix filename prefix detection
+
+[33mcommit d5ab6076a0bfc5ad80652ba592583f7fc7946dc6[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Sep 28 12:27:09 2009 +0000
+
+    lcov: improve detection of gcov-kernel support
+
+[33mcommit 3cca782fcac9c4ea54adcebe75e1f047a8dca636[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Sep 22 13:44:04 2009 +0000
+
+    lcov: fix problem with CONFIG_MODVERSIONS
+    
+    Make geninfo work with Linux 2.6.31 and CONFIG_MODVERSIONS.
+
+[33mcommit 8af873f44c104cd214b796e13b916718fc8f6f99[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Sep 16 15:24:51 2009 +0000
+
+    lcov: remove default for gcov_dir so that auto-sensing works
+    
+    Fix problem with lcov not finding kernel coverage data at
+    /sys/kernel/debug/gcov because the default system-wide
+    lcovrc file contained a specification for the gcov directory
+    which prevented auto-detection from working.
+
+[33mcommit 50f90681af4d105a52b5b0dbf4f0bfd04369ffd2[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 27 10:14:23 2009 +0000
+
+    lcov: apply excluded lines also to function coverage data
+
+[33mcommit 4aeb840d25c85a419171970e1a445aeb81079e53[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 27 09:23:13 2009 +0000
+
+    lcov: fix help text typo
+
+[33mcommit c17a783f87aa8e42949131d2fbc1c540bb3751a3[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 27 09:22:43 2009 +0000
+
+    lcov: add exclusion markers
+    
+    Users can exclude lines of code from coverage reports by adding keywords
+    to the source code.
+
+[33mcommit 445715c88337c13ce496bd05423ee5e58d84705c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 14 08:19:26 2009 +0000
+
+    lcov: ignore gcov errors for unnamed source files
+    
+    When specifying "--ignore-errors gcov", lcov/geninfo should not abort when
+    they cannot read a .gcov file. Fix this by introducing warnings in the
+    respective places.
+
+[33mcommit 0e23f03a9ce130e8ebec679fb5a9a6f854efbee5[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 6 12:34:04 2009 +0000
+
+    lcov: improvements
+    
+    - added --from-package and --to-package options
+    - improved gcov-kernel handling
+
+[33mcommit 17a05bdf646870cd61794274c7165211c93c82f9[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Jul 23 12:45:15 2009 +0000
+
+    lcov: fix kernel capture for new gcov-kernel version
+    
+    - fix problems when compiling without O=
+
+[33mcommit 64e302b9134b6098852cad2e6180e0722f2dea41[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Jul 21 15:42:44 2009 +0000
+
+    lcov: improve lcov -l output
+
+[33mcommit cea6941ef36d0860330b6e94f8c6096dca78ca58[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Jul 21 09:10:49 2009 +0000
+
+    lcov: add support for the linux-2.6.31 upstream gcov kernel support
+
+[33mcommit 04470d2b25808f195d338112155b9f7db405d902[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Apr 22 09:13:12 2009 +0000
+
+    genhtml: fix warning about undefined value used
+    
+    nikita@zhuk.fi:
+    genhtml.patch checks that $funcdata->{$func} is defined before using
+    it - I got few "undefined value used" warnings without this check.
+
+[33mcommit a12d4f9a5d36232b928be12b7cbfaa9a00b3a923[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Apr 22 09:08:19 2009 +0000
+
+    genpng: fix runtime-warning
+    
+    - when called from within genhtml, genpng would warn about warn_handler
+      being redefined
+
+[33mcommit d0b5641c62bbdac89757b9ff185a7aa3f38fc0bb[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Mar 13 09:58:00 2009 +0000
+
+    lcov: improve function name filtering
+    
+    Only remove those characters from function names which would conflict
+    with internal delimiters.
+
+[33mcommit fbafa4a5628a639544e83f88083082c685677c36[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Feb 13 15:04:40 2009 +0000
+
+    genhtml: minor man page update
+
+[33mcommit 085a2150e38a3c1bdadb5af23c0a8a8a79dc4b0d[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Feb 13 14:56:45 2009 +0000
+
+    genhtml: added --demangle-cpp option
+    
+    - used to convert C++ internal function names to human readable format
+    - based on a patch by slava.semushin@gmail.com
+
+[33mcommit 53f3ed4afb45a2a4248314b677d36377598cc73c[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Feb 13 14:07:46 2009 +0000
+
+    genhtml: update comment
+
+[33mcommit 3c2b2e8541387506fd514d183f9a4a63c07c0aa4[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Feb 12 17:01:19 2009 +0000
+
+    genhtml: fix error when combining tracefiles without function data
+    
+    - genhtml: Can't use an undefined value as a HASH reference at genhtml
+      line 1506.
+    - bug reported by richard.corden@gmail.com
+
+[33mcommit 22397370ada6893b6e9a1c3f6ad0aba7f4864f81[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Feb 11 09:31:24 2009 +0000
+
+    lcov: fix error when combining tracefiles without function data
+    
+    - lcov: Can't use an undefined value as a HASH reference at lcov line
+      1341.
+    - bug reported by richard.corden@gmail.com
+
+[33mcommit 24ec53ae83acdd35682ba757adae23750bd4c623[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Feb 9 16:15:49 2009 +0000
+
+    lcov: fix warning when $HOME is not set
+    
+    - based on patch by acalando@free.fr
+
+[33mcommit 5da3521d5a438db0a21e93b0d14ea5a3cdab14d9[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Feb 9 12:41:44 2009 +0000
+
+    lcov: use install -pD -m <mode> for file installation
+
+[33mcommit bdce1bda2ac1a86aa6dfefae8e18353ba57afe4b[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Feb 9 09:46:00 2009 +0000
+
+    lcov: fix double-counting of function data
+
+[33mcommit ea62c4e701abb05dd560ef22b52a4a72c17660e8[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 21 16:33:29 2009 +0000
+
+    geninfo: need to add CR removal to geninfo as well
+    
+    ... or checksumming will fail
+
+[33mcommit 70be5df7d58a393e27cee178df669c12ec670c5a[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 21 16:24:01 2009 +0000
+
+    lcov: modify end-of-line CR removal
+    
+    - s///g is 10% slower than s/// - \r may be 0x10 or 0x13 (see man
+      perlport)
+
+[33mcommit d8df4b0f83ff175f1a06afb693903ee1a93ec377[m
+Author: Michael Knigge <michael.knigge@set-software.de>
+Date:   Tue Jan 20 11:41:39 2009 +0000
+
+    lcov: remove CRLF line breaks in source code when generating html output
+    
+    - added patch by michael.knigge@set-software.de
+
+[33mcommit 442cca7e69356e7f8ba03bd95f7813576bd197cc[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Nov 17 14:11:20 2008 +0000
+
+    lcov: updated CVS version to 1.8
+
+[33mcommit 5c5c85a1c090360facd50cb089b8af98f0b37c47[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Nov 17 13:55:52 2008 +0000
+
+    lcov: version + date updates
+
+[33mcommit 9f6a735809c23559b861e97a20af55a66b6b96bb[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Nov 17 13:49:43 2008 +0000
+
+    lcov: fix spec file bug
+
+[33mcommit 11483dc0b56d326718edcd31d06458143add858f[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Nov 17 13:44:38 2008 +0000
+
+    lcov: update error and warning messages
+
+[33mcommit 4dd11b80d14e34fee2e75b3fe8c7aa163f61ad1d[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Nov 17 12:48:03 2008 +0000
+
+    lcov: preparations for release 1.7
+
+[33mcommit b847ed6f3103a4c9f0a48417b9c3f160b9e00557[m
+Author: Jeff Connelly <jeffconnelly@users.sourceforge.net>
+Date:   Fri Oct 10 07:54:47 2008 +0000
+
+    lcov: geninfo chokes on spaces in the directory name
+    
+    In lcov 1.6, geninfo fails to find gcno/gcda files if the source directory
+    has spaces in the name, because it uses backticks to shell out to "find",
+    passing $directory on the command-line.
+    
+    Attached is a patch that double-quotes the variable, allowing geninfo to
+    operate on directories with spaces in their name. The fix isn't perfect; it
+    won't work on directories with a " character, but it works fine for my
+    purposes (I don't have any directories with quotes). A better fix would be
+    to use IPC::System::Simple's capturex from
+    http://search.cpan.org/~pjf/IPC-System-Simple-0.15/lib/IPC/System/Simple.pm
+    #runx(),_systemx()_and_capturex(). capturex() is a multiple-argument form
+    of the backticks, so it avoids any interpolation errors.
+
+[33mcommit ee3cdd554ee4e6d3ef5bdc9c5dcfee50de6375a7[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Aug 18 07:12:33 2008 +0000
+
+    lcov: change sorting order to low-to-high coverage
+
+[33mcommit fe665ca5ccf9d73d9ebdae17de88e181c1b9b0eb[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 15 08:38:21 2008 +0000
+
+    lcov: several changes
+    
+    - update download link
+    - unify webpage links
+    - provide --sort and --function-coverage switch + documentation
+
+[33mcommit 14137c5456f307982fed418e1e8fac65d7f086c3[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Aug 13 15:57:23 2008 +0000
+
+    lcov: fix function view page creation when --no-func is specified
+
+[33mcommit e59f7d15ffc7f1b3794a4212c53d0fb97ac7fb2a[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Aug 13 15:35:48 2008 +0000
+
+    lcov: updated versioning mechanism
+    
+    ... + fixed some man page bugs
+
+[33mcommit e933698b31bc2fb4a750d89a5755bb8155313da2[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Aug 13 14:08:23 2008 +0000
+
+    lcov: updated rpm description
+    
+    ... + summary and version strings
+
+[33mcommit 5a9660585ce39a77fa38607d0c2d2440955e7242[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Aug 13 13:53:50 2008 +0000
+
+    lcov: integrated function coverage patch
+    
+    ... by Tom Zoernen + sorting function
+
+[33mcommit d10ede8179747cfd675a3989578350c710e9bdd5[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed May 7 15:08:12 2008 +0000
+
+    lcov: --norecursion becomes --no-recursion
+    
+    + added docs
+
+[33mcommit 4096130608b9faf74c5b5feac554a10b5d9f83ce[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Feb 21 10:20:33 2008 +0000
+
+    lcov: fix error when trying to use genhtml -b
+    
+    genhtml fails when the data file contains an entry which is not
+    found in the base file.
+
+[33mcommit 9578099e13388344a6179c7cce54bfa094fd9b08[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Feb 20 17:21:51 2008 +0000
+
+    lcov: fixed problem with pre gcc-3.3 versions
+    
+    read_gcov_headers does not return valid results for pre gcc-3.3 versions.
+    Due to an unnecessary check, parsing of gcov files was aborted. Fix
+    by removing check.
+
+[33mcommit 16ec76b48fbc50c32890919e5bd0c30653719af9[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Feb 5 09:18:50 2008 +0000
+
+    lcov: adding support for gzipped html
+    
+    ... based on patch by dnozay@vmware.com
+    
+    dnozay@vmware.com: genhtml is a great tool to generate html, but the more
+    files, the more space it takes (here I have over 113MB of html generated),
+    add to that I need to have different sets, and space usage increases
+    dramatically (2.7GB). we are using browsers with htmlz support, so it would
+    be nice to have support for that in genhtml, relying on 'gzip -S z' to do
+    the job.
+
+[33mcommit f2c98a8c8581180533508eb4af41720d8566049e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jan 7 16:33:57 2008 +0000
+
+    Filter non-word characters in function name
+    
+    ... as they would break our file format which uses comma and '=' as
+    field separator.
+
+[33mcommit 37725fc78fcacaf06e6240971edc3bdd7fe3d142[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Nov 1 16:29:39 2007 +0000
+
+    lcov: fix for problem resulting in lcov aborting with "ERROR: reading string"
+
+[33mcommit 48f13fcec1b521d2daba6202ccd7ec0ec8c5ece9[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Oct 4 08:18:07 2007 +0000
+
+    lcov: workaround for gcc 4.1.0 .gcno file oddness
+    
+    scott.heavner@philips.com:
+    I'm trying to use lcov 1.6 with gcov/gcc 4.1.0. The geninfo parser was
+    aborting on a small number of .gcno files. I've patched my local copy so
+    that geninfo prints out the offset of the error and skips the remainder of
+    the problem file
+
+[33mcommit 1a805ea068db29b63a83c801f3bb1840fda8dd35[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 24 08:50:26 2007 +0000
+
+    lcov: add experimental option "--norecursion"
+
+[33mcommit 194de5071db1d9903d22164432448b73c1ec6cd0[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 23 11:08:39 2007 +0000
+
+    lcov: Makefile for post-release
+
+[33mcommit 0750f8a3e5235833711d616a3763c04103cf55a5[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Aug 23 11:04:30 2007 +0000
+
+    lcov: Makefile for release 1.6
+
+[33mcommit cb911f7a79593c89a730dc93fa54179fbf1df363[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Aug 20 10:29:35 2007 +0000
+
+    lcov: fixed spec file
+
+[33mcommit 62cefebdda87784140eb5f997ae4e575d2338298[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jul 6 07:38:47 2007 +0000
+
+    lcov: add new option --initial to get zero coverage data from graph files
+
+[33mcommit f0b6927f1ab1052b00081c662ced614a6e5f9ed7[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 4 14:38:59 2007 +0000
+
+    lcov: fixed bug that would not delete .gcda files when using -z
+
+[33mcommit 13941c3a159caf7dc6ba18a5b13e43c20fc18f2b[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 4 14:18:26 2007 +0000
+
+    lcov: another update in preparation for a new release
+
+[33mcommit d25e630a77ef2d0f69139058322269387866e414[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jul 4 13:13:22 2007 +0000
+
+    lcov: man page update
+
+[33mcommit 7844b915af5402441df9ab0423e4c20ef9a2632f[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Jul 3 16:43:05 2007 +0000
+
+    lcov: update manpage
+
+[33mcommit 5adaa72bfb32737d18c328492777c1c6116d4a9e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jul 2 15:29:02 2007 +0000
+
+    lcov: preparations for new release
+    
+    - updated CHANGES file
+    - added compat-libtool + no-compat-libtool option
+    - changed libtool default to on (due to popular request)
+    - added checksum option
+    - changed checksum default to off (to reduce cpu time + file size)
+    - added geninfo_checksum option to lcovrc, deprecated
+      geninfo_no_checksum
+    - added geninfo_compat_libtool option to lcovrc
+    - minor update of README file
+
+[33mcommit 6cbfd5022703a6198e1a1e2a2ddddcc0b90f5334[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue May 22 08:11:44 2007 +0000
+
+    lcov: minor help text update
+
+[33mcommit 2416ed02ba299c4d0bceb1e47c214b7dec066d7a[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Mar 7 14:59:25 2007 +0000
+
+    lcov
+    
+    - add --ignore-errors option to lcov/geninfo
+    - add --gcov-tool option to lcov/geninfo
+    - remove s390 test case modification in geninfo
+    - restructured help text for lcov/geninfo
+
+[33mcommit a13375811717d3ada718e6f52364e4344a7e3187[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jan 8 17:07:21 2007 +0000
+
+    lcov
+    
+    - re-added libtool compatibility workaround patch by
+      thomas@apestaart.org
+    - added new lcov/geninfo-option --compat_libtool to activate libtool
+      compatibility patch
+
+[33mcommit 14871d7b097282819db60266d8b8a38506d7b14a[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Nov 14 11:45:17 2006 +0000
+
+    lcov
+    
+    Fix for problem found by Joerg Hohwieler: lcov -k doesn't work if -k is
+    specified more than once.
+
+[33mcommit 43b52b37006822c0fca12548bc72fecc957342ca[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Jun 26 15:48:52 2006 +0000
+
+    lcov: new version for prerelease rpms
+
+[33mcommit 89e9d59709c9d9d8722170c86251090adc3b96c9[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jun 7 09:31:57 2006 +0000
+
+    lcov: removed autoupdate of copyright date (second thoughts)
+
+[33mcommit bb0cf1c9d0ed58b37c1551fea765fb1622bcacde[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jun 7 09:20:37 2006 +0000
+
+    lcov: minor cleanup (release preparations)
+
+[33mcommit 527693d753d11ac2b59fe26b923662c99e6e3715[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Apr 5 10:10:05 2006 +0000
+
+    lcov
+    
+    - added base-directory documentation
+    - updated CHANGES file
+
+[33mcommit 11ef9338cc4124801c8b61e3edd51a02e50b4c68[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Mar 20 17:09:50 2006 +0000
+
+    genhtml: added html-extension option
+
+[33mcommit 93d22308ffb410327248059b7dcdb592f85e249e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Mar 20 16:39:25 2006 +0000
+
+    genhtml
+    
+    - adding html-prolog and html-epilog options (based on patch by Marcus
+      Boerger)
+    - specified behavior when both --no-prefix and --prefix options where
+      provided
+    - small whitespace diff
+
+[33mcommit dcac095cdc00cc65930285bb6fc01d0f257ee4ed[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Feb 15 16:02:07 2006 +0000
+
+    lcov: added check for invalid characters in test names
+
+[33mcommit d89e561dfd9c5fde43350af1b145b1892d0710d0[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Dec 2 06:38:16 2005 +0000
+
+    lcov
+    
+    - updated Makefile so that people building RPMs from the CVS version get
+      a correct build version. Note: this needs to be adjusted after each
+      release!
+
+[33mcommit 1960123050f9098690768d10cd2490dd49b995f7[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Thu Nov 10 13:10:09 2005 +0000
+
+    lcov
+    
+    - fixed bug: .info file generation with new gcc 4.x compilers may fail
+      for programming languages that allow ':' in function names (c++,
+      objective c)
+    - removed special handling for libtool .libs files
+    - libtool should work with currently undocumented option --base-directory
+
+[33mcommit 479d446d3bf20a84c2933100ead279c79eeaf5c4[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Sep 7 16:24:39 2005 +0000
+
+    lcov
+    
+    - implementation of new option --base-directory (untested, undocumented)
+    - minor fix for link-traversal when looking for object directory
+    
+    TODO: document option (man page, online help), add to config file, check
+    whether libtool fix still works
+
+[33mcommit 770b94a3172f206de7f194c7497ebae14348b521[m
+Author: Robert Williamson <robbiew@users.sourceforge.net>
+Date:   Mon Jul 11 17:54:25 2005 +0000
+
+    Applied patch from Stefan Kost
+    
+    when running lcov over an uninstalled user-space apps tests, it finds
+    the .da file in the .libs directories, but does not look for the sources
+    one hierarchy up. Libtool places the object in the .libs dirs. when
+    running gcov manually one can specify -o.libs/ to produce a source.c.gov
+    file. I now have attached a patch that fixes the problem for me. please
+    do not just ignore this report. the lcov tool is so nice and it would be
+    a shame if it can not be used for normal apps.
+
+[33mcommit 79f2ff2c168150e7532046c2cdbc1e42c8b4708f[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Jun 14 11:34:59 2005 +0000
+
+    lcov
+    
+    - renamed support for modified compilers (gcc 3.3 hammer patch)
+    - fixed bugs in the support for modified compilers
+
+[33mcommit fb7dab3494fdd8b093e6a84f088f6ea07fcefe6e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Mar 15 18:02:54 2005 +0000
+
+    lcov
+    
+    Emil.Jansson@oss.teleca.se:
+    lcov 1.4 does not work with the gcc version in Mandrake Linux 10.0
+    
+    >> gcc --version
+    
+    gcc (GCC) 3.3.2 (Mandrake Linux 10.0 3.3.2-6mdk)
+    
+    This patch for geninfo fixes the problem:
+
+[33mcommit ae3fe899d824e8af8a16736a0c8104c903565a56[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Mar 8 14:23:06 2005 +0000
+
+    lcov
+    
+    - added optional legend to HTML output
+    - changed background color for "good coverage" entries to green for
+      consistency reasons
+
+[33mcommit 18b73d39fd9d6bc8829395baa612a6ed98b89efe[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Mar 2 14:49:47 2005 +0000
+
+    lcov
+    
+    - fixed rpm build process to exclude unnecessary directories in RPM
+
+[33mcommit ef6ee74df5bf1d1d104322f8fff36b5c6fda34b4[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Mar 2 12:48:29 2005 +0000
+
+    lcov
+    
+    - added man page for configuration file lcovrc
+
+[33mcommit be3afe2626d6bc72256e1873d409c737ac4391c9[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Feb 28 16:31:51 2005 +0000
+
+    lcov
+    
+    - Updated CHANGES file in preparation for a new release
+
+[33mcommit dc68ce9c804ef21bc8e149d9b468e18c1619bb54[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Nov 2 15:48:45 2004 +0000
+
+    lcov
+    
+    - temporary fix for a problem which occurs when trying to parse C++
+      coverage data generated with vanilla gcc 3.3.3
+
+[33mcommit efedc5b930ab6743ea9f47ce4ea4a1a75bd739ff[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Sep 27 13:13:51 2004 +0000
+
+    lcov
+    
+    - fix for minor bug in geninfo (access to uninitialized variable)
+      related to SLES9 compatibility test and test for existing source code
+      files
+
+[33mcommit 47943eedfbec7a12c52e7a8ccbcfaf8d0706f142[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Sep 20 14:11:16 2004 +0000
+
+    lcov
+    
+    - minor fix for regular expression used to parse .gcov files - caused
+      problems when parsing branch coverage data and when using custom
+      gcov versions
+
+[33mcommit ce6335ebd92ce017b75ee3e194e9e3ca7bc7e1f3[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Sep 14 15:52:38 2004 +0000
+
+    lcov
+    
+    - fixed bug in geninfo which would not report any FN: data for data
+      generated with gcc versions 3.4.0 and above
+
+[33mcommit 58df8af3a62fa4e60569ef300e0ddd0073bf109e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Aug 31 15:57:41 2004 +0000
+
+    lcov
+    
+    - added support for modified GCC version provided by SUSE SLES9
+
+[33mcommit 69f3bc3a0c59b35eb6882205286a68b04a8a8d22[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Aug 31 15:48:32 2004 +0000
+
+    lcov
+    
+    - fixed bug in lcov RPM spec file which would not include the global
+      config file in the package list
+
+[33mcommit 5d10ca22144ad2be885405c3683b20c0976f7562[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Aug 9 14:32:23 2004 +0000
+
+    lcov
+    
+    - fixed a bug which would cause generation of incorrect line checksums
+      when source code is not available while capturing coverage data
+    - changed default directory for temporary files from . to /tmp
+
+[33mcommit 8ee3061f23f17a5074deda0777c66c3e82b5d852[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Aug 9 11:15:02 2004 +0000
+
+    lcov
+    
+    - added configuration file support
+    - fixed Makefile error for target "uninstall"
+
+[33mcommit 58af07f0b0ca1af8c9f2b90ad1683447bb560165[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Aug 6 11:36:33 2004 +0000
+
+    lcov
+    
+    - fixed bug which would cause an error when lcov was used on a source
+      directory which contained perl regular expression special characters
+    - simplified regular expression character escaping
+    - removed unnecessary function escape_shell from lcov
+
+[33mcommit 69a6918d4cd386aff2fbff093a6e0b5ddcc46602[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Mar 30 13:27:55 2004 +0000
+
+    lcov: - added --path option to fix --diff functionality
+
+[33mcommit cbc6cb11b532e525ae8b0c0742a4fd41189ca7c2[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Mar 29 12:56:08 2004 +0000
+
+    lcov
+    
+    - Added compatibility for gcc-3.4
+    - Modified --diff function to better cope with ambiguous entries in
+      patch files
+    - Modified --capture option to use modprobe before insmod (needed for
+      2.6)
+
+[33mcommit 1cf9a02c3ea0e98cc1d8b626eaa0a2a1cbd96cf1[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Jan 30 09:42:13 2004 +0000
+
+    lcov
+    
+    - updated CHANGES file
+    - changed Makefile install path (/usr/local/bin -> /usr/bin)
+
+[33mcommit c60f0668059032cf4dc5f6c556fd6117925f535f[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Jan 14 10:14:10 2004 +0000
+
+    lcov-patch by Laurent Deniel
+    
+    avoids aborting the geninfo processing when an empty .bb file is
+    encountered (e.g. source code with no profiled statement)
+
+[33mcommit 7f2966f8f874a6c905b4d31e5aaf0f4654929044[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Dec 19 16:22:52 2003 +0000
+
+    lcov: updated references to lcov webpage to reflect recent site changes
+
+[33mcommit a3893f4eb2b4fadc4d7350324d74fa453a5ba0f3[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Dec 19 12:50:28 2003 +0000
+
+    Added changes by Laurent Deniel
+    
+    - a small patch to lcov 1.1 that introduces the --follow option (in
+      lcov & geninfo) to control whether or not links should be followed
+      while searching for .da files.
+    - a workaround for a gcov (3.2) bug which aborts with empty .da files
+      (gcov 3.3 is fixed but many distributions include gcc 3.2)
+
+[33mcommit d44f2f8e8672e31cc104c0598b0556a5949dc067[m
+Author: Paul Larson <plars@users.sourceforge.net>
+Date:   Fri Nov 21 19:34:59 2003 +0000
+
+    Fixed two buglets that caused geninfo to break with some versions of gcov.
+    
+    1. Return value for gcov --help might not be 0, expect -1 when it
+       doesn't exist
+    2. use -b instead of expanded (--branch-coverage or whatever it was)
+
+[33mcommit 5a1a33a840a665c77409f799be91cc2dce5cd3b2[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Tue Nov 18 14:06:47 2003 +0000
+
+    lcov
+    
+    - fixed function which interprets branch possibility data in geninfo
+      (branch x taken = y% would not be interpreted correctly)
+    - deactivated function which would add 'uname -a' output to testname
+      in geninfo (output in genhtml/showdetails looked unreadable, there
+      needs to be some better solution)
+
+[33mcommit e0ea03fedf43a3232c35708f882d7058998b2b3d[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Oct 10 14:18:32 2003 +0000
+
+    New function and bug fix update.
+    
+    Makefile:
+    - Added rule to build source rpm
+    
+    lcov.spec:
+    - Modified to support building source rpms
+    
+    genhtml:
+    - Fixed bug which would not correctly associate data sets with an empty
+      test name (only necessary when using --show-details in genhtml)
+    - Added checksumming mechanism: each tracefile now contains a checksum for
+      each instrumented line to detect incompatible data
+    - Implemented new command line option '--nochecksum' to suppress generation
+      of checksums
+    - Implemented new command line option '--highlight' which highlights lines of
+      code which were only covered in converted tracefiles (see '--diff' option of
+      lcov)
+    
+    geninfo:
+    - Added checksumming mechanism: each tracefile now contains a checksum for
+      each instrumented line to detect incompatible data
+    - Implemented new command line option '--nochecksum' to suppress generation
+      of checksums
+    - Added function to collect branch coverage data
+    
+    lcov:
+    - Fixed bug which would not correctly associate data sets with an empty
+      test name (only necessary when using --show-details in genhtml)
+    - Cleaned up internal command line option check
+    - Added info() output when reading tracefiles
+    - Added checksumming mechanism: each tracefile now contains a checksum for
+      each instrumented line to detect incompatible data
+    - Implemented new command line option '--nochecksum' to suppress generation
+      of checksums
+    - Implemented new command line option '--diff' which allows converting
+      coverage data from an older source code version by using a diff file
+      to map line numbers
+    
+    genpng:
+    - Added support for the highlighting option of genhtml
+    - Corrected tab to spaces conversion
+
+[33mcommit c17af02b4a856d8733a763e6c0685c31f3c7fb74[m
+Author: Nigel Hinds <nhinds@users.sourceforge.net>
+Date:   Fri Sep 19 21:51:06 2003 +0000
+
+    capture branch coverage data from GCOV.
+
+[33mcommit e2fc88f85254017bcf1fb04a3c935395a9b7a4a1[m
+Author: James M Kenefick Jr <parseexception@users.sourceforge.net>
+Date:   Thu Sep 4 16:56:10 2003 +0000
+
+    Initial checking of the galaxy map
+
+[33mcommit dfec606f3b30e1ac0f4114cfb98b29f91e9edb21[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Sat Jul 5 13:48:45 2003 +0000
+
+    LCOV: Fixed negative count handling
+    
+    - Negative counts are treated as zero
+    - Warning is issued when encountering negative counts
+
+[33mcommit a2ee105a07b19c52efe7a3e6e5b11a27b4b60ef8[m
+Author: Paul Larson <plars@users.sourceforge.net>
+Date:   Wed Jul 2 19:37:50 2003 +0000
+
+    Small fixes before the release
+
+[33mcommit 72860625dd904f84909253b20a7fc024b4e3377e[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon May 5 08:32:04 2003 +0000
+
+    Adjusted example program and README file
+    
+    ... to reflect renaming of lcov option '--reset' to '--zerocounters'.
+
+[33mcommit cbd9e315832960604d2949439326b30f4061e512[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Apr 30 15:47:51 2003 +0000
+
+    Renamed lcov option '--reset' to '--zerocounters'
+    
+    - Included '--remove' in help text of lcov
+    - Adjusted man pages to include option changes
+    - Extended info() change to geninfo and genhtml (infos are now printed
+      to STDERR)
+
+[33mcommit 8155960cb5db0359470d2a5f652bdc744e9ecfcd[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Wed Apr 16 15:43:31 2003 +0000
+
+    Modified read_gcov so that it can also parse the new gcov format which is to be introduced in gcc 3.3.
+
+[33mcommit 382440f781b12ade8f1f7962a0eb1cfc0525f2a5[m
+Author: Paul Larson <plars@users.sourceforge.net>
+Date:   Tue Apr 15 16:06:59 2003 +0000
+
+    Added --remove option info() now prints to stderr
+
+[33mcommit 62760fa1840326e849c7e58892ce671f510bb0af[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Mon Apr 14 09:31:51 2003 +0000
+
+    Check-in of updated LCOV version (to be released as 1.1).
+    
+    Includes fixes and modifications by Mike Kobler, Paul Larson and
+    myself.
+    
+    A quote from the CHANGS file:
+    - Added CHANGES file
+    - Added Makefile implementing the following targets:
+      * install    : install LCOV scripts and man pages
+      * uninstall  : revert previous installation
+      * dist       : create lcov.tar.gz file and lcov.rpm file
+      * clean      : clean up example directory, remove .tar and .rpm files
+    - Added man pages for all scripts
+    - Added example program to demonstrate the use of LCOV with a userspace
+      application
+    - Implemented RPM build process
+    - New directory structure:
+      * bin        : contains all executables
+      * example    : contains a userspace example for LCOV
+      * man        : contains man pages
+      * rpm        : contains files required for the RPM build process
+    - LCOV-scripts are now in bin/
+    - Removed .pl-extension from LCOV-script files
+    - Renamed readme.txt to README
+    
+    README:
+    - Adjusted mailing list address to ltp-coverage@lists.sourceforge.net
+    - Fixed incorrect parameter '--output-filename' in example LCOV call
+    - Removed tool descriptions and turned them into man pages
+    - Installation instructions now refer to RPM and tarball
+    
+    descriptions.tests:
+    - Fixed some spelling errors
+    
+    genhtml:
+    - Fixed bug which resulted in an error when trying to combine .info files
+      containing data without a test name
+    - Fixed bug which would not correctly handle data files in directories
+      with names containing some special characters ('+', etc.)
+    - Added check for empty tracefiles to prevent division-by-zeros
+    - Implemented new command line option --num-spaces / the number of spaces
+      which replace a tab in source code view is now user defined
+    - Fixed tab expansion so that in source code view, a tab doesn't produce a
+      fixed number of spaces, but as many spaces as are needed to advance to the
+      next tab position
+    - Output directory is now created if it doesn't exist
+    - Renamed "overview page" to "directory view page"
+    - HTML output pages are now titled "LCOV" instead of "GCOV"
+    
+    geninfo:
+    - Fixed bug which would not allow .info files to be generated in directories
+      with names containing some special characters
+    
+    lcov:
+    - Fixed bug which would cause lcov to fail when the tool is installed in
+      a path with a name containing some special characters
+    - Implemented new command line option '--add-tracefile' which allows the
+      combination of data from several tracefiles
+    - Implemented new command line option '--list' which lists the contents
+      of a tracefile
+    - Implemented new command line option '--extract' which allows extracting
+      data for a particular set of files from a tracefile
+    - Fixed name of gcov kernel module (new package contains gcov-prof.c)
+    - Changed name of gcov kernel directory from /proc/gcov to a global constant
+      so that it may be changed easily when required in future versions
+
+[33mcommit ec94ed71838a9780e82ea8bd67742bde2f4eeb47[m
+Author: Paul Larson <plars@users.sourceforge.net>
+Date:   Fri Mar 7 20:28:15 2003 +0000
+
+    Fix lcov.pl to work with the new gcov-kernel module
+    
+    ... ,documentation fixes in readme.txt
+
+[33mcommit e70d9abdb60b83de7174815371259c63fa75bf76[m
+Author: Robert Williamson <robbiew@users.sourceforge.net>
+Date:   Tue Feb 18 20:05:09 2003 +0000
+
+    Applied patch from Mike Kobler:
+    
+    One of my source file paths includes a "+" in the directory name.  I found
+    that genhtml.pl died when it encountered it. I was able to fix the problem
+    by modifying the string with the escape character before parsing it.
+
+[33mcommit 69ef6f1b607670589aae1ae1e6c78ef1b5d204e3[m
+Author: Peter Oberparleiter <oberpapr@users.sourceforge.net>
+Date:   Fri Sep 6 09:04:34 2002 +0000
+
+    Replaced reference to "cat" cvs directory
+    
+    ... and to .zip package.
+
+[33mcommit c641f6e694e2bebf9ef0a507091460026463d169[m
+Author: Manoj Iyer <iyermanoj@users.sourceforge.net>
+Date:   Thu Sep 5 19:14:51 2002 +0000
+
+    Coverage analysis files.
+    
+    Peter worked on this version.

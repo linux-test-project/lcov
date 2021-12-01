@@ -49,7 +49,7 @@ int main (int argc, char* argv[])
 
 	if (total1 != total2)
 	{
-		printf ("Failure (%d != %d)!\n", total1, total2);
+		printf ("Failureeee (%d != %d)!\n", total1, total2);
 	}
 	else
 	{
