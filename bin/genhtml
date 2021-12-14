@@ -1830,15 +1830,17 @@ sub recategorizeTlaAsBaseline {
   my $self = shift;
   my $lineMap = $self->lineMap();
   my %remap = ( 'UIC' => 'UBC',
-                'GIC' => 'CBC',
-                'UNK' => 'UNK' );
+                'GIC' => 'CBC' );
 
   foreach my $line (keys %$lineMap) {
     my $data = $lineMap->{$line};
     die("unexpected $line 'in_base'") if $data->in_base();
 
     my $lineTla = $data->tla();
-    $data->tla($remap{$lineTla});
+    if (exists($remap{$lineTla})) {
+      # don't remap GNC, UNC, etc
+      $data->tla($remap{$lineTla});
+    }
 
     # branch coverage...
     if ($main::br_coverage && defined($data->differential_branch())) {
@@ -1848,7 +1850,9 @@ sub recategorizeTlaAsBaseline {
         my $diff = $br->getBlock($branchId);
         foreach my $b (@$diff) {
           my $tla = $b->[1];
-          $b->[1] = $remap{$tla};
+          if (exists($remap{$tla})) {
+            $b->[1] = $remap{$tla};
+          }
         }
       }
     } # if branch data
@@ -1858,13 +1862,17 @@ sub recategorizeTlaAsBaseline {
       my $func = $data->differential_function();
       my $hit = $func->hit();
       my $tla = $hit->[1];
-      $hit->[1] = $remap{$tla};
+      if (exists($remap{$tla})) {
+        $hit->[1] = $remap{$tla};
+      }
 
       my $aliases = $func->aliases();
       foreach my $alias (keys %$aliases) {
         my $data = $aliases->{$alias};
         my $tla = $data->[1];
-        $data->[1] = $remap{$tla};
+        if (exists($remap{$tla})) {
+          $data->[1] = $remap{$tla};
+        }
       }
     }
   } # if function data
@@ -2256,7 +2264,6 @@ sub _categorizeFunctionCov {
         if $type ne 'equal';
       my $tla = _categorize($base->hit(), $curr->hit());
       $categorized->setCountDifferential([$curr->hit(), $tla]);
-
       # particular alias may be in both versions
       my $base_aliases = $base->aliases();
       my $curr_aliases = $curr->aliases();
@@ -2282,6 +2289,7 @@ sub _categorizeFunctionCov {
         $categorized->addAliasDifferential($alias, [$hit, $tla]);
       }
     }
+
     if ('UNK' eq $data->tla()) {
       # there is a function here - but no line - manufacture some data
       my $d = $categorized->hit();
@@ -3160,7 +3168,7 @@ sub _accountFunction {
   unless (defined($tla)) {
     lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
                               "undef function TLA for age '$src_age' of " . $fileSummary->name());
-    return;
+    return 1; # error
   }
 
   $fileSummary->{function}->{$tla} += 1;
@@ -3176,6 +3184,7 @@ sub _accountFunction {
     $fileSummary->functionCovCount("hit", "age", $src_age, 1)
       if $hit;
   }
+  return 0;
 }
 
 sub _countFunctionTlaData {
@@ -3186,7 +3195,18 @@ sub _countFunctionTlaData {
   my ($src_age, $developer, $srcLine);
 
   my $merged = defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
-  my $mergedTla = $func->hit()->[1];
+  my $h = $func->hit();
+  my $mergedTla = $h->[1];
+  if (!defined($mergedTla)) {
+    lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                              "undef TLA for function '" . $func->name() . "' hit " . $h->[0]
+                              . " at line " . $line
+                              . " (" . $lineData->tla() . ' ' . $lineData->curr_count() . ")");
+    #die("this should not happen");
+    $mergedTla = $h->[0] == 0 ? 'UNC' : 'GNC'; # This is new code - somehow miscategorized.
+    $h->[1] = $mergedTla;
+    #return;
+  }
 
   if ('D' ne substr($mergedTla,0,1)) {
     # deleted lines don't have owner data...
@@ -3207,6 +3227,17 @@ sub _countFunctionTlaData {
     foreach my $alias (keys %$aliases) {
       my $data = $aliases->{$alias};
       my $tla = $data->[1];
+      if (!defined($tla)) {
+        lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                  "undef TLA for alias:'$alias' hit:"
+                                  . $data->[0] . " of function '"
+                                  . $func->name() . "' hit " . $h->[0]
+                                  . " at line " . $line
+                                  . " (" . $lineData->tla() . ' ' . $lineData->curr_count() . ")");
+        # die("this should not happen either");
+        $tla = $data->[0] == 0 ? 'UNC' : 'GNC';
+        $data->[1] = $tla;
+      }
       _accountFunction($fileSummary, $tla, $src_age);
     }
   }

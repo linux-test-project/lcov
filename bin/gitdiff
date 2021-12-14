@@ -68,11 +68,14 @@ while (<HANDLE>) {
       if ($includeCurrentFile);
   }
   printf("%s\n", $line)
-  if $includeCurrentFile;
+    if $includeCurrentFile;
 }
 close(HANDLE);
 
 exit 0 if defined($suppress_unchanged);
+
+my $prefix = `git rev-parse --show-prefix`;
+chomp $prefix;
 
 # now find the list of files in the current SHA - we can process that
 #  to find the list of all current files which were unchanged since the
@@ -83,7 +86,7 @@ die("failed to exec git ls-tree")
 while (<HANDLE>) {
   chomp($_);
   s/\r//g;
-  my $filename = $_;
+  my $filename = $prefix . $_;
   if ( ! exists($allFiles{$filename}) &&
        include_me($filename, \@include_patterns, \@exclude_patterns)) {
     printf("diff --git a/$filename b/$filename\n");
