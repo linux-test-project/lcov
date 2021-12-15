@@ -94,6 +94,9 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-annotate\-script
 .IR source\-annotation\-script ]
 .br
+.RB [ \-\-criteria\-script
+.IR coverage\-criteria\-script ]
+.br
 .RB [ \-\-new\-files\-as\-baseline]
 .br
 .RB [ \-\-elide\-path\-mismatch]
@@ -212,6 +215,9 @@ option, below).  Age and ownership reporting enhance team efforts to maintain go
 coverage discipline by spotlighting coverage shortfalls in recently modified code, even
 in the absence of baseline coverage data.
 
+If the
+.I \-\-criteria\-script
+option is used, genhtml will use the referenced script to determine whether your coverage criterial has been met - and will return a non-zero etatus and print a message if the criteria is not met.
 
 HTML output files are created in the current working directory unless the
 .I \-\-output\-directory
@@ -408,6 +414,20 @@ When a
 .I source\-annotation\-script
 is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
 Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.
+
+.RE
+.BI "\-\-criteria\-script " coverage\-criteria\-script
+.RS
+Use the
+.I coverage\-criteria\-script
+to enable genhtml to determine whether your coverage criteria is satisfied or not.
+coverage\-criteria\-script' is treated as a space-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the 'name' and 'type' and JSON coverage data) when the script is executed.  The script callback is executed for every 'summary' coverage data element:  leaf level file, containig directory, and top-level report if any).  Parameter order is "str[0] name type 'json-string' str[1:]", where "name" is the file or directory name (or "top" in the case of the top-level report), "type" is the callback type:  "file", "directory", or "top", and "json-string" is a JSON representation of the corresponding line/function/branch coverage data.
+
+The script should return 0 (zero) if your criteria is met and non\-zero otherwise.  If desired, it may print a single line output string which will be appended to the error log if the return status is non\-zero.  Additionally, non-empty lines are appended to the genhtml log (stdout).
+
+A sample coverage criteria script can be found in the share/lcov/support-scripts/criteria, shipped as part of this release.  The sample script checks that top-level line coverage meets the criteria "UNC + LBC _ UIC == 0".
+
+It is not difficult to create another script which mimics the LOCV '\-\-fail\-\uner\-lines feature by instead checking that the ratio of exercised lines to total lines ("(GNC + GIC + CBC)/(GNC + GIC + CBC + UNC + UIC + UBC)") is greater than the threshold - either only at the top level, in every directory, or wherever desired.  Similarly, your criteria may include branch and function coverage metrics.
 
 .RE
 .BI "\-\-new\-file\-as\-baseline "

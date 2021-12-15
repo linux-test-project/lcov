@@ -171,7 +171,6 @@ our $reset;		# If set, reset all coverage data to zero
 our $capture;		# If set, capture data
 our $output_filename;	# Name for file to write coverage data to
 our $test_name = "";	# Test case name
-our $quiet = "";	# If set, suppress information messages
 our $help;		# Help option flag
 our $version;		# Version option flag
 our $convert_filenames;	# If set, convert filenames when applying diff

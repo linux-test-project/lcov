@@ -90,6 +90,7 @@ use FileHandle;
 use Carp;
 use Storable qw(dclone);
 use FindBin;
+use JSON;
 
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
@@ -277,6 +278,10 @@ sub gen_png($$$$$@);
 
 
 package SummaryInfo;
+
+our $coverageCriteriaScript;
+our %coverageCriteria; # hash of name->(type, success 0/1, string)
+our $coverageCriteriaStatus = 0; # set to non-zero if we see any errors
 
 our @tlaPriorityOrder = (
     "UNC",
@@ -925,6 +930,51 @@ sub b_hit {
   return $self->{branch}->{hit};
 }
 
+sub checkCoverageCriteria {
+  my $self = shift;
+  return unless defined $coverageCriteriaScript;
+
+  my %data;
+  foreach my $t ('line', 'function', 'branch') {
+    my $d = $self->{$t};
+    foreach my $k (keys %$d) {
+      # $k will be 'hit', 'found' or one of the TLAs
+      my $count = $d->{$k};
+      next if $count == 0;
+      if (exists $data{$t}) {
+        $data{$t}->{$k} = $count;
+      } else {
+        $data{$t} = { $k => $count };
+      }
+    }
+  }
+  my $json = JSON::encode_json(\%data);
+  my @cmd = split(' ', $coverageCriteriaScript);
+  splice(@cmd, 1, 0,
+         "'" . ($self->type() eq 'top' ? 'top' : $self->name()) . "'",
+         $self->type(), "'" . $json . "'");
+  my $cmd = join(' ', @cmd); # command:  script name (top|dir|file) jsonString args..
+  lcovutil::verbose("criteria: '$cmd'");
+  if (open(HANDLE, "-|", $cmd)) {
+    my @msg;
+    while (my $line = <HANDLE>) {
+      chomp $line;
+      $line =~ s/\r//g; # remove CR from line-end
+      next if '' eq $line;
+      push(@msg, $line);
+    }
+    close(HANDLE);
+    my $status = $? >> 8;
+    my $name = $self->type() eq 'top' ? "" : $self->name();
+    $coverageCriteria{$name} = [ $self->type(), $status, \@msg ]
+      if (0 != $status ||
+          0 != scalar(@msg));
+    $coverageCriteriaStatus = $status
+      if $status != 0;
+  } else {
+    print("Error: 'open(-| $cmd)' failed: \"$!\"\n");
+  }
+}
 
 package OwnerDetailCallback;
 # somewhat of a hack...I want a class which has a callback 'get'
@@ -3808,7 +3858,6 @@ our $diff_filename;     # Optional name of file containing baseline data
 our $strip;             # If set, strip leading directories when applying diff
 our $desc_filename;     # Name of file containing test descriptions
 our $css_filename;      # Optional name of external stylesheet file to use
-our $quiet;             # If set, suppress information messages
 our $help;              # Help option flag
 our $version;           # Version option flag
 our $show_details;      # If set, generate detailed directory view
@@ -3960,6 +4009,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "current-date=s"        => \$current_date,
                 "diff-file=s"           => \$diff_filename,
                 "annotate-script=s"     => \$SourceFile::annotateScript,
+                "criteria-script=s"     => \$SummaryInfo::coverageCriteriaScript,
                 "new-file-as-baseline" => \$treatNewFileAsBaseline,
                 'elide-path-mismatch'   => \$elide_path_mismatch,
                 # if 'show-owners' is set: generate the owner table
@@ -3977,7 +4027,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "frames|f"              => \$frames,
                 "highlight"             => \$highlight,
                 "legend"                => \$legend,
-                "quiet|q"               => \$quiet,
+                "quiet|q"               => \$lcovutil::quiet,
                 "verbose|v"             => \$lcovutil::verbose,
                 "help|h|?"              => \$help,
                 "version|v"             => \$version,
@@ -4232,6 +4282,47 @@ if ($output_directory)
 # Do something
 gen_html();
 
+# now check the coverage criteria (if any)
+if (defined($SummaryInfo::coverageCriteriaScript)) {
+  # print the criteria summary to stdout:
+  #   all criteria fails + any non-empty messages
+  # In addtion:  print fails to stderr
+  # This way:  Jenkins script can log failure if stderr is not empty
+  my $leader = '';
+  if ($SummaryInfo::coverageCriteriaStatus != 0) {
+    print("Failed coverage criteria:\n");
+  } else {
+    $leader = "Coverage criteria:\n";
+  }
+  # sort to print top-level report first, then directories, then files.
+  foreach my $name (sort({ my $da = $SummaryInfo::coverageCriteria{$a};
+                           my $db = $SummaryInfo::coverageCriteria{$b};
+                           my $ta = $da->[0];
+                           my $tb = $db->[0];
+                           return -1 if ($ta eq 'top');
+                           return 1 if ($tb eq 'top');
+                           if ($ta ne $tb) {
+                             return $ta eq 'file' ? 1 : -1;
+                           }
+                           $a cmp $b }
+                         keys(%SummaryInfo::coverageCriteria))) {
+    my $criteria = $SummaryInfo::coverageCriteria{$name};
+    next if $criteria->[1] == 0 && 0 == scalar(@{$criteria->[2]}); # passed
+
+    my $msg = $criteria->[0];
+    if ($criteria->[0] ne 'top') {
+      $msg .= " \"" . $name . "\"";
+    }
+    $msg .= ": \"" . join(' ', @{$criteria->[2]}) . "\"\n";
+    print($leader); $leader = '';
+    print("  " . $msg);
+    if ( 0 != $criteria->[1] ) {
+      print(STDERR $msg);
+    }
+  }
+  exit($SummaryInfo::coverageCriteriaStatus);
+}
+
 exit(0);
 
 
@@ -4273,6 +4364,8 @@ Operation:
       --current-date DATE           Use DATE in current data label in report
       --annotate-script SCRIPT      Execute SCRIPT to get revision control
                                     history (wraps "git blame" or "p4 annotate")
+      --criteria-script SCRIPT      Execute SCRIPT to check coverage criteria
+                                    to decide success or failure
       --diff-file UDIFF             unified diff file UDIFF desribes source
                                     code changes between baseline and current
       --elide-path-mismatch         identify matching files if their basename
@@ -4335,6 +4428,8 @@ sub print_overall_rate($$$$)
 {
   my ($ln_do, $fn_do, $br_do, $summary) = @_;
 
+  my $q = $lcovutil::quiet;
+  $lcovutil::quiet = 0;
   info("Overall coverage rate:\n");
   my @types;
   push(@types, 'line') if $ln_do;
@@ -4355,6 +4450,7 @@ sub print_overall_rate($$$$)
     }
   }
   summarize_cov_filters();
+  $lcovutil::quiet = $q; # restore
 }
 
 #
@@ -4546,6 +4642,7 @@ sub gen_html()
     }
     -- $currDepth;
   }
+  $top_level_summary->checkCoverageCriteria();
 
   # Generate overview page
   info("Writing directory view page.\n");
@@ -4672,6 +4769,8 @@ sub process_dir($$$)
     $testhash{$base_name} = $testdata;
     $testfnchash{$base_name} = $testfncdata;
     $testbrhash{$base_name} = $testbrdata;
+
+    $file_summary->checkCoverageCriteria();
   }
 
   # Create sorted pages
@@ -4706,7 +4805,7 @@ sub process_dir($$$)
                      $dir_summary);
     }
   }
-
+  $dir_summary->checkCoverageCriteria();
   # Calculate resulting line counts
   return ($dir_summary);
 }

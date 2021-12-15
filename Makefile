@@ -57,6 +57,7 @@ install:
 	bin/install.sh bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate -m 755
 	bin/install.sh bin/gitblame $(DESTDIR)$(SCRIPT_DIR)/gitblame -m 755
 	bin/install.sh bin/gitdiff $(DESTDIR)$(SCRIPT_DIR)/gitdiff -m 755
+	bin/install.sh bin/criteria $(DESTDIR)$(SCRIPT_DIR)/criteria -m 755
 	bin/install.sh lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm -m 755
 	bin/install.sh man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1 -m 644
 	bin/install.sh man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 -m 644
@@ -86,6 +87,7 @@ uninstall:
 	bin/install.sh --uninstall bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff
 	bin/install.sh --uninstall bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate
 	bin/install.sh --uninstall bin/gitblame $(DESTDIR)$(SCRIPT_DIR)/gitblame
+	bin/install.sh --uninstall bin/criteria $(DESTDIR)$(SCRIPT_DIR)/criteria
 	bin/install.sh --uninstall lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm
 	bin/install.sh --uninstall man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1
 	bin/install.sh --uninstall man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1

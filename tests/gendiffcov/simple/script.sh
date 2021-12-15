@@ -60,8 +60,8 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
-rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log
-rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db
+rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err
+rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria
 
 if [ "x$COVER" != 'x' ] ; then
     cover -delete
@@ -396,6 +396,35 @@ if [ 0 != $? ] ; then
     echo "ERROR:  can't find expected warning message"
     exit 1
 fi
+
+# test 'coverage criteria' callback
+#  we expect to fail - and to see error message - it coverage criteria not met
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o $outdir ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o criteria ./current.info > criteria.log 2> criteria.err
+if [ 0 == $? ] ; then
+    echo "ERROR: genhtml criteria should have failed but didn't"
+    exit 1
+fi
+
+if [[ $OPTS =~ "show-details" ]] ; then
+    found=0
+else
+    found=1
+fi
+grep "Failed coverage criteria" criteria.log
+# expect to find the string (0 return val) if flag is present
+if [ 0 != $? ] ;then
+    echo "ERROR: 'criteria fail message is missing"
+    exit 1
+fi
+for l in criteria.log criteria.err ; do
+  grep "UNC + LBC + UIC != 0" $l
+  # expect to find the string (0 return val) if flag is present
+  if [ 0 != $? ] ;then
+      echo "ERROR: 'criteria string is missing from $l"
+      exit 1
+  fi
+done
 
 
 echo "Tests passed"
