@@ -1786,6 +1786,7 @@ sub open {
       push(@sourceLines, $_);
     }
     $self->setData($filename, \@sourceLines);
+    CORE::close(SRC);
   } else {
     lcovutil::info("unable to open $filename (for bogus branch filtering)\n");
     $self->close();
