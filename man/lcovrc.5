@@ -999,6 +999,60 @@ Specify the regular expression of lines to exclude from exception branch coverag
 Default is 'LCOV_EXCL_EXCEPTION_BR_LINE'.
 .PP
 
+.BR lcov_excl_start " ="
+.I character_sequence
+.IP
+Specify the marker for the beginning of an excluded section. The current line is part of this section.
+.br
+
+Default is 'LCOV_EXCL_START'.
+.PP
+
+.BR lcov_excl_stop " ="
+.I character_sequence
+.IP
+Specify the marker for the end of an excluded section. The current line is not part of this section.
+.br
+
+Default is 'LCOV_EXCL_STOP'.
+.PP
+
+.BR lcov_excl_br_start " ="
+.I character_sequence
+.IP
+Specify the marker for the beginning of a section which is excluded from branch coverage. The current line is part of this section.
+.br
+
+Default is 'LCOV_EXCL_BR_START'.
+.PP
+
+.BR lcov_excl_br_stop " ="
+.I character_sequence
+.IP
+Specify the marker for the end of a section which is excluded from branch coverage. The current line is not part of this section.
+.br
+
+Default is 'LCOV_EXCL_BR_STOP'.
+.PP
+
+.BR lcov_excl_exception_br_start " ="
+.I character_sequence
+.IP
+Specify the marker for the beginning of a section which is excluded from exception branch coverage. The current line is part of this section.
+.br
+
+Default is 'LCOV_EXCL_EXCEPTION_BR_START'.
+.PP
+
+.BR lcov_excl_exception_br_stop " ="
+.I character_sequence
+.IP
+Specify the marker for the end of a section which is excluded from exception branch coverage. The current line not part of this section.
+.br
+
+Default is 'LCOV_EXCL_EXCEPTION_BR_STOP'.
+.PP
+
 .BR lcov_fail_under_lines " ="
 .I percentage
 .IP

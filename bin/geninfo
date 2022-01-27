@@ -93,17 +93,6 @@ our %ERROR_ID = (
 	"graph" => $ERROR_GRAPH,
 );
 
-our $EXCL_START = "LCOV_EXCL_START";
-our $EXCL_STOP = "LCOV_EXCL_STOP";
-
-# Marker to exclude branch coverage but keep function and line coverage
-our $EXCL_BR_START = "LCOV_EXCL_BR_START";
-our $EXCL_BR_STOP = "LCOV_EXCL_BR_STOP";
-
-# Marker to exclude exception branch coverage but keep function, line coverage and non-exception branch coverage
-our $EXCL_EXCEPTION_BR_START = "LCOV_EXCL_EXCEPTION_BR_START";
-our $EXCL_EXCEPTION_BR_STOP = "LCOV_EXCL_EXCEPTION_BR_STOP";
-
 # Compatibility mode values
 our $COMPAT_VALUE_OFF	= 0;
 our $COMPAT_VALUE_ON	= 1;
@@ -280,6 +269,18 @@ our $excl_line = "LCOV_EXCL_LINE";
 our $excl_br_line = "LCOV_EXCL_BR_LINE";
 our $excl_exception_br_line = "LCOV_EXCL_EXCEPTION_BR_LINE";
 
+# Marker to exclude coverage
+our $excl_start = "LCOV_EXCL_START";
+our $excl_stop = "LCOV_EXCL_STOP";
+
+# Marker to exclude branch coverage but keep function and line coverage
+our $excl_br_start = "LCOV_EXCL_BR_START";
+our $excl_br_stop = "LCOV_EXCL_BR_STOP";
+
+# Marker to exclude exception branch coverage but keep function, line coverage and non-exception branch coverage
+our $excl_exception_br_start = "LCOV_EXCL_EXCEPTION_BR_START";
+our $excl_exception_br_stop = "LCOV_EXCL_EXCEPTION_BR_STOP";
+
 our $cwd = `pwd`;
 chomp($cwd);
 
@@ -350,7 +351,13 @@ if ($config || %opt_rc)
 		"lcov_branch_coverage"		=> \$br_coverage,
 		"lcov_excl_line"		=> \$excl_line,
 		"lcov_excl_br_line"		=> \$excl_br_line,
-		"lcov_excl_exception_br_line"		=> \$excl_exception_br_line,
+		"lcov_excl_exception_br_line"	=> \$excl_exception_br_line,
+		"lcov_excl_start"		=> \$excl_start,
+		"lcov_excl_stop"		=> \$excl_stop,
+		"lcov_excl_br_start"		=> \$excl_br_start,
+		"lcov_excl_br_stop"		=> \$excl_br_stop,
+		"lcov_excl_exception_br_start"	=> \$excl_exception_br_start,
+		"lcov_excl_exception_br_stop"	=> \$excl_exception_br_stop,
 	});
 
 	# Merge options
@@ -1909,9 +1916,9 @@ sub read_gcov_file($)
 				$last_line++;
 				# Check for exclusion markers
 				if (!$no_markers) {
-					if (/$EXCL_STOP/) {
+					if (/$excl_stop/) {
 						$exclude_flag = 0;
-					} elsif (/$EXCL_START/) {
+					} elsif (/$excl_start/) {
 						$exclude_flag = 1;
 					}
 					if (/$excl_line/ || $exclude_flag) {
@@ -1922,9 +1929,9 @@ sub read_gcov_file($)
 				}
 				# Check for exclusion markers (branch exclude)
 				if (!$no_markers) {
-					if (/$EXCL_BR_STOP/) {
+					if (/$excl_br_stop/) {
 						$exclude_br_flag = 0;
-					} elsif (/$EXCL_BR_START/) {
+					} elsif (/$excl_br_start/) {
 						$exclude_br_flag = 1;
 					}
 					if (/$excl_br_line/ || $exclude_br_flag) {
@@ -1935,7 +1942,7 @@ sub read_gcov_file($)
 				}
 				# Check for exclusion markers (exception branch exclude)
 				if (!$no_markers && 
-					/($EXCL_EXCEPTION_BR_STOP|$EXCL_EXCEPTION_BR_START|$excl_exception_br_line)/) {
+					/($excl_exception_br_stop|$excl_exception_br_start|$excl_exception_br_line)/) {
 					warn("WARNING: $1 found at $filename:$last_line but ".
 					"branch exceptions exclusion is not supported with ".
 					"gcov versions older than 3.3\n");
@@ -2020,9 +2027,9 @@ sub read_gcov_file($)
 				$last_block = $UNNAMED_BLOCK;
 				# Check for exclusion markers
 				if (!$no_markers) {
-					if (/$EXCL_STOP/) {
+					if (/$excl_stop/) {
 						$exclude_flag = 0;
-					} elsif (/$EXCL_START/) {
+					} elsif (/$excl_start/) {
 						$exclude_flag = 1;
 					}
 					if (/$excl_line/ || $exclude_flag) {
@@ -2033,9 +2040,9 @@ sub read_gcov_file($)
 				}
 				# Check for exclusion markers (branch exclude)
 				if (!$no_markers) {
-					if (/$EXCL_BR_STOP/) {
+					if (/$excl_br_stop/) {
 						$exclude_br_flag = 0;
-					} elsif (/$EXCL_BR_START/) {
+					} elsif (/$excl_br_start/) {
 						$exclude_br_flag = 1;
 					}
 					if (/$excl_br_line/ || $exclude_br_flag) {
@@ -2046,9 +2053,9 @@ sub read_gcov_file($)
 				}
 				# Check for exclusion markers (exception branch exclude)
 				if (!$no_markers) {
-					if (/$EXCL_EXCEPTION_BR_STOP/) {
+					if (/$excl_exception_br_stop/) {
 						$exclude_exception_br_flag = 0;
-					} elsif (/$EXCL_EXCEPTION_BR_START/) {
+					} elsif (/$excl_exception_br_start/) {
 						$exclude_exception_br_flag = 1;
 					}
 					if (/$excl_exception_br_line/ || $exclude_exception_br_flag) {
@@ -2908,22 +2915,22 @@ sub get_source_data($)
 		return;
 	}
 	while (<HANDLE>) {
-		if (/$EXCL_STOP/) {
+		if (/$excl_stop/) {
 			$flag = 0;
-		} elsif (/$EXCL_START/) {
+		} elsif (/$excl_start/) {
 			$flag = 1;
 		}
 		if (/$excl_line/ || $flag) {
 			$list{$.} = 1;
 		}
-		if (/$EXCL_BR_STOP/) {
+		if (/$excl_br_stop/) {
 			$brflag = 0;
-		} elsif (/$EXCL_BR_START/) {
+		} elsif (/$excl_br_start/) {
 			$brflag = 1;
 		}
-		if (/$EXCL_EXCEPTION_BR_STOP/) {
+		if (/$excl_exception_br_stop/) {
 			$exceptionbrflag = 0;
-		} elsif (/$EXCL_EXCEPTION_BR_START/) {
+		} elsif (/$excl_exception_br_start/) {
 			$exceptionbrflag = 1;
 		}
 		if (/$excl_br_line/ || $brflag) {
@@ -2936,7 +2943,7 @@ sub get_source_data($)
 			$checksums{$.} = md5_base64($_);
 		}
 		if ($intermediate && !$gcov_caps->{'json-format'} &&
-				/($EXCL_EXCEPTION_BR_STOP|$EXCL_EXCEPTION_BR_START|$excl_exception_br_line)/) {
+				/($excl_exception_br_stop|$excl_exception_br_start|$excl_exception_br_line)/) {
 			warn("WARNING: $1 found at $filename:$. but branch exceptions ".
 				"exclusion is not supported when using text intermediate ".
 				"format\n");
