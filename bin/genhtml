@@ -304,6 +304,7 @@ our @rate_png = ("ruby.png", "amber.png", "emerald.png");
 our $lcov_func_coverage = 1;
 our $lcov_branch_coverage = 0;
 our $rc_desc_html = 0;	# lcovrc: genhtml_desc_html
+our $html_flat = 0;            # If set, provide flat filename report as well
 
 our $cwd = cwd();	# Current working directory
 
@@ -388,6 +389,7 @@ if ($config || %opt_rc)
 		"genhtml_missed"		=> \$opt_missed,
 		"lcov_function_coverage"	=> \$lcov_func_coverage,
 		"lcov_branch_coverage"		=> \$lcov_branch_coverage,
+		"html_flat"                 => \$html_flat,
 		});
 }
 
@@ -434,6 +436,7 @@ if (!GetOptions("output-directory|o=s"	=> \$output_directory,
 		"precision=i"		=> \$default_precision,
 		"missed"		=> \$opt_missed,
 		"dark-mode"		=> \$dark_mode,
+		"html-flat"     => \$html_flat,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -637,6 +640,7 @@ HTML output:
       --precision NUM               Set precision of coverage rate
       --missed                      Show miss counts as negative numbers
       --dark-mode                   Use the dark-mode CSS
+      --html-flat                   Enable flat filename HTML report
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -831,6 +835,7 @@ sub gen_html()
 {
 	local *HTML_HANDLE;
 	my %overview;
+	my %overview_filenames;
 	my %base_data;
 	my $lines_found;
 	my $lines_hit;
@@ -947,10 +952,12 @@ sub gen_html()
 	# Process each subdirectory and collect overview information
 	foreach $dir_name (@dir_list)
 	{
+		my %overview_filename;
 		($lines_found, $lines_hit, $fn_found, $fn_hit,
-		 $br_found, $br_hit)
+		 $br_found, $br_hit, %overview_filename)
 			= process_dir($dir_name);
 
+		%overview_filenames = (%overview_filenames, %overview_filename);
 		# Handle files in root directory gracefully
 		$dir_name = "root" if ($dir_name eq "");
 
@@ -984,15 +991,28 @@ sub gen_html()
 		$total_br_hit	+= $br_hit;
 	}
 
-	# Generate overview page
-	info("Writing directory view page.\n");
+	if ($html_flat) {
+		# Generate files overview page
+		info("Writing Filename view page.\n");
+		foreach (@fileview_sortlist) {
+			# Generate filenames overview page (without details)
+			write_dir_page($fileview_sortname[$_], ".", "",
+					$test_title, undef, $overall_found,
+					$overall_hit, $total_fn_found, $total_fn_hit,
+					$total_br_found, $total_br_hit, \%overview_filenames, {},
+					{}, {}, 1, $_);
+		}
+	} else {
+		# Generate overview page
+		info("Writing directory view page.\n");
 
-	# Create sorted pages
-	foreach (@fileview_sortlist) {
-		write_dir_page($fileview_sortname[$_], ".", "", $test_title,
-			       undef, $overall_found, $overall_hit,
-			       $total_fn_found, $total_fn_hit, $total_br_found,
-			       $total_br_hit, \%overview, {}, {}, {}, 0, $_);
+		# Create sorted pages
+		foreach (@fileview_sortlist) {
+			write_dir_page($fileview_sortname[$_], ".", "", $test_title,
+					undef, $overall_found, $overall_hit,
+					$total_fn_found, $total_fn_hit, $total_br_found,
+					$total_br_hit, \%overview, {}, {}, {}, 0, $_);
+		}
 	}
 
 	# Check if there are any test case descriptions to write out
@@ -1070,6 +1090,7 @@ sub process_dir($)
 	my $base_dir;
 	my $filename;
 	my %overview;
+	my %overview_filename;
 	my $lines_found;
 	my $lines_hit;
 	my $fn_found;
@@ -1157,6 +1178,16 @@ sub process_dir($)
 
 		$total_br_found += $br_found;
 		$total_br_hit   += $br_hit;
+		if ($html_flat) {
+			$base_name = apply_prefix($filename, @dir_prefix);
+			$page_link = "$trunc_dir/$page_link";
+			$overview_filename{$base_name} = [$lines_found, $lines_hit, $fn_found,
+					 $fn_hit, $br_found, $br_hit,
+					 $page_link,
+					 get_rate($lines_found, $lines_hit),
+					 get_rate($fn_found, $fn_hit),
+					 get_rate($br_found, $br_hit)];
+		}
 	}
 
 	# Create sorted pages
@@ -1181,7 +1212,7 @@ sub process_dir($)
 
 	# Calculate resulting line counts
 	return ($overall_found, $overall_hit, $total_fn_found, $total_fn_hit,
-		$total_br_found, $total_br_hit);
+		$total_br_found, $total_br_hit,  %overview_filename);
 }
 
 
