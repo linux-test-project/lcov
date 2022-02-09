@@ -2174,6 +2174,13 @@ sub read_intermediate_json($$$)
 	}
 
 	for my $file (@{$json->{"files"}}) {
+		# decode_json() is decoding UTF-8 strings from the JSON file into
+		# Perl's internal encoding, but filenames on the filesystem are
+		# usually UTF-8 encoded, so the filename strings need to be
+		# converted back to UTF-8 so that they actually match the name
+		# on the filesystem.
+		utf8::encode($file->{"file"});
+
 		my $filename = $file->{"file"};
 
 		$data->{$filename} = $file;
