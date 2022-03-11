@@ -14,17 +14,22 @@ our @ISA = qw(Exporter);
 our @EXPORT_OK =
   qw($tool_name $quiet @temp_dirs set_tool_name set_info_callback $quiet
      append_tempdir temp_cleanup
-     define_errors parse_ignore_errors ignorable_error info
+     define_errors parse_ignore_errors ignorable_error ignorable_warning
+     info
      die_handler warn_handler abort_handler
 
      %opt_rc apply_rc_params
-     strip_directories  transform_pattern
+     strip_directories
 
      $cpp_demangle
      verbose debug $debug $verbose
 
      $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE $FILTER_FUNCTION_ALIAS
+     $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH
      @cov_filter
+     $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
+     @exclude_file_patterns @include_file_patterns %excluded_files
+     munge_file_patterns warn_file_patterns transform_pattern
      parse_cov_filters summarize_cov_filters
      filterStringsAndComments simplifyCode balancedParens
      set_rtl_extensions set_c_extensions
@@ -90,15 +95,31 @@ our $FILTER_LINE_CLOSE_BRACE = 1;
 # merge functions which appear on same file/line - guess that that
 #   they are all the same
 our $FILTER_FUNCTION_ALIAS = 2;
+# region between LCOV EXCL_START/STOP
+our $FILTER_EXCLUDE_REGION = 3;
+# region between LCOV EXCL_BR_START/STOP
+our $FILTER_EXCLUDE_BRANCH = 4;
 our %COVERAGE_FILTERS = (
   "branch" => $FILTER_BRANCH_NO_COND,
   'line' => $FILTER_LINE_CLOSE_BRACE,
   'function' => $FILTER_FUNCTION_ALIAS,
+  'region' => $FILTER_EXCLUDE_REGION,
+  'branch_region' => $FILTER_EXCLUDE_BRANCH,
 );
 our @cov_filter;        # 'undef' if filter is not enabled,
                         # [line_count, coverpoint_count] histogram if
                         #   filter is enabled: nubmer of applications
                         #   of this filter
+
+our $EXCL_START = "LCOV_EXCL_START";
+our $EXCL_STOP = "LCOV_EXCL_STOP";
+# Marker to exclude branch coverage but keep function and line coverage
+our $EXCL_BR_START =  "LCOV_EXCL_BR_START";
+our $EXCL_BR_STOP =  "LCOV_EXCL_BR_STOP";
+
+our @exclude_file_patterns;
+our @include_file_patterns;
+our %excluded_files;
 
 our $rtl_file_extensions = 'v|vh|sv|vhdl?';
 our $c_file_extensions = 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx';
@@ -159,6 +180,9 @@ our %pngMap = (
   );
 
 our %opt_rc; # hash of RC file entries
+
+our %profileData;
+our $profile; # the 'enable' flag
 
 sub set_tool_name($) {
   $tool_name = shift;
@@ -474,6 +498,31 @@ sub transform_pattern($)
   return $pattern;
 }
 
+sub munge_file_patterns {
+    # Need perlreg expressions instead of shell pattern
+  if (@exclude_file_patterns) {
+    @exclude_file_patterns = map({ [transform_pattern($_), $_, 0]; } @exclude_file_patterns);
+  }
+
+  if(@include_file_patterns) {
+    @include_file_patterns = map({ [transform_pattern($_), $_, 0]; } @include_file_patterns);
+  }
+}
+
+sub warn_file_patterns {
+
+  foreach my $pat (@include_file_patterns) {
+    if (0 == $pat->[2]) {
+      info("'include' pattern '" . $pat->[1] . "' is unused.\n");
+    }
+  }
+  foreach my $pat (@exclude_file_patterns) {
+    if (0 == $pat->[2]) {
+      info("'exclude' pattern '" . $pat->[1] . "' is unused.\n");
+    }
+  }
+}
+
 #
 # strip_directories($path, $depth)
 #
@@ -545,6 +594,21 @@ sub ignorable_error($$;$) {
   $didwarning{$code} = 1;
   warn_handler("Warning: ('$errName') $msg\n$ignoreOpt")
     unless $ignore[$code] > 1 || (defined($quiet) && $quiet);
+}
+
+sub ignorable_warning($$;$) {
+  my ($code, $msg, $quiet) = @_;
+
+  my $errName = "code_$code";
+  $errName = $ERROR_NAME{$code}
+    if exists($ERROR_NAME{$code});
+  if ($code >= scalar(@ignore) ||
+      ! $ignore[$code] ) {
+    # only tell the user how to suppress this on the first occurrence
+    my $ignoreOpt = exists($didwarning{$code}) ? "" : "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
+    $didwarning{$code} = 1;
+    warn_handler("Warning: $msg\n$ignoreOpt");
+  }
 }
 
 
@@ -1781,11 +1845,40 @@ sub open {
   if (open(SRC, "<", $filename)) {
     lcovutil::verbose("reading $version$filename (for bogus branch filtering)\n");
     my @sourceLines;
+    my @excluded;
+    my $exclude_region = 0;
+    my $exclude_br_region = 0;
     while (<SRC>) {
       chomp($_);
       push(@sourceLines, $_);
+      if (/$lcovutil::EXCL_START/) {
+        lcovutil::ignorable_error($ERROR_MISMATCH,
+                                  "overlapping exclude directives")
+          if $exclude_region;
+        $exclude_region = 1;
+      } elsif (/$lcovutil::EXCL_STOP/) {
+        lcovutil::ignorable_error($ERROR_MISMATCH, "missing exclude start")
+          unless $exclude_region;
+        $exclude_region = 0;
+      } elsif (/$lcovutil::EXCL_BR_START/) {
+        lcovutil::ignorable_error($ERROR_MISMATCH,
+                                  "overlapping exclude branch directives")
+          if $exclude_br_region;
+        $exclude_br_region = 2;
+      } elsif (/$lcovutil::EXCL_BR_STOP/) {
+        lcovutil::ignorable_error($ERROR_MISMATCH,
+                                  "missing exclude branch start")
+          unless $exclude_br_region;
+        $exclude_br_region = 0;
+      }
+      push(@excluded, $exclude_region | $exclude_br_region);
     }
-    $self->setData($filename, \@sourceLines);
+    lcovutil::ignorable_error($ERROR_MISMATCH, "unmatched exclude start")
+      if $exclude_region;
+    lcovutil::ignorable_error($ERROR_MISMATCH, "unmatched exclude branch start")
+      if $exclude_br_region;
+
+    $self->setData($filename, \@sourceLines, \@excluded);
     CORE::close(SRC);
   } else {
     lcovutil::info("unable to open $filename (for bogus branch filtering)\n");
@@ -1794,11 +1887,12 @@ sub open {
 }
 
 sub setData {
-  my ($self, $filename, $data) = @_;
+  my ($self, $filename, $data, $excluded) = @_;
   die("expected array")
     unless (ref($data) eq 'ARRAY');
   $self->[0] = $filename;
   $self->[1] = $data;
+  $self->[2] = $excluded;
 }
 
 sub notEmpty {
@@ -1814,6 +1908,15 @@ sub getLine {
   my ($self, $line) = @_;
 
   return $self->[1]->[$line-1];
+}
+
+sub isExcluded {
+  my ($self, $lineNo, $branch) = @_;
+  if ($branch) {
+    return 0 != ($self->[2]->[$lineNo-1] & 2);
+  } else {
+    return 0 != ($self->[2]->[$lineNo-1] & 1);
+  }
 }
 
 sub isCharacter {
@@ -2126,10 +2229,106 @@ sub _read_info {
   my %branchRenumber; # line -> block -> branch -> branchentry
   my ($currentBranchLine, $skipBranch);
   my $functionMap;
+  my %excludedFunction;
+  my $skipCurrentFile = 0;
   while (<INFO_HANDLE>)
   {
     chomp($_);
     $line = $_;
+
+    if ($line =~ /^[SK]F:(.*)/) {
+      # Filename information found
+      $filename = $1;
+      # should this one be skipped?
+      $skipCurrentFile = 0;
+      if (@lcovutil::exclude_file_patterns) {
+	foreach my $p (@lcovutil::exclude_file_patterns) {
+	  my $pattern = $p->[0];
+	  if ($filename =~ /$pattern/) {
+	    $skipCurrentFile = 1;
+	    ++ $p->[2];
+	    last;
+	  }
+	}
+      }
+      if (! $skipCurrentFile && # didn't explicitly skip this one
+	  @lcovutil::include_file_patterns) {
+	$skipCurrentFile = 1;
+	foreach my $p (@lcovutil::include_file_patterns) {
+	  my $pattern = $p->[0];
+	  if ($filename =~ /$pattern/) {
+	    $skipCurrentFile = 0;
+	    ++ $p->[2];
+	    last;
+	  }
+	}
+      }
+      if ($skipCurrentFile) {
+	$lcovutil::excluded_files{$filename} = 1;
+	lcovutil::info("Excluding $filename\n");
+	next;
+      }
+
+      # Retrieve data for new entry
+      # this could be parallelized by holding hash of file data -
+      #  then post-processing the filter functions (etc) after
+      #  parsing the .info file
+      $filename = File::Spec->rel2abs($filename, $main::cwd);
+
+      if (!File::Spec->file_name_is_absolute($1) &&
+	  !$notified_about_relative_paths)
+      {
+	lcovutil::info("Resolved relative source file ".
+		       "path \"$1\" with CWD to ".
+		       "\"$filename\".\n");
+	$notified_about_relative_paths = 1;
+      }
+
+      %branchRenumber = ();
+      %excludedFunction = ();
+
+      if (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
+	  defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]) ||
+	  defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]) ||
+	  defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])) {
+
+	# unconditionally 'close' the current file - in case we don't
+	#   open a new one.  If that happened, then we would be looking
+	#   at the source for some previous file.
+	$readSourceCallback->close();
+	undef $currentBranchLine;
+	if (is_c_file($filename)) {
+	  if (-e $filename) {
+	    $readSourceCallback->open($filename);
+          } else {
+	    lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+				      "'$filename' not found (for filtering)");
+          }
+        }
+      }
+      $data = $self->data($filename);
+      # record line number where file entry found - can use it in error messsages
+      $data->location($tracefile, $.);
+      ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
+       $testbrdata, $sumbrcount) =
+	 $data->get_info();
+      $functionMap = defined($testname) ? FunctionMap->new() : $funcdata;
+
+      if (defined($testname))
+      {
+	$testcount = $data->test($testname);
+	$testfnccount = $data->testfnc($testname);
+	$testbrcount = $data->testbr($testname);
+      }
+      else
+      {
+	$testcount = CountData->new(1);
+	$testfnccount = CountData->new(0);
+	$testbrcount = BranchData->new();
+      }
+      next;
+    }
+    next if $skipCurrentFile;
 
     # Switch statement
     foreach ($line)
@@ -2147,71 +2346,26 @@ sub _read_info {
         last;
       };
 
-      /^[SK]F:(.*)/ && do
-      {
-        # Filename information found
-        # Retrieve data for new entry
-        $filename = File::Spec->rel2abs($1, $main::cwd);
-
-        if (!File::Spec->file_name_is_absolute($1) &&
-            !$notified_about_relative_paths)
-        {
-          lcovutil::info("Resolved relative source file ".
-                         "path \"$1\" with CWD to ".
-                         "\"$filename\".\n");
-          $notified_about_relative_paths = 1;
-        }
-
-        %branchRenumber = ();
-
-        if (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
-            defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE])) {
-          # unconditionally 'close' the current file - in case we don't
-          #   open a new one.  If that happened, then we would be looking
-          #   at the source for some previous file.
-          $readSourceCallback->close();
-          undef $currentBranchLine;
-          if (is_c_file($filename)) {
-            if (-e $filename) {
-              $readSourceCallback->open($filename);
-            } else {
-              lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                        "'$filename' not found (for filtering)");
-            }
-          }
-        }
-        $data = $self->data($filename);
-        # record line number where file entry found - can use it in error messsages
-        $data->location($tracefile, $.);
-        ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-         $testbrdata, $sumbrcount) =
-             $data->get_info();
-        $functionMap = defined($testname) ? FunctionMap->new() : $funcdata;
-
-        if (defined($testname))
-        {
-          $testcount = $data->test($testname);
-          $testfnccount = $data->testfnc($testname);
-          $testbrcount = $data->testbr($testname);
-        }
-        else
-        {
-          $testcount = CountData->new(1);
-          $testfnccount = CountData->new(0);
-          $testbrcount = BranchData->new();
-        }
-        last;
-      };
-
       /^DA:(\d+),(-?\d+)(,[^,\s]+)?/ && do
       {
         my ($line, $count, $checksum) = ($1,$2,$3);
+        my $region = $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
+        if (defined($region) &&
+            $readSourceCallback->notEmpty() &&
+            $readSourceCallback->isExcluded($line)) {
+          main::verbose("exclude DA '" . $readSourceCallback->getLine($line)
+                        . "' $filename:$line\n");
+          ++ $region->[0]; # one location where this applied
+          ++ $region->[1]; # one coverpoint suppressed
+          last;
+        }
         # Fix negative counts
         if ($count < 0)
         {
           $count = 0;
           $negative = 1;
         }
+        # hold line, count and testname for postprocessing?
         my $linesum = $data->sum();
         my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE];
         if (defined($histogram) &&
@@ -2310,6 +2464,17 @@ sub _read_info {
         my $fnName = $2;
         # the function may already be defined by another testcase (for the
         #  same file)
+        my $region = $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
+        if (defined($region) &&
+            $readSourceCallback->notEmpty() &&
+            $readSourceCallback->isExcluded($line)) {
+          main::verbose("exclude FN $fnName '" . $readSourceCallback->getLine($line)
+                        . "' $filename:$line\n");
+          ++ $region->[0]; # one location where this applied
+          ++ $region->[1]; # one coverpoint suppressed
+          $excludedFunction{$fnName} = 1;
+          last;
+        }
         $functionMap->define_function($fnName, $filename, $lineNo)
           unless defined($functionMap->findName($fnName));
 
@@ -2321,6 +2486,7 @@ sub _read_info {
         last if (!$main::func_coverage);
         my $fnName = $2;
         my $hit = $1;
+        last if exists($excludedFunction{$fnName});
         # we expect to find a function with ths name...
         $functionMap->add_count($fnName, $hit);
 
@@ -2335,9 +2501,29 @@ sub _read_info {
         #   - so grab the last two elements, split on the last comma,
         #     and check whether we found an integer or an expression
         my ($line, $block, $d) = ($1, $2, $3);
+
+        if ($readSourceCallback->notEmpty()) {
+          my $skip = 0;
+          foreach my $filt ($lcovutil::FILTER_EXCLUDE_REGION,
+                            $lcovutil::FILTER_EXCLUDE_BRANCH) {
+            my $region = $lcovutil::cov_filter[$filt];
+            if (defined($region) &&
+                $readSourceCallback->isExcluded($line)) {
+              main::verbose("exclude BRDA '" . $readSourceCallback->getLine($line)
+                            . "' $filename:$line\n");
+              ++ $region->[0]; # one location where this applied
+              ++ $region->[1]; # one coverpoint suppressed
+              $skip = 1;
+            }
+          }
+          last if $skip;
+        }
+
         my $comma = rindex($d, ',');
         my $taken = substr($d, $comma + 1);
         my $expr = substr($d, 0, $comma);
+        # hold line, block, expr etc - to process when we get to end of file
+        #  (for parallelism support...)
 
         my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND];
         if (defined($histogram) &&

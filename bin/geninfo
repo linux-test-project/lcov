@@ -68,18 +68,23 @@ use JSON qw(decode_json);
 use FindBin;
 
 use lib "$FindBin::Bin/../lib";
-use lcovutil qw (define_errors parse_ignore_errors ignorable_error
+use lcovutil qw (define_errors parse_ignore_errors
+                 ignorable_error ignorable_warning
                  set_info_callback info debug $debug
                  system_no_output
                  die_handler warn_handler $tool_name
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  filterStringsAndComments simplifyCode balancedParens
+                 $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
+
+                 @exclude_file_patterns @include_file_patterns %excluded_files
+                 munge_file_patterns warn_file_patterns
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE
                  $ERROR_GRAPH
                  is_external $opt_no_external @internal_dirs
-                 %opt_rc apply_rc_params transform_pattern
+                 %opt_rc apply_rc_params
                 );
 
 if( $^O eq "msys" )
@@ -106,14 +111,9 @@ our $BBG_FILE_MAGIC	= 0x67626267;
 # Error classes which users may specify to ignore during processing
 lcovutil::define_errors(\%lcovutil::geninfoErrs);
 
-our $EXCL_START = "LCOV_EXCL_START";
-our $EXCL_STOP = "LCOV_EXCL_STOP";
-
-# Marker to exclude branch coverage but keep function and line coverage
-our $EXCL_BR_START = "LCOV_EXCL_BR_START";
-our $EXCL_BR_STOP = "LCOV_EXCL_BR_STOP";
-
 # Marker to exclude exception branch coverage but keep function, line coverage and non-exception branch coverage
+# these aren't shared via lcovutil because they don't apply to source code -
+#  so I can't think of a way to use them
 our $EXCL_EXCEPTION_BR_START = "LCOV_EXCL_EXCEPTION_BR_START";
 our $EXCL_EXCEPTION_BR_STOP = "LCOV_EXCL_EXCEPTION_BR_STOP";
 
@@ -252,9 +252,6 @@ our $adjust_testname;
 our @ignore_errors;	# List of errors to ignore (parameter)
 our @opt_filter;        # list of coverpoints to ignore (parameter)
 our $initial;
-our @include_patterns; # List of source file patterns to include
-our @exclude_patterns; # List of source file patterns to exclude
-our %excluded_files; # Files excluded due to include/exclude options
 our $no_recursion = 0;
 our $maxdepth;
 our $no_markers = 0;
@@ -371,8 +368,8 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"ignore-errors=s" => \@ignore_errors,
 		"filter=s" => \@opt_filter,
 		"initial|i" => \$initial,
-		"include=s" => \@include_patterns,
-		"exclude=s" => \@exclude_patterns,
+		"include=s" => \@lcovutil::include_file_patterns,
+		"exclude=s" => \@lcovutil::exclude_file_patterns,
 		"no-recursion" => \$no_recursion,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
@@ -387,36 +384,25 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 	print(STDERR "Use $tool_name --help to get usage information\n");
 	exit(1);
 }
-else
+# Merge options
+if (defined($no_checksum))
 {
-	# Merge options
-	if (defined($no_checksum))
-	{
-		$checksum = ($no_checksum ? 0 : 1);
-		$no_checksum = undef;
-	}
-
-	if (defined($opt_no_compat_libtool))
-	{
-		$opt_compat_libtool = ($opt_no_compat_libtool ? 0 : 1);
-		$opt_no_compat_libtool = undef;
-	}
-
-	if (defined($opt_external)) {
-		$lcovutil::opt_no_external = 0;
-		$opt_external = undef;
-	}
-
-	if(@include_patterns) {
-		# Need perlreg expressions instead of shell pattern
-		@include_patterns = map({ lcovutil::transform_pattern($_); } @include_patterns);
-	}
-
-	if(@exclude_patterns) {
-		# Need perlreg expressions instead of shell pattern
-		@exclude_patterns = map({ lcovutil::transform_pattern($_); } @exclude_patterns);
-	}
+  $checksum = ($no_checksum ? 0 : 1);
+  $no_checksum = undef;
 }
+
+if (defined($opt_no_compat_libtool))
+{
+  $opt_compat_libtool = ($opt_no_compat_libtool ? 0 : 1);
+  $opt_no_compat_libtool = undef;
+}
+
+if (defined($opt_external)) {
+  $lcovutil::opt_no_external = 0;
+  $opt_external = undef;
+}
+
+lcovutil::munge_file_patterns();
 
 @data_directory = @ARGV;
 
@@ -619,11 +605,13 @@ foreach my $entry (@data_directory) {
 }
 
 if ($initial && $br_coverage && !$intermediate) {
-	warn("Note: --initial does not generate branch coverage ".
-	     "data\n");
+	warn("Note: --initial does not generate branch coverage data\n");
 }
 info("Finished .info-file creation\n");
 summarize_cov_filters();
+
+# print warnings
+lcovutil::warn_file_patterns();
 
 exit(0);
 
@@ -799,9 +787,9 @@ sub gen_info($)
 	unlink($tempdir);
 
 	# Report whether files were excluded.
-	if (%excluded_files) {
+	if (%lcovutil::excluded_files) {
 		info("Excluded data for %d files due to include/exclude options\n",
-			 scalar keys %excluded_files);
+			 scalar keys %lcovutil::excluded_files);
 	}
 }
 
@@ -1095,7 +1083,9 @@ sub process_dafile($$)
 	}
 
 	# Execute gcov command and suppress standard output
-	$gcov_error = system_no_output(1, $gcov_tool, $da_filename,
+	#  also redirect stderr to /dev/null if 'quiet'
+	$gcov_error = system_no_output(1 + ($lcovutil::quiet ? 2 : 0),
+				       $gcov_tool, $da_filename,
 				       "-o", $object_dir, @gcov_options);
 
 	if ($da_renamed)
@@ -1165,8 +1155,7 @@ sub process_dafile($$)
 	my @source_file_data;
 	# Traverse the list of generated .gcov files and combine them into a
 	# single .info file
-	foreach $gcov_file (sort(@gcov_list))
-	{
+	foreach $gcov_file (sort(@gcov_list)) { GCOV_FILE_LOOP: {
 		my $i;
 		my $num;
 
@@ -1243,38 +1232,36 @@ sub process_dafile($$)
 						\@matches, \@gcov_content);
 		}
 
-		if (@include_patterns)
+		if (@lcovutil::include_file_patterns)
 		{
-			my $keep = 0;
+		  my $keep = 0;
 
-			foreach my $pattern (@include_patterns)
-			{
-				$keep ||= ($source_filename =~ (/^$pattern$/));
-			}
-
-			if (!$keep)
-			{
-				$excluded_files{$source_filename} = ();
-				unlink($gcov_file);
-				next;
-			}
+		  foreach my $p (@lcovutil::include_file_patterns) {
+		    my $pattern = $p->[0];
+		    if ($source_filename =~ /^$pattern$/) {
+		      $keep = 1;
+		      ++ $p->[2];
+		      last;
+		    }
+		  }
+		  if (!$keep) {
+		    $lcovutil::excluded_files{$source_filename} = ();
+		    unlink($gcov_file);
+		    next GCOV_FILE_LOOP;
+		  }
 		}
 
-		if (@exclude_patterns)
+		if (@lcovutil::exclude_file_patterns)
 		{
-			my $exclude = 0;
-
-			foreach my $pattern (@exclude_patterns)
-			{
-				$exclude ||= ($source_filename =~ (/^$pattern$/));
-			}
-
-			if ($exclude)
-			{
-				$excluded_files{$source_filename} = ();
-				unlink($gcov_file);
-				next;
-			}
+		  foreach my $p (@lcovutil::exclude_file_patterns) {
+		    my $pattern = $p->[0];
+		    if ($source_filename =~ /^$pattern$/) {
+		      ++ $p->[2];
+		      $excluded_files{$source_filename} = ();
+		      unlink($gcov_file);
+		      next GCOV_FILE_LOOP;
+		    }
+		  }
 		}
 
 		# Skip external files if requested
@@ -1385,7 +1372,7 @@ sub process_dafile($$)
 		my $histogram = $cov_filter[$FILTER_BRANCH_NO_COND];
 		my $skipBranch = 0;
 		my $currentBranchLine;
-		foreach my $line (sort @{$branchData->keylist()}) {
+		foreach my $line (sort $branchData->keylist()) {
 
 		  my $branchEntry = $branchData->value($line);
 		  # skip this branch data if the line seems to
@@ -1408,12 +1395,12 @@ sub process_dafile($$)
 		    }
 		    if ($skipBranch) {
 		      # skip coverpoints
-		      $histogram->[1] += scalar(@{$branchEntry->blocks()});
+		      $histogram->[1] += scalar($branchEntry->blocks());
 		      next;
 		    }
 		  }
 
-		  foreach my $block (@{$branchEntry->blocks()}) {
+		  foreach my $block ($branchEntry->blocks()) {
 		    my $b = $branchEntry->getBlock($block);
 		    # check whether this line looks like an actual
 		    #  branch or not
@@ -1489,7 +1476,7 @@ sub process_dafile($$)
 
 		# Remove .gcov file after processing
 		unlink($gcov_file);
-	}
+	  } }
 
 	if (!($output_filename && ($output_filename eq "-")))
 	{
@@ -2570,8 +2557,8 @@ sub process_intermediate($$$)
 	}
 
 	if (!%data) {
-		warn("WARNING: GCOV did not produce any data for $file\n");
-		return;
+	  ignorable_warning($ERROR_GCOV, "WARNING: GCOV did not produce any data for $file\n");
+	  return;
 	}
 
 	# Determine base directory
@@ -2772,7 +2759,7 @@ sub get_source_data($)
   local *HANDLE;
 
   if (!open(HANDLE, "<", $filename)) {
-    warn("WARNING: could not open $filename\n");
+    lcovutil::ignorable_warning($ERROR_SOURCE, "could not open $filename for exclusion marker filtering\n");
     return;
     }
   while (<HANDLE>) {
@@ -2854,7 +2841,9 @@ sub get_all_source_data(@)
 	}
 
 	if ($failed) {
-		warn("WARNING: some exclusion markers may be ignored\n");
+	  # use same message type as the warning which that we couldn't
+	  #  open the file
+	  lcovutil::ignorable_warning($ERROR_SOURCE, "some exclusion markers may be ignored\n");
 	}
 
 	return \%data;
@@ -3410,28 +3399,33 @@ sub filter_source_files($)
 		goto del if (is_external($filename));
 
 		# Apply include patterns
-		if (@include_patterns) {
-			my $keep;
-
-			foreach my $pattern (@include_patterns) {
-				if ($filename =~ (/^$pattern$/)) {
-					$keep = 1;
-					last;
-				}
-			}
-			goto del if (!$keep);
+		if (@lcovutil::include_patterns) {
+		  my $keep;
+		  foreach my $p (@lcovutil::include_patterns) {
+		    my $pattern = $p->[0];
+		    if ($filename =~ /^$pattern$/) {
+		      ++ $p->[2];
+		      $keep = 1;
+		      last;
+		    }
+		  }
+		  goto del if (!$keep);
 		}
 
 		# Apply exclude patterns
-		foreach my $pattern (@exclude_patterns) {
-			goto del if ($filename =~ (/^$pattern$/));
+		foreach my $p (@lcovutil::exclude_file_patterns) {
+		  my $pattern = $p->[0];
+		  if ($filename =~ /^$pattern$/) {
+		    ++ $p->[2];
+		    goto del;
+		  }
 		}
 		next;
 
 del:
 		# Remove file data
 		delete($hash->{$filename});
-		$excluded_files{$filename} = 1;
+		$lcovutil::excluded_files{$filename} = 1;
 	}
 }
 

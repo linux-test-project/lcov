@@ -71,6 +71,8 @@ use File::Spec::Functions qw /abs2rel canonpath catdir catfile catpath
 use Getopt::Long;
 use Cwd qw /abs_path getcwd/;
 use FindBin;
+use JSON;
+use Time::HiRes; # for profiling
 
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw ($tool_name $quiet
@@ -84,6 +86,8 @@ use lcovutil qw ($tool_name $quiet
                  filterStringsAndComments simplifyCode balancedParens
                  set_rtl_extensions set_c_extensions
 
+                 @exclude_file_patterns @include_file_patterns %excluded_files
+                 munge_file_patterns warn_file_patterns
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
                  $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT
                  is_external $opt_no_external @internal_dirs
@@ -141,8 +145,7 @@ sub kernel_capture();
 sub kernel_capture_initial();
 sub package_capture();
 sub add_traces();
-sub extract();
-sub remove();
+sub remove_file_patterns($);
 sub list();
 sub get_common_filename($$);
 sub read_diff($);
@@ -191,8 +194,6 @@ our $gcov_tool;
 our @opt_ignore_errors;
 our @opt_filter;
 our $initial;
-our @include_patterns; # List of source file patterns to include
-our @exclude_patterns; # List of source file patterns to exclude
 our $no_recursion = 0;
 our $to_package;
 our $from_package;
@@ -272,7 +273,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"quiet|q" => \$lcovutil::quiet,
 		"verbose|v" => \$lcovutil::verbose,
 		"help|h|?" => \$help,
-		"version|v" => \$version,
+		"version" => \$version,
 		"follow|f" => \$follow,
 		"path=s" => \$diff_path,
 		"base-directory|b=s" => \$base_directory,
@@ -284,8 +285,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"ignore-errors=s" => \@opt_ignore_errors,
 		"filter=s" => \@opt_filter,
 		"initial|i" => \$initial,
-		"include=s" => \@include_patterns,
-		"exclude=s" => \@exclude_patterns,
+		"include=s" => \@lcovutil::include_file_patterns,
+		"exclude=s" => \@lcovutil::exclude_file_patterns,
 		"no-recursion" => \$no_recursion,
 		"to-package=s" => \$to_package,
 		"from-package=s" => \$from_package,
@@ -301,6 +302,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"config-file=s" => \$opt_config_file,
 		"rc=s%" => \%opt_rc,
 		"fail-under-lines=s" => \$opt_fail_under_lines,
+		"profile" => \$lcovutil::profile,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -389,6 +391,15 @@ if (@ARGV && !($extract || $remove || $diff || @opt_summary))
 	    "Use $tool_name --help to get usage information\n");
 }
 
+push(@lcovutil::exclude_file_patterns, @ARGV)
+  if $remove;
+push(@lcovutil::include_file_patterns, @ARGV)
+  if $extract;
+
+lcovutil::munge_file_patterns() # for exclude/include directives
+  unless $capture;
+
+
 # Check for output filename
 $data_stdout = !($output_filename && ($output_filename ne "-"));
 
@@ -446,17 +457,19 @@ elsif (@add_tracefile)
 	 $fn_overall_found, $fn_overall_hit,
 	 $br_overall_found, $br_overall_hit) = add_traces();
 }
-elsif ($remove)
-{
-	($ln_overall_found, $ln_overall_hit,
-	 $fn_overall_found, $fn_overall_hit,
-	 $br_overall_found, $br_overall_hit) = remove();
+elsif ($remove ) {
+
+  # remove files matching patterns
+  ($ln_overall_found, $ln_overall_hit,
+   $fn_overall_found, $fn_overall_hit,
+   $br_overall_found, $br_overall_hit) = remove_file_patterns($remove);
 }
 elsif ($extract)
 {
-	($ln_overall_found, $ln_overall_hit,
-	 $fn_overall_found, $fn_overall_hit,
-	 $br_overall_found, $br_overall_hit) = extract();
+  # kep only the files matching patterns
+  ($ln_overall_found, $ln_overall_hit,
+   $fn_overall_found, $fn_overall_hit,
+   $br_overall_found, $br_overall_hit) = remove_file_patterns($extract);
 }
 elsif ($list)
 {
@@ -492,7 +505,20 @@ if (defined($ln_overall_found)) {
 } else {
 	info("Done.\n") if (!$list && !$capture);
 }
+lcovutil::warn_file_patterns(); # warn about unused include/exclude directives
 summarize_cov_filters();
+if ($lcovutil::profile) {
+  my $json = JSON::encode_json(\%lcovutil::profileData);
+  my $dest = $output_filename ? $output_filename : "lcov";
+  $dest .= ".json";
+  if (open(JSON, ">", "$dest")) {
+    print(JSON $json);
+    close(JSON);
+  } else {
+    print("Error:  unable to open profile output $dest: '$!'\n")
+  }
+}
+
 exit($exit_code);
 
 #
@@ -514,7 +540,8 @@ get coverage data for a user space program.
 
 Misc:
   -h, --help                      Print this help, then exit
-  -v, --version                   Print version number, then exit
+  --version                       Print version number, then exit
+  -v, --verbose                   Increment verbosity (mainly for debug)
   -q, --quiet                     Do not print progress messages
 
 Operation:
@@ -558,7 +585,7 @@ Options:
       --fail-under-lines MIN      Exit with a status of 1 if the total line
                                   coverage is less than MIN (summary option).
 
-For more information see: $lcov_url
+For more information see: $lcov_url and\/or the lcov man page.
 END_OF_USAGE
 	;
 }
@@ -909,10 +936,10 @@ sub lcov_geninfo(@)
 	if (defined($opt_config_file)) {
 		@param = (@param, "--config-file", $opt_config_file);
 	}
-	foreach (@include_patterns) {
+	foreach (@lcovutil::include_file_patterns) {
 		@param = (@param, "--include", $_);
 	}
-	foreach (@exclude_patterns) {
+	foreach (@lcovutil::exclude_file_patterns) {
 		@param = (@param, "--exclude", $_);
 	}
 	info("geninfo cmd: '" . join(' ', @param) . "'\n");
@@ -1519,6 +1546,43 @@ sub create_temp_dir()
 	return $dir;
 }
 
+# emit()
+#  write output to file or stdout - possibly with info message
+#
+sub emit
+{
+  my ($trace, $info_msg) = @_;
+  my @result;
+  if (!$data_stdout)
+  {
+    info($info_msg)
+      if $info_msg;
+    info("Writing data to $output_filename\n");
+    # Check for .gz extension
+    if ($output_filename =~ /\.gz$/)
+    {
+      # Check for availability of GZIP tool
+      system_no_output(1, "gzip" ,"-h")
+	and die("ERROR: gzip command not available!\n");
+
+      # Open compressed file
+      open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
+	or die("ERROR: cannot start gzip to compress ".
+	       "to file $output_filename!\n");
+    } else {
+      open(INFO_HANDLE, ">", $output_filename)
+	or die("ERROR: cannot write to $output_filename!\n");
+    }
+    @result = $trace->write_info(*INFO_HANDLE, $checksum);
+    close(*INFO_HANDLE);
+  }
+  else
+  {
+    @result = $trace->write_info(*STDOUT, $checksum);
+  }
+  return @result;
+}
+
 #
 #
 # add_traces()
@@ -1527,178 +1591,39 @@ sub create_temp_dir()
 sub add_traces()
 {
 	my $total_trace = TraceFile->new();
-	my @result;
-	local *INFO_HANDLE;
 
 	info("Combining tracefiles.\n");
 	my $readSourceFile = ReadCurrentSource->new();
+	$lcovutil::profileData{parse} = {};
+	$lcovutil::profileData{append} = {};
 	foreach my $tracefile (@add_tracefile)
 	{
-		my $current = TraceFile->load($tracefile, $readSourceFile);
-		$total_trace->append_tracefile($current);
+	  my $now = Time::HiRes::gettimeofday();
+	  my $current = TraceFile->load($tracefile, $readSourceFile);
+	  my $then = Time::HiRes::gettimeofday();
+	  $lcovutil::profileData{parse}{$tracefile} = $then - $now;
+	  $total_trace->append_tracefile($current);
+	  my $end = Time::HiRes::gettimeofday();
+	  $lcovutil::profileData{append}{$tracefile} = $end - $then;
 	}
 
 	# Write combined data
-	if (!$data_stdout)
-	{
-		info("Writing data to $output_filename\n");
-		# Check for .gz extension
-		if ($output_filename =~ /\.gz$/)
-		{
-		        # Check for availability of GZIP tool
-		        system_no_output(1, "gzip" ,"-h")
-			        and die("ERROR: gzip command not available!\n");
-
-			# Open compressed file
-			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
-			        or die("ERROR: cannot start gzip to compress ".
-				       "to file $output_filename!\n");
-		} else {
-		        open(INFO_HANDLE, ">", $output_filename)
-			        or die("ERROR: cannot write to $output_filename!\n");
-		}
-		@result = $total_trace->write_info(*INFO_HANDLE, $checksum);
-		close(*INFO_HANDLE);
-	}
-	else
-	{
-		@result = $total_trace->write_info(*STDOUT, $checksum);
-	}
-
-	return @result;
+	return emit($total_trace);
 }
 
 
+sub remove_file_patterns($) {
+  my $filename = shift;
 
-#
-# extract()
-#
+  my $readSourceFile = ReadCurrentSource->new();
+  my $now = Time::HiRes::gettimeofday();
+  my $data = TraceFile->load($filename, $readSourceFile);
+  my $then = Time::HiRes::gettimeofday();
+  $lcovutil::profileData{parse} = $then - $now;
 
-sub extract()
-{
-	my $readSourceFile = ReadCurrentSource->new();
-	my $data = TraceFile->load($extract, $readSourceFile);
-	my $extracted = 0;
-	my @result;
-	local *INFO_HANDLE;
-
-	# Need perlreg expressions instead of shell pattern
-	my @pattern_list = map({ lcovutil::transform_pattern($_); } @ARGV);
-
-	# Filter out files which do not match any pattern
-	foreach my $filename (sort($data->files())) {
-		my $keep = 0;
-
-		foreach my $pattern (@pattern_list)
-		{
-			$keep ||= ($filename =~ (/^$pattern$/));
-		}
-
-
-		if (!$keep)
-		{
-			$data->remove($filename);
-		}
-		else
-		{
-			info("Extracting $filename\n"),
-			$extracted++;
-		}
-	}
-
-	# Write extracted data
-	if (!$data_stdout)
-	{
-		info("Extracted $extracted files\n");
-		info("Writing data to $output_filename\n");
-		if ($output_filename =~ /\.gz$/)
-		{
-			# Check for availability of GZIP tool
-			system_no_output(1, "gzip" ,"-h")
-				and die("ERROR: gzip command not available!\n");
-
-			# Open compressed file
-			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
-				or die("ERROR: cannot start gzip to compress ".
-				       "to file $output_filename!\n");
-		} else {
-			open(INFO_HANDLE, ">", $output_filename)
-				or die("ERROR: cannot write to $output_filename!\n");
-		}
-		@result = $data->write_info(*INFO_HANDLE, $checksum);
-		close(*INFO_HANDLE);
-	}
-	else
-	{
-		@result = $data->write_info(*STDOUT, $checksum);
-	}
-
-	return @result;
-}
-
-
-#
-# remove()
-#
-
-sub remove()
-{
-	my $readSourceFile = ReadCurrentSource->new();
-	my $data = TraceFile->load($remove, $readSourceFile);
-	my @pattern_list;
-	my $removed = 0;
-	my @result;
-	local *INFO_HANDLE;
-
-	# Need perlreg expressions instead of shell pattern
-	@pattern_list = map({ lcovutil::transform_pattern($_); } @ARGV);
-
-	# Filter out files that match the pattern
-	foreach my $filename (sort($data->files())) {
-		my $match_found = 0;
-
-		foreach my $pattern (@pattern_list)
-		{
-			$match_found ||= ($filename =~ (/^$pattern$/));
-		}
-
-
-		if ($match_found)
-		{
-			$data->remove($filename);
-			info("Removing $filename\n"),
-			$removed++;
-		}
-	}
-
-	# Write data
-	if (!$data_stdout)
-	{
-		info("Deleted $removed files\n");
-		info("Writing data to $output_filename\n");
-		if ($output_filename =~ /\.gz$/)
-		{
-			# Check for availability of GZIP tool
-			system_no_output(1, "gzip" ,"-h")
-				and die("ERROR: gzip command not available!\n");
-
-			# Open compressed file
-			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
-				or die("ERROR: cannot start gzip to compress ".
-				       "to file $output_filename!\n");
-		} else {
-			open(INFO_HANDLE, ">", $output_filename)
-				or die("ERROR: cannot write to $output_filename!\n");
-		}
-		@result = $data->write_info(*INFO_HANDLE, $data, $checksum);
-		close(*INFO_HANDLE);
-	}
-	else
-	{
-		@result = $data->write_info(*STDOUT, $checksum);
-	}
-
-	return @result;
+  # Write extracted data
+  my $removed = scalar(keys(%lcovutil::excluded_files));
+  return emit($data, "Removed $removed files\n");
 }
 
 

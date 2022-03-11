@@ -116,6 +116,11 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-filter
 .IR filters ]
 .br
+.RB [ \-\-include
+.IR pattern ]
+.RB [ \-\-exclude
+.IR pattern ]
+.br
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -217,7 +222,7 @@ in the absence of baseline coverage data.
 
 If the
 .I \-\-criteria\-script
-option is used, genhtml will use the referenced script to determine whether your coverage criterial has been met - and will return a non-zero etatus and print a message if the criteria is not met.
+option is used, genhtml will use the referenced script to determine whether your coverage criteria has been met - and will return a non-zero etatus and print a message if the criteria is not met.
 
 HTML output files are created in the current working directory unless the
 .I \-\-output\-directory
@@ -239,7 +244,7 @@ trace files, and the version used to compile and capture the current
 trace files.
 
 Use option
-.I \--css\-file
+.I \-\-css\-file
 to modify layout and colors of the generated HTML output. Files are
 marked in different colors depending on the associated coverage rate. By
 default, the coverage limits for low, medium and high coverage are set to
@@ -250,7 +255,7 @@ values, use configuration file options
 Also note that when displaying percentages, 0% and 100% are only printed when
 the values are exactly 0% and 100% respectively. Other values which would
 conventionally be rounded to 0% or 100% are instead printed as nearest
-non-boundary value. This behavior is in accordance with that of the
+non\-boundary value. This behavior is in accordance with that of the
 .BR gcov (1)
 tool.
 
@@ -286,7 +291,7 @@ structure of the source code.
 
 The default is to generate a three-level HTML report:
 .RS
-.IP top-level 0.4i
+.IP top\-level 0.4i
 containing table of directories,
 .IP directory
  containing table of source files in that directory, and
@@ -384,9 +389,9 @@ and
 .IR tracefile(s) .
 A suitable
 .I unified\-diff\-file
-can be generated using the command "git diff \-\-relative SHA_base SHA_current", or using the "p4udiff" or "gitdiff" sample scripts (found in the share/lcov/support-scripts directory shipped as part of this release).
+can be generated using the command "git diff \-\-relative SHA_base SHA_current", or using the "p4udiff" or "gitdiff" sample scripts (found in the share/lcov/support\-scripts directory shipped as part of this release).
 
-These scripts post-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly not files whcih have not changed.  It is useful to note unchanged files (denoted by lines of the form
+These scripts post\-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly not files whcih have not changed.  It is useful to note unchanged files (denoted by lines of the form
   diff [optional header strings]
   === file_path
 
@@ -409,11 +414,11 @@ to supply age and ownership data for each source line. The script is
 required to filter data supplied by the revision management system, and
 represent it in the format expected by
 .BR genhtml .
-'source\-annotation\-script' is treated as a space-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the filename) when the script is executed.  Parameter order is 'str[0] file_name str[1:]'.
+'source\-annotation\-script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the filename) when the script is executed.  Parameter order is 'str[0] file_name str[1:]'.
 When a
 .I source\-annotation\-script
 is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
-Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.
+Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support\-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.
 
 .RE
 .BI "\-\-criteria\-script " coverage\-criteria\-script
@@ -421,11 +426,11 @@ Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can b
 Use the
 .I coverage\-criteria\-script
 to enable genhtml to determine whether your coverage criteria is satisfied or not.
-coverage\-criteria\-script' is treated as a space-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the 'name' and 'type' and JSON coverage data) when the script is executed.  The script callback is executed for every 'summary' coverage data element:  leaf level file, containig directory, and top-level report if any).  Parameter order is "str[0] name type 'json-string' str[1:]", where "name" is the file or directory name (or "top" in the case of the top-level report), "type" is the callback type:  "file", "directory", or "top", and "json-string" is a JSON representation of the corresponding line/function/branch coverage data.
+coverage\-criteria\-script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the 'name' and 'type' and JSON coverage data) when the script is executed.  The script callback is executed for every 'summary' coverage data element:  leaf level file, containig directory, and top\-level report if any).  Parameter order is "str[0] name type 'json-string' str[1:]", where "name" is the file or directory name (or "top" in the case of the top\-level report), "type" is the callback type:  "file", "directory", or "top", and "json-string" is a JSON representation of the corresponding line/function/branch coverage data.
 
-The script should return 0 (zero) if your criteria is met and non\-zero otherwise.  If desired, it may print a single line output string which will be appended to the error log if the return status is non\-zero.  Additionally, non-empty lines are appended to the genhtml log (stdout).
+The script should return 0 (zero) if your criteria is met and non\-zero otherwise.  If desired, it may print a single line output string which will be appended to the error log if the return status is non\-zero.  Additionally, non\-empty lines are appended to the genhtml log (stdout).
 
-A sample coverage criteria script can be found in the share/lcov/support-scripts/criteria, shipped as part of this release.  The sample script checks that top-level line coverage meets the criteria "UNC + LBC _ UIC == 0".
+A sample coverage criteria script can be found in the share/lcov/support\-scripts/criteria, shipped as part of this release.  The sample script checks that top\-level line coverage meets the criteria "UNC + LBC + UIC == 0".
 
 It is not difficult to create another script which mimics the LOCV '\-\-fail\-\uner\-lines feature by instead checking that the ratio of exercised lines to total lines ("(GNC + GIC + CBC)/(GNC + GIC + CBC + UNC + UIC + UBC)") is greater than the threshold - either only at the top level, in every directory, or wherever desired.  Similarly, your criteria may include branch and function coverage metrics.
 
@@ -438,7 +443,7 @@ or
 .I UIC.
 However, if the configuration of the coverage job has been recently changed to instrument additional files (
 .I i.e.
-, to measure more than we had previously), then all un-exercised coverpoints in those files will fall into the
+, to measure more than we had previously), then all un\-exercised coverpoints in those files will fall into the
 .I GIC
 category - which may cause our Jenkins "coverage ratchet" to fail.
 When this option is specified, genhtml pretends that the baseline data for the file is the same as the current data - so coverpoints are categorized as
@@ -447,9 +452,9 @@ or
 .I UBC
 which do not trigger the coverage criteria check.
 
-Please note that coverpoints in the file are re-categorized only if:
+Please note that coverpoints in the file are re\-categorized only if:
   - There is no 'baseline' data for any coverpoint in this file, AND
-  - The file pre-dates the baseline:  the oldest line in the file is older than the 'baseline' data file (or the value specified by the "--baseline\-date" option).
+  - The file pre\-dates the baseline:  the oldest line in the file is older than the 'baseline' data file (or the value specified by the "\-\-baseline\-date" option).
 
 .RE
 .BI "\-\-elide\-path\-mismatch"
@@ -480,7 +485,7 @@ discussion above for a discussion of how to avoid spurious warnings and/or incor
 .RS
 The
 .I \-\-date\-bins
-option is used to specify age boundaries (cutpoints) for date-binning classification.  If not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days.
+option is used to specify age boundaries (cutpoints) for date\-binning classification.  If not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days.
 This argument has no effect if there is no
 .I source\-annotation\-script .
 
@@ -489,7 +494,7 @@ This argument has no effect if there is no
 .RS
 If the
 .I \-\-show\-owners
-option is used, each coverage report header report contain a summary table, showing counts in the various coverage categories for everyone who appears in the revision control annotation as the most recent editor of the corresponding line.  If the optional argument 'all' is not specified, the table will show only users who are responsible for un-excercised code lines.  If the optional argument is specified, then users responsible for any code lines will appear.  In both cases, users who are responsible for non-code lines (e.g, comments) are not shown.
+option is used, each coverage report header report contain a summary table, showing counts in the various coverage categories for everyone who appears in the revision control annotation as the most recent editor of the corresponding line.  If the optional argument 'all' is not specified, the table will show only users who are responsible for un\-excercised code lines.  If the optional argument is specified, then users responsible for any code lines will appear.  In both cases, users who are responsible for non\-code lines (e.g, comments) are not shown.
 This option does nothing if
 .I \-\-annotate\-script
 is not used; it needs revision control information provided by calling the script.
@@ -501,7 +506,7 @@ option is not specified, the the summary table will contain "Total" rows for all
 .RE
 .BI "\-\-show\-noncode "
 .RS
-By default, the source code detail view does not show owner or date annotations in the far left column for non-code lines (e.g., comments). If the
+By default, the source code detail view does not show owner or date annotations in the far left column for non\-code lines (e.g., comments). If the
 .I \-\-show\-noncode
 option is used, then the source code view will show annotations for both code and non-code lines.
 This argument has no effect if there is no
@@ -511,6 +516,23 @@ This argument has no effect if there is no
 .BI "\-\-simplified\-colors "
 .RS
 By default, each differential category is colorized uniquely in the source code detail view.  With this option, only two colors are used:  one for covered code and another for uncovered code.  Note that ECB and EUB code is neither covered nor uncovered - and so may be difficult to distinguish in the source code view, as they will be presented in normal background color.
+
+.RE
+.BI "\-\-exclude "
+.I pattern
+.RS
+pattern is a glob\-match pattern of filenames to exclude from the report.
+Files which do NOT match will be included.
+See the lcov man page for details.
+
+.RE
+.BI "\-\-include "
+.I pattern
+.RS
+pattern is a glob\-match pattern of filenames to include in processing.
+Files which do not match will be excluded from the report.
+See the lcov man page for details.
+
 
 .RE
 .BI "\-\-filter "
@@ -528,14 +550,24 @@ This option has no effect unless
 is used.
 
 .B line:
-ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceeding line has the same count or if the close brace has a zero count and either the preceding line has a non-zero count or the close brace is not the body of a conditional.
+ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceeding line has the same count or if the close brace has a zero count and either the preceding line has a non\-zero count or the close brace is not the body of a conditional.
 These lines seem to appear and disappear in gcov output - and cause differential coverage to report bogus LBC and/or GIC and/or UIC counts.  Bogus LBC or UIC counts are a problem because an automated regression which uses pass criteria "LBC + UIC + UNC == 0" will fail.
+
+.B region:
+apply LCOV_EXCL_START/LCOV_EXCL_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
+This option may be useful in cases that the source code was not found during 'lcov --capture ...' but is accessible now.
+
+.B branch_region:
+apply LCOV_EXCL_BR_START/LCOV_EXCL_BR_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
+This is similar to the 'region option, above - but applies to branch coverpoints only.
 
 .B function:
 combine data for every "unique" function which is defined at the same file/line.
 .I geninfo/gcov
 seem to have a bug such that they create multiple entries for the same function.
 This feature also merges all instances of the same template function/template method.
+
+
 
 .RE
 .BI "\-o " output\-directory
@@ -899,7 +931,7 @@ genhtml should continue processing instead of aborting.
 Note that the tool will generate a warning (rather than a fatal error) unless you ignore the error two (or more) times:
 .br
 .RS
-genhtml ... --ignore-errors unmapped,unmapped ...
+genhtml ... \-\-ignore\-errors unmapped,unmapped ...
 .RE
 
 .I errors
@@ -964,7 +996,7 @@ for a list of available keywords and their meaning.
 .RS
 Show coverage rates with
 .I num
-number of digits after the decimal-point.
+number of digits after the decimal point.
 
 Default value is 1.
 
@@ -990,7 +1022,7 @@ option
 
 .B \-\-dark\-mode
 .RS
-Use a light-display-on-dark-background color scheme rather than the default dark-display-on-light-background.
+Use a light\-display\-on\-dark\-background color scheme rather than the default dark\-display\-on\-light\-background.
 
 The idea is to reduce eye strain due to viewing dark text on a bright screen - particularly at night.
 

@@ -91,6 +91,7 @@ use Carp;
 use Storable qw(dclone);
 use FindBin;
 use JSON;
+use Time::HiRes; # for profiling
 
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
@@ -4030,7 +4031,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "quiet|q"               => \$lcovutil::quiet,
                 "verbose|v"             => \$lcovutil::verbose,
                 "help|h|?"              => \$help,
-                "version|v"             => \$version,
+                "version"               => \$version,
                 "html-prolog=s"         => \$html_prolog_file,
                 "html-epilog=s"         => \$html_epilog_file,
                 "html-extension=s"      => \$html_ext,
@@ -4050,6 +4051,9 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "missed"                => \$opt_missed,
                 "filter=s"              => \@opt_filter,
                 "dark-mode"             => \$dark_mode,
+                "profile"               => \$lcovutil::profile,
+		"exclude=s"             => \@lcovutil::exclude_file_patterns,
+		"include=s"             => \@lcovutil::include_file_patterns,
                 ))
 {
   print(STDERR "Use $tool_name --help to get usage information\n");
@@ -4149,6 +4153,8 @@ parse_cov_filters(@opt_filter);
 
 # Split the list of prefixes if needed
 parse_dir_prefix(@opt_dir_prefix);
+
+lcovutil::munge_file_patterns();  # used for exclude/include
 
 # Check for info filename
 if (!@info_filenames)
@@ -4280,7 +4286,13 @@ if ($output_directory)
 }
 
 # Do something
+my $now = Time::HiRes::gettimeofday();
+
 gen_html();
+my $then = Time::HiRes::gettimeofday();
+$lcovutil::profileData{overall} = $then - $now;
+
+my $exit_status = 0;
 
 # now check the coverage criteria (if any)
 if (defined($SummaryInfo::coverageCriteriaScript)) {
@@ -4320,10 +4332,23 @@ if (defined($SummaryInfo::coverageCriteriaScript)) {
       print(STDERR $msg);
     }
   }
-  exit($SummaryInfo::coverageCriteriaStatus);
+  $exit_status = $SummaryInfo::coverageCriteriaStatus;
 }
 
-exit(0);
+lcovutil::warn_file_patterns(); # warn about unused include/exclude directives
+
+if ($lcovutil::profile) {
+  my $json = JSON::encode_json(\%lcovutil::profileData);
+  my $dest = "$output_directory/genhtml.json";
+  if (open(JSON, ">", $dest)) {
+    print(JSON $json);
+    close(JSON);
+  } else {
+    print("Error:  unable to open profile output '$dest': '$!'\n")
+  }
+}
+
+exit($exit_status);
 
 
 
@@ -4345,7 +4370,8 @@ may also be a list of filenames.
 
 Misc:
   -h, --help                        Print this help, then exit
-  -v, --version                     Print version number, then exit
+  --version                         Print version number, then exit
+  -v, --verbose                     Increment verbosity (for debugging)
   -q, --quiet                       Do not print progress messages
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
@@ -4411,7 +4437,7 @@ HTML output:
       --hierarchical                Generate multilevel HTML report,
                                     matching source code directory structure.
 
-For more information see: $lcov_url and/or the genhtml man page.
+For more information see: $lcov_url and\/or the genhtml man page.
 END_OF_USAGE
         ;
 }
@@ -4471,6 +4497,7 @@ sub gen_html()
   my $readSourceFile = ReadCurrentSource->new();
 
   # Read in all specified .info files
+  my $now = Time::HiRes::gettimeofday();
   foreach (@info_filenames)
   {
     $new_info = TraceFile->load($_, $readSourceFile);
@@ -4478,6 +4505,8 @@ sub gen_html()
     # Combine %new_info with %current_data
     $current_data->append_tracefile($new_info);
   }
+  my $then = Time::HiRes::gettimeofday();
+  $lcovutil::profileData{parse_current} = $then - $now;
 
   info("Found %d entries.\n", scalar($current_data->files()));
 
@@ -4485,19 +4514,29 @@ sub gen_html()
   #  try to read and process the baseline..
   if ($diff_filename)
   {
+    $now = Time::HiRes::gettimeofday();
     info("Reading diff file $diff_filename\n");
     $diff_data->load($diff_filename);
+    $then = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{parse_diff} = $then - $now;
   }
 
   # Read and apply baseline data if specified
   if ($base_filename)
   {
+    $now = Time::HiRes::gettimeofday();
     my $readBaseSource = ReadBaselineSource->new($diff_data);
+    $then = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{parse_source} = $then - $now;
     # Read baseline file
+
+    $now = Time::HiRes::gettimeofday();
     info("Reading baseline file $base_filename\n");
     $new_info = TraceFile->load($base_filename, $readBaseSource);
     $base_data->append_tracefile($new_info);
     info("Found %d baseline entries.\n", scalar($base_data->files()));
+    $then = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{parse_baseline} = $then - $now;
   }
 
   if ($diff_filename) {
@@ -4607,6 +4646,8 @@ sub gen_html()
     $directory_data{$dir_name} =
       SummaryInfo->new("directory", $short_name, $is_absolute);
   }
+  $lcovutil::profileData{dir} = {};
+  $lcovutil::profileData{file} = {};
   while ($currDepth >= 0 ) {
     if (defined($work_stack[$currDepth])) {
       foreach my $d (@{$work_stack[$currDepth]}) {
@@ -4616,7 +4657,12 @@ sub gen_html()
         # Match directory names beginning with one of @dir_prefix
         my $short_name = join('/', @$short_path);
         my $dir_summary = $directory_data{$dirname};
+
+        my $dirStart = Time::HiRes::gettimeofday();
         process_dir($dirname, $short_name, $dir_summary);
+        my $dirEnd = Time::HiRes::gettimeofday();
+
+        $lcovutil::profileData{dir}{$dirname} = $dirEnd - $dirStart;
 
         if ($main::hierarchical &&
             1 < scalar(@$short_path)) {
@@ -4761,6 +4807,8 @@ sub process_dir($$$)
   info("processing dir $abs_dir\n");
   foreach my $filename (grep(/^\Q$abs_dir\E\/[^\/]+$/,$current_data->files()))
   {
+    my $now = Time::HiRes::gettimeofday();
+
     my ($testdata, $testfncdata, $testbrdata, $file_summary) =
       process_file($dir_summary, $trunc_dir, $rel_dir, $filename);
 
@@ -4770,6 +4818,8 @@ sub process_dir($$$)
     $testfnchash{$base_name} = $testfncdata;
     $testbrhash{$base_name} = $testbrdata;
 
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{file}{$filename} = $end - $now;
     $file_summary->checkCoverageCriteria();
   }
 
