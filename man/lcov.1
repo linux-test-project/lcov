@@ -505,6 +505,9 @@ escaped accordingly to prevent the shell from expanding them first).
 Note: The pattern must be specified to match the
 .B absolute
 path of each source file.
+If you specify a pattern which does not seem to be correctly applied - files that you expected to be excluded still appear in the output - you can look for warning messages in the log file.
+.B lcov
+will emit a warning for every pattern which is not applied at least once.
 
 Can be combined with the
 .B --include
@@ -616,6 +619,9 @@ Note: The pattern must be specified to match the
 .B absolute
 path of each source file.
 .RE
+If you specify a pattern which does not seem to be correctly applied - files that you expected to be included in the output do not appear - you can look for warning messages in the log file.
+.B lcov
+ will emit a warning for every pattern which is not applied at least once.
 
 .B \-\-ignore\-errors
 .I errors

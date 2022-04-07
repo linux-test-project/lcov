@@ -1827,7 +1827,7 @@ sub new {
   my $self = [];
   bless $self, $class;
 
-  self->open($filename) if defined($filename);
+  $self->open($filename) if defined($filename);
   return $self;
 }
 
@@ -1912,11 +1912,17 @@ sub getLine {
 
 sub isExcluded {
   my ($self, $lineNo, $branch) = @_;
-  if ($branch) {
-    return 0 != ($self->[2]->[$lineNo-1] & 2);
-  } else {
-    return 0 != ($self->[2]->[$lineNo-1] & 1);
-  }
+  return 1
+    if ($branch &&
+	0 != ($self->[2]->[$lineNo-1] & 2));
+  return 0 != ($self->[2]->[$lineNo-1] & 1);
+}
+
+sub removeComments {
+  my $line = shift;
+  $line =~ s|//.*$||;
+  $line =~ s|/\*.*\*/||g;
+  return $line;
 }
 
 sub isCharacter {
@@ -1925,9 +1931,7 @@ sub isCharacter {
   my $code = $self->getLine($line);
   return 0
     unless defined($code);
-  # remove comments
-  $code =~ s|//.*$||;
-  $code =~ s|/\*.*\*/||g;
+  $code = removeComments($code);
   return ($code =~ /^\s*${char}\s*$/ );
 }
 
@@ -2374,7 +2378,11 @@ sub _read_info {
           #   - previous line is hit, OR
           #   - previous line is not an open-brace which has no associated
           #     count - i.e., this is not an empty block where the zero
-          #     count is tagged to the closing brace.
+          #     count is tagged to the closing brace, OR
+	  # is line empty (no code) and
+	  #   - count is zero, and
+	  #   - either previous or next non-blank lines have an associated count
+	  #
           if ($readSourceCallback->isCharacter($line, '}')) {
 
             my $suppress = 0;
@@ -2416,7 +2424,7 @@ sub _read_info {
                   }
                 } # for each prior line (looking for statement before block)
                 last;
-              } # if (line was an open brace
+              } # if (line was an open brace)
             } # for each prior line (looking for open brace)
             if ($suppress) {
               main::verbose("skip DA '" . $readSourceCallback->getLine($line)
@@ -2425,7 +2433,15 @@ sub _read_info {
               ++ $histogram->[1]; # one coverpoint suppressed
               last;
             }
-          }
+	    # end if (line was close brace)
+	  } elsif ($count == 0 &&
+		   ReadCurrentSource::removeComments($readSourceCallback->getLine($line)) =~ /^\s*$/) {
+	    # line is empty
+	    main::verbose("skip DA (empty) $filename:$line\n");
+	    ++ $histogram->[0]; # one location where this applied
+	    ++ $histogram->[1]; # one coverpoint suppressed
+	    last;
+	  }
         }
         # Execution count found, add to structure
         # Add summary counts
@@ -2467,9 +2483,9 @@ sub _read_info {
         my $region = $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
         if (defined($region) &&
             $readSourceCallback->notEmpty() &&
-            $readSourceCallback->isExcluded($line)) {
-          main::verbose("exclude FN $fnName '" . $readSourceCallback->getLine($line)
-                        . "' $filename:$line\n");
+            $readSourceCallback->isExcluded($lineNo)) {
+          main::verbose("exclude FN $fnName '" . $readSourceCallback->getLine($lineNo)
+                        . "' $filename:$lineNo\n");
           ++ $region->[0]; # one location where this applied
           ++ $region->[1]; # one coverpoint suppressed
           $excludedFunction{$fnName} = 1;
@@ -2508,7 +2524,7 @@ sub _read_info {
                             $lcovutil::FILTER_EXCLUDE_BRANCH) {
             my $region = $lcovutil::cov_filter[$filt];
             if (defined($region) &&
-                $readSourceCallback->isExcluded($line)) {
+		$readSourceCallback->isExcluded($line, 1)) {
               main::verbose("exclude BRDA '" . $readSourceCallback->getLine($line)
                             . "' $filename:$line\n");
               ++ $region->[0]; # one location where this applied

@@ -145,7 +145,13 @@ if ( ! GetOptions("exclude=s" => \@exclude_patterns,
                   "include=s" => \@include_patterns,
                   'no-unchanged' => \$suppress_unchanged) ||
      3 != scalar(@ARGV) ) {
-  print(STDERR "usage: [(--exclude|include) regexp[,regexp]] [--no-unchanged] sandbox_directory base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n");
+  print(STDERR<<EOF
+usage: [(--exclude|include) regexp[,regexp]] [--no-unchanged] sandbox_directory base_changelist current_changelist
+ 'exclude' wins if both exclude and include would match.
+ 'current_changelist' may be a changelist number or "sandbox".
+ "sandbox" indicates that there may be changes in 'sandbox_directory' which have not ben commited to perforce yet.
+EOF
+);
   exit(1);
 }
 @exclude_patterns = split(',', join(',', @exclude_patterns));
@@ -186,7 +192,8 @@ if (open(HANDLE, "-|", "p4 files ${p4_path}\@$base_changelist")) {
   close(HANDLE);
 }
 
-if (open(HANDLE, "-|", "p4 files ${p4_path}\@$curr_changelist")) {
+my $curr = $curr_changelist eq "sandbox" ? "" : "\@$curr_changelist";
+if (open(HANDLE, "-|", "p4 files ${p4_path}$curr")) {
  DIFF_FILE:
   while (my $line = <HANDLE>) {
     chomp $line;

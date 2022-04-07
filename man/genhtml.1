@@ -390,6 +390,7 @@ and
 A suitable
 .I unified\-diff\-file
 can be generated using the command "git diff \-\-relative SHA_base SHA_current", or using the "p4udiff" or "gitdiff" sample scripts (found in the share/lcov/support\-scripts directory shipped as part of this release).
+"p4udiff" accepts either a changelist ID or the literal string "sandbox"; "sandbox" indicates that there are modified files which have not been checked in.
 
 These scripts post\-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly not files whcih have not changed.  It is useful to note unchanged files (denoted by lines of the form
   diff [optional header strings]
@@ -551,6 +552,8 @@ is used.
 
 .B line:
 ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceeding line has the same count or if the close brace has a zero count and either the preceding line has a non\-zero count or the close brace is not the body of a conditional.
+Also ignore line coverage counts on empty lines (whitespace only).
+
 These lines seem to appear and disappear in gcov output - and cause differential coverage to report bogus LBC and/or GIC and/or UIC counts.  Bogus LBC or UIC counts are a problem because an automated regression which uses pass criteria "LBC + UIC + UNC == 0" will fail.
 
 .B region:
