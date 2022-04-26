@@ -35,7 +35,9 @@ our @EXPORT_OK =
      set_rtl_extensions set_c_extensions
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
-     $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT
+     $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION
+
+     $extractVersionScript
 
      is_external @internal_dirs $opt_no_external
      rate get_overall_line $default_precision check_precision
@@ -60,14 +62,16 @@ our $ERROR_GCOV         = 0;
 our $ERROR_SOURCE       = 1;
 our $ERROR_GRAPH        = 2;
 our $ERROR_FORMAT       = 3; # bad record in .info file
-our $ERROR_MISMATCH     = 4;
-our $ERROR_BRANCH       = 5; # branch numbering is not correct
+our $ERROR_VERSION      = 4;
+our $ERROR_MISMATCH     = 5;
+our $ERROR_BRANCH       = 6; # branch numbering is not correct
 our $ERROR_EMPTY        = 10; # no records found in info file
 our %geninfoErrs = (
     "gcov" => $ERROR_GCOV,
     "source" => $ERROR_SOURCE,
     "graph" => $ERROR_GRAPH,
     "format" => $ERROR_FORMAT,
+    "version" => $ERROR_VERSION,
 );
 
 # for external file filtering
@@ -76,6 +80,8 @@ our $opt_no_external;
 
 # C++ demangling
 our $cpp_demangle;
+
+our $extractVersionScript; # script/callback to find version ID of file
 
 # Specify coverage rate default precision
 our $default_precision = 1;
@@ -803,6 +809,46 @@ sub use_vanilla_color()
     $lcovutil::tlaTextColor{$tla} = "#AAAAAA";
   }
 }
+
+# figure out what file version we see
+sub extractFileVersion {
+  my $filename = shift;
+
+  return undef
+    unless defined($extractVersionScript);
+
+  die("$filename does not exist")
+    unless -f $filename;
+  my $version;
+  my $cmd = "$extractVersionScript $filename";
+  if (open(VERS, "-|", $cmd)) {
+    $version = <VERS>;
+    chomp($version);
+    close(VERS);
+    my $status = $? >> 8;
+    0 == $status or
+      die("version-script '$cmd' returned non-zero exit code: '$!'");
+  } else {
+    die("unable to call open(| $cmd)");
+  }
+  return $version;
+}
+
+sub checkVersionMatch {
+  my ($filename, $me, $you) = @_;
+
+  my $match;
+  if ($extractVersionScript) {
+    my $rtn = `$extractVersionScript --compare $you $me $filename`;
+    $match = $? ? 0 : 1;
+  } else {
+    $match = $me eq $you; # simple string compare
+  }
+  lcovutil::ignorable_error($ERROR_VERSION,
+                            "$filename: revision control version mismatch: $me <- $you")
+    unless $match;
+}
+
 
 package MapData;
 
@@ -1532,11 +1578,14 @@ sub get_found_and_hit {
 }
 
 package TraceInfo;
+#  coveage data for a particular source file
 
 sub new {
   my ($class, $filename) = @_;
   my $self = {};
   bless $self, $class;
+  
+  $self->{_version} = undef; # version ID from revision control (if any)
 
   # keep track of location in .info file that this file data was found
   #  - useful in error messages
@@ -1585,6 +1634,18 @@ sub location {
     $l->[1] = $lineNo;
   }
   return $l;
+}
+
+sub version {
+  # return the version ID that we found
+  my ($self, $version) = @_;
+  (! defined($version) || ! defined($self->{_version}))
+    or die("expected to set version ID at most once: " .
+           (defined($version) ? $version : "undef") . " " .
+           (defined($self->{_version}) ? $self->{_version} : "undef"));
+  $self->{_version} = $version
+    if defined($version);
+  return $self->{_version};
 }
 
 # line coverage data
@@ -1790,10 +1851,14 @@ sub _merge_checksums {
   }
 }
 
+
 sub merge {
-  my $self = shift;
-  my $info = shift;
-  my $filename = shift;
+  my ($self, $info, $filename) = @_;
+
+  my $me = defined($self->version()) ? $self->version() : "<no version>";
+  my $you = defined($info->version()) ? $info->version() : "<no version>";
+  
+  lcovutil::checkVersionMatch($filename, $me, $you);
 
   foreach my $name ($info->test()->keylist()) {
     $self->test($name)->merge($info->test($name));
@@ -1914,7 +1979,7 @@ sub isExcluded {
   my ($self, $lineNo, $branch) = @_;
   return 1
     if ($branch &&
-	0 != ($self->[2]->[$lineNo-1] & 2));
+        0 != ($self->[2]->[$lineNo-1] & 2));
   return 0 != ($self->[2]->[$lineNo-1] & 1);
 }
 
@@ -2221,7 +2286,7 @@ sub _read_info {
   }
 
   $testname = "";
-  my $data;
+  my $fileData;
   # HGC:  somewhat of a hack.
   # There are duplicate lines in the geninfo output result - for example,
   #   line '2095' may have multiple DA (line) entries, and may have multiple
@@ -2246,31 +2311,31 @@ sub _read_info {
       # should this one be skipped?
       $skipCurrentFile = 0;
       if (@lcovutil::exclude_file_patterns) {
-	foreach my $p (@lcovutil::exclude_file_patterns) {
-	  my $pattern = $p->[0];
-	  if ($filename =~ /$pattern/) {
-	    $skipCurrentFile = 1;
-	    ++ $p->[2];
-	    last;
-	  }
-	}
+        foreach my $p (@lcovutil::exclude_file_patterns) {
+          my $pattern = $p->[0];
+          if ($filename =~ /$pattern/) {
+            $skipCurrentFile = 1;
+            ++ $p->[2];
+            last;
+          }
+        }
       }
       if (! $skipCurrentFile && # didn't explicitly skip this one
-	  @lcovutil::include_file_patterns) {
-	$skipCurrentFile = 1;
-	foreach my $p (@lcovutil::include_file_patterns) {
-	  my $pattern = $p->[0];
-	  if ($filename =~ /$pattern/) {
-	    $skipCurrentFile = 0;
-	    ++ $p->[2];
-	    last;
-	  }
-	}
+          @lcovutil::include_file_patterns) {
+        $skipCurrentFile = 1;
+        foreach my $p (@lcovutil::include_file_patterns) {
+          my $pattern = $p->[0];
+          if ($filename =~ /$pattern/) {
+            $skipCurrentFile = 0;
+            ++ $p->[2];
+            last;
+          }
+        }
       }
       if ($skipCurrentFile) {
-	$lcovutil::excluded_files{$filename} = 1;
-	lcovutil::info("Excluding $filename\n");
-	next;
+        $lcovutil::excluded_files{$filename} = 1;
+        lcovutil::info("Excluding $filename\n");
+        next;
       }
 
       # Retrieve data for new entry
@@ -2280,55 +2345,55 @@ sub _read_info {
       $filename = File::Spec->rel2abs($filename, $main::cwd);
 
       if (!File::Spec->file_name_is_absolute($1) &&
-	  !$notified_about_relative_paths)
+          !$notified_about_relative_paths)
       {
-	lcovutil::info("Resolved relative source file ".
-		       "path \"$1\" with CWD to ".
-		       "\"$filename\".\n");
-	$notified_about_relative_paths = 1;
+        lcovutil::info("Resolved relative source file ".
+                       "path \"$1\" with CWD to ".
+                       "\"$filename\".\n");
+        $notified_about_relative_paths = 1;
       }
 
       %branchRenumber = ();
       %excludedFunction = ();
 
       if (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
-	  defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]) ||
-	  defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]) ||
-	  defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])) {
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]) ||
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]) ||
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])) {
 
-	# unconditionally 'close' the current file - in case we don't
-	#   open a new one.  If that happened, then we would be looking
-	#   at the source for some previous file.
-	$readSourceCallback->close();
-	undef $currentBranchLine;
-	if (is_c_file($filename)) {
-	  if (-e $filename) {
-	    $readSourceCallback->open($filename);
+        # unconditionally 'close' the current file - in case we don't
+        #   open a new one.  If that happened, then we would be looking
+        #   at the source for some previous file.
+        $readSourceCallback->close();
+        undef $currentBranchLine;
+        if (is_c_file($filename)) {
+          if (-e $filename) {
+            $readSourceCallback->open($filename);
           } else {
-	    lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-				      "'$filename' not found (for filtering)");
+            lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                      "'$filename' not found (for filtering)");
           }
         }
       }
-      $data = $self->data($filename);
+      $fileData = $self->data($filename);
       # record line number where file entry found - can use it in error messsages
-      $data->location($tracefile, $.);
+      $fileData->location($tracefile, $.);
       ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
        $testbrdata, $sumbrcount) =
-	 $data->get_info();
+         $fileData->get_info();
       $functionMap = defined($testname) ? FunctionMap->new() : $funcdata;
 
       if (defined($testname))
       {
-	$testcount = $data->test($testname);
-	$testfnccount = $data->testfnc($testname);
-	$testbrcount = $data->testbr($testname);
+        $testcount = $fileData->test($testname);
+        $testfnccount = $fileData->testfnc($testname);
+        $testbrcount = $fileData->testbr($testname);
       }
       else
       {
-	$testcount = CountData->new(1);
-	$testfnccount = CountData->new(0);
-	$testbrcount = BranchData->new();
+        $testcount = CountData->new(1);
+        $testfnccount = CountData->new(0);
+        $testbrcount = BranchData->new();
       }
       next;
     }
@@ -2337,6 +2402,13 @@ sub _read_info {
     # Switch statement
     foreach ($line)
     {
+      /^VER:(.+)$/ && do
+      {
+        # revision control version string found
+        $fileData->version($1);
+        last;
+      };
+
       /^TN:([^,]*)(,diff)?/ && do
       {
         # Test name information found
@@ -2370,7 +2442,7 @@ sub _read_info {
           $negative = 1;
         }
         # hold line, count and testname for postprocessing?
-        my $linesum = $data->sum();
+        my $linesum = $fileData->sum();
         my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE];
         if (defined($histogram) &&
             $readSourceCallback->notEmpty()) {
@@ -2379,10 +2451,10 @@ sub _read_info {
           #   - previous line is not an open-brace which has no associated
           #     count - i.e., this is not an empty block where the zero
           #     count is tagged to the closing brace, OR
-	  # is line empty (no code) and
-	  #   - count is zero, and
-	  #   - either previous or next non-blank lines have an associated count
-	  #
+          # is line empty (no code) and
+          #   - count is zero, and
+          #   - either previous or next non-blank lines have an associated count
+          #
           if ($readSourceCallback->isCharacter($line, '}')) {
 
             my $suppress = 0;
@@ -2433,15 +2505,15 @@ sub _read_info {
               ++ $histogram->[1]; # one coverpoint suppressed
               last;
             }
-	    # end if (line was close brace)
-	  } elsif ($count == 0 &&
-		   ReadCurrentSource::removeComments($readSourceCallback->getLine($line)) =~ /^\s*$/) {
-	    # line is empty
-	    main::verbose("skip DA (empty) $filename:$line\n");
-	    ++ $histogram->[0]; # one location where this applied
-	    ++ $histogram->[1]; # one coverpoint suppressed
-	    last;
-	  }
+            # end if (line was close brace)
+          } elsif ($count == 0 &&
+                   ReadCurrentSource::removeComments($readSourceCallback->getLine($line)) =~ /^\s*$/) {
+            # line is empty
+            main::verbose("skip DA (empty) $filename:$line\n");
+            ++ $histogram->[0]; # one location where this applied
+            ++ $histogram->[1]; # one coverpoint suppressed
+            last;
+          }
         }
         # Execution count found, add to structure
         # Add summary counts
@@ -2450,7 +2522,7 @@ sub _read_info {
         # Add test-specific counts
         if (defined($testname))
         {
-          $data->test($testname)->append($line, $count);
+          $fileData->test($testname)->append($line, $count);
         }
 
         # Store line checksum if available
@@ -2459,15 +2531,14 @@ sub _read_info {
           $line_checksum = substr($checksum, 1);
 
           # Does it match a previous definition
-          if ($data->check()->mapped($1) &&
-              ($data->check()->value($1) ne
-               $line_checksum))
+          if ($fileData->check()->mapped($1) &&
+              ($fileData->check()->value($1) ne $line_checksum))
           {
             die("ERROR: checksum mismatch ".
                 "at $filename:$1\n");
           }
 
-          $data->check()->replace($line, $line_checksum);
+          $fileData->check()->replace($line, $line_checksum);
         }
         last;
       };
@@ -2524,7 +2595,7 @@ sub _read_info {
                             $lcovutil::FILTER_EXCLUDE_BRANCH) {
             my $region = $lcovutil::cov_filter[$filt];
             if (defined($region) &&
-		$readSourceCallback->isExcluded($line, 1)) {
+                $readSourceCallback->isExcluded($line, 1)) {
               main::verbose("exclude BRDA '" . $readSourceCallback->getLine($line)
                             . "' $filename:$line\n");
               ++ $region->[0]; # one location where this applied
@@ -2588,12 +2659,12 @@ sub _read_info {
           $branchRenumber{$key} = $branch + 1;
 
           my $br = BranchBlock->new($branch, $taken, $expr);
-          $data->sumbr()->append($line, $block, $br);
+          $fileData->sumbr()->append($line, $block, $br);
 
           # Add test-specific counts
           if (defined($testname)) {
             #$testbrcount->{$line} .=  "$block,$branch,$taken:";
-            $data->testbr($testname)->append($line, $block, $br);
+            $fileData->testbr($testname)->append($line, $block, $br);
           }
         } else {
           # not an HDL file
@@ -2629,11 +2700,11 @@ sub _read_info {
                 foreach my $b_id (sort {$a <=> $b} keys(%$bdata)) {
                   my $br = $bdata->{$b_id};
                   my $b = BranchBlock->new($branchId, $br->data());
-                  $data->sumbr()->append($line, $block, $b);
+                  $fileData->sumbr()->append($line, $block, $b);
 
                   if (defined($testname)) {
                     #$testbrcount->{$line} .=  "$block,$branch,$taken:";
-                    $data->testbr($testname)->append($line, $block, $b);
+                    $fileData->testbr($testname)->append($line, $block, $b);
                   }
                   ++ $branchId;
                 }
@@ -2652,7 +2723,7 @@ sub _read_info {
               $funcdata->merge($functionMap);
             }
             if (defined($testname)) {
-              $data->testfnc($testname)->merge($functionMap);
+              $fileData->testfnc($testname)->merge($functionMap);
             }
           }
           # Store current section data
@@ -2724,7 +2795,7 @@ sub _read_info {
 
     # Get found/hit values for function call data
     my $funcData = $filedata->func();
-    $data->{_f_found} = $filedata->f_found();
+    $fileData->{_f_found} = $filedata->f_found();
     $hitcount = $filedata->f_hit();
     $filedata->{_f_hit} = $hitcount;
 
@@ -2800,6 +2871,8 @@ sub write_info($$$) {
 
       print(INFO_HANDLE "TN:$testname\n");
       print(INFO_HANDLE "SF:$source_file\n");
+      print(INFO_HANDLE "VER:" . $entry->version() . "\n")
+        if defined($entry->version());
       if (defined($srcReader)) {
         $srcReader->close();
         if (is_c_file($source_file)) {

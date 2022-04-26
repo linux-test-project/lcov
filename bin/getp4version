@@ -1,0 +1,79 @@
+#!/usr/bin/env perl
+#   Copyright (c) MediaTek USA Inc., 2022
+#
+#   This program is free software;  you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or (at
+#   your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY;  without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, see
+#   <http://www.gnu.org/licenses/>.
+#
+#
+# getp4version
+#
+#   This is a sample script which uses perforce commands to determine
+#   the version of the filename passed in.
+#   Version information (if present) is used during ".info" file merging
+#   to verify that the data the user is attempting to merge is for the same
+#   source code/same version.
+#   If the version is not the same - then line numbers, etc. may be different
+#   and soem very strange errors may occur.
+
+use POSIX qw(strftime);
+use Getopt::Long;
+
+sub get_modify_time($) {
+  my $filename = shift;
+  my @stat = stat $filename;
+  my $tz = strftime("%z", localtime($stat[9]));
+  $tz =~ s/([0-9][0-9])$/:\1/;
+  return strftime("%Y-%m-%dT%H:%M:%S", localtime($stat[9])) . $tz;
+}
+
+sub usage {
+  print(STDERR
+        "usage: $0 --compare old_version new_version filename OR\n" .
+        "       $0 filename\n");
+}
+
+my $compare;
+if (!GetOptions("--compare" => \$compare) ||
+    ($compare && scalar(@ARGV) != 3) ) {
+  usage();
+  exit(1);
+}
+
+my $pathname = $ARGV[$compare ? 2 : 0];
+
+if ($compare) {
+  my ($old, $new) = @ARGV;
+  exit($old ne $new);  # for the moment, just look for exact match
+}
+
+if (0 == system("p4 files $pathname 2>/dev/null|grep -qv -- '- no such file' >/dev/null")) {
+  my $have = `p4 have $pathname`;
+  my $version;
+  if ( $have =~ /#([0-9]+) - /) {
+    $version = "#$1";
+  } else {
+    $version = '@head';
+  }
+
+  my $opened = `p4 opened $pathname 2>/dev/null`;
+  if ($opened =~ /edit (default change|change (\S+)) /) {
+    # file is locally edited...append modify time to the version ID
+    $version .= ' edited ' . get_modify_time($pathname);
+  }
+  print($version . "\n");
+} else {
+  # not in P4 - just print the modify time, so we have a prayer of
+  #  noticing file differences
+  print(get_modify_time($pathname));
+}

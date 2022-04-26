@@ -92,13 +92,14 @@ use Storable qw(dclone);
 use FindBin;
 use JSON;
 use Time::HiRes; # for profiling
+use Data::Dumper;
 
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  system_no_output
                  ignorable_error
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
-                 $ERROR_EMPTY
+                 $ERROR_EMPTY $ERROR_VERSION
                  info verbose $verbose $cpp_demangle
                  %opt_rc apply_rc_params
                  strip_directories
@@ -197,8 +198,10 @@ our $ERROR_INCONSISTENT_PATH = 3;
 our $ERROR_INCONSISTENT_DATA = 4;
 $ERROR_MISMATCH = 5;
 $ERROR_BRANCH = 5;
+$ERROR_VERSION = 6;
 $ERROR_FORMAT = 7;
 $ERROR_EMPTY = 8;
+our $ERROR_ANNOTATE_SCRIPT = 9;
 
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
@@ -210,6 +213,8 @@ our %htmlErrs = (
         "branch"   => $ERROR_BRANCH,
         "format"   => $ERROR_FORMAT,
         "empty"   => $ERROR_EMPTY,
+        "annotate" => $ERROR_ANNOTATE_SCRIPT,
+        "version" => $ERROR_VERSION,
 );
 lcovutil::define_errors(\%htmlErrs);
 
@@ -232,7 +237,8 @@ sub get_affecting_tests($$$);
 sub apply_prefix($@);
 sub get_html_prolog($);
 sub get_html_epilog($);
-sub write_dir_page($$$$$$$;$);
+#sub write_dir_page($$$$$$$;$);
+sub write_summary_pages($$$$$$$);
 sub classify_rate($$$$);
 sub parse_dir_prefix(@);
 
@@ -1831,7 +1837,7 @@ package FileCoverageInfo;
 sub new {
   my ($class, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
 
-  my $self = [{}];  # [hash of lineNumber -> LineData struct,
+  my $self = [[$base_data->version(), $current_data->version()], {}];  # [hash of lineNumber -> LineData struct,
                     #  optional FunctionMap]
   bless $self, $class;
 
@@ -1852,15 +1858,20 @@ sub new {
   return $self;
 }
 
+sub version {
+  my ($self, $which) = @_;
+  return $which eq 'current' ? $self->[0]->[1] : $self->[0]->[0];
+}
+
 sub lineMap {
   my $self = shift;
-  return $self->[0];
+  return $self->[1];
 }
 
 sub functionMap {
   # simply a map of funtion leader name -> differeential FunctionEntry
   my $self = shift;
-  return (scalar(@$self) > 1) ? $self->[1] : undef;
+  return (scalar(@$self) > 2) ? $self->[2] : undef;
 }
 
 sub line {
@@ -2969,7 +2980,7 @@ sub new {
 
   # use the line coverage count to synthesize a fake file, if we can't
   #   find an actual file
-  $self->_load($countdata);
+  $self->_load($countdata, $fileCovInfo->version('current'));
 
   if ($hasNoBaselineData) {
     my $fileAge = $self->age();
@@ -3632,7 +3643,7 @@ sub _computeAge {
 }
 
 sub _load {
-  my ($self, $countdata) = @_;
+  my ($self, $countdata, $currentVersion) = @_;
 
   my $lineno = 0;
   local *HANDLE;                # File handle for reading the diff file
@@ -3640,6 +3651,13 @@ sub _load {
   # Check if file exists and is readable
   if (!(-r $self->path())) {
     return $self->_synthesize($countdata);
+  }
+
+  # check for version mismatch...
+  if ($lcovutil::extractVersionScript) {
+    my $version = lcovutil::extractFileVersion($self->path());
+
+    lcovutil::checkVersionMatch($self->path(), $version, $currentVersion);
   }
 
   #stat($annotateScript);
@@ -3686,6 +3704,10 @@ sub _load {
       push @{$self->{_lines}}, SourceLine->new($owner, $age, $lineNum, $text);
     }
     close(HANDLE);
+    my $status = $? >> 8;
+    0 == $status or
+      lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
+                                $! ? "annotate command '$cmd' pipe error: $!" : "non-zero exit status from annotate '$cmd' pipe");
   }
   else {
     print("Error: 'open(-| $cmd)' failed: \"$!\"\n");
@@ -3917,6 +3939,7 @@ our $lcov_branch_coverage = 0;
 our $rc_desc_html = 0;  # lcovrc: genhtml_desc_html
 
 our $cwd = cwd();       # Current working directory
+our $maxParallelism = 1;
 
 
 #
@@ -4011,6 +4034,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "diff-file=s"           => \$diff_filename,
                 "annotate-script=s"     => \$SourceFile::annotateScript,
                 "criteria-script=s"     => \$SummaryInfo::coverageCriteriaScript,
+                "version-script=s"      => \$lcovutil::extractVersionScript,
                 "new-file-as-baseline" => \$treatNewFileAsBaseline,
                 'elide-path-mismatch'   => \$elide_path_mismatch,
                 # if 'show-owners' is set: generate the owner table
@@ -4052,8 +4076,9 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "filter=s"              => \@opt_filter,
                 "dark-mode"             => \$dark_mode,
                 "profile"               => \$lcovutil::profile,
-		"exclude=s"             => \@lcovutil::exclude_file_patterns,
-		"include=s"             => \@lcovutil::include_file_patterns,
+                "exclude=s"             => \@lcovutil::exclude_file_patterns,
+                "include=s"             => \@lcovutil::include_file_patterns,
+                "parallel|j=i"          => \$maxParallelism,
                 ))
 {
   print(STDERR "Use $tool_name --help to get usage information\n");
@@ -4097,6 +4122,15 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
     }
   }
 
+  if (0 == $maxParallelism) {
+    # how many cores?
+    $maxParallelism = 1;
+    #linux solution...
+    if (open my $handle, '/proc/cpuinfo') {
+      $maxParallelism = scalar(map /^processor/, <$handle>);
+      close($handle);
+    }
+  }
   if (defined($header_title)) {
     $title = $header_title;
   } else {
@@ -4414,6 +4448,11 @@ Operation:
                                     conditionals
                                     Ignore linecov counts on closing brace
                                     of block
+      --include PATTERNS            Display data only for files matching
+                                    PATTERNS.
+      --exclude PATTERNS            Do not display for files matching PATTERNS.
+  -j, --parallel INTEGER            Use at most INTEGER number of parallel
+                                    slaves during processing.
 
 HTML output:
   -f, --frames                      Use HTML frames for source code view
@@ -4601,12 +4640,18 @@ sub gen_html()
   # Change to output directory if specified
   if ($output_directory)
   {
-    if (defined($SourceFile::annotateScript)) {
-      chomp($SourceFile::annotateScript);
-      my @scr = split(' ', $SourceFile::annotateScript);
-      if (! File::Spec->file_name_is_absolute($scr[0])) {
-        $scr[0] = File::Spec->rel2abs($scr[0]);
-        $SourceFile::annotateScript = join(' ', @scr);
+    foreach my $s (\$SourceFile::annotateScript,
+                   \$SummaryInfo::coverageCriteriaScript,
+                   \$lcovutil::extractVersionScript) {
+      # if any of the scripts use relative paths, then turn them into
+      #  absolute paths - so they continue to work correctly after we 'cd'
+      if (defined($$s)) {
+        chomp($$s);
+        my @scr = split(' ', $$s);
+        if (! File::Spec->file_name_is_absolute($scr[0])) {
+          $scr[0] = File::Spec->rel2abs($scr[0]);
+          $$s = join(' ', @scr);
+        }
       }
     }
     chdir($output_directory)
@@ -4659,6 +4704,7 @@ sub gen_html()
         my $dir_summary = $directory_data{$dirname};
 
         my $dirStart = Time::HiRes::gettimeofday();
+        # can process all the dirs at this depth in parallel
         process_dir($dirname, $short_name, $dir_summary);
         my $dirEnd = Time::HiRes::gettimeofday();
 
@@ -4694,28 +4740,10 @@ sub gen_html()
   info("Writing directory view page.\n");
 
   # Create sorted pages
-  my @summaryBins;
-  push(@summaryBins, 'owner') if defined($main::show_ownerBins);
-  push(@summaryBins, 'date') if defined($main::show_dateBins);
-
-  foreach my $sort_type (@fileview_sortlist) {
-    my @ctrls = (0, # 0 == 'list directories'
-                 "name", # primary key
-                 $sort_type, "");
-    my $sort_str = $fileview_sortname[$sort_type];
-    foreach my $bin_prefix (@main::fileview_prefixes) {
-      # no per-testcase data...
-      $ctrls[3] = $bin_prefix;
-      write_dir_page(\@ctrls, $sort_str, $test_title,
-                     ".", "", undef, $top_level_summary);
-    }
-    $ctrls[3] = "";
-    foreach my $primary_key (@summaryBins) {
-      $ctrls[1] = $primary_key;
-      write_dir_page(\@ctrls, '-bin_' .$primary_key . $sort_str, $test_title,
-                     ".", "", undef, $top_level_summary);
-    }
-  }
+  write_summary_pages(0, # 0 == list directories
+                      $top_level_summary,
+                      0, # don't generate 'details' links for top-level report
+                      ".", "", undef, undef);
 
   # Check if there are any test case descriptions to write out
   if (%test_description)
@@ -4752,7 +4780,8 @@ sub html_create($$)
 
 # $ctrls = [$view_type, $sort_type, $bin_prefix]
 # $perTestcaseResult = [\%line, \%func, \%branch]
-sub write_dir_page($$$$$$$;$)
+#sub write_dir_page($$$$$$$;$)
+sub write_dir_page
 {
   my ($ctrls, $page_suffix, $title, $rel_dir, $base_dir, $trunc_dir,
       $summary, $perTestcaseResult) = @_;
@@ -4805,59 +4834,176 @@ sub process_dir($$$)
   # Match filenames which specify files in this directory, not including
   # sub-directories
   info("processing dir $abs_dir\n");
+  my $currentParallel = 0;
+  my %children;
   foreach my $filename (grep(/^\Q$abs_dir\E\/[^\/]+$/,$current_data->files()))
   {
-    my $now = Time::HiRes::gettimeofday();
+    if (1 < $main::maxParallelism) {
+      if ($currentParallel >= $main::maxParallelism) {
+        my $child = wait();
+        # now undump the data ...
+        -- $currentParallel;
+        my $file = "dumper_$child";
+        if (open(RESTORE, "<", $file)) {
+          # slurp into a string and eval..
+          my $str = do { local $/; <RESTORE> }; # slurp whole thing
+          close(RESTORE);
+          unlink $file;
+          my ($start, $testdata, $testfncdata, $testbrdata,
+              $file_summary);
+          eval $str;
+          my $filename = $children{$child};
+          my $base_name = basename($filename);
 
-    my ($testdata, $testfncdata, $testbrdata, $file_summary) =
-      process_file($dir_summary, $trunc_dir, $rel_dir, $filename);
+          $testhash{$base_name} = $testdata;
+          $testfnchash{$base_name} = $testfncdata;
+          $testbrhash{$base_name} = $testbrdata;
+          $dir_summary->append($file_summary);
+          $file_summary->checkCoverageCriteria();
+          my $end = Time::HiRes::gettimeofday();
+          $lcovutil::profileData{file}{$filename} = $end - $start;
+        } else {
+          die "unable to open $file: $!";
+        }
+      }
 
-    my $base_name = basename($filename);
+      my $now = Time::HiRes::gettimeofday();
+      my $pid = fork();
+      if (0 == $pid) {
+        # I'm the child
+        my ($testdata, $testfncdata, $testbrdata, $file_summary) =
+          process_file($dir_summary, $trunc_dir, $rel_dir, $filename);
 
-    $testhash{$base_name} = $testdata;
-    $testfnchash{$base_name} = $testfncdata;
-    $testbrhash{$base_name} = $testbrdata;
+        my $file = "dumper_$$";
+        if (open(DUMPER, ">", $file)) {
+          print DUMPER Data::Dumper->Dump([$now, $testdata, $testfncdata,
+                                           $testbrdata, $file_summary],
+                                          [qw(start testdata testfncdata testbrdata file_summary)]);
+        } else {
+          die "unable to open $file: $!";
+        }
+        exit(0);
+      }
+      else {
+        $children{$pid} = $filename;
+        ++ $currentParallel;
+      }
+    } else {
+      #not parallel
+      my $start = Time::HiRes::gettimeofday();
+      my ($testdata, $testfncdata, $testbrdata, $file_summary) =
+        process_file($dir_summary, $trunc_dir, $rel_dir, $filename);
+      my $base_name = basename($filename);
 
-    my $end = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{file}{$filename} = $end - $now;
-    $file_summary->checkCoverageCriteria();
+      $testhash{$base_name} = $testdata;
+      $testfnchash{$base_name} = $testfncdata;
+      $testbrhash{$base_name} = $testbrdata;
+      $dir_summary->append($file_summary);
+      $file_summary->checkCoverageCriteria();
+      my $end = Time::HiRes::gettimeofday();
+      $lcovutil::profileData{file}{$filename} = $end - $start;
+    }
+  } # foreach
+
+  while ($currentParallel != 0) {
+    my $child = wait();
+    # now undump the data ...
+    -- $currentParallel;
+    my $file = "dumper_$child";
+    if (open(RESTORE, "<", $file)) {
+      # slurp into a string and eval..
+      my $str = do { local $/; <RESTORE> }; # slurp whole thing
+      close(RESTORE);
+      unlink $file;
+      my ($start, $testdata, $testfncdata, $testbrdata, $file_summary);
+      eval $str;
+      my $filename = $children{$child};
+      my $base_name = basename($filename);
+
+      $testhash{$base_name} = $testdata;
+      $testfnchash{$base_name} = $testfncdata;
+      $testbrhash{$base_name} = $testbrdata;
+      $dir_summary->append($file_summary);
+      $file_summary->checkCoverageCriteria();
+      my $end = Time::HiRes::gettimeofday();
+      $lcovutil::profileData{file}{$filename} = $end - $start;
+    } else {
+      die "unable to open $file: $!";
+    }
   }
 
-  # Create sorted pages
+  # Create sorted summary pages
+  write_summary_pages(1, # this is a directory,
+                      $dir_summary, $show_details,
+                      $rel_dir, $base_dir, $trunc_dir,
+                      [\%testhash, \%testfnchash, \%testbrhash]);
+  $dir_summary->checkCoverageCriteria();
+  # Calculate resulting line counts
+  return ($dir_summary);
+}
+
+sub write_summary_pages($$$$$$$) {
+  my ($summaryType, $summary, $show_details, $rel_dir, $base_dir, $trunc_dir,
+      $testhashes) = @_;
+
   my @summaryBins;
   push(@summaryBins, 'owner') if defined($main::show_ownerBins);
   push(@summaryBins, 'date') if defined($main::show_dateBins);
-  foreach my $sort_type (@fileview_sortlist) {
-    my @ctrls = (1, # 1 == 'list files'
+
+  my @dirPageCalls;
+  foreach my $sort_type (@main::fileview_sortlist) {
+    my @ctrls = ($summaryType,# 1 == 'list files'
                  "name", # primary key
                  $sort_type, "");
-    my $sort_str = $fileview_sortname[$sort_type];
-    foreach my $bin_prefix (@fileview_prefixes) {
+    my $sort_str = $main::fileview_sortname[$sort_type];
+    foreach my $bin_prefix (@main::fileview_prefixes) {
       # Generate directory overview page (without details)
       # no per-testcase data in this page...
       $ctrls[3] = $bin_prefix;
-      write_dir_page(\@ctrls, $sort_str, $test_title,
-                     $rel_dir, $base_dir, $trunc_dir,
-                     $dir_summary);
+      my @copy = @ctrls; # need copy because we are calling multiple child processes
+      push(@dirPageCalls, [\@copy, $sort_str, $test_title,
+                           $rel_dir, $base_dir, $trunc_dir,
+                           $summary]);
 
       if ($show_details) {
         # Generate directory overview page including details
-        write_dir_page(\@ctrls, "-detail" . $sort_str, $test_title, $rel_dir,
-                       $base_dir, $trunc_dir, $dir_summary,
-                       [\%testhash, \%testfnchash, \%testbrhash]);
+        push(@dirPageCalls, [\@copy, "-detail" . $sort_str, $test_title,
+                             $rel_dir, $base_dir, $trunc_dir, $summary,
+                             $testhashes]);
       }
     }
     $ctrls[3] = ""; # no bin...
     foreach my $primary_key (@summaryBins) {
       $ctrls[1] = $primary_key;
-      write_dir_page(\@ctrls, '-bin_' .$primary_key . $sort_str, $test_title,
-                     $rel_dir, $base_dir, $trunc_dir,
-                     $dir_summary);
+      my @copy = @ctrls;
+      push(@dirPageCalls, [\@copy, '-bin_' .$primary_key . $sort_str,
+                           $test_title, $rel_dir, $base_dir, $trunc_dir,
+                           $summary]);
     }
   }
-  $dir_summary->checkCoverageCriteria();
-  # Calculate resulting line counts
-  return ($dir_summary);
+
+  my $currentParallel = 0;
+  foreach my $params (@dirPageCalls) {
+    if (1 < $main::maxParallelism) {
+      if ($currentParallel >= $main::maxParallelism) {
+        my $child = wait();
+        --$currentParallel;
+      }
+      ++ $currentParallel;
+      my $pid = fork();
+      if (0 == $pid) {
+        # I'm the child
+        write_dir_page(@$params);
+        exit(0);
+      }
+    } else {
+      write_dir_page(@$params);
+    }
+  }
+  while ($currentParallel != 0) {
+    my $child = wait();
+    -- $currentParallel;
+  }
 }
 
 
@@ -4951,7 +5097,14 @@ sub process_file($$$$)
   #     source code is older than baseline file
   my $srcfile = SourceFile->new($filename, $summary, $fileCovInfo, $sumcount,
                                 $fileHasNoBaselineInfo);
-  $parent_dir_summary->append($summary);
+  # somewhat of a hack:  we are ultimately going to merge $summary
+  #   (the data for this particular file) into $parent_dir (the data
+  #    for the parent directory) - but we need to do that in the caller
+  #    (because we are building $summary in a child process that we are
+  #    going to pass back.  But we also use the parent and its name
+  #    in HTML generation...
+  #    we clear this setting before we return the generated summary
+  $summary->{parent} = $parent_dir_summary;
 
   # Return after this point in case user asked us not to generate
   # source code view
@@ -5004,6 +5157,10 @@ sub process_file($$$$)
       close(*HTML_HANDLE);
     }
   }
+  # clear the parent pointer that we hacked into place.  Don't want that
+  #   extra data returned by dumper.
+  $summary->{parent} = undef;
+
   return ($testdata, $testfncdata, $testbrdata, $summary);
 }
 

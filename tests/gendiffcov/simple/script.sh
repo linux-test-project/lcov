@@ -54,14 +54,19 @@ export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
+if [ -f $LCOV_HOME/bin/getp4version ] ; then
+    GET_VERSION=$LCOV_HOME/bin/getp4version
+else
+    GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
+fi
 
-LCOV_OPTS='--rc lcov_branch_coverage=1'
-DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT"
+LCOV_OPTS="--rc lcov_branch_coverage=1 --version-script $GET_VERSION"
+DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err
-rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria
+rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched
 
 if [ "x$COVER" != 'x' ] ; then
     cover -delete
@@ -88,8 +93,30 @@ if [ 0 != $? ] ; then
 fi
 gzip -c baseline.info > baseline.info.gz
 
-echo lcov --capture --directory . --output-file baseline_nobranch.info
-$COVER $LCOV_HOME/bin/lcov --capture --directory . --output-file baseline_nobranch.info
+# test merge with differing version
+sed -e 's/VER:/VER:x/g' < baseline.info > baseline2.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output merge.info -a baseline.info -a baseline2.info
+if [ 0 == $? ] ; then
+    echo "ERROR: merge with mismatched version did not fail"
+    exit 1
+fi
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --ignore version --output merge2.info -a baseline.info -a baseline2.info
+if [ 0 != $? ] ; then
+    echo "ERROR: ignore error merge with mismatched version failed"
+    exit 1
+fi
+# run genhtml with mismatched version
+echo genhtml $DIFFCOV_OPTS baseline2.info --output-directory ./mismatched
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS baseline2.info --output-directory ./mismatched
+if [ 0 == $? ] ; then
+    echo "ERROR: genhtml with mismatched baseline did not fail"
+    exit 1
+fi
+
+
+
+echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nobranch.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_nobranch.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (2) failed"
     exit 1

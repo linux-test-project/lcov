@@ -55,6 +55,8 @@ install:
 	bin/install.sh bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc -m 755
 	bin/install.sh bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff -m 755
 	bin/install.sh bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate -m 755
+	bin/install.sh bin/getp4version $(DESTDIR)$(SCRIPT_DIR)/getp4version -m 755
+	bin/install.sh bin/get_signature $(DESTDIR)$(SCRIPT_DIR)/get_signature -m 755
 	bin/install.sh bin/gitblame $(DESTDIR)$(SCRIPT_DIR)/gitblame -m 755
 	bin/install.sh bin/gitdiff $(DESTDIR)$(SCRIPT_DIR)/gitdiff -m 755
 	bin/install.sh bin/criteria $(DESTDIR)$(SCRIPT_DIR)/criteria -m 755
@@ -86,6 +88,8 @@ uninstall:
 	bin/install.sh --uninstall bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc
 	bin/install.sh --uninstall bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff
 	bin/install.sh --uninstall bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate
+	bin/install.sh --uninstall bin/getp4version $(DESTDIR)$(SCRIPT_DIR)/getp4version
+	bin/install.sh --uninstall bin/get_signature $(DESTDIR)$(SCRIPT_DIR)/get_signature
 	bin/install.sh --uninstall bin/gitblame $(DESTDIR)$(SCRIPT_DIR)/gitblame
 	bin/install.sh --uninstall bin/criteria $(DESTDIR)$(SCRIPT_DIR)/criteria
 	bin/install.sh --uninstall lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm

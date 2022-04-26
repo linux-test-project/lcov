@@ -97,6 +97,9 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-criteria\-script
 .IR coverage\-criteria\-script ]
 .br
+.RB [ \-\-version\-script
+.IR script_file  ]
+.br
 .RB [ \-\-new\-files\-as\-baseline]
 .br
 .RB [ \-\-elide\-path\-mismatch]
@@ -120,6 +123,9 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .IR pattern ]
 .RB [ \-\-exclude
 .IR pattern ]
+.br
+.RB [ (\-\-parallel | -j)
+.IR integer ]
 .br
 .IR tracefile(s)
 .RE
@@ -436,6 +442,37 @@ A sample coverage criteria script can be found in the share/lcov/support\-script
 It is not difficult to create another script which mimics the LOCV '\-\-fail\-\uner\-lines feature by instead checking that the ratio of exercised lines to total lines ("(GNC + GIC + CBC)/(GNC + GIC + CBC + UNC + UIC + UBC)") is greater than the threshold - either only at the top level, in every directory, or wherever desired.  Similarly, your criteria may include branch and function coverage metrics.
 
 .RE
+
+.B \-\-version\-script
+.I script_file
+.br
+.RS
+call script_file to find file ID from revision control when extracting data.
+The ID is used to check the version ID of the source file which is loaded against the version ID which was used to generate coverage data (i.e., the file version seen by lcov/geninfo).
+Please see sample scripts
+.I share/lcov/support-scripts/getp4version
+and
+.I share/lcov/support-scripts/get_signature
+which are shipped as part of this release.
+
+The script will be called as either:
+
+.B
+.I script_file source_file_name
+.br
+It should write the version ID to stdout and return a 0 exit status.
+If the file has is not versioned, it should write an empty string and return a 0 exit status, OR
+
+.B
+.I script_file \-\-compare source_file_name source_file_id info_file_id
+.br
+It should return non-zero if the IDs do not match.
+\'source_file_id\' is the ID returned by calling "script_file source_file_name", and \'info_file_id\' is the ID found in the corresponding .info file.
+\'script_file\' is used both to generate and to compare the signature to enable you to retain history between calls or to do more complex processing to determine equivalence.
+
+Note that you must use the same script/same mechanism to determine the file version when you extract, merge, and display coverage data - otherwise, you may see spurious mismatch reports.
+
+.RE
 .BI "\-\-new\-file\-as\-baseline "
 .RS
 By default, when code is identified on source lines in the 'current' data which where not identified as code in the 'baseline' data but the source text has not changed, their coverpoints are categorized as "included code":
@@ -533,6 +570,14 @@ See the lcov man page for details.
 pattern is a glob\-match pattern of filenames to include in processing.
 Files which do not match will be excluded from the report.
 See the lcov man page for details.
+
+.RE
+.BI "\-\-parallel "
+.I integer
+.BI "\-j "
+.I integer
+.RS
+Specify parallelism to use during processing (maximum number of forked child processes).  Zero means to use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
 
 
 .RE
@@ -962,6 +1007,13 @@ File name found in '\-\-diff\-file' file but does not appear in either baseline 
 
 .B inconsistent:
 Files have been moved or repository history presented by '\-\-diff\-file' data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' and 'annotate' scripts.
+
+.B annotate:
+\-\-annotate\-script returned non-zero exit status - likely a file path or related error.  HTML source code display will not be correct and ownership/date information may be missing.
+
+.B version:
+\-\-version\-script comparison returned non-zero \- mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
+
 .RE
 
 .B \-\-config\-file

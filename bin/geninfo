@@ -80,6 +80,7 @@ use lcovutil qw (define_errors parse_ignore_errors
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
                  munge_file_patterns warn_file_patterns
+                 $extractVersionScript
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE
                  $ERROR_GRAPH
@@ -379,6 +380,7 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"compat=s" => \$opt_compat,
 		"config-file=s" => \$opt_config_file,
 		"rc=s%" => \%opt_rc,
+                "version-script=s" => \$lcovutil::extractVersionScript,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -656,6 +658,8 @@ sequentially.
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN             Include files matching PATTERN
       --exclude PATTERN             Exclude files matching PATTERN
+      --version-script SCRIPTNAME   Call script to find revison control version
+                                    ID of source file
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -1232,6 +1236,8 @@ sub process_dafile($$)
 						\@matches, \@gcov_content);
 		}
 
+		# could apply substitution paths here -
+		
 		if (@lcovutil::include_file_patterns)
 		{
 		  my $keep = 0;
@@ -1274,6 +1280,13 @@ sub process_dafile($$)
 
 		# Write absolute path of source file
 		printf(INFO_HANDLE "SF:%s\n", $source_filename);
+		if (defined($lcovutil::extractVersionScript) &&
+		    -f $source_filename) {
+		  my $version = lcovutil::extractFileVersion($source_filename);
+		  
+		  printf(INFO_HANDLE "VER:%s\n", $version)
+		    if (defined($version) && $version ne "");
+		}
 		if (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
 		    defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE])) {
 		  if ($source_filename =~ /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
@@ -2131,6 +2144,13 @@ sub intermediate_text_to_info($$$)
 		}
 
 		print($fd "SF:$filename\n");
+		if (defined($lcovutil::extractVersionScript) &&
+		    -f $filename) {
+		  my $version = lcovutil::extractFileVersion($filename);
+		  
+		  printf($fd "VER:%s\n", $version)
+		    if (defined($version) && $version ne "");
+		}
 		my $skipBranch = 0;
 		my $currentBranchLine = 0;
 		# I need the line numbers to be ordered in order to support
@@ -2313,6 +2333,13 @@ sub intermediate_json_to_info($$$)
 		}
 
 		print($fd "SF:$filename\n");
+		if (defined($lcovutil::extractVersionScript) &&
+		    -f $filename) {
+		  my $version = lcovutil::extractFileVersion($filename);
+		  
+		  printf($fd "VER:%s\n", $version)
+		    if (defined($version) && $version ne "");
+		}
 
 		# Function data
 		if ($func_coverage) {
@@ -3062,6 +3089,13 @@ sub process_graphfile($$)
 		}
 
 		print(INFO_HANDLE "SF:$filename\n");
+		if (defined($lcovutil::extractVersionScript) &&
+		    -f $filename) {
+		  my $version = lcovutil::extractFileVersion($filename);
+		  
+		  printf(INFO_HANDLE "VER:%s\n", $version)
+		    if (defined($version) && $version ne "");
+		}
 
 		if (defined($funcdata) && $func_coverage) {
 			my @functions = sort {$funcdata->{$a}->[0] <=>

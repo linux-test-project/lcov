@@ -89,13 +89,14 @@ use lcovutil qw ($tool_name $quiet
                  @exclude_file_patterns @include_file_patterns %excluded_files
                  munge_file_patterns warn_file_patterns
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
-                 $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT
+                 $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION
                  is_external $opt_no_external @internal_dirs
                  system_no_output
                  rate get_overall_line
 
                  %opt_rc apply_rc_params
                  strip_directories transform_pattern
+                 $extractVersionScript
   );
 
 
@@ -302,7 +303,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"config-file=s" => \$opt_config_file,
 		"rc=s%" => \%opt_rc,
 		"fail-under-lines=s" => \$opt_fail_under_lines,
-		"profile" => \$lcovutil::profile,
+		"profile"          => \$lcovutil::profile,
+                "version-script=s" => \$lcovutil::extractVersionScript,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -584,6 +586,8 @@ Options:
       --exclude PATTERN           Exclude files matching PATTERN
       --fail-under-lines MIN      Exit with a status of 1 if the total line
                                   coverage is less than MIN (summary option).
+      --version-script SCRIPTNAME Call script to find revison control version
+                                  ID of source file
 
 For more information see: $lcov_url and\/or the lcov man page.
 END_OF_USAGE
@@ -941,6 +945,9 @@ sub lcov_geninfo(@)
 	}
 	foreach (@lcovutil::exclude_file_patterns) {
 		@param = (@param, "--exclude", $_);
+	}
+	if (defined $lcovutil::extractVersionScript) {
+	  @param = (@param, "--version-script", $lcovutil::extractVersionScript);
 	}
 	info("geninfo cmd: '" . join(' ', @param) . "'\n");
 	system(@param) and exit($? >> 8);

@@ -58,6 +58,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-exclude
 .IR pattern ]
 .br
+.RB [ \-\-version\-script
+.IR script_file  ]
+.br
 .RE
 
 .B lcov
@@ -530,6 +533,33 @@ ignore this data.
 Data for external source files is
 .B included
 by default.
+
+.B \-\-version\-script
+.I script_file
+.br
+.RS
+call script_file to find file ID from revision control when extracting data and to compare version IDs for the purpose of error checking when merging .info files 
+
+The script will be called as:
+.br
+.I script_file source_file_name
+;
+.br
+It should write the version ID to stdout and return a 0 exit status.
+If the file has is not versioned, it should write an empty string and return a 0 exit status.
+
+.B
+.I script_file source_file_name
+.br
+It should write the version ID to stdout and return a 0 exit status.
+If the file has is not versioned, it should write an empty string and return a 0 exit status, OR
+
+.B
+.I script_file \-\-compare source_file_name info_file1_id info_file2_id
+.br
+It should return non-zero if the IDs do not match.
+
+
 .RE
 
 .B \-e
@@ -662,6 +692,9 @@ Inconsistent entries found in trace file:
 
 .B branch:
 branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+
+.B version:
+revision control IDs of the file which we are trying to merge are not the same - line numbering and other information may be incorrect.
 .RE
 
 .RE
