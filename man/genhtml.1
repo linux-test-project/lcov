@@ -120,9 +120,13 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .IR filters ]
 .br
 .RB [ \-\-include
-.IR pattern ]
+.IR glob_pattern ]
+.br
 .RB [ \-\-exclude
-.IR pattern ]
+.IR glob_pattern ]
+.br
+.RB [ \-\-substitute
+.IR regexp_pattern ]
 .br
 .RB [ (\-\-parallel | -j)
 .IR integer ]
@@ -570,6 +574,16 @@ See the lcov man page for details.
 pattern is a glob\-match pattern of filenames to include in processing.
 Files which do not match will be excluded from the report.
 See the lcov man page for details.
+.RE
+
+.B \-\-substitute
+.I regexp_pattern
+.br
+.RS
+Apply Perl regexp
+.IR regexp_pattern
+to source file names found during processing.  This is useful when some file paths in the baseline or current .info file do not match your source layout and so the source code is not found.
+See the lcov man page for more details.
 
 .RE
 .BI "\-\-parallel "

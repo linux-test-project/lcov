@@ -288,6 +288,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"initial|i" => \$initial,
 		"include=s" => \@lcovutil::include_file_patterns,
 		"exclude=s" => \@lcovutil::exclude_file_patterns,
+		"substitute=s" => \@lcovutil::file_subst_patterns,
 		"no-recursion" => \$no_recursion,
 		"to-package=s" => \$to_package,
 		"from-package=s" => \$from_package,
@@ -507,7 +508,9 @@ if (defined($ln_overall_found)) {
 } else {
 	info("Done.\n") if (!$list && !$capture);
 }
-lcovutil::warn_file_patterns(); # warn about unused include/exclude directives
+lcovutil::warn_file_patterns() # warn about unused include/exclude directives
+  unless $capture;
+
 summarize_cov_filters();
 if ($lcovutil::profile) {
   my $json = JSON::encode_json(\%lcovutil::profileData);
@@ -584,6 +587,8 @@ Options:
       --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN           Include files matching PATTERN
       --exclude PATTERN           Exclude files matching PATTERN
+      --substitute PATTERNS       Munge source file names according to these
+                                  Perl regexps (applied in order)
       --fail-under-lines MIN      Exit with a status of 1 if the total line
                                   coverage is less than MIN (summary option).
       --version-script SCRIPTNAME Call script to find revison control version
@@ -948,6 +953,9 @@ sub lcov_geninfo(@)
 	}
 	if (defined $lcovutil::extractVersionScript) {
 	  @param = (@param, "--version-script", $lcovutil::extractVersionScript);
+	}
+	foreach (@lcovutil::file_subst_patterns) {
+	  @param = (@param, "--substitute", $_);
 	}
 	info("geninfo cmd: '" . join(' ', @param) . "'\n");
 	system(@param) and exit($? >> 8);

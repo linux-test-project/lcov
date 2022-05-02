@@ -454,6 +454,37 @@ for l in criteria.log criteria.err ; do
 done
 
 
+# test file substitution option
+echo lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream'
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream'
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov --capture failed"
+    exit 1
+fi
+grep "pwd/test.cpp" subst.info
+if [ 0 != $? ] ; then
+    echo "ERROR: --substitute failed - not found in subst.info"
+    exit 1
+fi
+grep "iostream" subst.info
+if [ 0 == $? ] ; then
+    echo "ERROR: --exclude failed - found in subst.info"
+    exit 1
+fi
+grep "pwd/test.cpp" baseline.info
+if [ 0 == $? ] ; then
+    # substitution should not have happened in baseline.info
+    echo "ERROR: --substitute failed - found in baseline.info" 
+    exit 1
+fi
+grep "iostream" baseline.info
+if [ 0 != $? ] ; then
+    # exclude should not have happened in baseline.info
+    echo "ERROR: --exclude failed - not found in baseline.info"
+    exit 1
+fi
+
+
 echo "Tests passed"
 
 if [ "x$COVER" != "x" ] ; then

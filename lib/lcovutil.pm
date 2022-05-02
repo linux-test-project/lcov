@@ -20,6 +20,7 @@ our @EXPORT_OK =
 
      %opt_rc apply_rc_params
      strip_directories
+     @file_subst_patterns subst_file_name
 
      $cpp_demangle
      verbose debug $debug $verbose
@@ -77,6 +78,9 @@ our %geninfoErrs = (
 # for external file filtering
 our @internal_dirs;
 our $opt_no_external;
+
+# filename substitutions
+our @file_subst_patterns;
 
 # C++ demangling
 our $cpp_demangle;
@@ -513,6 +517,11 @@ sub munge_file_patterns {
   if(@include_file_patterns) {
     @include_file_patterns = map({ [transform_pattern($_), $_, 0]; } @include_file_patterns);
   }
+
+  if (@file_subst_patterns) {
+    # just keep track of number of times this was applied
+    @file_subst_patterns = map({ [$_, 0]; } @file_subst_patterns);
+  }
 }
 
 sub warn_file_patterns {
@@ -527,6 +536,27 @@ sub warn_file_patterns {
       info("'exclude' pattern '" . $pat->[1] . "' is unused.\n");
     }
   }
+  foreach my $pat (@file_subst_patterns) {
+    if (0 == $pat->[1]) {
+      info("'substitute' pattern '" . $pat->[0] . "' is unused.\n");
+    }
+  }
+}
+
+#
+# subst_file_name($path)
+#
+# apply @file_subst_patterns to $path and return
+#
+sub subst_file_name($) {
+  my $name = shift;
+  foreach my $p (@file_subst_patterns) {
+    my $old = $name;
+    eval '$name =~ ' . $p->[0] . ';'; # apply pattern that user provided...
+    $p->[1] += 1
+      if $old ne $name;
+  }
+  return $name;
 }
 
 #
@@ -1584,7 +1614,7 @@ sub new {
   my ($class, $filename) = @_;
   my $self = {};
   bless $self, $class;
-  
+
   $self->{_version} = undef; # version ID from revision control (if any)
 
   # keep track of location in .info file that this file data was found
@@ -1857,7 +1887,7 @@ sub merge {
 
   my $me = defined($self->version()) ? $self->version() : "<no version>";
   my $you = defined($info->version()) ? $info->version() : "<no version>";
-  
+
   lcovutil::checkVersionMatch($filename, $me, $you);
 
   foreach my $name ($info->test()->keylist()) {
@@ -2307,7 +2337,7 @@ sub _read_info {
 
     if ($line =~ /^[SK]F:(.*)/) {
       # Filename information found
-      $filename = $1;
+      $filename = lcovutil::subst_file_name($1);
       # should this one be skipped?
       $skipCurrentFile = 0;
       if (@lcovutil::exclude_file_patterns) {
@@ -2854,6 +2884,8 @@ sub write_info($$$) {
         $testbrdata, $sumbrcount, $found, $hit,
         $f_found, $f_hit, $br_found, $br_hit) = $entry->get_info();
 
+    # munge the source file name, if requested
+    $source_file = lcovutil::subst_file_name($source_file);
     # Add to totals
     $ln_total_found += $found;
     $ln_total_hit += $hit;

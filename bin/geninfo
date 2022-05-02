@@ -247,8 +247,6 @@ our $no_checksum;
 our $opt_compat_libtool;
 our $opt_no_compat_libtool;
 our $rc_adjust_src_path;# Regexp specifying parts to remove from source path
-our $adjust_src_pattern;
-our $adjust_src_replace;
 our $adjust_testname;
 our @ignore_errors;	# List of errors to ignore (parameter)
 our @opt_filter;        # list of coverpoints to ignore (parameter)
@@ -329,20 +327,19 @@ if (lcovutil::apply_rc_params($opt_config_file,
   if (defined($rc_adjust_src_path)) {
     my ($pattern, $replace) = split(/\s*=>\s*/, $rc_adjust_src_path);
     local $SIG{__DIE__};
-    eval '$adjust_src_pattern = qr>'.$pattern.'>;';
-    if (!defined($adjust_src_pattern)) {
+    my $src_pattern;
+    eval '$src_pattern = qr>'.$pattern.'>;';
+    if (!defined($src_pattern)) {
       my $msg = $@;
 
       chomp($msg);
       $msg =~ s/at \(eval.*$//;
-      warn("WARNING: invalid pattern in ".
-	   "geninfo_adjust_src_path: $msg\n");
-      } elsif (!defined($replace)) {
-	# If no replacement is specified, simply remove pattern
-	$adjust_src_replace = "";
-	} else {
-	  $adjust_src_replace = $replace;
-	  }
+      warn("WARNING: invalid pattern in geninfo_adjust_src_path: $msg\n");
+    } elsif (!defined($replace)) {
+      # If no replacement is specified, simply remove pattern
+      $replace = "";
+    }
+    push(@lcovutil::file_subst_patterns, 's#$pattern#$replace#g');
   }
   for my $regexp (($excl_line, $excl_br_line, $excl_exception_br_line)) {
     eval 'qr/'.$regexp.'/';
@@ -371,6 +368,7 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"initial|i" => \$initial,
 		"include=s" => \@lcovutil::include_file_patterns,
 		"exclude=s" => \@lcovutil::exclude_file_patterns,
+		"substitute=s" => \@lcovutil::file_subst_patterns,
 		"no-recursion" => \$no_recursion,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
@@ -658,6 +656,8 @@ sequentially.
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN             Include files matching PATTERN
       --exclude PATTERN             Exclude files matching PATTERN
+      --substitute PATTERNS         Munge source file names according to these
+                                    Perl regexps (applied in order)
       --version-script SCRIPTNAME   Call script to find revison control version
                                     ID of source file
 
@@ -1088,6 +1088,8 @@ sub process_dafile($$)
 
 	# Execute gcov command and suppress standard output
 	#  also redirect stderr to /dev/null if 'quiet'
+	debug("$gcov_tool $da_filename -o $object_dir " . 
+	      join(" ", @gcov_options) . "\n");
 	$gcov_error = system_no_output(1 + ($lcovutil::quiet ? 2 : 0),
 				       $gcov_tool, $da_filename,
 				       "-o", $object_dir, @gcov_options);
@@ -1177,10 +1179,8 @@ sub process_dafile($$)
 
 		$source = solve_relative_path($base_dir, $source);
 
-		if (defined($adjust_src_pattern)) {
-			# Apply transformation as specified by user
-			$source =~ s/$adjust_src_pattern/$adjust_src_replace/g;
-		}
+		#  apply more patterns here
+		$source = lcovutil::subst_file_name($source);
 
 		# gcov will happily create output even if there's no source code
 		# available - this interferes with checksum creation so we need
@@ -2043,6 +2043,8 @@ sub read_intermediate_text($$)
 		if ($line =~ /^file:(.*)$/) {
 			$filename = $1;
 			chomp($filename);
+			# adjust filename...
+			$filename = lcovutil::subst_file_name($filename);
 		} elsif (defined($filename)) {
 			$data->{$filename} .= $line;
 		}
@@ -2089,6 +2091,8 @@ sub read_intermediate_json($$$)
 
 	for my $file (@{$json->{"files"}}) {
 		my $filename = $file->{"file"};
+		# substitute filename here
+		$filename = lcovutil::subst_file_name($filename);
 
 		$data->{$filename} = $file;
 	}
@@ -2552,6 +2556,8 @@ sub process_intermediate($$$)
 	}
 
 	# Run gcov on data file
+	debug("$gcov_tool $data_file " .
+	      join(" ", @gcov_options) . "-i\n");
 	($out, $err, $rc) = system_no_output(1 + 2 + 4, $gcov_tool,
 					     $data_file, @gcov_options, "-i");
 	defined($out) && unlink($out);
@@ -2832,7 +2838,7 @@ sub get_source_data($)
   close(HANDLE);
 
   if ($flag || $brflag || $exceptionbrflag) {
-  warn("WARNING: unterminated exclusion section in $filename\n");
+    warn("WARNING: unterminated exclusion section in $filename\n");
   }
 
   return (\%list, \%brdata, \%checksums, \@source);
@@ -3407,9 +3413,7 @@ sub adjust_source_filenames($$$)
 		$filename = solve_relative_path($base_dir, $filename);
 
 		# Apply adjustment
-		if (defined($adjust_src_pattern)) {
-			$filename =~ s/$adjust_src_pattern/$adjust_src_replace/g;
-		}
+		$filename = lcovutil::subst_file_name($filename);
 
 		if ($filename ne $old_filename) {
 			$hash->{$filename} = delete($hash->{$old_filename});

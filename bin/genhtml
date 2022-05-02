@@ -4078,6 +4078,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "profile"               => \$lcovutil::profile,
                 "exclude=s"             => \@lcovutil::exclude_file_patterns,
                 "include=s"             => \@lcovutil::include_file_patterns,
+                "substitute=s"          => \@lcovutil::file_subst_patterns,
                 "parallel|j=i"          => \$maxParallelism,
                 ))
 {
@@ -4451,6 +4452,8 @@ Operation:
       --include PATTERNS            Display data only for files matching
                                     PATTERNS.
       --exclude PATTERNS            Do not display for files matching PATTERNS.
+      --substitute PATTERNS         Munge source file names according to these
+                                    Perl regexps (applied in order)
   -j, --parallel INTEGER            Use at most INTEGER number of parallel
                                     slaves during processing.
 

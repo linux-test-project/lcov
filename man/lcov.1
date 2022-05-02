@@ -54,9 +54,13 @@ lcov \- a graphical GCOV front\-end
 .IR  mode =on|off|auto]
 .br
 .RB [ \-\-include
-.IR pattern ]
+.IR glob_pattern ]
+.br
 .RB [ \-\-exclude
-.IR pattern ]
+.IR glob_pattern ]
+.br
+.RB [ \-\-substitute
+.IR regexp_pattern ]
 .br
 .RB [ \-\-version\-script
 .IR script_file  ]
@@ -516,6 +520,67 @@ Can be combined with the
 .B --include
 command line switch. If a given file matches both the include pattern and the
 exclude pattern, the exclude pattern will take precedence.
+.RE
+
+.B \-\-substitute
+.I regexp_pattern
+.br
+.RS
+Apply Perl regexp
+.IR regexp_pattern
+to source file names found during processing.  This is useful when the path name reported by gcov does not match your source layout and the file is not found, or when the paths found in the extracted .info file does not match your source code layout.
+
+Use this option in situations where geninfo cannot find the correct
+path to source code files of a project. By providing a
+.I regexp_pattern
+in Perl regular expression format (see
+.BR perlre (1))
+, you can instruct geninfo to
+remove or change parts of the incorrect source path.
+
+.B Example:
+.br
+
+1. When geninfo reports that it cannot find source file
+.br
+
+    /path/to/src/.libs/file.c
+.br
+
+while the file is actually located in
+.br
+
+    /path/to/src/file.c
+.br
+
+use the following parameter:
+.br
+
+    \-\-substitute 's#/.libs##g'
+
+This will remove all "/.libs" strings from the path.
+
+2. When geninfo reports that it cannot find source file
+.br
+
+    /tmp/build/file.c
+.br
+
+while the file is actually located in
+.br
+
+    /usr/src/file.c
+.br
+
+use the following parameter:
+.br
+
+    \-\-substitute 's#/tmp/build#/usr/src#/g'
+.br
+
+This will change all "/tmp/build" strings in the path to "/usr/src".
+.PP
+
 .RE
 
 .B \-\-external
