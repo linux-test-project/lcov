@@ -36,7 +36,7 @@ our @EXPORT_OK =
      set_rtl_extensions set_c_extensions
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
-     $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION
+     $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
 
      $extractVersionScript
 
@@ -64,8 +64,9 @@ our $ERROR_SOURCE       = 1;
 our $ERROR_GRAPH        = 2;
 our $ERROR_FORMAT       = 3; # bad record in .info file
 our $ERROR_VERSION      = 4;
-our $ERROR_MISMATCH     = 5;
-our $ERROR_BRANCH       = 6; # branch numbering is not correct
+our $ERROR_UNUSED       = 5;
+our $ERROR_MISMATCH     = 6;
+our $ERROR_BRANCH       = 7; # branch numbering is not correct
 our $ERROR_EMPTY        = 10; # no records found in info file
 our %geninfoErrs = (
     "gcov" => $ERROR_GCOV,
@@ -73,6 +74,7 @@ our %geninfoErrs = (
     "graph" => $ERROR_GRAPH,
     "format" => $ERROR_FORMAT,
     "version" => $ERROR_VERSION,
+    "unused" => $ERROR_UNUSED, # exclude/include/substitute pattern not used
 );
 
 # for external file filtering
@@ -526,19 +528,17 @@ sub munge_file_patterns {
 
 sub warn_file_patterns {
 
-  foreach my $pat (@include_file_patterns) {
-    if (0 == $pat->[2]) {
-      info("'include' pattern '" . $pat->[1] . "' is unused.\n");
-    }
-  }
-  foreach my $pat (@exclude_file_patterns) {
-    if (0 == $pat->[2]) {
-      info("'exclude' pattern '" . $pat->[1] . "' is unused.\n");
-    }
-  }
-  foreach my $pat (@file_subst_patterns) {
-    if (0 == $pat->[1]) {
-      info("'substitute' pattern '" . $pat->[0] . "' is unused.\n");
+  foreach my $p (['include', \@include_file_patterns],
+                 ['exclude', \@exclude_file_patterns],
+                 ['substitute', \@file_subst_patterns]) {
+    my ($type, $patterns) = @$p;
+    foreach my $pat (@$patterns) {
+      my $count = $pat->[scalar(@$pat) - 1];
+      if ( 0 == $count) {
+        my $str = $pat->[scalar(@$pat) - 2];
+        lcovutil::ignorable_error($ERROR_UNUSED,
+                                  "'$type' pattern '$str' is unused.");
+      }
     }
   }
 }

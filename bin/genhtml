@@ -99,7 +99,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  system_no_output
                  ignorable_error
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
-                 $ERROR_EMPTY $ERROR_VERSION
+                 $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED
                  info verbose $verbose $cpp_demangle
                  %opt_rc apply_rc_params
                  strip_directories
@@ -197,11 +197,12 @@ our $ERROR_UNKNOWN_CATEGORY = 2;
 our $ERROR_INCONSISTENT_PATH = 3;
 our $ERROR_INCONSISTENT_DATA = 4;
 $ERROR_MISMATCH = 5;
-$ERROR_BRANCH = 5;
-$ERROR_VERSION = 6;
-$ERROR_FORMAT = 7;
-$ERROR_EMPTY = 8;
-our $ERROR_ANNOTATE_SCRIPT = 9;
+$ERROR_BRANCH = 6;
+$ERROR_VERSION = 7;
+$ERROR_UNUSED = 8;
+$ERROR_FORMAT = 9;
+$ERROR_EMPTY = 10;
+our $ERROR_ANNOTATE_SCRIPT = 11;
 
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
@@ -215,6 +216,7 @@ our %htmlErrs = (
         "empty"   => $ERROR_EMPTY,
         "annotate" => $ERROR_ANNOTATE_SCRIPT,
         "version" => $ERROR_VERSION,
+        "unused" => $ERROR_UNUSED,
 );
 lcovutil::define_errors(\%htmlErrs);
 

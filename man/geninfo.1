@@ -321,32 +321,6 @@ instead derive function coverage data from line coverage data and
 information about which lines belong to a function.
 .RE
 
-.B \-\-exclude
-.I pattern
-.br
-.RS
-Exclude source files matching
-.IR pattern .
-
-Use this switch if you want to exclude coverage data for a particular set
-of source files matching any of the given patterns. Multiple patterns can be
-specified by using multiple
-.B --exclude
-command line switches. The
-.I patterns
-will be interpreted as shell wildcard patterns (note that they may need to be
-escaped accordingly to prevent the shell from expanding them first).
-
-Note: The pattern must be specified to match the
-.B absolute
-path of each source file.
-
-Can be combined with the
-.B --include
-command line switch. If a given file matches both the include pattern and the
-exclude pattern, the exclude pattern will take precedence.
-.RE
-
 .B \-\-external
 .br
 .B \-\-no\-external
@@ -401,9 +375,36 @@ command line switches. The
 will be interpreted as shell wildcard patterns (note that they may need to be
 escaped accordingly to prevent the shell from expanding them first).
 
+See the lcov man page for details
+
+.RE
+
+.B \-\-exclude
+.I pattern
+.br
+.RS
+Exclude source files matching
+.IR pattern .
+
+Use this switch if you want to exclude coverage data from a  particular set
+of source files matching any of the given patterns. Multiple patterns can be
+specified by using multiple
+.B --exclude
+command line switches. The
+.I patterns
+will be interpreted as shell wildcard patterns (note that they may need to be
+escaped accordingly to prevent the shell from expanding them first).
 Note: The pattern must be specified to match the
 .B absolute
 path of each source file.
+
+Can be combined with the
+.B --include
+command line switch. If a given file matches both the include pattern and the
+exclude pattern, the exclude pattern will take precedence.
+
+See the lcov man page for details.
+
 .RE
 
 .B \-\-substitute
@@ -427,7 +428,7 @@ geninfo should continue processing instead of aborting.
 Note that the tool will generate a warning (rather than a fatal error) unless you ignore the error two (or more) times:
 .br
 .RS
-geninfo ... --ignore-errors unmapped,unmapped ...
+geninfo ... --ignore-errors unused,unused
 .RE
 
 .I errors
@@ -438,6 +439,9 @@ the gcov tool returned with a non\-zero return code.
 
 .B source:
 the source code file for a data set could not be found.
+
+.B unused
+the include/exclude/substitute pattern did not match any file pathnames.
 
 .RE
 

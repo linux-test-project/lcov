@@ -90,6 +90,7 @@ use lcovutil qw ($tool_name $quiet
                  munge_file_patterns warn_file_patterns
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
                  $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION
+                 $ERROR_UNUSED
                  is_external $opt_no_external @internal_dirs
                  system_no_output
                  rate get_overall_line

@@ -1088,7 +1088,7 @@ sub process_dafile($$)
 
 	# Execute gcov command and suppress standard output
 	#  also redirect stderr to /dev/null if 'quiet'
-	debug("$gcov_tool $da_filename -o $object_dir " . 
+	debug("$gcov_tool $da_filename -o $object_dir " .
 	      join(" ", @gcov_options) . "\n");
 	$gcov_error = system_no_output(1 + ($lcovutil::quiet ? 2 : 0),
 				       $gcov_tool, $da_filename,
@@ -1236,8 +1236,6 @@ sub process_dafile($$)
 						\@matches, \@gcov_content);
 		}
 
-		# could apply substitution paths here -
-		
 		if (@lcovutil::include_file_patterns)
 		{
 		  my $keep = 0;
@@ -1283,7 +1281,7 @@ sub process_dafile($$)
 		if (defined($lcovutil::extractVersionScript) &&
 		    -f $source_filename) {
 		  my $version = lcovutil::extractFileVersion($source_filename);
-		  
+
 		  printf(INFO_HANDLE "VER:%s\n", $version)
 		    if (defined($version) && $version ne "");
 		}
@@ -2151,7 +2149,7 @@ sub intermediate_text_to_info($$$)
 		if (defined($lcovutil::extractVersionScript) &&
 		    -f $filename) {
 		  my $version = lcovutil::extractFileVersion($filename);
-		  
+
 		  printf($fd "VER:%s\n", $version)
 		    if (defined($version) && $version ne "");
 		}
@@ -2340,7 +2338,7 @@ sub intermediate_json_to_info($$$)
 		if (defined($lcovutil::extractVersionScript) &&
 		    -f $filename) {
 		  my $version = lcovutil::extractFileVersion($filename);
-		  
+
 		  printf($fd "VER:%s\n", $version)
 		    if (defined($version) && $version ne "");
 		}
@@ -3098,7 +3096,7 @@ sub process_graphfile($$)
 		if (defined($lcovutil::extractVersionScript) &&
 		    -f $filename) {
 		  my $version = lcovutil::extractFileVersion($filename);
-		  
+
 		  printf(INFO_HANDLE "VER:%s\n", $version)
 		    if (defined($version) && $version ne "");
 		}

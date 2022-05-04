@@ -23,7 +23,7 @@ while [ $# -gt 0 ] ; do
             #COVER="perl -MDevel::Cover "
             COVER="perl -MDevel::Cover=-db,cover_db,-coverage,statement,branch,condition,subroutine "
             ;;
-        
+
         --home | home )
             LCOV_HOME=$1
             shift
@@ -32,7 +32,7 @@ while [ $# -gt 0 ] ; do
                 exit 1
             fi
             ;;
-        
+
         * )
             echo "Error: unexpected option '$OPT'"
             exit 1
@@ -40,7 +40,7 @@ while [ $# -gt 0 ] ; do
     esac
 done
 
-if [[ "x" == ${LCOV_HOME}x ]] ; then 
+if [[ "x" == ${LCOV_HOME}x ]] ; then
        if [ -f ../../../bin/lcov ] ; then
            LCOV_HOME=../../..
        else
@@ -241,7 +241,7 @@ for opt in "" "--show-details" "--hier" ; do
             echo "ERROR: '--hierarchical' path mismatch in $outdir"
             exit 1
         fi
-        
+
         # expect to not to see non-code owners 'rupert.psmith' and 'pelham.wodehose' in file annotations
         FILE=`find $outdir -name test.cpp.gcov.html`
         for owner in rupert.psmith pelham.wodehose ; do
@@ -474,13 +474,26 @@ fi
 grep "pwd/test.cpp" baseline.info
 if [ 0 == $? ] ; then
     # substitution should not have happened in baseline.info
-    echo "ERROR: --substitute failed - found in baseline.info" 
+    echo "ERROR: --substitute failed - found in baseline.info"
     exit 1
 fi
 grep "iostream" baseline.info
 if [ 0 != $? ] ; then
     # exclude should not have happened in baseline.info
     echo "ERROR: --exclude failed - not found in baseline.info"
+    exit 1
+fi
+
+# some error checks...
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output err1.info -a baseline.info -a baseline.info --substitute "s#xyz#pwd#g" --exclude 'foo'
+if [ 0 == $? ] ; then
+    echo "ERROR: lcov ran despite error"
+    exit 1
+fi
+
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output unused.info -a baseline.info -a baseline.info --substitute "s#xyz#pwd#g" --exclude 'foo' --ignore unused
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov failed despite suppression"
     exit 1
 fi
 
