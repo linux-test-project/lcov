@@ -9131,9 +9131,10 @@ sub write_file_table(*$$$$)
           @{$affecting_tests{$testname}};
 
       # Insert link to description of available
+      my $href = $testname;
       if ($test_description{$testname})
       {
-        $testname = "<a href=\"$base_dir".
+        $href = "<a href=\"$base_dir".
               "descriptions.$html_ext#$testname\">".
               "$testname</a>";
       }
@@ -9152,7 +9153,7 @@ sub write_file_table(*$$$$)
                                             $fileDetails, 'function')])
         if ($func_coverage);
       write_file_table_detail_entry(*HTML_HANDLE, $base_dir,
-                                    $testname, $showBinDetail, @results);
+                                    $href, $showBinDetail, @results);
     }
   }
 
