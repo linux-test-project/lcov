@@ -14,9 +14,11 @@ our @ISA = qw(Exporter);
 our @EXPORT_OK =
   qw($tool_name $quiet @temp_dirs set_tool_name set_info_callback $quiet
      append_tempdir temp_cleanup
-     define_errors parse_ignore_errors ignorable_error ignorable_warning
+     define_errors parse_ignore_errors ignorable_error ignorable_warning is_ignored
      info
      die_handler warn_handler abort_handler
+
+     $maxParallelism count_cores
 
      %opt_rc apply_rc_params
      strip_directories
@@ -32,11 +34,13 @@ our @EXPORT_OK =
      @exclude_file_patterns @include_file_patterns %excluded_files
      munge_file_patterns warn_file_patterns transform_pattern
      parse_cov_filters summarize_cov_filters
+     disable_cov_filters reenable_cov_filters
      filterStringsAndComments simplifyCode balancedParens
      set_rtl_extensions set_c_extensions
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
+     $ERROR_PARALLEL report_parallel_error
 
      $extractVersionScript
 
@@ -63,18 +67,21 @@ our $ERROR_GCOV         = 0;
 our $ERROR_SOURCE       = 1;
 our $ERROR_GRAPH        = 2;
 our $ERROR_FORMAT       = 3; # bad record in .info file
-our $ERROR_VERSION      = 4;
-our $ERROR_UNUSED       = 5;
-our $ERROR_MISMATCH     = 6;
-our $ERROR_BRANCH       = 7; # branch numbering is not correct
-our $ERROR_EMPTY        = 10; # no records found in info file
+our $ERROR_EMPTY        = 4; # no records found in info file
+our $ERROR_VERSION      = 5;
+our $ERROR_UNUSED       = 6;
+our $ERROR_MISMATCH     = 7;
+our $ERROR_BRANCH       = 8; # branch numbering is not correct
+our $ERROR_PARALLEL     = 11; # error in fork/join
 our %geninfoErrs = (
     "gcov" => $ERROR_GCOV,
     "source" => $ERROR_SOURCE,
     "graph" => $ERROR_GRAPH,
     "format" => $ERROR_FORMAT,
+    "empty" => $ERROR_EMPTY,
     "version" => $ERROR_VERSION,
     "unused" => $ERROR_UNUSED, # exclude/include/substitute pattern not used
+    "parallel" => $ERROR_PARALLEL, # error on wait
 );
 
 # for external file filtering
@@ -91,6 +98,8 @@ our $extractVersionScript; # script/callback to find version ID of file
 
 # Specify coverage rate default precision
 our $default_precision = 1;
+
+our $maxParallelism = 1;
 
 sub default_info_impl(@);
 
@@ -312,6 +321,7 @@ sub verbose(@)
 
 sub temp_cleanup() {
   # Ensure temp directory is not in use by current process
+  my $cwd = `pwd`;
   chdir("/");
 
   if (@temp_dirs) {
@@ -321,6 +331,7 @@ sub temp_cleanup() {
     }
     @temp_dirs = ();
   }
+  chdir($cwd);
 }
 
 sub append_tempdir($) {
@@ -347,6 +358,39 @@ sub abort_handler($)
   temp_cleanup();
   exit(1);
 }
+
+sub count_cores() {
+  # how many cores?
+  $maxParallelism = 1;
+  #linux solution...
+  if (open my $handle, '/proc/cpuinfo') {
+    $maxParallelism = scalar(map /^processor/, <$handle>);
+    close($handle);
+  }
+}
+
+sub save_profile($$) {
+  my ($dest, $tool) = @_;
+
+  if ($lcovutil::profile) {
+    $lcovutil::profileData{config}{maxParallel} = $maxParallelism;
+    $lcovutil::profileData{config}{tool} = $tool;
+    my $save = $maxParallelism;
+    count_cores();
+    $lcovutil::profileData{config}{cores} = $maxParallelism;
+    $maxParallelism = $save;
+    my $json = JSON::encode_json(\%lcovutil::profileData);
+
+    $dest .= ".json";
+    if (open(JSON, ">", "$dest")) {
+      print(JSON $json);
+      close(JSON);
+    } else {
+      print("Error:  unable to open profile output $dest: '$!'\n")
+    }
+  }
+}
+
 
 sub set_rtl_extensions {
   my $str = shift;
@@ -576,7 +620,7 @@ sub strip_directories($$)
   }
   for ($i = 0; $i < $depth; $i++) {
     $filename =~ s/^[^\/]*\/+(.*)$/$1/;
-    }
+  }
   return $filename;
 }
 
@@ -614,6 +658,13 @@ sub parse_ignore_errors(@)
 
 our %didwarning;
 
+sub is_ignored($) {
+  my $code = shift;
+
+  return ($code < scalar(@ignore) &&
+          $ignore[$code]);
+}
+
 sub ignorable_error($$;$) {
   my ($code, $msg, $quiet) = @_;
 
@@ -647,6 +698,11 @@ sub ignorable_warning($$;$) {
   }
 }
 
+sub report_parallel_error {
+  my ($operation, $msg) = @_;
+  ignorable_error($ERROR_PARALLEL,
+                  "$operation: error '$msg' waiting for child (try removing the '--parallel' option");
+}
 
 sub parse_cov_filters(@)
 {
@@ -680,6 +736,23 @@ sub summarize_cov_filters {
          . ($histogram->[0] > 1 ? "s" : "") . "\n    "
          . $histogram->[1] . " coverpoint"
          . ($histogram->[1] > 1 ? "s" : "") . "\n");
+  }
+}
+
+sub disable_cov_filters {
+  # disable but return current status - so the can be re-enabled
+  my @filters = @lcovutil::cov_filter;
+  foreach my $f (@lcovutil::cov_filter) {
+    $f = undef;
+  }
+  return \@filters
+}
+
+sub reenable_cov_filters {
+  my $filters = shift;
+  # disable but return current status - so the can be re-enabled
+  for (my $i = 0; $i < scalar(@$filters); $i++) {
+    $cov_filter[$i] = $filters->[$i];
   }
 }
 
@@ -877,6 +950,46 @@ sub checkVersionMatch {
   lcovutil::ignorable_error($ERROR_VERSION,
                             "$filename: revision control version mismatch: $me <- $you")
     unless $match;
+}
+
+package OutputFile;
+
+sub new {
+  my ($class, $f) = @_;
+
+  my $self = [undef, $f];
+  bless $self, $class;
+
+  if (! defined($f) ||
+      '-' eq $f) {
+    $self->[0] = \*STDOUT;
+  } else {
+    if ($f =~ /\.gz$/) {
+      # Check for availability of GZIP tool
+      system_no_output(1, "gzip" ,"-h")
+	and die("ERROR: gzip command not available!\n");
+
+      # Open compressed file
+      open(HANDLE, "|-", "gzip -c >$f")
+	or die("ERROR: cannot start gzip to compress to file $f!\n");
+    } else {
+      open(HANDLE, ">", $f)
+	or die("ERROR: cannot write to $f!\n");
+    }
+    $self->[0] = \*HANDLE;
+  }
+  return $self;
+}
+
+sub DESTROY {
+  my $self = shift;
+  close($self->[0])
+    unless ! defined($self->[1]) || '-' eq $self->[1];
+}
+
+sub hdl {
+  my $self = shift;
+  return $self->[0];
 }
 
 
@@ -2037,9 +2150,7 @@ sub isBlank {
   my $code = $self->getLine($line);
   return 0
     unless defined($code);
-  # remove comments
-  $code =~ s|//.*$||;
-  $code =~ s|/\*.*\*/||g;
+  $code = removeComments($code);
   return ($code =~ /^\s*$/ );
 }
 
@@ -2075,6 +2186,69 @@ sub containsConditional {
     $src = $self->getLine($next);
   }
   return $foundCond;
+}
+
+# check if this line is a close brace with zero hit count that should be
+# suppressed.  We want to ignore spurious zero on close brace;  depending
+# on what gcov did the last time (zero count, no count, nonzero count) -
+# it might be interpreted as UIC - which will violate our coverage criteria.
+# We want to ignore this line if:
+#   - the line contain only a closing brace and
+#    - previous line is hit, OR
+#     - previous line is not an open-brace which has no associated
+#       count - i.e., this is not an empty block where the zero
+#       count is tagged to the closing brace, OR
+# is line empty (no code) and
+#   - count is zero, and
+#   - either previous or next non-blank lines have an associated count
+#
+sub suppressCloseBrace {
+  my ($self, $lineNo, $count, $lineCountData) = @_;
+
+  my $suppress = 0;
+  if ($self->isCharacter($lineNo, '}')) {
+    for (my $prevLine = $lineNo - 1 ; $prevLine >= 0 ; -- $prevLine) {
+      my $prev = $lineCountData->value($prevLine);
+      if (defined($prev)) {
+        # previous line was executable
+        $suppress = 1
+          if ($prev == $count ||
+              ($count == 0 &&
+               $prev > 0));
+        last;
+      } elsif ($count == 0 &&
+               # previous line not executable - was it an open brace?
+               $self->isCharacter($prevLine, '{')) {
+        # look 'up' from the open brace to find the first
+        #   line which has an associated count -
+        my $code = "";
+        for (my $l = $prevLine - 1 ; $l >= 0 ; -- $l) {
+          $code = $self->getLine($l) . $code;
+          my $prevCount = $lineCountData->value($l);
+          if (defined($prevCount)) {
+            # don't suppress if previous line not hit either
+            last
+              if $prevCount == 0;
+            # if first non-whitespace character is a colon -
+            #  then this looks like a C++ initialization list.
+            #  suppress.
+            if ( $code =~ /^\s*:(\s|[^:])/ ) {
+              $suppress = 1;
+            } else {
+              $code = lcovutil::filterStringsAndComments($code);
+              $code = lcovutil::simplifyCode($code);
+              # don't suppress if this looks like a conditional
+              $suppress = 1
+                unless ($code =~ /\b(if|switch|case|while|for)\b/);
+            }
+            last;
+          }
+        } # for each prior line (looking for statement before block)
+        last;
+      } # if (line was an open brace)
+    } # foreach prior line
+  } # if line was close brace
+  return $suppress;
 }
 
 package TraceFile;
@@ -2114,6 +2288,32 @@ sub file_exists {
   my ($self, $name) = @_;
 
   return exists($self->{$name});
+}
+
+sub skipCurrentFile {
+  my $filename = shift;
+
+  # check whehter this file should be excluded or not...
+  if (@lcovutil::exclude_file_patterns) {
+    foreach my $p (@lcovutil::exclude_file_patterns) {
+      my $pattern = $p->[0];
+      if ($filename =~ /$pattern/) {
+	++ $p->[2];
+	return 1; # all done - explicitly excluded
+      }
+    }
+  }
+  if (@lcovutil::include_file_patterns) {
+    foreach my $p (@lcovutil::include_file_patterns) {
+      my $pattern = $p->[0];
+      if ($filename =~ /$pattern/) {
+	++ $p->[2];
+	return 0; # exlicitly included
+      }
+    }
+    return 1; # not explicitly included - so exclude
+  }
+  return 0;
 }
 
 sub data {
@@ -2339,30 +2539,9 @@ sub _read_info {
       # Filename information found
       $filename = lcovutil::subst_file_name($1);
       # should this one be skipped?
-      $skipCurrentFile = 0;
-      if (@lcovutil::exclude_file_patterns) {
-        foreach my $p (@lcovutil::exclude_file_patterns) {
-          my $pattern = $p->[0];
-          if ($filename =~ /$pattern/) {
-            $skipCurrentFile = 1;
-            ++ $p->[2];
-            last;
-          }
-        }
-      }
-      if (! $skipCurrentFile && # didn't explicitly skip this one
-          @lcovutil::include_file_patterns) {
-        $skipCurrentFile = 1;
-        foreach my $p (@lcovutil::include_file_patterns) {
-          my $pattern = $p->[0];
-          if ($filename =~ /$pattern/) {
-            $skipCurrentFile = 0;
-            ++ $p->[2];
-            last;
-          }
-        }
-      }
-      if ($skipCurrentFile) {
+      $skipCurrentFile = skipCurrentFile($filename);
+      if ($skipCurrentFile &&
+	  ! exists($lcovutil::excluded_files{$filename})) {
         $lcovutil::excluded_files{$filename} = 1;
         lcovutil::info("Excluding $filename\n");
         next;
@@ -2473,9 +2652,10 @@ sub _read_info {
         }
         # hold line, count and testname for postprocessing?
         my $linesum = $fileData->sum();
-        my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE];
-        if (defined($histogram) &&
-            $readSourceCallback->notEmpty()) {
+        my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]
+          if $readSourceCallback->notEmpty();
+
+        if (defined($histogram)) {
           # does this line contain only a closing brace and
           #   - previous line is hit, OR
           #   - previous line is not an open-brace which has no associated
@@ -2485,59 +2665,14 @@ sub _read_info {
           #   - count is zero, and
           #   - either previous or next non-blank lines have an associated count
           #
-          if ($readSourceCallback->isCharacter($line, '}')) {
-
-            my $suppress = 0;
-            for (my $prevLine = $line - 1 ; $prevLine >= 0 ; -- $prevLine) {
-              my $prev = $linesum->value($prevLine);
-              if (defined($prev)) {
-                # previous line was executable
-                $suppress = 1
-                  if ($prev == $count ||
-                      ($count == 0 &&
-                       $prev > 0));
-                last;
-              } elsif ($count == 0 &&
-                       # previous line not executable - was it an open brace?
-                       $readSourceCallback->isCharacter($prevLine, '{')) {
-                # look 'up' from the open brace to find the first
-                #   line which has an associated count -
-                my $code = "";
-                for (my $l = $prevLine - 1 ; $l >= 0 ; -- $l) {
-                  $code = $readSourceCallback->getLine($l) . $code;
-                  my $prevCount = $linesum->value($l);
-                  if (defined($prevCount)) {
-                    # don't suppress if previous line not hit either
-                    last
-                      if $prevCount == 0;
-                    # if first non-whitespace character is a colon -
-                    #  then this looks like a C++ initialization list.
-                    #  suppress.
-                    if ( $code =~ /^\s*:(\s|[^:])/ ) {
-                      $suppress = 1;
-                    } else {
-                      $code = lcovutil::filterStringsAndComments($code);
-                      $code = lcovutil::simplifyCode($code);
-                      # don't suppress if this looks like a conditional
-                      $suppress = 1
-                        unless ($code =~ /\b(if|switch|case|while|for)\b/);
-                    }
-                    last;
-                  }
-                } # for each prior line (looking for statement before block)
-                last;
-              } # if (line was an open brace)
-            } # for each prior line (looking for open brace)
-            if ($suppress) {
-              main::verbose("skip DA '" . $readSourceCallback->getLine($line)
-                            . "' $filename:$line\n");
-              ++ $histogram->[0]; # one location where this applied
-              ++ $histogram->[1]; # one coverpoint suppressed
-              last;
-            }
-            # end if (line was close brace)
+          if ($readSourceCallback->suppressCloseBrace($line, $count, $linesum)) {
+            main::verbose("skip DA '" . $readSourceCallback->getLine($line)
+                          . "' $filename:$line\n");
+            ++ $histogram->[0]; # one location where this applied
+            ++ $histogram->[1]; # one coverpoint suppressed
+            last;
           } elsif ($count == 0 &&
-                   ReadCurrentSource::removeComments($readSourceCallback->getLine($line)) =~ /^\s*$/) {
+                   $readSourceCallback->isBlank($line)) {
             # line is empty
             main::verbose("skip DA (empty) $filename:$line\n");
             ++ $histogram->[0]; # one location where this applied
@@ -2854,9 +2989,23 @@ sub _read_info {
   }
 }
 
+#  write data to filename (stdout if '-')
+# returns array of (lines found, lines hit, functions found, functions hit,
+#                   branches found, branches_hit)
+sub write_info_file($$$)
+{
+  my ($self, $filename, $do_checksum) = @_;
+
+  my $file = OutputFile->new($filename);
+  my $hdl = $file->hdl();
+  return $self->write_info($hdl, $do_checksum);
+}
+
 #
 # write data in .info format
-#
+# returns array of (lines found, lines hit, functions found, functions hit,
+#                   branches found, branches_hit)
+
 sub write_info($$$) {
   my $self = $_[0];
   local *INFO_HANDLE = $_[1];
@@ -2994,27 +3143,23 @@ sub write_info($$$) {
       # Write line related data
       my $lineHistogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
         if (defined($srcReader) && $srcReader->notEmpty());
-      my $prevCount;
-      my $prevIsOpenBrace = 0;
+
       foreach my $line (sort({$a <=> $b} $testcount->keylist())) {
         my $l_hit = $testcount->value($line);
         if (defined($lineHistogram)) {
-          if ($srcReader->isCharacter($line, '}')) {
-            if ( (defined($prevCount) &&
-                  $prevCount == $l_hit) ||
-                 ($prevIsOpenBrace &&
-                  0 == $l_hit) ) {
-              lcovutil::verbose("skip DA '" . $srcReader->getLine($line)
-                                . "' $source_file:$line\n");
-              ++$lineHistogram->[0]; # one location where this applied
-              ++$lineHistogram->[1]; # one coverpoint suppressed
-              $prevIsOpenBrace = 0;
-              next;
-            }
+          if ($srcReader->suppressCloseBrace($line, $l_hit, $testcount)) {
+            lcovutil::verbose("skip DA '" . $srcReader->getLine($line)
+                              . "' $source_file:$line\n");
+            ++$lineHistogram->[0]; # one location where this applied
+            ++$lineHistogram->[1]; # one coverpoint suppressed
+            next;
+          } elsif ($l_hit == 0 &&
+                   $srcReader->isBlank($line)) {
+            main::verbose("skip DA (empty) $source_file:$line\n");
+            ++ $lineHistogram->[0]; # one location where this applied
+            ++ $lineHistogram->[1]; # one coverpoint suppressed
+            next;
           }
-          $prevCount = $l_hit;
-          $prevIsOpenBrace = $srcReader->isCharacter($line, '{')
-            if ! $srcReader->isBlank($line);
         }
         my $chk = $checkdata->{$line};
         print(INFO_HANDLE "DA:$line,$l_hit" .

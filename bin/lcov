@@ -72,6 +72,7 @@ use Getopt::Long;
 use Cwd qw /abs_path getcwd/;
 use FindBin;
 use JSON;
+use Data::Dumper;
 use Time::HiRes; # for profiling
 
 use lib "$FindBin::Bin/../lib";
@@ -91,6 +92,7 @@ use lcovutil qw ($tool_name $quiet
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
                  $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION
                  $ERROR_UNUSED
+                 $ERROR_PARALLEL report_parallel_error
                  is_external $opt_no_external @internal_dirs
                  system_no_output
                  rate get_overall_line
@@ -98,6 +100,8 @@ use lcovutil qw ($tool_name $quiet
                  %opt_rc apply_rc_params
                  strip_directories transform_pattern
                  $extractVersionScript
+
+                 $maxParallelism count_cores
   );
 
 
@@ -129,9 +133,7 @@ lcovutil::define_errors(\%lcovutil::geninfoErrs);
 $ERROR_MISMATCH   = scalar(keys(%lcovutil::geninfoErrs));
 $ERROR_BRANCH     = $ERROR_MISMATCH + 1;
 # errors unique to 'lcov':
-$ERROR_EMPTY      = $ERROR_BRANCH + 1;
 our %lcovErrs = (
-  "empty"    => $ERROR_EMPTY,
   "mismatch" => $ERROR_MISMATCH,
   "branch"   => $ERROR_BRANCH,
 );
@@ -239,6 +241,7 @@ Getopt::Long::Configure("default");
 
 my $rtlExtensions;
 my $cExtensions;
+
 lcovutil::apply_rc_params($opt_config_file,
 			  { "lcov_gcov_dir"	     => \$gcov_dir,
 			    "lcov_tmp_dir"	     => \$tmp_dir,
@@ -251,6 +254,8 @@ lcovutil::apply_rc_params($opt_config_file,
 			    'rtl_file_extensions'    => \$rtlExtensions,
 			    'c_file_extensions'      => \$cExtensions,
 			    'ignore_errors'          => \@opt_ignore_errors,
+			    "profile"            => \$lcovutil::profile,
+			    "parallel"           => \$lcovutil::maxParallelism,
 			  });
 
 set_rtl_extensions($rtlExtensions)
@@ -307,6 +312,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"fail-under-lines=s" => \$opt_fail_under_lines,
 		"profile"          => \$lcovutil::profile,
                 "version-script=s" => \$lcovutil::extractVersionScript,
+		"parallel|j=i"     => \$lcovutil::maxParallelism,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -363,6 +369,11 @@ if ($opt_list_width <= 40) {
 	die("ERROR: lcov_list_width parameter out of range (needs to be ".
 	    "larger than 40)\n");
 }
+
+if (0 == $lcovutil::maxParallelism) {
+  lcovutil::count_cores();
+}
+
 
 # Normalize --path text
 $diff_path =~ s/\/$//;
@@ -501,6 +512,7 @@ elsif (@opt_summary)
 }
 
 temp_cleanup();
+chdir($cwd);
 
 if (defined($ln_overall_found)) {
 	print_overall_rate(1, $ln_overall_found, $ln_overall_hit,
@@ -513,17 +525,10 @@ lcovutil::warn_file_patterns() # warn about unused include/exclude directives
   unless $capture;
 
 summarize_cov_filters();
-if ($lcovutil::profile) {
-  my $json = JSON::encode_json(\%lcovutil::profileData);
-  my $dest = $output_filename ? $output_filename : "lcov";
-  $dest .= ".json";
-  if (open(JSON, ">", "$dest")) {
-    print(JSON $json);
-    close(JSON);
-  } else {
-    print("Error:  unable to open profile output $dest: '$!'\n")
-  }
-}
+
+# if we executed 'geninfo' - then we saved the profile data from that process
+lcovutil::save_profile($output_filename ? $output_filename : "lcov", 'lcov')
+  unless $capture;
 
 exit($exit_code);
 
@@ -594,6 +599,9 @@ Options:
                                   coverage is less than MIN (summary option).
       --version-script SCRIPTNAME Call script to find revison control version
                                   ID of source file
+  -j, --parallel INTEGER          Use at most INTEGER number of parallel
+                                  slaves during processing.
+      --profile                   Collect some performance statistics.
 
 For more information see: $lcov_url and\/or the lcov man page.
 END_OF_USAGE
@@ -646,19 +654,28 @@ sub check_options()
 
 sub userspace_reset()
 {
-	my $current_dir;
 	my @file_list;
 
-	foreach $current_dir (@directory)
+	foreach my $pattern (@directory)
 	{
-		info("Deleting all .da files in $current_dir".
-		     ($no_recursion?"\n":" and subdirectories\n"));
-		@file_list = `find "$current_dir" $maxdepth $follow -name \\*\\.da -type f -o -name \\*\\.gcda -type f 2>/dev/null`;
-		chomp(@file_list);
-		foreach (@file_list)
-		{
-			unlink($_) or die("ERROR: cannot remove file $_!\n");
-		}
+	  my @dirs = glob($pattern);
+	  my $count = 0;
+	  foreach my $current_dir (@dirs) {
+	    if (! -d $current_dir) {
+	      warn("$current_dir is not a directory - skpping\n");
+	      next;
+	    }
+	    ++ $count;
+	    info("Deleting all .da files in $current_dir".
+		 ($no_recursion?"\n":" and subdirectories\n"));
+	    @file_list = `find "$current_dir" $maxdepth $follow -name \\*\\.da -type f -o -name \\*\\.gcda -type f 2>/dev/null`;
+	    chomp(@file_list);
+	    foreach (@file_list) {
+	      unlink($_) or die("ERROR: cannot remove file $_!\n");
+	    }
+	  }
+	  ignorable_error($ERROR_EMPTY, "$pattern does not match any directory entries\n")
+	    if 0 == $count;
 	}
 }
 
@@ -957,6 +974,12 @@ sub lcov_geninfo(@)
 	}
 	foreach (@lcovutil::file_subst_patterns) {
 	  @param = (@param, "--substitute", $_);
+	}
+	if ($lcovutil::profile) {
+	  push(@param, '--profile');
+	}
+	if (defined($lcovutil::maxParallelism)) {
+	  push(@param, '--parallel', $lcovutil::maxParallelism);
 	}
 	info("geninfo cmd: '" . join(' ', @param) . "'\n");
 	system(@param) and exit($? >> 8);
@@ -1564,39 +1587,20 @@ sub create_temp_dir()
 
 # emit()
 #  write output to file or stdout - possibly with info message
-#
+#  returns array of (lines found, lines hit, functions found, functions hit,
+#                    branches found, branches_hit)
 sub emit
 {
   my ($trace, $info_msg) = @_;
   my @result;
+  my $to = $data_stdout ? '-' : $output_filename;
   if (!$data_stdout)
   {
     info($info_msg)
       if $info_msg;
     info("Writing data to $output_filename\n");
-    # Check for .gz extension
-    if ($output_filename =~ /\.gz$/)
-    {
-      # Check for availability of GZIP tool
-      system_no_output(1, "gzip" ,"-h")
-	and die("ERROR: gzip command not available!\n");
-
-      # Open compressed file
-      open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
-	or die("ERROR: cannot start gzip to compress ".
-	       "to file $output_filename!\n");
-    } else {
-      open(INFO_HANDLE, ">", $output_filename)
-	or die("ERROR: cannot write to $output_filename!\n");
-    }
-    @result = $trace->write_info(*INFO_HANDLE, $checksum);
-    close(*INFO_HANDLE);
   }
-  else
-  {
-    @result = $trace->write_info(*STDOUT, $checksum);
-  }
-  return @result;
+  return $trace->write_info_file($to, $checksum);
 }
 
 #
@@ -1604,27 +1608,170 @@ sub emit
 # add_traces()
 #
 
+sub _process_segment($$$) {
+  my ($total_trace, $readSourceFile, $segment) = @_;
+
+  foreach my $tracefile (@$segment) {
+    my $now = Time::HiRes::gettimeofday();
+    my $current = TraceFile->load($tracefile, $readSourceFile);
+    my $then = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{parse}{$tracefile} = $then - $now;
+    $total_trace->append_tracefile($current);
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{append}{$tracefile} = $end - $then;
+  }
+}
+
 sub add_traces()
 {
-	my $total_trace = TraceFile->new();
+  my $begin = Time::HiRes::gettimeofday();
+  info("Combining tracefiles.\n");
+  $lcovutil::profileData{parse} = {};
+  $lcovutil::profileData{append} = {};
+  my @merge;
+  foreach my $tracefile (@add_tracefile) {
+    # this is a glob match...
+    my @files = glob($tracefile);
+    die "no files matching $tracefile"
+      unless scalar(@files);
+    foreach my $f (@files) {
+      push(@merge, $f);
+    }
+  }
+  # source-based filters are somewhat expensive - so we turn them
+  #   off for file read and only re-enable when we write the data back out
+  my $save_filters = lcovutil::disable_cov_filters();
 
-	info("Combining tracefiles.\n");
-	my $readSourceFile = ReadCurrentSource->new();
-	$lcovutil::profileData{parse} = {};
-	$lcovutil::profileData{append} = {};
-	foreach my $tracefile (@add_tracefile)
-	{
-	  my $now = Time::HiRes::gettimeofday();
-	  my $current = TraceFile->load($tracefile, $readSourceFile);
-	  my $then = Time::HiRes::gettimeofday();
-	  $lcovutil::profileData{parse}{$tracefile} = $then - $now;
-	  $total_trace->append_tracefile($current);
-	  my $end = Time::HiRes::gettimeofday();
-	  $lcovutil::profileData{append}{$tracefile} = $end - $then;
+  my $total_trace = TraceFile->new();
+  my $readSourceFile = ReadCurrentSource->new();
+  if (1 != $lcovutil::maxParallelism ) {
+    # parallel implementation is to segment the file list into N
+    #  segments, then parse-and-merge scalar(@merge)/N files in each slave,
+    #  then merge the slave result.
+    # The reasoning is that one of our examples appears to take 1.3s to
+    #   load the trace file, and 0.8s to merge it into the master list.
+    # We thus want to parallelize both the load and the merge, as much as
+    #   possible
+    my @segments;
+    my $idx = 0;
+    foreach my $tracefile (@merge) {
+      push(@segments, [])
+	if ($idx >= scalar(@segments));
+      push(@{$segments[$idx]}, $tracefile);
+      $idx = ($idx + 1) % $lcovutil::maxParallelism;
+    }
+    $lcovutil::profileData{config} = {}
+      unless exists($lcovutil::profileData{config});
+    $lcovutil::profileData{config}{segments} = scalar(@segments);
+
+    $idx = 0;
+    my %children;
+    foreach my $segment (@segments) {
+      my $now = Time::HiRes::gettimeofday();
+      my $pid = fork();
+      if (0 == $pid) {
+	# I'm the child
+	my $stdout_file = "lcov_$$.log";
+	my $stderr_file = "lcov_$$.err";
+	local(*STDERR);
+	local(*STDOUT);
+	open(STDOUT1, '>' . $stdout_file)
+	  or die($stdout_file . ': ' . $!);
+	open(STDERR1, '>' . $stderr_file)
+	  or die($stderr_file . ': ' . $!);
+	open(STDOUT, ">&STDOUT1")
+	  or die("cound not redirect stdout: $!");
+	open(STDERR, ">&STDERR1")
+	  or die("cound not redirect stderr: $!");
+
+	_process_segment($total_trace, $readSourceFile, $segment);
+	my $then = Time::HiRes::gettimeofday();
+	$lcovutil::profileData{$idx}{total} = $then - $now;
+	my $file = "dumper_$$";
+	if (open(DUMPER, ">", $file)) {
+	  print DUMPER Data::Dumper->Dump([$total_trace, \%lcovutil::profileData],
+					  [qw(current profile)]);
+	} else {
+	  die "unable to open $file: $!";
 	}
+	close(STDOUT1);
+	close(STDERR1);
+	exit(0);
+      } else {
+	$children{$pid} = [$now, $idx];
+      }
+      $idx ++;
+    }
+    # now wait for all the children to finish...
+    foreach (@segments) {
+      my $child = wait();
+      my $childstatus = $? >> 8;
+      my ($start, $idx) = @{$children{$child}};
+      my $dumpfile = "dumper_$child";
+      if (0 != $childstatus) {
+	report_parallel_error('lcov', "child $child returned non-zero code $childstatus");
+      } else {
+        # undump the data
+	my $now = Time::HiRes::gettimeofday();
+	my $childLog = "lcov_$child.log";
+	my $childErr = "lcov_$child.err";
+	foreach my $f ($childLog, $childErr) {
+	  if (open(RESTORE, "<", $f)) {
+	    # slurp into a string and eval..
+	    my $str = do { local $/; <RESTORE> }; # slurp whole thing
+	    close(RESTORE);
+	    unlink $f;
+	    $f = $str;
+	  } else {
+	    report_parallel_error('lcov', "unable to open $f: $!");
+	  }
+	}
+	print(STDOUT $childLog);
+	print(STDERR $childErr);
 
-	# Write combined data
-	return emit($total_trace);
+	if (open(RESTORE, "<", $dumpfile)) {
+	  # slurp into a string and eval..
+	  my $str = do { local $/; <RESTORE> }; # slurp whole thing
+	  close(RESTORE);
+	  my ($current, $profile);
+	  eval $str;
+	  my $then = Time::HiRes::gettimeofday();
+	  $lcovutil::profileData{undump}{$idx} = $then - $now;
+
+	  $total_trace->append_tracefile($current);
+	  foreach my $k ('parse', 'append') {
+	    $lcovutil::profileData{$idx}{$k} = {};
+	    while (my ($key, $val) = each(%{$profile->{$k}})) {
+	      # could keep track of the segment this ran in - so
+	      #   we see the execution time of each file in the segment
+	      #   as well as the segment overall time
+	      $lcovutil::profileData{$idx}{$k}{$key} = $val;
+	    }
+	  }
+	} else {
+	  report_parallel_error('lcov', "unable to open segment $idx $dumpfile: $!");
+	}
+      }
+      my $end = Time::HiRes::gettimeofday();
+      $lcovutil::profileData{$idx}{merge} = $end - $start;
+      unlink $dumpfile
+	if -f $dumpfile;
+    }
+  } else {
+    # sequential
+    _process_segment($total_trace, $readSourceFile, \@merge);
+  }
+  #...and turn any enabled filters back on...
+  lcovutil::reenable_cov_filters($save_filters);
+  # write the result
+  my @result = emit($total_trace);
+  # Write combined data
+  my $end = Time::HiRes::gettimeofday();
+  $lcovutil::profileData{total} = $end - $begin;
+
+  # write the result
+  my @result = emit($total_trace);
+  return @result;
 }
 
 
@@ -2518,8 +2665,6 @@ sub diff()
 	my %path_conversion_data;
 	my $converted = 0;
 	my $unchanged = 0;
-	my @result;
-	local *INFO_HANDLE;
 
 	my ($diff_data, $path_data) = read_diff($ARGV[0]);
 
@@ -2649,31 +2794,9 @@ sub diff()
 	     "unchanged.\n");
 
 	# Write data
-	if (!$data_stdout)
-	{
-		info("Writing data to $output_filename\n");
-		if ($output_filename =~ /\.gz$/)
-		{
-			# Check for availability of GZIP tool
-			system_no_output(1, "gzip" ,"-h")
-				and die("ERROR: gzip command not available!\n");
-
-			# Open compressed file
-			open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
-				or die("ERROR: cannot start gzip to compress ".
-				       "to file $output_filename!\n");
-		} else {
-			open(INFO_HANDLE, ">", $output_filename)
-				or die("ERROR: cannot write to $output_filename!\n");
-		}
-		@result = $trace_data->write_info(*INFO_HANDLE);
-		close(*INFO_HANDLE);
-	}
-	else
-	{
-		@result = $trace_data->write_info(*STDOUT);
-	}
-
+	my $file = OutputFile->new($output_filename);
+	my $hdl = $file->hdl();
+	my @result = $trace_data->write_info($hdl);
 	return @result;
 }
 
