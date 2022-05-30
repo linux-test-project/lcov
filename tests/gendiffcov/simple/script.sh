@@ -60,12 +60,12 @@ else
     GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
 fi
 
-LCOV_OPTS="--rc lcov_branch_coverage=1 --version-script $GET_VERSION"
+LCOV_OPTS="--rc lcov_branch_coverage=1 --version-script $GET_VERSION --parallel 0 --profile"
 DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
-rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err
+rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper*
 rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched
 
 if [ "x$COVER" != 'x' ] ; then

@@ -65,6 +65,8 @@ use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 use JSON qw(decode_json);
+use Time::HiRes; # for profiling
+use Data::Dumper;
 use FindBin;
 
 use lib "$FindBin::Bin/../lib";
@@ -83,9 +85,10 @@ use lcovutil qw (define_errors parse_ignore_errors
                  $extractVersionScript
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE
-                 $ERROR_GRAPH
+                 $ERROR_GRAPH $ERROR_PARALLEL report_parallel_error
                  is_external $opt_no_external @internal_dirs
                  %opt_rc apply_rc_params
+                 $maxParallelism count_cores
                 );
 
 if( $^O eq "msys" )
@@ -173,6 +176,8 @@ our $BR_VEC_WIDTH	= 32;
 our $BR_VEC_MAX		= vec(pack('b*', 1 x $BR_VEC_WIDTH), 0, $BR_VEC_WIDTH);
 
 our $UNNAMED_BLOCK	= -1;
+
+our $trace_data;
 
 # Prototypes
 sub print_usage(*);
@@ -314,6 +319,8 @@ if (lcovutil::apply_rc_params($opt_config_file,
 			       "lcov_excl_br_line"	=> \$excl_br_line,
 			       "lcov_excl_exception_br_line" => \$excl_exception_br_line,
 			       'ignore_errors'         => \@ignore_errors,
+			       "profile"         => \$lcovutil::profile,
+			       "parallel"        => \$lcovutil::maxParallelism,
 			      })) {
   # we set some RC values...
   # Merge options
@@ -379,6 +386,8 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"config-file=s" => \$opt_config_file,
 		"rc=s%" => \%opt_rc,
                 "version-script=s" => \$lcovutil::extractVersionScript,
+                "profile"          => \$lcovutil::profile,
+                "parallel|j=i"     => \$lcovutil::maxParallelism,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -402,7 +411,12 @@ if (defined($opt_external)) {
   $opt_external = undef;
 }
 
+my $start = Time::HiRes::gettimeofday();
 lcovutil::munge_file_patterns();
+
+if (0 == $lcovutil::maxParallelism) {
+  lcovutil::count_cores();
+}
 
 @data_directory = @ARGV;
 
@@ -546,14 +560,25 @@ if (!@data_directory)
 }
 else
 {
-	foreach (@data_directory)
-	{
-		stat($_);
-		if (!-r _)
-		{
-		  ignorable_error($ERROR_GCOV, "cannot read $_!\n");
-		}
-	}
+  my @dirs;
+  foreach my $pattern (@data_directory) {
+    my @glob = glob($pattern);
+    my $count = 0;
+    foreach (@glob) {
+
+      stat($_);
+      if (!-r _) {
+	ignorable_error($ERROR_GCOV, "cannot read $_!\n");
+      } else {
+	push(@dirs, $_);
+	$count ++;
+      }
+    }
+    if (0 == $count) {
+      ignorable_error($ERROR_GCOV, "$pattern does not match anything.\n");
+    }
+  }
+  @data_directory = @dirs;
 }
 
 if ($gcov_version < $GCOV_VERSION_3_4_0)
@@ -599,19 +624,41 @@ foreach my $entry(@data_directory, $base_directory) {
 	push(@lcovutil::internal_dirs, solve_relative_path($cwd, $entry));
 }
 
+# somewhat expensive to do source-based filtering - so don't do it during
+#  'read' operation as we may process the same file repeatedly
+# instead: set up to do it only on write
+my $save_filters = lcovutil::disable_cov_filters();
+
 # Do something
 foreach my $entry (@data_directory) {
+        my $now = Time::HiRes::gettimeofday();
 	gen_info($entry);
+        my $then = Time::HiRes::gettimeofday();
+	$lcovutil::profileData{gen_info}{$entry} = $then - $now;
 }
 
 if ($initial && $br_coverage && !$intermediate) {
 	warn("Note: --initial does not generate branch coverage data\n");
+}
+
+if (defined($trace_data)) {
+  lcovutil::reenable_cov_filters($save_filters);
+
+  my $now = Time::HiRes::gettimeofday();
+  $trace_data->write_info_file($output_filename, $checksum);
+  my $then = Time::HiRes::gettimeofday();
+  $lcovutil::profileData{emit} = $then - $now;
 }
 info("Finished .info-file creation\n");
 summarize_cov_filters();
 
 # print warnings
 lcovutil::warn_file_patterns();
+
+my $now = Time::HiRes::gettimeofday();
+$lcovutil::profileData{total} = $now - $start;
+
+lcovutil::save_profile('-' eq $output_filename ? "geninfo" : "$output_filename");
 
 exit(0);
 
@@ -735,15 +782,81 @@ sub get_common_prefix($@)
 # Die on error.
 #
 
+sub _process_one_file($$$) {
+  my ($file, $prefix,$pid) = @_;
+
+  info("Processing %s%s\n", abs2rel($file, $prefix),
+       defined($pid) ? " in child $pid" : "");
+
+  # Process file
+  if ($intermediate) {
+    my $tempdir = tempdir(CLEANUP => 1);
+    process_intermediate($file, $prefix, $tempdir);
+    unlink($tempdir);
+  } elsif ($initial) {
+    process_graphfile($file, $prefix);
+  } else {
+    process_dafile($file, $prefix);
+  }
+}
+
+sub _merge_one_child($$$$$) {
+  my ($child, $children, $type, $tempFileExt, $childstatus) = @_;
+
+  debug("_merge_one_child: $child $type (parent $$) status $childstatus\n");
+  my ($filename, $from) = @{$children->{$child}};
+  my $dumped = "dumper_$child";
+  my $childInfoFile = "$cwd/geninfo_$child.info$tempFileExt";
+  if ( 0 == $childstatus ) {
+    if (open(RESTORE, "<", $dumped)) {
+      # slurp into a string and eval..
+      my $str = do { local $/; <RESTORE> }; # slurp whole thing
+      close(RESTORE);
+      unlink $dumped;
+      my $excluded;
+      eval $str;
+      foreach my $ex (@$excluded) {
+	if (! exists($lcovutil::excluded_files{$ex})) {
+	  # call routine so pattern use count is incremented
+	  TraceFile::skipCurrentFile($ex);
+	  $lcovutil::excluded_files{$ex} = 1;
+	}
+      }
+    } else {
+      report_parallel_error('geninfo', "unable to open $dumped: $!");
+    }
+    # would have been better if the child had dumped a datastructure
+    #  rather than wriing a file...be we will just parse it back now...
+
+    my $now = Time::HiRes::gettimeofday();
+    my $current = TraceFile->load($childInfoFile);
+    my $then = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{parse}{$filename} = $then - $now;
+    if (defined($trace_data)) {
+      $trace_data->append_tracefile($current);
+      my $final = Time::HiRes::gettimeofday();
+      $lcovutil::profileData{append}{$filename} = $final - $then;
+    } else {
+      $trace_data = $current;
+    }
+  } else {
+    report_parallel_error('geninfo', "child $child returned non-zero code $childstatus: ignoring data in $filename");
+  }
+  foreach my $f ($childInfoFile, $dumped) {
+    unlink $f
+      if -f $f;
+  }
+  my $to = Time::HiRes::gettimeofday();
+  $lcovutil::profileData{$type}{$filename} = $to - $from;
+}
+
 sub gen_info($)
 {
 	my $directory = $_[0];
 	my @file_list;
-	my $file;
 	my $prefix;
 	my $type;
 	my $ext;
-	my $tempdir;
 
 	if ($initial) {
 		$type = "graph";
@@ -757,8 +870,11 @@ sub gen_info($)
 	{
 		info("Scanning $directory for $ext files ...\n");
 
+		my $now = Time::HiRes::gettimeofday();
 		@file_list = `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>/dev/null`;
 		chomp(@file_list);
+		my $then = Time::HiRes::gettimeofday();
+		$lcovutil::profileData{find}{$directory} = $then - $now;
 		if (!@file_list) {
 			warn("WARNING: no $ext files found in $directory - ".
 			     "skipping!\n");
@@ -774,21 +890,66 @@ sub gen_info($)
 		$prefix = "";
 	}
 
-	$tempdir = tempdir(CLEANUP => 1);
-
 	# Process all files in list
-	foreach $file (@file_list) {
-		# Process file
-		if ($intermediate) {
-			process_intermediate($file, $prefix, $tempdir);
-		} elsif ($initial) {
-			process_graphfile($file, $prefix);
-		} else {
-			process_dafile($file, $prefix);
-		}
-	}
+	my $currentParallel = 0;
+	my %children;
+	my $tempFileExt = '';
+	$tempFileExt = ".gz"
+	  if $output_filename =~ /\.gz$/;
+	foreach my $file (@file_list) {
 
-	unlink($tempdir);
+	  if (1 < $lcovutil::maxParallelism &&
+	      scalar(@file_list) > 1) {
+	    if ($currentParallel >= $lcovutil::maxParallelism) {
+	      my $child = wait();
+	      my $childstatus = $?;
+	      _merge_one_child($child, \%children, $type, $tempFileExt,
+			       $childstatus);
+	      -- $currentParallel;
+	    }
+
+	    my $now = Time::HiRes::gettimeofday();
+	    my $pid = fork();
+	    if (0 == $pid) {
+	      # I'm the child...
+	      #   set my output file to temp location so my dump won't
+	      #   collide with another child - then merge at the end...
+	      # would be better if the various gcov data readers would
+	      #   build a datastructure that we could dump - rather than
+	      #   printing a .info file that we have to parse....but so
+	      #   be it.
+	      $output_filename = "$cwd/geninfo_$$.info" . $tempFileExt;
+	      $trace_data = undef;
+	      _process_one_file($file, $prefix, $$);
+	      my $file = "dumper_$$";
+	      # dump parsed data - then read back and merge
+	      if (open(DUMPER, ">", $file)) {
+		my @excluded = keys %lcovutil::excluded_files;
+		print DUMPER Data::Dumper->Dump([\@excluded], [qw(excluded)]);
+	      } else {
+		die "geninfo child $$ unable to open $file: $!";
+	      }
+	      exit(0);
+	    } else {
+	      # I'm the parent
+	      $children{$pid} = [$file, $now];
+	      ++ $currentParallel;
+	    }
+	  } else {
+	    # not parallel..
+	    my $now = Time::HiRes::gettimeofday();
+	    _process_one_file($file, $prefix, undef);
+	    my $then = Time::HiRes::gettimeofday();
+	    $lcovutil::profileData{$type}{$file} = $then - $now;
+	  }
+	} # end foreach
+
+	while ($currentParallel != 0) {
+	  my $child = wait();
+	  my $childstatus = $?;
+	  -- $currentParallel;
+	  _merge_one_child($child, \%children, $type, $tempFileExt, $childstatus);
+	}
 
 	# Report whether files were excluded.
 	if (%lcovutil::excluded_files) {
@@ -958,7 +1119,6 @@ sub process_dafile($$)
 	my $da_renamed;		# If data file is to be renamed
 	local *INFO_HANDLE;
 
-	info("Processing %s\n", abs2rel($file, $dir));
 	# Get path to data file in absolute and normalized form (begins with /,
 	# contains no more ../ or ./)
 	$da_filename = solve_relative_path($cwd, $file);
@@ -1236,36 +1396,10 @@ sub process_dafile($$)
 						\@matches, \@gcov_content);
 		}
 
-		if (@lcovutil::include_file_patterns)
-		{
-		  my $keep = 0;
-
-		  foreach my $p (@lcovutil::include_file_patterns) {
-		    my $pattern = $p->[0];
-		    if ($source_filename =~ /^$pattern$/) {
-		      $keep = 1;
-		      ++ $p->[2];
-		      last;
-		    }
-		  }
-		  if (!$keep) {
-		    $lcovutil::excluded_files{$source_filename} = ();
-		    unlink($gcov_file);
-		    next GCOV_FILE_LOOP;
-		  }
-		}
-
-		if (@lcovutil::exclude_file_patterns)
-		{
-		  foreach my $p (@lcovutil::exclude_file_patterns) {
-		    my $pattern = $p->[0];
-		    if ($source_filename =~ /^$pattern$/) {
-		      ++ $p->[2];
-		      $excluded_files{$source_filename} = ();
-		      unlink($gcov_file);
-		      next GCOV_FILE_LOOP;
-		    }
-		  }
+		if (TraceFile::skipCurrentFile($source_filename)) {
+		  $lcovutil::excluded_files{$source_filename} = ();
+		  unlink($gcov_file);
+		  next GCOV_FILE_LOOP;
 		}
 
 		# Skip external files if requested
@@ -2527,8 +2661,6 @@ sub process_intermediate($$$)
 	my $json_basedir;
 	my $json_format;
 
-	info("Processing %s\n", abs2rel($file, $dir));
-
 	$file = solve_relative_path($cwd, $file);
 	($fdir, $fbase, $fext) = split_filename($file);
 
@@ -2983,8 +3115,6 @@ sub process_graphfile($$)
 	my $filename;
 	local *INFO_HANDLE;
 
-	info("Processing %s\n", abs2rel($file, $dir));
-
 	# Get path to data file in absolute and normalized form (begins with /,
 	# contains no more ../ or ./)
 	$graph_filename = solve_relative_path($cwd, $graph_filename);
@@ -3428,41 +3558,17 @@ sub adjust_source_filenames($$$)
 
 sub filter_source_files($)
 {
-	my ($hash) = @_;
+  my ($hash) = @_;
 
-	foreach my $filename (keys(%{$hash})) {
-		# Skip external files if requested
-		goto del if (is_external($filename));
-
-		# Apply include patterns
-		if (@lcovutil::include_patterns) {
-		  my $keep;
-		  foreach my $p (@lcovutil::include_patterns) {
-		    my $pattern = $p->[0];
-		    if ($filename =~ /^$pattern$/) {
-		      ++ $p->[2];
-		      $keep = 1;
-		      last;
-		    }
-		  }
-		  goto del if (!$keep);
-		}
-
-		# Apply exclude patterns
-		foreach my $p (@lcovutil::exclude_file_patterns) {
-		  my $pattern = $p->[0];
-		  if ($filename =~ /^$pattern$/) {
-		    ++ $p->[2];
-		    goto del;
-		  }
-		}
-		next;
-
-del:
-		# Remove file data
-		delete($hash->{$filename});
-		$lcovutil::excluded_files{$filename} = 1;
-	}
+  foreach my $filename (keys(%{$hash})) {
+    # Skip external files if requested
+    if ( is_external($filename) ||
+	 TraceFile::skipCurrentFile($filename) ) {
+      # Remove file data
+      delete($hash->{$filename});
+      $lcovutil::excluded_files{$filename} = 1;
+    }
+  }
 }
 
 #

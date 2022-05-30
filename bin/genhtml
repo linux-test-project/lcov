@@ -100,6 +100,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  ignorable_error
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED
+                 $ERROR_PARALLEL report_parallel_error
                  info verbose $verbose $cpp_demangle
                  %opt_rc apply_rc_params
                  strip_directories
@@ -203,6 +204,7 @@ $ERROR_UNUSED = 8;
 $ERROR_FORMAT = 9;
 $ERROR_EMPTY = 10;
 our $ERROR_ANNOTATE_SCRIPT = 11;
+$ERROR_PARALLEL = 12;
 
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
@@ -217,6 +219,7 @@ our %htmlErrs = (
         "annotate" => $ERROR_ANNOTATE_SCRIPT,
         "version" => $ERROR_VERSION,
         "unused" => $ERROR_UNUSED,
+        "parallel" => $ERROR_PARALLEL,
 );
 lcovutil::define_errors(\%htmlErrs);
 
@@ -3647,12 +3650,16 @@ sub _computeAge {
 sub _load {
   my ($self, $countdata, $currentVersion) = @_;
 
+  my $start = Time::HiRes::gettimeofday();
   my $lineno = 0;
   local *HANDLE;                # File handle for reading the diff file
 
   # Check if file exists and is readable
   if (!(-r $self->path())) {
-    return $self->_synthesize($countdata);
+    $self->_synthesize($countdata);
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{synth}{$self->path()} = $end - $start;
+    return $self;
   }
 
   # check for version mismatch...
@@ -3660,11 +3667,16 @@ sub _load {
     my $version = lcovutil::extractFileVersion($self->path());
 
     lcovutil::checkVersionMatch($self->path(), $version, $currentVersion);
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{check_version}{$self->path()} = $end - $start;
   }
 
   #stat($annotateScript);
   if (!defined($annotateScript)) {
-    return $self->_bare_load();
+    $self->_bare_load();
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{load}{$self->path()} = $end - $start;
+    return $self;
   }
 
   my $repo_path = Cwd::realpath($self->path());
@@ -3714,6 +3726,8 @@ sub _load {
   else {
     print("Error: 'open(-| $cmd)' failed: \"$!\"\n");
   }
+  my $end = Time::HiRes::gettimeofday();
+  $lcovutil::profileData{annotate}{$self->path()} = $end - $start;
   return $self;
 }
 
@@ -3941,8 +3955,6 @@ our $lcov_branch_coverage = 0;
 our $rc_desc_html = 0;  # lcovrc: genhtml_desc_html
 
 our $cwd = cwd();       # Current working directory
-our $maxParallelism = 1;
-
 
 #
 # Code entry point
@@ -4003,8 +4015,10 @@ lcovutil::apply_rc_params($opt_config_file,
                 "lcov_function_coverage"        => \$lcov_func_coverage,
                 "lcov_branch_coverage"          => \$lcov_branch_coverage,
                 "ignore_errors"                 => \@opt_ignore_errors,
-                "rtl_file_extensions"           => $rtlExtensions,
-                "c_file_extensions"           => $cExtensions,
+                "rtl_file_extensions"           => \$rtlExtensions,
+                "c_file_extensions"             => \$cExtensions,
+                "profile"                       => \$lcovutil::profile,
+                "parallel"                      => \$lcovutil::maxParallelism,
               });
 
 # Copy related values if not specified
@@ -4081,7 +4095,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "exclude=s"             => \@lcovutil::exclude_file_patterns,
                 "include=s"             => \@lcovutil::include_file_patterns,
                 "substitute=s"          => \@lcovutil::file_subst_patterns,
-                "parallel|j=i"          => \$maxParallelism,
+                "parallel|j=i"          => \$lcovutil::maxParallelism,
                 ))
 {
   print(STDERR "Use $tool_name --help to get usage information\n");
@@ -4125,14 +4139,8 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
     }
   }
 
-  if (0 == $maxParallelism) {
-    # how many cores?
-    $maxParallelism = 1;
-    #linux solution...
-    if (open my $handle, '/proc/cpuinfo') {
-      $maxParallelism = scalar(map /^processor/, <$handle>);
-      close($handle);
-    }
+  if (0 == $lcovutil::maxParallelism) {
+    lcovutil::count_cores();
   }
   if (defined($header_title)) {
     $title = $header_title;
@@ -4374,16 +4382,7 @@ if (defined($SummaryInfo::coverageCriteriaScript)) {
 
 lcovutil::warn_file_patterns(); # warn about unused include/exclude directives
 
-if ($lcovutil::profile) {
-  my $json = JSON::encode_json(\%lcovutil::profileData);
-  my $dest = "$output_directory/genhtml.json";
-  if (open(JSON, ">", $dest)) {
-    print(JSON $json);
-    close(JSON);
-  } else {
-    print("Error:  unable to open profile output '$dest': '$!'\n")
-  }
-}
+lcovutil::save_profile("$output_directory/genhtml");
 
 exit($exit_status);
 
@@ -4458,6 +4457,7 @@ Operation:
                                     Perl regexps (applied in order)
   -j, --parallel INTEGER            Use at most INTEGER number of parallel
                                     slaves during processing.
+      --profile                     Collect some performance statistics.
 
 HTML output:
   -f, --frames                      Use HTML frames for source code view
@@ -4812,6 +4812,40 @@ sub write_dir_page
 # process_dir(dir_name)
 #
 
+sub _merge_child_file($$$$$$$$) {
+  my ($childPid, $childstatus, $filename, $start, $dir_summary,
+      $testhash, $testfnchash, $testbrhash) = @_;
+
+  my $dumpfile = "dumper_$childPid";
+
+  if ( 0 != $childstatus) {
+    lcovutil::report_parallel_error('genhtml',"child $childPid returned non-zero code $childstatus");
+  } else {
+    # now undump the data ...
+    if (open(RESTORE, "<", $dumpfile)) {
+      # slurp into a string and eval..
+      my $str = do { local $/; <RESTORE> }; # slurp whole thing
+      close(RESTORE);
+      my ($testdata, $testfncdata, $testbrdata, $file_summary);
+      eval $str;
+      my $base_name = basename($filename);
+      $testhash->{$base_name} = $testdata;
+      $testfnchash->{$base_name} = $testfncdata;
+      $testbrhash->{$base_name} = $testbrdata;
+      $dir_summary->append($file_summary);
+      $file_summary->checkCoverageCriteria();
+    } else {
+      lcovutil::report_parallel_error('genhtml', "unable to open $dumpfile: $!");
+    }
+  }
+  my $end = Time::HiRes::gettimeofday();
+      $lcovutil::profileData{file}{$filename} = $end - $start;
+
+  unlink $dumpfile
+    if -f $dumpfile;
+
+}
+
 sub process_dir($$$)
 {
   my ($abs_dir, $rel_dir, $dir_summary) = @_;
@@ -4843,33 +4877,15 @@ sub process_dir($$$)
   my %children;
   foreach my $filename (grep(/^\Q$abs_dir\E\/[^\/]+$/,$current_data->files()))
   {
-    if (1 < $main::maxParallelism) {
-      if ($currentParallel >= $main::maxParallelism) {
+    if (1 < $lcovutil::maxParallelism) {
+      if ($currentParallel >= $lcovutil::maxParallelism) {
         my $child = wait();
-        # now undump the data ...
+	my $childstatus = $?;
         -- $currentParallel;
-        my $file = "dumper_$child";
-        if (open(RESTORE, "<", $file)) {
-          # slurp into a string and eval..
-          my $str = do { local $/; <RESTORE> }; # slurp whole thing
-          close(RESTORE);
-          unlink $file;
-          my ($start, $testdata, $testfncdata, $testbrdata,
-              $file_summary);
-          eval $str;
-          my $filename = $children{$child};
-          my $base_name = basename($filename);
-
-          $testhash{$base_name} = $testdata;
-          $testfnchash{$base_name} = $testfncdata;
-          $testbrhash{$base_name} = $testbrdata;
-          $dir_summary->append($file_summary);
-          $file_summary->checkCoverageCriteria();
-          my $end = Time::HiRes::gettimeofday();
-          $lcovutil::profileData{file}{$filename} = $end - $start;
-        } else {
-          die "unable to open $file: $!";
-        }
+	_merge_child_file($child, $childstatus,
+			  $children{$child}->[0], $children{$child}->[1],
+			  $dir_summary,
+			  \%testhash, \%testfnchash, \%testbrhash);
       }
 
       my $now = Time::HiRes::gettimeofday();
@@ -4881,16 +4897,16 @@ sub process_dir($$$)
 
         my $file = "dumper_$$";
         if (open(DUMPER, ">", $file)) {
-          print DUMPER Data::Dumper->Dump([$now, $testdata, $testfncdata,
+          print DUMPER Data::Dumper->Dump([$testdata, $testfncdata,
                                            $testbrdata, $file_summary],
-                                          [qw(start testdata testfncdata testbrdata file_summary)]);
+                                          [qw(testdata testfncdata testbrdata file_summary)]);
         } else {
           die "unable to open $file: $!";
         }
         exit(0);
       }
       else {
-        $children{$pid} = $filename;
+        $children{$pid} = [$filename, $now];
         ++ $currentParallel;
       }
     } else {
@@ -4912,29 +4928,12 @@ sub process_dir($$$)
 
   while ($currentParallel != 0) {
     my $child = wait();
-    # now undump the data ...
+    my $childstatus = $?;
     -- $currentParallel;
-    my $file = "dumper_$child";
-    if (open(RESTORE, "<", $file)) {
-      # slurp into a string and eval..
-      my $str = do { local $/; <RESTORE> }; # slurp whole thing
-      close(RESTORE);
-      unlink $file;
-      my ($start, $testdata, $testfncdata, $testbrdata, $file_summary);
-      eval $str;
-      my $filename = $children{$child};
-      my $base_name = basename($filename);
-
-      $testhash{$base_name} = $testdata;
-      $testfnchash{$base_name} = $testfncdata;
-      $testbrhash{$base_name} = $testbrdata;
-      $dir_summary->append($file_summary);
-      $file_summary->checkCoverageCriteria();
-      my $end = Time::HiRes::gettimeofday();
-      $lcovutil::profileData{file}{$filename} = $end - $start;
-    } else {
-      die "unable to open $file: $!";
-    }
+    _merge_child_file($child, $childstatus,
+		      $children{$child}->[0], $children{$child}->[1],
+		      $dir_summary,
+		      \%testhash, \%testfnchash, \%testbrhash);
   }
 
   # Create sorted summary pages
@@ -4989,9 +4988,13 @@ sub write_summary_pages($$$$$$$) {
 
   my $currentParallel = 0;
   foreach my $params (@dirPageCalls) {
-    if (1 < $main::maxParallelism) {
-      if ($currentParallel >= $main::maxParallelism) {
+    if (1 < $lcovutil::maxParallelism) {
+      if ($currentParallel >= $main::lcovutil::maxParallelism) {
         my $child = wait();
+	my $childstatus = $? >> 8;
+	if ( 0 != $childstatus) {
+	  warn("child $child returned non-zero code $childstatus\n");
+	}
         --$currentParallel;
       }
       ++ $currentParallel;
@@ -5007,6 +5010,10 @@ sub write_summary_pages($$$$$$$) {
   }
   while ($currentParallel != 0) {
     my $child = wait();
+    my $childstatus = $? >> 8;
+    if ( 0 != $childstatus) {
+      warn("child $child returned non-zero code $childstatus\n");
+    }
     -- $currentParallel;
   }
 }
@@ -9130,15 +9137,6 @@ sub write_file_table(*$$$$)
       ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit) =
           @{$affecting_tests{$testname}};
 
-      # Insert link to description of available
-      my $href = $testname;
-      if ($test_description{$testname})
-      {
-        $href = "<a href=\"$base_dir".
-              "descriptions.$html_ext#$testname\">".
-              "$testname</a>";
-      }
-
       my $showgraph=0;
       my @results;
       push(@results, [$found, $hit, 'line',
@@ -9152,6 +9150,15 @@ sub write_file_table(*$$$$)
                       TestcaseTlaCount->new($testfncdata->value($testname),
                                             $fileDetails, 'function')])
         if ($func_coverage);
+
+      my $href = $testname;
+      # Insert link to description of available
+      if ($test_description{$testname})
+      {
+        $href = "<a href=\"$base_dir".
+              "descriptions.$html_ext#$testname\">".
+              "$testname</a>";
+      }
       write_file_table_detail_entry(*HTML_HANDLE, $base_dir,
                                     $href, $showBinDetail, @results);
     }

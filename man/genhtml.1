@@ -1031,6 +1031,9 @@ the include/exclude/substitute pattern did not match any file pathnames.
 .B version:
 \-\-version\-script comparison returned non-zero \- mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
 
+.B parallel
+various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
+
 .RE
 
 .B \-\-config\-file

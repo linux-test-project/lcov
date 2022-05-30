@@ -41,6 +41,9 @@ lcov \- a graphical GCOV front\-end
 .IR package ]
 .RB [ \-q | \-\-quiet ]
 .br
+.RB [ (\-\-parallel | -j)
+.IR integer ]
+.br
 .RB [ \-\-no\-markers ]
 .RB [ \-\-external ]
 .RB [ \-\-no\-external ]
@@ -98,7 +101,7 @@ lcov \- a graphical GCOV front\-end
 
 .B lcov
 .BR \-a | \-\-add\-tracefile
-.I tracefile
+.I tracefile_pattern
 .RS 5
 .br
 .RB [ \-o | \-\-output\-file
@@ -237,14 +240,14 @@ tool.
 
 
 .B \-a
-.I tracefile
+.I tracefile_pattern
 .br
 .B \-\-add\-tracefile
-.I tracefile
+.I tracefile_pattern
 .br
 .RS
-Add contents of
-.IR tracefile .
+Add contents of all files matching glob pattern
+.IR trcefile_pattern.
 
 Specify several tracefiles using the \-a switch to combine the coverage data
 contained in these files by adding up execution counts for matching test and
@@ -761,6 +764,10 @@ the include/exclude/substitute pattern did not match any file pathnames.
 
 .B version:
 revision control IDs of the file which we are trying to merge are not the same - line numbering and other information may be incorrect.
+
+.B parallel
+various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
+
 .RE
 
 .RE
@@ -909,6 +916,15 @@ Do not print progress messages.
 This option is implied when no output filename is specified to prevent
 progress messages to mess with coverage data which is also printed to
 the standard output.
+.RE
+
+.BI "\-\-parallel "
+.I integer
+.BI "\-j "
+.I integer
+.RS
+Specify parallelism to use during processing (maximum number of forked child processes).  Zero means to use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
+Currently - parallelism is used with the \-\-add\-tracefile and \-\-capture options.
 .RE
 
 .B \-\-rc

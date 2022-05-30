@@ -1124,6 +1124,31 @@ This option is equivalent to the \-\-fail\-under\-lines lcov command line argume
 
 .br
 The default is 0 (no threshold).
+
+.PP
+
+.BR profile " ="
+.IR integer
+.IP
+If non-zero, tells genhtml, lcov, or geninfo to generate some execution
+time/profile data which can be used to motivate future optimizations.
+The default is 0 (no data generated).
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR parallel " ="
+.IR integer
+.IP
+Tells genhtml, lcov, or geninfo the maximum number of simultaneous processes
+to use.  Zero means to use as many cores as are available on the machine.
+The default is 1 (one) - which means to process sequentially (no parallelism).
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
 .PP
 
 .SH FILES
