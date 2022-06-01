@@ -20,6 +20,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-header-title
 .IR banner ]
 .br
+.RB [ \-\-footer
+.IR string ]
+.br
 .RB [ \-t | \-\-title
 .IR title ]
 .br
@@ -230,6 +233,17 @@ simply identifies this as an LCOV coverage report.
 
 A potential use is to specify the name of the project or project branch and
 build ID.
+
+.RE
+.BI "\-\-footer " FOOTER
+.RS
+Display
+.I FOOTER
+in footer of all pages.
+
+.I FOOTER
+is written to the footer portion of each generated HTML page.
+The default simply identifies the LCOV tool version used to generate the report.
 
 .RE
 .BI "\-d " description\-file

@@ -16,6 +16,10 @@
 # Default is "LCOV - coverage report"
 #genhtml_header = Coverage report for my project
 
+# Footer text to use at the bottom of each page
+# Default is LCOV tool version
+#genhtml_footer = My footer text
+
 # Specify coverage rate limits (in %) for classifying file entries
 # HI:   hi_limit <= rate <= 100         graph color: green
 # MED: med_limit <= rate <  hi_limit    graph color: orange
