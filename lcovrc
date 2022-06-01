@@ -187,3 +187,6 @@ lcov_branch_coverage = 0
 # Ask LCOV to return non-zero exit code if line coverage is below threshold
 # Default is 0.0 - i.e., do not check threshold.
 #lcov_fail_under_lines = 97.5
+
+# Specify JSON module to use, or choose best available if set to auto
+lcov_json_module = auto

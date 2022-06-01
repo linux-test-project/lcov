@@ -60,6 +60,8 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
+use Module::Load;
+use Module::Load::Conditional qw(check_install);
 
 if( $^O eq "msys" )
 {
@@ -223,6 +225,7 @@ sub compat_name($);
 sub parse_compat_modes($);
 sub is_compat($);
 sub is_compat_auto($);
+sub load_json_module($);
 
 
 # Global variables
@@ -494,18 +497,6 @@ if ($rc_intermediate eq "0") {
 	    "'$rc_intermediate'\n");
 }
 
-# Determine JSON module
-my $current_json_module = "JSON::PP";
-if ($rc_json_module ne "auto") {
-	$current_json_module = $rc_json_module
-}
-
-use Module::Load;
-eval "load $current_json_module, 'decode_json'";
-if ($@) {
-	die("Module is not installed: ". "'$current_json_module'\n");
-};
-
 if ($intermediate) {
 	info("Using intermediate gcov format\n");
 	if ($opt_derive_func_data) {
@@ -516,6 +507,9 @@ if ($intermediate) {
 	if ($no_exception_br && !$gcov_caps->{'json-format'}) {
 		die("ERROR: excluding exception branches is not compatible with ".
 		    "text intermediate format\n");
+	}
+	if ($gcov_caps->{'json-format'}) {
+		load_json_module($rc_json_module);
 	}
 }
 
@@ -4721,4 +4715,46 @@ sub is_compat_auto($)
 
 	return 1 if ($compat_value{$mode} == $COMPAT_VALUE_AUTO);
 	return 0;
+}
+
+#
+# load_json_module(rc)
+#
+# If RC is "auto", load best available JSON module from a list of alternatives,
+# otherwise load the module specified by RC.
+#
+sub load_json_module($)
+{
+	my ($rc) = @_;
+	# List of alternative JSON modules to try
+	my @alternatives = (
+	        "JSON::XS",             # Fast, but not always installed
+	        "Cpanel::JSON::XS",     # Fast, a more recent fork
+	        "JSON::PP",             # Slow, part of core-modules
+	        "JSON",                 # Not available in all distributions
+	);
+	my $mod;
+
+	# Determine JSON module
+	if (lc($rc) eq "auto") {
+		for my $m (@alternatives) {
+			if (check_install(module => $m)) {
+				$mod = $m;
+				last;
+			}
+		}
+
+		if (!defined($mod)) {
+			die("No JSON module found (tried ".
+			     join(" ", @alternatives).")\n");
+		}
+	} else {
+		$mod = $rc;
+	}
+
+	eval "load '$mod', 'decode_json'";
+	if ($@) {
+		die("Module is not installed: ". "'$mod'\n");
+	}
+	info("Using JSON module $mod\n");
 }

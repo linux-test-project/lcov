@@ -296,6 +296,13 @@ lcov_branch_coverage = 0
 lcov_fail_under_lines = 97.5
 .br
 
+# Specify JSON module to use, or choose best available if
+.br
+# set to auto
+.br
+lcov_json_module = auto
+.br
+
 .PP
 
 .SH OPTIONS
@@ -1010,6 +1017,18 @@ This option is equivalent to the \-\-fail\-under\-lines lcov command line option
 .br
 The default is 0 (no threshold).
 .PP
+
+.BR lcov_json_module " ="
+.IR module | auto
+.IP
+Specify the JSON module to use, or choose best available from a set of
+alternatives if set to 'auto'. Note that some JSON modules are slower than
+others (notably JSON::PP can be very slow compared to JSON::XS).
+.br
+
+Default is 'auto'.
+.PP
+
 
 .SH FILES
 
