@@ -47,7 +47,7 @@ our $tool_name		= basename($0);
 sub gen_png($$$$@);
 sub check_and_load_module($);
 sub genpng_print_usage(*);
-sub genpng_process_file($$$$);
+sub genpng_process_file($$$$$);
 sub genpng_warn_handler($);
 sub genpng_die_handler($);
 
@@ -74,6 +74,7 @@ if (!caller)
 	my $filename;
 	my $tab_size = 4;
 	my $width = 80;
+	my $dark = 0;
 	my $out_filename;
 	my $help;
 	my $version;
@@ -85,6 +86,7 @@ if (!caller)
 	if (!GetOptions("tab-size=i" => \$tab_size,
 			"width=i" => \$width,
 			"output-filename=s" => \$out_filename,
+			"dark-mode" => \$dark,
 			"help" => \$help,
 			"version" => \$version))
 	{
@@ -121,7 +123,7 @@ if (!caller)
 		$out_filename = "$filename.png";
 	}
 
-	genpng_process_file($filename, $out_filename, $width, $tab_size);
+	genpng_process_file($filename, $out_filename, $width, $tab_size, $dark);
 	exit(0);
 }
 
@@ -146,6 +148,7 @@ or .gcov file format.
   -v, --version                     Print version number, then exit
   -t, --tab-size TABSIZE            Use TABSIZE spaces in place of tab
   -w, --width WIDTH                 Set width of output image to WIDTH pixel
+  -d, --dark-mode                   Use a light-on-dark color scheme
   -o, --output-filename FILENAME    Write image to FILENAME
 
 For more information see: $lcov_url
@@ -170,15 +173,16 @@ sub check_and_load_module($)
 
 
 #
-# genpng_process_file(filename, out_filename, width, tab_size)
+# genpng_process_file(filename, out_filename, width, tab_size, dark)
 #
 
-sub genpng_process_file($$$$)
+sub genpng_process_file($$$$$)
 {
 	my $filename		= $_[0];
 	my $out_filename	= $_[1];
 	my $width		= $_[2];
 	my $tab_size		= $_[3];
+	my $dark		= $_[4];
 	local *HANDLE;
 	my @source;
 
@@ -215,7 +219,7 @@ sub genpng_process_file($$$$)
 	}
 	close(HANDLE);
 
-	gen_png($out_filename, 0, $width, $tab_size, @source);
+	gen_png($out_filename, $dark, $width, $tab_size, @source);
 }
 
 
