@@ -257,7 +257,8 @@ our %test_description;	# Hash containing test descriptions if available
 our $date = get_date_string();
 
 our @info_filenames;	# List of .info files to use as data source
-our $test_title;	# Title for output as written to each page header
+our $header_title;	# Title at top of HTML report page (above table)
+our $test_title;	# Title shown in header table of each page
 our $output_directory;	# Name of directory in which to store output
 our $base_filename;	# Optional name of file containing baseline data
 our $desc_filename;	# Name of file containing test descriptions
@@ -354,6 +355,7 @@ if ($config || %opt_rc)
 	# Copy configuration file and --rc values to variables
 	apply_config({
 		"genhtml_css_file"		=> \$css_filename,
+		"genhtml_header"		=> \$header_title,
 		"genhtml_hi_limit"		=> \$hi_limit,
 		"genhtml_med_limit"		=> \$med_limit,
 		"genhtml_line_field_width"	=> \$line_field_width,
@@ -401,6 +403,7 @@ $br_coverage	= $lcov_branch_coverage if (!defined($br_coverage));
 
 # Parse command line options
 if (!GetOptions("output-directory|o=s"	=> \$output_directory,
+		"header-title=s"        => \$header_title,
 		"title|t=s"		=> \$test_title,
 		"description-file|d=s"	=> \$desc_filename,
 		"keep-descriptions|k"	=> \$keep_descriptions,
@@ -450,6 +453,10 @@ if (!GetOptions("output-directory|o=s"	=> \$output_directory,
 	# Merge sort options
 	if ($no_sort) {
 		$sort = 0;
+	}
+
+	if (defined($header_title)) {
+		$title = $header_title;
 	}
 }
 
@@ -622,8 +629,9 @@ Operation:
 
 HTML output:
   -f, --frames                      Use HTML frames for source code view
-  -t, --title TITLE                 Display TITLE in header of all pages
+  -t, --title TITLE                 Show TITLE in header table of each page
   -c, --css-file CSSFILE            Use external style sheet file CSSFILE
+      --header-title BANNER         Banner text at top of each HTML page
       --no-source                   Do not create source code view
       --num-spaces NUM              Replace tabs with NUM spaces in source view
       --highlight                   Highlight lines with converted-only data

@@ -12,6 +12,10 @@
 # same as 'genhtml --dark-mode ....'
 #genhtml_dark_mode = 1
 
+# Header text to use at top of each page
+# Default is "LCOV - coverage report"
+#genhtml_header = Coverage report for my project
+
 # Specify coverage rate limits (in %) for classifying file entries
 # HI:   hi_limit <= rate <= 100         graph color: green
 # MED: med_limit <= rate <  hi_limit    graph color: orange

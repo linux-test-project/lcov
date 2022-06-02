@@ -54,6 +54,10 @@ section 'OPTIONS' below.
 #genhtml_dark_mode = 1
 .br
 
+# Alternate header text to use at top of each page
+.br
+#genhtml_header = Coverage report for my project
+
 # Coverage rate limits
 .br
 genhtml_hi_limit = 90
@@ -321,6 +325,19 @@ This option corresponds to the \-\-css\-file command line option of
 .br
 
 By default, a standard CSS file is generated.
+.PP
+
+.BR genhtml_header " ="
+.I string
+.IP
+Specify header text to use at top of each HTML page.
+.br
+
+This option corresponds to the \-\-header\-title command line option of
+.BR genhtml .
+.br
+
+Default is "LCOV - coverage report".
 .PP
 
 .BR genhtml_dark_mode " ="
