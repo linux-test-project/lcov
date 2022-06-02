@@ -176,6 +176,8 @@ our $remove;		# If set, removes parts of tracefile
 our $diff;		# If set, modifies tracefile according to diff
 our $reset;		# If set, reset all coverage data to zero
 our $capture;		# If set, capture data
+our $prune_testcases;   # If set, try to filter out useless tests that do not
+		        # contribute new coverage or new coverpoints
 our $output_filename;	# Name for file to write coverage data to
 our $test_name = "";	# Test case name
 our $help;		# Help option flag
@@ -313,6 +315,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"profile"          => \$lcovutil::profile,
                 "version-script=s" => \$lcovutil::extractVersionScript,
 		"parallel|j=i"     => \$lcovutil::maxParallelism,
+		"prune-tests" => \$prune_testcases,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -353,6 +356,8 @@ if ($help)
 	print_usage(*STDOUT);
 	exit(0);
 }
+
+my $begin = Time::HiRes::gettimeofday();
 
 # Check for version option
 if ($version)
@@ -468,9 +473,33 @@ elsif ($capture)
 }
 elsif (@add_tracefile)
 {
-	($ln_overall_found, $ln_overall_hit,
-	 $fn_overall_found, $fn_overall_hit,
-	 $br_overall_found, $br_overall_hit) = add_traces();
+  if (defined($prune_testcases)) {
+    my ($pruned, $merged) = add_traces();
+
+    info("Pruned result: retained " . scalar(@$pruned) . " of " . scalar(@$merged) . " files\n");
+    if ($output_filename eq '-') {
+      print(join("\n", @$pruned) . "\n");
+    } else {
+      if ($output_filename =~ /\.gz$/) {
+	# Check for availability of GZIP tool
+	system_no_output(1, "gzip" ,"-h")
+	  and die("ERROR: gzip command not available!\n");
+
+	# Open compressed file
+	open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
+	  or die("ERROR: cannot start gzip to compress to file $output_filename!\n");
+      } else {
+	open(INFO_HANDLE, ">", $output_filename)
+	  or die("ERROR: cannot write to $output_filename!\n");
+      }
+      print(INFO_HANDLE join("\n", @$pruned) . "\n");
+      close(*INFO_HANDLE);
+    }
+  } else {
+    ($ln_overall_found, $ln_overall_hit,
+     $fn_overall_found, $fn_overall_hit,
+     $br_overall_found, $br_overall_hit) = add_traces();
+  }
 }
 elsif ($remove ) {
 
@@ -525,6 +554,9 @@ lcovutil::warn_file_patterns() # warn about unused include/exclude directives
   unless $capture;
 
 summarize_cov_filters();
+
+my $end = Time::HiRes::gettimeofday();
+$lcovutil::profileData{total} = $end - $begin;
 
 # if we executed 'geninfo' - then we saved the profile data from that process
 lcovutil::save_profile($output_filename ? $output_filename : "lcov", 'lcov')
@@ -640,6 +672,10 @@ sub check_options()
 		die("ERROR: only one of -z, -c, -a, -e, -r, -l, ".
 		    "--diff or --summary allowed!\n".
 		    "Use $tool_name --help to get usage information\n");
+	}
+
+	if ($prune_testcases && 0 == scalar(@add_tracefile)) {
+	  die("--prune-tests has effect only when -a/--add-tracefile is specified");
 	}
 }
 
@@ -1611,33 +1647,37 @@ sub emit
 sub _process_segment($$$) {
   my ($total_trace, $readSourceFile, $segment) = @_;
 
+  my @interesting;
   foreach my $tracefile (@$segment) {
     my $now = Time::HiRes::gettimeofday();
     my $current = TraceFile->load($tracefile, $readSourceFile);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{parse}{$tracefile} = $then - $now;
-    $total_trace->append_tracefile($current);
+    if ($total_trace->append_tracefile($current)) {
+      push(@interesting, $tracefile);
+    }
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{append}{$tracefile} = $end - $then;
   }
+  return @interesting;
 }
 
 sub add_traces()
 {
-  my $begin = Time::HiRes::gettimeofday();
   info("Combining tracefiles.\n");
   $lcovutil::profileData{parse} = {};
   $lcovutil::profileData{append} = {};
   my @merge;
   foreach my $tracefile (@add_tracefile) {
     # this is a glob match...
-    my @files = glob($tracefile);
+    my @files = glob($tracefile); # perl returns files in ASCII sorted order
     die "no files matching $tracefile"
       unless scalar(@files);
     foreach my $f (@files) {
       push(@merge, $f);
     }
   }
+  my @effective;
   # source-based filters are somewhat expensive - so we turn them
   #   off for file read and only re-enable when we write the data back out
   my $save_filters = lcovutil::disable_cov_filters();
@@ -1651,14 +1691,27 @@ sub add_traces()
     # The reasoning is that one of our examples appears to take 1.3s to
     #   load the trace file, and 0.8s to merge it into the master list.
     # We thus want to parallelize both the load and the merge, as much as
-    #   possible
+    #   possible.
+    # Note that we try to keep the files in the order they were specified
+    #   in the segments (i.e., so adjacent files go in order, into the same
+    #   segment).  This plays more nicely with the "--prune-tests" option
+    #   because we expect that files with similar names (e.g., as returned
+    #   by 'glob' have similar coverage profiles and are thus not likely to
+    #   all be 'effective'.  If we had put them into different segments,
+    #   then each segment might think that their variant is 'effective' -
+    #   whereas we will notice that only one is effective if they are all
+    #   in the same segment.
     my @segments;
+    my $nTests = scalar(@merge);
+    my $testsPerSegment = ($nTests > $lcovutil::maxParallelism) ? ($nTests / $lcovutil::maxParallelism) : 1;
     my $idx = 0;
     foreach my $tracefile (@merge) {
+      my $seg = $idx / $testsPerSegment;
+      $seg -= 1 if $seg == $lcovutil::maxParallelism;
       push(@segments, [])
-	if ($idx >= scalar(@segments));
-      push(@{$segments[$idx]}, $tracefile);
-      $idx = ($idx + 1) % $lcovutil::maxParallelism;
+	if ($seg >= scalar(@segments));
+      push(@{$segments[$seg]}, $tracefile);
+      ++ $idx;
     }
     $lcovutil::profileData{config} = {}
       unless exists($lcovutil::profileData{config});
@@ -1671,6 +1724,7 @@ sub add_traces()
       my $pid = fork();
       if (0 == $pid) {
 	# I'm the child
+<<<<<<< HEAD
 	my $stdout_file = "lcov_$$.log";
 	my $stderr_file = "lcov_$$.err";
 	local(*STDERR);
@@ -1684,13 +1738,13 @@ sub add_traces()
 	open(STDERR, ">&STDERR1")
 	  or die("cound not redirect stderr: $!");
 
-	_process_segment($total_trace, $readSourceFile, $segment);
+	my @interesting = _process_segment($total_trace, $readSourceFile, $segment);
 	my $then = Time::HiRes::gettimeofday();
 	$lcovutil::profileData{$idx}{total} = $then - $now;
 	my $file = "dumper_$$";
 	if (open(DUMPER, ">", $file)) {
-	  print DUMPER Data::Dumper->Dump([$total_trace, \%lcovutil::profileData],
-					  [qw(current profile)]);
+	  print DUMPER Data::Dumper->Dump([$total_trace, \@interesting, \%lcovutil::profileData],
+					  [qw(current interesting profile)]);
 	} else {
 	  die "unable to open $file: $!";
 	}
@@ -1733,12 +1787,15 @@ sub add_traces()
 	  # slurp into a string and eval..
 	  my $str = do { local $/; <RESTORE> }; # slurp whole thing
 	  close(RESTORE);
-	  my ($current, $profile);
+	  my ($current, $interesting, $profile);
 	  eval $str;
 	  my $then = Time::HiRes::gettimeofday();
 	  $lcovutil::profileData{undump}{$idx} = $then - $now;
-
-	  $total_trace->append_tracefile($current);
+	  if ($total_trace->append_tracefile($current)) {
+	    # something in this segement improved coverage...so save
+	    #   the effective input files from this one
+	    push(@effective, @$interesting);
+	  }
 	  foreach my $k ('parse', 'append') {
 	    $lcovutil::profileData{$idx}{$k} = {};
 	    while (my ($key, $val) = each(%{$profile->{$k}})) {
@@ -1759,18 +1816,18 @@ sub add_traces()
     }
   } else {
     # sequential
-    _process_segment($total_trace, $readSourceFile, \@merge);
+    @effective = _process_segment($total_trace, $readSourceFile, \@merge);
   }
   #...and turn any enabled filters back on...
   lcovutil::reenable_cov_filters($save_filters);
-  # write the result
-  my @result = emit($total_trace);
-  # Write combined data
-  my $end = Time::HiRes::gettimeofday();
-  $lcovutil::profileData{total} = $end - $begin;
 
-  # write the result
-  my @result = emit($total_trace);
+  my @result;
+  if ($prune_testcases) {
+    push(@result, \@effective, \@merge);
+  } else {
+    # write the result
+    @result = emit($total_trace);
+  }
   return @result;
 }
 

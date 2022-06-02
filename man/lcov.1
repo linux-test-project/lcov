@@ -106,6 +106,9 @@ lcov \- a graphical GCOV front\-end
 .br
 .RB [ \-o | \-\-output\-file
 .IR tracefile ]
+.br
+.RB [\-\-prune-tests]
+.br
 .RB [ \-\-checksum ]
 .RB [ \-\-no\-checksum ]
 .br
@@ -601,6 +604,17 @@ ignore this data.
 Data for external source files is
 .B included
 by default.
+
+.RE
+
+.B \-\-prune\-tests
+.br
+.RS
+Specify whether to keep track of testcases which increase code coverage (i.e., by changing at least one 'hit' count from zero to non-zero) or which add at least one coverpoint which has not been seen before.
+
+lcov will emit the list of retained files rather than the test report.
+
+This option has an effect only with \-\-add\-tracefile.
 
 .B \-\-version\-script
 .I script_file

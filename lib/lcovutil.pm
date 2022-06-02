@@ -1090,22 +1090,28 @@ sub new {
 }
 
 sub append {
+  # return 1 if we hit something new, 0 if not (count was already non-zero)
   my $self = shift;
   my $key = shift;
   my $count = shift;
+  my $interesting = 0; # hit something new or not
 
   my $data = $self->[0];
   if (!defined($data->{$key})) {
+    $interesting = 1; # something new - whether we hit it or not
     $data->{$key} = $count;
     ++$self->[2]; # found
     ++$self->[3] if ($count > 0); # hit
   } else {
     my $current = $data->{$key};
-    ++ $self->[3] if ($count > 0 &&
-                      $current == 0);
+    if ($count > 0 &&
+        $current == 0) {
+      ++ $self->[3];
+      $interesting = 1;
+    }
     $data->{$key} = $count + $current;
   }
-  return $self;
+  return $interesting;
 }
 
 sub value {
@@ -1167,9 +1173,13 @@ sub merge {
   my $self = shift;
   my $info = shift;
 
+  my $interesting = 0;
   foreach my $key ($info->keylist()) {
-    $self->append($key, $info->value($key));
+    if ( $self->append($key, $info->value($key)) ) {
+      $interesting = 1;
+    }
   }
+  return $interesting;
 }
 
 #
@@ -1230,6 +1240,7 @@ sub exprString {
 }
 
 sub merge {
+  # return 1 if something changed, 0 if nothing new covered or discovered
   my ($self, $that) = @_;
   if ($self->exprString() ne $that->exprString()) {
     lcovutil::ignorable_error($ERROR_MISMATCH, "mismatched expressions for id "
@@ -1240,15 +1251,19 @@ sub merge {
     #  look different
   }
   my $t = $that->[1];
-  return if $t eq '-';
+  return 0 if $t eq '-'; # no new news
 
   my $count = $self->[1];
+  my $interesting;
   if ($count ne '-') {
-    $count += $t
+    $count += $t;
+    $interesting = $count == 0 && $t != 0;
   } else {
     $count = $t;
+    $interesting = $t != 0;
   }
   $self->[1] = $count;
+  return $interesting;
 }
 
 
@@ -1352,10 +1367,13 @@ sub line {
 sub addAlias {
   my ($self, $name, $count) = @_;
 
+  my $interesting;
   if (exists($self->[1]->{$name})) {
+    $interesting = 0 == $self->[1]->{$name} && 0 != $count;
     $self->[1]->{$name} += $count;
   } else {
     $self->[1]->{$name} = $count;
+    $interesting = 0 != $count;
     # keep track of the shortest name as the function represntative
     my $curlen = length($self->[0]);
     my $len = length($name);
@@ -1365,14 +1383,18 @@ sub addAlias {
            $name lt $self->[0]));
   }
   $self->[4] += $count;
+  return $interesting;
 }
 
 sub merge {
   my ($self, $that) = @_;
-
+  my $interesting = 0;
   foreach my $name (keys(%{$that->[1]})) {
-    $self->addAlias($name, $that->[1]->{$name});
+    if ($self->addAlias($name, $that->[1]->{$name})) {
+      $interesting = 1;
+    }
   }
+  return $interesting;
 }
 
 sub addAliasDifferential {
@@ -1497,12 +1519,14 @@ sub add_count {
 sub merge {
   my ($self, $that) = @_;
 
+  my $interesting = 0;
   foreach my $key (keys(%{$that->[0]})) {
     my $thatData = $that->[0]->{$key};
     my $thisData;
     if (! exists($self->[0]->{$key})) {
       $thisData = $self->define_function($thatData->name(), $thatData->file(),
                                          $thatData->line());
+      $interesting = 1; # something new...
     } else {
       $thisData = $self->[0]->{$key};
       if ($thisData->line() != $thatData->line() ||
@@ -1517,9 +1541,12 @@ sub merge {
       my $count = $aliases->{$alias};
       $self->define_function($alias, $thisData->file(), $thisData->line())
         unless defined($self->findName($alias));
-      $thisData->addAlias($alias, $count);
+      if ($thisData->addAlias($alias, $count) ) {
+        $interesting = 1;
+      }
     }
   }
+  return $interesting;
 }
 
 sub cloneWithRename {
@@ -1594,18 +1621,20 @@ sub append {
     die("line $line already contains element")
       if exists($data->{$line});
     $data->{$line} = $block;
-    return $self;
+    return 0;
   }
   die("BranchData::append expected BranchBock got '" . ref($br) . "'")
     unless ('BranchBlock' eq ref($br));
   my $branch = $br->id();
   my $branchElem;
+  my $interesting = 0;
   if (exists($data->{$line})) {
     $branchElem = $data->{$line};
     $line == $branchElem->line() or die("wrong line mapping");
   } else {
     $branchElem = BranchEntry->new($line);
     $data->{$line} = $branchElem;
+    $interesting = 1; # something new
   }
 
   if (! $branchElem->hasBlock($block)) {
@@ -1615,6 +1644,7 @@ sub append {
     $branch = 0;
     my $l = $branchElem->addBlock($block);
     push(@$l, BranchBlock->new($branch, $br->data(), $br->expr()));
+    $interesting = 1; # something new..
   } else {
     $block = $branchElem->getBlock($block);
 
@@ -1628,14 +1658,19 @@ sub append {
       $block->[$branch] = BranchBlock->new($branch,
                                            $br->data(), $br->expr());
       $self->[3] = 1;
+      $interesting = 1;
     } else {
       my $me = $block->[$branch];
-      $self->[3] = 1
-        if (0 == $me->count() && 0 != $br->count());
-      $me->merge($br);
+      if (0 == $me->count() && 0 != $br->count()) {
+        $self->[3] = 1;
+        $interesting = 1;
+      }
+      if ($me->merge($br)) {
+        $interesting = 1;
+      }
     }
   }
-  return $self;
+  return $interesting;
 }
 
 sub _summary {
@@ -1686,6 +1721,7 @@ sub hit {
 sub merge {
   my $self = shift;
   my $info = shift;
+  my $interesting = 0;
 
   my $idata = $info->[0];
   foreach my $line ($info->keylist()) {
@@ -1693,10 +1729,13 @@ sub merge {
     foreach my $blockId ($branch->blocks()) {
       my $bdata = $branch->getBlock($blockId);
       foreach my $br (@$bdata) {
-        $self->append($line, $blockId, $br);
+        if ($self->append($line, $blockId, $br)) {
+          $interesting = 1;
+        }
       }
     }
   }
+  return $interesting;
 }
 
 # return BranchEntry struct (or undef)
@@ -2002,25 +2041,36 @@ sub merge {
   my $you = defined($info->version()) ? $info->version() : "<no version>";
 
   lcovutil::checkVersionMatch($filename, $me, $you);
-
+  my $interesting = 0;
   foreach my $name ($info->test()->keylist()) {
-    $self->test($name)->merge($info->test($name));
+    if ($self->test($name)->merge($info->test($name))) {
+      $interesting = 1;
+    }
   }
-  $self->sum()->merge($info->sum());
+  if ($self->sum()->merge($info->sum())) {
+    $interesting = 1;
+  }
 
-  $self->func()->merge($info->func());
+  if ($self->func()->merge($info->func())) {
+    $interesting = 1;
+  }
   $self->_merge_checksums($info, $filename);
 
   foreach my $name ($info->testfnc()->keylist()) {
-    $self->testfnc($name)->merge($info->testfnc($name));
+    if ($self->testfnc($name)->merge($info->testfnc($name))) {
+      $interesting = 1;
+    }
   }
 
   foreach my $name ($info->testbr()->keylist()) {
-    $self->testbr($name)->merge($info->testbr($name));
+    if ($self->testbr($name)->merge($info->testbr($name))) {
+      $interesting = 1;
+    }
   }
-  $self->sumbr()->merge($info->sumbr());
-
-  return $self;
+  if ($self->sumbr()->merge($info->sumbr())) {
+    $interesting = 1;
+  }
+  return $interesting;
 }
 
 
@@ -2061,29 +2111,30 @@ sub open {
       push(@sourceLines, $_);
       if (/$lcovutil::EXCL_START/) {
         lcovutil::ignorable_error($ERROR_MISMATCH,
-                                  "overlapping exclude directives")
+                                  "$filename: overlapping exclude directives. Found $lcovutil::EXCL_START at line $. - but no matching $lcovutil::EXCL_STOP for $lcovutil::EXCL_START at line $exclude_region")
           if $exclude_region;
-        $exclude_region = 1;
+        $exclude_region = $.;
       } elsif (/$lcovutil::EXCL_STOP/) {
-        lcovutil::ignorable_error($ERROR_MISMATCH, "missing exclude start")
+        lcovutil::ignorable_error($ERROR_MISMATCH, "$filename: found $lcovutil::EXCL_STOP directive at line $. without matching $lcovutil::EXCL_START directive")
           unless $exclude_region;
         $exclude_region = 0;
       } elsif (/$lcovutil::EXCL_BR_START/) {
         lcovutil::ignorable_error($ERROR_MISMATCH,
-                                  "overlapping exclude branch directives")
+                                  "$filename: overlapping exclude branch directives. Found $lcovutil::EXCL_BR_START at line $. - but no matching $lcovutil::EXCL_BR_STOP for $lcovutil::EXCL_BR_START at line $exclude_br_region")
           if $exclude_br_region;
-        $exclude_br_region = 2;
+        $exclude_br_region = $.;
       } elsif (/$lcovutil::EXCL_BR_STOP/) {
-        lcovutil::ignorable_error($ERROR_MISMATCH,
-                                  "missing exclude branch start")
+        lcovutil::ignorable_error($ERROR_MISMATCH, "$filename: found $lcovutil::EXCL_BR_STOP directive at line $. without matching $lcovutil::EXCL_BR_START directive")
           unless $exclude_br_region;
         $exclude_br_region = 0;
       }
-      push(@excluded, $exclude_region | $exclude_br_region);
+      push(@excluded, ($exclude_region ? 1 : 0) | ($exclude_br_region ? 2 : 0));
     }
-    lcovutil::ignorable_error($ERROR_MISMATCH, "unmatched exclude start")
+    lcovutil::ignorable_error($ERROR_MISMATCH,
+			      "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP")
       if $exclude_region;
-    lcovutil::ignorable_error($ERROR_MISMATCH, "unmatched exclude branch start")
+    lcovutil::ignorable_error($ERROR_MISMATCH,
+			      "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP")
       if $exclude_br_region;
 
     $self->setData($filename, \@sourceLines, \@excluded);
@@ -2298,8 +2349,8 @@ sub skipCurrentFile {
     foreach my $p (@lcovutil::exclude_file_patterns) {
       my $pattern = $p->[0];
       if ($filename =~ /$pattern/) {
-	++ $p->[2];
-	return 1; # all done - explicitly excluded
+        ++ $p->[2];
+        return 1; # all done - explicitly excluded
       }
     }
   }
@@ -2307,8 +2358,8 @@ sub skipCurrentFile {
     foreach my $p (@lcovutil::include_file_patterns) {
       my $pattern = $p->[0];
       if ($filename =~ /$pattern/) {
-	++ $p->[2];
-	return 0; # exlicitly included
+        ++ $p->[2];
+        return 0; # exlicitly included
       }
     }
     return 1; # not explicitly included - so exclude
@@ -2366,14 +2417,18 @@ sub append_tracefile {
   my $self = shift;
   my $trace = shift;
 
+  my $interesting = 0;
   foreach my $filename ($trace->files()) {
     if (defined($self->{$filename})) {
-      $self->data($filename)->merge($trace->data($filename), $filename);
+      if ($self->data($filename)->merge($trace->data($filename), $filename)) {
+        $interesting = 1;
+      }
     } else {
       $self->{$filename} = $trace->data($filename);
+      $interesting = 1;
     }
   }
-  return $self;
+  return $interesting;
 }
 
 sub is_rtl_file {
@@ -2541,7 +2596,7 @@ sub _read_info {
       # should this one be skipped?
       $skipCurrentFile = skipCurrentFile($filename);
       if ($skipCurrentFile &&
-	  ! exists($lcovutil::excluded_files{$filename})) {
+          ! exists($lcovutil::excluded_files{$filename})) {
         $lcovutil::excluded_files{$filename} = 1;
         lcovutil::info("Excluding $filename\n");
         next;
