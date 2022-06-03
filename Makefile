@@ -9,6 +9,7 @@
 #                and RELEASE variables below - both version and date strings
 #                will be updated in all necessary files.
 #   - clean:     remove all generated files
+#   - release:   finalize release and create git tag for specified VERSION
 #
 
 VERSION := $(shell bin/get_version.sh --version)
@@ -38,6 +39,7 @@ info:
 	@echo "  uninstall : delete binaries and man pages from DESTDIR (default /)"
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
 	@echo "  check     : perform self-tests"
+	@echo "  release   : finalize release and create git tag for specified VERSION"
 
 clean:
 	rm -f lcov-*.tar.gz
@@ -124,3 +126,22 @@ test: check
 
 check:
 	@make -s -C tests check
+
+release:
+	@if [ "$(origin VERSION)" != "command line" ] ; then echo "Please specify new version number, e.g. VERSION=1.16" >&2 ; exit 1 ; fi
+	@if [ -n "$$(git status --porcelain 2>&1)" ] ; then echo "The repository contains uncommited changes" >&2 ; exit 1 ; fi
+	@if [ -n "$$(git tag -l v$(VERSION))" ] ; then echo "A tag for the specified version already exists (v$(VERSION))" >&2 ; exit 1 ; fi
+	@echo "Preparing release tag for version $(VERSION)"
+	git checkout master
+	bin/copy_dates.sh . .
+	for FILE in README man/* rpm/* ; do \
+		bin/updateversion.pl "$$FILE" $(VERSION) 1 $(VERSION) ; \
+	done
+	git commit -a -s -m "lcov: Finalize release $(VERSION)"
+	git tag v$(VERSION) -m "LCOV version $(VERSION)"
+	@echo "**********************************************"
+	@echo "Release tag v$(VERSION) successfully created"
+	@echo "Next steps:"
+	@echo " - Review resulting commit and tag"
+	@echo " - Publish with: git push origin master v$(VERSION)"
+	@echo "**********************************************"
