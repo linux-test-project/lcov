@@ -16,8 +16,8 @@ inclusion:
  2. The contribution must follow a particular format.
  3. The contribution must be signed.
 
-Once you have made sure that your contribution follows these rules, send it via
-e-mail to the LTP coverage mailing list [1].
+Once you have made sure that your contribution follows these rules, open a
+pull request for the LCOV code repository [1].
 
 
 Signing your work
@@ -31,7 +31,7 @@ end of the explanation of a patch:
 By signing a patch, you certify the following:
 
   By making a contribution to the LTP GCOV extension (LCOV) on
-  http://ltp.sourceforge.net, I certify that:
+  https://github.com/linux-test-project/lcov, I certify that:
 
   a) The contribution was created by me and I have the right to submit it
      under the terms and conditions of the open source license
@@ -56,8 +56,8 @@ collect, process and visualize code coverage data as produced by the gcov tool
 that is part of the GNU Compiler Collection (GCC) [2].
 
 If you have an idea for a contribution but are unsure if it aligns with the
-project goals, feel free to discuss the idea on the LTP coverage mailing
-list [1].
+project goals, feel free to discuss the idea using the issue tracker on the
+LCOV code repository site [1].
 
 
 Contribution format
@@ -89,5 +89,5 @@ With your Signed-off-by, you certify the rules stated in section
 
 -- 
 
-[1] ltp-coverage@lists.sourceforge.net
-[2] http://gcc.gnu.org
+[1] https://github.com/linux-test-project/lcov
+[2] https://gcc.gnu.org
