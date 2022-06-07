@@ -710,7 +710,7 @@ sub lcov_copy_single($$)
 # lcov_find(dir, function, data[, extension, ...)])
 #
 # Search DIR for files and directories whose name matches PATTERN and run
-# FUNCTION for each match. If not pattern is specified, match all names.
+# FUNCTION for each match. If no pattern is specified, match all names.
 #
 # FUNCTION has the following prototype:
 #   function(dir, relative_name, data)
@@ -2744,23 +2744,18 @@ sub extract()
 	# Filter out files which do not match any pattern
 	foreach $filename (sort(keys(%{$data})))
 	{
-		$keep = 0;
-
 		foreach $pattern (@pattern_list)
 		{
-			$keep ||= ($filename =~ (/^$pattern$/));
+			if ($filename =~ (/^$pattern$/)) {
+				goto ok;
+			}
 		}
-
-
-		if (!$keep)
-		{
-			delete($data->{$filename});
-		}
-		else
-		{
-			info("Extracting $filename\n"),
-			$extracted++;
-		}
+		delete($data->{$filename});
+		return;
+	ok:
+		# keep
+		info("Extracting $filename\n"),
+		$extracted++;
 	}
 
 	# Write extracted data
@@ -2803,20 +2798,18 @@ sub remove()
 	# Filter out files that match the pattern
 	foreach $filename (sort(keys(%{$data})))
 	{
-		$match_found = 0;
-
 		foreach $pattern (@pattern_list)
 		{
-			$match_found ||= ($filename =~ (/^$pattern$/));
+			if ($filename =~ (/^$pattern$/)) {
+				goto ok;
+			}
 		}
-
-
-		if ($match_found)
-		{
-			delete($data->{$filename});
-			info("Removing $filename\n"),
-			$removed++;
-		}
+		return;
+	ok:
+		# match found
+		delete($data->{$filename});
+		info("Removing $filename\n"),
+		$removed++;
 	}
 
 	# Write data
