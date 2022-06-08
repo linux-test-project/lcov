@@ -57,6 +57,9 @@
 #   2004-03-30 / Peter Oberparleiter: added --path option
 #   2004-08-09 / Peter Oberparleiter: added configuration file support
 #   2008-08-13 / Peter Oberparleiter: added function coverage support
+#   2020-02-11 / David Garcin: use getcwd instead of system command,
+#                execute geninfo via perl for Win32
+#   2022-06-08 / Simon Sobisch: use devnull instead of /dev/null
 #
 
 use strict;
@@ -93,6 +96,8 @@ our $pkg_build_file = ".build_directory";
 # Branch data combination types
 our $BR_SUB = 0;
 our $BR_ADD = 1;
+
+our $devnull = File::Spec->devnull();
 
 # Prototypes
 sub print_usage(*);
@@ -156,7 +161,7 @@ our $version;		# Version option flag
 our $convert_filenames;	# If set, convert filenames when applying diff
 our $strip;		# If set, strip leading directories when applying diff
 our $temp_dir_name;	# Name of temporary directory
-our $cwd = `pwd`;	# Current working directory
+our $cwd = getcwd();	# Current working directory
 our $data_stdout;	# If set, indicates that data is written to stdout
 our $follow;		# If set, indicates that find shall follow links
 our $diff_path = "";	# Path removed from tracefile when applying diff
@@ -612,7 +617,7 @@ sub userspace_reset()
 	{
 		info("Deleting all .da files in $current_dir".
 		     ($no_recursion?"\n":" and subdirectories\n"));
-		@file_list = `find "$current_dir" $maxdepth $follow -name \\*\\.da -type f -o -name \\*\\.gcda -type f 2>/dev/null`;
+		@file_list = `find "$current_dir" $maxdepth $follow -name \\*\\.da -type f -o -name \\*\\.gcda -type f 2>$devnull`;
 		chomp(@file_list);
 		foreach (@file_list)
 		{
@@ -907,6 +912,12 @@ sub lcov_geninfo(@)
 		@param = (@param, "--exclude", $_);
 	}
 
+	if ($^O =~ /Win/)
+	{
+		# Native Windows can't deduce the interpreter from the shebang,
+		# prepend it to the command
+		@param = ($^X, @param)
+	}
 	system(@param) and exit($? >> 8);
 }
 
@@ -951,7 +962,7 @@ sub get_package($)
 	info("Reading package $file:\n");
 	$file = abs_path($file);
 	chdir($dir);
-	open(HANDLE, "-|", "tar xvfz '$file' 2>/dev/null")
+	open(HANDLE, "-|", "tar xvfz '$file' 2>$devnull")
 		or die("ERROR: could not process package $file\n");
 	$count = 0;
 	while (<HANDLE>) {
@@ -1038,7 +1049,7 @@ sub create_package($$$;$)
 	my $cwd = getcwd();
 
 	# Check for availability of tar tool first
-	system("tar --help > /dev/null")
+	system("tar --help > $devnull")
 		and die("ERROR: tar command not available\n");
 
 	# Print information about the package
@@ -4048,8 +4059,8 @@ sub system_no_output($@)
 	($mode & 2) && open(OLD_STDERR, ">>&", "STDERR");
 
 	# Redirect to /dev/null
-	($mode & 1) && open(STDOUT, ">", "/dev/null");
-	($mode & 2) && open(STDERR, ">", "/dev/null");
+	($mode & 1) && open(STDOUT, ">", $devnull);
+	($mode & 2) && open(STDERR, ">", $devnull);
  
 	system(@_);
 	$result = $?;

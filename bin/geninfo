@@ -47,26 +47,32 @@
 #   2008-07-14 / Tom Zoerner: added --function-coverage command line option
 #   2008-08-13 / Peter Oberparleiter: modified function coverage
 #                implementation (now enabled per default)
+#   2020-02-11 / David Garcin: use getcwd instead of system command
+#   2022-06-08 / Simon Sobisch: use move instead of system command
+#                and devnull instead of /dev/null;
+#                use canonpath instead of self-written path adjustment
 #
 
 use strict;
 use warnings;
 use File::Basename; 
 use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
-			      splitpath catpath/;
+			      splitpath catpath catdir canonpath/;
 use File::Temp qw(tempfile tempdir);
-use File::Copy qw(copy);
+use File::Copy qw(copy move);
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
-use Cwd qw/abs_path/;
+use Cwd qw/abs_path getcwd/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 use Module::Load;
 use Module::Load::Conditional qw(check_install);
 
-if( $^O eq "msys" )
+
+if ( $^O eq "msys" )
 {
 	require File::Spec::Win32;
 }
+
 
 # Constants
 our $tool_dir		= abs_path(dirname($0));
@@ -160,6 +166,8 @@ our $BR_VEC_WIDTH	= 32;
 our $BR_VEC_MAX		= vec(pack('b*', 1 x $BR_VEC_WIDTH), 0, $BR_VEC_WIDTH);
 
 our $UNNAMED_BLOCK	= -1;
+
+our $devnull = File::Spec->devnull();
 
 # Prototypes
 sub print_usage(*);
@@ -283,7 +291,7 @@ our $excl_line = "LCOV_EXCL_LINE";
 our $excl_br_line = "LCOV_EXCL_BR_LINE";
 our $excl_exception_br_line = "LCOV_EXCL_EXCEPTION_BR_LINE";
 
-our $cwd = `pwd`;
+our $cwd = getcwd();
 chomp($cwd);
 
 
@@ -839,7 +847,7 @@ sub gen_info($)
 	{
 		info("Scanning $directory for $ext files ...\n");
 
-		@file_list = `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>/dev/null`;
+		@file_list = `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>$devnull`;
 		chomp(@file_list);
 		if (!@file_list) {
 			warn("WARNING: no $ext files found in $directory - ".
@@ -1164,8 +1172,8 @@ sub process_dafile($$)
 	{
 		# Need to rename empty data file to workaround
 	        # gcov <= 3.2.x bug (Abort)
-		system_no_output(3, "mv", "$da_filename", "$da_filename.ori")
-			and die ("ERROR: cannot rename $da_filename\n");
+		move("$da_filename", "$da_filename.ori")
+			or die ("ERROR: cannot rename $da_filename\n");
 	}
 
 	# Execute gcov command and suppress standard output
@@ -1174,8 +1182,8 @@ sub process_dafile($$)
 
 	if ($da_renamed)
 	{
-		system_no_output(3, "mv", "$da_filename.ori", "$da_filename")
-			and die ("ERROR: cannot rename $da_filename.ori");
+		move("$da_filename.ori", "$da_filename")
+			or die ("ERROR: cannot rename $da_filename.ori");
 	}
 
 	# Clean up temporary links
@@ -1518,7 +1526,7 @@ sub solve_relative_path($$)
 	my $result;
 
 	# Convert from Windows path to msys path
-	if( $^O eq "msys" )
+	if ( $^O eq "msys" )
 	{
 		# search for a windows drive letter at the beginning
 		($volume, $directories, $filename) = File::Spec::Win32->splitpath( $dir );
@@ -1538,39 +1546,34 @@ sub solve_relative_path($$)
 			
 			# transform to Unix style '/' path
 			$directories = File::Spec->catdir( @dirs );
-			$dir = File::Spec->catpath( '', $directories, $filename );
+			$dir = catpath( '', $directories, $filename );
 		} else {
 			# eliminate '\' path separators
-			$dir = File::Spec->canonpath( $dir );
+			$dir = canonpath( $dir );
 		}
 	}
+	else
+	{
+		# Resolve relative names and for Win32 transform
+		# c/d\../e/f\g to Windows style c\d\..\e\f\g
+		# Note: other than before we do not replace
+		# x/../y sections into y any more, see perldoc for canonpath
+		# to learn why this is a bad idea (symlinks)
+		$path = canonpath($path);
+		$dir = canonpath($dir);
+	}
 
-	$result = $dir;
 	# Prepend path if not absolute
-	if ($dir =~ /^[^\/]/)
+	if (file_name_is_absolute($dir))
 	{
-		$result = "$path/$result";
+		$result = $dir;
+
+	}
+	else
+	{
+		$result = catdir($path, $dir);
 	}
 
-	# Remove //
-	$result =~ s/\/\//\//g;
-
-	# Remove .
-	while ($result =~ s/\/\.\//\//g)
-	{
-	}
-	$result =~ s/\/\.$/\//g;
-
-	# Remove trailing /
-	$result =~ s/\/$//g;
-
-	# Solve ..
-	while ($result =~ s/\/[^\/]+\/\.\.\//\//)
-	{
-	}
-
-	# Remove preceding ..
-	$result =~ s/^\/\.\.\//\//g;
 
 	return $result;
 }
@@ -1960,7 +1963,7 @@ sub read_gcov_file($)
 
 				# Check for zero count which is indicated
 				# by ######
-				if ($number eq "######") { $number = 0;	}
+				if ($number eq "######") { $number = 0; }
 
 				if ($exclude_line) {
 					# Register uninstrumented line instead
@@ -2169,7 +2172,7 @@ sub read_intermediate_json($$$)
 
 	# Workaround for bug in MSYS GCC 9.x that encodes \ as \n in gcov JSON
 	# output
-	if ($^O eq "msys" && $$basedir_ref =~ /\n/) {
+	if ( ($^O eq "msys") || ($^O =~ /Win/) && $$basedir_ref =~ /\n/) {
 		$$basedir_ref =~ s#\n#/#g;
 	}
 
@@ -2793,8 +2796,8 @@ sub system_no_output($@)
 		}
 	} else {
 		# Redirect to /dev/null
-		($mode & 1) && open(STDOUT, ">", "/dev/null");
-		($mode & 2) && open(STDERR, ">", "/dev/null");
+		($mode & 1) && open(STDOUT, ">", $devnull);
+		($mode & 2) && open(STDERR, ">", $devnull);
 	}
  
 	debug("system(".join(' ', @_).")\n");
@@ -3531,6 +3534,7 @@ sub adjust_source_filenames($$$)
 		my $old_filename = $filename;
 
 		# Convert to absolute canonical form
+
 		$filename = solve_relative_path($base_dir, $filename);
 
 		# Apply adjustment

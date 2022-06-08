@@ -62,11 +62,15 @@
 #   2008-08-13 / Peter Oberparleiter: modified function coverage
 #                implementation (now enabled per default),
 #                introduced sorting option (enabled per default)
+#   2020-02-11 / David Garcin: improved Support for Win32 via $dir_separator
+#   2022-06-08 / Simon Sobisch: use make_path instead of system command and
+#                devnull instead of /dev/null
 #
 
 use strict;
 use warnings;
 use File::Basename;
+use File::Path qw(make_path);
 use File::Temp qw(tempfile);
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
@@ -308,7 +312,12 @@ our $lcov_branch_coverage = 0;
 our $rc_desc_html = 0;	# lcovrc: genhtml_desc_html
 
 our $cwd = cwd();	# Current working directory
-
+our $devnull = File::Spec->devnull();
+our $dir_separator = "/";
+if ($^O =~ /Win/)
+{
+	$dir_separator = "\\";
+}
 
 #
 # Code entry point
@@ -580,12 +589,7 @@ if ($default_precision < 1 || $default_precision > 4)
 # Make sure output_directory exists, create it if necessary
 if ($output_directory)
 {
-	stat($output_directory);
-
-	if (! -e _)
-	{
-		create_sub_dir($output_directory);
-	}
+	create_sub_dir($output_directory);
 }
 
 # Do something
@@ -1130,7 +1134,7 @@ sub process_dir($)
 
 	# Match filenames which specify files in this directory, not including
 	# sub-directories
-	foreach $filename (grep(/^\Q$abs_dir\E\/[^\/]*$/,keys(%info_data)))
+	foreach $filename (grep(/^\Q$abs_dir$dir_separator\E[^\Q$dir_separator\E]*$/,keys(%info_data)))
 	{
 		my $page_link;
 		my $func_link;
@@ -2409,7 +2413,7 @@ sub get_prefix($@)
 		$current = $_;
 		while ($current = shorten_prefix($current))
 		{
-			$current .= "/";
+			$current .= $dir_separator;
 
 			# Skip rest if the remaining prefix has already been
 			# added to hash
@@ -2427,7 +2431,7 @@ sub get_prefix($@)
 		my $dir = dirname($filename);
 
 		for (my $i = 0; $i < $min_dir; $i++) {
-			delete($prefix{$dir."/"});
+			delete($prefix{$dir.$dir_separator});
 			$dir = shorten_prefix($dir);
 		}
 	}
@@ -2463,7 +2467,7 @@ sub get_prefix($@)
 		}
 	}
 
-	$current =~ s/\/$//;
+	$current =~ s/\Q$dir_separator\E$//;
 
 	return($current);
 }
@@ -2477,10 +2481,11 @@ sub get_prefix($@)
 
 sub shorten_prefix($)
 {
-	my @list = split("/", $_[0]);
+
+	my @list = split(/\Q$dir_separator\E/, $_[0]);
 
 	pop(@list);
-	return join("/", @list);
+	return join($dir_separator, @list);
 }
 
 
@@ -2523,6 +2528,13 @@ sub get_relative_base_path($)
 
 	# Count number of /s in path
 	$index = ($_[0] =~ s/\//\//g);
+
+
+	# Count \s as well if under native Windows host
+	if ($^O =~ /Win/)
+	{
+		$index += ($_[0] =~ s/\\/\\/g);
+	}
 
 	# Add a ../ to $result for each / in the directory path + 1
 	for (; $index>=0; $index--)
@@ -2680,9 +2692,12 @@ sub get_date_string()
 sub create_sub_dir($)
 {
 	my ($dir) = @_;
+	stat($dir);
 
-	system("mkdir", "-p" ,$dir)
-		and die("ERROR: cannot create directory $dir!\n");
+	if (! -e _)
+	{
+		make_path ($dir) or die "Couldn't create $dir directory, $!";
+	}
 }
 
 
@@ -5809,7 +5824,7 @@ sub apply_prefix($@)
 			{
 				return "root";
 			}
-			if ($prefix ne "" && $filename =~ /^\Q$prefix\E\/(.*)$/)
+			if ($prefix ne "" && $filename =~ /^\Q$prefix$dir_separator\E(.*)$/)
 			{
 				return substr($filename, length($prefix) + 1);
 			}
@@ -5844,8 +5859,8 @@ sub system_no_output($@)
 	($mode & 2) && open(OLD_STDERR, ">>&", "STDERR");
 
 	# Redirect to /dev/null
-	($mode & 1) && open(STDOUT, ">", "/dev/null");
-	($mode & 2) && open(STDERR, ">", "/dev/null");
+	($mode & 1) && open(STDOUT, ">", $devnull);
+	($mode & 2) && open(STDERR, ">", $devnull);
 
 	system(@_);
 	$result = $?;
