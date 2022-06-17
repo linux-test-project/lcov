@@ -1,11 +1,11 @@
 Summary: A graphical GCOV front-end
 Name: lcov
-Version: 1.15
+Version: 1.16
 Release: 1
 License: GPLv2+
 Group: Development/Tools
-URL: http://ltp.sourceforge.net/coverage/lcov.php
-Source0: http://downloads.sourceforge.net/ltp/%{name}-%{version}.tar.gz
+URL: https://github.com/linux-test-project/lcov
+Source0: https://github.com/linux-test-project/%{name}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-root
 BuildArch: noarch
 Requires: perl >= 5.8.8

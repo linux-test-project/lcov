@@ -60,7 +60,8 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
-use JSON::PP qw(decode_json);
+use Module::Load;
+use Module::Load::Conditional qw(check_install);
 
 if( $^O eq "msys" )
 {
@@ -69,8 +70,8 @@ if( $^O eq "msys" )
 
 # Constants
 our $tool_dir		= abs_path(dirname($0));
-our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --full`;
-our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
+our $lcov_version	= 'LCOV version '.`"$tool_dir"/get_version.sh --full`;
+our $lcov_url		= "https://github.com/linux-test-project/lcov";
 our $gcov_tool		= "gcov";
 our $tool_name		= basename($0);
 
@@ -224,6 +225,7 @@ sub compat_name($);
 sub parse_compat_modes($);
 sub is_compat($);
 sub is_compat_auto($);
+sub load_json_module($);
 
 
 # Global variables
@@ -275,6 +277,7 @@ our $br_coverage = 0;
 our $no_exception_br = 0;
 our $rc_auto_base = 1;
 our $rc_intermediate = "auto";
+our $rc_json_module = "auto";
 our $intermediate;
 our $excl_line = "LCOV_EXCL_LINE";
 our $excl_br_line = "LCOV_EXCL_BR_LINE";
@@ -345,6 +348,7 @@ if ($config || %opt_rc)
 		"geninfo_adjust_src_path"	=> \$rc_adjust_src_path,
 		"geninfo_auto_base"		=> \$rc_auto_base,
 		"geninfo_intermediate"		=> \$rc_intermediate,
+		"lcov_json_module"		=> \$rc_json_module,
 		"geninfo_no_exception_branch"	=> \$no_exception_br,
 		"lcov_function_coverage"	=> \$func_coverage,
 		"lcov_branch_coverage"		=> \$br_coverage,
@@ -503,6 +507,9 @@ if ($intermediate) {
 	if ($no_exception_br && !$gcov_caps->{'json-format'}) {
 		die("ERROR: excluding exception branches is not compatible with ".
 		    "text intermediate format\n");
+	}
+	if ($gcov_caps->{'json-format'}) {
+		load_json_module($rc_json_module);
 	}
 }
 
@@ -2121,7 +2128,7 @@ sub read_intermediate_text($$)
 	while (my $line = <$fd>) {
 		if ($line =~ /^file:(.*)$/) {
 			$filename = $1;
-			chomp($filename);
+			$filename =~ s/[\r\n]$//g;
 		} elsif (defined($filename)) {
 			$data->{$filename} .= $line;
 		}
@@ -2167,6 +2174,13 @@ sub read_intermediate_json($$$)
 	}
 
 	for my $file (@{$json->{"files"}}) {
+		# decode_json() is decoding UTF-8 strings from the JSON file into
+		# Perl's internal encoding, but filenames on the filesystem are
+		# usually UTF-8 encoded, so the filename strings need to be
+		# converted back to UTF-8 so that they actually match the name
+		# on the filesystem.
+		utf8::encode($file->{"file"});
+
 		my $filename = $file->{"file"};
 
 		$data->{$filename} = $file;
@@ -2666,7 +2680,7 @@ sub get_gcov_version()
 	#       Default target: x86_64-apple-darwin16.0.0
 	#       Host CPU: haswell
 
-	open(GCOV_PIPE, "-|", "$gcov_tool --version")
+	open(GCOV_PIPE, "-|", "\"$gcov_tool\" --version")
 		or die("ERROR: cannot retrieve gcov version!\n");
 	local $/;
 	$version_string = <GCOV_PIPE>;
@@ -4465,7 +4479,7 @@ sub debug($)
 
 sub get_gcov_capabilities()
 {
-	my $help = `$gcov_tool --help`;
+	my $help = `"$gcov_tool" --help`;
 	my %capabilities;
 	my %short_option_translations = (
 		'a' => 'all-blocks',
@@ -4701,4 +4715,46 @@ sub is_compat_auto($)
 
 	return 1 if ($compat_value{$mode} == $COMPAT_VALUE_AUTO);
 	return 0;
+}
+
+#
+# load_json_module(rc)
+#
+# If RC is "auto", load best available JSON module from a list of alternatives,
+# otherwise load the module specified by RC.
+#
+sub load_json_module($)
+{
+	my ($rc) = @_;
+	# List of alternative JSON modules to try
+	my @alternatives = (
+	        "JSON::XS",             # Fast, but not always installed
+	        "Cpanel::JSON::XS",     # Fast, a more recent fork
+	        "JSON::PP",             # Slow, part of core-modules
+	        "JSON",                 # Not available in all distributions
+	);
+	my $mod;
+
+	# Determine JSON module
+	if (lc($rc) eq "auto") {
+		for my $m (@alternatives) {
+			if (check_install(module => $m)) {
+				$mod = $m;
+				last;
+			}
+		}
+
+		if (!defined($mod)) {
+			die("No JSON module found (tried ".
+			     join(" ", @alternatives).")\n");
+		}
+	} else {
+		$mod = $rc;
+	}
+
+	eval "load '$mod', 'decode_json'";
+	if ($@) {
+		die("Module is not installed: ". "'$mod'\n");
+	}
+	info("Using JSON module $mod\n");
 }

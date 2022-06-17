@@ -73,8 +73,8 @@ use Cwd qw /abs_path getcwd/;
 
 # Global constants
 our $tool_dir		= abs_path(dirname($0));
-our $lcov_version	= 'LCOV version '.`$tool_dir/get_version.sh --full`;
-our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
+our $lcov_version	= 'LCOV version '.`"$tool_dir"/get_version.sh --full`;
+our $lcov_url		= "https://github.com/linux-test-project/lcov";
 our $tool_name		= basename($0);
 
 # Directory containing gcov kernel files
@@ -131,6 +131,7 @@ sub temp_cleanup();
 sub setup_gkv();
 sub get_overall_line($$$$);
 sub print_overall_rate($$$$$$$$$);
+sub check_rates($$);
 sub lcov_geninfo(@);
 sub create_package($$$;$);
 sub get_func_found_and_hit($);
@@ -159,6 +160,7 @@ our $cwd = `pwd`;	# Current working directory
 our $data_stdout;	# If set, indicates that data is written to stdout
 our $follow;		# If set, indicates that find shall follow links
 our $diff_path = "";	# Path removed from tracefile when applying diff
+our $opt_fail_under_lines = 0;
 our $base_directory;	# Base directory (cwd of gcc during compilation)
 our $checksum;		# If set, calculate a checksum for each line
 our $no_checksum;	# If set, don't calculate a checksum for each line
@@ -254,6 +256,7 @@ if ($config || %opt_rc)
 		"lcov_list_truncate_max"=> \$opt_list_truncate_max,
 		"lcov_branch_coverage"	=> \$br_coverage,
 		"lcov_function_coverage"=> \$func_coverage,
+		"lcov_fail_under_lines" => \$opt_fail_under_lines,
 	});
 }
 
@@ -300,6 +303,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"compat=s" => \$opt_compat,
 		"config-file=s" => \$opt_config_file,
 		"rc=s%" => \%opt_rc,
+		"fail-under-lines=s" => \$opt_fail_under_lines,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -400,6 +404,7 @@ if (!$from_package && !@directory && ($capture || $reset)) {
 	($gcov_gkv, $gcov_dir) = setup_gkv();
 }
 
+our $exit_code = 0;
 # Check for requested functionality
 if ($reset)
 {
@@ -473,6 +478,7 @@ elsif (@opt_summary)
 	($ln_overall_found, $ln_overall_hit,
 	 $fn_overall_found, $fn_overall_hit,
 	 $br_overall_found, $br_overall_hit) = summary();
+	$exit_code = check_rates($ln_overall_found, $ln_overall_hit);
 }
 
 temp_cleanup();
@@ -484,7 +490,7 @@ if (defined($ln_overall_found)) {
 } else {
 	info("Done.\n") if (!$list && !$capture);
 }
-exit(0);
+exit($exit_code);
 
 #
 # print_usage(handle)
@@ -545,6 +551,8 @@ Options:
       --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN           Include files matching PATTERN
       --exclude PATTERN           Exclude files matching PATTERN
+      --fail-under-lines MIN      Exit with a status of 1 if the total line
+                                  coverage is less than MIN (summary option).
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -4291,6 +4299,33 @@ sub print_overall_rate($$$$$$$$$)
 	info("  branches...: %s\n",
 	     get_overall_line($br_found, $br_hit, "branch", "branches"))
 		if ($br_do);
+}
+
+#
+# check_rates(ln_found, ln_hit)
+#
+# Check line coverage if it meets a specified threshold.
+#
+
+sub check_rates($$)
+{
+	my ($ln_found, $ln_hit) = @_;
+
+	if ($opt_fail_under_lines <= 0) {
+		return 0;
+	}
+
+	if ($ln_found == 0) {
+		return 1;
+	}
+
+	my $actual_rate = ($ln_hit / $ln_found);
+	my $expected_rate = $opt_fail_under_lines / 100;
+	if ($actual_rate >= $expected_rate) {
+		return 0;
+	} else {
+		return 1;
+	}
 }
 
 

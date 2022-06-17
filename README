@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (LCOV) -
-- Last changes: 2019-02-28                      -
+- Last changes: 2022-06-03                      -
 -------------------------------------------------
 
 Description
@@ -53,7 +53,7 @@ Further README contents
 ------------------
 The LCOV package is available as either RPM or tarball from:
      
-  http://ltp.sourceforge.net/coverage/lcov.php
+  https://github.com/linux-test-project/lcov/releases
 
 To install the tarball, unpack it to a directory and run:
 
@@ -68,14 +68,13 @@ Change to the resulting lcov directory and type:
   make install
 
 
-3. An example of how to access kernel coverage data
----------------------------------------------------
-Requirements: get and install the gcov-kernel package from
+3. An example of how to access Linux kernel coverage data
+---------------------------------------------------------
+Requirements: Follow the Linux kernel coverage setup instructions at:
 
-  http://sourceforge.net/projects/ltp
+  https://docs.kernel.org/dev-tools/gcov.html
 
-Copy the resulting gcov kernel module file to either the system wide modules
-directory or the same directory as the Perl scripts. As root, do the following:
+As root, do the following:
 
   a) Resetting counters
 
@@ -130,6 +129,7 @@ consult the gcov man page.
 -------------------------
 See the included man pages for more information on how to use the LCOV tools.
 
-Please email further questions or comments regarding this tool to the
-LTP Mailing list at ltp-coverage@lists.sourceforge.net  
+In case of further questions, feel free to open a new issue using the issue
+tracker on the LCOV code repository site at:
 
+  https://github.com/linux-test-project/lcov

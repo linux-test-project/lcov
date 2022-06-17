@@ -1,4 +1,4 @@
-.TH lcov 1 "LCOV 1.15" 2020\-07\-31 "User Manuals"
+.TH lcov 1 "LCOV 1.16" 2022\-06\-03 "User Manuals"
 .SH NAME
 lcov \- a graphical GCOV front\-end
 .SH SYNOPSIS
@@ -170,6 +170,8 @@ lcov \- a graphical GCOV front\-end
 .RS 5
 .br
 .RB [ \-q | \-\-quiet ]
+.RB [ \-\-fail-under-lines
+.IR percentage ]
 .br
 .RE
 
@@ -198,7 +200,7 @@ you have to complete the following preparation steps:
 For Linux kernel coverage:
 .RS
 Follow the setup instructions for the gcov\-kernel infrastructure:
-.I http://ltp.sourceforge.net/coverage/gcov.php
+.I https://docs.kernel.org/dev-tools/gcov.html
 .br
 
 
@@ -842,6 +844,14 @@ Note that you may specify this option more than once.
 
 Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
 specified at a time.
+.RE
+
+.B \-\-fail-under-lines
+.I percentage
+.br
+.RS
+Use this option together with \-\-summary to tell lcov to exit with a status of 1 if the total
+line coverage is less than percentage.
 .RE
 
 .B \-t
