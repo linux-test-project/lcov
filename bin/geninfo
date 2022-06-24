@@ -71,7 +71,7 @@ use FindBin;
 
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (define_errors parse_ignore_errors
-                 ignorable_error ignorable_warning
+                 ignorable_error ignorable_warning is_ignored
                  set_info_callback info debug $debug
                  system_no_output
                  die_handler warn_handler $tool_name
@@ -914,6 +914,16 @@ sub gen_info($)
 	$tempFileExt = ".gz"
 	  if $output_filename =~ /\.gz$/;
 	foreach my $file (@file_list) {
+	  # workaround:  skip the .gcda file if there is no .gcno (??)
+	  if (lcovutil::is_ignored($ERROR_GCOV) &&
+	      $file =~ /\.gcda$/ ) {
+	    my $gcno_file = $file;
+	    $gcno_file =~ s/\.gcda$/.gcno/;
+	    if ( ! -f $gcno_file ) {
+	      lcovutil::ignorable_error($ERROR_GCOV, "skipping .gcda file $file because corresponding .gcno file is missing\n");
+	      next;
+	    }
+	  }
 	  if (1 < $lcovutil::maxParallelism &&
 	      scalar(@file_list) > 1) {
 	    if ($currentParallel >= $lcovutil::maxParallelism) {

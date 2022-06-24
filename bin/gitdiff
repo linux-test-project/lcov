@@ -3,19 +3,32 @@
 use Getopt::Long;
 use strict;
 
+my $verbose = 0;
+
 sub include_me {
   my ($path, $includes, $excludes) = @_;
 
   foreach my $pat (@$excludes) {
-    return 0
-      if $path =~ /$pat/;
+    if ($path =~ /$pat/) {
+      if ($verbose) {
+	print(STDERR "exclude '$path', pattern '$pat'\n");
+      }
+      return 0;
+    }
   }
   return 1 
     if 0 == scalar(@$includes);
 
   foreach my $pat (@$includes) {
-    return 1
-      if ($path =~ /$pat/);
+    if ($path =~ /$pat/) {
+      if ($verbose) {
+	print(STDERR "include '$path', pattern '$pat'\n");
+      }
+      return 1;
+    }
+  }
+  if ($verbose > 1) {
+    print(STDERR "exclude '$path': no match\n");
   }
   return 0;
 }
@@ -27,7 +40,8 @@ my $suppress_unchanged;
 
 if ( ! GetOptions("exclude=s" => \@exclude_patterns,
                   "include=s" => \@include_patterns,
-                  'no-unchanged' => \$suppress_unchanged) ||
+                  'no-unchanged' => \$suppress_unchanged,
+		  'verbose+' => \$verbose) ||
      (2 != scalar(@ARGV) &&
       3 != scalar(@ARGV)) ) {
   print(STDERR "usage: [(--exclude|include) regexp[,regexp]] [dir] base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n");
@@ -35,6 +49,17 @@ if ( ! GetOptions("exclude=s" => \@exclude_patterns,
 }
 @exclude_patterns = split(',', join(',', @exclude_patterns));
 @include_patterns = split(',', join(',', @include_patterns));
+
+if ($verbose) {
+  print(STDERR join(' ', @ARGV));
+  if (scalar(@exclude_patterns)) {
+    print(STDERR " --exclude " . join(" --exclude ", @exclude_patterns));
+  }
+  if (scalar(@include_patterns)) {
+    print(STDERR " --include " . join(" --include ", @include_patterns));
+  }
+  print(STDERR "\n");
+}
 
 my $cmd;
 if (3 == scalar(@ARGV)) {
