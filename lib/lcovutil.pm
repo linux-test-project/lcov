@@ -24,7 +24,7 @@ our @EXPORT_OK =
      strip_directories
      @file_subst_patterns subst_file_name
 
-     $cpp_demangle
+     $cpp_demangle $cpp_demangle_tool $cpp_demangle_params do_mangle_check
      verbose debug $debug $verbose
 
      $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE $FILTER_FUNCTION_ALIAS
@@ -93,6 +93,8 @@ our @file_subst_patterns;
 
 # C++ demangling
 our $cpp_demangle;
+our $cpp_demangle_tool = "c++filt"; # Default demangler for C++ function names
+our $cpp_demangle_params = ""; # Extra parameters for demangling
 
 our $extractVersionScript; # script/callback to find version ID of file
 
@@ -400,6 +402,24 @@ sub set_rtl_extensions {
 sub set_c_extensions {
   my $str = shift;
   $c_file_extensions = join('|', split(',', $str));
+}
+
+sub do_mangle_check {
+  $lcovutil::cpp_demangle = $lcovutil::cpp_demangle_tool;
+  $lcovutil::cpp_demangle .= ' ' . $lcovutil::cpp_demangle_params
+    if '' ne $lcovutil::cpp_demangle_params;
+  $lcovutil::cpp_demangle =~ s/^\s*(\S+)\s*$/$1/;
+
+  my @params = split(" ", $lcovutil::cpp_demangle);
+  my $tool = $params[0];
+  die("ERROR: could not find $tool tool needed for --demangle-cpp")
+    if (lcovutil::system_no_output(3, "echo \"\" | $tool"));
+
+  # Extra flag necessary on OS X so that symbols listed by gcov get demangled
+  # properly.
+  $lcovutil::cpp_demangle .= " --no-strip-underscores"
+    if (scalar(@params) == 1 &&
+	$^ eq "darwin");
 }
 
 #
@@ -2131,10 +2151,10 @@ sub open {
       push(@excluded, ($exclude_region ? 1 : 0) | ($exclude_br_region ? 2 : 0));
     }
     lcovutil::ignorable_error($ERROR_MISMATCH,
-			      "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP")
+                              "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP")
       if $exclude_region;
     lcovutil::ignorable_error($ERROR_MISMATCH,
-			      "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP")
+                              "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP")
       if $exclude_br_region;
 
     $self->setData($filename, \@sourceLines, \@excluded);
@@ -2482,7 +2502,6 @@ sub is_c_file {
 #
 # Die on error.
 #
-my $didMangleCheck = 0;
 sub _read_info {
   my ($self, $tracefile, $readSourceCallback) = @_;
 
@@ -2524,21 +2543,6 @@ sub _read_info {
   if (!(-f _))
   {
     die("ERROR: not a plain file: $tracefile!\n");
-  }
-
-  if (defined($lcovutil::cpp_demangle) &&
-      ! $didMangleCheck) {
-    $didMangleCheck = 1;
-    my @params = split(" ", $lcovutil::cpp_demangle);
-    my $tool = $params[0];
-    die("ERROR: could not find $tool tool needed for --demangle-cpp")
-      if (lcovutil::system_no_output(3, "echo \"\" | $tool"));
-
-    # Extra flag necessary on OS X so that symbols listed by gcov get demangled
-    # properly.
-    $lcovutil::cpp_demangle .= " --no-strip-underscores"
-      if (scalar(@params) == 1 &&
-          $^ eq "darwin");
   }
 
   # Check for .gz extension

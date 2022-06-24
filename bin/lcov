@@ -79,6 +79,7 @@ use lib "$FindBin::Bin/../lib";
 use lcovutil qw ($tool_name $quiet
                  define_errors parse_ignore_errors ignorable_error
                  info set_info_callback verbose $verbose
+                 $cpp_demangle $cpp_demangle_tool $cpp_demangle_params do_mangle_check
                  debug $debug
                  die_handler warn_handler abort_handler
                  append_tempdir temp_cleanup
@@ -178,6 +179,8 @@ our $reset;		# If set, reset all coverage data to zero
 our $capture;		# If set, capture data
 our $prune_testcases;   # If set, try to filter out useless tests that do not
 		        # contribute new coverage or new coverpoints
+our $function_mapping;  # If set, create map of unique function to list of testcase/info
+		        #   files which hit that function at least once
 our $output_filename;	# Name for file to write coverage data to
 our $test_name = "";	# Test case name
 our $help;		# Help option flag
@@ -243,6 +246,7 @@ Getopt::Long::Configure("default");
 
 my $rtlExtensions;
 my $cExtensions;
+our $demangle_cpp;
 
 lcovutil::apply_rc_params($opt_config_file,
 			  { "lcov_gcov_dir"	     => \$gcov_dir,
@@ -258,6 +262,9 @@ lcovutil::apply_rc_params($opt_config_file,
 			    'ignore_errors'          => \@opt_ignore_errors,
 			    "profile"            => \$lcovutil::profile,
 			    "parallel"           => \$lcovutil::maxParallelism,
+			    "genhtml_demangle_cpp"       => \$demangle_cpp,
+			    "genhtml_demangle_cpp_tool"  => \$lcovutil::cpp_demangle_tool,
+			    "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
 			  });
 
 set_rtl_extensions($rtlExtensions)
@@ -291,6 +298,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"compat-libtool" => \$compat_libtool,
 		"no-compat-libtool" => \$no_compat_libtool,
 		"gcov-tool=s" => \$gcov_tool,
+                "demangle-cpp"    => \$demangle_cpp,
 		"ignore-errors=s" => \@opt_ignore_errors,
 		"filter=s" => \@opt_filter,
 		"initial|i" => \$initial,
@@ -316,6 +324,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
                 "version-script=s" => \$lcovutil::extractVersionScript,
 		"parallel|j=i"     => \$lcovutil::maxParallelism,
 		"prune-tests" => \$prune_testcases,
+		"map-functions" => \$function_mapping,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -373,6 +382,12 @@ parse_cov_filters(@opt_filter);
 if ($opt_list_width <= 40) {
 	die("ERROR: lcov_list_width parameter out of range (needs to be ".
 	    "larger than 40)\n");
+}
+
+# Ensure that the c++filt tool is available when using --demangle-cpp
+if ($demangle_cpp)
+{
+  lcovutil::do_mangle_check();
 }
 
 if (0 == $lcovutil::maxParallelism) {
@@ -473,28 +488,25 @@ elsif ($capture)
 }
 elsif (@add_tracefile)
 {
-  if (defined($prune_testcases)) {
+  if ($function_mapping) {
+    $function_mapping = {};
+    add_traces();
+
+    my $file = OutputFile->new($output_filename);
+    my $hdl = $file->hdl();
+    while (my ($key, $data) = each(%$function_mapping)) {
+      print($hdl $data->[0] . ": " . $key . "\n");
+      foreach my $f (@{$data->[1]}) {
+	print($hdl "  $f\n");
+      }
+    }
+  } elsif (defined($prune_testcases)) {
     my ($pruned, $merged) = add_traces();
 
     info("Pruned result: retained " . scalar(@$pruned) . " of " . scalar(@$merged) . " files\n");
-    if ($output_filename eq '-') {
-      print(join("\n", @$pruned) . "\n");
-    } else {
-      if ($output_filename =~ /\.gz$/) {
-	# Check for availability of GZIP tool
-	system_no_output(1, "gzip" ,"-h")
-	  and die("ERROR: gzip command not available!\n");
-
-	# Open compressed file
-	open(INFO_HANDLE, "|-", "gzip -c >$output_filename")
-	  or die("ERROR: cannot start gzip to compress to file $output_filename!\n");
-      } else {
-	open(INFO_HANDLE, ">", $output_filename)
-	  or die("ERROR: cannot write to $output_filename!\n");
-      }
-      print(INFO_HANDLE join("\n", @$pruned) . "\n");
-      close(*INFO_HANDLE);
-    }
+    my $file = OutputFile->new($output_filename);
+    my $hdl = $file->hdl();
+    print($hdl join("\n", @$pruned). "\n");
   } else {
     ($ln_overall_found, $ln_overall_hit,
      $fn_overall_found, $fn_overall_hit,
@@ -596,6 +608,8 @@ Operation:
   -l, --list FILE                 List contents of tracefile FILE
       --diff FILE DIFF            Transform tracefile FILE according to DIFF
       --summary FILE              Show summary coverage data for tracefiles
+      --prune-tests               Show lists of files which affect coverage statistics
+      --map-functions             Show lists of files which hit each unique function
 
 Options:
   -i, --initial                   Capture initial zero coverage data
@@ -613,6 +627,7 @@ Options:
       --gcov-tool TOOL            Specify gcov tool location
       --ignore-errors ERRORS      Continue after ERRORS (gcov, source, graph)
       --filter TYPE               Ignore coverpoints of TYPE (branch, line)
+      --demangle-cpp              Demangle C++ function names
       --no-recursion              Exclude subdirectories from processing
       --to-package FILENAME       Store unprocessed coverage data in FILENAME
       --from-package FILENAME     Capture from unprocessed data in FILENAME
@@ -1653,8 +1668,26 @@ sub _process_segment($$$) {
     my $current = TraceFile->load($tracefile, $readSourceFile);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{parse}{$tracefile} = $then - $now;
-    if ($total_trace->append_tracefile($current)) {
-      push(@interesting, $tracefile);
+    if ($function_mapping) {
+      foreach my $srcFileName ($current->files()) {
+	my $traceInfo = $current->data($srcFileName);
+	my $funcData = $traceInfo->func();
+	foreach my $funcKey ($funcData->keylist()) {
+	  my $funcEntry = $funcData->findKey($funcKey);
+	  if (0 != $funcEntry->hit()) {
+	    # function is hit in this file
+	    $function_mapping->{$funcKey} = [$funcEntry->name(), []]
+	      unless exists($function_mapping->{$funcKey});
+	    die("mismatchef function name for " . $funcEntry->name() . " at $funcKey in $tracefile")
+	      unless $funcEntry->name() eq $function_mapping->{$funcKey}->[0];
+	    push(@{$function_mapping->{$funcKey}->[1]}, $tracefile);
+	  }
+	}
+      }
+    } else {
+      if ($total_trace->append_tracefile($current)) {
+	push(@interesting, $tracefile);
+      }
     }
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{append}{$tracefile} = $end - $then;
@@ -1724,7 +1757,6 @@ sub add_traces()
       my $pid = fork();
       if (0 == $pid) {
 	# I'm the child
-<<<<<<< HEAD
 	my $stdout_file = "lcov_$$.log";
 	my $stderr_file = "lcov_$$.err";
 	local(*STDERR);
@@ -1743,8 +1775,8 @@ sub add_traces()
 	$lcovutil::profileData{$idx}{total} = $then - $now;
 	my $file = "dumper_$$";
 	if (open(DUMPER, ">", $file)) {
-	  print DUMPER Data::Dumper->Dump([$total_trace, \@interesting, \%lcovutil::profileData],
-					  [qw(current interesting profile)]);
+	  print DUMPER Data::Dumper->Dump([$total_trace, \@interesting, $function_mapping, \%lcovutil::profileData],
+					  [qw(current interesting func_map profile)]);
 	} else {
 	  die "unable to open $file: $!";
 	}
@@ -1787,14 +1819,25 @@ sub add_traces()
 	  # slurp into a string and eval..
 	  my $str = do { local $/; <RESTORE> }; # slurp whole thing
 	  close(RESTORE);
-	  my ($current, $interesting, $profile);
+	  my ($current, $interesting, $func_map, $profile);
 	  eval $str;
 	  my $then = Time::HiRes::gettimeofday();
-	  $lcovutil::profileData{undump}{$idx} = $then - $now;
-	  if ($total_trace->append_tracefile($current)) {
-	    # something in this segement improved coverage...so save
-	    #   the effective input files from this one
-	    push(@effective, @$interesting);
+	  $lcovutil::profileData{$idx}{undump} = $then - $now;
+	  $lcovutil::profileData{$idx}{total} = $profile->{$idx}{total};
+	  if ($function_mapping) {
+	    while (my ($key, $data) = each(%$func_map)) {
+	      $function_mapping->{$key} = [$data->[0], []]
+		unless exists($function_mapping->{$key});
+	      die("mimatched function name '" . $data->[0] . "' at $key")
+		unless($data->[0] eq $function_mapping->{$key}->[0]);
+	      push(@{$function_mapping->{$key}->[1]}, @{$data->[1]});
+	    }
+	  } else {
+	    if ($total_trace->append_tracefile($current)) {
+	      # something in this segment improved coverage...so save
+	      #   the effective input files from this one
+	      push(@effective, @$interesting);
+	    }
 	  }
 	  foreach my $k ('parse', 'append') {
 	    $lcovutil::profileData{$idx}{$k} = {};
@@ -1822,7 +1865,9 @@ sub add_traces()
   lcovutil::reenable_cov_filters($save_filters);
 
   my @result;
-  if ($prune_testcases) {
+  if ($function_mapping) {
+    return @result;
+  } elsif ($prune_testcases) {
     push(@result, \@effective, \@merge);
   } else {
     # write the result

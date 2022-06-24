@@ -107,7 +107,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-o | \-\-output\-file
 .IR tracefile ]
 .br
-.RB [\-\-prune-tests]
+.RB [\-\-prune\-tests]
+.br
+.RB [\-\-map\-functions]
 .br
 .RB [ \-\-checksum ]
 .RB [ \-\-no\-checksum ]
@@ -616,6 +618,18 @@ lcov will emit the list of retained files rather than the test report.
 
 This option has an effect only with \-\-add\-tracefile.
 
+.RE
+
+.B \-\-map\-functions
+.br
+.RS
+Keep track of testcases (trace files) which hit each unique function.
+
+lcov will emit the list of tests for each function, along with the file/line location f the function.
+
+This option has an effect only with \-\-add\-tracefile.
+
+.RE
 .B \-\-version\-script
 .I script_file
 .br
@@ -783,13 +797,20 @@ revision control IDs of the file which we are trying to merge are not the same -
 various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
 
 .RE
-
-.RE
 .BI "\-\-filter "
 .I filters
 .RS
 Specify a list of coverpoint filters to apply to input data.
 See the genhtml man page for details.
+
+
+.RE
+.BI "\-\-demangle\-cpp "
+.RS
+Demangle C++ function names.  See the genhtml man page for details.
+
+
+.RE
 
 .B \-i
 .br

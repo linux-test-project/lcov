@@ -101,7 +101,8 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED
                  $ERROR_PARALLEL report_parallel_error
-                 info verbose $verbose $cpp_demangle
+                 info verbose $verbose
+                 $cpp_demangle $cpp_demangle_tool $cpp_demangle_params do_mangle_check
                  %opt_rc apply_rc_params
                  strip_directories
                  set_rtl_extensions set_c_extensions
@@ -3937,8 +3938,6 @@ our $html_epilog;       # Actual HTML epilog
 our $html_ext = "html"; # Extension for generated HTML files
 our $html_gzip = 0;     # Compress with gzip
 our $demangle_cpp = 0;  # Demangle C++ function names
-our $demangle_cpp_tool = "c++filt"; # Default demangler for C++ function names
-our $demangle_cpp_params = ""; # Extra parameters for demangling
 our @opt_ignore_errors; # Ignore certain error classes during processing
 our @opt_filter;        # Filter out requested coverpoints
 our @ignore;
@@ -4009,8 +4008,8 @@ lcovutil::apply_rc_params($opt_config_file,
                 "genhtml_charset"               => \$charset,
                 "genhtml_desc_html"             => \$rc_desc_html,
                 "genhtml_demangle_cpp"          => \$demangle_cpp,
-                "genhtml_demangle_cpp_tool"     => \$demangle_cpp_tool,
-                "genhtml_demangle_cpp_params"   => \$demangle_cpp_params,
+                "genhtml_demangle_cpp_tool"     => \$lcovutil::cpp_demangle_tool,
+                "genhtml_demangle_cpp_params"   => \$lcovutil::cpp_demangle_params,
                 "genhtml_missed"                => \$opt_missed,
                 "genhtml_dark_mode"             => \$dark_mode,
                 "genhtml_hierarchical"          => \$hierarchical,
@@ -4312,10 +4311,7 @@ if ($frames)
 # Ensure that the c++filt tool is available when using --demangle-cpp
 if ($demangle_cpp)
 {
-  $lcovutil::cpp_demangle = $demangle_cpp_tool;
-  $lcovutil::cpp_demangle .= ' ' . $demangle_cpp_params
-    if defined($demangle_cpp_params);
-  $lcovutil::cpp_demangle =~ s/^\s*(\S+)\s*$/$1/;
+  lcovutil::do_mangle_check();
 }
 
 # Make sure precision is within valid range
