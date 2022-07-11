@@ -4405,6 +4405,8 @@ lcovutil::apply_rc_params($opt_config_file,
                 "ignore_errors"                 => \@opt_ignore_errors,
                 "rtl_file_extensions"           => \$rtlExtensions,
                 "c_file_extensions"             => \$cExtensions,
+                "filter_lookahead"              => \$lcovutil::source_filter_lookahead,
+                "filter_bitwise_conditional"    => \$lcovutil::source_filter_bitwise_are_conditional,
                 "profile"                       => \$lcovutil::profile,
                 "parallel"                      => \$lcovutil::maxParallelism,
               });

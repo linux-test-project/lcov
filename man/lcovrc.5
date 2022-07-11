@@ -90,6 +90,16 @@ genhtml_med_limit = 75
 #rtl_file_extensions = v,vh,sv
 .br
 
+# maxmimum number of lines to look at, when filtering bogus branch expressions
+.br
+#filter_lookahead = 5
+.br
+
+# if nonzero, bitwise operators '|', '&', '~' indicate conditiional expressions
+.br
+#filter_bitwise_conditional = 1
+.br
+
 # Width of line coverage field in source code view
 .br
 genhtml_line_field_width = 12
@@ -436,6 +446,33 @@ Specify a comma-separage list of file extensions which should be assumed to be C
 .br
 
 If not specified, the default set is 'c,h,i,C,H,I,icc,cpp,cc,cxx,hh,hpp,hxx'.
+There is no command line option equivalent.
+.br
+This option is used by genhtml and lcov.
+
+.PP
+
+.BR filter_lookahead " ="
+.IR integer
+.IP
+Specify the maximum number of lines to look at when filtering bogus branch expressions.
+A larger number may catch more cases, but will increase execution time.
+.br
+
+If not specified, the default set is 10.
+There is no command line option equivalent.
+.br
+This option is used by genhtml and lcov.
+
+.PP
+
+.BR filter_bitwise_conditional " ="
+.IR 0|1
+.IP
+If set to non-zero value, bogus branch filtering will assume that expressions containing  bitwise operators '&', '|', '~' are conditional expressions - and will not filter them out.
+.br
+
+If not specified, the default set is 0 (do not treat them as conditional).
 There is no command line option equivalent.
 .br
 This option is used by genhtml and lcov.

@@ -609,6 +609,11 @@ This option has no effect unless
 .I \-\-branch\-coverage
 is used.
 
+See also the lcovrc man page - which describes several variables which affect branch filtering:
+.I filter_lookahead
+and
+.I filter_bitwise_conditional.
+
 .B line:
 ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceeding line has the same count or if the close brace has a zero count and either the preceding line has a non\-zero count or the close brace is not the body of a conditional.
 Also ignore line coverage counts on empty lines (whitespace only).

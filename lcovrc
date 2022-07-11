@@ -40,6 +40,11 @@ genhtml_med_limit = 75
 # (comma-separated list)
 #c_file_extensions = h,c,i,C,H,I,cpp,hpp,icc,cc,hh,cxx,hxx
 
+# maxmimum number of lines to look at, when filtering bogus branch expressions
+#filter_lookahead = 5
+
+# if nonzero, bitwise operators '|', '&', '~' indicate conditiional expressions
+#filter_bitwise_conditional = 1
 
 # Width of line coverage field in source code view
 genhtml_line_field_width = 12

@@ -1,3 +1,3 @@
 include ../common.mak
 
-TESTS := simple
+TESTS := simple filter

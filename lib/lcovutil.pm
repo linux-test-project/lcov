@@ -37,6 +37,7 @@ our @EXPORT_OK =
      disable_cov_filters reenable_cov_filters
      filterStringsAndComments simplifyCode balancedParens
      set_rtl_extensions set_c_extensions
+     $source_filter_lookahead $source_filter_bitwise_are_conditional
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
@@ -146,6 +147,10 @@ our %excluded_files;
 
 our $rtl_file_extensions = 'v|vh|sv|vhdl?';
 our $c_file_extensions = 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx';
+our $source_filter_lookahead = 10; # don't look more than 5 lines ahead when filtering
+# by default, don't treat expressions containing bitwise operators '|', '&', '~'
+#   as conditional in bogus branch filtering
+our $source_filter_bitwise_are_conditional = 0;
 
 our %tlaColor = (
     "UBC" => "#FDE007",
@@ -780,7 +785,7 @@ sub filterStringsAndComments {
   my $src_line = shift;
 
   # remove compiler directives
-  $src_line =~ s/\s*#.*$//g;
+  $src_line =~ s/^\s*#.*$//g;
   # remove comments
   $src_line =~ s#(/\*.*?\*/|//.*$)##g;
   # remove strings
@@ -807,8 +812,13 @@ sub simplifyCode {
   }
   # remove ref and pointer decl
   $src_line =~ s/^\s*$id[&*]\s*($id)/$3/g;
-  # C-style cast
-  $src_line =~ s/\(\s*${id}[*&]\s*\)//g;
+  # cast which contains optional location spec
+  my $cast = "\\s*${id}(\\s+$id)?[*&]\\s*";
+  # C-style cast - with optional location spec
+  $src_line =~ s/\($cast\)//g;
+  $src_line =~ s/\b(reinterpret|dynamic|const)_cast<$cast>//g;
+  # remove addressOf that follows an open paren or a comma
+  #$src_line =~ s/([(,])\s*[&*]\s*($id)/$1 $2/g;
 
   # remove some characters which might look like conditionals
   $src_line =~ s/(->|>>|<<|::)//g;
@@ -2238,16 +2248,17 @@ sub containsConditional {
   my $foundCond = 1;
 
   my $code = "";
-  my $limit = 5; # don't look more than 5 lines ahead
   for (my $next = $line+1
-       ; defined($src) && ($next - $line) < $limit
+       ; defined($src) && ($next - $line) < $lcovutil::source_filter_lookahead
        ; ++ $next) {
 
     $src = lcovutil::filterStringsAndComments($src);
 
     $src = lcovutil::simplifyCode($src);
 
-    last if ($src =~ /([?|!~><]|&&|==|!=|\b(if|switch|case|while|for)\b)/);
+    my $bitwiseOperators = $lcovutil::source_filter_bitwise_are_conditional ? '&|~' : '';
+
+    last if ($src =~ /([?!><$bitwiseOperators]|&&|\|\||==|!=|\b(if|switch|case|while|for)\b)/);
 
     $code = $code . $src;
 
