@@ -3986,9 +3986,8 @@ sub top() {
 
 sub add_dependency {
   my ($parent, $name) = @_;
-  die("duplicate dependency")
-    if exists ($parent->[1]->{$name});
-  print("add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n");
+  print("add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n")
+    unless exists ($parent->[1]->{$name});
   $parent->[1]->{$name} = 1;
 }
 
