@@ -419,7 +419,7 @@ sub do_mangle_check {
   # properly.
   $lcovutil::cpp_demangle .= " --no-strip-underscores"
     if (scalar(@params) == 1 &&
-	$^ eq "darwin");
+        $^ eq "darwin");
 }
 
 #
@@ -987,14 +987,14 @@ sub new {
     if ($f =~ /\.gz$/) {
       # Check for availability of GZIP tool
       system_no_output(1, "gzip" ,"-h")
-	and die("ERROR: gzip command not available!\n");
+        and die("ERROR: gzip command not available!\n");
 
       # Open compressed file
       open(HANDLE, "|-", "gzip -c >$f")
-	or die("ERROR: cannot start gzip to compress to file $f!\n");
+        or die("ERROR: cannot start gzip to compress to file $f!\n");
     } else {
       open(HANDLE, ">", $f)
-	or die("ERROR: cannot write to $f!\n");
+        or die("ERROR: cannot write to $f!\n");
     }
     $self->[0] = \*HANDLE;
   }
@@ -2191,6 +2191,10 @@ sub getLine {
 
 sub isExcluded {
   my ($self, $lineNo, $branch) = @_;
+  die("unknown $lineNo for " . $self->filename()
+      . (defined($self->[2]) ? (" defined " . scalar(@{$self->[2]})) : "" ))
+    if (! defined($self->[2]) ||
+        scalar(@{$self->[2]}) < $lineNo);
   return 1
     if ($branch &&
         0 != ($self->[2]->[$lineNo-1] & 2));

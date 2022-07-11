@@ -37,13 +37,13 @@ class GenerateSpreadsheet(object):
                 with open(name) as f:
                     data = json.load(f)
             except Exception as err:
-                print("unable to parse %s: %s" % (name, str(err)))
+                print("%s: unable to parse: %s" % (name, str(err)))
 
             try:
                 tool = data['config']['tool']
             except:
                 tool = 'unknown'
-                print("unknown tool")
+                print("%s: unknown tool" %(name))
 
             p, f = os.path.split(name)
             if os.path.splitext(f)[0] == tool:
@@ -116,20 +116,24 @@ class GenerateSpreadsheet(object):
                                     effectiveParallelism += sep + xl_rowcol_to_cell(row, 2)
                                     sep = "+"
                             except:
-                                print("failed to write %s for lcov[seg %d][%s]" % (str(d[k]), seg, k))
+                                print("%s: failed to write %s for lcov[seg %d][%s]" % (
+                                    name, str(d[k]) if k in d else "??", seg, k))
                             row += 1
                         begin = row
                         for k in ('parse', 'append'):
-                            d2 = d[k]
-                            sheet.write_string(row, 1, k)
-                            for f in sorted(d2.keys()):
-                                sheet.write_string(row, 2, f)
-                                try:
-                                    sheet.write_number(row, 3, float(d2[f]), twoDecimal)
-                                except:
-                                    print("failed to write %s for lcov[seg %d][%s][$s]" % (str(d2[f]), seg, k, f))
+                            try:
+                                # don't crash on partially corrupt profile data
+                                d2 = d[k]
+                                sheet.write_string(row, 1, k)
+                                for f in sorted(d2.keys()):
+                                    sheet.write_string(row, 2, f)
+                                    try:
+                                        sheet.write_number(row, 3, float(d2[f]), twoDecimal)
+                                    except:
+                                        print("%s: failed to write %s for lcov[seg %d][%s][$s]" % (name, str(d2[f]), seg, k, f))
                                 row += 1
-
+                            except:
+                                print("%s: failed to write %s for lcov[seg %d]" % (name, k, seg))
                     effectiveParallelism += ")/%(total)s" % {
                         'total': total,
                     }
@@ -141,21 +145,26 @@ class GenerateSpreadsheet(object):
                     # not segmented - just print everything...
                     for k in ('total', 'merge', 'undump'):
                         sheet.write_string(row, 1, k)
+                        val = 'NA'
                         try:
-                            sheet.write_number(row, 2, float(data[k]), twoDecimal)
+                            val = data[k]
+                            sheet.write_number(row, 2, float(val), twoDecimal)
                         except:
-                            print("failed to write %s for lcov[%s]" % (str(data[k]), k))
+                            print("%s: failed to write %s for lcov[%s]" % (name, str(val), k))
                             row += 1
                     for k in ('parse', 'append'):
-                        d2 = data[k]
-                        sheet.write_string(row, 1, k)
-                        for f in sorted(d2.keys()):
-                            sheet.write_string(row, 2, f)
-                            try:
-                                sheet.write_number(row, 3, float(d2[f]), twoDecimal)
-                            except:
-                                print("failed to write %s for lcov[%s][$s]" % (str(d2[f]), k, f))
+                        try:
+                            d2 = data[k]
+                            sheet.write_string(row, 1, k)
+                            for f in sorted(d2.keys()):
+                                sheet.write_string(row, 2, f)
+                                try:
+                                    sheet.write_number(row, 3, float(d2[f]), twoDecimal)
+                                except:
+                                    print("%s: failed to write %s for lcov[%s][$s]" % (name, str(d2[f]), k, f))
                             row += 1
+                        except:
+                            print("%s: failed to file key '%s' in %s" %(name, k))
 
                 # go on to the next file
                 continue
@@ -184,8 +193,7 @@ class GenerateSpreadsheet(object):
                             try:
                                 sheet.write_number(row, 3, float(d3), twoDecimal)
                             except:
-                                pdb.set_trace()
-                                print("failed to write %s for geninfo[%s][%s]" % (str(d3), type, f))
+                                print("%s: failed to write %s for geninfo[%s][%s]" % (name, str(d3), type, f))
                             col = 4
                             try:
                                 for key in ('process', 'parse', 'append'):
@@ -244,7 +252,7 @@ class GenerateSpreadsheet(object):
                                 try:
                                     sheet.write_number(row, col+1, float(data[k][f]), twoDecimal)
                                 except:
-                                    print("failed to write %s" %(data[k][f]))
+                                    print("%s: failed to write %s" %(name, data[k][f]))
                                 col += 2
                         row += 1
                     effectiveParallelism = "+SUM(%(from)s:%(to)s)/%(total)s" % {
@@ -278,7 +286,7 @@ class GenerateSpreadsheet(object):
                         try:
                             sheet.write_number(row, 2, float(d[n]), twoDecimal)
                         except:
-                            print("failed to write %s for [%s][%s]" %(str(d[n]), k, n))
+                            print("%s: failed to write %s for [%s][%s]" %(name, str(d[n]), k, n))
                         row += 1;
                     continue
                 elif k in ('config', 'overall', 'total'):

@@ -78,6 +78,7 @@ use strict;
 use warnings;
 
 use File::Basename;
+use File::Path;
 use File::Spec;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
@@ -229,11 +230,9 @@ lcovutil::define_errors(\%htmlErrs);
 sub print_usage(*);
 sub gen_html();
 sub html_create($$);
-sub process_dir($$$);
-sub process_file($$$$);
+sub process_file($$$$$);
 sub get_prefix($@);
 sub shorten_prefix($);
-sub get_dir_list(@);
 sub get_relative_base_path($);
 sub read_testfile($);
 sub get_date_string($);
@@ -439,6 +438,15 @@ sub new {
   return $self;
 }
 
+# deserialization:  copy the coverage portion of the undumped data
+sub copyGuts {
+  my ($self, $that) = @_;
+  while (my ($k, $v) = each(%$that)) {
+    next if $k =~ /(type|name|sources|parent)/;
+    $self->{$k} = $v;
+  }
+}
+
 sub name {
   my $self = shift;
   return $self->{name};
@@ -459,6 +467,12 @@ sub is_directory {
 sub parent {
   my $self = shift;
   return $self->{parent};
+}
+
+sub setParent {
+  my ($self, $parent) = @_;
+  die("expected parent dir") unless (ref($parent) eq "SummaryInfo" && 'directory' eq $parent->type());
+  $self->{parent} = $parent;
 }
 
 sub sources {
@@ -1271,7 +1285,6 @@ sub findFileList {
     next if (0 == $total &&
              0 == $br_total &&
              0 == $fn_total);
-
     my $missed = $lineCb->get('missed');
     my $br_missed = $main::br_coverage ? $brCb->get('missed') : 0;
     my $fn_missed = $main::func_coverage ? $funcCb->get('missed') : 0;
@@ -1279,6 +1292,7 @@ sub findFileList {
         0 != $missed ||
         0 != $br_missed ||
         0 != $fn_missed) {
+
       push(@files, [$file,
                     [$missed, $total, $lineCb],
                     [$br_missed, $br_total, $brCb],
@@ -3871,6 +3885,379 @@ sub count {
   return exists($tlaCounts->{$tla}) ? $tlaCounts->{$tla} : 0;
 }
 
+package GenHtml;
+
+our $WORKLIST_IDX = 1;
+our $PENDING_IDX = 2;
+our $CHILDDATA_IDX = 3;
+
+sub new {
+  my ($class, $current_data) = @_;
+  my $self = [SummaryInfo->new("top", ''),  # top has empty name
+              [], # worklist: dependencies are complete - this can run immediately
+              {}, # %pending; # map of name->list of as-yet incomplete dependencies
+                  # This task can be scheduled as soon as its last dependency
+                  #  is complete.
+              {} # childData - for callback
+    ];
+  bless $self, $class;
+
+  my $pending = $self->[$PENDING_IDX];
+  my $worklist = $self->[$WORKLIST_IDX];
+  my $top_level_summary = $self->[0];
+  $pending->{""} = [['top',
+                     [$top_level_summary, undef, $top_level_summary->name()], # summary, per-test data, name
+                     ['root'], ['root'],
+                     [undef, undef]], {}]; # no parent data for top-level
+
+  foreach my $f ($current_data->files()) {
+    my $parentDir = main::shorten_prefix($f);
+    my $short_name =
+      $main::no_prefix ? $f : main::apply_prefix($f, @main::dir_prefix);
+    my $is_absolute = $short_name =~ /^\//;
+    $short_name =~ s|^/||;
+    my @short_path = split('/', $short_name);
+    my @path = split('/', $parentDir);
+
+    my @rel_dir_stack = @short_path; # @rel_dir_stack: relative path to parent dir of $f
+    pop(@rel_dir_stack); # remove filename from the end
+    my $pendingParent;
+    if ($main::hierarchical) {
+      my $base = substr($f, 0, -(length($short_name) + 1)); # excludes trailing '/'
+      my $relative_path = "";
+      my $path = $base;
+      $pendingParent = $pending->{""}; # this is the top-level object dependency
+      my @sp;
+      my @p = split('/', substr($base, 0, -1)); # remove trailing '/'
+      while (scalar(@rel_dir_stack)) {
+        my $element = shift(@rel_dir_stack);
+        $relative_path .= $element;
+        $path .= '/' . $element;
+        push(@p, $element);
+        push(@sp, $element);
+        if (exists($pending->{$path})) {
+          $pendingParent = $pending->{$path};
+        } else {
+          my $perTestData = [{}, {}, {}];
+
+          my @dirData = (SummaryInfo->new("directory", $relative_path, $is_absolute),
+                         $perTestData, $path);
+          add_dependency($pendingParent, $path);
+          my @spc = @sp;
+          my @pc = @p;
+          $pendingParent = [['dir', \@dirData, \@spc, \@pc, $pendingParent], {}];
+          die("unexpected pending entry")
+            if exists($pending->{$dirData[2]});
+          $pending->{$dirData[2]} = $pendingParent;
+        }
+        $relative_path .= '/';
+      }
+    } else {
+      # not hierarchical
+      my $relative_path = join('/', @rel_dir_stack);
+      if (! exists($pending->{$parentDir})) {
+        my $perTestData = [{}, {}, {}];
+        my @dirData = (SummaryInfo->new("directory", $relative_path, $is_absolute),
+                       $perTestData, $parentDir);
+        $pending->{$parentDir} = [['dir', \@dirData, \@rel_dir_stack, \@path,
+                                   $pending->{$top_level_summary->name()}], {}];
+      }
+      $pendingParent = $pending->{$parentDir};
+
+      # my directory is dependency for the top-level
+      add_dependency($pending->{$top_level_summary->name()}, $parentDir);
+    }
+
+    # current file is a dependency of the directory...
+    add_dependency($pendingParent, $f);
+    # this file is ready to be processed
+    my @fileData = (SummaryInfo->new("file", $f), [{}, {}, {}], $f);
+    push(@$worklist, ['file', \@fileData, \@short_path, \@path, $pendingParent]);
+  }
+
+  $self->compute();
+  return $self;
+}
+
+sub top() {
+  my $self = shift;
+  return $self->[0];
+}
+
+sub add_dependency {
+  my ($parent, $name) = @_;
+  die("duplicate dependency")
+    if exists ($parent->[1]->{$name});
+  print("add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n");
+  $parent->[1]->{$name} = 1;
+}
+
+sub completed_dependency {
+  # return 0 when last dependency is removed
+  my ($self, $parent, $name) = @_;
+
+  my $pending = $self->[$PENDING_IDX];
+  die("missing pending '$parent'")
+    unless exists($pending->{$parent});
+  my $pendingParent = $pending->{$parent};
+  die("missing pending entry for $name (in $parent")
+    unless exists($pendingParent->[1]->{$name});
+  delete($pendingParent->[1]->{$name});
+  if (! %{$pendingParent->[1]}) {
+    # no more dependencies - schedule this one
+    push(@{$self->[$WORKLIST_IDX]}, $pendingParent->[0]);
+    delete($pending->{$parent});
+  }
+}
+
+sub compute {
+  my $self = shift;
+
+  my $currentParallel = 0;
+  my $worklist = $self->[$WORKLIST_IDX];
+  my $pending = $self->[$PENDING_IDX];
+  my $children = $self->[$CHILDDATA_IDX];
+
+  while (@$worklist ||
+         %$pending) {
+
+    if (1 < $lcovutil::maxParallelism) {
+      while ($currentParallel >= $lcovutil::maxParallelism ||
+             (0 == @$worklist &&
+              %$pending)) {
+        my $child = wait();
+        my $childstatus = $?;
+        -- $currentParallel;
+        my ($summary, $fullname, $parentData, $now) = @{$children->{$child}};
+        my ($parentSummary, $parentPerTestData, $parentPath) = @{$parentData->[0]->[1]};
+
+        $self->merge_child($child, $childstatus);
+
+        delete($children->{$child});
+
+        if ($summary->type() ne 'top') {
+          # remove current object from dependencies...
+          $self->completed_dependency($parentPath, $fullname);
+        }
+      }
+    }
+    my $task = pop(@$worklist);
+    my ($type, $data, $short_path, $path, $parentData) = @$task;
+    my ($selfSummary, $perTestData, $name) = @$data;
+    print("$type: $name\n");
+    my ($parentSummary, $parentPerTestData, $parentPath) = @{$parentData->[0]->[1]}
+      unless 'top' eq $type;
+
+    my $start = Time::HiRes::gettimeofday();
+
+    my $rel_dir;
+    if ($type eq 'file') {
+      $rel_dir = join('/', @{$short_path}[0..$#$short_path-1]);
+      die("file error for " . join('/', @$short_path))
+        if '' eq $rel_dir;
+    } elsif ($type eq 'dir') {
+      $rel_dir = join('/', @$short_path);
+    } else {
+      $rel_dir = '.';
+    }
+
+    File::Path::make_path($rel_dir) unless -d $rel_dir;
+    my $base_dir = main::get_relative_base_path($rel_dir);
+    my $trunc_dir = ($rel_dir eq '') ? 'root' : $rel_dir;
+
+    if (1 < $lcovutil::maxParallelism) {
+      my $pid = fork();
+      if (0 == $pid) {
+        # I'm the child
+        # clear the profile data - we want just my contribution
+        %lcovutil::profileData = ();
+        my $stdout_file = "genhtml_$$.log";
+        my $stderr_file = "genhtml_$$.err";
+        local(*STDERR);
+        local(*STDOUT);
+        open(STDOUT1, '>' . $stdout_file)
+          or die($stdout_file . ': ' . $!);
+        open(STDERR1, '>' . $stderr_file)
+          or die($stderr_file . ': ' . $!);
+        open(STDOUT, ">&STDOUT1")
+          or die("could not redirect stdout: $!");
+        open(STDERR, ">&STDERR1")
+          or die("could not redirect stderr: $!");
+
+        if ('file' eq $type) {
+          ($perTestData->[0], $perTestData->[1], $perTestData->[2]) =
+            main::process_file($selfSummary, $parentSummary, $trunc_dir, $rel_dir,
+                               $name);
+        } elsif ('dir' eq $type) {
+          # Create sorted summary pages
+          main::write_summary_pages(1, # this is a directory,
+                                    $selfSummary, $main::show_details,
+                                    $rel_dir, $base_dir, $trunc_dir, $perTestData);
+        } else {
+          die("unexpected task '" . join(' ', @$task) . ".")
+            unless 'top' eq $type;
+
+          # Generate overview page
+          main::info("Writing top-level directory view page.\n");
+          # Create sorted pages
+          main::write_summary_pages(
+            0, # 0 == list directories
+            $selfSummary,
+            0, # don't generate 'details' links for top-level report
+            ".", "", undef, undef);
+        }
+
+        # clear the parent pointer that we hacked into place.  Don't want that
+        #   extra data returned by dumper.
+        $selfSummary->{parent} = undef;
+        $selfSummary->{sources} = {}
+          if exists($selfSummary->{sources});
+
+        my $file = "dumper_$$";
+        if (open(DUMPER, ">", $file)) {
+          print DUMPER Data::Dumper->Dump([$perTestData, $selfSummary,
+                                           \%lcovutil::profileData],
+                                          [qw(perTest summary profile)]);
+        } else {
+          die "unable to open $file: $!";
+        }
+        close(STDOUT1);
+        close(STDERR1);
+        exit(0);
+      }
+      else {
+        $children->{$pid} = [$selfSummary, $name, $parentData, $start];
+        ++ $currentParallel;
+      }
+    } else {
+      #not parallel
+
+      if ('file' eq $type) {
+        my ($testdata, $testfncdata, $testbrdata) =
+          main::process_file($selfSummary, $parentSummary, $trunc_dir, $rel_dir, $name);
+        my $base_name = File::Basename::basename($name);
+
+        $perTestData->[0]{$base_name} = $testdata;
+        $perTestData->[1]{$base_name} = $testfncdata;
+        $perTestData->[2]{$base_name} = $testbrdata;
+        $parentSummary->append($selfSummary);
+      } elsif ('dir' eq $type) {
+        # process the directory...
+        main::write_summary_pages(1, # this is a directory,
+                                  $selfSummary, $main::show_details,
+                                  $rel_dir, $base_dir, $trunc_dir, $perTestData);
+        $parentSummary->append($selfSummary);
+      } else {
+        die("unexpected task '" . join(' ', @$task) . ".")
+          unless 'top' eq $type;
+        # Create sorted pages
+        main::write_summary_pages(
+          0, # 0 == list directories
+          $selfSummary,
+          0, # don't generate 'details' links for top-level report
+          ".", "", undef, undef);
+      }
+      $selfSummary->checkCoverageCriteria();
+
+      # remove current object from dependencies...
+      if ($type ne 'top') {
+        $self->completed_dependency($parentPath, $name);
+      }
+      my $end = Time::HiRes::gettimeofday();
+      $lcovutil::profileData{$type}{$name} = $end - $start;
+    }
+  } # foreach
+
+  while ($currentParallel != 0) {
+    my $child = wait();
+    my $childstatus = $?;
+    -- $currentParallel;
+    my ($summary, $fullname, $parentSummary, $parentPath, $now) = @{$children->{$child}};
+    $self->merge_child($child, $childstatus);
+
+    # remove current object from dependencies...
+    if ($summary->type() ne 'top') {
+      die("did not expect to get here.." . $summary->type() . " $currentParallel");
+
+      $self->completed_dependency($parentPath, $fullname);
+    }
+  }
+}
+
+sub merge_child($$$) {
+  my ($self, $childPid, $childstatus) = @_;
+  my $children = $self->[$CHILDDATA_IDX];
+
+  my ($childSummary, $fullname, $parentData, $start) = @{$children->{$childPid}};
+  my $type = $childSummary->type();
+  my ($parentSummary, $parentPerTestData, $parentPath) = @{$parentData->[0]->[1]}
+     unless $type eq 'top';
+
+  my $dumpfile = "dumper_$childPid";
+  my $childLog = "genhtml_$childPid.log";
+  my $childErr = "genhtml_$childPid.err";
+  foreach my $f ($childLog, $childErr) {
+    if (open(RESTORE, "<", $f)) {
+      # slurp into a string and eval..
+      my $str = do { local $/; <RESTORE> }; # slurp whole thing
+      close(RESTORE);
+      unlink $f;
+      $f = $str;
+    } else {
+      report_parallel_error('lcov', "unable to open $f: $!");
+    }
+  }
+  print(STDOUT $childLog);
+  print(STDERR $childErr);
+
+  if ( 0 != $childstatus) {
+    lcovutil::report_parallel_error('genhtml',"child $childPid returned non-zero code $childstatus");
+  } else {
+    # now undump the data ...
+    if (open(RESTORE, "<", $dumpfile)) {
+      # slurp into a string and eval..
+      my $str = do { local $/; <RESTORE> }; # slurp whole thing
+      close(RESTORE);
+      my ($perTest, $summary, $profile);
+      eval $str;
+      $childSummary->copyGuts($summary);
+      if ('file' eq $type) {
+        my $base_name = File::Basename::basename($fullname);
+        for (my $i = 0; $i < 3; $i++) {
+          $parentPerTestData->[$i]->{$base_name} = $perTest->[$i];
+        }
+      } elsif ('directory' eq $type) {
+        for (my $i = 0; $i < 3; $i++) {
+          while (my ($basename, $data) = each(%{$perTest->[$i]})) {
+            $parentPerTestData->[$i]->{$basename} = $data;
+          }
+        }
+      } else {
+        die("unexpected type $type")
+          unless $type eq 'top';
+        $self->[0] = $summary; # set the top-level to this value...
+      }
+      $parentSummary->append($childSummary)
+        unless $type eq 'top';
+      $childSummary->checkCoverageCriteria();
+      while (my ($key, $d) = each(%$profile)) {
+        while (my ($f, $t) = each(%$d)) {
+          die("unexpected duplicate key $f in $key")
+            if exists($lcovutil::profileData{$key}{$f});
+          $lcovutil::profileData{$key}{$f} = $t;
+        }
+      }
+    } else {
+      lcovutil::report_parallel_error('genhtml', "unable to open $dumpfile: $!");
+    }
+  }
+  my $end = Time::HiRes::gettimeofday();
+  $lcovutil::profileData{$type}{$fullname} = $end - $start;
+
+  unlink $dumpfile
+    if -f $dumpfile;
+}
+
 
 package main;
 
@@ -4521,6 +4908,7 @@ sub print_overall_rate($$$$)
   $lcovutil::quiet = $q; # restore
 }
 
+
 #
 # gen_html()
 #
@@ -4590,8 +4978,6 @@ sub gen_html()
                                 "possible path inconsistency in baseline/current/udiff data");
     }
   }
-
-  my @dir_list = get_dir_list($current_data->files());
 
   if ($no_prefix)
   {
@@ -4673,89 +5059,16 @@ sub gen_html()
 
   info("Generating output.\n");
 
-  my $top_level_summary = SummaryInfo->new("top");
-
-  my %directory_data;
-  my @work_stack;
-  my $currDepth;
-  foreach my $dir_name (@dir_list) {
-    my $short_name =
-      $no_prefix ? $dir_name : apply_prefix($dir_name, @dir_prefix);
-    my $is_absolute = $short_name =~ /^\//;
-    $short_name =~ s|^/||;
-    my @path = split('/', $dir_name);
-    my @short_path = split('/', $short_name);
-    my $depth = scalar(@short_path);
-    $currDepth = $depth
-      if (! defined($currDepth) || $depth > $currDepth);
-    $work_stack[$depth] = []
-      unless defined($work_stack[$depth]);
-    push(@{$work_stack[$depth]}, [\@path, \@short_path]);
-    $directory_data{$dir_name} =
-      SummaryInfo->new("directory", $short_name, $is_absolute);
-  }
-  $lcovutil::profileData{dir} = {};
-  $lcovutil::profileData{file} = {};
-  while ($currDepth >= 0 ) {
-    if (defined($work_stack[$currDepth])) {
-      foreach my $d (@{$work_stack[$currDepth]}) {
-        my ($path, $short_path) = @$d;
-        my $dirname = join('/', @$path);
-
-        # Match directory names beginning with one of @dir_prefix
-        my $short_name = join('/', @$short_path);
-        my $dir_summary = $directory_data{$dirname};
-
-        my $dirStart = Time::HiRes::gettimeofday();
-        # can process all the dirs at this depth in parallel
-        process_dir($dirname, $short_name, $dir_summary);
-        my $dirEnd = Time::HiRes::gettimeofday();
-
-        $lcovutil::profileData{dir}{$dirname} = $dirEnd - $dirStart;
-
-        if ($main::hierarchical &&
-            1 < scalar(@$short_path)) {
-          my $tail = pop(@$path);
-          my $parent = join('/', @$path);
-          if (!exists($directory_data{$parent})) {
-            my $t = pop(@$short_path);
-            die("mismatch") unless $tail eq $t;
-            my $pname = join('/', @$short_path);
-            # parent name is absolute path if my name was
-            $directory_data{$parent} =
-              SummaryInfo->new("directory", $pname,
-                               $dir_summary->is_directory(1));
-            $work_stack[$currDepth-1] = []
-              unless defined($work_stack[$currDepth-1]);
-            push(@{$work_stack[$currDepth-1]}, [$path, $short_path]);
-          }
-          $directory_data{$parent}->append($dir_summary);
-        } else {
-          $top_level_summary->append($dir_summary);
-        }
-      }
-    }
-    -- $currDepth;
-  }
-  $top_level_summary->checkCoverageCriteria();
-
-  # Generate overview page
-  info("Writing directory view page.\n");
-
-  # Create sorted pages
-  write_summary_pages(0, # 0 == list directories
-                      $top_level_summary,
-                      0, # don't generate 'details' links for top-level report
-                      ".", "", undef, undef);
+  my $genhtml = GenHtml->new($current_data);
 
   # Check if there are any test case descriptions to write out
   if (%test_description)
   {
     info("Writing test case description file.\n");
-    write_description_file( \%test_description, $top_level_summary);
+    write_description_file( \%test_description, $genhtml->top());
   }
 
-  print_overall_rate(1, $func_coverage, $br_coverage, $top_level_summary);
+  print_overall_rate(1, $func_coverage, $br_coverage, $genhtml->top());
 
   chdir($cwd);
 }
@@ -4806,183 +5119,6 @@ sub write_dir_page
 }
 
 
-#
-# process_dir(dir_name)
-#
-
-sub _merge_child_file($$$$$$$$) {
-  my ($childPid, $childstatus, $filename, $start, $dir_summary,
-      $testhash, $testfnchash, $testbrhash) = @_;
-
-  my $dumpfile = "dumper_$childPid";
-  my $childLog = "genhtml_$childPid.log";
-  my $childErr = "genhtml_$childPid.err";
-  foreach my $f ($childLog, $childErr) {
-    if (open(RESTORE, "<", $f)) {
-      # slurp into a string and eval..
-      my $str = do { local $/; <RESTORE> }; # slurp whole thing
-      close(RESTORE);
-      unlink $f;
-      $f = $str;
-    } else {
-      report_parallel_error('lcov', "unable to open $f: $!");
-    }
-  }
-  print(STDOUT $childLog);
-  print(STDERR $childErr);
-
-  if ( 0 != $childstatus) {
-    lcovutil::report_parallel_error('genhtml',"child $childPid returned non-zero code $childstatus");
-  } else {
-    # now undump the data ...
-    if (open(RESTORE, "<", $dumpfile)) {
-      # slurp into a string and eval..
-      my $str = do { local $/; <RESTORE> }; # slurp whole thing
-      close(RESTORE);
-      my ($testdata, $testfncdata, $testbrdata, $file_summary, $profile);
-      eval $str;
-      my $base_name = basename($filename);
-      $testhash->{$base_name} = $testdata;
-      $testfnchash->{$base_name} = $testfncdata;
-      $testbrhash->{$base_name} = $testbrdata;
-      $dir_summary->append($file_summary);
-      $file_summary->checkCoverageCriteria();
-      while (my ($key, $d) = each(%$profile)) {
-        while (my ($f, $t) = each(%$d)) {
-          die("unexpected duplicate key $f in $key")
-            if exists($lcovutil::profileData{$key}{$f});
-          $lcovutil::profileData{$key}{$f} = $t;
-        }
-      }
-    } else {
-      lcovutil::report_parallel_error('genhtml', "unable to open $dumpfile: $!");
-    }
-  }
-  my $end = Time::HiRes::gettimeofday();
-      $lcovutil::profileData{file}{$filename} = $end - $start;
-
-  unlink $dumpfile
-    if -f $dumpfile;
-}
-
-sub process_dir($$$)
-{
-  my ($abs_dir, $rel_dir, $dir_summary) = @_;
-
-  my %testhash;
-  my %testfnchash;
-  my %testbrhash;
-
-  my $trunc_dir = $rel_dir;
-
-  # Remove leading /
-  $rel_dir =~ s/^\/(.*)$/$1/;
-
-  # Handle files in root directory gracefully
-  $rel_dir = "root" if ($rel_dir eq "");
-  $trunc_dir = "root" if ($trunc_dir eq "");
-
-  my $base_dir = get_relative_base_path($rel_dir);
-
-  create_sub_dir($rel_dir);
-
-  # anything here already must be a subdir...
-  my @subdirs = $dir_summary->sources();
-
-  # Match filenames which specify files in this directory, not including
-  # sub-directories
-  info("processing dir $abs_dir\n");
-  my $currentParallel = 0;
-  my %children;
-  foreach my $filename (grep(/^\Q$abs_dir\E\/[^\/]+$/,$current_data->files()))
-  {
-    if (1 < $lcovutil::maxParallelism) {
-      if ($currentParallel >= $lcovutil::maxParallelism) {
-        my $child = wait();
-        my $childstatus = $?;
-        -- $currentParallel;
-        _merge_child_file($child, $childstatus,
-                          $children{$child}->[0], $children{$child}->[1],
-                          $dir_summary,
-                          \%testhash, \%testfnchash, \%testbrhash);
-      }
-
-      my $now = Time::HiRes::gettimeofday();
-      my $pid = fork();
-      if (0 == $pid) {
-        # I'm the child
-        # clear the profile data - we want just my contribution
-        %lcovutil::profileData = ();
-        my $stdout_file = "genhtml_$$.log";
-        my $stderr_file = "genhtml_$$.err";
-        local(*STDERR);
-        local(*STDOUT);
-        open(STDOUT1, '>' . $stdout_file)
-          or die($stdout_file . ': ' . $!);
-        open(STDERR1, '>' . $stderr_file)
-          or die($stderr_file . ': ' . $!);
-        open(STDOUT, ">&STDOUT1")
-          or die("cound not redirect stdout: $!");
-        open(STDERR, ">&STDERR1")
-          or die("cound not redirect stderr: $!");
-
-        my ($testdata, $testfncdata, $testbrdata, $file_summary) =
-          process_file($dir_summary, $trunc_dir, $rel_dir, $filename);
-
-        my $file = "dumper_$$";
-        if (open(DUMPER, ">", $file)) {
-          print DUMPER Data::Dumper->Dump([$testdata, $testfncdata,
-                                           $testbrdata, $file_summary,
-                                          \%lcovutil::profileData],
-                                          [qw(testdata testfncdata testbrdata file_summary profile)]);
-        } else {
-          die "unable to open $file: $!";
-        }
-        close(STDOUT1);
-        close(STDERR1);
-        exit(0);
-      }
-      else {
-        $children{$pid} = [$filename, $now];
-        ++ $currentParallel;
-      }
-    } else {
-      #not parallel
-      my $start = Time::HiRes::gettimeofday();
-      my ($testdata, $testfncdata, $testbrdata, $file_summary) =
-        process_file($dir_summary, $trunc_dir, $rel_dir, $filename);
-      my $base_name = basename($filename);
-
-      $testhash{$base_name} = $testdata;
-      $testfnchash{$base_name} = $testfncdata;
-      $testbrhash{$base_name} = $testbrdata;
-      $dir_summary->append($file_summary);
-      $file_summary->checkCoverageCriteria();
-      my $end = Time::HiRes::gettimeofday();
-      $lcovutil::profileData{file}{$filename} = $end - $start;
-    }
-  } # foreach
-
-  while ($currentParallel != 0) {
-    my $child = wait();
-    my $childstatus = $?;
-    -- $currentParallel;
-    _merge_child_file($child, $childstatus,
-                      $children{$child}->[0], $children{$child}->[1],
-                      $dir_summary,
-                      \%testhash, \%testfnchash, \%testbrhash);
-  }
-
-  # Create sorted summary pages
-  write_summary_pages(1, # this is a directory,
-                      $dir_summary, $show_details,
-                      $rel_dir, $base_dir, $trunc_dir,
-                      [\%testhash, \%testfnchash, \%testbrhash]);
-  $dir_summary->checkCoverageCriteria();
-  # Calculate resulting line counts
-  return ($dir_summary);
-}
-
 sub write_summary_pages($$$$$$$) {
   my ($summaryType, $summary, $show_details, $rel_dir, $base_dir, $trunc_dir,
       $testhashes) = @_;
@@ -5023,35 +5159,8 @@ sub write_summary_pages($$$$$$$) {
     }
   }
 
-  my $currentParallel = 0;
   foreach my $params (@dirPageCalls) {
-    if (1 < $lcovutil::maxParallelism) {
-      if ($currentParallel >= $main::lcovutil::maxParallelism) {
-        my $child = wait();
-        my $childstatus = $? >> 8;
-        if ( 0 != $childstatus) {
-          warn("child $child returned non-zero code $childstatus\n");
-        }
-        --$currentParallel;
-      }
-      ++ $currentParallel;
-      my $pid = fork();
-      if (0 == $pid) {
-        # I'm the child
-        write_dir_page(@$params);
-        exit(0);
-      }
-    } else {
-      write_dir_page(@$params);
-    }
-  }
-  while ($currentParallel != 0) {
-    my $child = wait();
-    my $childstatus = $? >> 8;
-    if ( 0 != $childstatus) {
-      warn("child $child returned non-zero code $childstatus\n");
-    }
-    -- $currentParallel;
+    write_dir_page(@$params);
   }
 }
 
@@ -5089,15 +5198,14 @@ sub write_function_page($$$$$$$$$$$$$)
 # process_file(parent_dir_summary, trunc_dir, rel_dir, filename)
 #
 
-sub process_file($$$$)
+sub process_file($$$$$)
 {
-  my ($parent_dir_summary, $trunc_dir, $rel_dir, $filename) = @_;
+  my ($fileSummary, $parent_dir_summary, $trunc_dir, $rel_dir, $filename) = @_;
   my $trunc_name = apply_prefix($filename, @dir_prefix);
   info("Processing file $trunc_name\n");
 
   my $base_name = basename($filename);
   my $base_dir = get_relative_base_path($rel_dir);
-  my $summary = SummaryInfo->new("file", $trunc_name);
   my @source;
   my $pagetitle;
   local *HTML_HANDLE;
@@ -5107,14 +5215,14 @@ sub process_file($$$$)
       $fn_found, $fn_hit, $br_found, $br_hit)
     = $current_data->data($filename)->get_info();
 
-  $summary->l_found($lines_found);
-  $summary->l_hit($lines_hit);
+  $fileSummary->l_found($lines_found);
+  $fileSummary->l_hit($lines_hit);
 
-  $summary->f_found($fn_found);
-  $summary->f_hit($fn_hit);
+  $fileSummary->f_found($fn_found);
+  $fileSummary->f_hit($fn_hit);
 
-  $summary->b_found($br_found);
-  $summary->b_hit($br_hit);
+  $fileSummary->b_found($br_found);
+  $fileSummary->b_hit($br_hit);
 
   # handle case that file was moved between baseline and current
   my $baseline_filename = $diff_data->baseline_file_name($filename);
@@ -5143,20 +5251,20 @@ sub process_file($$$$)
   #   coverage ratchet to fail the build if UIC is nonzero
 
   # NOTE:  SourceFile constructor modifies some input data:
-  #   - $summary struct is also modified: update total counts in each bucket,
+  #   - $fileSummary struct is also modified: update total counts in each bucket,
   #     counts in each date range
   #   - $fileCovInfo: change GIC->CBC, UIC->UBC if $fineNotInBaseline and
   #     source code is older than baseline file
-  my $srcfile = SourceFile->new($filename, $summary, $fileCovInfo, $sumcount,
+  my $srcfile = SourceFile->new($filename, $fileSummary, $fileCovInfo, $sumcount,
                                 $fileHasNoBaselineInfo);
-  # somewhat of a hack:  we are ultimately going to merge $summary
+  # somewhat of a hack:  we are ultimately going to merge $fileSummary
   #   (the data for this particular file) into $parent_dir (the data
   #    for the parent directory) - but we need to do that in the caller
-  #    (because we are building $summary in a child process that we are
+  #    (because we are building $fileSummary in a child process that we are
   #    going to pass back.  But we also use the parent and its name
   #    in HTML generation...
   #    we clear this setting before we return the generated summary
-  $summary->{parent} = $parent_dir_summary;
+  $fileSummary->setParent($parent_dir_summary);
 
   # Return after this point in case user asked us not to generate
   # source code view
@@ -5168,7 +5276,7 @@ sub process_file($$$$)
     $pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
     write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
     write_header(*HTML_HANDLE, [2, 'name', 0], "$trunc_dir/$base_name",
-                 "$rel_dir/$base_name", $summary, $srcfile);
+                 "$rel_dir/$base_name", $fileSummary, $srcfile);
 
     @source = write_source(*HTML_HANDLE, $srcfile, $sumcount, $checkdata,
                            $fileCovInfo, $funcdata, $sumbrcount);
@@ -5187,7 +5295,7 @@ sub process_file($$$$)
                             $base_name, $test_title,
                             $sumcount, $funcdata,
                             $testfncdata, $sumbrcount,
-                            $testbrdata, $_, $summary);
+                            $testbrdata, $_, $fileSummary);
       }
       my $to = Time::HiRes::gettimeofday();
       $lcovutil::profileData{source}{$filename} = $to - $from;
@@ -5212,13 +5320,9 @@ sub process_file($$$$)
       close(*HTML_HANDLE);
     }
   }
-  # clear the parent pointer that we hacked into place.  Don't want that
-  #   extra data returned by dumper.
-  $summary->{parent} = undef;
 
-  return ($testdata, $testfncdata, $testbrdata, $summary);
+  return ($testdata, $testfncdata, $testbrdata);
 }
-
 
 
 #
@@ -5316,26 +5420,6 @@ sub shorten_prefix($)
 
         pop(@list);
         return join("/", @list);
-}
-
-
-
-#
-# get_dir_list(filename_list)
-#
-# Return sorted list of directories for each entry in given FILENAME_LIST.
-#
-
-sub get_dir_list(@)
-{
-        my %result;
-
-        foreach (@_)
-        {
-                $result{shorten_prefix($_)} = "";
-        }
-
-        return(sort(keys(%result)));
 }
 
 
@@ -8301,7 +8385,7 @@ sub write_header(*$$$$$)
 
   $bin_type = ""
       unless defined($bin_type);
-  my $base_name = basename($rel_filename);
+  my $base_name = File::Basename::basename($rel_filename);
   my $show_dateBins =
       $main::show_dateBins &&
       (! defined($fileDetail) || $fileDetail->isProjectFile());
@@ -9143,6 +9227,12 @@ sub write_file_table(*$$$$)
         push(@ownerColData, [$funcTotal, $funcTotal - $funcMissed,
                              $fn_med_limit, $fn_hi_limit, 0,
                              $funcCallback, 'function']);
+      }
+      if ($dirSummary->type() eq 'directory') {
+        # use the basename (not the path or full path) in the secondary key list:
+        #  - these are files in the current directory, so we lose no information by
+        #    eliding the directory part
+        $name = File::Basename::basename($name);
       }
       write_file_table_entry(*HTML_HANDLE, $base_dir,
                              # 'owner' page type - no span, no page link
