@@ -5,6 +5,8 @@ CLEAN_ONLY=0
 LCOV_HOME=
 COVER=
 
+PARALLEL='--parallel 0'
+PROFILE="--profile"
 while [ $# -gt 0 ] ; do
 
     OPT=$1
@@ -33,6 +35,14 @@ while [ $# -gt 0 ] ; do
             fi
             ;;
 
+        --no-parallel )
+            PARALLEL=''
+            ;;
+
+        --no-profile )
+            PROFILE=''
+            ;;
+        
         * )
             echo "Error: unexpected option '$OPT'"
             exit 1
@@ -60,8 +70,12 @@ else
     GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
 fi
 
-LCOV_OPTS="--rc lcov_branch_coverage=1 --version-script $GET_VERSION --parallel 0 --profile"
-DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION"
+#PARALLEL=''
+#PROFILE="''
+
+
+LCOV_OPTS="--rc lcov_branch_coverage=1 --version-script $GET_VERSION $PARALLEL $PROFILE"
+DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 

@@ -3986,7 +3986,7 @@ sub top() {
 
 sub add_dependency {
   my ($parent, $name) = @_;
-  print("add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n")
+  lcovutil::verbose("add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n")
     unless exists ($parent->[1]->{$name});
   $parent->[1]->{$name} = 1;
 }
@@ -4043,7 +4043,7 @@ sub compute {
     my $task = pop(@$worklist);
     my ($type, $data, $short_path, $path, $parentData) = @$task;
     my ($selfSummary, $perTestData, $name) = @$data;
-    print("$type: $name\n");
+    #main::info("$type: $name\n");
     my ($parentSummary, $parentPerTestData, $parentPath) = @{$parentData->[0]->[1]}
       unless 'top' eq $type;
 
@@ -4106,17 +4106,21 @@ sub compute {
             ".", "", undef, undef);
         }
 
+        $selfSummary->checkCoverageCriteria();
         # clear the parent pointer that we hacked into place.  Don't want that
         #   extra data returned by dumper.
         $selfSummary->{parent} = undef;
         $selfSummary->{sources} = {}
           if exists($selfSummary->{sources});
-
+        my $name = $selfSummary->type() eq 'top' ? "" : $selfSummary->name();
+        my $criteria = $SummaryInfo::coverageCriteria{$name}
+          if exists($SummaryInfo::coverageCriteria{$name});
         my $file = "dumper_$$";
         if (open(DUMPER, ">", $file)) {
           print DUMPER Data::Dumper->Dump([$perTestData, $selfSummary,
+                                           $criteria,
                                            \%lcovutil::profileData],
-                                          [qw(perTest summary profile)]);
+                                          [qw(perTest summary criteria profile)]);
         } else {
           die "unable to open $file: $!";
         }
@@ -4217,7 +4221,7 @@ sub merge_child($$$) {
       # slurp into a string and eval..
       my $str = do { local $/; <RESTORE> }; # slurp whole thing
       close(RESTORE);
-      my ($perTest, $summary, $profile);
+      my ($perTest, $summary, $criteria, $profile);
       eval $str;
       $childSummary->copyGuts($summary);
       if ('file' eq $type) {
@@ -4238,7 +4242,14 @@ sub merge_child($$$) {
       }
       $parentSummary->append($childSummary)
         unless $type eq 'top';
-      $childSummary->checkCoverageCriteria();
+      if (defined($criteria)) {
+        my $name = $childSummary->type() eq 'top' ? "" : $childSummary->name();
+        $SummaryInfo::coverageCriteria{$name} = $criteria;
+        $SummaryInfo::coverageCriteriaStatus = $criteria->[1]
+          if ($criteria->[1] != 0 ||
+              0 != scalar(@{$criteria->[2]}));
+      }
+
       while (my ($key, $d) = each(%$profile)) {
         while (my ($f, $t) = each(%$d)) {
           die("unexpected duplicate key $f in $key")
