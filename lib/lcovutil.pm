@@ -2201,10 +2201,13 @@ sub getLine {
 
 sub isExcluded {
   my ($self, $lineNo, $branch) = @_;
-  die("unknown $lineNo for " . $self->filename()
-      . (defined($self->[2]) ? (" defined " . scalar(@{$self->[2]})) : "" ))
-    if (! defined($self->[2]) ||
-        scalar(@{$self->[2]}) < $lineNo);
+  if (! defined($self->[2]) ||
+      scalar(@{$self->[2]}) < $lineNo) {
+    lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+			      "unknown line '$lineNo' in " . $self->filename()
+			      . (defined($self->[2]) ? ("there are only " . scalar(@{$self->[2]}) . " lines in file") : "" ));
+    return 0;
+  }
   return 1
     if ($branch &&
         0 != ($self->[2]->[$lineNo-1] & 2));
