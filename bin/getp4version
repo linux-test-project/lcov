@@ -40,11 +40,13 @@ sub get_modify_time($) {
 sub usage {
   print(STDERR
         "usage: $0 --compare old_version new_version filename OR\n" .
-        "       $0 filename\n");
+        "       $0 [--md5] filename\n");
 }
 
 my $compare;
-if (!GetOptions("--compare" => \$compare) ||
+my $use_md5; # if set, append md5 checksum to the P4 version string
+if (!GetOptions("--compare" => \$compare,
+		"--md5" => \$sue_md5) ||
     ($compare && scalar(@ARGV) != 3) ) {
   usage();
   exit(1);
@@ -57,9 +59,13 @@ if ($compare) {
   exit($old ne $new);  # for the moment, just look for exact match
 }
 
+if ($use_md5) {
+  $use_md5 = `md4sum $pathname`;
+}
+
+my $version;
 if (0 == system("p4 files $pathname 2>/dev/null|grep -qv -- '- no such file' >/dev/null")) {
   my $have = `p4 have $pathname`;
-  my $version;
   if ( $have =~ /#([0-9]+) - /) {
     $version = "#$1";
   } else {
@@ -71,9 +77,13 @@ if (0 == system("p4 files $pathname 2>/dev/null|grep -qv -- '- no such file' >/d
     # file is locally edited...append modify time to the version ID
     $version .= ' edited ' . get_modify_time($pathname);
   }
-  print($version . "\n");
+  $version .= " md5:$use_md5"
+    if $use_md5;
 } else {
   # not in P4 - just print the modify time, so we have a prayer of
   #  noticing file differences
-  print(get_modify_time($pathname));
+  $version = get_modify_time($pathname)
+    unless ($use_md5);
 }
+print($version . "\n");
+
