@@ -79,13 +79,12 @@ use lib "$FindBin::Bin/../lib";
 use lcovutil qw ($tool_name $quiet
                  define_errors parse_ignore_errors ignorable_error
                  info set_info_callback verbose $verbose
-                 $cpp_demangle $cpp_demangle_tool $cpp_demangle_params do_mangle_check
+                 do_mangle_check
                  debug $debug
                  die_handler warn_handler abort_handler
                  append_tempdir temp_cleanup
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
-                 filterStringsAndComments simplifyCode balancedParens
                  set_rtl_extensions set_c_extensions
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
@@ -94,7 +93,6 @@ use lcovutil qw ($tool_name $quiet
                  $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION
                  $ERROR_UNUSED
                  $ERROR_PARALLEL report_parallel_error
-                 is_external $opt_no_external @internal_dirs
                  system_no_output
                  rate get_overall_line
 

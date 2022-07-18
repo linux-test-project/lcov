@@ -77,7 +77,6 @@ use lcovutil qw (define_errors parse_ignore_errors
                  die_handler warn_handler $tool_name
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
-                 filterStringsAndComments simplifyCode balancedParens
                  $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
@@ -86,7 +85,7 @@ use lcovutil qw (define_errors parse_ignore_errors
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE
                  $ERROR_GRAPH $ERROR_PARALLEL report_parallel_error
-                 is_external $opt_no_external @internal_dirs
+                 is_external @internal_dirs
                  %opt_rc apply_rc_params
                  $maxParallelism count_cores
                 );
