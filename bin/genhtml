@@ -4348,7 +4348,7 @@ sub write_source_line(*$$$$$)
 
 	# Write out a line number navigation anchor every $nav_resolution
 	# lines if necessary
-	$anchor_start	= "<a name=\"$_[1]\">";
+	$anchor_start	= "<a id=\"$_[1]\">";
 	$anchor_end	= "</a>";
 
 
