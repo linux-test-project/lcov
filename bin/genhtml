@@ -88,9 +88,13 @@ our $default_precision = 1;
 # MED: $med_limit <= rate <  $hi_limit    graph color: orange
 # LO:          0  <= rate <  $med_limit   graph color: red
 
-# For line coverage/all coverage types if not specified
+# For global coverage types if not specified
 our $hi_limit = 90;
 our $med_limit = 75;
+
+# For line coverage
+our $ln_hi_limit;
+our $ln_med_limit;
 
 # For function coverage
 our $fn_hi_limit;
@@ -375,6 +379,8 @@ if ($config || %opt_rc)
 		"genhtml_html_extension"	=> \$html_ext,
 		"genhtml_html_gzip"		=> \$html_gzip,
 		"genhtml_precision"		=> \$default_precision,
+		"genhtml_line_hi_limit" 	=> \$ln_hi_limit,
+		"genhtml_line_med_limit"	=> \$ln_med_limit,
 		"genhtml_function_hi_limit"	=> \$fn_hi_limit,
 		"genhtml_function_med_limit"	=> \$fn_med_limit,
 		"genhtml_function_coverage"	=> \$func_coverage,
@@ -396,6 +402,8 @@ if ($config || %opt_rc)
 }
 
 # Copy related values if not specified
+$ln_hi_limit	= $hi_limit if (!defined($ln_hi_limit));
+$ln_med_limit	= $med_limit if (!defined(ln_med_limit));
 $fn_hi_limit	= $hi_limit if (!defined($fn_hi_limit));
 $fn_med_limit	= $med_limit if (!defined($fn_med_limit));
 $br_hi_limit	= $hi_limit if (!defined($br_hi_limit));
@@ -4744,7 +4752,7 @@ END_OF_HTML
 	}
 	# Line coverage
 	$style = $rate_name[classify_rate($lines_found, $lines_hit,
-					  $med_limit, $hi_limit)];
+					  $ln_med_limit, $ln_hi_limit)];
 	$rate = rate($lines_hit, $lines_found, " %");
 	push(@row_right, [[undef, "headerItem", "Lines:"],
 			  [undef, "headerCovTableEntry", $lines_hit],
@@ -5073,7 +5081,7 @@ sub write_file_table(*$$$$$$$)
 		 $page_link) = @{$overview->{$filename}};
 
 		# Line coverage
-		push(@columns, [$found, $hit, $med_limit, $hi_limit, 1]);
+		push(@columns, [$found, $hit, $ln_med_limit, $ln_hi_limit, 1]);
 		# Function coverage
 		if ($func_coverage) {
 			push(@columns, [$fn_found, $fn_hit, $fn_med_limit,
