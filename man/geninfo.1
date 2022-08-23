@@ -155,7 +155,7 @@ coverage. The current line is part of this section.
 .RE
 LCOV_EXCL_EXCEPTION_BR_STOP
 .RS
-Marks the end of a section which is excluded from exception branch coverage. 
+Marks the end of a section which is excluded from exception branch coverage.
 The current line not part of this section
 .RE
 .br
@@ -316,6 +316,8 @@ instances of
 .B geninfo
 with different configuration file options in parallel.
 
+Note that this option must be specified in full - abbreviations are not supported.
+
 .RE
 
 .B \-\-derive\-func\-data
@@ -432,7 +434,7 @@ to source file names found during processing.  This is useful when the path name
 Exclude coverage data from lines whose content matches
 .IR regexp .
 
-Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (e.g., some complicated macro).  
+Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (e.g., some complicated macro).
 See the lcov man page for details.
 
 .RE

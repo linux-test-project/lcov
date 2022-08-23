@@ -96,7 +96,7 @@ use lcovutil qw ($tool_name $quiet
                  system_no_output
                  rate get_overall_line
 
-                 %opt_rc apply_rc_params
+                 apply_rc_params
                  strip_directories transform_pattern
                  $extractVersionScript
 
@@ -214,7 +214,7 @@ our $opt_no_list_full_path;
 our $opt_list_width = 80;
 our $opt_list_truncate_max = 20;
 our $opt_external;
-our $opt_config_file;
+our @opt_config_file;
 our @opt_summary;
 our $opt_compat;
 our $ln_overall_found;
@@ -236,17 +236,15 @@ $SIG{__DIE__} = \&lcovutil::die_handler;
 $SIG{'INT'} = \&lcovutil::abort_handler;
 $SIG{'QUIT'} = \&lcovutil::abort_handler;
 
-# Check command line for a configuration file name
-Getopt::Long::Configure("pass_through", "no_auto_abbrev");
-GetOptions("config-file=s" => \$opt_config_file,
-	   "rc=s%" => \%opt_rc);
-Getopt::Long::Configure("default");
-
 my $rtlExtensions;
 my $cExtensions;
 our $demangle_cpp;
 
-lcovutil::apply_rc_params($opt_config_file,
+# retrieve settings from RC file - use these if not overridden on command line
+my (@rc_filter, @rc_ignore,
+    @rc_exclude_patterns, @rc_include_patterns, @rc_subst_patterns, @rc_omit_patterns);
+
+lcovutil::apply_rc_params(\@opt_config_file,
 			  { "lcov_gcov_dir"	     => \$gcov_dir,
 			    "lcov_tmp_dir"	     => \$tmp_dir,
 			    "lcov_list_full_path"    => \$opt_list_full_path,
@@ -259,17 +257,17 @@ lcovutil::apply_rc_params($opt_config_file,
 			    'c_file_extensions'      => \$cExtensions,
 			    "filter_lookahead"       => \$lcovutil::source_filter_lookahead,
 			    "filter_bitwise_conditional" => \$lcovutil::source_filter_bitwise_are_conditional,
-			    'ignore_errors'          => \@opt_ignore_errors,
+			    'ignore_errors'      => \@rc_ignore,
 			    "profile"            => \$lcovutil::profile,
 			    "parallel"           => \$lcovutil::maxParallelism,
 			    "genhtml_demangle_cpp"       => \$demangle_cpp,
 			    "genhtml_demangle_cpp_tool"  => \$lcovutil::cpp_demangle_tool,
 			    "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
-			    'filter'     => \@opt_filter,
-			    'exclude'    => \@lcovutil::exclude_file_patterns,
-			    'include'    => \@lcovutil::include_file_patterns,
-			    'substitute' => \@lcovutil::file_subst_patterns,
-			    'omit_lines' => \@lcovutil::omit_line_patterns,
+			    'filter'     => \@rc_filter,
+			    'exclude'    => \@rc_exclude_patterns,
+			    'include'    => \@rc_include_patterns,
+			    'substitute' => \@rc_subst_patterns,
+			    'omit_lines' => \@rc_omit_patterns,
 			    "version_script" => \$lcovutil::extractVersionScript,
 			  });
 
@@ -277,6 +275,9 @@ set_rtl_extensions($rtlExtensions)
   if $rtlExtensions;
 set_c_extensions($cExtensions)
   if $cExtensions;
+
+my %unsupported_rc; # for error checking
+my @unsupported_config;
 
 # Parse command line options
 if (!GetOptions("directory|d|di=s" => \@directory,
@@ -324,8 +325,8 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"no-external" => \$lcovutil::opt_no_external,
 		"summary=s" => \@opt_summary,
 		"compat=s" => \$opt_compat,
-		"config-file=s" => \$opt_config_file,
-		"rc=s%" => \%opt_rc,
+		"config-file=s" => \@unsupported_config,
+		"rc=s%" => \%unsupported_rc,
 		"fail-under-lines=s" => \$opt_fail_under_lines,
 		"profile"          => \$lcovutil::profile,
                 "version-script=s" => \$lcovutil::extractVersionScript,
@@ -339,6 +340,22 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 }
 else
 {
+  foreach my $d (['--config-file', scalar(@unsupported_config)],
+		 ['--rc', scalar(%unsupported_rc)]) {
+    die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
+      if ($d->[1]);
+  }
+  @opt_filter = @rc_filter unless @opt_filter;
+  @opt_ignore_errors = @rc_ignore unless @opt_ignore_errors;
+  @lcovutil::exclude_file_patterns = @rc_exclude_patterns
+    unless @lcovutil::exclude_file_patterns;
+  @lcovutil::include_file_patterns = @rc_include_patterns
+    unless @lcovutil::include_file_patterns;
+  @lcovutil::subst_file_patterns = @rc_subst_patterns
+    unless @lcovutil::subst_file_patterns;
+  @lcovutil::omit_line_patterns = @rc_omit_patterns
+    unless @lcovutil::omit_line_patterns;
+
 	# Merge options
 	if (defined($no_checksum))
 	{
@@ -1015,13 +1032,15 @@ sub lcov_geninfo(@)
 	if (defined($opt_compat)) {
 		@param = (@param, "--compat", $opt_compat);
 	}
-	if (%opt_rc) {
-		foreach my $key (keys(%opt_rc)) {
-			@param = (@param, "--rc", "$key=".$opt_rc{$key});
+	if (%lcovutil::opt_rc) {
+		foreach my $key (keys(%lcovutil::opt_rc)) {
+			@param = (@param, "--rc", "$key=".$lcovutil::opt_rc{$key});
 		}
 	}
-	if (defined($opt_config_file)) {
-		@param = (@param, "--config-file", $opt_config_file);
+	if (0 != scalar(@opt_config_file)) {
+	  foreach my $f (@opt_config_file) {
+	    @param = (@param, "--config-file", $f);
+	  }
 	}
 	foreach (@lcovutil::include_file_patterns) {
 		@param = (@param, "--include", $_);

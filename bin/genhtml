@@ -104,7 +104,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_PARALLEL report_parallel_error
                  info verbose $verbose
                  do_mangle_check
-                 %opt_rc apply_rc_params
+                 apply_rc_params
                  strip_directories
                  set_rtl_extensions set_c_extensions
                  parse_cov_filters summarize_cov_filters
@@ -2464,7 +2464,7 @@ sub type {
   if (!defined($self->{linemap}->{$file})) {
     #mapping is identity when no diff was read
     if (defined($main::base_filename) &&
-	defined($main::show_tla)) {
+        defined($main::show_tla)) {
       return "equal"; # categories will be "GIC", "UIC"
     } else {
       return "insert"; # categories will be "GNC", "UNC"
@@ -4364,7 +4364,7 @@ our $demangle_cpp = 0;  # Demangle C++ function names
 our @opt_ignore_errors; # Ignore certain error classes during processing
 our @opt_filter;        # Filter out requested coverpoints
 our @ignore;
-our $opt_config_file;   # User-specified configuration file location
+our @opt_config_file;   # User-specified configuration file location
 our $opt_missed;        # List/sort lines by missed counts
 our $dark_mode;         # Use 'dark' palette if set - else normal
 our $charset = "UTF-8"; # Default charset for HTML pages
@@ -4390,17 +4390,15 @@ $SIG{__DIE__} = \&lcovutil::die_handler;
 STDERR->autoflush;
 STDOUT->autoflush;
 
-# Check command line for a configuration file name
-Getopt::Long::Configure("pass_through", "no_auto_abbrev");
-GetOptions("config-file=s" => \$opt_config_file,
-           "rc=s%" => \%opt_rc);
-Getopt::Long::Configure("default");
-
 my $rtlExtensions;
 my $cExtensions;
 my @datebins;
 
-lcovutil::apply_rc_params($opt_config_file,
+# retrieve settings from RC file - use these if not overridden on command line
+my (@rc_datebins, @rc_filter, @rc_ignore,
+    @rc_exclude_patterns, @rc_include_patterns, @rc_subst_patterns, @rc_omit_patterns);
+
+lcovutil::apply_rc_params(\@opt_config_file,
               {
                 "genhtml_css_file"              => \$css_filename,
                 "genhtml_header"                => \$header_title,
@@ -4439,14 +4437,13 @@ lcovutil::apply_rc_params($opt_config_file,
                 "genhtml_dark_mode"             => \$dark_mode,
                 "genhtml_hierarchical"          => \$hierarchical,
                 "genhtml_show_havigation"       => \$show_tla,
-                'genhtml_date_bins'             => \@datebins,
                 'genhtml_annotate_script'       => \$SourceFile::annotateScript,
                 'genhtml_criteria_script'       => \$SummaryInfo::coverageCriteriaScript,
-                'genhtml_date_bins'             => \@datebins,
+                'genhtml_date_bins'             => \@rc_datebins,
 
                 "lcov_function_coverage"        => \$lcov_func_coverage,
                 "lcov_branch_coverage"          => \$lcov_branch_coverage,
-                "ignore_errors"                 => \@opt_ignore_errors,
+                "ignore_errors"                 => \@rc_ignore,
                 "rtl_file_extensions"           => \$rtlExtensions,
                 "c_file_extensions"             => \$cExtensions,
                 "filter_lookahead"              => \$lcovutil::source_filter_lookahead,
@@ -4454,11 +4451,11 @@ lcovutil::apply_rc_params($opt_config_file,
                 "profile"        => \$lcovutil::profile,
                 "parallel"       => \$lcovutil::maxParallelism,
 
-                'filter'         => \@opt_filter,
-                'exclude'        => \@lcovutil::exclude_file_patterns,
-                'include'        => \@lcovutil::include_file_patterns,
-                'substitute'     => \@lcovutil::file_subst_patterns,
-                'omit_lines'     => \@lcovutil::omit_line_patterns,
+                'filter'         => \@rc_filter,
+                'exclude'        => \@rc_exclude_patterns,
+                'include'        => \@rc_include_patterns,
+                'substitute'     => \@rc_subst_patterns,
+                'omit_lines'     => \@rc_omit_patterns,
                 "version_script" => \$lcovutil::extractVersionScript,
               });
 
@@ -4474,6 +4471,8 @@ lcovutil::set_rtl_extensions($rtlExtensions)
 lcovutil::set_c_extensions($cExtensions)
   if $cExtensions;
 
+my %unsupported_rc; # for error checking
+my @unsupported_config;
 
 # Parse command line options
 if (!GetOptions("output-directory|o=s"  => \$output_directory,
@@ -4525,8 +4524,8 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "no-sort"               => \$no_sort,
                 "demangle-cpp"          => \$demangle_cpp,
                 "ignore-errors=s"       => \@opt_ignore_errors,
-                "config-file=s"         => \$opt_config_file,
-                "rc=s%"                 => \%opt_rc,
+                "config-file=s"         => \@unsupported_config,
+                "rc=s%"                 => \%unsupported_rc,
                 "precision=i"           => \$lcovutil::default_precision,
                 "missed"                => \$opt_missed,
                 "filter=s"              => \@opt_filter,
@@ -4543,6 +4542,26 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
   print(STDERR "Use $tool_name --help to get usage information\n");
   exit(1);
 } else {
+
+  @opt_filter = @rc_filter unless @opt_filter;
+  @opt_ignore_errors = @rc_ignore unless @opt_ignore_errors;
+  @lcovutil::exclude_file_patterns = @rc_exclude_patterns
+    unless @lcovutil::exclude_file_patterns;
+  @lcovutil::include_file_patterns = @rc_include_patterns
+    unless @lcovutil::include_file_patterns;
+  @lcovutil::subst_file_patterns = @rc_subst_patterns
+    unless @lcovutil::subst_file_patterns;
+  @lcovutil::omit_line_patterns = @rc_omit_patterns
+    unless @lcovutil::omit_line_patterns;
+
+  @datebins = @rc_datebins unless @datebins;
+
+  foreach my $d (['--config-file', scalar(@unsupported_config)],
+                 ['--rc', scalar(%unsupported_rc)]) {
+    die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
+      if ($d->[1]);
+  }
+
   # Merge options
   $func_coverage = 0
     if ($no_func_coverage);
@@ -4876,6 +4895,9 @@ Operation:
                                     history (wraps "git blame" or "p4 annotate")
       --criteria-script SCRIPT      Execute SCRIPT to check coverage criteria
                                     to decide success or failure
+      --version-script SCRIPT       Execute SCRIPT to check that source code
+                                    version used to generate coverage data matches
+                                    version used in display
       --diff-file UDIFF             unified diff file UDIFF desribes source
                                     code changes between baseline and current
       --elide-path-mismatch         identify matching files if their basename
@@ -4931,8 +4953,9 @@ HTML output:
       --dark-mode                   Use the dark-mode CSS
       --hierarchical                Generate multilevel HTML report,
                                     matching source code directory structure.
-      --show-navigation             Enable hyperlinks to first source code
-                                    line in corresponding category.
+      --show-navigation             Include 'goto first hit/not hit' and
+                                    'goto next hit/not hit' hyperlinks in
+                                    non-differential source code detail page
 
 For more information see: $lcov_url and\/or the genhtml man page.
 END_OF_USAGE
@@ -4967,7 +4990,7 @@ sub print_overall_rate($$$$)
     if ($main::show_tla) {
       for my $tla (@SummaryInfo::tlaPriorityOrder) {
         my $v = $summary->get($tla, $type);
-	my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
+        my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
         info("       $label...: $v\n")
           if $v != 0;
       }
@@ -7208,7 +7231,7 @@ END_OF_HTML
           $v = $key eq 'missed' ? -$count : $count;
           # want to colorize the UNC, LBC, UIC rows if not zero
           $class = "tla$key"
-	    if !$main::use_legacyLabels && grep(/^$key$/, ("UNC", "LBC", "UIC"));
+            if !$main::use_legacyLabels && grep(/^$key$/, ("UNC", "LBC", "UIC"));
 
           # want to look in file details to build link to first
           #   line...
@@ -7218,7 +7241,7 @@ END_OF_HTML
               'D' ne substr($key,0,1) &&
               grep(/^$key$/, @SummaryInfo::tlaPriorityOrder)) {
             my $line;
-	    my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$key} : $key;
+            my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$key} : $key;
             my $title = "\"Go to first $label $covType ";
             if ('fileOrDir' eq $page_type) {
               # go to first line of the indicated type in the file
@@ -7640,7 +7663,7 @@ sub get_branch_html($$)
         $tla = $br->[1];
         $br = $br->[0];
         $class = "tla$tla";
-	my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
+        my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
         $prefix = $label . ": ";
       }
       my ($char, $title);
@@ -7782,7 +7805,7 @@ sub write_source_line(*$$$$)
             my $color = ($tla ne 'UNK'
                          ? " style=\"background-color:$lcovutil::tlaColor{$bucket}\""
                          : '');
-	    my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
+            my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
             my $popup = " title=\"Next $label group\"";
             $tla = "<a href=\"#$next\"$color$popup>$label</a>";
         }
@@ -7944,7 +7967,7 @@ sub write_source_line(*$$$$)
 
         $next = "top" if (!defined($next));
         my $dateBin = $SummaryInfo::ageGroupHeader[$newBin];
-	my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$bucket} : $bucket;
+        my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$bucket} : $bucket;
         my $popup =  " title=\"next $label in &ldquo;$dateBin&rdquo; bin\"";
         $html .= ( (' 'x($ageLen-length($src_age))) .
                    "<a href=\"#$next\"$popup$bgcolor>$src_age</a> " );
@@ -7958,7 +7981,7 @@ sub write_source_line(*$$$$)
                                                            $bucket, $line);
         $cbdata->nextOwner($src_owner, $bucket, $next);
         $next = "top" if (!defined($next));
-	my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$bucket} : $bucket;
+        my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$bucket} : $bucket;
         my $popup =  " title=\"next $label in &ldquo;$src_owner&rdquo; bin\"";
         # NOTE:  see note below about firefox nested span bug.
         #  this code just arranges to wrap an explicit 'span' around
@@ -8274,13 +8297,13 @@ sub buildDateSummaryTable($$$$$$$$) {
             or die("$tla: unexpected date bin $bin undef appearance for " . $fileDetail->path());
           my $dateBin = $SummaryInfo::ageGroupHeader[$bin];
           my ($label, $color);
-	  if ($main::use_legacyLabels) {
-	    $label = $SummaryInfo::tlaToLegacy{$tla};
-	    $color = "";
-	  } else {
-	    $label =$tla;
-	    $color = " style=\"background-color:$class\"";
-	  }
+          if ($main::use_legacyLabels) {
+            $label = $SummaryInfo::tlaToLegacy{$tla};
+            $color = "";
+          } else {
+            $label =$tla;
+            $color = " style=\"background-color:$class\"";
+          }
           my $popup =  " title=\"goto first $label ";
           $popup .= $covType . ' '
             if ($covType ne 'line');
@@ -8369,13 +8392,13 @@ sub buildOwnerSummaryTable($$$$$$$$) {
           defined($firstAppearance) or
             die("$tla: unexpected owner $name undef appearance for " . $fileDetail->path());
           my ($label, $color);
-	  if ($main::use_legacyLabels) {
-	    $label = $SummaryInfo::tlaToLegacy{$tla};
-	    $color = "";
-	  } else {
-	    $label =$tla;
-	    $color = " style=\"background-color:$class\"";
-	  }
+          if ($main::use_legacyLabels) {
+            $label = $SummaryInfo::tlaToLegacy{$tla};
+            $color = "";
+          } else {
+            $label =$tla;
+            $color = " style=\"background-color:$class\"";
+          }
           my $popup =  " title=\"goto first $label ";
           $popup .= $covType . ' '
             if ($covType ne 'line');
@@ -8395,7 +8418,7 @@ sub buildHeaderSummaryTableRow {
 
   $fileDetail = undef
     if (! $main::show_tla &&
-	(defined($fileDetail) && !$fileDetail->isProjectFile()));
+        (defined($fileDetail) && !$fileDetail->isProjectFile()));
   my @row;
   for my $tla (@SummaryInfo::tlaPriorityOrder) {
     my $value = $summary->get($tla, $covType);
@@ -8703,13 +8726,13 @@ END_OF_HTML
     if ($main::show_tla) {
       for my $tla (@SummaryInfo::tlaPriorityOrder) {
         my ($title, $label);
-	if ($main::use_legacyLabels) {
-	  $label = $SummaryInfo::tlaToLegacy{$tla};
-	  $title = "";
-	} else {
-	  $label = "<span class=\"tla$tla\">$tla</span>";
-	  $title = " title=\"" . $SummaryInfo::tlaToTitle{$tla} . "\"";
-	}
+        if ($main::use_legacyLabels) {
+          $label = $SummaryInfo::tlaToLegacy{$tla};
+          $title = "";
+        } else {
+          $label = "<span class=\"tla$tla\">$tla</span>";
+          $title = " title=\"" . $SummaryInfo::tlaToTitle{$tla} . "\"";
+        }
         push(@headerRow, ["5%", "headerCovTableHead\"$title", $label]);
       }
     }
@@ -9633,8 +9656,8 @@ END_OF_HTML
         my $style = "coverFnAlias" . ($hit == 0 ? "Lo" : "Hi");
         $tlaRow = "";
         if ($showTlas) {
-	  my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} : $tla;
-	  $tlaRow = "<td class=\"tla$tla\">$label</td>";
+          my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} : $tla;
+          $tlaRow = "<td class=\"tla$tla\">$label</td>";
         }
         write_html(*HTML_HANDLE, <<END_OF_HTML);
             <tr>

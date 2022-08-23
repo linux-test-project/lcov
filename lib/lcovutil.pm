@@ -531,6 +531,12 @@ sub apply_config($$)
 #  check for various possible system-wide RC files, and apply the result
 sub apply_rc_params($$) {
   my ($opt_config_file, $rcHash) = @_;
+
+  # Check command line for a configuration file name
+  Getopt::Long::Configure("pass_through", "no_auto_abbrev");
+  Getopt::Long::GetOptions("config-file=s" => $opt_config_file,
+			   "rc=s%" => \%opt_rc);
+  Getopt::Long::Configure("default");
   {
     # Remove spaces around rc options
     my %new_opt_rc;
@@ -545,8 +551,12 @@ sub apply_rc_params($$) {
   }
   my $config; # did we see a config file or not?
   # Read configuration file if available
-  if (defined($opt_config_file)) {
-    $config = read_config($opt_config_file);
+  if (0 != scalar(@$opt_config_file)) {
+    foreach my $f (@$opt_config_file) {
+      $config = read_config($f);
+      apply_config($rcHash, $config);
+    }
+    return 0;
   }
   elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"}."/.lcovrc")) {
     $config = read_config($ENV{"HOME"}."/.lcovrc");
@@ -3262,7 +3272,7 @@ sub write_info($$$) {
 	next
 	  if (defined($srcReader) && $srcReader->notEmpty() &&
 	      $srcReader->isExcluded($line, 1));
-	    
+
         my $brdata = $testbrcount->value($line);
         if (defined($branchHistogram)) {
           $skipBranch = ! $srcReader->containsConditional($line);
@@ -3308,7 +3318,7 @@ sub write_info($$$) {
 	next
 	  if (defined($srcReader) && $srcReader->notEmpty() &&
 	      $srcReader->isExcluded($line));
-	      
+
         my $l_hit = $testcount->value($line);
         if (defined($lineHistogram) &&
           # don't suppresss if this line has associated branch data

@@ -19,6 +19,16 @@ location
 .IR ~/.lcovrc .
 Where available, command\-line options override configuration file settings.
 
+The
+.I genhtml, lcov,
+and
+.I geninfo
+commands also support the
+.I \-\-config\-file
+option, which can be used to specify one or more files which should be used instead of the system or user default rc files.
+Multiple options files may be useful if you have both project- and team-specific common options and want to ensure consistency across multiple users.  If multiple \-\-config\-file options are applied in the order they appear.
+Note that the "\-\-config\-file" option name must be specified in full and cannot be abbreviated.  An error will occur if the option is not recognized.
+
 Lines in a configuration file can either be:
 .IP "     *"
 empty lines or lines consisting only of white space characters. These lines are
@@ -67,8 +77,9 @@ omit_lines = ^\s+//\s*MY_EXCLUDE_MARKER\s*$
 omit_lines = NR_CM_DBG_PRINT
 
 .IP "     *"
-Entries specified on the command line are appended to the list specified in the RC file
-(If order is important: RC entries come first. For most options: order is not important.)
+If entries are specified on the command line, then the RC file entries are ignored:  command line wins.
+If entries are specified in more than one RC file (i.e., multiple \-\-config\-file arguments are supplied), then RC files are applied in order of appearance, and list entries are appended in order.  For most list-type options, order is not important.
+
 
 .IP "     *"
 list options include:

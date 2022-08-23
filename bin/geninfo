@@ -86,7 +86,7 @@ use lcovutil qw (define_errors parse_ignore_errors
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE
                  $ERROR_GRAPH $ERROR_PARALLEL report_parallel_error
                  is_external @internal_dirs
-                 %opt_rc apply_rc_params
+                 apply_rc_params
                  $maxParallelism count_cores
                 );
 
@@ -262,7 +262,7 @@ our $opt_derive_func_data = 0;
 our $opt_external;
 our $gcov_caps;
 our @gcov_options;
-our $opt_config_file;
+our @opt_config_file;
 our $opt_gcov_all_blocks = 1;
 our $opt_compat;
 our %compat_value;
@@ -293,13 +293,11 @@ $SIG{__DIE__} = \&die_handler;
 # Set LC_ALL so that gcov output will be in a unified format
 $ENV{"LC_ALL"} = "C";
 
-# Check command line for a configuration file name
-Getopt::Long::Configure("pass_through", "no_auto_abbrev");
-GetOptions("config-file=s" => \$opt_config_file,
-	   "rc=s%" => \%opt_rc);
-Getopt::Long::Configure("default");
+# retrieve settings from RC file - use these if not overridden on command line
+my (@rc_filter, @rc_ignore,
+    @rc_exclude_patterns, @rc_include_patterns, @rc_subst_patterns, @rc_omit_patterns);
 
-if (lcovutil::apply_rc_params($opt_config_file,
+if (lcovutil::apply_rc_params(\@opt_config_file,
 			      {"geninfo_gcov_tool"	 => \$gcov_tool,
 			       "geninfo_adjust_testname" => \$adjust_testname,
 			       "geninfo_checksum"	 => \$checksum,
@@ -317,14 +315,14 @@ if (lcovutil::apply_rc_params($opt_config_file,
 			       "lcov_excl_line"		=> \$excl_line,
 			       "lcov_excl_br_line"	=> \$excl_br_line,
 			       "lcov_excl_exception_br_line" => \$excl_exception_br_line,
-			       'ignore_errors' => \@ignore_errors,
+			       'ignore_errors' => \@rc_ignore,
 			       "profile"       => \$lcovutil::profile,
 			       "parallel"      => \$lcovutil::maxParallelism,
-			       'filter'     => \@opt_filter,
-			       'exclude'    => \@lcovutil::exclude_file_patterns,
-			       'include'    => \@lcovutil::include_file_patterns,
-			       'substitute' => \@lcovutil::file_subst_patterns,
-			       'omit_lines' => \@lcovutil::omit_line_patterns,
+			       'filter'     => \@rc_filter,
+			       'exclude'    => \@rc_exclude_patterns,
+			       'include'    => \@rc_include_patterns,
+			       'substitute' => \@rc_subst_patterns,
+			       'omit_lines' => \@rc_omit_patterns,
 			       "version_script" => \$lcovutil::extractVersionScript,
 			      })) {
   # we set some RC values...
@@ -362,6 +360,9 @@ if (lcovutil::apply_rc_params($opt_config_file,
   }
 }
 
+my %unsupported_rc; # for error checking
+my @unsupported_config;
+
 # Parse command line options
 if (!GetOptions("test-name|t=s" => \$test_name,
 		"output-filename|o=s" => \$output_filename,
@@ -389,8 +390,8 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"external|e" => \$opt_external,
 		"no-external" => \$lcovutil::opt_no_external,
 		"compat=s" => \$opt_compat,
-		"config-file=s" => \$opt_config_file,
-		"rc=s%" => \%opt_rc,
+		"config-file=s" => \@unsupported_config,
+		"rc=s%" => \%unsupported_rc,
                 "version-script=s" => \$lcovutil::extractVersionScript,
                 "profile"          => \$lcovutil::profile,
                 "parallel|j=i"     => \$lcovutil::maxParallelism,
@@ -399,6 +400,23 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 	print(STDERR "Use $tool_name --help to get usage information\n");
 	exit(1);
 }
+
+foreach my $d (['--config-file', scalar(@unsupported_config)],
+	       ['--rc', scalar(%unsupported_rc)]) {
+  die("Error: '" . $d->[0] . "' option name cannot be abbreviated.\n")
+    if ($d->[1]);
+}
+@opt_filter = @rc_filter unless @opt_filter;
+@ignore_errors = @rc_ignore unless @ignore_errors;
+@lcovutil::exclude_file_patterns = @rc_exclude_patterns
+  unless @lcovutil::exclude_file_patterns;
+@lcovutil::include_file_patterns = @rc_include_patterns
+  unless @lcovutil::include_file_patterns;
+@lcovutil::subst_file_patterns = @rc_subst_patterns
+  unless @lcovutil::subst_file_patterns;
+@lcovutil::omit_line_patterns = @rc_omit_patterns
+  unless @lcovutil::omit_line_patterns;
+
 # Merge options
 if (defined($no_checksum))
 {
@@ -2364,7 +2382,7 @@ sub intermediate_text_to_info($$$)
 				my $hit = $2;
 
 				push(@linecov, [$lineNo, $hit])
-				  unless ($excl->{$lineNo} || 
+				  unless ($excl->{$lineNo} ||
 					  (defined($srcReader) &&
 					   $srcReader->notEmpty() &&
 					   $srcReader->isExcluded($lineNo)));

@@ -569,7 +569,7 @@ This argument has no effect if there is no
 .RE
 .BI "\-\-show\-navigation "
 .RS
-By default, the summary table in the source code detail view does not contain hyperlinks from the number to the first line in the corresponding category ('Hit' or 'Missed') and from the current location to the next location in the current category, in non-differential coverage reports.  (This is the lcov 'legacy' view non-differential reports.)  
+By default, the summary table in the source code detail view does not contain hyperlinks from the number to the first line in the corresponding category ('Hit' or 'Missed') and from the current location to the next location in the current category, in non-differential coverage reports.  (This is the lcov 'legacy' view non-differential reports.)
 
 If the
 .I \-\-show\-navigation
@@ -1095,6 +1095,9 @@ This option may be useful when there is a need to run several
 instances of
 .B genhtml
 with different configuration file options in parallel.
+
+Note that this option must be specified in full - abbreviations are not supported.
+
 .RE
 
 .B \-\-rc
