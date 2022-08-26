@@ -29,8 +29,61 @@ lines and will be ignored.
 .IP "     *"
 statements in the form
 .RI ' key " = " value '.
+
+.PP
 A list of valid statements and their description can be found in
 section 'OPTIONS' below.
+
+Both 'list' and 'scalar' (non list) options are supported in the lcovrc file.
+
+For scalar (non list) options:
+.IP "     *"
+if specified on the command line and in the lcovrc file, the value specified on the command line wins.
+The value from the RC file is ignored.
+.IP "     *"
+Scalar options include:
+.RI 'genhtml_criteria_script " = " ...'
+,
+.RI 'genhtml_annotate_script " = " ...'
+,
+.RI 'version_script " = " ...'
+, etc.
+.PP
+.PP
+
+.PP
+For list options:
+.IP "     *"
+the RC file entry can be used multiple times; each use appends to the list.
+.br
+For example, the entry below will result in two 'omit' patterns which will both be checked:
+.IP "      "
+# note explicit start/end line markers in the regexp
+.br
+omit_lines = ^\s+//\s*MY_EXCLUDE_MARKER\s*$
+.br
+# Note that the regexp below matches anywhere on the line
+.br
+omit_lines = NR_CM_DBG_PRINT
+
+.IP "     *"
+Entries specified on the command line are appended to the list specified in the RC file
+(If order is important: RC entries come first. For most options: order is not important.)
+
+.IP "     *"
+list options include:
+.RI 'filter " = " ...'
+,
+.RI 'exclude " = " ...'
+.
+.RI 'include " = " ...'
+,
+.RI 'substitute " = " ...'
+,
+.RI 'omit_lines " = " ...'
+, etc.
+
+.PP
 .PP
 
 .B Example configuration:
@@ -480,10 +533,12 @@ This option is used by genhtml and lcov.
 .PP
 
 .BR ignore_errors " ="
-.IR str[,str]+
+.IR str
 .IP
-Specify a comma-separted list of message types which should be ignored.
+Specify a  message type which should be ignored.
 .br
+
+This option can be used multiple times in the lcovrc file to ignore multiple message types.
 
 This option is equivalent to the \-\-ignore\-errors option to geninfo, genhtml, or lcov.  If specified, this set is appended to the list specified by the command line option.
 .br
@@ -713,6 +768,20 @@ If non\-zero, the HTML report will follow the hierarchical directory structure o
 .br
 
 This option is equivalent to using the \-\-hierarchical command line option of
+.BR genhtml .
+.br
+
+Default is 0.
+.PP
+
+.BR genhtml_show_navigation " ="
+.IR 0 | 1
+.IP
+If non\-zero, the 'source code' view summary table will contain hyperlinks from the number to the first source line in the corresponding category ('Hit' or 'Not hit') in the non-differential coverage report.
+Source code hyperlinks are always enabled in differential coverage reports.
+.br
+
+This option is equivalent to using the \-\-show\-navigation command line option of
 .BR genhtml .
 .br
 
@@ -1187,6 +1256,117 @@ The default is 1 (one) - which means to process sequentially (no parallelism).
 This option is used by genhtml, lcov, and geninfo.
 
 .PP
+
+.BR genhtml_date_bins " ="
+.IR integer[,integer..]
+.IP
+This option is equivalent to the "genhtml \-\-date\-bins" option.
+See the genhtml man page for details.
+
+This option can be used multiple tiems in the lcovrc file to set multiple cutpoints.
+The cutpoints specified in the lcovrc file are appended to the cutpoints (if any) specified on the command line.
+
+.PP
+
+.BR genhtml_annotate_script " ="
+.IR path_to_executable
+.IP
+This option is equivalent to the "genhtml \-\-annotate\-script" option.
+See the genhtml man page for details.
+
+.PP
+
+.BR genhtml_criteria_script " ="
+.IR path_to_executable
+.IP
+This option is equivalent to the "genhtml \-\-criteria\-script" option.
+See the genhtml man page for details.
+
+.PP
+
+.BR version_script " ="
+.IR path_to_executable
+.IP
+This option is equivalent to the geninfo/lcov/genhtml "\-\-version\-script" option.
+See the genhtml man page for details.
+
+.PP
+
+.BR filter " ="
+.IR str[,str...]
+.IP
+
+This option is equivalent to the \-\-filter option to geninfo, lcov, and genhtml.
+See the genhtml man page for details.
+
+This option can be used multiple tiems in the lcovrc file to enable multiple filters.
+The filters specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR exclude " ="
+.IR glob_pattern
+.IP
+
+This option is equivalent to the \-\-exclude option to geninfo, lcov, and genhtml.
+See the lcov man page for details.;
+
+This option can be used multiple tiems in the lcovrc file to specify multiple patterns to exclude.
+The patterns specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR include " ="
+.IR glob_pattern
+.IP
+
+This option is equivalent to the \-\-include option to geninfo, lcov, and genhtml.
+See the lcov man page for details.;
+
+This option can be used multiple tiems in the lcovrc file to specify multiple patterns to include.
+The patterns specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR substitute " ="
+.IR regexp
+.IP
+
+This option is equivalent to the \-\-substitute option to geninfo, lcov, and genhtml.
+See the lcov man page for details.;
+
+This option can be used multiple tiems in the lcovrc file to specify multiple subsitution patterns.
+The patterns specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR omit_lines " ="
+.IR regexp
+.IP
+
+This option is equivalent to the \-\-omit\-lines option to geninfo, lcov, and genhtml.
+See the genhtml man page for details.;
+
+This option can be used multiple tiems in the lcovrc file to specify multiple patterns to exclude.
+The patterns specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
 
 .SH FILES
 

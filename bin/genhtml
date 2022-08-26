@@ -345,6 +345,16 @@ our %tlaToTitle = (
     "DCB" => "Deleted Covered Baseline",
     );
 
+our %tlaToLegacy = (
+  "UNC" => "Missed",
+  "GNC" => "Hit",
+   );
+
+our %tlaToLegacySrcLabel = (
+  "UNC" => "MIS",
+  "GNC" => "HIT",
+   );
+
 our @defaultCutpoints = ( 7, 30, 180 );
 our @cutpoints;
 our @ageGroupHeader;
@@ -365,6 +375,16 @@ sub _initCounts {
                      'UBC', 'ECB', 'EUB', 'GIC', 'UIC', 'DCB', 'DUB') {
         $hash->{$key} = 0;
     }
+}
+
+sub noBaseline {
+  # no baseline - so we will have only 'UIC' and 'GIC' code
+  #   legacy display order is 'hit' followed by 'not hit'
+  @tlaPriorityOrder = ( 'GNC', 'UNC');
+  %tlaToTitle = (
+    'UNC' => 'Not Hit',
+    'GNC' => 'Hit',
+    );
 }
 
 sub setAgeGroups {
@@ -2443,7 +2463,8 @@ sub type {
 
   if (!defined($self->{linemap}->{$file})) {
     #mapping is identity when no diff was read
-    if (defined($main::show_tla)) {
+    if (defined($main::base_filename) &&
+	defined($main::show_tla)) {
       return "equal"; # categories will be "GIC", "UIC"
     } else {
       return "insert"; # categories will be "GNC", "UNC"
@@ -2909,9 +2930,9 @@ sub _read_udiff {
   }
 
   if (scalar(keys %{$self->{linemap}}) == 0) {
-    warn("ERROR: no valid diff data found in $diff_file!\n".
-        "Make sure to use 'diff -u' when generating the diff ".
-        "file.\n");
+    # this is probably OK - there are no differences between 'baseline' and current.
+    lcovutil::ignorable_error($lcovutil::ERROR_EMPTY, "'diff' data file $diff_file contains no differences (this may be OK, if there are no difference between 'baseline' and 'current').\n".
+        "Make sure to use 'diff -u' when generating the diff file.\n");
   }
   return $self;
 }
@@ -4305,6 +4326,12 @@ our $no_func_coverage;  # Disable func_coverage
 our $br_coverage;       # If set, generate branch coverage statistics
 our $no_br_coverage;    # Disable br_coverage
 our $show_tla;          # categorize coverage data (or not)
+our $show_hitTotalCol;  # include the 'hit' or 'missed' total count in tables
+                        #   - this is part of the 'legacy' view
+                        #   - also enabled when full differential categories are used
+                        #     (i.e., but not when there is no baseline data - so no
+                        #     categories apart from 'GNC' and 'UNC'
+our $use_legacyLabels;
 our $show_dateBins;     # show last modified and last author info
 our $show_ownerBins;    # show list of people who have edited code
                         #   (in this file/this directory/etc)
@@ -4371,6 +4398,8 @@ Getopt::Long::Configure("default");
 
 my $rtlExtensions;
 my $cExtensions;
+my @datebins;
+
 lcovutil::apply_rc_params($opt_config_file,
               {
                 "genhtml_css_file"              => \$css_filename,
@@ -4409,6 +4438,12 @@ lcovutil::apply_rc_params($opt_config_file,
                 "genhtml_missed"                => \$opt_missed,
                 "genhtml_dark_mode"             => \$dark_mode,
                 "genhtml_hierarchical"          => \$hierarchical,
+                "genhtml_show_havigation"       => \$show_tla,
+                'genhtml_date_bins'             => \@datebins,
+                'genhtml_annotate_script'       => \$SourceFile::annotateScript,
+                'genhtml_criteria_script'       => \$SummaryInfo::coverageCriteriaScript,
+                'genhtml_date_bins'             => \@datebins,
+
                 "lcov_function_coverage"        => \$lcov_func_coverage,
                 "lcov_branch_coverage"          => \$lcov_branch_coverage,
                 "ignore_errors"                 => \@opt_ignore_errors,
@@ -4416,8 +4451,15 @@ lcovutil::apply_rc_params($opt_config_file,
                 "c_file_extensions"             => \$cExtensions,
                 "filter_lookahead"              => \$lcovutil::source_filter_lookahead,
                 "filter_bitwise_conditional"    => \$lcovutil::source_filter_bitwise_are_conditional,
-                "profile"                       => \$lcovutil::profile,
-                "parallel"                      => \$lcovutil::maxParallelism,
+                "profile"        => \$lcovutil::profile,
+                "parallel"       => \$lcovutil::maxParallelism,
+
+                'filter'         => \@opt_filter,
+                'exclude'        => \@lcovutil::exclude_file_patterns,
+                'include'        => \@lcovutil::include_file_patterns,
+                'substitute'     => \@lcovutil::file_subst_patterns,
+                'omit_lines'     => \@lcovutil::omit_line_patterns,
+                "version_script" => \$lcovutil::extractVersionScript,
               });
 
 # Copy related values if not specified
@@ -4434,7 +4476,6 @@ lcovutil::set_c_extensions($cExtensions)
 
 
 # Parse command line options
-my @datebins;
 if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "header-title=s"        => \$header_title,
                 "footer=s"              => \$footer,
@@ -4493,8 +4534,10 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "profile"               => \$lcovutil::profile,
                 "exclude=s"             => \@lcovutil::exclude_file_patterns,
                 "include=s"             => \@lcovutil::include_file_patterns,
+                "omit-lines=s"          => \@lcovutil::omit_line_patterns,
                 "substitute=s"          => \@lcovutil::file_subst_patterns,
                 "parallel|j=i"          => \$lcovutil::maxParallelism,
+                "show-navigation"       => \$show_tla,
                 ))
 {
   print(STDERR "Use $tool_name --help to get usage information\n");
@@ -4510,7 +4553,14 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
     if ($no_sort);
 
   $show_tla = 1
-    if ($base_filename);
+    if defined($base_filename);
+  $show_hitTotalCol = ! $show_tla || defined($base_filename);
+  $use_legacyLabels = ! defined($base_filename) && $show_tla;
+  if ($show_tla && ! defined($base_filename)) {
+    # no baseline - so not a differentialreport.
+    #  modify some settings to gnerate corresponding RTL code.
+    SummaryInfo::noBaseline();
+  }
 
   if ($SourceFile::annotateScript) {
     $show_dateBins = 1;
@@ -4518,7 +4568,8 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
       # default: 7, 30, 180 days
       @datebins = @SummaryInfo::defaultCutpoints;
     } else {
-      @datebins = split(/,/, join(',', @datebins));
+      my %uniqify = map { $_, 1} split(/,/, join(',', @datebins));
+      @datebins = sort(keys %uniqify);
     }
     SummaryInfo::setAgeGroups(@datebins);
   } else {
@@ -4555,7 +4606,8 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
 
   # use LCOV original colors if no baseline file
   #  (so no differential coverage)
-  if (! $show_tla ||
+  if ($use_legacyLabels ||
+      ! $show_tla ||
       (defined($show_simplifiedColors) &&
        $show_simplifiedColors)) {
     lcovutil::use_vanilla_color();
@@ -4851,6 +4903,9 @@ Operation:
       --exclude PATTERNS            Do not display for files matching PATTERNS.
       --substitute PATTERNS         Munge source file names according to these
                                     Perl regexps (applied in order)
+      --omit-lines REGEXP           Ignore coverage data associated with lines
+                                    whose content matches regexp.
+                                    Perl regexps (applied in order)
   -j, --parallel INTEGER            Use at most INTEGER number of parallel
                                     slaves during processing.
       --profile                     Collect some performance statistics.
@@ -4876,6 +4931,8 @@ HTML output:
       --dark-mode                   Use the dark-mode CSS
       --hierarchical                Generate multilevel HTML report,
                                     matching source code directory structure.
+      --show-navigation             Enable hyperlinks to first source code
+                                    line in corresponding category.
 
 For more information see: $lcov_url and\/or the genhtml man page.
 END_OF_USAGE
@@ -4910,7 +4967,8 @@ sub print_overall_rate($$$$)
     if ($main::show_tla) {
       for my $tla (@SummaryInfo::tlaPriorityOrder) {
         my $v = $summary->get($tla, $type);
-        info("       $tla...: $v\n")
+	my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
+        info("       $label...: $v\n")
           if $v != 0;
       }
     }
@@ -5942,7 +6000,7 @@ sub write_css_file()
           font-style: italic;
           font-weight: bold;
         }
-        /* 'Line coverage date bins" leader */
+        /* "Line coverage date bins" leader */
         td.subTableHeader
         {
           text-align: center;
@@ -6172,7 +6230,7 @@ sub write_css_file()
           font-family: sans-serif;
         }
 
-        /* td background color and font for 'the 'owner' section of the table */
+        /* td background color and font for the 'owner' section of the table */
         td.ownerTla
         {
           text-align: right;
@@ -6534,7 +6592,6 @@ sub write_css_file()
 END_OF_CSS
       ;
 
-  # 'span' tags for all the TLA's
   foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
     my $title = $SummaryInfo::tlaToTitle{$tla};
     my $color = $lcovutil::tlaColor{$tla};
@@ -6557,7 +6614,7 @@ END_OF_SPAN
   #   probably should have one for each bin...
   $css_data .= ($_=<<"END_OF_DATE_SPAN")
 
-        /* Source code view: format for date/owner bin that isn't hit */
+        /* Source code view: format for date/owner bin that is not hit */
         span.missBins
         {
           background-color: #COLOR_10 /* red */
@@ -6621,7 +6678,7 @@ END_OF_DATE_SPAN
   # Apply palette
   for (keys %palette) {
     $css_data =~ s/$_/$palette{$_}/gm;
-    }
+  }
 
   print(CSS_HANDLE $css_data);
 
@@ -7135,7 +7192,10 @@ END_OF_HTML
               <td class="${prefix}coverPer$class">$rate</td>
 END_OF_HTML
     if ($summary) {
-      my @keys = ("found", $opt_missed ? "missed" : "hit");
+      my @keys = ("found");
+      if ($main::show_hitTotalCol) {
+        push(@keys, $opt_missed ? "missed" : "hit");
+      }
       if ($main::show_tla) {
         push(@keys, @SummaryInfo::tlaPriorityOrder);
       }
@@ -7147,7 +7207,8 @@ END_OF_HTML
         if ( defined($count) && 0 != $count ) {
           $v = $key eq 'missed' ? -$count : $count;
           # want to colorize the UNC, LBC, UIC rows if not zero
-          $class = "tla$key" if grep(/^$key$/, ("UNC", "LBC", "UIC"));
+          $class = "tla$key"
+	    if !$main::use_legacyLabels && grep(/^$key$/, ("UNC", "LBC", "UIC"));
 
           # want to look in file details to build link to first
           #   line...
@@ -7157,7 +7218,8 @@ END_OF_HTML
               'D' ne substr($key,0,1) &&
               grep(/^$key$/, @SummaryInfo::tlaPriorityOrder)) {
             my $line;
-            my $title = "\"Go to first $key $covType ";
+	    my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$key} : $key;
+            my $title = "\"Go to first $label $covType ";
             if ('fileOrDir' eq $page_type) {
               # go to first line of the indicated type in the file
               $line = $fileDetails->nextTlaGroup($key)
@@ -7238,10 +7300,10 @@ END_OF_HTML
     }
     write_html($handle, "    <td class=\"testPer\">$rate</td>\n");
     if ($covtype ne 'function') {
-      write_html($handle, <<END_OF_HTML);
-              <td class='testNum'>$found</td>
-              <td class="testNum">$hit</td>
-END_OF_HTML
+      write_html($handle, "              <td class='testNum'>$found</td>\n");
+      if ($main::show_hitTotalCol) {
+        write_html($handle, "              <td class='testNum'>$hit</td>\n");
+      }
       if ($main::show_tla) {
         foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
           my $count = $callback->count($tla);
@@ -7578,7 +7640,8 @@ sub get_branch_html($$)
         $tla = $br->[1];
         $br = $br->[0];
         $class = "tla$tla";
-        $prefix = $tla . ": ";
+	my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
+        $prefix = $label . ": ";
       }
       my ($char, $title);
 
@@ -7719,8 +7782,9 @@ sub write_source_line(*$$$$)
             my $color = ($tla ne 'UNK'
                          ? " style=\"background-color:$lcovutil::tlaColor{$bucket}\""
                          : '');
-            my $popup = "title=\"Next $bucket group\"";
-            $tla = "<a href=\"#$next\"$color$popup>$tla</a>";
+	    my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
+            my $popup = " title=\"Next $label group\"";
+            $tla = "<a href=\"#$next\"$color$popup>$label</a>";
         }
         $source_format  = "<span class=\"tla$bucket\">";
 
@@ -7880,7 +7944,8 @@ sub write_source_line(*$$$$)
 
         $next = "top" if (!defined($next));
         my $dateBin = $SummaryInfo::ageGroupHeader[$newBin];
-        my $popup =  " title=\"next $bucket in &ldquo;$dateBin&rdquo; bin\"";
+	my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$bucket} : $bucket;
+        my $popup =  " title=\"next $label in &ldquo;$dateBin&rdquo; bin\"";
         $html .= ( (' 'x($ageLen-length($src_age))) .
                    "<a href=\"#$next\"$popup$bgcolor>$src_age</a> " );
       } else {
@@ -7893,7 +7958,8 @@ sub write_source_line(*$$$$)
                                                            $bucket, $line);
         $cbdata->nextOwner($src_owner, $bucket, $next);
         $next = "top" if (!defined($next));
-        my $popup =  " title=\"next $bucket in &ldquo;$src_owner&rdquo; bin\"";
+	my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$bucket} : $bucket;
+        my $popup =  " title=\"next $label in &ldquo;$src_owner&rdquo; bin\"";
         # NOTE:  see note below about firefox nested span bug.
         #  this code just arranges to wrap an explicit 'span' around
         #  the space.
@@ -8185,13 +8251,15 @@ sub buildDateSummaryTable($$$$$$$$) {
       if ($main::opt_missed);
     my @dataRow = ([undef, "headerItem", $href . ":"],
                    [undef, "headerCovTableEntry$style", $rate],
-                   [undef, "headerCovTableEntry", $found],
-                   [undef, "headerCovTableEntry", $hit]);
+                   [undef, "headerCovTableEntry", $found]);
+    if ($main::show_hitTotalCol) {
+      push(@dataRow, [undef, "headerCovTableEntry", $hit]);
+    }
     if ( $main::show_tla) {
       for my $tla (@SummaryInfo::tlaPriorityOrder) {
         my $value = &$covCountCallback($summary, $tla, "age", $ageval);
         my $class =
-          0 != $value && grep(/^$tla$/, ("UNC", "LBC", "UIC")) ? "tla$tla" : "headerCovTableEntry";
+          ! $main::use_legacyLabels && 0 != $value && grep(/^$tla$/, ("UNC", "LBC", "UIC")) ? "tla$tla" : "headerCovTableEntry";
         # suppress zeros - make table less busy/easier to read
         if ("0" eq $value) {
           $value = "";
@@ -8205,11 +8273,18 @@ sub buildDateSummaryTable($$$$$$$$) {
           defined($firstAppearance)
             or die("$tla: unexpected date bin $bin undef appearance for " . $fileDetail->path());
           my $dateBin = $SummaryInfo::ageGroupHeader[$bin];
-          my $popup =  " title=\"goto first $tla ";
+          my ($label, $color);
+	  if ($main::use_legacyLabels) {
+	    $label = $SummaryInfo::tlaToLegacy{$tla};
+	    $color = "";
+	  } else {
+	    $label =$tla;
+	    $color = " style=\"background-color:$class\"";
+	  }
+          my $popup =  " title=\"goto first $label ";
           $popup .= $covType . ' '
             if ($covType ne 'line');
           $popup .= "in &ldquo;$dateBin&rdquo; bin\"";
-          my $color = " style=\"background-color:$class\"";
           $value = "<a href=\"#$firstAppearance\"$popup$color>$value</a>";
         }
         push(@dataRow, [undef, $class, $value]);
@@ -8274,15 +8349,16 @@ sub buildOwnerSummaryTable($$$$$$$$) {
       if ($main::opt_missed);
     my @dataRow = ([undef, "headerItem", $href . ":"],
                    [undef, "owner_coverPer$style", $rate],
-                   [undef, "ownerTla", $found],
-                   [undef, "ownerTla", $hit]);
-    # no differential counts for branch coverage, yet
+                   [undef, "ownerTla", $found]);
+    if ($main::show_hitTotalCol) {
+      push(@dataRow, [undef, "ownerTla", $hit]);
+    }
     if ( $main::show_tla) {
       for my $tla (@SummaryInfo::tlaPriorityOrder) {
         my $value = $summary->owner_tlaCount($name, $tla, $covType);
         # suppress zeros - make table less busy/easier to read
         my $class =
-          0 != $value && grep(/^$tla$/, ("UNC", "LBC", "UIC")) ? "tla$tla" : "ownerTla";
+          ! $main::use_legacyLabels && 0 != $value && grep(/^$tla$/, ("UNC", "LBC", "UIC")) ? "tla$tla" : "ownerTla";
         if ("0" eq $value) {
           $value = "";
         } elsif (! $main::no_sourceview &&
@@ -8292,11 +8368,18 @@ sub buildOwnerSummaryTable($$$$$$$$) {
                                                        $name, $tla);
           defined($firstAppearance) or
             die("$tla: unexpected owner $name undef appearance for " . $fileDetail->path());
-          my $popup =  " title=\"goto first $tla ";
+          my ($label, $color);
+	  if ($main::use_legacyLabels) {
+	    $label = $SummaryInfo::tlaToLegacy{$tla};
+	    $color = "";
+	  } else {
+	    $label =$tla;
+	    $color = " style=\"background-color:$class\"";
+	  }
+          my $popup =  " title=\"goto first $label ";
           $popup .= $covType . ' '
             if ($covType ne 'line');
           $popup .= "in &ldquo;$name&rdquo; bin\"";
-          my $color = " style=\"background-color:$class\"";
           $value = "<a href=\"#$firstAppearance\"$popup$color>$value</a>";
         }
         push(@dataRow, [undef, $class, $value]);
@@ -8311,7 +8394,8 @@ sub buildHeaderSummaryTableRow {
   my ($summary, $covType, $fileDetail, $nextLocationCallback) = @_;
 
   $fileDetail = undef
-    if (defined($fileDetail) && ! $fileDetail->isProjectFile());
+    if (! $main::show_tla &&
+	(defined($fileDetail) && !$fileDetail->isProjectFile()));
   my @row;
   for my $tla (@SummaryInfo::tlaPriorityOrder) {
     my $value = $summary->get($tla, $covType);
@@ -8328,7 +8412,8 @@ sub buildHeaderSummaryTableRow {
       my $popup = " title=\"goto first ";
       $popup .= $covType . ' '
         if $covType ne 'line';
-      $popup .= "$tla\"";
+      my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} : $tla;
+      $popup .= "$label\"";
       $value = "<a href=\"#$firstAppearance\"$popup>$value</a>";
     }
     push(@row, [undef, "headerCovTableEntry", $value]);
@@ -8599,7 +8684,7 @@ END_OF_HTML
   } else {
     my $totalTitle = "Covered + Uncovered code";
     my $hitTitle = "Exercised code only";
-    if ($main::show_tla) {
+    if (defined($main::base_filename)) {
       $totalTitle .= " (not including EUB, ECB, DUB, DCB categories)";
       $hitTitle .= " (CBC + GBC + GNC + GIC)";
     }
@@ -8607,14 +8692,25 @@ END_OF_HTML
     my @headerRow = (["5%", undef, undef ],
                      ["5%", "headerCovTableHead", "Coverage"],
                      ["5%", "headerCovTableHead\" title=\" $totalTitle\"",
-                      "Total" ],
-                     ["5%", "headerCovTableHead\" title=\" $hitTitle\"",
-                      $main::opt_missed ? "Missed" : "Hit" ]);
-    if ( $main::show_tla) {
+                      "Total" ]);
+    if ($main::show_hitTotalCol) {
+      # legacy view, or we have all the differential categories
+      #-  thus also want a summary
+      $hitTitle = $main::use_legacyLabels ? "" : " title=\"$hitTitle\"";
+      push(@headerRow, ["5%", "headerCovTableHead\"$hitTitle",
+                        $main::opt_missed ? "Missed" : "Hit" ]);
+    }
+    if ($main::show_tla) {
       for my $tla (@SummaryInfo::tlaPriorityOrder) {
-        my $title = $SummaryInfo::tlaToTitle{$tla};
-        push(@headerRow, ["5%", "headerCovTableHead\" title=\"$title",
-                          "<span class=\"tla$tla\">$tla</span>"]);
+        my ($title, $label);
+	if ($main::use_legacyLabels) {
+	  $label = $SummaryInfo::tlaToLegacy{$tla};
+	  $title = "";
+	} else {
+	  $label = "<span class=\"tla$tla\">$tla</span>";
+	  $title = " title=\"" . $SummaryInfo::tlaToTitle{$tla} . "\"";
+	}
+        push(@headerRow, ["5%", "headerCovTableHead\"$title", $label]);
       }
     }
     push(@row_right, \@headerRow);
@@ -8628,8 +8724,10 @@ END_OF_HTML
     if $main::opt_missed; # negative number
   my @dataRow = ( [undef, "headerItem", "Lines:"],
                   [undef, "headerCovTableEntry$style", $rate],
-                  [undef, "headerCovTableEntry", $tot],
-                  [undef, "headerCovTableEntry", $hit] );
+                  [undef, "headerCovTableEntry", $tot] );
+  if ($main::show_hitTotalCol) {
+    push(@dataRow, [undef, "headerCovTableEntry", $hit]);
+  }
   if ($main::show_tla) {
     my @tlaRow = buildHeaderSummaryTableRow($summary, 'line', $fileDetail,
                                             \&SourceFile::nextTlaGroup);
@@ -8647,11 +8745,12 @@ END_OF_HTML
       if $main::opt_missed; # negative number
     my @dataRow = ([undef, "headerItem", "Functions:"],
                    [undef, "headerCovTableEntry$style", $rate],
-                   [undef, "headerCovTableEntry", $tot],
-                   [undef, "headerCovTableEntry", $hit] );
-
+                   [undef, "headerCovTableEntry", $tot]);
+    if ($main::show_hitTotalCol) {
+      push(@dataRow, [undef, "headerCovTableEntry", $hit]);
+    }
     if ($main::show_tla) {
-      # no file position for funcion (yet)
+      # no file position for function (yet)
       my @tlaRow = buildHeaderSummaryTableRow($summary, 'function',
                                               undef, undef);
       push(@dataRow, @tlaRow);
@@ -8669,8 +8768,10 @@ END_OF_HTML
       if $main::opt_missed; # negative number
     my @dataRow = ([undef, "headerItem", "Branches:"],
                    [undef, "headerCovTableEntry$style", $rate],
-                   [undef, "headerCovTableEntry", $tot],
-                   [undef, "headerCovTableEntry", $hit] );
+                   [undef, "headerCovTableEntry", $tot]);
+    if ($main::show_hitTotalCol) {
+      push(@dataRow, [undef, "headerCovTableEntry", $hit]);
+    }
     if ($main::show_tla) {
       my @tlaRow =
         buildHeaderSummaryTableRow($summary, 'branch', $fileDetail,
@@ -8689,9 +8790,9 @@ END_OF_HTML
 
     my $table =
       buildDateSummaryTable($summary, "line", \&SummaryInfo::lineCovCount,
-                              $fileDetail, \&SourceFile::nextInDateBin,
-                              "Line coverage date bins:",
-                              $dateBinDetailPage, scalar(@dataRow));
+                            $fileDetail, \&SourceFile::nextInDateBin,
+                            "Line coverage date bins:",
+                            $dateBinDetailPage, scalar(@dataRow));
     push(@row_right, @$table);
 
     if ($func_coverage) {
@@ -8955,14 +9056,20 @@ sub write_file_table(*$$$$)
 
   my @head_columns;
 
-  my $t = $main::opt_missed ? "Missed" : "Hit";
-  my @lineCovCols = (["coverage", 2], "Total", $t);
-  my @branchCovCols = ("coverage", "Total", $t);
-  my @functionCovCols = ("coverage", "Total", $t);
+  my @lineCovCols = (["coverage", 2], "Total");
+  my @branchCovCols = ("coverage", "Total");
+  my @functionCovCols = ("coverage", "Total");
+  if ($main::show_hitTotalCol) {
+    my $t = $main::opt_missed ? "Missed" : "Hit";
+    push(@lineCovCols, $t);
+    push(@branchCovCols, $t);
+    push(@functionCovCols, $t);
+  }
   if ($main::show_tla) {
     my @col_details;
     foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
-      push(@col_details, [$tla, 1, $SummaryInfo::tlaToTitle{$tla}]);
+      my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} : $tla;
+      push(@col_details, [$label, 1, $main::use_legacyLabels ? undef : $SummaryInfo::tlaToTitle{$tla}]);
     }
     push(@lineCovCols, @col_details);
     push(@branchCovCols, @col_details);
@@ -9461,7 +9568,8 @@ sub write_function_table(*$$$$$$$$$$)
   my $tlaRow = "";
   my $countWidth = 20;
   if ($showTlas) {
-    $tlaRow = "<td width=\"10%\" class=\"tableHead\">TLA</td>";
+    my $label = $main::use_legacyLabels ? 'Hit?' : 'TLA';
+    $tlaRow = "<td width=\"10%\" class=\"tableHead\">$label</td>";
     $countWidth = 10;
   }
   write_html(*HTML_HANDLE, <<END_OF_HTML);
@@ -9497,7 +9605,8 @@ END_OF_HTML
     }
     my $tlaRow = "";
     if ($showTlas) {
-      $tlaRow = "<td class=\"tla$tla\">$tla</td>";
+      my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} : $tla;
+      $tlaRow = "<td class=\"tla$tla\">$label</td>";
     }
     write_html(*HTML_HANDLE, <<END_OF_HTML);
             <tr>
@@ -9524,7 +9633,8 @@ END_OF_HTML
         my $style = "coverFnAlias" . ($hit == 0 ? "Lo" : "Hi");
         $tlaRow = "";
         if ($showTlas) {
-          $tlaRow = "<td class=\"tla$tla\">$tla</td>";
+	  my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} : $tla;
+	  $tlaRow = "<td class=\"tla$tla\">$label</td>";
         }
         write_html(*HTML_HANDLE, <<END_OF_HTML);
             <tr>

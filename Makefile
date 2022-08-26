@@ -30,6 +30,13 @@ TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
 
+EXES = lcov genhtml geninfo genpng gendesc
+SCRIPTS = p4udiff p4annotate getp4version get_signature gitblame gitdiff \
+	criteria
+LIBS = lcovutil
+MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 man1/gendesc.1 \
+	man5/lcovrc.5
+
 .PHONY: all info clean install uninstall rpms test
 
 all: info
@@ -48,57 +55,36 @@ clean:
 	make -C tests -s clean
 
 install:
-	bin/install.sh bin/lcov $(DESTDIR)$(BIN_DIR)/lcov -m 755
-	bin/install.sh bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml -m 755
-	bin/install.sh bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo -m 755
-	bin/install.sh bin/genpng $(DESTDIR)$(BIN_DIR)/genpng -m 755
-	bin/install.sh bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc -m 755
-	bin/install.sh bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff -m 755
-	bin/install.sh bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate -m 755
-	bin/install.sh bin/getp4version $(DESTDIR)$(SCRIPT_DIR)/getp4version -m 755
-	bin/install.sh bin/get_signature $(DESTDIR)$(SCRIPT_DIR)/get_signature -m 755
-	bin/install.sh bin/gitblame $(DESTDIR)$(SCRIPT_DIR)/gitblame -m 755
-	bin/install.sh bin/gitdiff $(DESTDIR)$(SCRIPT_DIR)/gitdiff -m 755
-	bin/install.sh bin/criteria $(DESTDIR)$(SCRIPT_DIR)/criteria -m 755
-	bin/install.sh lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm -m 755
-	bin/install.sh man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1 -m 644
-	bin/install.sh man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 -m 644
-	bin/install.sh man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 -m 644
-	bin/install.sh man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1 -m 644
-	bin/install.sh man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 -m 644
-	bin/install.sh man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 -m 644
+	for b in $(EXES) ; do \
+		bin/install.sh bin/$$b $(DESTDIR)$(BIN_DIR)/$$b -m 755 ; \
+		bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/$$b $(VERSION) $(RELEASE) $(FULL) ; \
+	done
+	for s in $(SCRIPTS) ; do \
+		bin/install.sh bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s -m 755 ; \
+	done
+	for l in $(LIBS) ; do \
+		bin/install.sh lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm -m 755 ; \
+	done
+	for m in $(MANPAGES) ; do \
+		bin/install.sh man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m -m 644 ; \
+		bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/$$m $(VERSION) $(RELEASE) $(FULL) ; \
+	done
+
 	bin/install.sh lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/lcov $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genhtml $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/geninfo $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genpng $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/gendesc $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/lcov.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genpng.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 $(VERSION) $(RELEASE) $(FULL)
 
 uninstall:
-	bin/install.sh --uninstall bin/lcov $(DESTDIR)$(BIN_DIR)/lcov
-	bin/install.sh --uninstall bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml
-	bin/install.sh --uninstall bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo
-	bin/install.sh --uninstall bin/genpng $(DESTDIR)$(BIN_DIR)/genpng
-	bin/install.sh --uninstall bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc
-	bin/install.sh --uninstall bin/p4udiff $(DESTDIR)$(SCRIPT_DIR)/p4udiff
-	bin/install.sh --uninstall bin/p4annotate $(DESTDIR)$(SCRIPT_DIR)/p4annotate
-	bin/install.sh --uninstall bin/getp4version $(DESTDIR)$(SCRIPT_DIR)/getp4version
-	bin/install.sh --uninstall bin/get_signature $(DESTDIR)$(SCRIPT_DIR)/get_signature
-	bin/install.sh --uninstall bin/gitblame $(DESTDIR)$(SCRIPT_DIR)/gitblame
-	bin/install.sh --uninstall bin/criteria $(DESTDIR)$(SCRIPT_DIR)/criteria
-	bin/install.sh --uninstall lib/lcovutil.pm $(DESTDIR)$(LIB_DIR)/lcovutil.pm
-	bin/install.sh --uninstall man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1
-	bin/install.sh --uninstall man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1
-	bin/install.sh --uninstall man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1
-	bin/install.sh --uninstall man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1
-	bin/install.sh --uninstall man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1
-	bin/install.sh --uninstall man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5
+	for b in $(EXES) ; do \
+		bin/install.sh --uninstall bin/$$b $(DESTDIR)$(BIN_DIR)/$$b ; \
+	done
+	for s in $(SCRIPTS) ; do \
+		bin/install.sh --uninstall bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
+	done
+	for l in $(LIBS) ; do \
+		bin/install.sh --uninstall lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm ; \
+	done
+	for m in $(MANPAGES) ; do \
+		bin/install.sh --uninstall man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m ; \
+	done
 	bin/install.sh --uninstall lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \

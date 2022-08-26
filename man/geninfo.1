@@ -61,6 +61,9 @@ geninfo \- Generate tracefiles from .da files
 .RB [ \-\-substitute
 .IR regexp_pattern ]
 .br
+.RB [ \-\-omit\-lines
+.IR regexp_pattern ]
+.br
 .RB [ \-\-version\-script
 .IR script_file  ]
 .br
@@ -303,6 +306,7 @@ libtool, disable this option to prevent problems when capturing coverage data.
 .br
 .RS
 Specify a configuration file to use.
+See the lcovrc man page for details of the file format and options.
 
 When this option is specified, neither the system\-wide configuration file
 /etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
@@ -311,6 +315,7 @@ This option may be useful when there is a need to run several
 instances of
 .B geninfo
 with different configuration file options in parallel.
+
 .RE
 
 .B \-\-derive\-func\-data
@@ -420,6 +425,18 @@ to source file names found during processing.  This is useful when the path name
 
 .RE
 
+.B \-\-omit\-lines
+.I regexp
+.br
+.RS
+Exclude coverage data from lines whose content matches
+.IR regexp .
+
+Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (e.g., some complicated macro).  
+See the lcov man page for details.
+
+.RE
+
 .B \-\-ignore\-errors
 .I errors
 .br
@@ -444,7 +461,7 @@ the gcov tool returned with a non\-zero return code.
 the source code file for a data set could not be found.
 
 .B unused
-the include/exclude/substitute pattern did not match any file pathnames.
+the include/exclude/substitute/omit pattern did not match any file pathnames.
 
 .B parallel
 various types of errors related to parallelism - e.g., child process died due to some error.  If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
@@ -514,7 +531,7 @@ The script will be called as:
 ;
 .br
 It should write the version ID to stdout and return a 0 exit status.
-If the file has is not versioned, it should write an empty string and return a 0 exit status.
+If the file has is not versioned, it should write an empty string and return a 0 exit status.  See the genhtml man page for more details.
 
 .RE
 

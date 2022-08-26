@@ -65,6 +65,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-substitute
 .IR regexp_pattern ]
 .br
+.RB [ \-\-omit\-lines
+.IR regexp_pattern ]
+.br
 .RB [ \-\-version\-script
 .IR script_file  ]
 .br
@@ -428,6 +431,7 @@ libtool, disable this option to prevent problems when capturing coverage data.
 .br
 .RS
 Specify a configuration file to use.
+See the lcovrc man page for details of the file format and options.
 
 When this option is specified, neither the system\-wide configuration file
 /etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
@@ -436,6 +440,7 @@ This option may be useful when there is a need to run several
 instances of
 .B lcov
 with different configuration file options in parallel.
+
 .RE
 
 .B \-\-convert\-filenames
@@ -583,11 +588,29 @@ while the file is actually located in
 use the following parameter:
 .br
 
-    \-\-substitute 's#/tmp/build#/usr/src#/g'
+    \-\-substitute 's#/tmp/build#/usr/src#g'
 .br
 
 This will change all "/tmp/build" strings in the path to "/usr/src".
 .PP
+
+.RE
+
+.B \-\-omit\-lines
+.I regexp
+.br
+.RS
+Exclude coverage data from lines whose content matches
+.IR regexp .
+
+Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (e.g., some complicated macro).  Multiple patterns can be
+specified by using multiple
+.B --omit-lines
+command line switches. The
+.I regexp
+will be interpreted as perl regular expressions (note that they may need to be
+escaped accordingly to prevent the shell from expanding them first).
+If you want the pattern to explicitly match from the start or end of the line, your regexp should start and/or end with "^" and/or "$".
 
 .RE
 
@@ -642,7 +665,7 @@ The script will be called as:
 ;
 .br
 It should write the version ID to stdout and return a 0 exit status.
-If the file has is not versioned, it should write an empty string and return a 0 exit status.
+If the file has is not versioned, it should write an empty string and return a 0 exit status. See the genhtml man page for more details.
 
 .B
 .I script_file source_file_name
@@ -788,7 +811,7 @@ Inconsistent entries found in trace file:
 branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
 
 .B unused
-the include/exclude/substitute pattern did not match any file pathnames.
+the include/exclude/omit/substitute pattern did not match any file pathnames.
 
 .B version:
 revision control IDs of the file which we are trying to merge are not the same - line numbering and other information may be incorrect.

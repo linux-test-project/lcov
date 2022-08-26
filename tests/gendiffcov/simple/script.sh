@@ -2,7 +2,6 @@
 set +x
 
 CLEAN_ONLY=0
-LCOV_HOME=
 COVER=
 
 PARALLEL='--parallel 0'
@@ -59,6 +58,11 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
+    echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
+    exit 1
+fi
+
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
@@ -80,7 +84,7 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper*
-rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched
+rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation
 
 if [ "x$COVER" != 'x' ] ; then
     cover -delete
@@ -465,6 +469,38 @@ for l in criteria.log criteria.err ; do
       echo "ERROR: 'criteria string is missing from $l"
       exit 1
   fi
+done
+
+# test '--show-navigation' option
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation ./current.info > navigation.log 2> navigation.err
+
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml --show-navigation failed"
+    exit 1
+fi
+
+HIT=`grep -c HIT.. navigation.log`
+MISS=`grep -c MIS.. navigation.log`
+if [[ $HIT != '3' || $MISS != '2' ]] ; then
+    echo "ERROR: 'navigation counts are wrong"
+    exit 1
+fi
+# look for unexpected naming in HTML
+for tla in GNC UNC ; do
+    grep "next $tla in" ./navigation/simple/test.cpp.gcov.html
+    if [ 0 == $? ] ; then
+        echo "ERROR: found unexpected tla $TLA in result"
+        exit 1
+    fi
+done
+# look for expected naming in HTML
+for tla in HIT MIS ; do
+    grep "next $tla in" ./navigation/simple/test.cpp.gcov.html
+    if [ 0 != $? ] ; then
+        echo "ERROR: did not find expected tla $TLA in result"
+        exit 1
+    fi
 done
 
 

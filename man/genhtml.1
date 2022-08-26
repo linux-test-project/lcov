@@ -112,6 +112,8 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .br
 .RB [ \-\-show\-noncode ]
 .br
+.RB [ \-\-show\=navigation ]
+.br
 .RB [ \-\-simplified-colors ]
 .br
 .RB [ \-\-hierarchical ]
@@ -126,6 +128,9 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .IR glob_pattern ]
 .br
 .RB [ \-\-substitute
+.IR regexp_pattern ]
+.br
+.RB [ \-\-omit\-lines
 .IR regexp_pattern ]
 .br
 .RB [ (\-\-parallel | -j)
@@ -232,7 +237,11 @@ in the absence of baseline coverage data.
 
 If the
 .I \-\-criteria\-script
-option is used, genhtml will use the referenced script to determine whether your coverage criteria has been met - and will return a non-zero etatus and print a message if the criteria is not met.
+option is used, genhtml will use the referenced script to determine whether your coverage criteria has been met - and will return a non\-zero status and print a message if the criteria is not met.
+
+The
+.I \-\-version\-script
+option is used to verify that the same/compatible source code versions are displayed as were used to capture coverage data.
 
 HTML output files are created in the current working directory unless the
 .I \-\-output\-directory
@@ -244,7 +253,9 @@ ends with ".gz", it is assumed to be GZIP\-compressed and the gunzip tool
 will be used to decompress it transparently.
 
 Note that all source code files have to be present and readable at the
-exact file system location they were compiled.
+exact file system location they were compiled, and all path references in the input data ".info" and "diff" files must match exactly (i.e., exact string match).  Further, the \-\-version\-script, \-\-annotate\-script and \-\-criteria\-script callbacks use the same path strings. (However, see the
+.I \-\- substitute
+option for a mechanism to adjust extracted paths so they match your source and/or revision control layout.)
 
 Use option
 .I \-\-diff\-file
@@ -429,7 +440,7 @@ represent it in the format expected by
 When a
 .I source\-annotation\-script
 is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
-Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support\-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.
+Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support\-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.  Also, see the \-\-version\-script option - which is used to check that the file version found locally matches the version whose coverage data was captured.
 
 .RE
 .BI "\-\-criteria\-script " coverage\-criteria\-script
@@ -451,13 +462,8 @@ It is not difficult to create another script which mimics the LOCV '\-\-fail\-\u
 .I script_file
 .br
 .RS
-call script_file to find file ID from revision control when extracting data.
-The ID is used to check the version ID of the source file which is loaded against the version ID which was used to generate coverage data (i.e., the file version seen by lcov/geninfo).
-Please see sample scripts
-.I share/lcov/support-scripts/getp4version
-and
-.I share/lcov/support-scripts/get_signature
-which are shipped as part of this release.
+call script_file to find file ID from revision control when generating HTML or applying source filters (see \-\-filter option).
+The ID is used to check the version ID of the source file which is loaded against the version ID which was used to generate coverage data (i.e., the file version seen by lcov/geninfo).  It is important that source code versions match - otherwise inconsistent or confusing results may be produced.  Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - e.g., when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revions.
 
 The script will be called as either:
 
@@ -470,11 +476,17 @@ If the file has is not versioned, it should write an empty string and return a 0
 .B
 .I script_file \-\-compare source_file_name source_file_id info_file_id
 .br
-It should return non-zero if the IDs do not match.
+It should return non\-zero if the IDs do not match.
 \'source_file_id\' is the ID returned by calling "script_file source_file_name", and \'info_file_id\' is the ID found in the corresponding .info file.
 \'script_file\' is used both to generate and to compare the signature to enable you to retain history between calls or to do more complex processing to determine equivalence.
 
 Note that you must use the same script/same mechanism to determine the file version when you extract, merge, and display coverage data - otherwise, you may see spurious mismatch reports.
+
+Please see sample scripts
+.I share/lcov/support-scripts/getp4version
+and
+.I share/lcov/support-scripts/get_signature
+which are shipped as part of this release.
 
 .RE
 .BI "\-\-new\-file\-as\-baseline "
@@ -550,9 +562,21 @@ option is not specified, the the summary table will contain "Total" rows for all
 .RS
 By default, the source code detail view does not show owner or date annotations in the far left column for non\-code lines (e.g., comments). If the
 .I \-\-show\-noncode
-option is used, then the source code view will show annotations for both code and non-code lines.
+option is used, then the source code view will show annotations for both code and non\-code lines.
 This argument has no effect if there is no
 .I source\-annotation\-script .
+
+.RE
+.BI "\-\-show\-navigation "
+.RS
+By default, the summary table in the source code detail view does not contain hyperlinks from the number to the first line in the corresponding category ('Hit' or 'Missed') and from the current location to the next location in the current category, in non-differential coverage reports.  (This is the lcov 'legacy' view non-differential reports.)  
+
+If the
+.I \-\-show\-navigation
+option is used, then the source code summary table will be generated with navigation links.
+Hyperlinks are always generated for differential coverage reports.
+
+This feature eanbles developers to find and understand coverage issues more quickly than they might otherwise, if they had to rely on scrolling.
 
 .RE
 .BI "\-\-simplified\-colors "
@@ -584,6 +608,16 @@ Apply Perl regexp
 .IR regexp_pattern
 to source file names found during processing.  This is useful when some file paths in the baseline or current .info file do not match your source layout and so the source code is not found.
 See the lcov man page for more details.
+
+.B \-\-omit\-lines
+.I regexp_pattern
+.br
+.RS
+Exclude coverage data from lines whose content matches
+.IR regexp .
+
+Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (e.g., some complicated macro).
+See the lcov man page for details.
 
 .RE
 .BI "\-\-parallel "
@@ -1004,6 +1038,9 @@ genhtml ... \-\-ignore\-errors unmapped,unmapped ...
 .I errors
 can be a comma\-separated list of the following keywords:
 
+.B empty:
+the 'unified\-diff\-file' specified by the \-\-diff\-file argument does not contain any differences.  This may be OK if there were no source code changes between 'baseline' and 'current' (e.g., the only change was to modify a Makefile) - or may indicate an unsupported file format.
+
 .B format:
 unexpected syntax found in .info file.
 
@@ -1027,14 +1064,17 @@ File name found in '\-\-diff\-file' file but does not appear in either baseline 
 .B inconsistent:
 Files have been moved or repository history presented by '\-\-diff\-file' data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' and 'annotate' scripts.
 
+.B branch:
+branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+
 .B annotate:
-\-\-annotate\-script returned non-zero exit status - likely a file path or related error.  HTML source code display will not be correct and ownership/date information may be missing.
+\-\-annotate\-script returned non\-zero exit status - likely a file path or related error.  HTML source code display will not be correct and ownership/date information may be missing.
 
 .B unused
-the include/exclude/substitute pattern did not match any file pathnames.
+the include/exclude/substitute/omit pattern did not match any file pathnames.
 
 .B version:
-\-\-version\-script comparison returned non-zero \- mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
+\-\-version\-script comparison returned non\-zero mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
 
 .B parallel
 various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
@@ -1046,6 +1086,7 @@ various types of errors related to parallelism - e.g., child process died due to
 .br
 .RS
 Specify a configuration file to use.
+See the lcov man page for details of the file format and options.
 
 When this option is specified, neither the system\-wide configuration file
 /etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.

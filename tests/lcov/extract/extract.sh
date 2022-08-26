@@ -2,7 +2,6 @@
 set +x
 
 CLEAN_ONLY=0
-LCOV_HOME=
 COVER=
 
 PARALLEL='--parallel 0'
@@ -59,6 +58,11 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
+    echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
+    exit 1
+fi
+
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
@@ -67,7 +71,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--rc lcov_branch_coverage=1 $PARALLEL $PROFILE"
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper*
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC
 
 if [ "x$COVER" != 'x' ] ; then
     cover -delete
@@ -101,9 +105,67 @@ if [ $COUNT != '1' ] ; then
     exit 1
 fi
 
+# check to see if "--omit-lines" works properly...
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines '\s+std::string str.+' --directory . -o omit.info
+
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from lcov --omit"
+    exit 1
+fi
+
+COUNT=`grep -c ^DA: omit.info`
+if [ $COUNT != '12' ] ; then
+    echo "expected 12 DA entries in 'omit.info' - found $COUNT"
+    exit 1
+fi
+
+# check to see if "--omit-lines" works fails if no match
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines 'xyz\s+std::string str.+' --directory . -o omitErr.info
+
+if [ 0 == $? ] ; then
+    echo "Error:  did not see expected error code from lcov --omit"
+    exit 1
+fi
+
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines 'xyz\s+std::string str.+' --directory . -o omitWarn.info --ignore unused
+
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected expected error code from lcov --omit --ignore.."
+    exit 1
+fi
+COUNT=`grep -c ^DA: omitWarn.info`
+if [ $COUNT != '13' ] ; then
+    echo "expected 13 DA entries in 'omitWarn.info' - found $COUNT"
+    exit 1
+fi
+
+# try again, with rc file instead
+echo "omit_lines = ^std::string str.+\$" > testRC # no space at start ofline
+echo "omit_lines = ^\\s+std::string str.+\$" >> testRC
+#should fail due to no match...
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --config-file testRC --directory . -o rc_omitErr.info
+
+if [ 0 == $? ] ; then
+    echo "Error:  did not see expected error code from lcov --config with bad omit"
+    exit 1
+fi
+echo "ignore_errors = unused" >> testRC
+echo "ignore_errors = empty" >> testRC
+
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --config-file testRC --directory . -o rc_omitWarn.info
+
+if [ 0 != $? ] ; then
+    echo "Error:  saw unexpected error code from lcov --config with ignored bad omit"
+    exit 1
+fi
+COUNT=`grep -c ^DA: rc_omitWarn.info`
+if [ $COUNT != '12' ] ; then
+    echo "expected 12 DA entries in 'rc_omitWarn.info' - found $COUNT"
+    exit 1
+fi
+
 echo "Tests passed"
 
 if [ "x$COVER" != "x" ] ; then
     cover
 fi
-

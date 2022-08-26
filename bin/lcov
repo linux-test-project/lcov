@@ -265,6 +265,12 @@ lcovutil::apply_rc_params($opt_config_file,
 			    "genhtml_demangle_cpp"       => \$demangle_cpp,
 			    "genhtml_demangle_cpp_tool"  => \$lcovutil::cpp_demangle_tool,
 			    "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
+			    'filter'     => \@opt_filter,
+			    'exclude'    => \@lcovutil::exclude_file_patterns,
+			    'include'    => \@lcovutil::include_file_patterns,
+			    'substitute' => \@lcovutil::file_subst_patterns,
+			    'omit_lines' => \@lcovutil::omit_line_patterns,
+			    "version_script" => \$lcovutil::extractVersionScript,
 			  });
 
 set_rtl_extensions($rtlExtensions)
@@ -305,6 +311,7 @@ if (!GetOptions("directory|d|di=s" => \@directory,
 		"include=s" => \@lcovutil::include_file_patterns,
 		"exclude=s" => \@lcovutil::exclude_file_patterns,
 		"substitute=s" => \@lcovutil::file_subst_patterns,
+		"omit-lines=s" => \@lcovutil::omit_line_patterns,
 		"no-recursion" => \$no_recursion,
 		"to-package=s" => \$to_package,
 		"from-package=s" => \$from_package,
@@ -562,10 +569,10 @@ if (defined($ln_overall_found)) {
 } else {
 	info("Done.\n") if (!$list && !$capture);
 }
-lcovutil::warn_file_patterns() # warn about unused include/exclude directives
-  unless $capture;
-
-summarize_cov_filters();
+if (! defined($capture)) {
+  lcovutil::warn_file_patterns(); # warn about unused include/exclude directives
+  summarize_cov_filters();
+}
 
 my $end = Time::HiRes::gettimeofday();
 $lcovutil::profileData{total} = $end - $begin;
@@ -640,6 +647,8 @@ Options:
       --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN           Include files matching PATTERN
       --exclude PATTERN           Exclude files matching PATTERN
+      --omit-lines REGEXP         Ignore coverage data associated with lines
+                                  whose content matches REGEXP
       --substitute PATTERNS       Munge source file names according to these
                                   Perl regexps (applied in order)
       --fail-under-lines MIN      Exit with a status of 1 if the total line
@@ -1025,6 +1034,9 @@ sub lcov_geninfo(@)
 	}
 	foreach (@lcovutil::file_subst_patterns) {
 	  @param = (@param, "--substitute", $_);
+	}
+	foreach (@lcovutil::omit_line_patterns) {
+	  @param = (@param, "--omit-lines", $_);
 	}
 	if ($lcovutil::profile) {
 	  push(@param, '--profile');

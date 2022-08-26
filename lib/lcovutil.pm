@@ -9,6 +9,7 @@ package lcovutil;
 use File::Temp qw(tempfile);
 use File::Path qw(rmtree);
 use File::Basename qw(basename);
+use Storable qw(dclone);
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK =
@@ -32,6 +33,7 @@ our @EXPORT_OK =
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
      @exclude_file_patterns @include_file_patterns %excluded_files
+     @omit_line_patterns
      munge_file_patterns warn_file_patterns transform_pattern
      parse_cov_filters summarize_cov_filters
      disable_cov_filters reenable_cov_filters
@@ -144,6 +146,9 @@ our $EXCL_BR_STOP =  "LCOV_EXCL_BR_STOP";
 our @exclude_file_patterns;
 our @include_file_patterns;
 our %excluded_files;
+
+# list of regexps applied to line text - if exclude if matched
+our @omit_line_patterns;
 
 our $rtl_file_extensions = 'v|vh|sv|vhdl?';
 our $c_file_extensions = 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx';
@@ -457,7 +462,15 @@ sub read_config($)
     next unless length;
     ($key, $value) = split(/\s*=\s*/, $_, 2);
     if (defined($key) && defined($value)) {
-      $result{$key} = $value;
+      if (exists($result{$key})) {
+	if ('ARRAY' eq ref($result{$key})) {
+	  push(@{$result{$key}}, $value);
+	} else {
+	  $result{$key} = [$result{$key}, $value]
+	}
+      } else {
+	$result{$key} = $value;
+      }
     }
     else {
       warn("WARNING: malformed statement in line $. ".
@@ -495,9 +508,20 @@ sub apply_config($$)
       my $r = $ref->{$_};
       my $t = ref($r);
       if ('ARRAY' eq $t) {
-        push(@$r, split(',', $v));
+	if ('ARRAY' eq ref($v)) {
+	  push(@$r, @$v);
+	} else {
+	  push(@$r, $v);
+	}
       } else {
-        $$r = $v;
+	# opt is a scalar or not defined
+	if ('ARRAY' eq ref($v)) {
+	  warn("setting scalar config '$_' with array value [" .
+	       join(', ', @$v) . "] - using '" . $v->[-1] . "'");
+	  $$r = $v->[-1];
+	} else {
+	  $$r = $v;
+	}
       }
     }
   }
@@ -589,9 +613,11 @@ sub munge_file_patterns {
     @include_file_patterns = map({ [transform_pattern($_), $_, 0]; } @include_file_patterns);
   }
 
-  if (@file_subst_patterns) {
+  foreach my $p (\@file_subst_patterns, \@omit_line_patterns) {
     # just keep track of number of times this was applied
-    @file_subst_patterns = map({ [$_, 0]; } @file_subst_patterns);
+    if (0 != scalar(@$p)) {
+      @$p = map({ [$_, 0]; } @$p);
+    }
   }
 }
 
@@ -599,7 +625,8 @@ sub warn_file_patterns {
 
   foreach my $p (['include', \@include_file_patterns],
                  ['exclude', \@exclude_file_patterns],
-                 ['substitute', \@file_subst_patterns]) {
+                 ['substitute', \@file_subst_patterns],
+		 ['omit-lines', \@omit_line_patterns] ) {
     my ($type, $patterns) = @$p;
     foreach my $pat (@$patterns) {
       my $count = $pat->[scalar(@$pat) - 1];
@@ -761,6 +788,16 @@ sub summarize_cov_filters {
          . ($histogram->[0] > 1 ? "s" : "") . "\n    "
          . $histogram->[1] . " coverpoint"
          . ($histogram->[1] > 1 ? "s" : "") . "\n");
+  }
+  my $patternCount = scalar(@omit_line_patterns);
+  if ($patternCount) {
+    my $omitCount = 0;
+    foreach my $p (@omit_line_patterns) {
+      $omitCount += $p->[1];
+    }
+    info("Omitted %d total line%s matching %d '--omit-lines' pattern%s\n",
+	 $omitCount, $omitCount == 1 ? '' : 's',
+	 $patternCount, $patternCount == 1 ? '' : 's');
   }
 }
 
@@ -1149,7 +1186,7 @@ sub value {
   my $key = shift;
 
   my $data = $self->[0];
-  if (!defined($data->{$key})) {
+  if (!exists($data->{$key})) {
     return undef;
   }
   return $data->{$key};
@@ -1830,6 +1867,11 @@ sub new {
   return $self;
 }
 
+sub filename {
+  my $self = shift;
+  return $self->{_filename};
+}
+
 # return true if no line, branch, or function coverage data
 sub is_empty {
   my $self = shift;
@@ -2132,56 +2174,80 @@ sub open {
   $version = "" unless defined($version);
   if (open(SRC, "<", $filename)) {
     lcovutil::verbose("reading $version$filename (for bogus branch filtering)\n");
-    my @sourceLines;
-    my @excluded;
-    my $exclude_region = 0;
-    my $exclude_br_region = 0;
-    while (<SRC>) {
-      chomp($_);
-      push(@sourceLines, $_);
-      if (/$lcovutil::EXCL_START/) {
-        lcovutil::ignorable_error($ERROR_MISMATCH,
-                                  "$filename: overlapping exclude directives. Found $lcovutil::EXCL_START at line $. - but no matching $lcovutil::EXCL_STOP for $lcovutil::EXCL_START at line $exclude_region")
-          if $exclude_region;
-        $exclude_region = $.;
-      } elsif (/$lcovutil::EXCL_STOP/) {
-        lcovutil::ignorable_error($ERROR_MISMATCH, "$filename: found $lcovutil::EXCL_STOP directive at line $. without matching $lcovutil::EXCL_START directive")
-          unless $exclude_region;
-        $exclude_region = 0;
-      } elsif (/$lcovutil::EXCL_BR_START/) {
-        lcovutil::ignorable_error($ERROR_MISMATCH,
-                                  "$filename: overlapping exclude branch directives. Found $lcovutil::EXCL_BR_START at line $. - but no matching $lcovutil::EXCL_BR_STOP for $lcovutil::EXCL_BR_START at line $exclude_br_region")
-          if $exclude_br_region;
-        $exclude_br_region = $.;
-      } elsif (/$lcovutil::EXCL_BR_STOP/) {
-        lcovutil::ignorable_error($ERROR_MISMATCH, "$filename: found $lcovutil::EXCL_BR_STOP directive at line $. without matching $lcovutil::EXCL_BR_START directive")
-          unless $exclude_br_region;
-        $exclude_br_region = 0;
-      }
-      push(@excluded, ($exclude_region ? 1 : 0) | ($exclude_br_region ? 2 : 0));
-    }
-    lcovutil::ignorable_error($ERROR_MISMATCH,
-                              "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP")
-      if $exclude_region;
-    lcovutil::ignorable_error($ERROR_MISMATCH,
-                              "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP")
-      if $exclude_br_region;
-
-    $self->setData($filename, \@sourceLines, \@excluded);
+    my @sourceLines = <SRC>;
     CORE::close(SRC);
+    $self->[0] = $filename;
+    $self->parseLines($filename, \@sourceLines);
   } else {
     lcovutil::info("unable to open $filename (for bogus branch filtering)\n");
     $self->close();
   }
 }
 
+sub parseLines {
+  my ($self, $filename, $sourceLines) = @_;
+
+  my @excluded;
+  my $exclude_region = 0;
+  my $exclude_br_region = 0;
+  my $line = 0;
+  LINES: foreach (@$sourceLines) {
+    $line += 1;
+    chomp($_);
+    if (/$lcovutil::EXCL_START/) {
+      lcovutil::ignorable_error($ERROR_MISMATCH,
+				"$filename: overlapping exclude directives. Found $lcovutil::EXCL_START at line $line - but no matching $lcovutil::EXCL_STOP for $lcovutil::EXCL_START at line $exclude_region")
+	if $exclude_region;
+      $exclude_region = $line;
+    } elsif (/$lcovutil::EXCL_STOP/) {
+      lcovutil::ignorable_error($ERROR_MISMATCH, "$filename: found $lcovutil::EXCL_STOP directive at line $line without matching $lcovutil::EXCL_START directive")
+	unless $exclude_region;
+      $exclude_region = 0;
+    } elsif (/$lcovutil::EXCL_BR_START/) {
+      lcovutil::ignorable_error($ERROR_MISMATCH,
+				"$filename: overlapping exclude branch directives. Found $lcovutil::EXCL_BR_START at line $line - but no matching $lcovutil::EXCL_BR_STOP for $lcovutil::EXCL_BR_START at line $exclude_br_region")
+	if $exclude_br_region;
+      $exclude_br_region = $line;
+    } elsif (/$lcovutil::EXCL_BR_STOP/) {
+      lcovutil::ignorable_error($ERROR_MISMATCH, "$filename: found $lcovutil::EXCL_BR_STOP directive at line $line without matching $lcovutil::EXCL_BR_START directive")
+	unless $exclude_br_region;
+      $exclude_br_region = 0;
+    } elsif (0 != scalar(@lcovutil::omit_line_patterns)) {
+      foreach my $p (@lcovutil::omit_line_patterns) {
+	my $pat = $p->[0];
+	if ( /$pat/ ) {
+	  push(@excluded, 3); #everything excluded
+	  #lcovutil::info("'$pat' matched \"$_\", line \"$filename\":"$line\n");
+	  ++ $p->[1];
+	  next LINES;
+	}
+      }
+    }
+    push(@excluded, ($exclude_region ? 1 : 0) | ($exclude_br_region ? 2 : 0));
+  }
+  lcovutil::ignorable_error($ERROR_MISMATCH,
+			    "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP")
+    if $exclude_region;
+  lcovutil::ignorable_error($ERROR_MISMATCH,
+			    "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP")
+    if $exclude_br_region;
+
+  $self->[0] = $filename;
+  $self->[1] = $sourceLines;
+  $self->[2] = \@excluded;
+}
+
 sub setData {
-  my ($self, $filename, $data, $excluded) = @_;
+  my ($self, $filename, $data) = @_;
   die("expected array")
     unless (ref($data) eq 'ARRAY');
   $self->[0] = $filename;
-  $self->[1] = $data;
-  $self->[2] = $excluded;
+  if (defined($data) &&
+      0 != scalar(@$data)) {
+    $self->parseLines($filename, $data);
+  } else {
+    $self->open($filename, $lcovutil::extractVersionScript);
+  }
 }
 
 sub notEmpty {
@@ -2203,9 +2269,13 @@ sub isExcluded {
   my ($self, $lineNo, $branch) = @_;
   if (! defined($self->[2]) ||
       scalar(@{$self->[2]}) < $lineNo) {
+    # this can happen due to version mismatches:  data extracted with verion N
+    # of the file, then generating HTML with version M
+    # "--version-script callback" option can be used to detect this
     lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-			      "unknown line '$lineNo' in " . $self->filename()
-			      . (defined($self->[2]) ? ("there are only " . scalar(@{$self->[2]}) . " lines in file") : "" ));
+                              "unknown line '$lineNo' in " . $self->filename()
+                              . (defined($self->[2]) ? (" there are only " . scalar(@{$self->[2]}) . " lines in file") : "" ) .
+      ".\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page.");
     return 0;
   }
   return 1
@@ -2245,6 +2315,9 @@ sub isBlank {
 sub containsConditional {
   my ($self, $line) = @_;
 
+  # special case - maybe C++ exception handler on close brace at end of function?
+  return 0
+    if $self->isCharacter($line, '}');
   my $src = $self->getLine($line);
   return 1
     unless defined($src);
@@ -2382,7 +2455,7 @@ sub file_exists {
 sub skipCurrentFile {
   my $filename = shift;
 
-  # check whehter this file should be excluded or not...
+  # check whether this file should be excluded or not...
   if (@lcovutil::exclude_file_patterns) {
     foreach my $p (@lcovutil::exclude_file_patterns) {
       my $pattern = $p->[0];
@@ -2645,7 +2718,8 @@ sub _read_info {
       if (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
           defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]) ||
           defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]) ||
-          defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])) {
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH]) ||
+	  0 != scalar(@lcovutil::omit_line_patterns)) {
 
         # unconditionally 'close' the current file - in case we don't
         #   open a new one.  If that happened, then we would be looking
@@ -2732,7 +2806,8 @@ sub _read_info {
         my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]
           if $readSourceCallback->notEmpty();
 
-        if (defined($histogram)) {
+        if (defined($histogram) &&
+            ! defined($sumbrcount->value($line))) {
           # does this line contain only a closing brace and
           #   - previous line is hit, OR
           #   - previous line is not an open-brace which has no associated
@@ -2742,6 +2817,9 @@ sub _read_info {
           #   - count is zero, and
           #   - either previous or next non-blank lines have an associated count
           #
+          # don't suppresss if this line has associated branch data
+          #   note that BRDA entries come before DA entries in the .info file -
+          #   so this check is in the right order
           if ($readSourceCallback->suppressCloseBrace($line, $count, $linesum)) {
             main::verbose("skip DA '" . $readSourceCallback->getLine($line)
                           . "' $filename:$line\n");
@@ -3180,6 +3258,11 @@ sub write_info($$$) {
       foreach my $line (sort({$a <=> $b}
                              $testbrcount->keylist())) {
 
+	# omit if line excluded or branches excluded on this line
+	next
+	  if (defined($srcReader) && $srcReader->notEmpty() &&
+	      $srcReader->isExcluded($line, 1));
+	    
         my $brdata = $testbrcount->value($line);
         if (defined($branchHistogram)) {
           $skipBranch = ! $srcReader->containsConditional($line);
@@ -3222,8 +3305,14 @@ sub write_info($$$) {
         if (defined($srcReader) && $srcReader->notEmpty());
 
       foreach my $line (sort({$a <=> $b} $testcount->keylist())) {
+	next
+	  if (defined($srcReader) && $srcReader->notEmpty() &&
+	      $srcReader->isExcluded($line));
+	      
         my $l_hit = $testcount->value($line);
-        if (defined($lineHistogram)) {
+        if (defined($lineHistogram) &&
+          # don't suppresss if this line has associated branch data
+            ! defined($sumbrcount->value($line))) {
           if ($srcReader->suppressCloseBrace($line, $l_hit, $testcount)) {
             lcovutil::verbose("skip DA '" . $srcReader->getLine($line)
                               . "' $source_file:$line\n");

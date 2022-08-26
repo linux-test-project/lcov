@@ -317,9 +317,15 @@ if (lcovutil::apply_rc_params($opt_config_file,
 			       "lcov_excl_line"		=> \$excl_line,
 			       "lcov_excl_br_line"	=> \$excl_br_line,
 			       "lcov_excl_exception_br_line" => \$excl_exception_br_line,
-			       'ignore_errors'         => \@ignore_errors,
-			       "profile"         => \$lcovutil::profile,
-			       "parallel"        => \$lcovutil::maxParallelism,
+			       'ignore_errors' => \@ignore_errors,
+			       "profile"       => \$lcovutil::profile,
+			       "parallel"      => \$lcovutil::maxParallelism,
+			       'filter'     => \@opt_filter,
+			       'exclude'    => \@lcovutil::exclude_file_patterns,
+			       'include'    => \@lcovutil::include_file_patterns,
+			       'substitute' => \@lcovutil::file_subst_patterns,
+			       'omit_lines' => \@lcovutil::omit_line_patterns,
+			       "version_script" => \$lcovutil::extractVersionScript,
 			      })) {
   # we set some RC values...
   # Merge options
@@ -375,6 +381,7 @@ if (!GetOptions("test-name|t=s" => \$test_name,
 		"include=s" => \@lcovutil::include_file_patterns,
 		"exclude=s" => \@lcovutil::exclude_file_patterns,
 		"substitute=s" => \@lcovutil::file_subst_patterns,
+		"omit-lines=s" => \@lcovutil::omit_line_patterns,
 		"no-recursion" => \$no_recursion,
 		"no-markers" => \$no_markers,
 		"derive-func-data" => \$opt_derive_func_data,
@@ -703,6 +710,8 @@ sequentially.
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN             Include files matching PATTERN
       --exclude PATTERN             Exclude files matching PATTERN
+      --omit-lines REGEXP           Ignore coverage data associated with lines
+                                    whose content matches REGEXP
       --substitute PATTERNS         Munge source file names according to these
                                     Perl regexps (applied in order)
       --version-script SCRIPTNAME   Call script to find revison control version
@@ -994,8 +1003,10 @@ sub gen_info($)
 
 	# Report whether files were excluded.
 	if (%lcovutil::excluded_files) {
-		info("Excluded data for %d files due to include/exclude options\n",
-			 scalar keys %lcovutil::excluded_files);
+	  my $count = scalar keys %lcovutil::excluded_files;
+
+	  info("Excluded data for %d file%s due to include/exclude options\n",
+	       $count, 1 == $count ? '' : 's');
 	}
 }
 
@@ -1549,7 +1560,8 @@ sub process_dafile($$)
 		$br_hit = 0;
 		my $srcReader;
 		if (defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) ||
-		    defined($cov_filter[$FILTER_BRANCH_NO_COND])) {
+		    defined($cov_filter[$FILTER_BRANCH_NO_COND]) ||
+		    0 != scalar(@lcovutil::omit_line_patterns)) {
 		  $srcReader = ReadCurrentSource->new();
 		  $srcReader->setData($source_filename,
 				      $source_file_data[3]);
@@ -1557,6 +1569,7 @@ sub process_dafile($$)
 
 		my $histogram = $cov_filter[$FILTER_BRANCH_NO_COND];
 		my $skipBranch = 0;
+		my $excludeBranch = 0;
 		my $currentBranchLine;
 		foreach my $line (sort $branchData->keylist()) {
 
@@ -1564,7 +1577,6 @@ sub process_dafile($$)
 		  # skip this branch data if the line seems to
 		  #   contain no conditionals
 		  if (defined($srcReader) &&
-		      defined($cov_filter[$FILTER_BRANCH_NO_COND]) &&
 		      $srcReader->notEmpty()) {
 		    if (! defined($currentBranchLine) ||
 			$currentBranchLine != $line) {
@@ -1572,7 +1584,11 @@ sub process_dafile($$)
 		      # haven't looked at this line yet..
 		      $currentBranchLine = $line;
 
-		      $skipBranch = ! $srcReader->containsConditional($line);
+		      $excludeBranch = $srcReader->isExcluded($line);
+		      next if $excludeBranch;
+		      $skipBranch = ! $srcReader->containsConditional($line)
+			if defined($cov_filter[$FILTER_BRANCH_NO_COND]);
+
 		      if ($skipBranch) {
 			++ $histogram->[0]; # one line where we skip
 			info("skip BRDA '" . $srcReader->getLine($line)
@@ -1616,6 +1632,9 @@ sub process_dafile($$)
 		while (@gcov_content) {
 
 		  $line_number++;
+		  next if (defined($srcReader) &&
+			   $srcReader->notEmpty() &&
+			   $srcReader->isExcluded($line_number));
 
 		  # Check for instrumented line
 		  if ($gcov_content[0]) {
@@ -2315,7 +2334,8 @@ sub intermediate_text_to_info($$$)
 		my $srcReader;
 		if (defined($src_code) &&
 		    (defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) ||
-		    defined($cov_filter[$FILTER_BRANCH_NO_COND]))) {
+		     defined($cov_filter[$FILTER_BRANCH_NO_COND]) ||
+		     0 != scalar(@lcovutil::omit_line_patterns))) {
 		  $srcReader = ReadCurrentSource->new();
 		  $srcReader->setData($filename, $src_code);
 		}
@@ -2344,7 +2364,10 @@ sub intermediate_text_to_info($$$)
 				my $hit = $2;
 
 				push(@linecov, [$lineNo, $hit])
-				  if (!$excl->{$lineNo});
+				  unless ($excl->{$lineNo} || 
+					  (defined($srcReader) &&
+					   $srcReader->notEmpty() &&
+					   $srcReader->isExcluded($lineNo)));
 
 				# Intermediate text format does not provide
 				# branch numbers, and the same branch may appear
@@ -2377,7 +2400,11 @@ sub intermediate_text_to_info($$$)
 			} elsif ($line =~ /^branch:(\d+),(taken|nottaken|notexec)/) {
 			        my $lineNo = $1;
 				next if (!$br_coverage || $excl->{$lineNo} ||
-					 (defined($brexcl->{$lineNo}) && ($brexcl->{$lineNo} == 1)));
+					 (defined($brexcl->{$lineNo}) &&
+					  ($brexcl->{$lineNo} == 1)) ||
+					  (defined($srcReader) &&
+					   $srcReader->notEmpty() &&
+					   $srcReader->isExcluded($lineNo, 1)));
 
 				if (defined($branchHistogram)) {
 				  if ($currentBranchLine != $lineNo) {
@@ -2418,6 +2445,10 @@ sub intermediate_text_to_info($$$)
 		  if (defined($srcReader) && $srcReader->notEmpty());
 		foreach my $d (sort {$a->[0] <=> $b->[0]} @linecov) {
 		  my ($lineNo, $hit) = @$d;
+
+		  next if (defined($srcReader) &&
+			   $srcReader->notEmpty() &&
+			   $srcReader->isExcluded($lineNo));
 
 		  if (defined($lineHistogram) &&
 		      defined($prevLineCount) &&
@@ -2504,7 +2535,8 @@ sub intermediate_json_to_info($$$)
 		my $srcReader;
 		if (defined($src_code) &&
 		    (defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) ||
-		    defined($cov_filter[$FILTER_BRANCH_NO_COND]))) {
+		     defined($cov_filter[$FILTER_BRANCH_NO_COND]) ||
+		     0 != scalar(@lcovutil::omit_line_patterns))) {
 		  $srcReader = ReadCurrentSource->new();
 		  $srcReader->setData($filename, $src_code);
 		}
@@ -2549,8 +2581,10 @@ sub intermediate_json_to_info($$$)
 		my $prevLineCount;
 		for my $d (sort {$a->{line_number} <=> $b->{line_number}} @{$file_data->{"lines"}}) {
 			my $line = $d->{"line_number"};
+			next if (defined($srcReader) &&
+				 $srcReader->notEmpty() &&
+				 $srcReader->isExcluded($line));
 			my $count = $d->{"count"};
-
 			my $c;
 			my $branches = $d->{"branches"};
 			my $unexec = $d->{"unexecuted_block"};
@@ -2586,8 +2620,12 @@ sub intermediate_json_to_info($$$)
 			#  the closing brace of the function...
 			$branch_num = 0;
 			# Branch data
-			if ($br_coverage && (!defined($brexcl->{$line}) ||
-					     ($brexcl->{$line} != 1))) {
+			if ($br_coverage &&
+			    (!defined($brexcl->{$line}) ||
+			     ($brexcl->{$line} != 1) ||
+			     (defined($srcReader) &&
+			     $srcReader->notEmpty() &&
+			     $srcReader->isExcluded($line, 1)))) {
 
 			        if (defined($branchHist) &&
 				    0 != scalar(@$branches) &&
