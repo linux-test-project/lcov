@@ -90,8 +90,8 @@ $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list external.info
 
 # how many files reported?
 COUNT=`grep -c SF: external.info`
-if [ $COUNT != '2' ] ; then
-    echo "expected 2 files in external.info - found $COUNT"
+if [ $COUNT == '1' ] ; then
+    echo "expected at least 2 files in external.info - found $COUNT"
     exit 1
 fi
 

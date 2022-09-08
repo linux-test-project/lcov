@@ -442,6 +442,9 @@ if (0 == $lcovutil::maxParallelism) {
   lcovutil::count_cores();
 }
 
+InOutFile::checkGzip() # we know we are going to use gzip for intermediates
+  if 1 != $lcovutil::maxParallelism;
+
 @data_directory = @ARGV;
 
 debug("$lcov_version\n");
@@ -592,14 +595,14 @@ else
 
       stat($_);
       if (!-r _) {
-	ignorable_error($ERROR_GCOV, "cannot read $_!\n");
+	ignorable_error($ERROR_GCOV, "cannot read $_!");
       } else {
 	push(@dirs, $_);
 	$count ++;
       }
     }
     if (0 == $count) {
-      ignorable_error($ERROR_GCOV, "$pattern does not match anything.\n");
+      ignorable_error($ERROR_GCOV, "$pattern does not match anything.");
     }
   }
   @data_directory = @dirs;
@@ -946,7 +949,7 @@ sub gen_info($)
 	    my $gcno_file = $file;
 	    $gcno_file =~ s/\.gcda$/.gcno/;
 	    if ( ! -f $gcno_file ) {
-	      lcovutil::ignorable_error($ERROR_GCOV, "skipping .gcda file $file because corresponding .gcno file is missing\n");
+	      lcovutil::ignorable_error($ERROR_GCOV, "skipping .gcda file $file because corresponding .gcno file is missing");
 	      next;
 	    }
 	  }
@@ -1187,7 +1190,7 @@ sub process_dafile($$)
 	my @result;
 	my $index;
 	my $da_renamed;		# If data file is to be renamed
-	local *INFO_HANDLE;
+	my $infoFile;
 
 	# Get path to data file in absolute and normalized form (begins with /,
 	# contains no more ../ or ./)
@@ -1338,7 +1341,7 @@ sub process_dafile($$)
 	if ($gcov_error)
 	{
 		ignorable_error($ERROR_GCOV,
-                                 "GCOV failed for $da_filename!\n");
+                                 "GCOV failed for $da_filename!");
                 return;
 	}
 
@@ -1355,38 +1358,16 @@ sub process_dafile($$)
 	# Check whether we're writing to a single file
 	if ($output_filename)
 	{
-		if ($output_filename eq "-")
-		{
-			*INFO_HANDLE = *STDOUT;
-		}
-		elsif ($output_filename =~ /\.gz$/)
-		{
-		        # Check for availability of GZIP tool
-		        system_no_output(1, "gzip" ,"-h")
-			        and die("ERROR: gzip command not available!\n");
-
-			# Open compressed file
-			open(INFO_HANDLE, "|-", "gzip -c >>$output_filename")
-			        or die("ERROR: cannot start gzip to compress ".
-				       "to file $output_filename!\n");
-		}
-		else
-		{
-			# Append to output file
-			open(INFO_HANDLE, ">>", $output_filename)
-				or die("ERROR: cannot write to ".
-				       "$output_filename!\n");
-		}
+	  $infoFile = InOutFile->out($output_filename, 'append');
 	}
 	else
 	{
 		# Open .info file for output
-		open(INFO_HANDLE, ">", "$da_filename.info")
-			or die("ERROR: cannot create $da_filename.info!\n");
+	  $infoFile = inOutFile->out("$da_filename.info");
 	}
-
+	my $infoHdl = $infoFile->hdl();
 	# Write test name
-	printf(INFO_HANDLE "TN:%s\n", $test_name);
+	printf($infoHdl "TN:%s\n", $test_name);
 
 	my @source_file_data;
 	# Traverse the list of generated .gcov files and combine them into a
@@ -1418,7 +1399,7 @@ sub process_dafile($$)
 		if (! -r $source && $checksum)
 		{
                     ignorable_error($ERROR_SOURCE,
-                                    "could not read source file $source\n");
+                                    "could not read source file $source");
                     next;
 		}
 
@@ -1481,12 +1462,12 @@ sub process_dafile($$)
 		}
 
 		# Write absolute path of source file
-		printf(INFO_HANDLE "SF:%s\n", $source_filename);
+		printf($infoHdl "SF:%s\n", $source_filename);
 		if (defined($lcovutil::extractVersionScript) &&
 		    -f $source_filename) {
 		  my $version = lcovutil::extractFileVersion($source_filename);
 
-		  printf(INFO_HANDLE "VER:%s\n", $version)
+		  printf($infoHdl "VER:%s\n", $version)
 		    if (defined($version) && $version ne "");
 		}
 		if (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
@@ -1541,7 +1522,7 @@ sub process_dafile($$)
 				# Normalize function name
 				$fn = filter_fn_name($fn);
 
-				print(INFO_HANDLE "FN:$line,$fn\n");
+				print($infoHdl "FN:$line,$fn\n");
 			}
 		}
 
@@ -1558,13 +1539,13 @@ sub process_dafile($$)
 			my $fn = shift(@gcov_functions);
 
 			$fn = filter_fn_name($fn);
-			printf(INFO_HANDLE "FNDA:$count,$fn\n");
+			printf($infoHdl "FNDA:$count,$fn\n");
 			$funcs_found++;
 			$funcs_hit++ if ($count > 0);
 		}
 		if ($funcs_found > 0) {
-			printf(INFO_HANDLE "FNF:%s\n", $funcs_found);
-			printf(INFO_HANDLE "FNH:%s\n", $funcs_hit);
+			printf($infoHdl "FNF:%s\n", $funcs_found);
+			printf($infoHdl "FNH:%s\n", $funcs_hit);
 		}
 
 		# Write coverage information for each instrumented branch:
@@ -1620,21 +1601,29 @@ sub process_dafile($$)
 		    }
 		  }
 
-		  foreach my $block ($branchEntry->blocks()) {
-		    my $b = $branchEntry->getBlock($block);
-		    # check whether this line looks like an actual
-		    #  branch or not
-		    my $branch = $b->id();
-		    my $taken = $b->data();
-		    $block = $BR_VEC_MAX if ($block < 0);
-		    print(INFO_HANDLE "BRDA:$line,$block,$branch,$taken\n");
-		    $br_found++;
-		    $br_hit++ if ($taken ne '-' && $taken > 0);
+		  # gcov extraction block numbers can be strange - so
+		  #  just renumber them.
+		  my $blockRenumber = 0;
+		  foreach my $blockId ($branchEntry->blocks()) {
+		    my $blockData = $branchEntry->getBlock($blockId);
+		    foreach my $br (@$blockData) {
+		      # check whether this line looks like an actual
+		      #  branch or not
+		      my $branch = $br->id();
+		      my $taken = $br->data();
+		      my $branch_expr = $br->expr();
+		      printf($infoHdl "BRDA:%u,%u,%s,%s\n",
+			     $line, $blockRenumber,#$branch,#$blockRenumber,
+			     defined($branch_expr) ? $branch_expr : $branch, $taken);
+		      $br_found++;
+		      $br_hit++ if ($taken ne '-' && $taken > 0);
+		    }
+		    ++ $blockRenumber;
 		  }
 		} # end for each branch
 		if ($br_found > 0) {
-			printf(INFO_HANDLE "BRF:%s\n", $br_found);
-			printf(INFO_HANDLE "BRH:%s\n", $br_hit);
+			printf($infoHdl "BRF:%s\n", $br_found);
+			printf($infoHdl "BRH:%s\n", $br_hit);
 		}
 
 		# Reset line counters
@@ -1650,42 +1639,45 @@ sub process_dafile($$)
 		while (@gcov_content) {
 
 		  $line_number++;
-		  next if (defined($srcReader) &&
-			   $srcReader->notEmpty() &&
-			   $srcReader->isExcluded($line_number));
 
 		  # Check for instrumented line
 		  if ($gcov_content[0]) {
 		    my $hit = $gcov_content[1];
-		    # NOTE: the 'gcov' content array hold only instrumented
-		    #   lines - so we would need to look at previous source
-		    #   code lines to decide if one of them was an open
-		    #   brace/if this block is empty.
-		    # For the moment:  not bothering to do that.  Wait for
-		    #   a more extensive refactoring of geninfo - to re-use
-		    #   the common lcovutil implementation.
-		    if (defined($srcReader) &&
-			defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) &&
-			defined($prevCount) &&
-			$prevCount == $hit &&
-			$srcReader->notEmpty() &&
-			$srcReader->isCharacter($line_number, '}')) {
-		      info("skip DA '" . $srcReader->getLine($line_number)
-			   . "' $source_filename:$line_number\n");
-		      ++$histogram->[0]; # one location where this applied
-		      ++$histogram->[1]; # one coverpoint suppressed
-		    } else {
-		      $prevCount = $hit;
+		    # skip excluded line
+		    if (! (defined($srcReader) &&
+			   $srcReader->notEmpty() &&
+			   $srcReader->isExcluded($line_number)) ) {
 
-		      printf(INFO_HANDLE "DA:".$line_number . "," . $hit
-			     . ($checksum ? ",". md5_base64($gcov_content[2]) : "")
-			     . "\n");
+		      # NOTE: the 'gcov' content array hold only instrumented
+		      #   lines - so we would need to look at previous source
+		      #   code lines to decide if one of them was an open
+		      #   brace/if this block is empty.
+		      # For the moment:  not bothering to do that.  Wait for
+		      #   a more extensive refactoring of geninfo - to re-use
+		      #   the common lcovutil implementation.
+		      if (defined($srcReader) &&
+			  defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) &&
+			  defined($prevCount) &&
+			  $prevCount == $hit &&
+			  $srcReader->notEmpty() &&
+			  $srcReader->isCharacter($line_number, '}')) {
+			info("skip DA '" . $srcReader->getLine($line_number)
+			     . "' $source_filename:$line_number\n");
+			++$histogram->[0]; # one location where this applied
+			++$histogram->[1]; # one coverpoint suppressed
+		      } else {
+			$prevCount = $hit;
 
-		      $lines_found++;
+			printf($infoHdl "DA:".$line_number . "," . $hit
+			       . ($checksum ? "," . md5_base64($gcov_content[2]) : "")
+			       . "\n");
+
+			$lines_found++;
 			# Increase $lines_hit in case of an execution
 			# count>0
-		      $lines_hit++
-			if ($gcov_content[1] > 0);
+			$lines_hit++
+			  if ($gcov_content[1] > 0);
+		      }
 		    }
 		  }
 		  # Remove already processed data from array
@@ -1693,18 +1685,13 @@ sub process_dafile($$)
 		}
 
 		# Write line statistics and section separator
-		printf(INFO_HANDLE "LF:%s\n", $lines_found);
-		printf(INFO_HANDLE "LH:%s\n", $lines_hit);
-		print(INFO_HANDLE "end_of_record\n");
+		printf($infoHdl "LF:%s\n", $lines_found);
+		printf($infoHdl "LH:%s\n", $lines_hit);
+		print($infoHdl "end_of_record\n");
 
 		# Remove .gcov file after processing
 		unlink($gcov_file);
 	  } }
-
-	if (!($output_filename && ($output_filename eq "-")))
-	{
-		close(INFO_HANDLE);
-	}
 
 	# Change back to initial directory
 	chdir($cwd);
@@ -1930,7 +1917,7 @@ sub read_gcov_header($)
 	if (!open(INPUT, "<", $_[0]))
 	{
 		ignorable_error($ERROR_GCOV,
-                                "cannot read $_[0]!\n");
+                                "cannot read $_[0]!");
                 return (undef,undef);
 	}
 
@@ -1999,228 +1986,131 @@ sub read_gcov_file($)
 	my $exclude_exception_branch = 0;
 	my $last_block = $UNNAMED_BLOCK;
 	my $last_line = 0;
+	my $branchId;
 	local *INPUT;
 
 	if (!open(INPUT, "<", $filename)) {
             ignorable_error($ERROR_GCOV,
-                            "cannot read $filename!\n");
+                            "cannot read $filename!");
             return (undef, undef, undef);
 	}
 
-	if ($gcov_version < $GCOV_VERSION_3_3_0)
-	{
-		# Expect gcov format as used in gcc < 3.3
-		while (<INPUT>)
-		{
-			chomp($_);
+	my $currentBlock;
+	die("your GCC version is ANCIENT.  Not supported by this version of lcov")
+	  unless $gcov_version >= $GCOV_VERSION_3_3_0;
 
-			# Also remove CR from line-end
-			s/\015$//;
+	# Expect gcov format as used in gcc >= 3.3
+	debug("reading $filename\n");
+	while (<INPUT>) {
+	  chomp($_);
+	  # Also remove CR from line-end
+	  s/\015$//;
 
-			if (/^branch\s+(\d+)\s+taken\s+=\s+(\d+)/) {
-				next if (!$br_coverage ||
-					 $exclude_line ||
-					 $exclude_branch);
-				branchData->append($last_line, $last_block,
-						   $1, $2);
-			} elsif (/^branch\s+(\d+)\s+never\s+executed/) {
-				next if (!$br_coverage ||
-					 $exclude_line ||
-					 $exclude_branch);
-				# not taken
-				branchData->append($last_line, $last_block,
-						   $1, '-');
-			}
-			elsif (/^call/ || /^function/)
-			{
-				# Function call return data
-			}
-			else
-			{
-				$last_line++;
-				# Check for exclusion markers
-				if (!$no_markers) {
-					if (/$EXCL_STOP/) {
-						$exclude_flag = 0;
-					} elsif (/$EXCL_START/) {
-						$exclude_flag = 1;
-					}
-					if (/$excl_line/ || $exclude_flag) {
-						$exclude_line = 1;
-					} else {
-						$exclude_line = 0;
-					}
-				}
-				# Check for exclusion markers (branch exclude)
-				if (!$no_markers) {
-					if (/$EXCL_BR_STOP/) {
-						$exclude_br_flag = 0;
-					} elsif (/$EXCL_BR_START/) {
-						$exclude_br_flag = 1;
-					}
-					if (/$excl_br_line/ || $exclude_br_flag) {
-						$exclude_branch = 1;
-					} else {
-						$exclude_branch = 0;
-					}
-				}
-				# Check for exclusion markers (exception branch exclude)
-				if (!$no_markers &&
-					/($EXCL_EXCEPTION_BR_STOP|$EXCL_EXCEPTION_BR_START|$excl_exception_br_line)/) {
-					warn("WARNING: $1 found at $filename:$last_line but ".
-					"branch exceptions exclusion is not supported with ".
-					"gcov versions older than 3.3\n");
-				}
-				# Source code execution data
-				if (/^\t\t(.*)$/)
-				{
-					# Uninstrumented line
-					push(@result, 0);
-					push(@result, 0);
-					push(@result, $1);
-					next;
-				}
-				$number = (split(" ",substr($_, 0, 16)))[0];
+	  if (/^\s*(\d+|\$+|\%+):\s*(\d+)-block\s+(\d+)\s*$/) {
+	    # Block information - used to group related branches
+	    $branchId = 0;
+	    $last_line = $2;
+	    $last_block = $3;
+	  } elsif (/^branch\s+(\d+)\s+taken\s+(\d+)(?:\s+\(([^)]*)\))?/) {
+	    next if (!$br_coverage ||
+		     $exclude_line ||
+		     $exclude_branch ||
+		     (($exclude_exception_branch || $no_exception_br) &&
+		      defined($3) && ($3 eq "throw")));
+	    # $1 is block ID, $2 is hit count
+	    my $br = BranchBlock->new($branchId, $2);
+	    $branchData->append($last_line, $last_block, $br, $filename);
+	    ++ $branchId;
+	  } elsif (/^branch\s+(\d+)\s+never\s+executed/) {
+	    next if (!$br_coverage ||
+		     $exclude_line ||
+		     $exclude_branch);
+	    # this branch not taken
+	    my $br = BranchBlock->new($branchId, '-');
+	    $branchData->append($last_line, $last_block, $br, $filename);
+	    ++ $branchId;
+	  }
+	  elsif (/^function\s+(.+)\s+called\s+(\d+)\s+/) {
+	    next if (!$func_coverage || $exclude_line);
+	    push(@functions, $2, $1);
+	  }
+	  elsif (/^call/) {
+	    # Function call return data
+	  }
+	  elsif (/^\s*([^:]+):\s*([^:]+):(.*)$/) {
+	    my ($count, $line, $code) = ($1, $2, $3);
+	    # Skip instance-specific counts
+	    next if ($line <= (scalar(@result) / 3));
 
-				# Check for zero count which is indicated
-				# by ######
-				if ($number eq "######") { $number = 0;	}
+	    $branchId = 0;# if $last_line != $line;
+	    $last_line = $line;
+	    $last_block = $UNNAMED_BLOCK;
+	    # Check for exclusion markers
+	    if (!$no_markers) {
 
-				if ($exclude_line) {
-					# Register uninstrumented line instead
-					push(@result, 0);
-					push(@result, 0);
-				} else {
-					push(@result, 1);
-					push(@result, $number);
-				}
-				push(@result, substr($_, 16));
-			}
+	      # universal markers..
+	      if (/$EXCL_STOP/) {
+		$exclude_flag = 0;
+	      } elsif (/$EXCL_START/) {
+		$exclude_flag = 1;
+	      }
+	      if (/$excl_line/ || $exclude_flag) {
+		$exclude_line = 1;
+	      } else {
+		$exclude_line = 0;
+	      }
+
+	      # branch exclusion markers..
+	      if (/$EXCL_BR_STOP/) {
+		$exclude_br_flag = 0;
+	      } elsif (/$EXCL_BR_START/) {
+		$exclude_br_flag = 1;
+	      }
+	      if (/$excl_br_line/ || $exclude_br_flag) {
+		$exclude_branch = 1;
+	      } else {
+		$exclude_branch = 0;
+	      }
+
+	      # Check for exception branch exclude markers
+	      if (/$EXCL_EXCEPTION_BR_STOP/) {
+		$exclude_exception_br_flag = 0;
+	      } elsif (/$EXCL_EXCEPTION_BR_START/) {
+		$exclude_exception_br_flag = 1;
+	      }
+	      if (/$excl_exception_br_line/ || $exclude_exception_br_flag) {
+		$exclude_exception_branch = 1;
+	      } else {
+		$exclude_exception_branch = 0;
+	      }
+	    }
+
+	    # Strip unexecuted basic block marker
+	    $count =~ s/\*$//;
+
+	    # <exec count>:<line number>:<source code>
+	    if ($line eq "0") {
+	      # Extra data
+	    } elsif ($count eq "-") {
+	      # Uninstrumented line
+	      push(@result, 0);
+	      push(@result, 0);
+	      push(@result, $code);
+	    } else {
+	      if ($exclude_line) {
+		push(@result, 0);
+		push(@result, 0);
+	      } else {
+		# Check for zero count
+		if ($count =~ /^[#=]/) {
+		  $count = 0;
 		}
-	}
-	else
-	{
-		# Expect gcov format as used in gcc >= 3.3
-		while (<INPUT>)
-		{
-			chomp($_);
-
-			# Also remove CR from line-end
-			s/\015$//;
-
-			if (/^\s*(\d+|\$+|\%+):\s*(\d+)-block\s+(\d+)\s*$/) {
-				# Block information - used to group related
-				# branches
-				$last_line = $2;
-				$last_block = $3;
-			} elsif (/^branch\s+(\d+)\s+taken\s+(\d+)(?:\s+\(([^)]*)\))?/) {
-				next if (!$br_coverage ||
-					 $exclude_line ||
-					 $exclude_branch ||
-					 (($exclude_exception_branch || $no_exception_br) &&
-					  defined($3) && ($3 eq "throw")));
-				$branchData->append($last_line, $last_block,
-						    $1, $2);
-			} elsif (/^branch\s+(\d+)\s+never\s+executed/) {
-				next if (!$br_coverage ||
-					 $exclude_line ||
-					 $exclude_branch);
-				$branchData->append($last_line, $last_block,
-						    $1, '-');
-			}
-			elsif (/^function\s+(.+)\s+called\s+(\d+)\s+/)
-			{
-				next if (!$func_coverage);
-				if ($exclude_line) {
-					next;
-				}
-				push(@functions, $2, $1);
-			}
-			elsif (/^call/)
-			{
-				# Function call return data
-			}
-			elsif (/^\s*([^:]+):\s*([^:]+):(.*)$/)
-			{
-				my ($count, $line, $code) = ($1, $2, $3);
-
-				# Skip instance-specific counts
-				next if ($line <= (scalar(@result) / 3));
-
-				$last_line = $line;
-				$last_block = $UNNAMED_BLOCK;
-				# Check for exclusion markers
-				if (!$no_markers) {
-					if (/$EXCL_STOP/) {
-						$exclude_flag = 0;
-					} elsif (/$EXCL_START/) {
-						$exclude_flag = 1;
-					}
-					if (/$excl_line/ || $exclude_flag) {
-						$exclude_line = 1;
-					} else {
-						$exclude_line = 0;
-					}
-				}
-				# Check for exclusion markers (branch exclude)
-				if (!$no_markers) {
-					if (/$EXCL_BR_STOP/) {
-						$exclude_br_flag = 0;
-					} elsif (/$EXCL_BR_START/) {
-						$exclude_br_flag = 1;
-					}
-					if (/$excl_br_line/ || $exclude_br_flag) {
-						$exclude_branch = 1;
-					} else {
-						$exclude_branch = 0;
-					}
-				}
-				# Check for exclusion markers (exception branch exclude)
-				if (!$no_markers) {
-					if (/$EXCL_EXCEPTION_BR_STOP/) {
-						$exclude_exception_br_flag = 0;
-					} elsif (/$EXCL_EXCEPTION_BR_START/) {
-						$exclude_exception_br_flag = 1;
-					}
-					if (/$excl_exception_br_line/ || $exclude_exception_br_flag) {
-						$exclude_exception_branch = 1;
-					} else {
-						$exclude_exception_branch = 0;
-					}
-				}
-
-				# Strip unexecuted basic block marker
-				$count =~ s/\*$//;
-
-				# <exec count>:<line number>:<source code>
-				if ($line eq "0")
-				{
-					# Extra data
-				}
-				elsif ($count eq "-")
-				{
-					# Uninstrumented line
-					push(@result, 0);
-					push(@result, 0);
-					push(@result, $code);
-				}
-				else
-				{
-					if ($exclude_line) {
-						push(@result, 0);
-						push(@result, 0);
-					} else {
-						# Check for zero count
-						if ($count =~ /^[#=]/) {
-							$count = 0;
-						}
-						push(@result, 1);
-						push(@result, $count);
-					}
-					push(@result, $code);
-				}
-			}
-		}
+		push(@result, 1);
+		push(@result, $count);
+	      }
+	      push(@result, $code);
+	    }
+	  }
 	}
 
 	close(INPUT);
@@ -2685,26 +2575,6 @@ sub intermediate_json_to_info($$$)
 }
 
 
-sub get_output_fd($$)
-{
-	my ($outfile, $file) = @_;
-	my $fd;
-
-	if (!defined($outfile)) {
-		open($fd, ">", "$file.info") or
-			die("ERROR: Cannot create file $file.info: $!\n");
-	} elsif ($outfile eq "-") {
-		open($fd, ">&STDOUT") or
-			die("ERROR: Cannot duplicate stdout: $!\n");
-	} else {
-		open($fd, ">>", $outfile) or
-			die("ERROR: Cannot write to file $outfile: $!\n");
-	}
-
-	return $fd;
-}
-
-
 #
 # print_gcov_warnings(stderr_file, is_graph, map)
 #
@@ -2817,7 +2687,7 @@ sub process_intermediate($$$)
 	}
 
 	if (!%data) {
-	  ignorable_warning($ERROR_GCOV, "WARNING: GCOV did not produce any data for $file\n");
+	  ignorable_warning($ERROR_GCOV, "WARNING: GCOV did not produce any data for $file");
 	  return;
 	}
 
@@ -2852,20 +2722,19 @@ sub process_intermediate($$$)
 	}
 
 	# Generate output
-	$fd = get_output_fd($output_filename, $file);
+	my $of = InOutFile->out(defined($output_filename) ? $output_filename : "${file}.info",
+				"append");
 	if ($json_format) {
-		intermediate_json_to_info($fd, \%data, $srcdata);
+	  intermediate_json_to_info($of->hdl(), \%data, $srcdata);
 	} else {
-		intermediate_text_to_info($fd, \%data, $srcdata);
+	  intermediate_text_to_info($of->hdl(), \%data, $srcdata);
 	}
-	close($fd);
-
 	chdir($cwd);
 
 	return;
 
 err:
-	ignorable_error($ERROR_GCOV, "$errmsg!\n");
+	ignorable_error($ERROR_GCOV, "$errmsg!");
 }
 
 
@@ -3019,7 +2888,7 @@ sub get_source_data($)
   local *HANDLE;
 
   if (!open(HANDLE, "<", $filename)) {
-    lcovutil::ignorable_warning($ERROR_SOURCE, "could not open $filename for exclusion marker filtering\n");
+    lcovutil::ignorable_warning($ERROR_SOURCE, "could not open $filename for exclusion marker filtering");
     return;
     }
   while (<HANDLE>) {
@@ -3103,7 +2972,7 @@ sub get_all_source_data(@)
 	if ($failed) {
 	  # use same message type as the warning which that we couldn't
 	  #  open the file
-	  lcovutil::ignorable_warning($ERROR_SOURCE, "some exclusion markers may be ignored\n");
+	  lcovutil::ignorable_warning($ERROR_SOURCE, "some exclusion markers may be ignored");
 	}
 
 	return \%data;
@@ -3210,7 +3079,7 @@ sub process_graphfile($$)
 	my $graph;
 	my $instr;
 	my $filename;
-	local *INFO_HANDLE;
+	my $infoFile;
 
 	# Get path to data file in absolute and normalized form (begins with /,
 	# contains no more ../ or ./)
@@ -3275,38 +3144,17 @@ sub process_graphfile($$)
 	# Check whether we're writing to a single file
 	if ($output_filename)
 	{
-		if ($output_filename eq "-")
-		{
-			*INFO_HANDLE = *STDOUT;
-		}
-		elsif ($output_filename =~ /\.gz$/)
-		{
-		        # Check for availability of GZIP tool
-		        system_no_output(1, "gzip" ,"-h")
-			        and die("ERROR: gzip command not available!\n");
-
-			# Open compressed file
-			open(INFO_HANDLE, "|-", "gzip -c >>$output_filename")
-			        or die("ERROR: cannot start gzip to compress ".
-				       "to file $output_filename!\n");
-		}
-		else
-		{
-			# Append to output file
-			open(INFO_HANDLE, ">>", $output_filename)
-				or die("ERROR: cannot write to ".
-				       "$output_filename!\n");
-		}
+	  $infoFile = InOuutFile->out($output_filename, 'append');
 	}
 	else
 	{
-		# Open .info file for output
-		open(INFO_HANDLE, ">", "$graph_filename.info")
-			or die("ERROR: cannot create $graph_filename.info!\n");
+	  # Open .info file for output
+	  $infoFile = InOutFile->out("$graph_filename.info");
 	}
+	my $infoHdl = $infoFile->hdl();
 
 	# Write test name
-	printf(INFO_HANDLE "TN:%s\n", $test_name);
+	printf($infoHdl "TN:%s\n", $test_name);
 	foreach $filename (sort(keys(%{$instr})))
 	{
 		my $funcdata = $graph->{$filename};
@@ -3319,12 +3167,12 @@ sub process_graphfile($$)
 		  next;
 		}
 
-		print(INFO_HANDLE "SF:$filename\n");
+		print($infoHdl "SF:$filename\n");
 		if (defined($lcovutil::extractVersionScript) &&
 		    -f $filename) {
 		  my $version = lcovutil::extractFileVersion($filename);
 
-		  printf(INFO_HANDLE "VER:%s\n", $version)
+		  printf($infoHdl "VER:%s\n", $version)
 		    if (defined($version) && $version ne "");
 		}
 
@@ -3339,31 +3187,27 @@ sub process_graphfile($$)
 				$linedata = $funcdata->{$func};
 
 				# Print function name and starting line
-				print(INFO_HANDLE "FN:".$linedata->[0].
+				print($infoHdl "FN:".$linedata->[0].
 				      ",".filter_fn_name($func)."\n");
 			}
 			# Print zero function coverage data
 			foreach $func (@functions) {
-				print(INFO_HANDLE "FNDA:0,".
+				print($infoHdl "FNDA:0,".
 				      filter_fn_name($func)."\n");
 			}
 			# Print function summary
-			print(INFO_HANDLE "FNF:".scalar(@functions)."\n");
-			print(INFO_HANDLE "FNH:0\n");
+			print($infoHdl "FNF:".scalar(@functions)."\n");
+			print($infoHdl "FNH:0\n");
 		}
 		# Print zero line coverage data
 		foreach $line (@{$instr->{$filename}}) {
-			print(INFO_HANDLE "DA:$line,0\n");
+			print($infoHdl "DA:$line,0\n");
 		}
 		# Print line summary
-		print(INFO_HANDLE "LF:".scalar(@{$instr->{$filename}})."\n");
-		print(INFO_HANDLE "LH:0\n");
+		print($infoHdl "LF:".scalar(@{$instr->{$filename}})."\n");
+		print($infoHdl "LH:0\n");
 
-		print(INFO_HANDLE "end_of_record\n");
-	}
-	if (!($output_filename && ($output_filename eq "-")))
-	{
-		close(INFO_HANDLE);
+		print($infoHdl "end_of_record\n");
 	}
 }
 
@@ -3389,7 +3233,7 @@ sub graph_error($$)
 {
 	my ($filename, $msg) = @_;
 
-	ignorable_error($ERROR_GRAPH, "$filename: $msg - skipping\n");
+	ignorable_error($ERROR_GRAPH, "$filename: $msg - skipping.");
 	return;
 }
 

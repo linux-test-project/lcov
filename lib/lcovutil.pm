@@ -79,6 +79,8 @@ our $ERROR_PARALLEL     = 11; # error in fork/join
 our %geninfoErrs = (
     "gcov" => $ERROR_GCOV,
     "source" => $ERROR_SOURCE,
+    "branch" => $ERROR_BRANCH,
+    "mismatch" => $ERROR_MISMATCH,
     "graph" => $ERROR_GRAPH,
     "format" => $ERROR_FORMAT,
     "empty" => $ERROR_EMPTY,
@@ -451,7 +453,7 @@ sub read_config($)
     warn("WARNING: cannot read configuration file $filename\n");
     return undef;
   }
-  while (<HANDLE>) {
+  VAR: while (<HANDLE>) {
     chomp;
     # Skip comments
     s/#.*//;
@@ -461,22 +463,30 @@ sub read_config($)
     s/\s+$//;
     next unless length;
     ($key, $value) = split(/\s*=\s*/, $_, 2);
+    # is this an environment variable?
+    while ($value =~ /\$ENV{([^}]+)}/) {
+      my $varname = $1;
+      if (! exists($ENV{$varname})) {
+        warn("Variable '$key' in RC file '$filename' uses environment variable '$varname' - which is not set (ignoring '$_').\n");
+        next VAR;
+      }
+      $value =~ s/^\$ENV{$varname}/$ENV{$varname}/g;
+    }
     if (defined($key) && defined($value)) {
       if (exists($result{$key})) {
-	if ('ARRAY' eq ref($result{$key})) {
-	  push(@{$result{$key}}, $value);
-	} else {
-	  $result{$key} = [$result{$key}, $value]
-	}
+        if ('ARRAY' eq ref($result{$key})) {
+          push(@{$result{$key}}, $value);
+        } else {
+          $result{$key} = [$result{$key}, $value]
+        }
       } else {
-	$result{$key} = $value;
+        $result{$key} = $value;
       }
-    }
-    else {
+    } else {
       warn("WARNING: malformed statement in line $. ".
            "of configuration file $filename\n");
-      }
     }
+  }
   close(HANDLE);
   return \%result;
 }
@@ -508,20 +518,20 @@ sub apply_config($$)
       my $r = $ref->{$_};
       my $t = ref($r);
       if ('ARRAY' eq $t) {
-	if ('ARRAY' eq ref($v)) {
-	  push(@$r, @$v);
-	} else {
-	  push(@$r, $v);
-	}
+        if ('ARRAY' eq ref($v)) {
+          push(@$r, @$v);
+        } else {
+          push(@$r, $v);
+        }
       } else {
-	# opt is a scalar or not defined
-	if ('ARRAY' eq ref($v)) {
-	  warn("setting scalar config '$_' with array value [" .
-	       join(', ', @$v) . "] - using '" . $v->[-1] . "'");
-	  $$r = $v->[-1];
-	} else {
-	  $$r = $v;
-	}
+        # opt is a scalar or not defined
+        if ('ARRAY' eq ref($v)) {
+          warn("setting scalar config '$_' with array value [" .
+               join(', ', @$v) . "] - using '" . $v->[-1] . "'");
+          $$r = $v->[-1];
+        } else {
+          $$r = $v;
+        }
       }
     }
   }
@@ -535,7 +545,7 @@ sub apply_rc_params($$) {
   # Check command line for a configuration file name
   Getopt::Long::Configure("pass_through", "no_auto_abbrev");
   Getopt::Long::GetOptions("config-file=s" => $opt_config_file,
-			   "rc=s%" => \%opt_rc);
+                           "rc=s%" => \%opt_rc);
   Getopt::Long::Configure("default");
   {
     # Remove spaces around rc options
@@ -636,7 +646,7 @@ sub warn_file_patterns {
   foreach my $p (['include', \@include_file_patterns],
                  ['exclude', \@exclude_file_patterns],
                  ['substitute', \@file_subst_patterns],
-		 ['omit-lines', \@omit_line_patterns] ) {
+                 ['omit-lines', \@omit_line_patterns] ) {
     my ($type, $patterns) = @$p;
     foreach my $pat (@$patterns) {
       my $count = $pat->[scalar(@$pat) - 1];
@@ -730,6 +740,7 @@ sub is_ignored($) {
 sub ignorable_error($$;$) {
   my ($code, $msg, $quiet) = @_;
 
+  chomp($msg); # we insert the newline
   my $errName = "code_$code";
   $errName = $ERROR_NAME{$code}
     if exists($ERROR_NAME{$code});
@@ -748,6 +759,7 @@ sub ignorable_error($$;$) {
 sub ignorable_warning($$;$) {
   my ($code, $msg, $quiet) = @_;
 
+  chomp($msg); # we insert the newline
   my $errName = "code_$code";
   $errName = $ERROR_NAME{$code}
     if exists($ERROR_NAME{$code});
@@ -806,8 +818,8 @@ sub summarize_cov_filters {
       $omitCount += $p->[1];
     }
     info("Omitted %d total line%s matching %d '--omit-lines' pattern%s\n",
-	 $omitCount, $omitCount == 1 ? '' : 's',
-	 $patternCount, $patternCount == 1 ? '' : 's');
+         $omitCount, $omitCount == 1 ? '' : 's',
+         $patternCount, $patternCount == 1 ? '' : 's');
   }
 }
 
@@ -1029,29 +1041,81 @@ sub checkVersionMatch {
     unless $match;
 }
 
-package OutputFile;
+package InOutFile;
 
-sub new {
-  my ($class, $f) = @_;
+our $checkedGzipAvail;
+
+sub checkGzip {
+  # Check for availability of GZIP tool
+  lcovutil::system_no_output(1, "gzip" ,"-h")
+    and die("ERROR: gzip command not available!\n");
+  $checkedGzipAvail = 1;
+}
+
+sub out {
+  my ($class, $f, $mode) = @_;
 
   my $self = [undef, $f];
   bless $self, $class;
+  my $m = (defined($mode) && $mode eq 'append') ? ">>" : ">";
 
   if (! defined($f) ||
       '-' eq $f) {
     $self->[0] = \*STDOUT;
   } else {
     if ($f =~ /\.gz$/) {
-      # Check for availability of GZIP tool
-      system_no_output(1, "gzip" ,"-h")
-        and die("ERROR: gzip command not available!\n");
-
+      checkGzip()
+        unless defined($checkedGzipAvail);
       # Open compressed file
-      open(HANDLE, "|-", "gzip -c >$f")
+      open(HANDLE, "|-", "gzip -c $m$f")
         or die("ERROR: cannot start gzip to compress to file $f!\n");
     } else {
-      open(HANDLE, ">", $f)
+      open(HANDLE, $m, $f)
         or die("ERROR: cannot write to $f!\n");
+    }
+    $self->[0] = \*HANDLE;
+  }
+  return $self;
+}
+
+sub in {
+  my ($class, $f, $demangle) = @_;
+
+  my $self = [undef, $f];
+  bless $self, $class;
+
+  if (! defined($f) ||
+      '-' eq $f) {
+    $self->[0] = \*STDIN;
+  } else {
+    if ($f =~ /\.gz$/) {
+
+      checkGzip()
+        unless defined($checkedGzipAvail);
+
+      die("file '$f' does not exist\n")
+        unless -f $f;
+      die("'$f': unsupported empty gzipped file\n")
+        if (-z $f);
+      # Check integrity of compressed file - fails for zero size file
+      lcovutil::system_no_output(1, "gzip", "-dt", $f)
+         and die("ERROR: integrity check failed for compressed file $f!\n");
+
+      # Open compressed file
+      my $cmd = "gzip -cd '$f'";
+      $cmd .=  " | " . $lcovutil::cpp_demangle
+        if defined($demangle);
+      open(HANDLE, "-|", $cmd)
+        or die("ERROR: cannot start gunzip to decompress file $f!\n");
+
+    } elsif (defined($demangle) &&
+             defined($lcovutil::cpp_demangle)) {
+      open(HANDLE, "-|", $lcovutil::cpp_demangle . " < $f")
+        or die("ERROR: cannot start demangler for file $f!\n");
+    } else {
+      # Open decompressed file
+      open(HANDLE, "<", $f)
+      or die("ERROR: cannot read file $f!\n");
     }
     $self->[0] = \*HANDLE;
   }
@@ -1689,10 +1753,16 @@ sub new {
 }
 
 sub append {
-  my ($self, $line, $block, $br) = @_;
+  my ($self, $line, $block, $br, $filename) = @_;
+  # HGC:  might be good idea to pass filename so we could give better error message
+  #   if the data is inconsistent.  OTOH:  unclear what a normal user could do about
+  #   it anyway.  Maybe exclude that file?
   my $data = $self->[0];
+  $filename = '<stdin>' if (defined($filename) && $filename eq '-');
   if (! defined($br) ) {
-    die("expected 'BranchEntry' or 'integer, BranchBlock'")
+    lcovutil::ignorable_error($ERROR_BRANCH,
+                              (defined $filename ? "\"$filename\":$line: " : "")
+                              . "expected 'BranchEntry' or 'integer, BranchBlock'")
       unless ('BranchEntry' eq ref($block));
 
     die("line $line already contains element")
@@ -1700,8 +1770,12 @@ sub append {
     $data->{$line} = $block;
     return 0;
   }
-  die("BranchData::append expected BranchBock got '" . ref($br) . "'")
+
+  # this cannot happen unless inconsistent branch data was generated by gcov
+  die((defined $filename ? "\"$filename\":$line: " : "")
+      . "BranchData::append expected BranchBlock got '" . ref($br) . "'.\nThis may be due to mismatched 'gcc' and 'gcov' versions.\n")
     unless ('BranchBlock' eq ref($br));
+
   my $branch = $br->id();
   my $branchElem;
   my $interesting = 0;
@@ -1727,7 +1801,10 @@ sub append {
 
     if ( $branch > scalar(@$block) ) {
       lcovutil::ignorable_error($ERROR_BRANCH,
-                                "unexpected non-sequential branch ID $branch for block $block of line $line: " . scalar(@$block));
+                                (defined $filename ? "\"$filename\":$line: " : "")
+                                . "unexpected non-sequential branch ID $branch for block $block"
+                                . (defined($filename) ? "" : " of line $line: ")
+                                . ": found " . scalar(@$block) . " blocks");
       $branch = scalar(@$block);
     }
 
@@ -1796,8 +1873,7 @@ sub hit {
 }
 
 sub merge {
-  my $self = shift;
-  my $info = shift;
+  my ($self, $info, $filename) = @_;
   my $interesting = 0;
 
   my $idata = $info->[0];
@@ -1806,7 +1882,7 @@ sub merge {
     foreach my $blockId ($branch->blocks()) {
       my $bdata = $branch->getBlock($blockId);
       foreach my $br (@$bdata) {
-        if ($self->append($line, $blockId, $br)) {
+        if ($self->append($line, $blockId, $br, $filename)) {
           $interesting = 1;
         }
       }
@@ -2145,11 +2221,11 @@ sub merge {
   }
 
   foreach my $name ($info->testbr()->keylist()) {
-    if ($self->testbr($name)->merge($info->testbr($name))) {
+    if ($self->testbr($name)->merge($info->testbr($name), $filename)) {
       $interesting = 1;
     }
   }
-  if ($self->sumbr()->merge($info->sumbr())) {
+  if ($self->sumbr()->merge($info->sumbr(), $filename)) {
     $interesting = 1;
   }
   return $interesting;
@@ -2206,40 +2282,40 @@ sub parseLines {
     chomp($_);
     if (/$lcovutil::EXCL_START/) {
       lcovutil::ignorable_error($ERROR_MISMATCH,
-				"$filename: overlapping exclude directives. Found $lcovutil::EXCL_START at line $line - but no matching $lcovutil::EXCL_STOP for $lcovutil::EXCL_START at line $exclude_region")
-	if $exclude_region;
+                                "$filename: overlapping exclude directives. Found $lcovutil::EXCL_START at line $line - but no matching $lcovutil::EXCL_STOP for $lcovutil::EXCL_START at line $exclude_region")
+        if $exclude_region;
       $exclude_region = $line;
     } elsif (/$lcovutil::EXCL_STOP/) {
       lcovutil::ignorable_error($ERROR_MISMATCH, "$filename: found $lcovutil::EXCL_STOP directive at line $line without matching $lcovutil::EXCL_START directive")
-	unless $exclude_region;
+        unless $exclude_region;
       $exclude_region = 0;
     } elsif (/$lcovutil::EXCL_BR_START/) {
       lcovutil::ignorable_error($ERROR_MISMATCH,
-				"$filename: overlapping exclude branch directives. Found $lcovutil::EXCL_BR_START at line $line - but no matching $lcovutil::EXCL_BR_STOP for $lcovutil::EXCL_BR_START at line $exclude_br_region")
-	if $exclude_br_region;
+                                "$filename: overlapping exclude branch directives. Found $lcovutil::EXCL_BR_START at line $line - but no matching $lcovutil::EXCL_BR_STOP for $lcovutil::EXCL_BR_START at line $exclude_br_region")
+        if $exclude_br_region;
       $exclude_br_region = $line;
     } elsif (/$lcovutil::EXCL_BR_STOP/) {
       lcovutil::ignorable_error($ERROR_MISMATCH, "$filename: found $lcovutil::EXCL_BR_STOP directive at line $line without matching $lcovutil::EXCL_BR_START directive")
-	unless $exclude_br_region;
+        unless $exclude_br_region;
       $exclude_br_region = 0;
     } elsif (0 != scalar(@lcovutil::omit_line_patterns)) {
       foreach my $p (@lcovutil::omit_line_patterns) {
-	my $pat = $p->[0];
-	if ( /$pat/ ) {
-	  push(@excluded, 3); #everything excluded
-	  #lcovutil::info("'$pat' matched \"$_\", line \"$filename\":"$line\n");
-	  ++ $p->[1];
-	  next LINES;
-	}
+        my $pat = $p->[0];
+        if ( /$pat/ ) {
+          push(@excluded, 3); #everything excluded
+          #lcovutil::info("'$pat' matched \"$_\", line \"$filename\":"$line\n");
+          ++ $p->[1];
+          next LINES;
+        }
       }
     }
     push(@excluded, ($exclude_region ? 1 : 0) | ($exclude_br_region ? 2 : 0));
   }
   lcovutil::ignorable_error($ERROR_MISMATCH,
-			    "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP")
+                            "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP")
     if $exclude_region;
   lcovutil::ignorable_error($ERROR_MISMATCH,
-			    "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP")
+                            "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP")
     if $exclude_br_region;
 
   $self->[0] = $filename;
@@ -2250,7 +2326,7 @@ sub parseLines {
 sub setData {
   my ($self, $filename, $data) = @_;
   die("expected array")
-    unless (ref($data) eq 'ARRAY');
+    if (defined($data) && ref($data) ne 'ARRAY');
   $self->[0] = $filename;
   if (defined($data) &&
       0 != scalar(@$data)) {
@@ -2629,7 +2705,6 @@ sub _read_info {
   my $changed_testname;  # If set, warn about changed testname
   my $line_checksum;     # Checksum of current line
   my $notified_about_relative_paths;
-  local *INFO_HANDLE;    # Filehandle for .info file
 
   lcovutil::info("Reading data file $tracefile\n");
 
@@ -2647,33 +2722,8 @@ sub _read_info {
   }
 
   # Check for .gz extension
-  if ($tracefile =~ /\.gz$/)
-  {
-    # Check for availability of GZIP tool
-    lcovutil::system_no_output(1, "gunzip" ,"-h")
-      and die("ERROR: gunzip command not available!\n");
-
-    # Check integrity of compressed file
-    lcovutil::system_no_output(1, "gunzip", "-t", $tracefile)
-      and die("ERROR: integrity check failed for compressed file "
-              . $tracefile . "!\n");
-
-    # Open compressed file
-    my $cmd = "gunzip -c '$tracefile'";
-    $cmd .=  " | " . $lcovutil::cpp_demangle
-      if defined($lcovutil::cpp_demangle);
-    open(INFO_HANDLE, "-|", $cmd)
-      or die("ERROR: cannot start gunzip to decompress file $tracefile!\n");
-  }
-  elsif (defined($lcovutil::cpp_demangle)) {
-
-    open(INFO_HANDLE, "-|", $lcovutil::cpp_demangle . " < $tracefile")
-      or die("ERROR: cannot start demangler for file $tracefile!\n");
-  } else {
-    # Open decompressed file
-    open(INFO_HANDLE, "<", $tracefile)
-      or die("ERROR: cannot read file $tracefile!\n");
-  }
+  my $inFile = InOutFile->in($tracefile, $lcovutil::cpp_demangle);
+  my $infoHdl = $inFile->hdl();
 
   $testname = "";
   my $fileData;
@@ -2690,7 +2740,7 @@ sub _read_info {
   my $functionMap;
   my %excludedFunction;
   my $skipCurrentFile = 0;
-  while (<INFO_HANDLE>)
+  while (<$infoHdl>)
   {
     chomp($_);
     $line = $_;
@@ -2729,7 +2779,7 @@ sub _read_info {
           defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]) ||
           defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]) ||
           defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH]) ||
-	  0 != scalar(@lcovutil::omit_line_patterns)) {
+          0 != scalar(@lcovutil::omit_line_patterns)) {
 
         # unconditionally 'close' the current file - in case we don't
         #   open a new one.  If that happened, then we would be looking
@@ -2989,12 +3039,12 @@ sub _read_info {
           $branchRenumber{$key} = $branch + 1;
 
           my $br = BranchBlock->new($branch, $taken, $expr);
-          $fileData->sumbr()->append($line, $block, $br);
+          $fileData->sumbr()->append($line, $block, $br, $filename);
 
           # Add test-specific counts
           if (defined($testname)) {
             #$testbrcount->{$line} .=  "$block,$branch,$taken:";
-            $fileData->testbr($testname)->append($line, $block, $br);
+            $fileData->testbr($testname)->append($line, $block, $br, $filename);
           }
         } else {
           # not an HDL file
@@ -3030,11 +3080,11 @@ sub _read_info {
                 foreach my $b_id (sort {$a <=> $b} keys(%$bdata)) {
                   my $br = $bdata->{$b_id};
                   my $b = BranchBlock->new($branchId, $br->data());
-                  $fileData->sumbr()->append($line, $block, $b);
+                  $fileData->sumbr()->append($line, $block, $b, $filename);
 
                   if (defined($testname)) {
                     #$testbrcount->{$line} .=  "$block,$branch,$taken:";
-                    $fileData->testbr($testname)->append($line, $block, $b);
+                    $fileData->testbr($testname)->append($line, $block, $b, $filename);
                   }
                   ++ $branchId;
                 }
@@ -3083,7 +3133,6 @@ sub _read_info {
       last;
     }
   }
-  close(INFO_HANDLE);
 
   # Calculate lines_found and lines_hit for each file
   foreach $filename ($self->files())
@@ -3140,7 +3189,7 @@ sub _read_info {
   if (scalar(keys(%$self)) == 0)
   {
     lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
-                              "no valid records found in tracefile $tracefile\n");
+                              "no valid records found in tracefile $tracefile");
   }
   if ($negative)
   {
@@ -3161,7 +3210,7 @@ sub write_info_file($$$)
 {
   my ($self, $filename, $do_checksum) = @_;
 
-  my $file = OutputFile->new($filename);
+  my $file = InOutFile->out($filename);
   my $hdl = $file->hdl();
   return $self->write_info($hdl, $do_checksum);
 }
@@ -3268,10 +3317,10 @@ sub write_info($$$) {
       foreach my $line (sort({$a <=> $b}
                              $testbrcount->keylist())) {
 
-	# omit if line excluded or branches excluded on this line
-	next
-	  if (defined($srcReader) && $srcReader->notEmpty() &&
-	      $srcReader->isExcluded($line, 1));
+        # omit if line excluded or branches excluded on this line
+        next
+          if (defined($srcReader) && $srcReader->notEmpty() &&
+              $srcReader->isExcluded($line, 1));
 
         my $brdata = $testbrcount->value($line);
         if (defined($branchHistogram)) {
@@ -3315,9 +3364,9 @@ sub write_info($$$) {
         if (defined($srcReader) && $srcReader->notEmpty());
 
       foreach my $line (sort({$a <=> $b} $testcount->keylist())) {
-	next
-	  if (defined($srcReader) && $srcReader->notEmpty() &&
-	      $srcReader->isExcluded($line));
+        next
+          if (defined($srcReader) && $srcReader->notEmpty() &&
+              $srcReader->isExcluded($line));
 
         my $l_hit = $testcount->value($line);
         if (defined($lineHistogram) &&

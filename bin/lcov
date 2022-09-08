@@ -129,14 +129,13 @@ our $BR_ADD = 1;
 
 lcovutil::define_errors(\%lcovutil::geninfoErrs);
 
-$ERROR_MISMATCH   = scalar(keys(%lcovutil::geninfoErrs));
-$ERROR_BRANCH     = $ERROR_MISMATCH + 1;
+# right now, all the lcov errors can also be produced by geninfo - none are unique
+# $unique_error_num   = scalar(keys(%lcovutil::geninfoErrs));
 # errors unique to 'lcov':
-our %lcovErrs = (
-  "mismatch" => $ERROR_MISMATCH,
-  "branch"   => $ERROR_BRANCH,
-);
-lcovutil::define_errors(\%lcovErrs);
+#our %lcovErrs = (
+#  "err_name" => $unique_error_num_MISMATCH,
+#);
+#lcovutil::define_errors(\%lcovErrs);
 
 # Prototypes
 sub print_usage(*);
@@ -417,6 +416,8 @@ if ($demangle_cpp)
 if (0 == $lcovutil::maxParallelism) {
   lcovutil::count_cores();
 }
+InOutFile::checkGzip() # we know we are going to use gzip for intermediates
+  if 1 != $lcovutil::maxParallelism;
 
 
 # Normalize --path text
@@ -516,7 +517,7 @@ elsif (@add_tracefile)
     $function_mapping = {};
     add_traces();
 
-    my $file = OutputFile->new($output_filename);
+    my $file = InOutFile->out($output_filename);
     my $hdl = $file->hdl();
     while (my ($key, $data) = each(%$function_mapping)) {
       print($hdl $data->[0] . ": " . $key . "\n");
@@ -528,7 +529,7 @@ elsif (@add_tracefile)
     my ($pruned, $merged) = add_traces();
 
     info("Pruned result: retained " . scalar(@$pruned) . " of " . scalar(@$merged) . " files\n");
-    my $file = OutputFile->new($output_filename);
+    my $file = InOutFile->out($output_filename);
     my $hdl = $file->hdl();
     print($hdl join("\n", @$pruned). "\n");
   } else {
@@ -751,7 +752,7 @@ sub userspace_reset()
 	      unlink($_) or die("ERROR: cannot remove file $_!\n");
 	    }
 	  }
-	  ignorable_error($ERROR_EMPTY, "$pattern does not match any directory entries\n")
+	  ignorable_error($ERROR_EMPTY, "$pattern does not match any directory entries")
 	    if 0 == $count;
 	}
 }
@@ -1696,6 +1697,12 @@ sub _process_segment($$$) {
   my @interesting;
   foreach my $tracefile (@$segment) {
     my $now = Time::HiRes::gettimeofday();
+    if (! -f $tracefile ||
+	-z $tracefile) {
+      lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+				"trace file '$tracefile' " . (-z $tracefile ? 'is empty' : 'does not exist'));
+      next;
+    }
     my $current = TraceFile->load($tracefile, $readSourceFile);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{parse}{$tracefile} = $then - $now;
@@ -2360,32 +2367,11 @@ sub read_diff($)
 		die("ERROR: not a plain file: $diff_file!\n");
 	}
 
-	# Check for .gz extension
-	if ($diff_file =~ /\.gz$/)
-	{
-		# Check for availability of GZIP tool
-		system_no_output(1, "gunzip", "-h")
-			and die("ERROR: gunzip command not available!\n");
-
-		# Check integrity of compressed file
-		system_no_output(1, "gunzip", "-t", $diff_file)
-			and die("ERROR: integrity check failed for ".
-				"compressed file $diff_file!\n");
-
-		# Open compressed file
-		open(HANDLE, "-|", "gunzip -c '$diff_file'")
-			or die("ERROR: cannot start gunzip to decompress ".
-			       "file $_[0]!\n");
-	}
-	else
-	{
-		# Open decompressed file
-		open(HANDLE, "<", $diff_file)
-			or die("ERROR: cannot read file $_[0]!\n");
-	}
+	my $diffFile = InOutFile->in($diff_file); # maybe compressed
+	my $diffHdl = $diffFile->hdl();
 
 	# Parse diff file line by line
-	while (<HANDLE>)
+	while (<$diffHdl>)
 	{
 		chomp($_);
 		$line = $_;
@@ -2479,8 +2465,6 @@ sub read_diff($)
 			};
 		}
 	}
-
-	close(HANDLE);
 
 	# Add final diff file section to resulting hash
 	if ($filename)
@@ -2927,7 +2911,7 @@ sub diff()
 	     "unchanged.\n");
 
 	# Write data
-	my $file = OutputFile->new($output_filename);
+	my $file = InOutFile->out($output_filename);
 	my $hdl = $file->hdl();
 	my @result = $trace_data->write_info($hdl);
 	return @result;

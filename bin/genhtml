@@ -2669,7 +2669,6 @@ sub _read_udiff {
   my $file_old;         # Name of old file in diff section
   my $file_new;         # Name of new file in diff section
   my $filename;         # Name of common filename of diff section
-  local *HANDLE;                # File handle for reading the diff file
 
   # Check if file exists and is readable
   stat($diff_file);
@@ -2678,31 +2677,9 @@ sub _read_udiff {
   }
 
   $self->{diffFileName} = $diff_file;
-  ## Check if this is really a plain file
-  #if (!(-f _)) {
-  #  die("ERROR: not a plain file: $diff_file!\n");
-  #}
 
-  ## Check for .gz extension
-  #if ($diff_file =~ /\.gz$/) {
-  #  # Check for availability of GZIP tool
-  #  lcovutil::system_no_output(1, "gunzip", "-h")
-  #    and die("ERROR: gunzip command not available!\n");
-
-  #  # Check integrity of compressed file
-  #  lcovutil::system_no_output(1, "gunzip", "-t", $diff_file)
-  #    and die("ERROR: integrity check failed for ".
-  #           "compressed file $diff_file!\n");
-
-  #  # Open compressed file
-  #  open(HANDLE, "-|", "gunzip -c '$diff_file'")
-  #    or die("ERROR: cannot start gunzip to decompress ".
-  #          "file $_[0]!\n");
-  #} else {
-    # Open decompressed file
-    open(HANDLE, "<", $diff_file)
-      or die("ERROR: cannot open diff file $diff_file!\n");
-  #}
+  my $diffFile = InOutFile->in($diff_file);
+  my $diffHdl = $diffFile->hdl();
 
   my $chunk;
   my $old_block = 0;
@@ -2711,7 +2688,7 @@ sub _read_udiff {
   #my $time = $RE{time}{iso};
   my $time = '[1-9]{1}[0-9]{3}\-[0-9]{2}\-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]*)?( .[0-9]+)?';
   # Parse diff file line by line
-  while (<HANDLE>) {
+  while (<$diffHdl>) {
     chomp($_);
     s/\r//g;
     $line = $_;
@@ -2922,8 +2899,6 @@ sub _read_udiff {
     }
   }
 
-  close(HANDLE);
-
   # Add final diff file section to resulting hash
   if ($filename) {
     push(@{$self->{linemap}->{$filename}}, $chunk);
@@ -2932,7 +2907,7 @@ sub _read_udiff {
   if (scalar(keys %{$self->{linemap}}) == 0) {
     # this is probably OK - there are no differences between 'baseline' and current.
     lcovutil::ignorable_error($lcovutil::ERROR_EMPTY, "'diff' data file $diff_file contains no differences (this may be OK, if there are no difference between 'baseline' and 'current').\n".
-        "Make sure to use 'diff -u' when generating the diff file.\n");
+        "Make sure to use 'diff -u' when generating the diff file.");
   }
   return $self;
 }
@@ -3854,7 +3829,8 @@ sub new {
           foreach my $data (@$block) {
             my ($br, $tla) = @$data;
             my $count = $br->count();
-            die("unexpected branch TLA $tla for count $count")
+            die("unexpected branch TLA $tla for count $count at "
+                . $fileDetails->path() . ":$line")
               unless ( ($count != 0) == exists($tlaData{$tla}) );
             next if (0 == $count);
             $tlaData{$tla} += 1;
@@ -4541,96 +4517,97 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
 {
   print(STDERR "Use $tool_name --help to get usage information\n");
   exit(1);
+}
+
+@opt_filter = @rc_filter unless @opt_filter;
+@opt_ignore_errors = @rc_ignore unless @opt_ignore_errors;
+@lcovutil::exclude_file_patterns = @rc_exclude_patterns
+  unless @lcovutil::exclude_file_patterns;
+@lcovutil::include_file_patterns = @rc_include_patterns
+  unless @lcovutil::include_file_patterns;
+@lcovutil::subst_file_patterns = @rc_subst_patterns
+  unless @lcovutil::subst_file_patterns;
+@lcovutil::omit_line_patterns = @rc_omit_patterns
+  unless @lcovutil::omit_line_patterns;
+
+@datebins = @rc_datebins unless @datebins;
+
+foreach my $d (['--config-file', scalar(@unsupported_config)],
+               ['--rc', scalar(%unsupported_rc)]) {
+  die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
+    if ($d->[1]);
+}
+
+# Merge options
+$func_coverage = 0
+  if ($no_func_coverage);
+$br_coverage = 0
+  if ($no_br_coverage);
+# Merge sort options
+$sort = 0
+  if ($no_sort);
+
+$show_tla = 1
+  if defined($base_filename);
+$show_hitTotalCol = ! $show_tla || defined($base_filename);
+$use_legacyLabels = ! defined($base_filename) && $show_tla;
+if ($show_tla && ! defined($base_filename)) {
+  # no baseline - so not a differentialreport.
+  #  modify some settings to gnerate corresponding RTL code.
+  SummaryInfo::noBaseline();
+}
+
+if ($SourceFile::annotateScript) {
+  $show_dateBins = 1;
+  if ( 0 == scalar(@datebins) ) {
+    # default: 7, 30, 180 days
+    @datebins = @SummaryInfo::defaultCutpoints;
+  } else {
+    my %uniqify = map { $_, 1} split(/,/, join(',', @datebins));
+    @datebins = sort(keys %uniqify);
+  }
+  SummaryInfo::setAgeGroups(@datebins);
 } else {
-
-  @opt_filter = @rc_filter unless @opt_filter;
-  @opt_ignore_errors = @rc_ignore unless @opt_ignore_errors;
-  @lcovutil::exclude_file_patterns = @rc_exclude_patterns
-    unless @lcovutil::exclude_file_patterns;
-  @lcovutil::include_file_patterns = @rc_include_patterns
-    unless @lcovutil::include_file_patterns;
-  @lcovutil::subst_file_patterns = @rc_subst_patterns
-    unless @lcovutil::subst_file_patterns;
-  @lcovutil::omit_line_patterns = @rc_omit_patterns
-    unless @lcovutil::omit_line_patterns;
-
-  @datebins = @rc_datebins unless @datebins;
-
-  foreach my $d (['--config-file', scalar(@unsupported_config)],
-                 ['--rc', scalar(%unsupported_rc)]) {
-    die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
-      if ($d->[1]);
-  }
-
-  # Merge options
-  $func_coverage = 0
-    if ($no_func_coverage);
-  $br_coverage = 0
-    if ($no_br_coverage);
-  # Merge sort options
-  $sort = 0
-    if ($no_sort);
-
-  $show_tla = 1
-    if defined($base_filename);
-  $show_hitTotalCol = ! $show_tla || defined($base_filename);
-  $use_legacyLabels = ! defined($base_filename) && $show_tla;
-  if ($show_tla && ! defined($base_filename)) {
-    # no baseline - so not a differentialreport.
-    #  modify some settings to gnerate corresponding RTL code.
-    SummaryInfo::noBaseline();
-  }
-
-  if ($SourceFile::annotateScript) {
-    $show_dateBins = 1;
-    if ( 0 == scalar(@datebins) ) {
-      # default: 7, 30, 180 days
-      @datebins = @SummaryInfo::defaultCutpoints;
-    } else {
-      my %uniqify = map { $_, 1} split(/,/, join(',', @datebins));
-      @datebins = sort(keys %uniqify);
-    }
-    SummaryInfo::setAgeGroups(@datebins);
+  $treatNewFileAsBaseline = undef;
+  die("\"--show-owners\" option requires \"--annotate-script\" for revision control integration")
+    if defined($show_ownerBins);
+  die ("\"--date-bins\" option requires \"--annotate-script\" for revision control integraion")
+    if (0 != scalar(@datebins));
+}
+if (0 != (defined($diff_filename) ^ defined($base_filename))) {
+  if ( defined($base_filename) ) {
+    warn("specified --baseline-file without --diff-file: assuming no source differences.  Hope that is OK.");
   } else {
-    $treatNewFileAsBaseline = undef;
-    die("\"--show-owners\" option requires \"--annotate-script\" for revision control integration")
-        if defined($show_ownerBins);
-    die ("\"--date-bins\" option requires \"--annotate-script\" for revision control integraion")
-      if (0 != scalar(@datebins));
+    die("bare '--diff-file udiff' found.  Must specify '--baseline-file lcovInfoFile' in order to compute differential coverage");
+    $diff_filename = undef;
   }
-  if (0 != (defined($diff_filename) ^ defined($base_filename))) {
-    if ( defined($base_filename) ) {
-      warn("specified --baseline-file without --diff-file: assuming no source differences.  Hope that is OK.");
-    }
-    else {
-      die("bare '--diff-file udiff' found.  Must specify '--baseline-file lcovInfoFile' in order to compute differential coverage");
-      $diff_filename = undef;
-    }
-  }
+}
 
-  if (0 == $lcovutil::maxParallelism) {
-    lcovutil::count_cores();
-  }
-  if (defined($header_title)) {
-    $title = $header_title;
-  } else {
-    # use the default title bar.
-    $title =~ s/ differential// # not a differential report, if no baseline...
-      unless defined($base_filename);
-  }
-  push(@fileview_prefixes, "-date")
-      if ($show_dateBins);
-  push(@fileview_prefixes, "-owner")
-      if (defined($show_ownerBins));
+if (0 == $lcovutil::maxParallelism) {
+  lcovutil::count_cores();
+}
+InOutFile::checkGzip() # we know we are going to use gzip for intermediates
+  if 1 != $lcovutil::maxParallelism;
 
-  # use LCOV original colors if no baseline file
-  #  (so no differential coverage)
-  if ($use_legacyLabels ||
-      ! $show_tla ||
-      (defined($show_simplifiedColors) &&
-       $show_simplifiedColors)) {
-    lcovutil::use_vanilla_color();
-  }
+if (defined($header_title)) {
+  $title = $header_title;
+} else {
+  # use the default title bar.
+  $title =~ s/ differential// # not a differential report, if no baseline...
+    unless defined($base_filename);
+}
+push(@fileview_prefixes, "-date")
+  if ($show_dateBins);
+push(@fileview_prefixes, "-owner")
+  if (defined($show_ownerBins));
+
+# use LCOV original colors if no baseline file
+#  (so no differential coverage)
+if ($use_legacyLabels ||
+    ! $show_tla ||
+    (defined($show_simplifiedColors) &&
+     $show_simplifiedColors)) {
+  lcovutil::use_vanilla_color();
 }
 
 if ($dark_mode) {

@@ -40,6 +40,18 @@ lines and will be ignored.
 statements in the form
 .RI ' key " = " value '.
 
+.IP "     *"
+Values may be taken from environment variables via the syntax
+
+.RI ' key " = " ... $ENV{ENV_VAR_NAME} ...'.
+
+.RI
+The substring '$ENV{ENV_VAR_NAME}' is replaced by the value of the environmetn variable.
+
+.RI
+One or more environment variables may be used to set the RC value.
+'key' is ignored if any of the environment variables are not set in your user environment.
+
 .PP
 A list of valid statements and their description can be found in
 section 'OPTIONS' below.

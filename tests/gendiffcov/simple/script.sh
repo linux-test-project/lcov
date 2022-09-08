@@ -6,6 +6,7 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+CXX='g++'
 while [ $# -gt 0 ] ; do
 
     OPT=$1
@@ -40,6 +41,15 @@ while [ $# -gt 0 ] ; do
 
         --no-profile )
             PROFILE=''
+            ;;
+
+        --llvm )
+            LLVM=1
+            module load como/tools/llvm-gnu/11.0.0-1
+            # seems to have been using same gcov version as gcc/4.8.3
+            module load gcc/4.8.3
+            #EXTRA_GCOV_OPTS="--gcov-tool '\"llvm-cov gcov\"'"
+            CXX="clang++"
             ;;
         
         * )
@@ -78,7 +88,7 @@ fi
 #PROFILE="''
 
 
-LCOV_OPTS="--rc lcov_branch_coverage=1 --version-script $GET_VERSION $PARALLEL $PROFILE"
+LCOV_OPTS="$EXTRA_GCOV_OPTS --rc lcov_branch_coverage=1 --version-script $GET_VERSION $PARALLEL $PROFILE"
 DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
@@ -97,7 +107,7 @@ fi
 echo *
 
 ln -s simple.cpp test.cpp
-g++ --coverage test.cpp
+${CXX} --coverage test.cpp
 ./a.out
 
 echo `which gcov`
@@ -178,7 +188,7 @@ echo $PWD
 
 rm -f test.cpp test.gcno test.gcda a.out
 ln -s simple2.cpp test.cpp
-g++ --coverage -DADD_CODE -DREMOVE_CODE test.cpp
+${CXX} --coverage -DADD_CODE -DREMOVE_CODE test.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current.info
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current.info
@@ -472,8 +482,8 @@ for l in criteria.log criteria.err ; do
 done
 
 # test '--show-navigation' option
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation ./current.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation ./current.info > navigation.log 2> navigation.err
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --exclude '*/include/c++/*' ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --exclude '*/include/c++/*' ./current.info > navigation.log 2> navigation.err
 
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml --show-navigation failed"
@@ -483,7 +493,7 @@ fi
 HIT=`grep -c HIT.. navigation.log`
 MISS=`grep -c MIS.. navigation.log`
 if [[ $HIT != '3' || $MISS != '2' ]] ; then
-    echo "ERROR: 'navigation counts are wrong"
+    echo "ERROR: 'navigation counts are wrong: hit $HIT != 3 $MIS != 2"
     exit 1
 fi
 # look for unexpected naming in HTML
