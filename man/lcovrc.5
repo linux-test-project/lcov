@@ -152,6 +152,16 @@ genhtml_med_limit = 75
 #ignore_errors = empty,mismatch
 .br
 
+# If set, do not stop when an 'ignorable error' occurs - try
+.br
+#  to generate a result, however flawed.  This is equivalent to
+.br
+#  the '--keep-going' command line switch.
+.br
+# Default is 1:  stop when error occurs
+.br
+#stop_on_error = 1
+
 # list of file extensions which should be treated as C/C++ code
 .br
 # (comma-separated list)
@@ -556,19 +566,40 @@ This option is used by genhtml and lcov.
 .PP
 
 .BR ignore_errors " ="
-.IR str
+.IR message_type(,message_type)*
 .IP
 Specify a  message type which should be ignored.
 .br
 
 This option can be used multiple times in the lcovrc file to ignore multiple message types.
 
-This option is equivalent to the \-\-ignore\-errors option to geninfo, genhtml, or lcov.  If specified, this set is appended to the list specified by the command line option.
+This option is equivalent to the \-\-ignore\-errors option to geninfo, genhtml, or lcov.  Note that the lcovrc file message list is not applied (those messages NOT ignored) if the '\-\-ignore\-errors' command line option is specified.
 .br
 This option is used by genhtml, lcov, and geninfo.
 
 .PP
 
+.BR stop_on_error " = "
+.IR 0|1
+.IP
+If set to 1, tell the tools to ignore errors and keep going to try to generate a result - however flawed or incomplete that result might be.
+Note that ignoring some errors may lead to other errors.
+
+.br
+
+This is equivalent to the 
+.I '\-\-keep\-going'
+command line option.
+
+Default is 1:  stop when error occurs.
+
+If the 
+.I 'ignore_error msgType'
+option is also used, then those messages will be treated as warnings rather than errors (or will be entirely suppressed if the message type appears multiple times in the ignore_messages option).
+
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
 
 .BR genhtml_line_field_width " ="
 .I number_of_characters
@@ -1257,11 +1288,11 @@ The default is 0 (no threshold).
 .PP
 
 .BR profile " ="
-.IR integer
+.IR filename
 .IP
-If non-zero, tells genhtml, lcov, or geninfo to generate some execution
+If set, tells genhtml, lcov, or geninfo to generate some execution
 time/profile data which can be used to motivate future optimizations.
-The default is 0 (no data generated).
+The default is unset no data generated.
 
 .br
 This option is used by genhtml, lcov, and geninfo.

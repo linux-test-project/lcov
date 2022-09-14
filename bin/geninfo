@@ -177,6 +177,7 @@ our $BR_VEC_MAX		= vec(pack('b*', 1 x $BR_VEC_WIDTH), 0, $BR_VEC_WIDTH);
 our $UNNAMED_BLOCK	= -1;
 
 our $trace_data;
+our $preserve_intermediates; # this is useful only for debugging
 
 # Prototypes
 sub print_usage(*);
@@ -316,7 +317,8 @@ if (lcovutil::apply_rc_params(\@opt_config_file,
 			       "lcov_excl_br_line"	=> \$excl_br_line,
 			       "lcov_excl_exception_br_line" => \$excl_exception_br_line,
 			       'ignore_errors' => \@rc_ignore,
-			       "profile"       => \$lcovutil::profile,
+			       'stop_on_error' => \$lcovutil::stop_on_error,
+			       "profile"     => \$lcovutil::profile,
 			       "parallel"      => \$lcovutil::maxParallelism,
 			       'filter'     => \@rc_filter,
 			       'exclude'    => \@rc_exclude_patterns,
@@ -362,39 +364,42 @@ if (lcovutil::apply_rc_params(\@opt_config_file,
 
 my %unsupported_rc; # for error checking
 my @unsupported_config;
+my $keepGoing;
 
 # Parse command line options
-if (!GetOptions("test-name|t=s" => \$test_name,
+if (!GetOptions("test-name|t=s"       => \$test_name,
 		"output-filename|o=s" => \$output_filename,
-		"checksum" => \$checksum,
-		"no-checksum" => \$no_checksum,
+		"checksum"           => \$checksum,
+		"no-checksum"        => \$no_checksum,
 		"base-directory|b=s" => \$base_directory,
-		"version|v" =>\$version,
-		"quiet|q" => \$lcovutil::quiet,
-		"help|h|?" => \$help,
-		"follow|f" => \$follow,
-		"compat-libtool" => \$opt_compat_libtool,
-		"no-compat-libtool" => \$opt_no_compat_libtool,
-		"gcov-tool=s" => \$gcov_tool,
-		"ignore-errors=s" => \@ignore_errors,
-		"filter=s" => \@opt_filter,
-		"initial|i" => \$initial,
-		"include=s" => \@lcovutil::include_file_patterns,
-		"exclude=s" => \@lcovutil::exclude_file_patterns,
-		"substitute=s" => \@lcovutil::file_subst_patterns,
-		"omit-lines=s" => \@lcovutil::omit_line_patterns,
-		"no-recursion" => \$no_recursion,
-		"no-markers" => \$no_markers,
-		"derive-func-data" => \$opt_derive_func_data,
-		"debug" => \$lcovutil::debug,
-		"external|e" => \$opt_external,
-		"no-external" => \$lcovutil::opt_no_external,
-		"compat=s" => \$opt_compat,
-		"config-file=s" => \@unsupported_config,
-		"rc=s%" => \%unsupported_rc,
-                "version-script=s" => \$lcovutil::extractVersionScript,
-                "profile"          => \$lcovutil::profile,
-                "parallel|j=i"     => \$lcovutil::maxParallelism,
+		"version|v"          => \$version,
+		"quiet|q"            => \$lcovutil::quiet,
+		"help|h|?"           => \$help,
+		"follow|f"           => \$follow,
+		"compat-libtool"     => \$opt_compat_libtool,
+		"no-compat-libtool"  => \$opt_no_compat_libtool,
+		"gcov-tool=s"        => \$gcov_tool,
+		"ignore-errors=s"    => \@ignore_errors,
+		"keep-going"         => \$keepGoing,
+		"filter=s"           => \@opt_filter,
+		"initial|i"          => \$initial,
+		"include=s"          => \@lcovutil::include_file_patterns,
+		"exclude=s"          => \@lcovutil::exclude_file_patterns,
+		"substitute=s"       => \@lcovutil::file_subst_patterns,
+		"omit-lines=s"       => \@lcovutil::omit_line_patterns,
+		"no-recursion"       => \$no_recursion,
+		"no-markers"         => \$no_markers,
+		"derive-func-data"   => \$opt_derive_func_data,
+		"debug"              => \$lcovutil::debug,
+		"external|e"         => \$opt_external,
+		"no-external"        => \$lcovutil::opt_no_external,
+		"compat=s"           => \$opt_compat,
+		"config-file=s"      => \@unsupported_config,
+		"rc=s%"              => \%unsupported_rc,
+                "version-script=s"   => \$lcovutil::extractVersionScript,
+                "profile:s"          => \$lcovutil::profile,
+                "parallel|j=i"       => \$lcovutil::maxParallelism,
+		"preserve"           => \$preserve_intermediates,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
@@ -416,6 +421,9 @@ foreach my $d (['--config-file', scalar(@unsupported_config)],
   unless @lcovutil::subst_file_patterns;
 @lcovutil::omit_line_patterns = @rc_omit_patterns
   unless @lcovutil::omit_line_patterns;
+
+$lcovutil::stop_on_error = 0
+  if (defined $keepGoing);
 
 # Merge options
 if (defined($no_checksum))
@@ -721,6 +729,8 @@ sequentially.
       --(no-)compat-libtool         Enable (disable) libtool compatibility mode
       --gcov-tool TOOL              Specify gcov tool location
       --ignore-errors ERROR         Continue after ERROR (gcov, source, graph)
+      --keep-going                  Do not stop if error occurs.  Try to
+                                    produce a result
       --filter TYPE                 Ignore coverpoints of TYPE (branch, line)
       --no-recursion                Exclude subdirectories from processing
       --no-markers                  Ignore exclusion markers in source code
@@ -737,6 +747,8 @@ sequentially.
                                     Perl regexps (applied in order)
       --version-script SCRIPTNAME   Call script to find revison control version
                                     ID of source file
+      --preserve                    Keep intermediate files (such as gcov data).
+                                    By default, intermediates are removed.
 
 For more information see: $lcov_url
 END_OF_USAGE
@@ -1411,7 +1423,7 @@ sub process_dafile($$)
 			warn("WARNING: cannot find an entry for ".$gcov_file.
 			     " in $graph_file_extension file, skipping ".
 			     "file!\n");
-			unlink($gcov_file);
+			unlink($gcov_file) unless $main::preserve_intermediates;
 			next;
 		}
 
@@ -1420,7 +1432,7 @@ sub process_dafile($$)
 		if (!defined($result[0])) {
 			warn("WARNING: skipping unreadable file ".
 			     $gcov_file."\n");
-			unlink($gcov_file);
+			unlink($gcov_file) unless $main::preserve_intermediates;
 			next;
 		}
 		@gcov_content = @{$result[0]};
@@ -1431,7 +1443,7 @@ sub process_dafile($$)
 		if (!@gcov_content)
 		{
 			warn("WARNING: skipping empty file ".$gcov_file."\n");
-			unlink($gcov_file);
+			unlink($gcov_file) unless $main::preserve_intermediates;
 			next;
 		}
 
@@ -1449,7 +1461,7 @@ sub process_dafile($$)
 
 		if (TraceFile::skipCurrentFile($source_filename)) {
 		  $lcovutil::excluded_files{$source_filename} = ();
-		  unlink($gcov_file);
+		  unlink($gcov_file) unless $main::preserve_intermediates;
 		  next GCOV_FILE_LOOP;
 		}
 
@@ -1457,7 +1469,7 @@ sub process_dafile($$)
 		if (is_external($source_filename)) {
 		  info("  ignoring data for external file ".
 		       "$source_filename\n");
-		  unlink($gcov_file);
+		  unlink($gcov_file) unless $main::preserve_intermediates;
 		  next;
 		}
 
@@ -1690,7 +1702,7 @@ sub process_dafile($$)
 		print($infoHdl "end_of_record\n");
 
 		# Remove .gcov file after processing
-		unlink($gcov_file);
+		unlink($gcov_file) unless $main::preserve_intermediates;
 	  } }
 
 	# Change back to initial directory
@@ -2671,18 +2683,18 @@ sub process_intermediate($$$)
 
 	if ($is_graph) {
 		# Remove graph file copy
-		unlink($data_file);
+	  unlink($data_file) unless $main::preserve_intermediates;
 	}
 
 	# Parse resulting file(s)
 	for my $gcov_filename (glob("*.gcov")) {
 		read_intermediate_text($gcov_filename, \%data);
-		unlink($gcov_filename);
+		unlink($gcov_filename) unless $main::preserve_intermediates;
 	}
 
 	for my $gcov_filename (glob("*.gcov.json.gz")) {
 		read_intermediate_json($gcov_filename, \%data, \$json_basedir);
-		unlink($gcov_filename);
+		unlink($gcov_filename) unless $main::preserve_intermediates;
 		$json_format = 1;
 	}
 

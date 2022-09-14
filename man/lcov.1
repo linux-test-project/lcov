@@ -32,6 +32,10 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-ignore\-errors
 .IR errors ]
 .br
+.RB [ \-\-keep\-going ]
+.br
+.RB [ \-\-preserve ]
+.br
 .RB [ \-\-filter
 .IR type  ]
 .br
@@ -820,6 +824,24 @@ revision control IDs of the file which we are trying to merge are not the same -
 
 .B parallel
 various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
+
+.RE
+.BI "\-\-keep\-going "
+.RS
+Do not stop if error occurs: attempt to generate a result, however flawed.
+
+This command line option corresponds to the 
+.I stop_on_error [0|1]
+lcovrc option.  See the lcovrc man page for more details.
+
+.RE
+.BI "\-\-preserve "
+.RS
+Preserve intermediate datea files used by geninfo.  By default, these files are deleted.
+
+This option only has an effect in
+.I \-\-capture
+mode.
 
 .RE
 .BI "\-\-filter "

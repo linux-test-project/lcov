@@ -4420,6 +4420,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                 "lcov_function_coverage"        => \$lcov_func_coverage,
                 "lcov_branch_coverage"          => \$lcov_branch_coverage,
                 "ignore_errors"                 => \@rc_ignore,
+                'stop_on_error'                 => \$lcovutil::stop_on_error,
                 "rtl_file_extensions"           => \$rtlExtensions,
                 "c_file_extensions"             => \$cExtensions,
                 "filter_lookahead"              => \$lcovutil::source_filter_lookahead,
@@ -4449,6 +4450,7 @@ lcovutil::set_c_extensions($cExtensions)
 
 my %unsupported_rc; # for error checking
 my @unsupported_config;
+my $keepGoing;
 
 # Parse command line options
 if (!GetOptions("output-directory|o=s"  => \$output_directory,
@@ -4466,7 +4468,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "annotate-script=s"     => \$SourceFile::annotateScript,
                 "criteria-script=s"     => \$SummaryInfo::coverageCriteriaScript,
                 "version-script=s"      => \$lcovutil::extractVersionScript,
-                "new-file-as-baseline" => \$treatNewFileAsBaseline,
+                "new-file-as-baseline"  => \$treatNewFileAsBaseline,
                 'elide-path-mismatch'   => \$elide_path_mismatch,
                 # if 'show-owners' is set: generate the owner table
                 #    if it is passed a value: show all the owners,
@@ -4500,13 +4502,14 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "no-sort"               => \$no_sort,
                 "demangle-cpp"          => \$demangle_cpp,
                 "ignore-errors=s"       => \@opt_ignore_errors,
+                "keep-going"            => \$keepGoing,
                 "config-file=s"         => \@unsupported_config,
                 "rc=s%"                 => \%unsupported_rc,
                 "precision=i"           => \$lcovutil::default_precision,
                 "missed"                => \$opt_missed,
                 "filter=s"              => \@opt_filter,
                 "dark-mode"             => \$dark_mode,
-                "profile"               => \$lcovutil::profile,
+                "profile:s"             => \$lcovutil::profile,
                 "exclude=s"             => \@lcovutil::exclude_file_patterns,
                 "include=s"             => \@lcovutil::include_file_patterns,
                 "omit-lines=s"          => \@lcovutil::omit_line_patterns,
@@ -4529,6 +4532,9 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
   unless @lcovutil::subst_file_patterns;
 @lcovutil::omit_line_patterns = @rc_omit_patterns
   unless @lcovutil::omit_line_patterns;
+
+$lcovutil::stop_on_error = 0
+  if (defined $keepGoing);
 
 @datebins = @rc_datebins unless @datebins;
 
@@ -4856,8 +4862,10 @@ Misc:
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
       --ignore-errors ERRORS        Continue after ERRORS (source,unmapped,
-                                    empty,category,path,inconsistent,mismatch,
-                                    branch,format)
+                                    empty,category,path,inconsistent,
+                                    mismatch,branch,format)
+      --keep-going                  Do not stop if error occurs.  Try to
+                                    produce a result
 
 Operation:
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
@@ -4907,7 +4915,9 @@ Operation:
                                     Perl regexps (applied in order)
   -j, --parallel INTEGER            Use at most INTEGER number of parallel
                                     slaves during processing.
-      --profile                     Collect some performance statistics.
+      --profile [filename]          Write performance performance statistics
+                                    to filename (default is
+				    'output_directory/genhtml.json').
 
 HTML output:
   -f, --frames                      Use HTML frames for source code view

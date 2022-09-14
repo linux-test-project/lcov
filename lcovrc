@@ -32,6 +32,13 @@ genhtml_med_limit = 75
 # See man pages for list of ignorable messsages
 #ignore_errors = empty,mismatch
 
+# If set, do not stop when an 'ignorable error' occurs - try to generate
+#  a result, however flawed.  This is equivalent to the '--keep-going'
+#  command line switch.
+# Default is 1:  stop when error occurs
+# See the man pages for more detail
+#stop_on_error = 1
+
 # List of file extensions which should be treated as RTL code (e.g., Verilog)
 # Comma-separated list.  Default is "v,vh,sv,vhd?"
 #rtl_file_extensions = v,vh,sv,vhd?

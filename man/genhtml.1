@@ -65,6 +65,7 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-ignore\-errors
 .IR errors  ]
 .br
+.RB [ \-\-keep\-going ]
 .RB [ \-\-config\-file
 .IR config\-file ]
 .RB [ \-\-rc
@@ -1078,6 +1079,15 @@ the include/exclude/substitute/omit pattern did not match any file pathnames.
 
 .B parallel
 various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
+
+.RE
+.BI "\-\-keep\-going "
+.RS
+Do not stop if error occurs: attempt to generate a result, however flawed.
+
+This command line option corresponds to the 
+.I stop_on_error [0|1]
+lcovrc option.  See the lcovrc man page for more details.
 
 .RE
 

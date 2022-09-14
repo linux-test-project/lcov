@@ -257,6 +257,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
 			    "filter_lookahead"       => \$lcovutil::source_filter_lookahead,
 			    "filter_bitwise_conditional" => \$lcovutil::source_filter_bitwise_are_conditional,
 			    'ignore_errors'      => \@rc_ignore,
+			    'stop_on_error'      => \$lcovutil::stop_on_error,
 			    "profile"            => \$lcovutil::profile,
 			    "parallel"           => \$lcovutil::maxParallelism,
 			    "genhtml_demangle_cpp"       => \$demangle_cpp,
@@ -277,116 +278,117 @@ set_c_extensions($cExtensions)
 
 my %unsupported_rc; # for error checking
 my @unsupported_config;
+my $keepGoing;
+our @cmdArgs = @ARGV;
+my $preserve_intermediates;
 
 # Parse command line options
-if (!GetOptions("directory|d|di=s" => \@directory,
-		"add-tracefile|a=s" => \@add_tracefile,
-		"list|l=s" => \$list,
+if (!GetOptions("directory|d|di=s"     => \@directory,
+		"add-tracefile|a=s"    => \@add_tracefile,
+		"list|l=s"             => \$list,
 		"kernel-directory|k=s" => \@kernel_directory,
-		"extract|e=s" => \$extract,
-		"remove|r=s" => \$remove,
-		"diff=s" => \$diff,
-		"convert-filenames" => \$convert_filenames,
-		"strip=i" => \$strip,
-		"capture|c" => \$capture,
-		"output-file|o=s" => \$output_filename,
-		"test-name|t=s" => \$test_name,
-		"zerocounters|z" => \$reset,
-		"quiet|q" => \$lcovutil::quiet,
-		"verbose|v" => \$lcovutil::verbose,
-		"help|h|?" => \$help,
-		"version" => \$version,
-		"follow|f" => \$follow,
-		"path=s" => \$diff_path,
-		"base-directory|b=s" => \$base_directory,
-		"checksum" => \$checksum,
-		"no-checksum" => \$no_checksum,
-		"compat-libtool" => \$compat_libtool,
-		"no-compat-libtool" => \$no_compat_libtool,
-		"gcov-tool=s" => \$gcov_tool,
-                "demangle-cpp"    => \$demangle_cpp,
-		"ignore-errors=s" => \@opt_ignore_errors,
-		"filter=s" => \@opt_filter,
-		"initial|i" => \$initial,
-		"include=s" => \@lcovutil::include_file_patterns,
-		"exclude=s" => \@lcovutil::exclude_file_patterns,
-		"substitute=s" => \@lcovutil::file_subst_patterns,
-		"omit-lines=s" => \@lcovutil::omit_line_patterns,
-		"no-recursion" => \$no_recursion,
-		"to-package=s" => \$to_package,
-		"from-package=s" => \$from_package,
-		"no-markers" => \$no_markers,
-		"derive-func-data" => \$opt_derive_func_data,
-		"debug" => \$lcovutil::debug,
-		"list-full-path" => \$opt_list_full_path,
-		"no-list-full-path" => \$opt_no_list_full_path,
-		"external" => \$opt_external,
-		"no-external" => \$lcovutil::opt_no_external,
-		"summary=s" => \@opt_summary,
-		"compat=s" => \$opt_compat,
-		"config-file=s" => \@unsupported_config,
-		"rc=s%" => \%unsupported_rc,
-		"fail-under-lines=s" => \$opt_fail_under_lines,
-		"profile"          => \$lcovutil::profile,
-                "version-script=s" => \$lcovutil::extractVersionScript,
-		"parallel|j=i"     => \$lcovutil::maxParallelism,
-		"prune-tests" => \$prune_testcases,
-		"map-functions" => \$function_mapping,
+		"extract|e=s"          => \$extract,
+		"remove|r=s"           => \$remove,
+		"diff=s"               => \$diff,
+		"convert-filenames"    => \$convert_filenames,
+		"strip=i"              => \$strip,
+		"capture|c"            => \$capture,
+		"output-file|o=s"      => \$output_filename,
+		"test-name|t=s"        => \$test_name,
+		"zerocounters|z"       => \$reset,
+		"quiet|q"              => \$lcovutil::quiet,
+		"verbose|v"            => \$lcovutil::verbose,
+		"help|h|?"             => \$help,
+		"version"              => \$version,
+		"follow|f"             => \$follow,
+		"path=s"               => \$diff_path,
+		"base-directory|b=s"   => \$base_directory,
+		"checksum"             => \$checksum,
+		"no-checksum"          => \$no_checksum,
+		"compat-libtool"       => \$compat_libtool,
+		"no-compat-libtool"    => \$no_compat_libtool,
+		"gcov-tool=s"          => \$gcov_tool,
+                "demangle-cpp"         => \$demangle_cpp,
+		"ignore-errors=s"      => \@opt_ignore_errors,
+		"keep-going"           => \$keepGoing,
+		"preserve"             => \$preserve_intermediates,
+		"filter=s"             => \@opt_filter,
+		"initial|i"            => \$initial,
+		"include=s"            => \@lcovutil::include_file_patterns,
+		"exclude=s"            => \@lcovutil::exclude_file_patterns,
+		"substitute=s"         => \@lcovutil::file_subst_patterns,
+		"omit-lines=s"         => \@lcovutil::omit_line_patterns,
+		"no-recursion"         => \$no_recursion,
+		"to-package=s"         => \$to_package,
+		"from-package=s"       => \$from_package,
+		"no-markers"           => \$no_markers,
+		"derive-func-data"     => \$opt_derive_func_data,
+		"debug"                => \$lcovutil::debug,
+		"list-full-path"       => \$opt_list_full_path,
+		"no-list-full-path"    => \$opt_no_list_full_path,
+		"external"             => \$opt_external,
+		"no-external"          => \$lcovutil::opt_no_external,
+		"summary=s"            => \@opt_summary,
+		"compat=s"             => \$opt_compat,
+		"config-file=s"        => \@unsupported_config,
+		"rc=s%"                => \%unsupported_rc,
+		"fail-under-lines=s"   => \$opt_fail_under_lines,
+		"profile:s"            => \$lcovutil::profile,
+                "version-script=s"     => \$lcovutil::extractVersionScript,
+		"parallel|j=i"         => \$lcovutil::maxParallelism,
+		"prune-tests"          => \$prune_testcases,
+		"map-functions"        => \$function_mapping,
 		))
 {
 	print(STDERR "Use $tool_name --help to get usage information\n");
 	exit(1);
 }
-else
-{
-  foreach my $d (['--config-file', scalar(@unsupported_config)],
-		 ['--rc', scalar(%unsupported_rc)]) {
-    die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
-      if ($d->[1]);
-  }
-  @opt_filter = @rc_filter unless @opt_filter;
-  @opt_ignore_errors = @rc_ignore unless @opt_ignore_errors;
-  @lcovutil::exclude_file_patterns = @rc_exclude_patterns
-    unless @lcovutil::exclude_file_patterns;
-  @lcovutil::include_file_patterns = @rc_include_patterns
-    unless @lcovutil::include_file_patterns;
-  @lcovutil::subst_file_patterns = @rc_subst_patterns
-    unless @lcovutil::subst_file_patterns;
-  @lcovutil::omit_line_patterns = @rc_omit_patterns
-    unless @lcovutil::omit_line_patterns;
 
-	# Merge options
-	if (defined($no_checksum))
-	{
-		$checksum = ($no_checksum ? 0 : 1);
-		$no_checksum = undef;
-	}
+foreach my $d (['--config-file', scalar(@unsupported_config)],
+	       ['--rc', scalar(%unsupported_rc)]) {
+  die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
+    if ($d->[1]);
+}
+@opt_filter = @rc_filter unless @opt_filter;
+@opt_ignore_errors = @rc_ignore unless @opt_ignore_errors;
+@lcovutil::exclude_file_patterns = @rc_exclude_patterns
+  unless @lcovutil::exclude_file_patterns;
+@lcovutil::include_file_patterns = @rc_include_patterns
+  unless @lcovutil::include_file_patterns;
+@lcovutil::subst_file_patterns = @rc_subst_patterns
+  unless @lcovutil::subst_file_patterns;
+@lcovutil::omit_line_patterns = @rc_omit_patterns
+  unless @lcovutil::omit_line_patterns;
+$lcovutil::stop_on_error = 0
+  if (defined $keepGoing);
 
-	if (defined($no_compat_libtool))
-	{
-		$compat_libtool = ($no_compat_libtool ? 0 : 1);
-		$no_compat_libtool = undef;
-	}
+# Merge options
+if (defined($no_checksum)) {
+  $checksum = ($no_checksum ? 0 : 1);
+  $no_checksum = undef;
+}
 
-	if (defined($opt_no_list_full_path))
-	{
-		$opt_list_full_path = ($opt_no_list_full_path ? 0 : 1);
-		$opt_no_list_full_path = undef;
-	}
+if (defined($no_compat_libtool)) {
+  $compat_libtool = ($no_compat_libtool ? 0 : 1);
+  $no_compat_libtool = undef;
+}
 
-	push(@lcovutil::internal_dirs, $base_directory)
-	  if defined($base_directory);
-	if (defined($opt_external)) {
-		$lcovutil::opt_no_external = 0;
-		$opt_external = undef;
-	}
+if (defined($opt_no_list_full_path)) {
+  $opt_list_full_path = ($opt_no_list_full_path ? 0 : 1);
+  $opt_no_list_full_path = undef;
+}
+
+push(@lcovutil::internal_dirs, $base_directory)
+  if defined($base_directory);
+if (defined($opt_external)) {
+  $lcovutil::opt_no_external = 0;
+  $opt_external = undef;
 }
 
 # Check for help option
-if ($help)
-{
-	print_usage(*STDOUT);
-	exit(0);
+if ($help) {
+  print_usage(*STDOUT);
+  exit(0);
 }
 
 my $begin = Time::HiRes::gettimeofday();
@@ -394,8 +396,8 @@ my $begin = Time::HiRes::gettimeofday();
 # Check for version option
 if ($version)
 {
-	print("$tool_name: $lcov_version\n");
-	exit(0);
+  print("$tool_name: $lcov_version\n");
+  exit(0);
 }
 lcovutil::parse_ignore_errors(@opt_ignore_errors);
 # Determine what coverpoints the user wants to filter
@@ -403,8 +405,8 @@ parse_cov_filters(@opt_filter);
 
 # Check list width option
 if ($opt_list_width <= 40) {
-	die("ERROR: lcov_list_width parameter out of range (needs to be ".
-	    "larger than 40)\n");
+  die("ERROR: lcov_list_width parameter out of range (needs to be ".
+      "larger than 40)\n");
 }
 
 # Ensure that the c++filt tool is available when using --demangle-cpp
@@ -423,23 +425,8 @@ InOutFile::checkGzip() # we know we are going to use gzip for intermediates
 # Normalize --path text
 $diff_path =~ s/\/$//;
 
-if ($follow)
-{
-	$follow = "-follow";
-}
-else
-{
-	$follow = "";
-}
-
-if ($no_recursion)
-{
-	$maxdepth = "-maxdepth 1";
-}
-else
-{
-	$maxdepth = "";
-}
+$follow = $follow ? '-follow' : '';
+$maxdepth = $no_recursion ? '-maxdepth 1' : '';
 
 # Check for valid options
 check_options();
@@ -447,8 +434,8 @@ check_options();
 # Only --extract, --remove and --diff allow unnamed parameters
 if (@ARGV && !($extract || $remove || $diff || @opt_summary))
 {
-	die("Extra parameter found: '".join(" ", @ARGV)."'\n".
-	    "Use $tool_name --help to get usage information\n");
+  die("Extra parameter found: '".join(" ", @ARGV)."'\n".
+      "Use $tool_name --help to get usage information\n");
 }
 
 push(@lcovutil::exclude_file_patterns, @ARGV)
@@ -463,53 +450,45 @@ lcovutil::munge_file_patterns() # for exclude/include directives
 # Check for output filename
 $data_stdout = !($output_filename && ($output_filename ne "-"));
 
-if ($capture)
-{
-	if ($data_stdout)
-	{
-		# Option that tells geninfo to write to stdout
-		$output_filename = "-";
-	}
+if ($capture && $data_stdout) {
+  # Option that tells geninfo to write to stdout
+  $output_filename = "-";
 }
 
 # Determine kernel directory for gcov data
 if (!$from_package && !@directory && ($capture || $reset)) {
-	($gcov_gkv, $gcov_dir) = setup_gkv();
+  ($gcov_gkv, $gcov_dir) = setup_gkv();
 }
 
 our $exit_code = 0;
 # Check for requested functionality
 if ($reset)
 {
-	$data_stdout = 0;
-	# Differentiate between user space and kernel reset
-	if (@directory)
-	{
-		userspace_reset();
-	}
-	else
-	{
-		kernel_reset();
-	}
+  $data_stdout = 0;
+  # Differentiate between user space and kernel reset
+  if (@directory) {
+    userspace_reset();
+  }
+  else {
+    kernel_reset();
+  }
 }
 elsif ($capture)
 {
-	# Capture source can be user space, kernel or package
-	if ($from_package) {
-		package_capture();
-	} elsif (@directory) {
-		userspace_capture();
-	} else {
-		if ($initial) {
-			if (defined($to_package)) {
-				die("ERROR: --initial cannot be used together ".
-				    "with --to-package\n");
-			}
-			kernel_capture_initial();
-		} else {
-			kernel_capture();
-		}
-	}
+  # Capture source can be user space, kernel or package
+  if ($from_package) {
+    package_capture();
+  } elsif (@directory) {
+    userspace_capture();
+  } else {
+    if ($initial) {
+      die("ERROR: --initial cannot be used together with --to-package\n")
+	if (defined($to_package));
+      kernel_capture_initial();
+    } else {
+      kernel_capture();
+    }
+  }
 }
 elsif (@add_tracefile)
 {
@@ -651,6 +630,8 @@ Options:
       --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
       --ignore-errors ERRORS      Continue after ERRORS (gcov, source, graph)
+      --keep-going                Do not stop if error occurs.  Try to
+                                  produce a result
       --filter TYPE               Ignore coverpoints of TYPE (branch, line)
       --demangle-cpp              Demangle C++ function names
       --no-recursion              Exclude subdirectories from processing
@@ -675,7 +656,10 @@ Options:
                                   ID of source file
   -j, --parallel INTEGER          Use at most INTEGER number of parallel
                                   slaves during processing.
-      --profile                   Collect some performance statistics.
+      --profile [filename]        Write performance performance statistics
+                                  to filename (default is
+				  'OUTPUT_FILENAME.json').
+
 
 For more information see: $lcov_url and\/or the lcov man page.
 END_OF_USAGE
@@ -691,34 +675,29 @@ END_OF_USAGE
 
 sub check_options()
 {
-	my $i = 0;
+  my $i = 0;
 
-	# Count occurrence of mutually exclusive options
-	$reset && $i++;
-	$capture && $i++;
-	@add_tracefile && $i++;
-	$extract && $i++;
-	$remove && $i++;
-	$list && $i++;
-	$diff && $i++;
-	@opt_summary && $i++;
+  # Count occurrence of mutually exclusive options
+  $reset && $i++;
+  $capture && $i++;
+  @add_tracefile && $i++;
+  $extract && $i++;
+  $remove && $i++;
+  $list && $i++;
+  $diff && $i++;
+  @opt_summary && $i++;
 
-	if ($i == 0)
-	{
-		die("Need one of options -z, -c, -a, -e, -r, -l, ".
-		    "--diff or --summary\n".
-		    "Use $tool_name --help to get usage information\n");
-	}
-	elsif ($i > 1)
-	{
-		die("ERROR: only one of -z, -c, -a, -e, -r, -l, ".
-		    "--diff or --summary allowed!\n".
-		    "Use $tool_name --help to get usage information\n");
-	}
+  if ($i == 0 ||
+      $i > 1) {
+    die("Error: invalid command line:\n  $0 " . join(' ', @main::cmdArgs) .
+	"\nNeed " . ($i > 1 ? 'only ' : '') .
+	"one of options -z, -c, -a, -e, -r, -l, --diff or --summary\n".
+	"Use $tool_name --help to get usage information\n");
+  }
 
-	if ($prune_testcases && 0 == scalar(@add_tracefile)) {
-	  die("--prune-tests has effect only when -a/--add-tracefile is specified");
-	}
+  if ($prune_testcases && 0 == scalar(@add_tracefile)) {
+    die("--prune-tests has effect only when -a/--add-tracefile is specified");
+  }
 }
 
 
@@ -995,6 +974,12 @@ sub lcov_geninfo(@)
 	{
 		@param = (@param, "--gcov-tool", $gcov_tool);
 	}
+	if (defined($lcovutil::stop_on_error) && $lcovutil::stop_on_error == 0) {
+	  @param = (@param, "--keep-going");
+	}
+	if (defined($preserve_intermediates) && $preserve_intermediates) {
+	  @param = (@param, "--preserve");
+	}
 	foreach (split(',', join(',', @opt_ignore_errors))) {
 	  # pass only the 'ignore' options that geninfo understands
 	  @param = (@param, "--ignore-errors", $_)
@@ -1058,8 +1043,10 @@ sub lcov_geninfo(@)
 	foreach (@lcovutil::omit_line_patterns) {
 	  @param = (@param, "--omit-lines", $_);
 	}
-	if ($lcovutil::profile) {
+	if (defined($lcovutil::profile)) {
 	  push(@param, '--profile');
+	  push(@param, $lcovutil::profile)
+	    if ('' ne $lcovutil::profile);
 	}
 	if (defined($lcovutil::maxParallelism)) {
 	  push(@param, '--parallel', $lcovutil::maxParallelism);

@@ -44,6 +44,7 @@ our @EXPORT_OK =
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PARALLEL report_parallel_error
+     $stop_on_error
 
      $extractVersionScript
 
@@ -88,6 +89,7 @@ our %geninfoErrs = (
     "unused" => $ERROR_UNUSED, # exclude/include/substitute pattern not used
     "parallel" => $ERROR_PARALLEL, # error on wait
 );
+our $stop_on_error; # attempt to keep going
 
 # for external file filtering
 our @internal_dirs;
@@ -217,7 +219,7 @@ our %pngMap = (
 our %opt_rc; # hash of RC file entries
 
 our %profileData;
-our $profile; # the 'enable' flag
+our $profile; # the 'enable' flag/name of output file
 
 sub set_tool_name($) {
   $tool_name = shift;
@@ -386,7 +388,7 @@ sub count_cores() {
 sub save_profile($$) {
   my ($dest, $tool) = @_;
 
-  if ($lcovutil::profile) {
+  if (defined($lcovutil::profile)) {
     $lcovutil::profileData{config}{maxParallel} = $maxParallelism;
     $lcovutil::profileData{config}{tool} = $tool;
     my $save = $maxParallelism;
@@ -395,7 +397,11 @@ sub save_profile($$) {
     $maxParallelism = $save;
     my $json = JSON::encode_json(\%lcovutil::profileData);
 
-    $dest .= ".json";
+    if ('' ne $lcovutil::profile) {
+      $dest = $lcovutil::profile;
+    } else {
+      $dest .= ".json";
+    }
     if (open(JSON, ">", "$dest")) {
       print(JSON $json);
       close(JSON);
@@ -747,6 +753,13 @@ sub ignorable_error($$;$) {
   if ($code >= scalar(@ignore) ||
       ! $ignore[$code] ) {
     my $ignoreOpt = "\t(use \"$tool_name --ignore-errors $errName ...\" to bypass this error)\n";
+
+    if (defined($stop_on_error) && 0 == $stop_on_error) {
+      warn_handler("Error: $msg\n" .
+                   (exists($didwarning{$code}) ? '' : "$ignoreOpt\n"));
+      $didwarning{$code} = 1;
+      return;
+    }
     die_handler("Error: $msg\n$ignoreOpt");
   }
   # only tell the user how to suppress this on the first occurrence
