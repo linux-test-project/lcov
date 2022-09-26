@@ -64,6 +64,7 @@ install:
 	done
 	for l in $(LIBS) ; do \
 		bin/install.sh lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm -m 755 ; \
+		bin/updateversion.pl $(DESTDIR)$(LIB_DIR)/$${l}.pm $(VERSION) $(RELEASE) $(FULL) ; \
 	done
 	for m in $(MANPAGES) ; do \
 		bin/install.sh man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m -m 644 ; \

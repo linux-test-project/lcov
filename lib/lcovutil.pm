@@ -8,15 +8,17 @@ package lcovutil;
 
 use File::Temp qw(tempfile);
 use File::Path qw(rmtree);
-use File::Basename qw(basename);
+use File::Basename qw(basename dirname);
+use Cwd qw/abs_path/;
 use Storable qw(dclone);
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK =
-  qw($tool_name $quiet @temp_dirs set_tool_name set_info_callback $quiet
+  qw($tool_name $tool_dir $lcov_version $lcov_url
+     $quiet @temp_dirs set_tool_name set_info_callback $quiet
      append_tempdir temp_cleanup
      define_errors parse_ignore_errors ignorable_error ignorable_warning is_ignored
-     info
+     info warn_once
      die_handler warn_handler abort_handler
 
      $maxParallelism count_cores
@@ -28,8 +30,9 @@ our @EXPORT_OK =
      $cpp_demangle $cpp_demangle_tool $cpp_demangle_params do_mangle_check
      verbose debug $debug $verbose
 
-     $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE $FILTER_FUNCTION_ALIAS
-     $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH
+     $FILTER_BRANCH_NO_COND $FILTER_FUNCTION_ALIAS
+     $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH $FILTER_LINE
+     $FILTER_LINE_CLOSE_BRACE $FILTER_BLANK_LINE $FILTER_LINE_RANGE
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
      @exclude_file_patterns @include_file_patterns %excluded_files
@@ -59,7 +62,10 @@ our @EXPORT_OK =
 our @ignore;
 our %ERROR_ID;
 our %ERROR_NAME;
-our $tool_name;
+our $tool_dir   = abs_path(dirname($0));
+our $tool_name  = basename($0); # import from lcovutil module
+our $lcov_version = 'LCOV version '.`"$tool_dir"/get_version.sh --full`;
+our $lcov_url     = "https://github.com/henry2cox/lcov/tree/diffcov_initial";
 our @temp_dirs;
 our $quiet = "";        # If set, suppress information messages
 
@@ -129,9 +135,18 @@ our $FILTER_FUNCTION_ALIAS = 2;
 our $FILTER_EXCLUDE_REGION = 3;
 # region between LCOV EXCL_BR_START/STOP
 our $FILTER_EXCLUDE_BRANCH = 4;
+# empty line
+our $FILTER_BLANK_LINE = 5;
+# empty line, out of range line
+our $FILTER_LINE_RANGE = 6;
+# backward compatibility: empty line, close brace
+our $FILTER_LINE = 7;
 our %COVERAGE_FILTERS = (
   "branch" => $FILTER_BRANCH_NO_COND,
-  'line' => $FILTER_LINE_CLOSE_BRACE,
+  'brace' => $FILTER_LINE_CLOSE_BRACE,
+  'blank' => $FILTER_BLANK_LINE,
+  'range' => $FILTER_LINE_RANGE,
+  'line' => $FILTER_LINE,
   'function' => $FILTER_FUNCTION_ALIAS,
   'region' => $FILTER_EXCLUDE_REGION,
   'branch_region' => $FILTER_EXCLUDE_BRANCH,
@@ -330,9 +345,13 @@ sub debug($) {
 
 sub verbose(@)
 {
+  my $level = 0;
+  if ($_[0] =~ /^[0-9]+$/) {
+    $level = shift;
+  }
   # Print info string
-    printf(@_)
-        if ($verbose);
+  printf(@_)
+    if ($verbose && $level <= $verbose);
 }
 
 sub temp_cleanup() {
@@ -385,12 +404,18 @@ sub count_cores() {
   }
 }
 
-sub save_profile($$) {
-  my ($dest, $tool) = @_;
+sub save_profile($) {
+  my ($dest) = @_;
 
   if (defined($lcovutil::profile)) {
     $lcovutil::profileData{config}{maxParallel} = $maxParallelism;
-    $lcovutil::profileData{config}{tool} = $tool;
+    $lcovutil::profileData{config}{tool} = $lcovutil::tool_name;
+    $lcovutil::profileData{config}{version} = $lcovutil::lcov_version;
+    $lcovutil::profileData{config}{tool_dir} = $lcovutil::tool_dir;
+    $lcovutil::profileData{config}{url} = $lcovutil::lcov_url;
+    $lcovutil::profileData{config}{date} = `date`;
+    $lcovutil::profileData{config}{uname} = `uname -a`;
+
     my $save = $maxParallelism;
     count_cores();
     $lcovutil::profileData{config}{cores} = $maxParallelism;
@@ -743,6 +768,17 @@ sub is_ignored($) {
           $ignore[$code]);
 }
 
+our %warnOnlyOnce;
+# if 'stop_on_error' is false, then certain errors should be emitted at most once
+#  (not relevant if stop_on_error is true - as we will exit after the error.
+sub warn_once {
+  my $key = shift;
+  return 0
+    if (exists($warnOnlyOnce{$key}));
+  $warnOnlyOnce{$key} = 1;
+  return 1;
+}
+
 sub ignorable_error($$;$) {
   my ($code, $msg, $quiet) = @_;
 
@@ -809,6 +845,12 @@ sub parse_cov_filters(@)
     my $item_id = $COVERAGE_FILTERS{lc($item)};
 
     $cov_filter[$item_id] = [0, 0];
+  }
+  if ($cov_filter[$FILTER_LINE]) {
+    # when line filtering is enabled, turn on brace and blank fltering as well
+    #  (backward compatibility)
+    $cov_filter[$FILTER_LINE_CLOSE_BRACE] = [0, 0];
+    $cov_filter[$FILTER_BLANK_LINE] = [0, 0];
   }
 }
 
@@ -930,6 +972,7 @@ sub is_external($)
 {
   my $filename = shift;
 
+  # nothing is 'external' unless the user has requested "--no-external"
   return 0 unless (defined($opt_no_external) && $opt_no_external);
 
   foreach my $dir (@internal_dirs) {
@@ -2364,6 +2407,50 @@ sub getLine {
   return $self->[1]->[$line-1];
 }
 
+sub isOutOfRange {
+  my ($self, $lineNo, $context) = @_;
+  if (defined($self->[2]) &&
+      scalar(@{$self->[2]}) < $lineNo) {
+
+    # Can happen due to version mismatches:  data extracted with
+    #   version N of the file, then generating HTML with version M
+    #   "--version-script callback" option can be used to detect this.
+    # Another case happens due to apparent bugs in some old 'gcov'
+    #   versions - which sometimes inserts out-of-range line numbers
+    #   when macro is used as last line in file.
+
+    my $filt = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE];
+    if (defined($filt)) {
+      my $c = ($context eq 'line') ? 'line' : "$context at line";
+      lcovutil::verbose("exclude out-of-range $c $lineNo in " .
+                        $self->filename() . " (" .
+                        scalar(@{$self->[2]}) . " lines in file)\n");
+      ++ $filt->[0]; # applied in 1 location
+      ++ $filt->[1]; # one coverpoint suppressed
+      return 1;
+    }
+    my $key = $self->filename() . $lineNo;
+    if (lcovutil::warn_once($key)) {
+      my $c = ($context eq 'line') ? 'line' : "$context at line";
+      my $msg = "unknown $c '$lineNo' in " . $self->filename()
+        . ": there are only " . scalar(@{$self->[2]}) . " lines in file."
+        . "\n  Use '$lcovutil::tool_name --filter range' to remove out-of-range lines.";
+      if ($lcovutil::tool_name eq 'geninfo') {
+        # some versions of gcov seem to make up lines that do not exist -
+        # this appears to be related to macros on last line in file
+        lcovutil::ignorable_error($lcovutil::ERROR_GCOV, $msg);
+      } else {
+        lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                  $msg . "\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page.");
+      }
+    }
+    # Note:  if user ignored the error, then we return 'not out of range'.
+    #   The line is out of range/something is wrong - but the user did not
+    #   ask us to filter it out.
+  }
+  return 0;
+}
+
 sub isExcluded {
   my ($self, $lineNo, $branch) = @_;
   if (! defined($self->[2]) ||
@@ -2371,11 +2458,13 @@ sub isExcluded {
     # this can happen due to version mismatches:  data extracted with verion N
     # of the file, then generating HTML with version M
     # "--version-script callback" option can be used to detect this
+    my $key = $self->filename() . $lineNo;
     lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
                               "unknown line '$lineNo' in " . $self->filename()
                               . (defined($self->[2]) ? (" there are only " . scalar(@{$self->[2]}) . " lines in file") : "" ) .
-      ".\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page.");
-    return 0;
+      ".\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page.")
+      if lcovutil::warn_once($key);
+    return 0; # even though out of range - this is not excluded by filter
   }
   return 1
     if ($branch &&
@@ -2790,6 +2879,8 @@ sub _read_info {
 
       if (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
           defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]) ||
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_BLANK_LINE]) ||
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE]) ||
           defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]) ||
           defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH]) ||
           0 != scalar(@lcovutil::omit_line_patterns)) {
@@ -2804,7 +2895,8 @@ sub _read_info {
             $readSourceCallback->open($filename);
           } else {
             lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                      "'$filename' not found (for filtering)");
+                                      "'$filename' not found (for filtering)")
+              if (lcovutil::warn_once($filename));
           }
         }
       }
@@ -2858,12 +2950,14 @@ sub _read_info {
       /^DA:(\d+),(-?\d+)(,[^,\s]+)?/ && do
       {
         my ($line, $count, $checksum) = ($1,$2,$3);
+        next if ($readSourceCallback->notEmpty() &&
+                 $readSourceCallback->isOutOfRange($line, 'line'));
         my $region = $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
         if (defined($region) &&
             $readSourceCallback->notEmpty() &&
             $readSourceCallback->isExcluded($line)) {
-          main::verbose("exclude DA '" . $readSourceCallback->getLine($line)
-                        . "' $filename:$line\n");
+          lcovutil::verbose("exclude DA '" . $readSourceCallback->getLine($line)
+                            . "' $filename:$line\n");
           ++ $region->[0]; # one location where this applied
           ++ $region->[1]; # one coverpoint suppressed
           last;
@@ -2876,10 +2970,14 @@ sub _read_info {
         }
         # hold line, count and testname for postprocessing?
         my $linesum = $fileData->sum();
-        my $histogram = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]
-          if $readSourceCallback->notEmpty();
+        my ($brace_histogram, $blank_histogram);
+        if ($readSourceCallback->notEmpty()) {
+          $brace_histogram = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE];
+          $blank_histogram = $lcovutil::cov_filter[$lcovutil::FILTER_BLANK_LINE];
+        }
 
-        if (defined($histogram) &&
+        if ((defined($brace_histogram) ||
+             defined($blank_histogram)) &&
             ! defined($sumbrcount->value($line))) {
           # does this line contain only a closing brace and
           #   - previous line is hit, OR
@@ -2893,18 +2991,20 @@ sub _read_info {
           # don't suppresss if this line has associated branch data
           #   note that BRDA entries come before DA entries in the .info file -
           #   so this check is in the right order
-          if ($readSourceCallback->suppressCloseBrace($line, $count, $linesum)) {
-            main::verbose("skip DA '" . $readSourceCallback->getLine($line)
-                          . "' $filename:$line\n");
-            ++ $histogram->[0]; # one location where this applied
-            ++ $histogram->[1]; # one coverpoint suppressed
+          if ($readSourceCallback->suppressCloseBrace($line, $count, $linesum) &&
+              defined($brace_histogram)) {
+            lcovutil::verbose("skip DA '" . $readSourceCallback->getLine($line)
+                              . "' $filename:$line\n");
+            ++ $brace_histogram->[0]; # one location where this applied
+            ++ $brace_histogram->[1]; # one coverpoint suppressed
             last;
           } elsif ($count == 0 &&
-                   $readSourceCallback->isBlank($line)) {
+                   $readSourceCallback->isBlank($line) &&
+                   defined($blank_histogram)) {
             # line is empty
-            main::verbose("skip DA (empty) $filename:$line\n");
-            ++ $histogram->[0]; # one location where this applied
-            ++ $histogram->[1]; # one coverpoint suppressed
+            lcovutil::verbose("skip DA (empty) $filename:$line\n");
+            ++ $blank_histogram->[0]; # one location where this applied
+            ++ $blank_histogram->[1]; # one coverpoint suppressed
             last;
           }
         }
@@ -2942,18 +3042,22 @@ sub _read_info {
         # Function data found, add to structure
         my $lineNo = $1;
         my $fnName = $2;
+        # skip if out-of-range
         # the function may already be defined by another testcase (for the
         #  same file)
-        my $region = $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
-        if (defined($region) &&
-            $readSourceCallback->notEmpty() &&
-            $readSourceCallback->isExcluded($lineNo)) {
-          main::verbose("exclude FN $fnName '" . $readSourceCallback->getLine($lineNo)
-                        . "' $filename:$lineNo\n");
-          ++ $region->[0]; # one location where this applied
-          ++ $region->[1]; # one coverpoint suppressed
-          $excludedFunction{$fnName} = 1;
-          last;
+        if (defined($readSourceCallback) &&
+            $readSourceCallback->notEmpty()) {
+          last if $readSourceCallback->isOutOfRange($lineNo, "function '$fnName'");
+          my $region = $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
+          if (defined($region) &&
+              $readSourceCallback->isExcluded($lineNo)) {
+            lcovutil::verbose("exclude FN $fnName '" . $readSourceCallback->getLine($lineNo)
+                            . "' $filename:$lineNo\n");
+            ++ $region->[0]; # one location where this applied
+            ++ $region->[1]; # one coverpoint suppressed
+            $excludedFunction{$fnName} = 1;
+            last;
+          }
         }
         $functionMap->define_function($fnName, $filename, $lineNo)
           unless defined($functionMap->findName($fnName));
@@ -2989,8 +3093,8 @@ sub _read_info {
             my $region = $lcovutil::cov_filter[$filt];
             if (defined($region) &&
                 $readSourceCallback->isExcluded($line, 1)) {
-              main::verbose("exclude BRDA '" . $readSourceCallback->getLine($line)
-                            . "' $filename:$line\n");
+              lcovutil::verbose("exclude BRDA '" . $readSourceCallback->getLine($line)
+                                . "' $filename:$line\n");
               ++ $region->[0]; # one location where this applied
               ++ $region->[1]; # one coverpoint suppressed
               $skip = 1;
@@ -3248,6 +3352,8 @@ sub write_info($$$) {
 
   my $srcReader = ReadCurrentSource->new()
     if (defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) ||
+        defined($cov_filter[$FILTER_LINE_RANGE]) ||
+        defined($cov_filter[$FILTER_BLANK_LINE]) ||
         defined($cov_filter[$FILTER_BRANCH_NO_COND]));
 
   foreach my $source_file (sort($self->files())) {
@@ -3289,7 +3395,8 @@ sub write_info($$$) {
             $srcReader->open($source_file);
           } else {
             lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                      "'$source_file' not found (for filtering)");
+                                      "'$source_file' not found (for filtering)")
+              if (lcovutil::warn_once($source_file));
           }
         } else {
           lcovutil::debug("not reading $source_file: no ext match\n");
@@ -3325,24 +3432,28 @@ sub write_info($$$) {
       $br_hit = 0;
       my $currentBranchLine;
       my $skipBranch = 0;
-      my $branchHistogram = $cov_filter[$FILTER_BRANCH_NO_COND]
+      my $reader = $srcReader
         if (defined($srcReader) && $srcReader->notEmpty());
+      my $branchHistogram = $cov_filter[$FILTER_BRANCH_NO_COND]
+        if $reader;
+
       foreach my $line (sort({$a <=> $b}
                              $testbrcount->keylist())) {
 
         # omit if line excluded or branches excluded on this line
         next
-          if (defined($srcReader) && $srcReader->notEmpty() &&
-              $srcReader->isExcluded($line, 1));
+          if (defined($reader) &&
+              ($reader->isOutOfRange($line, 'branch') ||
+               $reader->isExcluded($line, 1)));
 
         my $brdata = $testbrcount->value($line);
         if (defined($branchHistogram)) {
-          $skipBranch = ! $srcReader->containsConditional($line);
+          $skipBranch = ! $reader->containsConditional($line);
           if ($skipBranch) {
             ++ $branchHistogram->[0]; # one line where we skip
             $branchHistogram->[1] += scalar($brdata->blocks());
             lcovutil::verbose("skip BRDA '" .
-                              $srcReader->getLine($line) .
+                              $reader->getLine($line) .
                               "' $source_file:$line\n");
             next;
           }
@@ -3373,29 +3484,33 @@ sub write_info($$$) {
       }
 
       # Write line related data
-      my $lineHistogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
-        if (defined($srcReader) && $srcReader->notEmpty());
-
+      my ($brace_histogram, $blank_histogram);
+      if (defined($reader)) {
+        $brace_histogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE];
+        $blank_histogram = $cov_filter[$FILTER_BLANK_LINE];
+      }
       foreach my $line (sort({$a <=> $b} $testcount->keylist())) {
         next
-          if (defined($srcReader) && $srcReader->notEmpty() &&
-              $srcReader->isExcluded($line));
+          if (defined($reader) &&
+              ($reader->isOutOfRange($line, 'line') || $reader->isExcluded($line)));
 
         my $l_hit = $testcount->value($line);
-        if (defined($lineHistogram) &&
+        if ( ! defined($sumbrcount->value($line))) {
           # don't suppresss if this line has associated branch data
-            ! defined($sumbrcount->value($line))) {
-          if ($srcReader->suppressCloseBrace($line, $l_hit, $testcount)) {
-            lcovutil::verbose("skip DA '" . $srcReader->getLine($line)
+
+          if ($brace_histogram &&
+              $reader->suppressCloseBrace($line, $l_hit, $testcount)) {
+            lcovutil::verbose("skip DA '" . $reader->getLine($line)
                               . "' $source_file:$line\n");
-            ++$lineHistogram->[0]; # one location where this applied
-            ++$lineHistogram->[1]; # one coverpoint suppressed
+            ++$brace_histogram->[0]; # one location where this applied
+            ++$brace_histogram->[1]; # one coverpoint suppressed
             next;
-          } elsif ($l_hit == 0 &&
-                   $srcReader->isBlank($line)) {
-            main::verbose("skip DA (empty) $source_file:$line\n");
-            ++ $lineHistogram->[0]; # one location where this applied
-            ++ $lineHistogram->[1]; # one coverpoint suppressed
+          } elsif ($blank_histogram &&
+                   $l_hit == 0 &&
+                   $reader->isBlank($line)) {
+            lcovutil::verbose("skip DA (empty) $source_file:$line\n");
+            ++ $blank_histogram->[0]; # one location where this applied
+            ++ $blank_histogram->[1]; # one coverpoint suppressed
             next;
           }
         }

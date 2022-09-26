@@ -21,6 +21,7 @@ our @man_pages = ("man/gendesc.1",  "man/genhtml.1",  "man/geninfo.1",
 		  "man/genpng.1", "man/lcov.1", "man/lcovrc.5");
 our @bin_tools = ("bin/gendesc", "bin/genhtml", "bin/geninfo",
 		  "bin/genpng", "bin/lcov");
+our @lib_tools = ('lib/lcovutil.pm');
 our @txt_files = ("README");
 our @spec_files = ("rpm/lcov.spec");
 
@@ -38,6 +39,9 @@ if (-f $directory) {
 		update_man_page($file);
 	} elsif (grep(/^$base$/, map({ basename($_) } @bin_tools))) {
 		print("Updating bin tool $file\n");
+		update_bin_tool($file);
+	} elsif (grep(/^$base$/, map({ basename($_) } @lib_tools))) {
+		print("Updating lib $file\n");
 		update_bin_tool($file);
 	} elsif (grep(/^$base$/, map({ basename($_) } @txt_files))) {
 		print("Updating text file $file\n");

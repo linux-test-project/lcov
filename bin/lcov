@@ -76,7 +76,7 @@ use Data::Dumper;
 use Time::HiRes; # for profiling
 
 use lib "$FindBin::Bin/../lib";
-use lcovutil qw ($tool_name $quiet
+use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url $quiet
                  define_errors parse_ignore_errors ignorable_error
                  info set_info_callback verbose $verbose
                  do_mangle_check
@@ -103,12 +103,6 @@ use lcovutil qw ($tool_name $quiet
                  $maxParallelism count_cores
   );
 
-
-# Global constants
-our $tool_dir		= abs_path(dirname($0));
-our $lcov_version	= 'LCOV version '.`"$tool_dir"/get_version.sh --full`;
-our $lcov_url		= "http://ltp.sourceforge.net/coverage/lcov.php";
-$tool_name = basename($0); # defined in lcovutil module
 
 # Directory containing gcov kernel files
 our $gcov_dir;
@@ -297,7 +291,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
 		"test-name|t=s"        => \$test_name,
 		"zerocounters|z"       => \$reset,
 		"quiet|q"              => \$lcovutil::quiet,
-		"verbose|v"            => \$lcovutil::verbose,
+		"verbose|v+"            => \$lcovutil::verbose,
 		"help|h|?"             => \$help,
 		"version"              => \$version,
 		"follow|f"             => \$follow,
@@ -575,7 +569,7 @@ my $end = Time::HiRes::gettimeofday();
 $lcovutil::profileData{total} = $end - $begin;
 
 # if we executed 'geninfo' - then we saved the profile data from that process
-lcovutil::save_profile($output_filename ? $output_filename : "lcov", 'lcov')
+lcovutil::save_profile($output_filename ? $output_filename : "lcov")
   unless $capture;
 
 exit($exit_code);
@@ -946,6 +940,12 @@ sub lcov_geninfo(@)
 	if ($lcovutil::quiet)
 	{
 		@param = (@param, "--quiet");
+	}
+	if ($lcovutil::verbose)
+	{
+	  for (my $i=0 ; $i < $lcovutil::verbose ; ++$i ) {
+	    @param = (@param, "--verbose");
+	  }
 	}
 	if (defined($checksum))
 	{
