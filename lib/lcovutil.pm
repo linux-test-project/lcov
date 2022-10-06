@@ -495,7 +495,7 @@ sub read_config($)
     next unless length;
     ($key, $value) = split(/\s*=\s*/, $_, 2);
     # is this an environment variable?
-    while ($value =~ /\$ENV{([^}]+)}/) {
+    while ($value =~ /\$ENV\{([^}]+)\}/) {
       my $varname = $1;
       if (! exists($ENV{$varname})) {
         warn("Variable '$key' in RC file '$filename' uses environment variable '$varname' - which is not set (ignoring '$_').\n");
