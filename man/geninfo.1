@@ -4,8 +4,10 @@ geninfo \- Generate tracefiles from .da files
 .SH SYNOPSIS
 .B geninfo
 .RB [ \-h | \-\-help ]
-.RB [ \-v | \-\-version ]
+.RB [ \-\-version ]
 .RB [ \-q | \-\-quiet ]
+.RB [ \-v | \-\-verbose ]
+.RB [ \-\-debug ]
 .br
 .RS 8
 .RB [ \-i | \-\-initial ]
@@ -556,14 +558,29 @@ If the file has is not versioned, it should write an empty string and return a 0
 
 .RE
 
+.B \-v
+.br
+.B \-\-verbose
+.RS
+Increment informational message verbosity.  This is mainly used for script and/or flow debugging - e.g., to figure out which data file are found, where.
+Also see the \-\-quiet flag.
+
+Messages are sent to stdout unless there is no output file (i.e., if the coverage data is written to stdout rather than to a file) and to stderr otherwise.
+
+.RE
 .B \-q
 .br
 .B \-\-quiet
 .RS
-Do not print progress messages.
+Decrement informational message verbosity.
 
-Suppresses all informational progress output. When this switch is enabled,
-only error or warning messages are printed.
+Decreased verbosity will suppres 'progress' messages for example - while error and warning messages will continue to be printed.
+
+.RE
+.B \-\-debug
+.RS
+Increment 'debug messages' verbosity.  This is useful primarily to developers who want to enhance the lcov tool suite.
+
 .RE
 
 .B "\-\-parallel "
@@ -605,8 +622,6 @@ simply concatenating the respective tracefiles) in which case a test
 name can be used to differentiate between data from each test case.
 .RE
 
-.B \-v
-.br
 .B \-\-version
 .RS
 Print version number, then exit.

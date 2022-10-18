@@ -71,7 +71,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--rc lcov_branch_coverage=1 $PARALLEL $PROFILE"
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.*
 
 if [ "x$COVER" != 'x' ] ; then
     cover -delete
@@ -113,9 +113,10 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-COUNT=`grep -c ^DA: omit.info`
-if [ $COUNT != '12' ] ; then
-    echo "expected 12 DA entries in 'omit.info' - found $COUNT"
+# a bit of a hack:  gcc/10 doesn't put a DA entry on the closing brace
+COUNT=`grep -v DA:22 omit.info | grep -c ^DA:`
+if [ $COUNT != '11' ] ; then
+    echo "expected 11 DA entries in 'omit.info' - found $COUNT"
     exit 1
 fi
 
@@ -133,9 +134,9 @@ if [ 0 != $? ] ; then
     echo "Error:  unexpected expected error code from lcov --omit --ignore.."
     exit 1
 fi
-COUNT=`grep -c ^DA: omitWarn.info`
-if [ $COUNT != '13' ] ; then
-    echo "expected 13 DA entries in 'omitWarn.info' - found $COUNT"
+COUNT=`grep -v DA:22 omitWarn.info | grep -c ^DA:`
+if [ $COUNT != '12' ] ; then
+    echo "expected 12 DA entries in 'omitWarn.info' - found $COUNT"
     exit 1
 fi
 
@@ -158,9 +159,9 @@ if [ 0 != $? ] ; then
     echo "Error:  saw unexpected error code from lcov --config with ignored bad omit"
     exit 1
 fi
-COUNT=`grep -c ^DA: rc_omitWarn.info`
-if [ $COUNT != '12' ] ; then
-    echo "expected 12 DA entries in 'rc_omitWarn.info' - found $COUNT"
+COUNT=`grep -v DA:22  rc_omitWarn.info | grep -c ^DA:`
+if [ $COUNT != '11' ] ; then
+    echo "expected 11 DA entries in 'rc_omitWarn.info' - found $COUNT"
     exit 1
 fi
 

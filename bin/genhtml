@@ -98,12 +98,11 @@ use Data::Dumper;
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $tool_name $tool_dir $lcov_version $lcov_url
-                 system_no_output
                  ignorable_error
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED
                  $ERROR_PARALLEL report_parallel_error
-                 info verbose $verbose
+                 info $verbose init_verbose_flag
                  do_mangle_check
                  apply_rc_params
                  strip_directories
@@ -997,7 +996,7 @@ sub checkCoverageCriteria {
          "'" . ($self->type() eq 'top' ? 'top' : $self->name()) . "'",
          $self->type(), "'" . $json . "'");
   my $cmd = join(' ', @cmd); # command:  script name (top|dir|file) jsonString args..
-  lcovutil::verbose("criteria: '$cmd'");
+  lcovutil::info(1, "criteria: '$cmd'");
   if (open(HANDLE, "-|", $cmd)) {
     my @msg;
     while (my $line = <HANDLE>) {
@@ -3714,7 +3713,7 @@ sub _load {
   my @cmd = split(' ', $annotateScript);
   splice(@cmd, 1, 0, $repo_path);
   my $cmd = join(' ', @cmd);
-  lcovutil::verbose("annotate: '$cmd'\n");
+  lcovutil::info(1, "annotate: '$cmd'\n");
   my $found; # check that either all lines are annotated or none are
   if (open(HANDLE, "-|", $cmd)) {
     while (my $line = <HANDLE>) {
@@ -4005,7 +4004,7 @@ sub top() {
 
 sub add_dependency {
   my ($parent, $name) = @_;
-  lcovutil::verbose("add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n")
+  lcovutil::info(2, "add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n")
     unless exists ($parent->[1]->{$name});
   $parent->[1]->{$name} = 1;
 }
@@ -4116,7 +4115,7 @@ sub compute {
             unless 'top' eq $type;
 
           # Generate overview page
-          main::info("Writing top-level directory view page.\n");
+          lcovutil::info("Writing top-level directory view page.\n");
           # Create sorted pages
           main::write_summary_pages(
             0, # 0 == list directories
@@ -4229,7 +4228,9 @@ sub merge_child($$$) {
       report_parallel_error('lcov', "unable to open $f: $!");
     }
   }
-  print(STDOUT $childLog);
+  print(STDOUT $childLog)
+    if (0 != $childstatus ||
+        $lcovutil::verbose);
   print(STDERR $childErr);
 
   if ( 0 != $childstatus) {
@@ -4474,6 +4475,7 @@ lcovutil::set_c_extensions($cExtensions)
 my %unsupported_rc; # for error checking
 my @unsupported_config;
 my $keepGoing;
+my $quiet = 0;
 
 # Parse command line options
 if (!GetOptions("output-directory|o=s"  => \$output_directory,
@@ -4508,7 +4510,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "frames|f"              => \$frames,
                 "highlight"             => \$highlight,
                 "legend"                => \$legend,
-                "quiet|q"               => \$lcovutil::quiet,
+                "quiet|q+"              => \$quiet,
                 "verbose|v+"            => \$lcovutil::verbose,
                 "help|h|?"              => \$help,
                 "version"               => \$version,
@@ -4544,7 +4546,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
   print(STDERR "Use $tool_name --help to get usage information\n");
   exit(1);
 }
-
+lcovutil::init_verbose_flag($quiet);
 @opt_filter = @rc_filter unless @opt_filter;
 @opt_ignore_errors = @rc_ignore unless @opt_ignore_errors;
 @lcovutil::exclude_file_patterns = @rc_exclude_patterns
@@ -4881,7 +4883,8 @@ Misc:
   -h, --help                        Print this help, then exit
   --version                         Print version number, then exit
   -v, --verbose                     Increment verbosity (for debugging)
-  -q, --quiet                       Do not print progress messages
+  -q, --quiet                       Decrement verbosity (e.g. to not print
+                                    progress messages)
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
       --ignore-errors ERRORS        Continue after ERRORS (source,unmapped,
@@ -4984,9 +4987,8 @@ sub print_overall_rate($$$$)
 {
   my ($ln_do, $fn_do, $br_do, $summary) = @_;
 
-  my $q = $lcovutil::quiet;
-  $lcovutil::quiet = 0;
-  info("Overall coverage rate:\n");
+  # use verbosity level -1:  so print unless user says "-q -q"...really quiet
+  info(-1, "Overall coverage rate:\n");
   my @types;
   push(@types, 'line') if $ln_do;
   push(@types, 'function') if $fn_do;
@@ -4994,20 +4996,19 @@ sub print_overall_rate($$$$)
 
   for my $type (@types) {
     my $plural = "ch" eq substr($type, -2, 2) ? "es" : "s";
-    info("  $type$plural......: %s\n",
+    info(-1, "  $type$plural......: %s\n",
          get_overall_line($summary->get("found", $type),
                           $summary->get("hit", $type), $type));
     if ($main::show_tla) {
       for my $tla (@SummaryInfo::tlaPriorityOrder) {
         my $v = $summary->get($tla, $type);
         my $label = $main::use_legacyLabels ? $SummaryInfo::tlaToLegacySrcLabel{$tla} : $tla;
-        info("       $label...: $v\n")
+        info(-1, "       $label...: $v\n")
           if $v != 0;
       }
     }
   }
   summarize_cov_filters();
-  $lcovutil::quiet = $q; # restore
 }
 
 
@@ -7848,9 +7849,9 @@ sub write_source_line(*$$$$)
             $result       = $pchar . $count;
         }
         # '$result' is used to generate the PNG frame
-        lcovutil::verbose("    $bucket: line=$line " .
-                          (defined($count) ? "count= $count " : "") .
-                          "curr=$curr_count base=$base_count\n");
+        info(2, "    $bucket: line=$line " .
+             (defined($count) ? "count= $count " : "") .
+             "curr=$curr_count base=$base_count\n");
     }
     $result .= ":".$source;
 

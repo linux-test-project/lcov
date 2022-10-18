@@ -6,19 +6,20 @@ require Exporter;
 
 package lcovutil;
 
-use File::Temp qw(tempfile);
 use File::Path qw(rmtree);
 use File::Basename qw(basename dirname);
 use Cwd qw/abs_path/;
 use Storable qw(dclone);
+use Capture::Tiny;
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK =
   qw($tool_name $tool_dir $lcov_version $lcov_url
-     $quiet @temp_dirs set_tool_name set_info_callback $quiet
+     @temp_dirs set_tool_name
+     info warn_once set_info_callback init_verbose_flag $verbose
+     debug $debug
      append_tempdir temp_cleanup
      define_errors parse_ignore_errors ignorable_error ignorable_warning is_ignored
-     info warn_once
      die_handler warn_handler abort_handler
 
      $maxParallelism count_cores
@@ -28,7 +29,6 @@ our @EXPORT_OK =
      @file_subst_patterns subst_file_name
 
      $cpp_demangle $cpp_demangle_tool $cpp_demangle_params do_mangle_check
-     verbose debug $debug $verbose
 
      $FILTER_BRANCH_NO_COND $FILTER_FUNCTION_ALIAS
      $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH $FILTER_LINE
@@ -67,10 +67,9 @@ our $tool_name  = basename($0); # import from lcovutil module
 our $lcov_version = 'LCOV version '.`"$tool_dir"/get_version.sh --full`;
 our $lcov_url     = "https://github.com/henry2cox/lcov/tree/diffcov_initial";
 our @temp_dirs;
-our $quiet = "";        # If set, suppress information messages
 
 our $debug = 0;  # if set, emit debug messages
-our $verbose = 0;  # if set, enable additional logging
+our $verbose = 0;  # default level - higher to enable additional logging
 
 # geninfo errors are shared by 'lcov' - so we put them in a common location
 our $ERROR_GCOV         = 0;
@@ -246,112 +245,74 @@ sub set_tool_name($) {
 # Call an external program using PARAMETERS while suppressing depending on
 # the value of MODE:
 #
-#   MODE & 1: suppress STDOUT
-#   MODE & 2: suppress STDERR
-#   MODE & 4: redirect to temporary files instead of suppressing
+#   MODE & 1: suppress STDOUT (return empty string)
+#   MODE & 2: suppress STDERR (return empty string)
+#   MODE & 4: redirect to string
 #
 # Return (stdout, stderr, rc):
-#    stdout: path to tempfile containing stdout or undef
-#    stderr: path to tempfile containing stderr or undef
+#    stdout: stdout string or ''
+#    stderr: stderr string or ''
 #    0 on success, non-zero otherwise
 #
 
 sub system_no_output($@)
 {
   my $mode = shift;
-  my $result;
-  local *OLD_STDERR;
-  local *OLD_STDOUT;
-  my $stdout_file;
-  my $stderr_file;
-  my $fd;
-
-  # Save old stdout and stderr handles
-  ($mode & 1) && open(OLD_STDOUT, ">>&", "STDOUT");
-  ($mode & 2) && open(OLD_STDERR, ">>&", "STDERR");
-
-  if ($mode & 4) {
-    # Redirect to temporary files
-    if ($mode & 1) {
-      ($fd, $stdout_file) = tempfile(UNLINK => 1);
-      open(STDOUT, ">", $stdout_file) || warn("$!\n");
-      close($fd);
-    }
-    if ($mode & 2) {
-      ($fd, $stderr_file) = tempfile(UNLINK => 1);
-      open(STDERR, ">", $stderr_file) || warn("$!\n");
-      close($fd);
-    }
+  # all current uses redirect both stdout and stderr
+  my @args = @_;
+  my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+    system(@args);
+  };
+  if (0 == ($mode & 4)) {
+    $stdout = '' if $mode & 0x1;
+    $stderr = ''  if $mode & 0x2;
   } else {
-    # Redirect to /dev/null
-    ($mode & 1) && open(STDOUT, ">", "/dev/null");
-    ($mode & 2) && open(STDERR, ">", "/dev/null");
+    print(STDOUT $stdout) unless $mode & 0x1;
+    print(STDERR $stderr) unless $mode & 0x2;
   }
-
-  debug("system(".join(' ', @_).")\n");
-  system(@_);
-  $result = $?;
-
-  # Close redirected handles
-  ($mode & 1) && close(STDOUT);
-  ($mode & 2) && close(STDERR);
-
-  # Restore old handles
-  ($mode & 1) && open(STDOUT, ">>&", "OLD_STDOUT");
-  ($mode & 2) && open(STDERR, ">>&", "OLD_STDERR");
-
-  # Remove empty output files
-  if (defined($stdout_file) && -z $stdout_file) {
-    unlink($stdout_file);
-    $stdout_file = undef;
-  }
-  if (defined($stderr_file) && -z $stderr_file) {
-    unlink($stderr_file);
-    $stderr_file = undef;
-  }
-
-  return ($stdout_file, $stderr_file, $result);
+  return ($stdout, $stderr, $code);
 }
 
 
 #
 # info(printf_parameter)
 #
-# Use printf to write PRINTF_PARAMETER to stdout only when the $quiet flag
-# is not set.
+# Use printf to write PRINTF_PARAMETER to stdout only when not --quiet
 #
 
 sub default_info_impl(@) {
   # Print info string
-  printf(@_)
-    if (!$quiet);
+  printf(@_);
 }
 
 sub set_info_callback($) {
-    $info_callback = shift;
+  $info_callback = shift;
+}
+
+sub init_verbose_flag($) {
+  my $quiet = shift;
+  $lcovutil::verbose -= $quiet;
 }
 
 sub info(@)
 {
-  &{$info_callback}(@_);
+  my $level = 0;
+  if ($_[0] =~ /^-?[0-9]+$/) {
+    $level = shift;
+  }
+  &{$info_callback}(@_)
+    if ($level <= $lcovutil::verbose)
+
 }
 
-sub debug($) {
-  my $msg = shift;
-
-  print(STDERR "DEBUG: $msg")
-    if ($debug);
-}
-
-sub verbose(@)
-{
+sub debug {
   my $level = 0;
   if ($_[0] =~ /^[0-9]+$/) {
     $level = shift;
   }
-  # Print info string
-  printf(@_)
-    if ($verbose && $level <= $verbose);
+  my $msg = shift;
+  print(STDERR "DEBUG: $msg")
+    if ($level < $lcovutil::debug);
 }
 
 sub temp_cleanup() {
@@ -664,6 +625,20 @@ sub munge_file_patterns {
     @include_file_patterns = map({ [transform_pattern($_), $_, 0]; } @include_file_patterns);
   }
 
+  # check for valid match patterns...
+  foreach my $pat (@file_subst_patterns) {
+    my $text = "abc";
+    eval '$text =~ ' . $pat . ';'; # apply pattern that user provided...
+    die("invalid regexp \"--substitute $pat\":\n$@")
+      if ($@);
+  }
+  foreach my $pat (@omit_line_patterns) {
+    my $text = "abc";
+    eval '$text =~ /' . $pat . '/;'; # apply pattern that user provided...
+    die("invalid regexp \"--omit-lines $pat\":\n$@")
+      if ($@);
+  }
+
   foreach my $p (\@file_subst_patterns, \@omit_line_patterns) {
     # just keep track of number of times this was applied
     if (0 != scalar(@$p)) {
@@ -700,6 +675,10 @@ sub subst_file_name($) {
   foreach my $p (@file_subst_patterns) {
     my $old = $name;
     eval '$name =~ ' . $p->[0] . ';'; # apply pattern that user provided...
+    # $@ should never match:  we already checked all the patterns, above,
+    #   during initialization.  Still: belt and braces.
+    die("invalid 'subst' regexp '" . $p->[0] . "': $@")
+      if ($@);
     $p->[1] += 1
       if $old ne $name;
   }
@@ -855,12 +834,15 @@ sub parse_cov_filters(@)
 }
 
 sub summarize_cov_filters {
+
+  # use verbosity level -1:  so print unless user says "-q -q"...really quiet
+
   for my $key (keys(%COVERAGE_FILTERS)) {
     my $id = $COVERAGE_FILTERS{$key};
     next unless defined($lcovutil::cov_filter[$id]);
     my $histogram = $lcovutil::cov_filter[$id];
     next if 0 == $histogram->[0];
-    info("Filter suppressions '$key':\n    "
+    info(-1, "Filter suppressions '$key':\n    "
          . $histogram->[0] . " instance"
          . ($histogram->[0] > 1 ? "s" : "") . "\n    "
          . $histogram->[1] . " coverpoint"
@@ -872,7 +854,7 @@ sub summarize_cov_filters {
     foreach my $p (@omit_line_patterns) {
       $omitCount += $p->[1];
     }
-    info("Omitted %d total line%s matching %d '--omit-lines' pattern%s\n",
+    info(-1, "Omitted %d total line%s matching %d '--omit-lines' pattern%s\n",
          $omitCount, $omitCount == 1 ? '' : 's',
          $patternCount, $patternCount == 1 ? '' : 's');
   }
@@ -2315,7 +2297,7 @@ sub open {
 
   $version = "" unless defined($version);
   if (open(SRC, "<", $filename)) {
-    lcovutil::verbose("reading $version$filename (for bogus branch filtering)\n");
+    lcovutil::info(1, "reading $version$filename (for bogus branch filtering)\n");
     my @sourceLines = <SRC>;
     CORE::close(SRC);
     $self->[0] = $filename;
@@ -2422,9 +2404,9 @@ sub isOutOfRange {
     my $filt = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE];
     if (defined($filt)) {
       my $c = ($context eq 'line') ? 'line' : "$context at line";
-      lcovutil::verbose("exclude out-of-range $c $lineNo in " .
-                        $self->filename() . " (" .
-                        scalar(@{$self->[2]}) . " lines in file)\n");
+      lcovutil::info(2, "exclude out-of-range $c $lineNo in " .
+                     $self->filename() . " (" .
+                     scalar(@{$self->[2]}) . " lines in file)\n");
       ++ $filt->[0]; # applied in 1 location
       ++ $filt->[1]; # one coverpoint suppressed
       return 1;
@@ -2956,8 +2938,8 @@ sub _read_info {
         if (defined($region) &&
             $readSourceCallback->notEmpty() &&
             $readSourceCallback->isExcluded($line)) {
-          lcovutil::verbose("exclude DA '" . $readSourceCallback->getLine($line)
-                            . "' $filename:$line\n");
+          lcovutil::info(2, "exclude DA '" . $readSourceCallback->getLine($line)
+                         . "' $filename:$line\n");
           ++ $region->[0]; # one location where this applied
           ++ $region->[1]; # one coverpoint suppressed
           last;
@@ -2993,8 +2975,8 @@ sub _read_info {
           #   so this check is in the right order
           if ($readSourceCallback->suppressCloseBrace($line, $count, $linesum) &&
               defined($brace_histogram)) {
-            lcovutil::verbose("skip DA '" . $readSourceCallback->getLine($line)
-                              . "' $filename:$line\n");
+            lcovutil::info(2, "skip DA '" . $readSourceCallback->getLine($line)
+                           . "' $filename:$line\n");
             ++ $brace_histogram->[0]; # one location where this applied
             ++ $brace_histogram->[1]; # one coverpoint suppressed
             last;
@@ -3002,7 +2984,7 @@ sub _read_info {
                    $readSourceCallback->isBlank($line) &&
                    defined($blank_histogram)) {
             # line is empty
-            lcovutil::verbose("skip DA (empty) $filename:$line\n");
+            lcovutil::info(2, "skip DA (empty) $filename:$line\n");
             ++ $blank_histogram->[0]; # one location where this applied
             ++ $blank_histogram->[1]; # one coverpoint suppressed
             last;
@@ -3051,8 +3033,8 @@ sub _read_info {
           my $region = $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
           if (defined($region) &&
               $readSourceCallback->isExcluded($lineNo)) {
-            lcovutil::verbose("exclude FN $fnName '" . $readSourceCallback->getLine($lineNo)
-                            . "' $filename:$lineNo\n");
+            lcovutil::info(1, "exclude FN $fnName '" . $readSourceCallback->getLine($lineNo)
+                           . "' $filename:$lineNo\n");
             ++ $region->[0]; # one location where this applied
             ++ $region->[1]; # one coverpoint suppressed
             $excludedFunction{$fnName} = 1;
@@ -3093,8 +3075,9 @@ sub _read_info {
             my $region = $lcovutil::cov_filter[$filt];
             if (defined($region) &&
                 $readSourceCallback->isExcluded($line, 1)) {
-              lcovutil::verbose("exclude BRDA '" . $readSourceCallback->getLine($line)
-                                . "' $filename:$line\n");
+              lcovutil::info(2, "exclude BRDA '"
+                             . $readSourceCallback->getLine($line)
+                             . "' $filename:$line\n");
               ++ $region->[0]; # one location where this applied
               ++ $region->[1]; # one coverpoint suppressed
               $skip = 1;
@@ -3120,9 +3103,9 @@ sub _read_info {
             $currentBranchLine = $line;
             $skipBranch = ! $readSourceCallback->containsConditional($line);
             if ($skipBranch) {
-              lcovutil::verbose("skip BRDA '" .
-                                $readSourceCallback->getLine($line) .
-                                "' $filename:$line\n");
+              lcovutil::info(2, "skip BRDA '" .
+                             $readSourceCallback->getLine($line) .
+                             "' $filename:$line\n");
               ++ $histogram->[0]; # one location where filter applied
             }
           }
@@ -3452,9 +3435,9 @@ sub write_info($$$) {
           if ($skipBranch) {
             ++ $branchHistogram->[0]; # one line where we skip
             $branchHistogram->[1] += scalar($brdata->blocks());
-            lcovutil::verbose("skip BRDA '" .
-                              $reader->getLine($line) .
-                              "' $source_file:$line\n");
+            lcovutil::info(2, "skip BRDA '" .
+                           $reader->getLine($line) .
+                           "' $source_file:$line\n");
             next;
           }
         }
@@ -3500,15 +3483,15 @@ sub write_info($$$) {
 
           if ($brace_histogram &&
               $reader->suppressCloseBrace($line, $l_hit, $testcount)) {
-            lcovutil::verbose("skip DA '" . $reader->getLine($line)
-                              . "' $source_file:$line\n");
+            lcovutil::info(2, "skip DA '" . $reader->getLine($line)
+                           . "' $source_file:$line\n");
             ++$brace_histogram->[0]; # one location where this applied
             ++$brace_histogram->[1]; # one coverpoint suppressed
             next;
           } elsif ($blank_histogram &&
                    $l_hit == 0 &&
                    $reader->isBlank($line)) {
-            lcovutil::verbose("skip DA (empty) $source_file:$line\n");
+            lcovutil::info(2, "skip DA (empty) $source_file:$line\n");
             ++ $blank_histogram->[0]; # one location where this applied
             ++ $blank_histogram->[1]; # one coverpoint suppressed
             next;

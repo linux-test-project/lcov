@@ -43,7 +43,12 @@ lcov \- a graphical GCOV front\-end
 .IR package ]
 .RB [ \-\-from\-package
 .IR package ]
+.br
 .RB [ \-q | \-\-quiet ]
+.br
+.RB [ \-v | \-\-verbose ]
+.br
+.RB [ \-\-debug ]
 .br
 .RB [ (\-\-parallel | -j)
 .IR integer ]
@@ -88,6 +93,10 @@ lcov \- a graphical GCOV front\-end
 .br
 .RB [ \-q | \-\-quiet ]
 .br
+.RB [ \-v | \-\-verbose ]
+.br
+.RB [ \-\-debug ]
+.br
 .RE
 
 .B lcov
@@ -96,6 +105,11 @@ lcov \- a graphical GCOV front\-end
 .RS 5
 .br
 .RB [ \-q | \-\-quiet ]
+.br
+.RB [ \-v | \-\-verbose ]
+.br
+.RB [ \-\-debug ]
+.br
 .RB [ \-\-list\-full\-path ]
 .RB [ \-\-no\-list\-full\-path ]
 .br
@@ -122,6 +136,10 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-no\-checksum ]
 .br
 .RB [ \-q | \-\-quiet ]
+.br
+.RB [ \-v | \-\-verbose ]
+.br
+.RB [ \-\-debug ]
 .RB [ \-\-config\-file
 .IR config\-file ]
 .RB [ \-\-rc
@@ -140,6 +158,10 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-no\-checksum ]
 .br
 .RB [ \-q | \-\-quiet ]
+.br
+.RB [ \-v | \-\-verbose ]
+.br
+.RB [ \-\-debug ]
 .RB [ \-\-config\-file
 .IR config\-file ]
 .RB [ \-\-rc
@@ -158,6 +180,10 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-no\-checksum ]
 .br
 .RB [ \-q | \-\-quiet ]
+.br
+.RB [ \-v | \-\-verbose ]
+.br
+.RB [ \-\-debug ]
 .RB [ \-\-config\-file
 .IR config\-file ]
 .RB [ \-\-rc
@@ -180,7 +206,12 @@ lcov \- a graphical GCOV front\-end
 .IR depth ]
 .RB [ \-\-path
 .IR path ]
+.br
 .RB [ \-q | \-\-quiet ]
+.br
+.RB [ \-v | \-\-verbose ]
+.br
+.RB [ \-\-debug ]
 .br
 .RB [ \-\-config\-file
 .IR config\-file ]
@@ -195,6 +226,10 @@ lcov \- a graphical GCOV front\-end
 .RS 5
 .br
 .RB [ \-q | \-\-quiet ]
+.br
+.RB [ \-v | \-\-verbose ]
+.br
+.RB [ \-\-debug ]
 .RB [ \-\-fail-under-lines
 .IR percentage ]
 .br
@@ -202,7 +237,7 @@ lcov \- a graphical GCOV front\-end
 
 .B lcov
 .RB [ \-h | \-\-help ]
-.RB [ \-v | \-\-version ]
+.RB [ \-\-version ]
 .RS 5
 .br
 .RE
@@ -988,16 +1023,29 @@ Use this option together with \-\-diff to tell lcov to disregard the specified
 initial path component when matching between tracefile and diff filenames.
 .RE
 
+.B \-v
+.br
+.B \-\-verbose
+.RS
+Increment informational message verbosity.  This is mainly used for script and/or flow debugging - e.g., to figure out which data file are found, where.
+Also see the \-\-quiet flag.
+
+Messages are sent to stdout unless there is no output file (i.e., if the coverage data is written to stdout rather than to a file) and to stderr otherwise.
+
+.RE
 .B \-q
 .br
 .B \-\-quiet
-.br
 .RS
-Do not print progress messages.
+Decrement informational message verbosity.
 
-This option is implied when no output filename is specified to prevent
-progress messages to mess with coverage data which is also printed to
-the standard output.
+Decreased verbosity will suppres 'progress' messages for example - while error and warning messages will continue to be printed.
+
+.RE
+.B \-\-debug
+.RS
+Increment 'debug messages' verbosity.  This is useful primarily to developers who want to enhance the lcov tool suite.
+
 .RE
 
 .BI "\-\-parallel "
@@ -1142,8 +1190,6 @@ must be converted to a .info file before recompiling the program or it will
 become invalid.
 .RE
 
-.B \-v
-.br
 .B \-\-version
 .br
 .RS

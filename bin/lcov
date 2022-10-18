@@ -76,9 +76,9 @@ use Data::Dumper;
 use Time::HiRes; # for profiling
 
 use lib "$FindBin::Bin/../lib";
-use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url $quiet
+use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  define_errors parse_ignore_errors ignorable_error
-                 info set_info_callback verbose $verbose
+                 info set_info_callback init_verbose_flag $verbose
                  do_mangle_check
                  debug $debug
                  die_handler warn_handler abort_handler
@@ -275,6 +275,7 @@ my @unsupported_config;
 my $keepGoing;
 our @cmdArgs = @ARGV;
 my $preserve_intermediates;
+my $quiet = 0;
 
 # Parse command line options
 if (!GetOptions("directory|d|di=s"     => \@directory,
@@ -290,8 +291,8 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
 		"output-file|o=s"      => \$output_filename,
 		"test-name|t=s"        => \$test_name,
 		"zerocounters|z"       => \$reset,
-		"quiet|q"              => \$lcovutil::quiet,
-		"verbose|v+"            => \$lcovutil::verbose,
+		"quiet|q+"             => \$quiet,
+		"verbose|v+"           => \$lcovutil::verbose,
 		"help|h|?"             => \$help,
 		"version"              => \$version,
 		"follow|f"             => \$follow,
@@ -317,7 +318,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
 		"from-package=s"       => \$from_package,
 		"no-markers"           => \$no_markers,
 		"derive-func-data"     => \$opt_derive_func_data,
-		"debug"                => \$lcovutil::debug,
+		"debug+"               => \$lcovutil::debug,
 		"list-full-path"       => \$opt_list_full_path,
 		"no-list-full-path"    => \$opt_no_list_full_path,
 		"external"             => \$opt_external,
@@ -334,9 +335,10 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
 		"map-functions"        => \$function_mapping,
 		))
 {
-	print(STDERR "Use $tool_name --help to get usage information\n");
-	exit(1);
+  print(STDERR "Use $tool_name --help to get usage information\n");
+  exit(1);
 }
+lcovutil::init_verbose_flag($quiet);
 
 foreach my $d (['--config-file', scalar(@unsupported_config)],
 	       ['--rc', scalar(%unsupported_rc)]) {
@@ -562,7 +564,7 @@ if (defined($ln_overall_found)) {
 }
 if (! defined($capture)) {
   lcovutil::warn_file_patterns(); # warn about unused include/exclude directives
-  summarize_cov_filters();
+  summarize_cov_filters(1);
 }
 
 my $end = Time::HiRes::gettimeofday();
@@ -595,7 +597,9 @@ Misc:
   -h, --help                      Print this help, then exit
   --version                       Print version number, then exit
   -v, --verbose                   Increment verbosity (mainly for debug)
-  -q, --quiet                     Do not print progress messages
+  -q, --quiet                     Decrement verbosity (e.g., to turn off
+				  progress messages)
+  --debug                         Increment debug flag (for debugging)
 
 Operation:
   -z, --zerocounters              Reset all execution counts to zero
@@ -937,14 +941,15 @@ sub lcov_geninfo(@)
 	{
 		@param = (@param, "--follow");
 	}
-	if ($lcovutil::quiet)
-	{
-		@param = (@param, "--quiet");
-	}
-	if ($lcovutil::verbose)
-	{
-	  for (my $i=0 ; $i < $lcovutil::verbose ; ++$i ) {
-	    @param = (@param, "--verbose");
+	if ($lcovutil::verbose != 0) {
+	  if ($lcovutil::verbose < 0 ) {
+	    for (my $i=$lcovutil::verbose ; $i < 0 ; ++$i ) {
+	      push(@param, '--quiet');
+	    }
+	  } else {
+	    for (my $i=0 ; $i < $lcovutil::verbose ; ++$i ) {
+	      push(@param, '--verbose');
+	    }
 	  }
 	}
 	if (defined($checksum))
@@ -1003,9 +1008,8 @@ sub lcov_geninfo(@)
 	{
 		@param = (@param, "--derive-func-data");
 	}
-	if ($lcovutil::debug)
-	{
-		@param = (@param, "--debug");
+	for (my $i = 0 ; $i < $lcovutil::debug ; ++$i) {
+	  push(@param, "--debug");
 	}
 	if (defined($opt_external) && $opt_external)
 	{
@@ -1221,12 +1225,12 @@ sub create_package($$$;$)
 	unlink("$dir/$pkg_gkv_file");
 
 	# Show number of data files
-	if (!$lcovutil::quiet) {
-		my $count = count_package_data($file);
+	if ($lcovutil::verbose >= 0) {
+	  my $count = count_package_data($file);
 
-		if (defined($count)) {
-			info("  data files ...........: $count\n");
-		}
+	  if (defined($count)) {
+	    info("  data files ...........: $count\n");
+	  }
 	}
 }
 
@@ -1614,19 +1618,13 @@ sub package_capture()
 
 sub my_info(@)
 {
-	if (!$quiet)
-	{
-		# Print info string
-		if (!$data_stdout)
-		{
-			printf(@_)
-		}
-		else
-		{
-			# Don't interfere with the .info output to STDOUT
-			printf(STDERR @_);
-		}
-	}
+  # Print info string
+  if (!$data_stdout) {
+    printf(@_)
+  } else {
+    # Don't interfere with the .info output to STDOUT
+    printf(STDERR @_);
+  }
 }
 
 
@@ -1837,7 +1835,9 @@ sub add_traces()
 	    report_parallel_error('lcov', "unable to open $f: $!");
 	  }
 	}
-	print(STDOUT $childLog);
+	print(STDOUT $childLog)
+	  if ($childstatus != 0 ||
+	      $lcovutil::verbose);
 	print(STDERR $childErr);
 
 	if (open(RESTORE, "<", $dumpfile)) {

@@ -4,11 +4,14 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .SH SYNOPSIS
 .B genhtml
 .RB [ \-h | \-\-help ]
-.RB [ \-v | \-\-version ]
+.RB [ \-\-version ]
 .RS 8
 .br
 .RB [ \-q | \-\-quiet ]
+.RB [ \-v | \-\-verbose ]
+.br
 .RB [ \-s | \-\-show\-details ]
+.br
 .RB [ \-f | \-\-frames ]
 .br
 .RB [ \-b | \-\-baseline\-file ]
@@ -289,21 +292,26 @@ tool.
 Print a short help text, then exit.
 
 .RE
-.B \-v
-.br
 .B \-\-version
 .RS
 Print version number, then exit.
+
+.RE
+.B \-v
+.br
+.B \-\-verbose
+.RS
+Increment informational message verbosity.  This is mainly used for script and/or flow debugging - e.g., to figure out which data file are found, where.
+Also see the \-\-quiet flag.
 
 .RE
 .B \-q
 .br
 .B \-\-quiet
 .RS
-Do not print progress messages.
+Decrement informational message verbosity.
 
-Suppresses all informational progress output. When this switch is enabled,
-only error or warning messages are printed.
+Decreased verbosity will suppres 'progress' messages for example - while error and warning messages will continue to be printed.
 
 .RE
 .B \-\-hierarchical

@@ -259,15 +259,23 @@ for opt in "" "--show-details" "--hier" ; do
         else
             found=1
         fi
-        # look for full path name (starting from '/' in the index.html file..
+        # look for full path name (starting from '/') in the index.html file..
         #   we aren't sure where gcc is installed - so we aren't sure what
         #   path to look for
-        grep "index.html\">/[^/]*/[^/]*/[^/]*/" $outdir/index.html
-        #grep "/mtkoss/gcc" $outdir/index.html
-        # expect to find the string (0 return val) if flag is NOT present
-        if [ $found == $? ] ;then
-            echo "ERROR: '--hierarchical' path mismatch in $outdir"
-            exit 1
+        # However - some compiler versions (e.g., gcc/10) don't find any
+        #   coverage info in the system header files, so there is no
+        #   hierarchical entry in the output HTML
+        COUNT=`grep -c index.html\" $outdir/index.html`
+        if [ $COUNT != 1 ] ; then
+            grep "index.html\">/[^/]*/[^/]*/[^/]*/" $outdir/index.html
+            #grep "/mtkoss/gcc" $outdir/index.html
+            # expect to find the string (0 return val) if flag is NOT present
+            if [ $found == $? ] ;then
+                echo "ERROR: '--hierarchical' path mismatch in $outdir"
+                exit 1
+            fi
+        else
+            echo "only one directory in output"
         fi
 
         # expect to not to see non-code owners 'rupert.psmith' and 'pelham.wodehose' in file annotations
@@ -482,8 +490,9 @@ for l in criteria.log criteria.err ; do
 done
 
 # test '--show-navigation' option
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --exclude '*/include/c++/*' ./current.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --exclude '*/include/c++/*' ./current.info > navigation.log 2> navigation.err
+# need "--ignore-unused for gcc/10.2.0 - which doesn't see code in its c++ headers
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' ./current.info > navigation.log 2> navigation.err
 
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml --show-navigation failed"
@@ -537,11 +546,16 @@ if [ 0 == $? ] ; then
     echo "ERROR: --substitute failed - found in baseline.info"
     exit 1
 fi
-grep "iostream" baseline.info
-if [ 0 != $? ] ; then
-    # exclude should not have happened in baseline.info
-    echo "ERROR: --exclude failed - not found in baseline.info"
-    exit 1
+
+# gcc/10 doesn't see code in its c++ headers - test will fail..
+COUNT=`grep -c SF: baseline.info`
+if [ $COUNT != '1' ] ; then
+    grep "iostream" baseline.info
+    if [ 0 != $? ] ; then
+        # exclude should not have happened in baseline.info
+        echo "ERROR: --exclude failed - not found in baseline.info"
+        exit 1
+    fi
 fi
 
 # some error checks...
