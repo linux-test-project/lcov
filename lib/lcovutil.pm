@@ -113,7 +113,9 @@ our $extractVersionScript; # script/callback to find version ID of file
 # Specify coverage rate default precision
 our $default_precision = 1;
 
-our $maxParallelism = 1;
+# undef indicates not set by command line or RC option - so default to
+# sequential processing
+our $maxParallelism;
 
 sub default_info_impl(@);
 

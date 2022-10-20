@@ -400,7 +400,7 @@ if (!GetOptions("test-name|t=s"       => \$test_name,
 		"rc=s%"              => \%unsupported_rc,
                 "version-script=s"   => \$lcovutil::extractVersionScript,
                 "profile:s"          => \$lcovutil::profile,
-                "parallel|j=i"       => \$lcovutil::maxParallelism,
+                "parallel|j:i"       => \$lcovutil::maxParallelism,
 		"preserve"           => \$preserve_intermediates,
 		))
 {
@@ -449,7 +449,9 @@ if (defined($opt_external)) {
 my $start = Time::HiRes::gettimeofday();
 lcovutil::munge_file_patterns();
 
-if (0 == $lcovutil::maxParallelism) {
+if (! defined($lcovutil::maxParallelism)) {
+  $lcovutil::maxParallelism = 1;
+} elsif (0 == $lcovutil::maxParallelism) {
   lcovutil::count_cores();
 }
 

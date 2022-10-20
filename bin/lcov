@@ -330,7 +330,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
 		"fail-under-lines=s"   => \$opt_fail_under_lines,
 		"profile:s"            => \$lcovutil::profile,
                 "version-script=s"     => \$lcovutil::extractVersionScript,
-		"parallel|j=i"         => \$lcovutil::maxParallelism,
+		"parallel|j:i"         => \$lcovutil::maxParallelism,
 		"prune-tests"          => \$prune_testcases,
 		"map-functions"        => \$function_mapping,
 		))
@@ -411,7 +411,9 @@ if ($demangle_cpp)
   lcovutil::do_mangle_check();
 }
 
-if (0 == $lcovutil::maxParallelism) {
+if (! defined($lcovutil::maxParallelism)) {
+  $lcovutil::maxParallelism = 1;
+} elsif (0 == $lcovutil::maxParallelism) {
   lcovutil::count_cores();
 }
 InOutFile::checkGzip() # we know we are going to use gzip for intermediates

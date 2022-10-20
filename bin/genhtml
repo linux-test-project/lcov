@@ -4539,7 +4539,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "include=s"             => \@lcovutil::include_file_patterns,
                 "omit-lines=s"          => \@lcovutil::omit_line_patterns,
                 "substitute=s"          => \@lcovutil::file_subst_patterns,
-                "parallel|j=i"          => \$lcovutil::maxParallelism,
+                "parallel|j:i"          => \$lcovutil::maxParallelism,
                 "show-navigation"       => \$show_tla,
                 ))
 {
@@ -4614,7 +4614,9 @@ if (0 != (defined($diff_filename) ^ defined($base_filename))) {
   }
 }
 
-if (0 == $lcovutil::maxParallelism) {
+if (! defined($lcovutil::maxParallelism)) {
+  $lcovutil::maxParallelism = 1;
+} elsif (0 == $lcovutil::maxParallelism) {
   lcovutil::count_cores();
 }
 InOutFile::checkGzip() # we know we are going to use gzip for intermediates

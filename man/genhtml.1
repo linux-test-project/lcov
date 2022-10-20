@@ -138,7 +138,7 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .IR regexp_pattern ]
 .br
 .RB [ (\-\-parallel | -j)
-.IR integer ]
+.IR [integer] ]
 .br
 .IR tracefile(s)
 .RE
@@ -630,11 +630,12 @@ See the lcov man page for details.
 
 .RE
 .BI "\-\-parallel "
-.I integer
+.I [ integer ]
+.br
 .BI "\-j "
-.I integer
+.I [ integer ]
 .RS
-Specify parallelism to use during processing (maximum number of forked child processes).  Zero means to use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
+Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
 
 
 .RE

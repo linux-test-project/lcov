@@ -30,10 +30,10 @@ geninfo \- Generate tracefiles from .da files
 .RB [ \-\-gcov\-tool
 .IR tool  ]
 .RB [ (\-\-parallel | -j)
-.IR integer ]
+.IR [integer] ]
 .br
 .RB [ \-\-ignore\-errors
-.IR errors  ]
+.IR errors ]
 .br
 .RB [ \-\-keep\-going ]
 .br
@@ -479,7 +479,7 @@ various types of errors related to parallelism - e.g., child process died due to
 .RS
 Do not stop if error occurs: attempt to generate a result, however flawed.
 
-This command line option corresponds to the 
+This command line option corresponds to the
 .I stop_on_error [0|1]
 lcovrc option.   See the lcovrc man page for more details.
 
@@ -583,12 +583,13 @@ Increment 'debug messages' verbosity.  This is useful primarily to developers wh
 
 .RE
 
-.B "\-\-parallel "
-.I integer
+.BI "\-\-parallel "
+.I [ integer ]
+.br
 .BI "\-j "
-.I integer
+.I [ integer ]
 .RS
-Specify parallelism to use during processing (maximum number of forked child processes).  Zero means to use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
+Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
 
 .RE
 
