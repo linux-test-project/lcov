@@ -91,7 +91,6 @@ use FileHandle;
 use Carp;
 use Storable qw(dclone);
 use FindBin;
-use JSON;
 use Time::HiRes; # for profiling
 use Data::Dumper;
 
@@ -990,7 +989,7 @@ sub checkCoverageCriteria {
       }
     }
   }
-  my $json = JSON::encode_json(\%data);
+  my $json = JsonSupport::encode(\%data); # imported from lcovutil.pm
   my @cmd = split(' ', $coverageCriteriaScript);
   splice(@cmd, 1, 0,
          "'" . ($self->type() eq 'top' ? 'top' : $self->name()) . "'",
@@ -4441,6 +4440,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                 'genhtml_criteria_script'       => \$SummaryInfo::coverageCriteriaScript,
                 'genhtml_date_bins'             => \@rc_datebins,
 
+                "lcov_json_module"              => \$JsonSupport::rc_json_module,
                 "lcov_function_coverage"        => \$lcov_func_coverage,
                 "lcov_branch_coverage"          => \$lcov_branch_coverage,
                 "ignore_errors"                 => \@rc_ignore,
@@ -8903,25 +8903,25 @@ END_OF_HTML
 
 sub get_sort_code($$$)
 {
-        my ($link, $alt, $base) = @_;
-        my $png;
-        my $link_start;
-        my $link_end;
+  my ($link, $alt, $base) = @_;
+  my $png;
+  my $link_start;
+  my $link_end;
 
-        if (!defined($link)) {
-                $png = "glass.png";
-                $link_start = "";
-                $link_end = "";
-        } else {
-                $png = "updown.png";
-                $link_start = '<a href="'.$link.'">';
-                $link_end = "</a>";
-        }
-        my $help = " title=\"Click to sort table by $alt\"";
-        $alt = "Sort by $alt";
-        return ' <span $help class="tableHeadSort">'.$link_start.
-               '<img src="'.$base.$png.'" width=10 height=14 '.
-               'alt="'.$alt.'"'.$help.' border=0>'.$link_end.'</span>';
+  if (!defined($link)) {
+    $png = "glass.png";
+    $link_start = "";
+    $link_end = "";
+  } else {
+    $png = "updown.png";
+    $link_start = '<a href="'.$link.'">';
+    $link_end = "</a>";
+  }
+  my $help = " title=\"Click to sort table by $alt\"";
+  $alt = "Sort by $alt";
+  return ' <span $help class="tableHeadSort">'.$link_start
+    . '<img src="'.$base.$png.'" width=10 height=14 '
+    . 'alt="'.$alt.'"'.$help.' border=0>'.$link_end.'</span>';
 }
 
 sub get_file_code($$$$$$)

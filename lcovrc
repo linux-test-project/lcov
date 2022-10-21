@@ -12,11 +12,11 @@
 # same as 'genhtml --dark-mode ....'
 #genhtml_dark_mode = 1
 
-# header text to use at top of top of each page
+# Header text to use at top of each page
 # Default is "LCOV - (differential )? coverage report"
 #genhtml_header = Coverage report for my project
 
-# footer text to use at the bottom of each page
+# Footer text to use at the bottom of each page
 # Default is LCOV tool version
 #genhtml_footer = My footer text
 
@@ -257,7 +257,7 @@ lcov_branch_coverage = 0
 #  this pattern removes "/.lib" from the pathname (see the lcov man page for details)
 #substitute = s#/.libs##g
 #  this pattern changes "/tmp/build" to "/usr/src" (see the lcov man page for details)
-#substitue = s#/tmp/build#/usr/src#g
+#substitute = s#/tmp/build#/usr/src#g
 
 # ask geninfo/lcov/genhtml to exclude coverpoints associated with lines which match
 # the regexp.  Call multiple times to specify multiple patterns
@@ -268,3 +268,6 @@ lcov_branch_coverage = 0
 
 # specify path to version identification script
 #version_script = path_to_my_executable
+
+# Specify JSON module to use, or choose best available if set to auto
+lcov_json_module = auto

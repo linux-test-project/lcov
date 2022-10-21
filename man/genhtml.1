@@ -1,4 +1,4 @@
-.TH genhtml 1 "LCOV 1.15" 2019\-03\-04 "User Manuals"
+.TH genhtml 1 "LCOV 1.16" 2022\-06\-02 "User Manuals"
 .SH NAME
 genhtml \- Generate HTML differential coverage view from LCOV coverage data files
 .SH SYNOPSIS
@@ -20,10 +20,10 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-o | \-\-output\-directory
 .IR output\-directory ]
 .br
-.RB [ \-t | \-\-header-title
+.RB [ \-\-header-title
 .IR banner ]
 .br
-.RB [ \-t | \-\-footer
+.RB [ \-\-footer
 .IR string ]
 .br
 .RB [ \-t | \-\-title
@@ -713,13 +713,16 @@ project size, a lot of files and subdirectories may be created.
 .RS
 Display
 .I title
-in header of all pages.
+in header table of all pages.
 
 .I title
-is written to the header portion of the table at the top of each generated
-HTML page to identify the context in which a particular output
-was created. By default this is the name of the 'current' tracefile.
-A common useage is to specify the perforce changelist or git sha.
+is written to the "Test:"-field in the header table at the top of each
+generated HTML page to identify the context in which a particular output
+was created. By default this is the name of the 'current; tracefile.
+
+A common use is to specify a test run name, or a version control system
+identifier (perforce changelist or git SHA, for example) that indicates
+the code level that was tested.
 
 .RE
 .BI "\-\-header\-title " BANNER
@@ -730,9 +733,11 @@ in header of all pages.
 
 .I BANNER
 is written to the header portion of each generated HTML page.
+By default this
+simply identifies this as an LCOV (differential) coverage report.
+
 A common use is to specify the name of the project or project branch and the
-Jenkins build ID.  The default simply identifies this as an LCOV differential
-coverage report.
+Jenkins build ID.
 
 .RE
 .BI "\-\-footer " FOOTER

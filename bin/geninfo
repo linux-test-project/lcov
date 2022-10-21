@@ -64,10 +64,10 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
-use JSON qw(decode_json);
 use Time::HiRes; # for profiling
 use Data::Dumper;
 use Capture::Tiny;
+use Module::Load;
 use FindBin;
 
 use lib "$FindBin::Bin/../lib";
@@ -311,6 +311,7 @@ if (lcovutil::apply_rc_params(\@opt_config_file,
 			       "geninfo_auto_base"	 => \$rc_auto_base,
 			       "geninfo_intermediate"	 => \$rc_intermediate,
 			       "geninfo_no_exception_branch" => \$no_exception_br,
+			       "lcov_json_module"	=> \$JsonSupport::rc_json_module,
 			       "lcov_function_coverage"	=> \$func_coverage,
 			       "lcov_branch_coverage"	=> \$br_coverage,
 			       "lcov_excl_line"		=> \$excl_line,
@@ -2235,7 +2236,7 @@ sub read_intermediate_text($$)
 	while (my $line = <$fd>) {
 		if ($line =~ /^file:(.*)$/) {
 			$filename = $1;
-			chomp($filename);
+			$filename =~ s/[\r\n]$//g;
 			# adjust filename...
 			$filename = lcovutil::subst_file_name($filename);
 		} elsif (defined($filename)) {
@@ -2267,7 +2268,7 @@ sub read_intermediate_json($$$)
 	gunzip($gcov_filename, \$text) or
 		die("ERROR: Could not read $gcov_filename: $GunzipError\n");
 
-	$json = decode_json($text);
+	$json = JsonSupport::decode($text); # imported from lcovutil.pm
 	if (!defined($json) || !exists($json->{"files"}) ||
 	    ref($json->{"files"} ne "ARRAY")) {
 		die("ERROR: Unrecognized JSON output format in ".
@@ -2283,6 +2284,13 @@ sub read_intermediate_json($$$)
 	}
 
 	for my $file (@{$json->{"files"}}) {
+		# decode_json() is decoding UTF-8 strings from the JSON file into
+		# Perl's internal encoding, but filenames on the filesystem are
+		# usually UTF-8 encoded, so the filename strings need to be
+		# converted back to UTF-8 so that they actually match the name
+		# on the filesystem.
+		utf8::encode($file->{"file"});
+
 		my $filename = $file->{"file"};
 		# substitute filename here
 		$filename = lcovutil::subst_file_name($filename);

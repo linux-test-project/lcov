@@ -71,7 +71,6 @@ use File::Spec::Functions qw /abs2rel canonpath catdir catfile catpath
 use Getopt::Long;
 use Cwd qw /abs_path getcwd/;
 use FindBin;
-use JSON;
 use Data::Dumper;
 use Time::HiRes; # for profiling
 
@@ -102,7 +101,6 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
 
                  $maxParallelism count_cores
   );
-
 
 # Directory containing gcov kernel files
 our $gcov_dir;
@@ -246,6 +244,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
 			    "lcov_branch_coverage"   => \$br_coverage,
 			    "lcov_function_coverage" => \$func_coverage,
 			    "lcov_fail_under_lines"  => \$opt_fail_under_lines,
+			    "lcov_json_module"       => \$JsonSupport::rc_json_module,
 			    'rtl_file_extensions'    => \$rtlExtensions,
 			    'c_file_extensions'      => \$cExtensions,
 			    "filter_lookahead"       => \$lcovutil::source_filter_lookahead,

@@ -11,6 +11,7 @@ use File::Basename qw(basename dirname);
 use Cwd qw/abs_path/;
 use Storable qw(dclone);
 use Capture::Tiny;
+use Module::Load::Conditional qw(check_install);
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK =
@@ -383,7 +384,7 @@ sub save_profile($) {
     count_cores();
     $lcovutil::profileData{config}{cores} = $maxParallelism;
     $maxParallelism = $save;
-    my $json = JSON::encode_json(\%lcovutil::profileData);
+    my $json = JsonSupport::encode(\%lcovutil::profileData);
 
     if ('' ne $lcovutil::profile) {
       $dest = $lcovutil::profile;
@@ -1079,6 +1080,70 @@ sub checkVersionMatch {
   lcovutil::ignorable_error($ERROR_VERSION,
                             "$filename: revision control version mismatch: $me <- $you")
     unless $match;
+}
+
+package JsonSupport;
+
+our $rc_json_module = 'auto';
+
+our $did_init;
+
+#
+# load_json_module(rc)
+#
+# If RC is "auto", load best available JSON module from a list of alternatives,
+# otherwise load the module specified by RC.
+#
+sub load_json_module($)
+{
+  my ($rc) = shift;
+  # List of alternative JSON modules to try
+  my @alternatives = (
+    "JSON::XS",             # Fast, but not always installed
+    "Cpanel::JSON::XS",     # Fast, a more recent fork
+    "JSON::PP",             # Slow, part of core-modules
+    "JSON",                 # Not available in all distributions
+    );
+
+  # Determine JSON module
+  if (lc($rc) eq "auto") {
+    for my $m (@alternatives) {
+      if (Module::Load::Conditional::check_install(module => $m)) {
+        $did_init = $m;
+        last;
+      }
+    }
+
+    if (!defined($did_init)) {
+      die("No JSON module found (tried ".
+          join(" ", @alternatives).")\n");
+    }
+  } else {
+    $did_init = $rc;
+  }
+
+  eval "use $did_init qw(encode_json decode_json);";
+  if ($@) {
+    die("Module is not installed: ". "'$did_init':$@\n");
+  }
+  lcovutil::info(1, "Using JSON module $did_init\n");
+}
+
+sub encode($) {
+  my $data = shift;
+
+  load_json_module($rc_json_module)
+    unless defined($did_init);
+
+  return encode_json($data);
+}
+
+sub decode($) {
+  my $text = shift;
+  load_json_module($rc_json_module)
+    unless defined($did_init);
+
+  return decode_json($text);
 }
 
 package InOutFile;
