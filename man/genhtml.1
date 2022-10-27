@@ -140,6 +140,12 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ (\-\-parallel | -j)
 .IR [integer] ]
 .br
+.RB [ (\-\-memory 
+.IR integer_num_Mb ]
+.br
+.RB [ \-\-tempdir
+.IR dirname ]
+.br
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
@@ -422,7 +428,7 @@ A suitable
 can be generated using the command "git diff \-\-relative SHA_base SHA_current", or using the "p4udiff" or "gitdiff" sample scripts (found in the share/lcov/support\-scripts directory shipped as part of this release).
 "p4udiff" accepts either a changelist ID or the literal string "sandbox"; "sandbox" indicates that there are modified files which have not been checked in.
 
-These scripts post\-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly not files whcih have not changed.  It is useful to note unchanged files (denoted by lines of the form
+These scripts post\-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly note files which have not changed.  It is useful to note unchanged files (denoted by lines of the form
   diff [optional header strings]
   === file_path
 
@@ -636,6 +642,14 @@ See the lcov man page for details.
 .I [ integer ]
 .RS
 Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
+
+.RE
+.BI "\-\-memory "
+.I integer
+.RS
+Specify the maximum amount of memory to use during prallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
+
+This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
 
 
 .RE
@@ -1102,6 +1116,12 @@ the include/exclude/substitute/omit pattern did not match any file pathnames.
 .B parallel
 various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
 
+.B package
+a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
+
+.B corrupt
+corrupt/unreadable file found.
+
 .RE
 .BI "\-\-keep\-going "
 .RS
@@ -1181,7 +1201,14 @@ option
 Use a light\-display\-on\-dark\-background color scheme rather than the default dark\-display\-on\-light\-background.
 
 The idea is to reduce eye strain due to viewing dark text on a bright screen - particularly at night.
+.RE
 
+.B \-\-tempdir
+.I dirname
+.br
+.RS
+Write temporary and intermediate data to indicated directory.  Default is "/tmp".
+.RE
 
 .SH FILES
 

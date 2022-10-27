@@ -2,9 +2,12 @@
 .SH NAME
 lcov \- a graphical GCOV front\-end
 .SH SYNOPSIS
+.B Capture coverage data tracefile (from compiler-generated data):
+.br
+.RS 3
 .B lcov
 .BR \-c | \-\-capture
-.RS 5
+.RS 3
 .br
 .RB [ \-d | \-\-directory
 .IR directory ]
@@ -18,7 +21,9 @@ lcov \- a graphical GCOV front\-end
 .br
 .RB [ \-b | \-\-base\-directory
 .IR directory ]
+.br
 .RB [ \-i | \-\-initial ]
+.br
 .RB [ \-\-gcov\-tool
 .IR tool ]
 .br
@@ -29,20 +34,164 @@ lcov \- a graphical GCOV front\-end
 .br
 .RB [ \-\-compat\-libtool ]
 .RB [ \-\-no\-compat\-libtool ]
+.br
 .RB [ \-\-ignore\-errors
 .IR errors ]
 .br
-.RB [ \-\-keep\-going ]
-.br
 .RB [ \-\-preserve ]
-.br
-.RB [ \-\-filter
-.IR type  ]
-.br
 .RB [ \-\-to\-package
 .IR package ]
 .RB [ \-\-from\-package
 .IR package ]
+.RB [ \-\-no\-markers ]
+.RB [ \-\-external ]
+.RB [ \-\-no\-external ]
+.br
+.RB [ \-\-compat
+.IR  mode =on|off|auto]
+.br
+.RB [ \-\-version\-script
+.IR script_file  ]
+.br
+.RE
+.RE
+
+.B Generate tracefile (from compiler-generated data) with all counter values set to zero:
+.br
+.RS 3
+.B lcov
+.BR \-z | \-\-zerocounters
+.RS 3
+.br
+.RB [ \-d | \-\-directory
+.IR directory ]
+.RB [ \-\-no\-recursion ]
+.RB [ \-f | \-\-follow ]
+.br
+.RE
+.RE
+
+.B Show coverage counts recorded in previously generated tracefile:
+.br
+.RS 3
+.B lcov
+.BR \-l | \-\-list
+.I tracefile
+.RS 3
+.br
+.RB [ \-\-list\-full\-path ]
+.RB [ \-\-no\-list\-full\-path ]
+.br
+.RE
+.RE
+
+.B Aggregate multiple coverage tracefiles into one
+.RS 3
+.br
+.B lcov
+.BR \-a | \-\-add\-tracefile
+.I tracefile_pattern
+.RS 3
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.br
+.RB [\-\-prune\-tests]
+.br
+.RB [\-\-map\-functions]
+.br
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
+.br
+.RE
+.RE
+
+.B Generate new tracefile from existing tracefile, keeping only data from files matching pattern
+.br
+.RS 3
+.B lcov
+.BR \-e | \-\-extract
+.I tracefile pattern
+.RS 3
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
+.br
+.RE
+.RE
+
+.B Generate new tracefile from existing tracefile, removing data from files matching pattern
+.br
+.RS 3
+.B lcov
+.BR \-r | \-\-remove
+.I tracefile pattern
+.RS 3
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
+.br
+.RE
+.RE
+
+.B Generate new tracefile from existing tracefile, modifying line numbers as indicated in diff file
+.br
+.RS 3
+.B lcov
+.BR \-\-diff
+.IR "tracefile diff"
+.RS 3
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.RB [ \-\-checksum ]
+.RB [ \-\-no\-checksum ]
+.br
+.RB [ \-\-convert\-filenames ]
+.RB [ \-\-strip
+.IR depth ]
+.RB [ \-\-path
+.IR path ]
+.br
+.RE
+.RE
+
+.B Summarize tracefile content:
+.br
+.RS 3
+.B lcov
+.BR \-\-summary
+.I tracefile
+.RS 3
+.br
+.RB [ \-\-fail-under-lines
+.IR percentage ]
+.br
+.RE
+.RE
+
+.B Print help message and exit
+.br
+.RS 3
+.B lcov
+.BR \-\-summary
+.RE
+
+.B Common lcov options - supported by all the above use cases:
+.br
+.RS 3
+.B lcov ...
+.br
+.br
+.RB [ \-\-keep\-going ]
+.br
+.RB [ \-\-filter
+.IR type  ]
+.br
 .br
 .RB [ \-q | \-\-quiet ]
 .br
@@ -53,17 +202,14 @@ lcov \- a graphical GCOV front\-end
 .RB [ (\-\-parallel | -j)
 .IR [integer] ]
 .br
-.RB [ \-\-no\-markers ]
-.RB [ \-\-external ]
-.RB [ \-\-no\-external ]
+.RB [ \-\-memory
+.IR integer_num_Mb ]
+.br
 .br
 .RB [ \-\-config\-file
 .IR config\-file ]
 .RB [ \-\-rc
 .IR keyword = value ]
-.br
-.RB [ \-\-compat
-.IR  mode =on|off|auto]
 .br
 .RB [ \-\-include
 .IR glob_pattern ]
@@ -77,169 +223,7 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-omit\-lines
 .IR regexp_pattern ]
 .br
-.RB [ \-\-version\-script
-.IR script_file  ]
-.br
 .RE
-
-.B lcov
-.BR \-z | \-\-zerocounters
-.RS 5
-.br
-.RB [ \-d | \-\-directory
-.IR directory ]
-.RB [ \-\-no\-recursion ]
-.RB [ \-f | \-\-follow ]
-.br
-.RB [ \-q | \-\-quiet ]
-.br
-.RB [ \-v | \-\-verbose ]
-.br
-.RB [ \-\-debug ]
-.br
-.RE
-
-.B lcov
-.BR \-l | \-\-list
-.I tracefile
-.RS 5
-.br
-.RB [ \-q | \-\-quiet ]
-.br
-.RB [ \-v | \-\-verbose ]
-.br
-.RB [ \-\-debug ]
-.br
-.RB [ \-\-list\-full\-path ]
-.RB [ \-\-no\-list\-full\-path ]
-.br
-.RB [ \-\-config\-file
-.IR config\-file ]
-.RB [ \-\-rc
-.IR keyword = value ]
-.br
-.RE
-
-.B lcov
-.BR \-a | \-\-add\-tracefile
-.I tracefile_pattern
-.RS 5
-.br
-.RB [ \-o | \-\-output\-file
-.IR tracefile ]
-.br
-.RB [\-\-prune\-tests]
-.br
-.RB [\-\-map\-functions]
-.br
-.RB [ \-\-checksum ]
-.RB [ \-\-no\-checksum ]
-.br
-.RB [ \-q | \-\-quiet ]
-.br
-.RB [ \-v | \-\-verbose ]
-.br
-.RB [ \-\-debug ]
-.RB [ \-\-config\-file
-.IR config\-file ]
-.RB [ \-\-rc
-.IR keyword = value ]
-.br
-.RE
-
-.B lcov
-.BR \-e | \-\-extract
-.I tracefile pattern
-.RS 5
-.br
-.RB [ \-o | \-\-output\-file
-.IR tracefile ]
-.RB [ \-\-checksum ]
-.RB [ \-\-no\-checksum ]
-.br
-.RB [ \-q | \-\-quiet ]
-.br
-.RB [ \-v | \-\-verbose ]
-.br
-.RB [ \-\-debug ]
-.RB [ \-\-config\-file
-.IR config\-file ]
-.RB [ \-\-rc
-.IR keyword = value ]
-.br
-.RE
-
-.B lcov
-.BR \-r | \-\-remove
-.I tracefile pattern
-.RS 5
-.br
-.RB [ \-o | \-\-output\-file
-.IR tracefile ]
-.RB [ \-\-checksum ]
-.RB [ \-\-no\-checksum ]
-.br
-.RB [ \-q | \-\-quiet ]
-.br
-.RB [ \-v | \-\-verbose ]
-.br
-.RB [ \-\-debug ]
-.RB [ \-\-config\-file
-.IR config\-file ]
-.RB [ \-\-rc
-.IR keyword = value ]
-.br
-.RE
-
-.B lcov
-.BR \-\-diff
-.IR "tracefile diff"
-.RS 5
-.br
-.RB [ \-o | \-\-output\-file
-.IR tracefile ]
-.RB [ \-\-checksum ]
-.RB [ \-\-no\-checksum ]
-.br
-.RB [ \-\-convert\-filenames ]
-.RB [ \-\-strip
-.IR depth ]
-.RB [ \-\-path
-.IR path ]
-.br
-.RB [ \-q | \-\-quiet ]
-.br
-.RB [ \-v | \-\-verbose ]
-.br
-.RB [ \-\-debug ]
-.br
-.RB [ \-\-config\-file
-.IR config\-file ]
-.RB [ \-\-rc
-.IR keyword = value ]
-.br
-.RE
-
-.B lcov
-.BR \-\-summary
-.I tracefile
-.RS 5
-.br
-.RB [ \-q | \-\-quiet ]
-.br
-.RB [ \-v | \-\-verbose ]
-.br
-.RB [ \-\-debug ]
-.RB [ \-\-fail-under-lines
-.IR percentage ]
-.br
-.RE
-
-.B lcov
-.RB [ \-h | \-\-help ]
-.RB [ \-\-version ]
-.RS 5
-.br
 .RE
 
 .SH DESCRIPTION
@@ -264,11 +248,10 @@ Follow the setup instructions for the gcov\-kernel infrastructure:
 .br
 
 
-.RE
 For user space application coverage:
-.RS
+.RS 3
 Compile the application with GCC using the options
-"\-fprofile\-arcs" and "\-ftest\-coverage".
+"\-fprofile\-arcs" and "\-ftest\-coverage" or "\-\-coverage".
 .RE
 
 Please note that this man page refers to the output format of
@@ -860,6 +843,13 @@ revision control IDs of the file which we are trying to merge are not the same -
 .B parallel
 various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
 
+.B package
+a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
+
+.B corrupt
+corrupt/unreadable file found.
+
+
 .RE
 .BI "\-\-keep\-going "
 .RS
@@ -1057,6 +1047,16 @@ Increment 'debug messages' verbosity.  This is useful primarily to developers wh
 Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
 
 Currently - parallelism is used with the \-\-add\-tracefile and \-\-capture options.
+
+.RE
+.BI "\-\-memory "
+.I integer
+.RS
+Specify the maximum amount of memory to use during prallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
+
+This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
+
+
 .RE
 
 .B \-\-rc
@@ -1210,6 +1210,13 @@ option to reset all counters of a user space program.
 
 Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
 specified at a time.
+.RE
+
+.B \-\-tempdir
+.I dirname
+.br
+.RS
+Write temporary and intermediate data to indicated directory.  Default is "/tmp".
 .RE
 
 .SH FILES

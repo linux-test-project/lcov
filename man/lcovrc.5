@@ -436,6 +436,23 @@ lcov_fail_under_lines = 97.5
 lcov_json_module = auto
 .br
 
+# Specify maximum number of parallel slaves
+.br
+# default: 1 (no parallelism)
+.br
+#parallel = 1
+.br
+
+.br
+# Specify maximum memory to use during parallel processing, in Mb.
+.br
+# Do not fork if estimated memory consumption exceeds this number.
+.br
+# default: 0 (no limit)
+.br
+#memory = 1
+.br
+
 .PP
 
 .SH OPTIONS
@@ -1315,6 +1332,20 @@ This option is used by genhtml, lcov, and geninfo.
 Tells genhtml, lcov, or geninfo the maximum number of simultaneous processes
 to use.  Zero means to use as many cores as are available on the machine.
 The default is 1 (one) - which means to process sequentially (no parallelism).
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR memory " ="
+.IR integer_Mb
+.IP
+Tells genhtml, lcov, or geninfo the maximum memory to use during parallel processing
+operations.  Effectively, the process will not fork() if this limit would be
+exceeded.
+Zero means that there is no limit.
+The default is 0 (zero) - which that thre is no explicit limit.
 
 .br
 This option is used by genhtml, lcov, and geninfo.

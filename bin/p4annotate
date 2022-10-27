@@ -48,6 +48,14 @@ if (!GetOptions("verify" => \$verify,
   exit(1);
 }
 
+my @notset;
+foreach my $var ("P4USER", "P4PORT", "P4CLIENT") {
+  push(@notset, $var) unless exists($ENV{$var});
+}
+if (@notset) {
+  die("$0 requires environment variable" . (1 < scalar(@notset) ? 's' : '') . ' '
+      . join(' ', @notset) . " to be set.");
+}
 
 if ($logfile) {
   open(LOGFILE, ">>", $logfile) or

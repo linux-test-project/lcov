@@ -93,7 +93,7 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
-rm -f test.cpp test.gcno test.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper*
+rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx
 rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation
 
 if [ "x$COVER" != 'x' ] ; then
@@ -571,6 +571,21 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
+# and generate a spreadsheet..check that we don't crash
+SPREADSHEET=$LCOV_HOME/bin/spreadsheet.py
+if [ ! -f $SPREADSHEET ] ; then
+    SPREADSHEET=$LCOV_HOME/share/lcov/support-scripts/spreadsheet.py
+fi
+if [ -f $SPREADSHEET ] ; then    
+    $SPREADSHEET -o results.xlsx `find . -name "*.json"`
+    if [ 0 != $? ] ; then
+        echo "ERROR:  spreadsheet generation failed"
+        exit 1
+    fi
+else
+    echo "Did not find $SPREADSHEET to run test"
+    exit 1
+fi
 
 echo "Tests passed"
 

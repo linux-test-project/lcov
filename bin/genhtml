@@ -80,11 +80,13 @@ use warnings;
 use File::Basename;
 use File::Path;
 use File::Spec;
+use File::Temp;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path realpath cwd/;
 use DateTime;
-use DateTime::Format::W3CDTF;
+# using W3CDTF only if annotations are enabled
+#use DateTime::Format::W3CDTF;
 #use Regexp::Common qw(time);  # damn - not installed
 use Date::Parse;
 use FileHandle;
@@ -99,7 +101,8 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $tool_name $tool_dir $lcov_version $lcov_url
                  ignorable_error
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
-                 $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED
+                 $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED $ERROR_PACKAGE
+                 $ERROR_CORRUPT
                  $ERROR_PARALLEL report_parallel_error
                  info $verbose init_verbose_flag
                  do_mangle_check
@@ -201,6 +204,8 @@ $ERROR_FORMAT = 9;
 $ERROR_EMPTY = 10;
 our $ERROR_ANNOTATE_SCRIPT = 11;
 $ERROR_PARALLEL = 12;
+$ERROR_PACKAGE = 13;
+$ERROR_CORRUPT = 14;
 
 our %htmlErrs = (
         "source"   => $ERROR_SOURCE,
@@ -216,9 +221,10 @@ our %htmlErrs = (
         "version" => $ERROR_VERSION,
         "unused" => $ERROR_UNUSED,
         "parallel" => $ERROR_PARALLEL,
+        "package" => $ERROR_PACKAGE,
+        "corrupt" => $ERROR_CORRUPT,
 );
 lcovutil::define_errors(\%htmlErrs);
-
 
 # Data related prototypes
 sub print_usage(*);
@@ -2712,7 +2718,7 @@ sub _read_udiff {
     #   If so, remove it so our regexp matches more easily.
     # p4 and git diff outputs do not have the timestamp
     if ($line =~ /^[-+=]{3} \S.*(\s+$time)$/) {
-      $line =~ s/$1$//;
+      $line =~ s/\Q$1\E$//;
     }
     foreach ($line) {
       # Filename of unchanged file:
@@ -3915,10 +3921,12 @@ sub new {
               {}, # %pending; # map of name->list of as-yet incomplete dependencies
                   # This task can be scheduled as soon as its last dependency
                   #  is complete.
-              {} # childData - for callback
+              {}, # childData - for callback
+              File::Temp->newdir("genhtml_XXXX", DIR => $lcovutil::tmp_dir, CLEANUP => 1)
     ];
   bless $self, $class;
 
+  lcovutil::info(1, "Writing temporary data to " . $self->[4]);
   my $pending = $self->[$PENDING_IDX];
   my $worklist = $self->[$WORKLIST_IDX];
   my $top_level_summary = $self->[0];
@@ -4033,14 +4041,23 @@ sub compute {
   my $worklist = $self->[$WORKLIST_IDX];
   my $pending = $self->[$PENDING_IDX];
   my $children = $self->[$CHILDDATA_IDX];
-
   while (@$worklist ||
          %$pending) {
 
     if (1 < $lcovutil::maxParallelism) {
+
+      my $currentSize = 0;
+      if (0 != $lcovutil::maxMemory) {
+        $currentSize = lcovutil::current_process_size();
+      }
+
       while ($currentParallel >= $lcovutil::maxParallelism ||
+             ($currentParallel > 1 &&
+              (($currentParallel + 1) * $currentSize) > $lcovutil::maxMemory) ||
              (0 == @$worklist &&
               %$pending)) {
+        lcovutil::info(1, "memory constraint ($currentParallel + 1) * $currentSize > $lcovutil::maxMemory violated: waiting." . (scalar(@$worklist) + scalar(keys(%$pending))) . " remaining\n")
+          if ((($currentParallel + 1) * $currentSize) > $lcovutil::maxMemory);
         my $child = wait();
         my $childstatus = $?;
         -- $currentParallel;
@@ -4087,8 +4104,9 @@ sub compute {
         # I'm the child
         # clear the profile data - we want just my contribution
         %lcovutil::profileData = ();
-        my $stdout_file = "genhtml_$$.log";
-        my $stderr_file = "genhtml_$$.err";
+        my $tmp = '' . $self->[4];
+        my $stdout_file = "$tmp/genhtml_$$.log";
+        my $stderr_file = "$tmp/genhtml_$$.err";
         local(*STDERR);
         local(*STDOUT);
         open(STDOUT1, '>' . $stdout_file)
@@ -4132,7 +4150,7 @@ sub compute {
         my $name = $selfSummary->type() eq 'top' ? "" : $selfSummary->name();
         my $criteria = $SummaryInfo::coverageCriteria{$name}
           if exists($SummaryInfo::coverageCriteria{$name});
-        my $file = "dumper_$$";
+        my $file = "$tmp/dumper_$$";
         if (open(DUMPER, ">", $file)) {
           print DUMPER Data::Dumper->Dump([$perTestData, $selfSummary,
                                            $criteria,
@@ -4213,9 +4231,10 @@ sub merge_child($$$) {
   my ($parentSummary, $parentPerTestData, $parentPath) = @{$parentData->[0]->[1]}
      unless $type eq 'top';
 
-  my $dumpfile = "dumper_$childPid";
-  my $childLog = "genhtml_$childPid.log";
-  my $childErr = "genhtml_$childPid.err";
+  my $tmp = '' . $self->[4];
+  my $dumpfile = "$tmp/dumper_$childPid";
+  my $childLog = "$tmp/genhtml_$childPid.log";
+  my $childErr = "$tmp/genhtml_$childPid.err";
   foreach my $f ($childLog, $childErr) {
     if (open(RESTORE, "<", $f)) {
       # slurp into a string and eval..
@@ -4268,14 +4287,7 @@ sub merge_child($$$) {
           if ($criteria->[1] != 0 ||
               0 != scalar(@{$criteria->[2]}));
       }
-
-      while (my ($key, $d) = each(%$profile)) {
-        while (my ($f, $t) = each(%$d)) {
-          die("unexpected duplicate key $f in $key")
-            if exists($lcovutil::profileData{$key}{$f});
-          $lcovutil::profileData{$key}{$f} = $t;
-        }
-      }
+      lcovutil::merge_child_profile($profile);
     } else {
       lcovutil::report_parallel_error('genhtml', "unable to open $dumpfile: $!");
     }
@@ -4440,6 +4452,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                 'genhtml_criteria_script'       => \$SummaryInfo::coverageCriteriaScript,
                 'genhtml_date_bins'             => \@rc_datebins,
 
+                "lcov_tmp_dir"                  => \$lcovutil::tmp_dir,
                 "lcov_json_module"              => \$JsonSupport::rc_json_module,
                 "lcov_function_coverage"        => \$lcov_func_coverage,
                 "lcov_branch_coverage"          => \$lcov_branch_coverage,
@@ -4451,6 +4464,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                 "filter_bitwise_conditional"    => \$lcovutil::source_filter_bitwise_are_conditional,
                 "profile"        => \$lcovutil::profile,
                 "parallel"       => \$lcovutil::maxParallelism,
+                "memory"         => \$lcovutil::maxMemory,
 
                 'filter'         => \@rc_filter,
                 'exclude'        => \@rc_exclude_patterns,
@@ -4479,6 +4493,7 @@ my $quiet = 0;
 
 # Parse command line options
 if (!GetOptions("output-directory|o=s"  => \$output_directory,
+                "tempdir=s"             => \$lcovutil::tmp_dir,
                 "header-title=s"        => \$header_title,
                 "footer=s"              => \$footer,
                 "title|t=s"             => \$test_title,
@@ -4540,6 +4555,7 @@ if (!GetOptions("output-directory|o=s"  => \$output_directory,
                 "omit-lines=s"          => \@lcovutil::omit_line_patterns,
                 "substitute=s"          => \@lcovutil::file_subst_patterns,
                 "parallel|j:i"          => \$lcovutil::maxParallelism,
+                "memory=i"              => \$lcovutil::maxMemory,
                 "show-navigation"       => \$show_tla,
                 ))
 {
@@ -4589,6 +4605,18 @@ if ($show_tla && ! defined($base_filename)) {
 }
 
 if ($SourceFile::annotateScript) {
+  eval {
+    require DateTime::Format::W3CDTF;
+    DateTime::Format::W3CDTF->import();
+  };
+  if ($@) {
+    lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE, "package DateTime::Format::W3CDTF is required to compute code agae when annotations are enabled: $@");
+    # OK..user ignored the error - so turn off annotations.
+    undef $SourceFile::annotateScript;
+  }
+}
+
+if ($SourceFile::annotateScript) {
   $show_dateBins = 1;
   if ( 0 == scalar(@datebins) ) {
     # default: 7, 30, 180 days
@@ -4614,13 +4642,7 @@ if (0 != (defined($diff_filename) ^ defined($base_filename))) {
   }
 }
 
-if (! defined($lcovutil::maxParallelism)) {
-  $lcovutil::maxParallelism = 1;
-} elsif (0 == $lcovutil::maxParallelism) {
-  lcovutil::count_cores();
-}
-InOutFile::checkGzip() # we know we are going to use gzip for intermediates
-  if 1 != $lcovutil::maxParallelism;
+lcovutil::init_parallel_params();
 
 if (defined($header_title)) {
   $title = $header_title;
@@ -4894,6 +4916,7 @@ Misc:
                                     mismatch,branch,format)
       --keep-going                  Do not stop if error occurs.  Try to
                                     produce a result
+      --tempdir dirname             Write temporary and intermediate data here
 
 Operation:
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
@@ -4941,8 +4964,9 @@ Operation:
       --omit-lines REGEXP           Ignore coverage data associated with lines
                                     whose content matches regexp.
                                     Perl regexps (applied in order)
-  -j, --parallel INTEGER            Use at most INTEGER number of parallel
+  -j, --parallel [INTEGER]          Use at most INTEGER number of parallel
                                     slaves during processing.
+      --memory [int_Mb]             Maximum parallel memory consumption - in Mb
       --profile [filename]          Write performance performance statistics
                                     to filename (default is
                                     'output_directory/genhtml.json').
@@ -6874,28 +6898,24 @@ sub write_header_line(*@)
 
   write_html($handle, "          <tr>\n");
   foreach my $entry (@content) {
-    my ($width, $class, $text, $colspan) = @{$entry};
-
-    if (defined($width)) {
-      $width = " width=\"$width\"";
-    } else {
-      $width = "";
+    my ($width, $class, $text, $colspan, $title) = @{$entry};
+    my %tags = ( "width" => $width,
+                 "class" => $class,
+                 "colspan" => $colspan,
+                 "title" => $title);
+    my $str =                "            <td";
+    while (my ($t, $v) = each(%tags)) {
+      $str .= " $t=\"$v\""
+        if defined($v);
     }
-    if (defined($class)) {
-      $class = " class=\"$class\"";
-    } else {
-      $class = "";
-    }
-    if (defined($colspan)) {
-      $colspan = " colspan=\"$colspan\"";
-    } else {
-      $colspan = "";
-    }
-    $text = "" if (!defined($text));
-    write_html($handle,
-               "            <td$width$class$colspan>$text</td>\n");
+    $str .= '>';
+    $str .= $text
+      if defined($text);
+    $str .= "</td>\n";
+    # so 'str' looke like '<td width="value" colspan="value">whatever</td>'
+    write_html($handle, $str)
   }
-  write_html($handle, "          </tr>\n");
+  write_html($handle, "          </tr>\n"); # then end the row
 }
 
 
@@ -8727,26 +8747,24 @@ END_OF_HTML
 
     my @headerRow = (["5%", undef, undef ],
                      ["5%", "headerCovTableHead", "Coverage"],
-                     ["5%", "headerCovTableHead\" title=\" $totalTitle\"",
-                      "Total" ]);
+                     ["5%", "headerCovTableHead", "Total", undef, $totalTitle]);
     if ($main::show_hitTotalCol) {
       # legacy view, or we have all the differential categories
       #-  thus also want a summary
-      $hitTitle = $main::use_legacyLabels ? "" : " title=\"$hitTitle\"";
-      push(@headerRow, ["5%", "headerCovTableHead\"$hitTitle",
-                        $main::opt_missed ? "Missed" : "Hit" ]);
+      $hitTitle = $main::use_legacyLabels ? undef : $hitTitle;
+      push(@headerRow, ["5%", "headerCovTableHead",
+                        $main::opt_missed ? "Missed" : "Hit", undef, $hitTitle]);
     }
     if ($main::show_tla) {
       for my $tla (@SummaryInfo::tlaPriorityOrder) {
         my ($title, $label);
         if ($main::use_legacyLabels) {
           $label = $SummaryInfo::tlaToLegacy{$tla};
-          $title = "";
         } else {
           $label = "<span class=\"tla$tla\">$tla</span>";
-          $title = " title=\"" . $SummaryInfo::tlaToTitle{$tla} . "\"";
+          $title = $SummaryInfo::tlaToTitle{$tla};
         }
-        push(@headerRow, ["5%", "headerCovTableHead\"$title", $label]);
+        push(@headerRow, ["5%", "headerCovTableHead", $label, undef, $title]);
       }
     }
     push(@row_right, \@headerRow);

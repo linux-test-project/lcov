@@ -271,3 +271,12 @@ lcov_branch_coverage = 0
 
 # Specify JSON module to use, or choose best available if set to auto
 lcov_json_module = auto
+
+# Specify maximum number of parallel slaves
+# default: 1 (no parallelism)
+#parallel = 1
+
+# Specify maximum memory to use during parallel processing, in Mb.
+# Do not fork if estimated memory consumption exceeds this number.
+# default: 0 (no limit)
+#memory = 1

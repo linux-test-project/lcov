@@ -42,7 +42,7 @@ use Getopt::Long;
 use Cwd qw/abs_path/;
 
 use lib "$FindBin::Bin/../lib";
-use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url)
+use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url);
 
 # Constants
 # (now imported from lcovutil.pm)

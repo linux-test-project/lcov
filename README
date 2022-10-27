@@ -153,6 +153,10 @@ New features and capabilities fall into 6 major categories:
      as 'vanilla' coverage reports with binning.  See the above papers
      and the genhtml man page for details.
 
+     Related options:
+        --baseline-file, --diff-file, --annotate-script, --date-bins,
+        --new-file-as-baseline, --elide-path-mismtach
+
   b) Error handling
 
      A generic - but very simple - error handler has been added to the
@@ -163,6 +167,8 @@ New features and capabilities fall into 6 major categories:
 
      Note that some errors are unrecoverable - and cannot be suppressed or
      ignored.
+
+     Related options:  --ignore-error, --keep-going
 
   c) Navigation and display:
 
@@ -183,6 +189,10 @@ New features and capabilities fall into 6 major categories:
      See the genhtml man page for some details, as well as the
      'gendiffcov/simple' testcases for some examples.
 
+      Related options:
+          --baseline-title, --baseline-date, --current-date, --hierarchical,
+          --show-owners, --show-noncode, --show-navigation
+
   d) Data manipulation
 
      Filters are used to suppress or remove certain coverage artifacts -
@@ -199,6 +209,9 @@ New features and capabilities fall into 6 major categories:
      See the lcov/geninfo/genhtml man pages for a detailed description of
      the available filters and manipulation features.
 
+     Related options:
+        --include, --exclude, --omit-lines, --substitute, --filter
+
   e) Callbacks/customization
 
      The user can supply callbacks which are used to:
@@ -209,14 +222,21 @@ New features and capabilities fall into 6 major categories:
 
      See the genhtml/lcov/geninfo man pages for details.
 
+     Related options:
+       --annotate-script, --criteria-script, --version-script
+
   f) Performance
 
      lcov/genhtml/geninfo have been refactored to parallelize computation
      across multiple cores, if requested.
      In general, this provides speedup that is nearly linear in the number
      of cores.
+     There is also an option to throttle parallelism to not exceed peak
+     memory consumption contraints.
 
      See the genhtml/lcov/geninfo man pages for details
+
+     Related options: --parallel, --memory, --profile
 
 In general, the new features and options are implemented uniformly in lcov,
 genhtml, and geninfo.  Most of the features can be enabled/disabled

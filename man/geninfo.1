@@ -29,8 +29,12 @@ geninfo \- Generate tracefiles from .da files
 .br
 .RB [ \-\-gcov\-tool
 .IR tool  ]
+.br
 .RB [ (\-\-parallel | -j)
 .IR [integer] ]
+.br
+.RB [ \-\-memory
+.IR integer_num_Mb ]
 .br
 .RB [ \-\-ignore\-errors
 .IR errors ]
@@ -72,6 +76,9 @@ geninfo \- Generate tracefiles from .da files
 .br
 .RB [ \-\-version\-script
 .IR script_file  ]
+.br
+.RB [ \-\-tempdir
+.IR dirname  ]
 .br
 .RE
 .SH DESCRIPTION
@@ -474,6 +481,12 @@ the include/exclude/substitute/omit pattern did not match any file pathnames.
 .B parallel
 various types of errors related to parallelism - e.g., child process died due to some error.  If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
 
+.B package
+a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
+
+.B corrupt
+corrupt/unreadable file found.
+
 .RE
 .BI "\-\-keep\-going "
 .RS
@@ -592,6 +605,14 @@ Increment 'debug messages' verbosity.  This is useful primarily to developers wh
 Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
 
 .RE
+.BI "\-\-memory "
+.I integer
+.RS
+Specify the maximum amount of memory to use during prallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
+
+This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
+
+.RE
 
 .B \-\-rc
 .IR keyword = value
@@ -628,6 +649,12 @@ name can be used to differentiate between data from each test case.
 Print version number, then exit.
 .RE
 
+.B \-\-tempdir
+.I dirname
+.br
+.RS
+Write temporary and intermediate data to indicated directory.  Default is "/tmp".
+.RE
 
 .SH FILES
 

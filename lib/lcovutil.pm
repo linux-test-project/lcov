@@ -19,11 +19,12 @@ our @EXPORT_OK =
      @temp_dirs set_tool_name
      info warn_once set_info_callback init_verbose_flag $verbose
      debug $debug
-     append_tempdir temp_cleanup
+     append_tempdir temp_cleanup folder_is_empty $tmp_dir
      define_errors parse_ignore_errors ignorable_error ignorable_warning is_ignored
      die_handler warn_handler abort_handler
 
-     $maxParallelism count_cores
+     $maxParallelism $maxMemory init_parallel_params current_process_size
+     save_profile merge_child_profile
 
      %opt_rc apply_rc_params
      strip_directories
@@ -40,13 +41,14 @@ our @EXPORT_OK =
      @omit_line_patterns
      munge_file_patterns warn_file_patterns transform_pattern
      parse_cov_filters summarize_cov_filters
-     disable_cov_filters reenable_cov_filters
+     disable_cov_filters reenable_cov_filters is_filter_enabled
      filterStringsAndComments simplifyCode balancedParens
      set_rtl_extensions set_c_extensions
      $source_filter_lookahead $source_filter_bitwise_are_conditional
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
+     $ERROR_PACKAGE $ERROR_CORRUPT
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
@@ -68,6 +70,7 @@ our $tool_name  = basename($0); # import from lcovutil module
 our $lcov_version = 'LCOV version '.`"$tool_dir"/get_version.sh --full`;
 our $lcov_url     = "https://github.com/henry2cox/lcov/tree/diffcov_initial";
 our @temp_dirs;
+our $tmp_dir = '/tmp'; # where to put temporary/intermediate files
 
 our $debug = 0;  # if set, emit debug messages
 our $verbose = 0;  # default level - higher to enable additional logging
@@ -82,6 +85,8 @@ our $ERROR_VERSION      = 5;
 our $ERROR_UNUSED       = 6;
 our $ERROR_MISMATCH     = 7;
 our $ERROR_BRANCH       = 8; # branch numbering is not correct
+our $ERROR_PACKAGE      = 9; # missing package
+our $ERROR_CORRUPT      = 10; # corrupt file
 our $ERROR_PARALLEL     = 11; # error in fork/join
 our %geninfoErrs = (
     "gcov" => $ERROR_GCOV,
@@ -94,6 +99,8 @@ our %geninfoErrs = (
     "version" => $ERROR_VERSION,
     "unused" => $ERROR_UNUSED, # exclude/include/substitute pattern not used
     "parallel" => $ERROR_PARALLEL, # error on wait
+    "corrupt" => $ERROR_CORRUPT,
+    "package" => $ERROR_PACKAGE,
 );
 our $stop_on_error; # attempt to keep going
 
@@ -117,6 +124,8 @@ our $default_precision = 1;
 # undef indicates not set by command line or RC option - so default to
 # sequential processing
 our $maxParallelism;
+
+our $maxMemory = 0; # zero indicates no memory limit to parallelism
 
 sub default_info_impl(@);
 
@@ -277,6 +286,12 @@ sub system_no_output($@)
 }
 
 
+sub is_folder_empty
+{
+  my $dirname = shift;
+  opendir(my $dh, $dirname) or die "Not a directory";
+  return scalar(grep { $_ ne "." && $_ ne ".." } readdir($dh)) == 0;
+}
 #
 # info(printf_parameter)
 #
@@ -319,18 +334,17 @@ sub debug {
 }
 
 sub temp_cleanup() {
-  # Ensure temp directory is not in use by current process
-  my $cwd = `pwd`;
-  chdir("/");
-
   if (@temp_dirs) {
+    # Ensure temp directory is not in use by current process
+    my $cwd = `pwd`;
+    chdir("/");
     info("Removing temporary directories.\n");
     foreach (@temp_dirs) {
       rmtree($_);
     }
     @temp_dirs = ();
+    chdir($cwd);
   }
-  chdir($cwd);
 }
 
 sub append_tempdir($) {
@@ -365,6 +379,95 @@ sub count_cores() {
   if (open my $handle, '/proc/cpuinfo') {
     $maxParallelism = scalar(map /^processor/, <$handle>);
     close($handle);
+  }
+}
+
+our $use_MemoryProcess;
+
+sub read_proc_vmsize {
+  if (open(PROC, "<", '/proc/self/stat')) {
+    my $str = do { local $/; <PROC> }; # slurp whole thing
+    close(PROC);
+    my @data = split(' ', $str);
+    return $data[23 - 1]; # man proc - vmsize is at index 22
+  } else {
+    lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE, "unable to open: $!");
+    return 0;
+  }
+}
+
+sub init_parallel_params() {
+  if (! defined($lcovutil::maxParallelism)) {
+    $lcovutil::maxParallelism = 1;
+  } elsif (0 == $lcovutil::maxParallelism) {
+    lcovutil::count_cores();
+  }
+  $lcovutil::maxMemory *= 1 << 20;
+  if (1 != $lcovutil::maxParallelism && # no memory limits if not parallel
+      0 != $lcovutil::maxMemory) {
+    # need Memory::Process to enable the maxMemory feature
+    my $cwd = `pwd`;
+    #debug("init: CWD is $cwd\n");
+    eval {
+      require Memory::Process;
+      Memory::Process->import();
+      $use_MemoryProcess = 1;
+    };
+    # will have done 'cd /' in the die_handler - if Mem::Process not found
+    #debug("init: chdir back to $cwd\n");
+    chdir($cwd);
+    if ($@) {
+      lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE, "package Memory::Process is required to control memory consumption during parallel operatons: $@");
+      lcovutil::info("Attempting to retrieve memory size from /proc instead\n");
+      # check if we can get this from /proc (i.e., are we on linux?)
+      if (0 == read_proc_vmsize()) {
+        $lcovutil::maxMemory = 0; # turn off that feature
+        lcovutil::info("Continuing execution without Memory::Process or /proc.  Note that your maximum memory constraint will be ignored\n");
+      }
+      $use_MemoryProcess = 0
+    }
+  }
+  InOutFile::checkGzip() # we know we are going to use gzip for intermediates
+    if 1 != $lcovutil::maxParallelism;
+}
+
+our $memoryObj;
+sub current_process_size {
+  if ($use_MemoryProcess) {
+    $memoryObj = Memory::Process->new
+      unless defined($memoryObj);
+    $memoryObj->record('size');
+    my $arr = $memoryObj->state;
+    $memoryObj->reset();
+    return $arr->[0]->[0]; # current total
+  } else {
+    # assume we are on linux - and get it from /proc
+    return read_proc_vmsize();
+  }
+}
+
+sub merge_child_profile($) {
+  my $profile = shift;
+  while (my ($key, $d) = each(%$profile)) {
+    if ( 'HASH' eq ref($d) ) {
+      while (my ($f, $t) = each(%$d)) {
+        if ( 'HASH' eq ref($t) ) {
+          while (my ($x, $y) = each(%$t)) {
+            die("unexpected duplicate key $x in $key->$f")
+              if exists($lcovutil::profileData{$key}{$f}{$x});
+            $lcovutil::profileData{$key}{$f}{$x} = $y;
+          }
+        } else {
+          die("unexpected duplicate key $f in $key")
+            if exists($lcovutil::profileData{$key}{$f});
+          $lcovutil::profileData{$key}{$f} = $t;
+        }
+      }
+    } else {
+      die("unexpected duplicate key $key in profileData")
+        if exists($lcovutil::profileData{$key});
+      $lcovutil::profileData{$key} = $d;
+    }
   }
 }
 
@@ -809,6 +912,18 @@ sub report_parallel_error {
                   "$operation: error '$msg' waiting for child (try removing the '--parallel' option");
 }
 
+
+sub is_filter_enabled {
+  # return true of there is an opportunity for filtering
+  return (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]) ||
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_BLANK_LINE]) ||
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE]) ||
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]) ||
+          defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH]) ||
+          0 != scalar(@lcovutil::omit_line_patterns));
+}
+
 sub parse_cov_filters(@)
 {
   my @filters = split(',', join(',', @_));
@@ -864,19 +979,40 @@ sub summarize_cov_filters {
 }
 
 sub disable_cov_filters {
-  # disable but return current status - so the can be re-enabled
+  # disable but return current status - so they can be re-enabled
   my @filters = @lcovutil::cov_filter;
   foreach my $f (@lcovutil::cov_filter) {
     $f = undef;
   }
-  return \@filters
+  my @omit = @lcovutil::omit_line_patterns;
+  @lcovutil::omit_line_patterns = ();
+  return [\@filters, \@omit];
 }
 
 sub reenable_cov_filters {
-  my $filters = shift;
+  my $data = shift;
+  my $filters = $data->[0];
   # disable but return current status - so the can be re-enabled
   for (my $i = 0; $i < scalar(@$filters); $i++) {
     $cov_filter[$i] = $filters->[$i];
+  }
+  @lcovutil::omit_line_patterns = @{$data->[1]};
+}
+
+sub merge_child_pattern_counts {
+  # merge back counts of successful application of substituion and exclusion
+  #  patterns (else the parent won't know that the child uses some pattern -
+  #  and will complain about it later
+  my ($excluded, $subst_patterns) = @_;
+  foreach my $ex (@$excluded) {
+    if (! exists($lcovutil::excluded_files{$ex})) {
+      # call routine so pattern use count is incremented
+      TraceFile::skipCurrentFile($ex);
+      $lcovutil::excluded_files{$ex} = 1;
+    }
+  }
+  for (my $i = 0 ; $i <= $#$subst_patterns ; ++ $i) {
+    $lcovutil::file_subst_patterns[$i]->[1] += $subst_patterns->[$i]->[1];
   }
 }
 
@@ -1173,10 +1309,10 @@ sub out {
         unless defined($checkedGzipAvail);
       # Open compressed file
       open(HANDLE, "|-", "gzip -c $m$f")
-        or die("ERROR: cannot start gzip to compress to file $f!\n");
+        or die("ERROR: cannot start gzip to compress to file $f: $!\n");
     } else {
       open(HANDLE, $m, $f)
-        or die("ERROR: cannot write to $f!\n");
+        or die("ERROR: cannot write to $f: $!\n");
     }
     $self->[0] = \*HANDLE;
   }
@@ -1211,16 +1347,16 @@ sub in {
       $cmd .=  " | " . $lcovutil::cpp_demangle
         if defined($demangle);
       open(HANDLE, "-|", $cmd)
-        or die("ERROR: cannot start gunzip to decompress file $f!\n");
+        or die("ERROR: cannot start gunzip to decompress file $f: $!\n");
 
     } elsif (defined($demangle) &&
              defined($lcovutil::cpp_demangle)) {
       open(HANDLE, "-|", $lcovutil::cpp_demangle . " < $f")
-        or die("ERROR: cannot start demangler for file $f!\n");
+        or die("ERROR: cannot start demangler for file $f: $!\n");
     } else {
       # Open decompressed file
       open(HANDLE, "<", $f)
-      or die("ERROR: cannot read file $f!\n");
+      or die("ERROR: cannot read file $f: $!\n");
     }
     $self->[0] = \*HANDLE;
   }
@@ -1229,8 +1365,10 @@ sub in {
 
 sub DESTROY {
   my $self = shift;
+  # FD can be undef if 'open' failed for any reason (e.g., filesystem issues)
+  # otherwise:  don't close if FD was STDIN or STDOUT
   close($self->[0])
-    unless ! defined($self->[1]) || '-' eq $self->[1];
+    unless ! defined($self->[1]) || '-' eq $self->[1] || ! defined($self->[0]);
 }
 
 sub hdl {
@@ -2857,7 +2995,7 @@ sub _read_info {
   my $line_checksum;     # Checksum of current line
   my $notified_about_relative_paths;
 
-  lcovutil::info("Reading data file $tracefile\n");
+  lcovutil::info(1, "Reading data file $tracefile\n");
 
   # Check if file exists and is readable
   stat($tracefile);
@@ -2926,14 +3064,7 @@ sub _read_info {
       %branchRenumber = ();
       %excludedFunction = ();
 
-      if (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
-          defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]) ||
-          defined($lcovutil::cov_filter[$lcovutil::FILTER_BLANK_LINE]) ||
-          defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE]) ||
-          defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]) ||
-          defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH]) ||
-          0 != scalar(@lcovutil::omit_line_patterns)) {
-
+      if (lcovutil::is_filter_enabled()) {
         # unconditionally 'close' the current file - in case we don't
         #   open a new one.  If that happened, then we would be looking
         #   at the source for some previous file.
@@ -3401,10 +3532,7 @@ sub write_info($$$) {
   my $br_total_hit = 0;
 
   my $srcReader = ReadCurrentSource->new()
-    if (defined($cov_filter[$FILTER_LINE_CLOSE_BRACE]) ||
-        defined($cov_filter[$FILTER_LINE_RANGE]) ||
-        defined($cov_filter[$FILTER_BLANK_LINE]) ||
-        defined($cov_filter[$FILTER_BRANCH_NO_COND]));
+    if (lcovutil::is_filter_enabled());
 
   foreach my $source_file (sort($self->files())) {
     next if lcovutil::is_external($source_file);

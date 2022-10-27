@@ -106,7 +106,7 @@ class GenerateSpreadsheet(object):
                             d = data[seg]
                         except:
                             d = data[str(seg)]
-                        
+
                         start = row
                         for k in ('total', 'merge', 'undump'):
                             sheet.write_string(row, 1, k)
@@ -164,13 +164,20 @@ class GenerateSpreadsheet(object):
                                     print("%s: failed to write %s for lcov[%s][$s]" % (name, str(d2[f]), k, f))
                             row += 1
                         except:
-                            print("%s: failed to file key '%s' in %s" %(name, k))
+                            print("%s: failed to find key '%s'" %(name, k))
 
                 # go on to the next file
                 continue
 
             elif tool == 'geninfo':
                 d = data['gen_info']
+                for k in ('reload', 'emit'):
+                    try:
+                        sheet.write_number(row, 3, data[k], twoDecimal)
+                        sheet.write_string(row, 2, k)
+                        row += 1
+                    except:
+                        pass
                 for dirname in sorted(d.keys()):
                     sheet.write_string(row, 0, 'gen_info')
                     sheet.write_string(row, 1, dirname)
@@ -181,6 +188,7 @@ class GenerateSpreadsheet(object):
                     sheet.write_string(row, 2, 'find')
                     sheet.write_number(row, 3, data['find'][dirname], twoDecimal)
                     row += 1
+
                     for type in ('data', 'graph'):
                         if type not in data:
                             continue
@@ -191,22 +199,40 @@ class GenerateSpreadsheet(object):
                             fname = f[len(dirname):]
                             sheet.write_string(row, 2, fname)
                             try:
+                                # this is the total time from fork in the parent
+                                #  to end of child merge
                                 sheet.write_number(row, 3, float(d3), twoDecimal)
                             except:
                                 print("%s: failed to write %s for geninfo[%s][%s]" % (name, str(d3), type, f))
                             col = 4
                             try:
-                                for key in ('process', 'parse', 'append'):
-                                    val = float(data[key][dirname][f])
+                                # process: time from immediately before fork in parent
+                                #          to immediately after 'process_one_file' in
+                                #          child (can't record 'dumper' call time
+                                #          because that also dumps the profile
+                                # child:   time from child coming to life after fork
+                                #          to immediately afer 'process_one_file'
+                                # exec: time take to by 'gcov' call
+                                # merge: time to merge child process (undump, read
+                                #       trace data, append to summary, etc.)
+                                # undump: dumper 'eval' call + stdout/stderr recovery
+                                # parse: time to read child tracefile.info
+                                # append: time to merge that into parent master report
+
+                                for key in ('process', 'child', 'exec', 'merge', 'undump', 'parse', 'append'):
                                     sheet.write_string(row, col, key)
                                     col += 1
-                                    sheet.write_number(row, col, val, twoDecimal)
+                                    try:
+                                        val = float(data[key][dirname][f])
+                                        sheet.write_number(row, col, val, twoDecimal)
+                                    except:
+                                        pass # no such key
                                     col += 1
                             except:
                                 # get here if this file/directory was not processed in parallel
                                 pass
                             row += 1
-                        
+
                         effectiveParallelism = "+SUM(%(from)s:%(to)s)/%(total)s" % {
                             'from': xl_rowcol_to_cell(start, 3),
                             'to': xl_rowcol_to_cell(row-1, 3),
@@ -224,8 +250,9 @@ class GenerateSpreadsheet(object):
                         sheet.write_string(row, 0, k)
                         sheet.write_number(row, 1, data[k], twoDecimal)
                         row += 1
+                #print(" ".join(data.keys()))
+                dirData = data['directory']
 
-                dirData = data['dir']
                 fileData = data['file']
                 begin = row
                 for dirname in sorted(dirData.keys()):
