@@ -8,6 +8,7 @@
 #                and the lcov.rpm file. Just make sure to adjust the VERSION
 #                and RELEASE variables below - both version and date strings
 #                will be updated in all necessary files.
+#   - checkstyle: check source files for coding style issues
 #   - clean:     remove all generated files
 #   - release:   finalize release and create git tag for specified VERSION
 #
@@ -29,6 +30,12 @@ TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
 
+# Files to be checked for coding style issue issuess
+CHECKFILES = $(shell grep -lr '^#!.*perl' --exclude-dir .git --exclude '*.tdy')
+
+# Program for checking coding style
+CHECKSTYLE = $(CURDIR)/bin/checkstyle.sh
+
 .PHONY: all info clean install uninstall rpms test
 
 all: info
@@ -39,6 +46,7 @@ info:
 	@echo "  uninstall : delete binaries and man pages from DESTDIR (default /)"
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
 	@echo "  check     : perform self-tests"
+	@echo "  checkstyle: check source files for coding style issues"
 	@echo "  release   : finalize release and create git tag for specified VERSION"
 
 clean:
@@ -46,6 +54,7 @@ clean:
 	rm -f lcov-*.rpm
 	make -C example clean
 	make -C tests -s clean
+	find . -name '*.tdy' | xargs rm -f
 
 install:
 	bin/install.sh bin/lcov $(DESTDIR)$(BIN_DIR)/lcov -m 755
@@ -126,6 +135,16 @@ test: check
 
 check:
 	@make -s -C tests check
+
+checkstyle:
+ifeq ($(MODE),full)
+	@echo "Checking source files for coding style issues (MODE=full):"
+else
+	@echo "Checking changes in source files for coding style issues (MODE=diff):"
+endif
+	@RC=0 ; for FILE in $(CHECKFILES) ; do \
+		$(CHECKSTYLE) "$$FILE" || RC=1 ; \
+	done ; exit $$RC
 
 release:
 	@if [ "$(origin VERSION)" != "command line" ] ; then echo "Please specify new version number, e.g. VERSION=1.16" >&2 ; exit 1 ; fi
