@@ -16,15 +16,15 @@ use warnings;
 
 sub do_cmp($$$)
 {
-	my ($title, $a, $b) = @_;
+    my ($title, $a, $b) = @_;
 
-	if ($a == $b) {
-		print("$title: $a == $b\n");
-		return 0;
-	} else {
-		print("$title: $a != $b => mismatch!\n");
-		return 1;
-	}
+    if ($a == $b) {
+        print("$title: $a == $b\n");
+        return 0;
+    } else {
+        print("$title: $a != $b => mismatch!\n");
+        return 1;
+    }
 }
 
 my $lcov = $ENV{"LCOV"};
@@ -36,14 +36,14 @@ my ($lnhit2, $lnfound2, $fnhit2, $fnfound2, $brhit2, $brfound2);
 my $rc = 0;
 
 if (!defined($counts) || !defined($output)) {
-	die("Usage: $0 <counts_file> <coverage_data_file>\n");
+    die("Usage: $0 <counts_file> <coverage_data_file>\n");
 }
 
 open($fd, "<", $output) or die("$0: Could not read $output: $!\n");
 while (<$fd>) {
-	($lnhit, $lnfound) = ($1, $2) if (/(\d+) of (\d+) lines/);
-	($fnhit, $fnfound) = ($1, $2) if (/(\d+) of (\d+) functions/);
-	($brhit, $brfound) = ($1, $2) if (/(\d+) of (\d+) branches/);
+    ($lnhit, $lnfound) = ($1, $2) if (/(\d+) of (\d+) lines/);
+    ($fnhit, $fnfound) = ($1, $2) if (/(\d+) of (\d+) functions/);
+    ($brhit, $brfound) = ($1, $2) if (/(\d+) of (\d+) branches/);
 }
 close($fd);
 
@@ -51,10 +51,10 @@ die("$0: Non-zero result code ($?) of command: $cmdline\n") if ($? != 0);
 
 open($fd, "<", $counts) or die("$0: Could not open $counts: $!\n");
 if (<$fd> !~ /^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/) {
-	die("$0: Invalid count file: $counts\n");
+    die("$0: Invalid count file: $counts\n");
 }
 ($lnhit2, $lnfound2, $fnhit2, $fnfound2, $brhit2, $brfound2) =
-	($1, $2, $3, $4, $5, $6);
+    ($1, $2, $3, $4, $5, $6);
 close($fd);
 
 print("Comparing output for $output and $counts:\n");

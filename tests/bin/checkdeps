@@ -19,45 +19,45 @@ my $verbose = 0;
 
 sub check_file($)
 {
-	my ($file) = @_;
-	my $fd;
-	my $line;
-	my $rc = 0;
+    my ($file) = @_;
+    my $fd;
+    my $line;
+    my $rc = 0;
 
-	open($fd, "<", $file) or die("Could not open $file: $!\n");
-	$line = <$fd>;
+    open($fd, "<", $file) or die("Could not open $file: $!\n");
+    $line = <$fd>;
 
-	if ($line =~ /^#.*perl/) {
-		while ($line = <$fd>) {
-			my $module;
+    if ($line =~ /^#.*perl/) {
+        while ($line = <$fd>) {
+            my $module;
 
-			# Look for ...use...module...;
-			next if ($line !~ /^\s*use\s+(\S+).*;\s*$/);
+            # Look for ...use...module...;
+            next if ($line !~ /^\s*use\s+(\S+).*;\s*$/);
 
-			$module = $1;
-			print("Checking for $module\n") if ($verbose);
-			if (!eval("require $module")) {
-				warn("Error: Missing Perl module '$module' ".
-				     "required by $file\n");
-				$rc = 1;
-			}
-		}
-	}
+            $module = $1;
+            print("Checking for $module\n") if ($verbose);
+            if (!eval("require $module")) {
+                warn("Error: Missing Perl module '$module' ".
+                     "required by $file\n");
+                $rc = 1;
+            }
+        }
+    }
 
-	close($fd);
+    close($fd);
 
-	return $rc;
+    return $rc;
 }
 
 sub main()
 {
-	my $rc = 0;
+    my $rc = 0;
 
-	for my $file (@ARGV) {
-		$rc = 1 if (check_file($file));
-	}
+    for my $file (@ARGV) {
+        $rc = 1 if (check_file($file));
+    }
 
-	return $rc;
+    return $rc;
 }
 
 exit(main());

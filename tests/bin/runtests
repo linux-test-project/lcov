@@ -3,7 +3,7 @@
 # Copyright IBM Corp. 2020
 #
 # Usage: runtests <make> <tests>
-# 
+#
 
 MAKE="$1"
 shift
