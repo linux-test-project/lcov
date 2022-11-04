@@ -363,7 +363,7 @@ check_options();
 if (@ARGV && !($extract || $remove || $diff || @opt_summary)) {
     die("Extra parameter found: '".
         join(" ", @ARGV).
-        "'\n"."Use $tool_name --help to get usage information\n");
+        "'\nUse $tool_name --help to get usage information\n");
 }
 
 # Check for output filename
@@ -900,7 +900,7 @@ sub get_package($)
     if (defined($gkv)) {
         $gkv = int($gkv);
         if ($gkv != $GKV_PROC && $gkv != $GKV_SYS) {
-            die("ERROR: unsupported gcov kernel version found "."($gkv)\n");
+            die("ERROR: unsupported gcov kernel version found ($gkv)\n");
         }
         info("  content type .........: kernel data\n");
         info("  gcov kernel version ..: %s\n", $GKV_NAME[$gkv]);
@@ -976,7 +976,7 @@ sub create_package($$$;$)
     if (defined($build)) {
         info("  build directory ......: $build\n");
         write_file("$dir/$pkg_build_file", $build) or
-            die("ERROR: could not write to "."$dir/$pkg_build_file\n");
+            die("ERROR: could not write to $dir/$pkg_build_file\n");
     }
 
     # Handle gcov kernel version data
@@ -984,7 +984,7 @@ sub create_package($$$;$)
         info("  content type .........: kernel data\n");
         info("  gcov kernel version ..: %s\n", $GKV_NAME[$gkv]);
         write_file("$dir/$pkg_gkv_file", $gkv) or
-            die("ERROR: could not write to "."$dir/$pkg_gkv_file\n");
+            die("ERROR: could not write to $dir/$pkg_gkv_file\n");
     } else {
         info("  content type .........: application data\n");
     }
@@ -1539,12 +1539,11 @@ sub read_info_file($)
 
         # Check integrity of compressed file
         system_no_output(1, "gunzip", "-t", $_[0]) and
-            die(
-               "ERROR: integrity check failed for "."compressed file $_[0]!\n");
+            die("ERROR: integrity check failed for compressed file $_[0]!\n");
 
         # Open compressed file
         open(INFO_HANDLE, "-|", "gunzip -c '$_[0]'") or
-            die("ERROR: cannot start gunzip to decompress "."file $_[0]!\n");
+            die("ERROR: cannot start gunzip to decompress file $_[0]!\n");
     } else {
         # Open decompressed file
         open(INFO_HANDLE, "<", $_[0]) or
@@ -1612,7 +1611,7 @@ sub read_info_file($)
                     # Does it match a previous definition
                     if (defined($checkdata->{$1}) &&
                         ($checkdata->{$1} ne $line_checksum)) {
-                        die("ERROR: checksum mismatch "."at $filename:$1\n");
+                        die("ERROR: checksum mismatch at $filename:$1\n");
                     }
 
                     $checkdata->{$1} = $line_checksum;
@@ -1743,7 +1742,7 @@ sub read_info_file($)
         die("ERROR: no valid records found in tracefile $tracefile\n");
     }
     if ($negative) {
-        warn("WARNING: negative counts found in tracefile "."$tracefile\n");
+        warn("WARNING: negative counts found in tracefile $tracefile\n");
     }
     if ($changed_testname) {
         warn("WARNING: invalid characters removed from testname in ".
@@ -1923,7 +1922,7 @@ sub merge_func_data($$$)
         my $line2 = $funcdata2->{$func};
 
         if (defined($line1) && ($line1 != $line2)) {
-            warn("WARNING: function data mismatch at "."$filename:$line2\n");
+            warn("WARNING: function data mismatch at $filename:$line2\n");
             next;
         }
         $result{$func} = $line2;
@@ -2469,7 +2468,7 @@ sub write_info_file(*$)
                     my ($block, $branch, $taken) =
                         split(/,/, $brentry);
 
-                    print(INFO_HANDLE "BRDA:$line,$block,"."$branch,$taken\n");
+                    print(INFO_HANDLE "BRDA:$line,$block,$branch,$taken\n");
                     $br_found++;
                     $br_hit++ if ($taken ne '-' &&
                                   $taken > 0);
@@ -3103,7 +3102,7 @@ sub read_diff($)
 
         # Open compressed file
         open(HANDLE, "-|", "gunzip -c '$diff_file'") or
-            die("ERROR: cannot start gunzip to decompress "."file $_[0]!\n");
+            die("ERROR: cannot start gunzip to decompress file $_[0]!\n");
     } else {
         # Open decompressed file
         open(HANDLE, "<", $diff_file) or
@@ -3366,7 +3365,7 @@ sub get_line_hash($$$)
                 $new_depth = (tr/\///);
                 if ($old_depth == $new_depth) {
                     die("ERROR: diff file contains ".
-                        "ambiguous entries for "."$filename\n");
+                        "ambiguous entries for $filename\n");
                 } elsif ($new_depth > $old_depth) {
                     $diff_name = $_;
                 }
@@ -3656,8 +3655,8 @@ sub diff()
     }
 
     info("$converted entr".
-         ($converted != 1 ? "ies" : "y")." converted, "."$unchanged entr".
-         ($unchanged != 1 ? "ies" : "y")." left "."unchanged.\n");
+         ($converted != 1 ? "ies" : "y")." converted, $unchanged entr".
+         ($unchanged != 1 ? "ies" : "y")." left unchanged.\n");
 
     # Write data
     if (!$data_stdout) {
@@ -3909,12 +3908,10 @@ sub setup_gkv()
         info("Auto-detecting gcov kernel support.\n");
         @todo = ("cs", "cp", "ss", "cs", "sp", "cp");
     } elsif ($gcov_dir =~ /proc/) {
-        info(
-            "Checking gcov kernel support at $gcov_dir "."(user-specified).\n");
+        info("Checking gcov kernel support at $gcov_dir (user-specified).\n");
         @todo = ("cp", "sp", "cp", "cs", "ss", "cs");
     } else {
-        info(
-            "Checking gcov kernel support at $gcov_dir "."(user-specified).\n");
+        info("Checking gcov kernel support at $gcov_dir (user-specified).\n");
         @todo = ("cs", "ss", "cs", "cp", "sp", "cp",);
     }
     foreach (@todo) {
@@ -3922,16 +3919,16 @@ sub setup_gkv()
             # Check /sys
             $dir = defined($gcov_dir) ? $gcov_dir : $sys_dir;
             if (check_gkv_sys($dir)) {
-                info("Found ".$GKV_NAME[$GKV_SYS].
-                     " gcov "."kernel support at $dir\n");
+                info("Found ".
+                     $GKV_NAME[$GKV_SYS]." gcov kernel support at $dir\n");
                 return ($GKV_SYS, $dir);
             }
         } elsif ($_ eq "cp") {
             # Check /proc
             $dir = defined($gcov_dir) ? $gcov_dir : $proc_dir;
             if (check_gkv_proc($dir)) {
-                info("Found ".$GKV_NAME[$GKV_PROC].
-                     " gcov "."kernel support at $dir\n");
+                info("Found ".
+                     $GKV_NAME[$GKV_PROC]." gcov kernel support at $dir\n");
                 return ($GKV_PROC, $dir);
             }
         } elsif ($_ eq "ss") {

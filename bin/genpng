@@ -85,7 +85,7 @@ if (!caller) {
                     "help"              => \$help,
                     "version"           => \$version
     )) {
-        print(STDERR "Use $tool_name --help to get usage "."information\n");
+        print(STDERR "Use $tool_name --help to get usage information\n");
         exit(1);
     }
 

@@ -606,7 +606,7 @@ foreach my $entry (@data_directory) {
 }
 
 if ($initial && $br_coverage && !$intermediate) {
-    warn("Note: --initial does not generate branch coverage "."data\n");
+    warn("Note: --initial does not generate branch coverage data\n");
 }
 info("Finished .info-file creation\n");
 
@@ -786,7 +786,7 @@ sub gen_info($)
             `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>/dev/null`;
         chomp(@file_list);
         if (!@file_list) {
-            warn("WARNING: no $ext files found in $directory - "."skipping!\n");
+            warn("WARNING: no $ext files found in $directory - skipping!\n");
             return;
         }
         $prefix = get_common_prefix(1, @file_list);
@@ -1071,8 +1071,7 @@ sub process_dafile($$)
         if ((basename($bb_filename) ne $bb_basename) &&
             (!-e "$object_dir/$bb_basename")) {
             symlink($bb_filename, "$object_dir/$bb_basename") or
-                warn(
-                   "WARNING: cannot create link "."$object_dir/$bb_basename\n");
+                warn("WARNING: cannot create link $object_dir/$bb_basename\n");
             push(@tmp_links, "$object_dir/$bb_basename");
         }
     }
@@ -1115,7 +1114,7 @@ sub process_dafile($$)
 
     # Check for files
     if (!@gcov_list) {
-        warn("WARNING: gcov did not create any files for "."$da_filename!\n");
+        warn("WARNING: gcov did not create any files for $da_filename!\n");
     }
 
     # Check whether we're writing to a single file
@@ -1125,7 +1124,7 @@ sub process_dafile($$)
         } else {
             # Append to output file
             open(INFO_HANDLE, ">>", $output_filename) or
-                die("ERROR: cannot write to "."$output_filename!\n");
+                die("ERROR: cannot write to $output_filename!\n");
         }
     } else {
         # Open .info file for output
@@ -1166,7 +1165,7 @@ sub process_dafile($$)
         # to pull the emergency brake here.
         if (!-r $source && $checksum) {
             if ($ignore[$ERROR_SOURCE]) {
-                warn("WARNING: could not read source file "."$source\n");
+                warn("WARNING: could not read source file $source\n");
                 next;
             }
             die("ERROR: could not read source file $source\n");
@@ -1177,7 +1176,7 @@ sub process_dafile($$)
         # Skip files that are not mentioned in the graph file
         if (!@matches) {
             warn("WARNING: cannot find an entry for ".$gcov_file.
-                 " in $graph_file_extension file, skipping "."file!\n");
+                 " in $graph_file_extension file, skipping file!\n");
             unlink($gcov_file);
             next;
         }
@@ -1240,7 +1239,7 @@ sub process_dafile($$)
         # Skip external files if requested
         if (!$opt_external) {
             if (is_external($source_filename)) {
-                info("  ignoring data for external file "."$source_filename\n");
+                info("  ignoring data for external file $source_filename\n");
                 unlink($gcov_file);
                 next;
             }
@@ -2001,7 +2000,7 @@ sub read_intermediate_json($$$)
     if (!defined($json) ||
         !exists($json->{"files"}) ||
         ref($json->{"files"} ne "ARRAY")) {
-        die("ERROR: Unrecognized JSON output format in "."$gcov_filename\n");
+        die("ERROR: Unrecognized JSON output format in $gcov_filename\n");
     }
 
     $$basedir_ref = $json->{"current_working_directory"};
@@ -2261,7 +2260,7 @@ sub intermediate_json_to_info($$$)
                         if (!defined($brcount) || $unexec) {
                             $brcount = "-";
                         }
-                        print($fd "BRDA:$line,0,$branch_num,"."$brcount\n");
+                        print($fd "BRDA:$line,0,$branch_num,$brcount\n");
                     }
 
                     $branches_found++;
@@ -2314,7 +2313,7 @@ sub print_gcov_warnings($$$)
     my $fd;
 
     if (!open($fd, "<", $stderr_file)) {
-        warn("WARNING: Could not open GCOV stderr file "."$stderr_file: $!\n");
+        warn("WARNING: Could not open GCOV stderr file $stderr_file: $!\n");
         return;
     }
     while (my $line = <$fd>) {
@@ -2535,7 +2534,7 @@ sub get_gcov_version()
         ($a, $b, $c) = ($1, $2, $4);
         $c = 0 if (!defined($c));
     } else {
-        warn("WARNING: cannot determine gcov version - "."assuming $a.$b.$c\n");
+        warn("WARNING: cannot determine gcov version - assuming $a.$b.$c\n");
     }
     $result = $a << 16 | $b << 8 | $c;
 
@@ -2990,7 +2989,7 @@ sub process_graphfile($$)
         } else {
             # Append to output file
             open(INFO_HANDLE, ">>", $output_filename) or
-                die("ERROR: cannot write to "."$output_filename!\n");
+                die("ERROR: cannot write to $output_filename!\n");
         }
     } else {
         # Open .info file for output
@@ -3008,7 +3007,7 @@ sub process_graphfile($$)
         # Skip external files if requested
         if (!$opt_external) {
             if (is_external($filename)) {
-                info("  ignoring data for external file "."$filename\n");
+                info("  ignoring data for external file $filename\n");
                 next;
             }
         }
@@ -3670,7 +3669,7 @@ sub read_bb($)
         } elsif ($value > 0) {
             # Line number
             if (!defined($filename) || !defined($function)) {
-                warn("WARNING: unassigned line number "."$value\n");
+                warn("WARNING: unassigned line number $value\n");
                 next;
             }
             push(@{$bb->{$function}->{$filename}}, $value);
@@ -3788,7 +3787,7 @@ sub read_bbg_lines_record(*$$$$$)
         }
         # Got an actual line number
         if (!defined($filename)) {
-            warn("WARNING: unassigned line number in "."$bbg_filename\n");
+            warn("WARNING: unassigned line number in $bbg_filename\n");
             next;
         }
         push(@{$bb->{$function}->{$filename}}, $lineno);
@@ -3987,7 +3986,7 @@ sub read_gcno_lines_record(*$$$$$$)
         }
         # Got an actual line number
         if (!defined($filename)) {
-            warn("WARNING: unassigned line number in "."$gcno_filename\n");
+            warn("WARNING: unassigned line number in $gcno_filename\n");
             next;
         }
         # Add to list
@@ -4352,7 +4351,7 @@ sub parse_ignore_errors(@)
         my $item_id = $ERROR_ID{lc($item)};
 
         if (!defined($item_id)) {
-            die("ERROR: unknown argument for --ignore-errors: "."$item\n");
+            die("ERROR: unknown argument for --ignore-errors: $item\n");
         }
         $ignore[$item_id] = 1;
     }
@@ -4438,7 +4437,7 @@ sub parse_compat_modes($)
         if (defined($2)) {
             $value = $COMPAT_NAME_TO_VALUE{lc($2)};
             if (!defined($value)) {
-                die("ERROR: Unknown compatibility mode "."value '$2'!\n");
+                die("ERROR: Unknown compatibility mode value '$2'!\n");
             }
         } else {
             $value = $COMPAT_VALUE_ON;
@@ -4468,12 +4467,12 @@ sub parse_compat_modes($)
 
         if ($specified{$mode}) {
             if ($value == $COMPAT_VALUE_ON) {
-                info("Enabling compatibility mode "."'$name'$is_autodetect\n");
+                info("Enabling compatibility mode '$name'$is_autodetect\n");
             } elsif ($value == $COMPAT_VALUE_OFF) {
-                info("Disabling compatibility mode "."'$name'$is_autodetect\n");
+                info("Disabling compatibility mode '$name'$is_autodetect\n");
             } else {
                 info("Using delayed auto-detection for ".
-                     "compatibility mode "."'$name'\n");
+                     "compatibility mode '$name'\n");
             }
         }
     }
@@ -4552,7 +4551,7 @@ sub load_json_module($)
 
     eval "load '$mod', 'decode_json'";
     if ($@) {
-        die("Module is not installed: "."'$mod'\n");
+        die("Module is not installed: '$mod'\n");
     }
     info("Using JSON module $mod\n");
 }

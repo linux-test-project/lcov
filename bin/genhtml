@@ -498,7 +498,7 @@ if ($css_filename) {
 
 # Make sure tab_size is within valid range
 if ($tab_size < 1) {
-    print(STDERR "ERROR: invalid number of spaces specified: "."$tab_size!\n");
+    print(STDERR "ERROR: invalid number of spaces specified: $tab_size!\n");
     exit(1);
 }
 
@@ -890,7 +890,7 @@ sub gen_html()
     # Change to output directory if specified
     if ($output_directory) {
         chdir($output_directory) or
-            die("ERROR: cannot change to directory "."$output_directory!\n");
+            die("ERROR: cannot change to directory $output_directory!\n");
     }
 
     info("Writing .css and .png files.\n");
@@ -987,7 +987,7 @@ sub html_create($$)
 
     if ($html_gzip) {
         open($handle, "|-", "gzip -c >'$filename'") or
-            die("ERROR: cannot open $filename for writing "."(gzip)!\n");
+            die("ERROR: cannot open $filename for writing (gzip)!\n");
     } else {
         open($handle, ">", $filename) or
             die("ERROR: cannot open $filename for writing!\n");
@@ -1439,12 +1439,11 @@ sub read_info_file($)
 
         # Check integrity of compressed file
         system_no_output(1, "gunzip", "-t", $_[0]) and
-            die(
-               "ERROR: integrity check failed for "."compressed file $_[0]!\n");
+            die("ERROR: integrity check failed for compressed file $_[0]!\n");
 
         # Open compressed file
         open(INFO_HANDLE, "-|", "gunzip -c '$_[0]'") or
-            die("ERROR: cannot start gunzip to decompress "."file $_[0]!\n");
+            die("ERROR: cannot start gunzip to decompress file $_[0]!\n");
     } else {
         # Open decompressed file
         open(INFO_HANDLE, "<", $_[0]) or
@@ -1476,7 +1475,7 @@ sub read_info_file($)
                 if (!File::Spec->file_name_is_absolute($1) &&
                     !$notified_about_relative_paths) {
                     info("Resolved relative source file ".
-                         "path \"$1\" with CWD to "."\"$filename\".\n");
+                         "path \"$1\" with CWD to \"$filename\".\n");
                     $notified_about_relative_paths = 1;
                 }
 
@@ -1519,7 +1518,7 @@ sub read_info_file($)
                     # Does it match a previous definition
                     if (defined($checkdata->{$1}) &&
                         ($checkdata->{$1} ne $line_checksum)) {
-                        die("ERROR: checksum mismatch "."at $filename:$1\n");
+                        die("ERROR: checksum mismatch at $filename:$1\n");
                     }
 
                     $checkdata->{$1} = $line_checksum;
@@ -1650,7 +1649,7 @@ sub read_info_file($)
         die("ERROR: no valid records found in tracefile $tracefile\n");
     }
     if ($negative) {
-        warn("WARNING: negative counts found in tracefile "."$tracefile\n");
+        warn("WARNING: negative counts found in tracefile $tracefile\n");
     }
     if ($changed_testname) {
         warn("WARNING: invalid characters removed from testname in ".
@@ -1829,7 +1828,7 @@ sub merge_func_data($$$)
         my $line2 = $funcdata2->{$func};
 
         if (defined($line1) && ($line1 != $line2)) {
-            warn("WARNING: function data mismatch at "."$filename:$line2\n");
+            warn("WARNING: function data mismatch at $filename:$line2\n");
             next;
         }
         $result{$func} = $line2;
@@ -4090,7 +4089,7 @@ sub get_branch_html($)
             } else {
                 $class = "branchCov";
                 $text  = " + ";
-                $title = "Branch $br_num was taken $taken "."time";
+                $title = "Branch $br_num was taken $taken time";
                 $title .= "s" if ($taken > 1);
             }
             $current .= "[" if ($open);
@@ -4194,8 +4193,7 @@ sub write_source_line(*$$$$$)
     if ($br_coverage) {
         # Add lines for overlong branch information
         foreach (@br_html) {
-            write_html($handle,
-                       "<span class=\"lineNum\">"."         </span>$_\n");
+            write_html($handle, "<span class=\"lineNum\">         </span>$_\n");
         }
     }
     # *************************************************************
@@ -4436,7 +4434,7 @@ sub write_header(*$$$$$$$$$$)
         # Directory overview
         $base_dir = get_relative_base_path($rel_filename);
         $view     = "<a href=\"$base_dir".
-            "index.$html_ext\">"."$overview_title</a> - $esc_trunc_name";
+            "index.$html_ext\">$overview_title</a> - $esc_trunc_name";
     } elsif ($type == $HDR_SOURCE || $type == $HDR_FUNC) {
         # File view
         my $dir_name      = dirname($rel_filename);
@@ -4455,7 +4453,7 @@ sub write_header(*$$$$$$$$$$)
         } else {
             $view =
                 "<a href=\"$base_dir"."index.$html_ext\">".
-                "$overview_title</a> - "."<a href=\"index.$html_ext\">".
+                "$overview_title</a> - <a href=\"index.$html_ext\">".
                 "$esc_dir_name</a> - $esc_base_name";
         }
 
@@ -4480,7 +4478,7 @@ sub write_header(*$$$$$$$$$$)
         # Test description header
         $base_dir = "";
         $view     = "<a href=\"$base_dir".
-            "index.$html_ext\">"."$overview_title</a> - test case descriptions";
+            "index.$html_ext\">$overview_title</a> - test case descriptions";
     }
 
     # Prepare text for "test" field
@@ -4491,12 +4489,12 @@ sub write_header(*$$$$$$$$$$)
         if ($frames && ($type == $HDR_SOURCE || $type == $HDR_FUNC)) {
             # Need to break frameset when clicking this link
             $test .=
-                " ( <span style=\"font-size:80%;\">"."<a href=\"$base_dir".
+                " ( <span style=\"font-size:80%;\"><a href=\"$base_dir".
                 "descriptions.$html_ext\" target=\"_parent\">".
                 "view descriptions</a></span> )";
         } else {
-            $test .= " ( <span style=\"font-size:80%;\">"."<a href=\"$base_dir".
-                "descriptions.$html_ext\">"."view descriptions</a></span> )";
+            $test .= " ( <span style=\"font-size:80%;\"><a href=\"$base_dir".
+                "descriptions.$html_ext\">view descriptions</a></span> )";
         }
     }
 
@@ -4912,7 +4910,7 @@ sub write_file_table(*$$$$$$$)
             # Insert link to description of available
             if ($test_description{$testname}) {
                 $testname = "<a href=\"$base_dir".
-                    "descriptions.$html_ext#$testname\">"."$testname</a>";
+                    "descriptions.$html_ext#$testname\">$testname</a>";
             }
 
             push(@results, [$found, $hit]);
@@ -5020,7 +5018,7 @@ sub get_affecting_tests($$$)
 
         if ($hit > 0) {
             $result{$testname} =
-                "$found,$hit,$fn_found,$fn_hit,"."$br_found,$br_hit";
+                "$found,$hit,$fn_found,$fn_hit,$br_found,$br_hit";
         }
     }
 
@@ -5798,7 +5796,7 @@ sub parse_ignore_errors(@)
         my $item_id = $ERROR_ID{lc($item)};
 
         if (!defined($item_id)) {
-            die("ERROR: unknown argument for --ignore-errors: "."$item\n");
+            die("ERROR: unknown argument for --ignore-errors: $item\n");
         }
         $ignore[$item_id] = 1;
     }
