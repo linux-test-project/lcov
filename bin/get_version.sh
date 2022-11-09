@@ -9,19 +9,18 @@ TOOLDIR=$(cd "$DIRPATH" >/dev/null ; pwd)
 GITVER=$(cd "$TOOLDIR" ; git describe --tags 2>/dev/null)
 
 if [ -z "$GITVER" ] ; then
-	# Get version information from file
-	if [ -e "$TOOLDIR/../.version" ] ; then
-		source "$TOOLDIR/../.version"
-	fi
+        # Get version information from file
+        if [ -e "$TOOLDIR/../.version" ] ; then
+                source "$TOOLDIR/../.version"
+        fi
 else
-	# Get version information from git
-	FULL=${GITVER:1}
-	VERSION=${GITVER%%-*}
-	VERSION=${VERSION:1}
-	if [ "${GITVER#*-}" != "$GITVER" ] ; then
-		RELEASE=${GITVER#*-}
-		RELEASE=${RELEASE/-/.}
-	fi
+        # Get version information from git
+        FULL=${GITVER}
+        VERSION=${GITVER%%-*}
+        if [ "${GITVER#*-}" != "$GITVER" ] ; then
+                RELEASE=${GITVER#*-}
+                RELEASE=${RELEASE/-/.}
+        fi
 fi
 
 # Fallback

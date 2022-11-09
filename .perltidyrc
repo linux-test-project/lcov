@@ -65,8 +65,10 @@
 --function-paren-vertical-alignment     # -fpva  [=default]
 --keyword-paren-inner-tightness=1       # -kpit=1  [=default]
 --logical-padding                       # -lop  [=default]
---nowant-left-space="."                 # -nwls="."
---nowant-right-space="."                # -nwrs="."
+# HGC: prefer space around '.' operator.
+#  My eyesight is such that they disappear otherwise.
+--want-left-space="."                   # -wls="."
+--want-right-space="."                  # -wrs="."
 --paren-tightness=2                     # -pt=2
 --nospace-for-semicolon                 # -nsfs
 --space-prototype-paren=0               # -spp=0
@@ -149,3 +151,4 @@
 --look-for-autoloader                   # -lal  [=default]
 --look-for-selfloader                   # -lsl  [=default]
 --pass-version-line                     # -pvl  [=default]
+

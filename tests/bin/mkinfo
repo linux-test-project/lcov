@@ -197,11 +197,11 @@ sub _gen_filename($$)
     $ext    = randlist($lext);
 
     $filename = $root;
-    $filename .= "/".$top if ($top ne "");
-    $filename .= "/".$sub if ($sub ne "");
-    $filename .= "/".$subsub if ($subsub ne "");
-    $filename .= "/".$prefix;
-    $filename .= "_".$suffix if ($suffix ne "");
+    $filename .= "/" . $top if ($top ne "");
+    $filename .= "/" . $sub if ($sub ne "");
+    $filename .= "/" . $subsub if ($subsub ne "");
+    $filename .= "/" . $prefix;
+    $filename .= "_" . $suffix if ($suffix ne "");
     $filename .= $ext;
     $filename =~ s#^//#/#;
 
@@ -246,13 +246,13 @@ sub gen_fnname($$)
     $noun = randlist($lnoun) if (randbool());
 
     $fnname = $verb;
-    $fnname .= "_".$adj if ($adj ne "");
-    $fnname .= "_".$noun if ($noun ne "");
+    $fnname .= "_" . $adj if ($adj ne "");
+    $fnname .= "_" . $noun if ($noun ne "");
 
     if (exists($hash->{$fnname})) {
         my $i = 2;
 
-        while (exists($hash->{$fnname.$i})) {
+        while (exists($hash->{$fnname . $i})) {
             $i++;
         }
         $fnname .= $i;
@@ -304,7 +304,7 @@ sub get_dist($$;$)
             $n = $1;
             $p = 1;
         } else {
-            die("$0: Config value $dir must be a distribution ".
+            die("$0: Config value $dir must be a distribution " .
                 "list (a:p1 b:p2 ...)\n");
         }
         $sumprob += $p;
@@ -584,7 +584,7 @@ sub write_counts($$)
     open($fd, ">", $filename) or die("Could not create $filename: $!\n");
     print($fd join(" ",
                    get_hit_found(\@tlnhits), get_hit_found(\@tfnhits),
-                   get_hit_found(\@tbrhits)).
+                   get_hit_found(\@tbrhits)) .
               "\n");
     close($fd);
 }
@@ -846,10 +846,9 @@ sub print_intro($)
 
     $numtests = 1 if ($numtests < 1);
 
-    print($BOLD."Creating coverage files ($numtests "
-          .
-          plural($numtests, "test", "tests").", $numfiles ".
-          plural($numfiles, "source file", "source files").")\n".$RESET);
+    print($BOLD. "Creating coverage files ($numtests " .
+          plural($numtests, "test", "tests") . ", $numfiles " .
+          plural($numfiles, "source file", "source files") . ")\n" . $RESET);
 }
 
 sub main()
@@ -888,7 +887,7 @@ sub main()
     if (defined($opt_output)) {
         if (!-d $opt_output) {
             mkdir($opt_output) or
-                die("$0: Could not create directory "."$opt_output: $!\n");
+                die("$0: Could not create directory " . "$opt_output: $!\n");
         }
         $root = abs_path($opt_output);
     } else {
@@ -911,9 +910,9 @@ sub main()
     # Write out source code if requested
     write_src($src) if (defined($opt_output));
     print("done (");
-    print($src->[1]." lines, ");
-    print($src->[2]." functions, ");
-    print($src->[3]." branches)\n");
+    print($src->[1] . " lines, ");
+    print($src->[2] . " functions, ");
+    print($src->[3] . " branches)\n");
 
     # Write out full-coverage data files
     print("  Full coverage ....... ");

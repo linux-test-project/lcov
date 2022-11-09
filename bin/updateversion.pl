@@ -22,6 +22,7 @@ our @man_pages = ("man/gendesc.1", "man/genhtml.1",
                   "man/lcov.1", "man/lcovrc.5");
 our @bin_tools =
     ("bin/gendesc", "bin/genhtml", "bin/geninfo", "bin/genpng", "bin/lcov");
+our @lib_tools  = ('lib/lcovutil.pm');
 our @txt_files  = ("README");
 our @spec_files = ("rpm/lcov.spec");
 
@@ -39,6 +40,9 @@ if (-f $directory) {
         update_man_page($file);
     } elsif (grep(/^$base$/, map({ basename($_) } @bin_tools))) {
         print("Updating bin tool $file\n");
+        update_bin_tool($file);
+    } elsif (grep(/^$base$/, map({ basename($_) } @lib_tools))) {
+        print("Updating lib $file\n");
         update_bin_tool($file);
     } elsif (grep(/^$base$/, map({ basename($_) } @txt_files))) {
         print("Updating text file $file\n");
@@ -58,19 +62,19 @@ if (-f $directory) {
 
 foreach (@man_pages) {
     print("Updating man page $_\n");
-    update_man_page($directory."/".$_);
+    update_man_page($directory . "/" . $_);
 }
 foreach (@bin_tools) {
     print("Updating bin tool $_\n");
-    update_bin_tool($directory."/".$_);
+    update_bin_tool($directory . "/" . $_);
 }
 foreach (@txt_files) {
     print("Updating text file $_\n");
-    update_txt_file($directory."/".$_);
+    update_txt_file($directory . "/" . $_);
 }
 foreach (@spec_files) {
     print("Updating spec file $_\n");
-    update_spec_file($directory."/".$_);
+    update_spec_file($directory . "/" . $_);
 }
 print("Updating version file $directory/.version\n");
 write_version_file("$directory/.version");
@@ -118,7 +122,7 @@ sub update_man_page($)
     close(IN);
     chmod(oct($date[2]), "$filename.new");
     system("mv", "-f", "$filename.new", "$filename");
-    system("touch", "$filename", "-t", $date[1]);
+    system("touch", "-t", $date[1], "$filename");
 }
 
 sub update_bin_tool($)
@@ -139,7 +143,7 @@ sub update_bin_tool($)
     close(IN);
     chmod(oct($date[2]), "$filename.new");
     system("mv", "-f", "$filename.new", "$filename");
-    system("touch", "$filename", "-t", $date[1]);
+    system("touch", "-t", $date[1], "$filename");
 }
 
 sub update_txt_file($)

@@ -4,8 +4,10 @@ geninfo \- Generate tracefiles from .da files
 .SH SYNOPSIS
 .B geninfo
 .RB [ \-h | \-\-help ]
-.RB [ \-v | \-\-version ]
+.RB [ \-\-version ]
 .RB [ \-q | \-\-quiet ]
+.RB [ \-v | \-\-verbose ]
+.RB [ \-\-debug ]
 .br
 .RS 8
 .RB [ \-i | \-\-initial ]
@@ -19,6 +21,8 @@ geninfo \- Generate tracefiles from .da files
 .RB [ \-b | \-\-base\-directory
 .IR directory ]
 .br
+.RB [ \-\-branch\-coverage ]
+.br
 .RB [ \-\-checksum ]
 .RB [ \-\-no\-checksum ]
 .br
@@ -27,8 +31,22 @@ geninfo \- Generate tracefiles from .da files
 .br
 .RB [ \-\-gcov\-tool
 .IR tool  ]
+.br
+.RB [ (\-\-parallel | -j)
+.IR [integer] ]
+.br
+.RB [ \-\-memory
+.IR integer_num_Mb ]
+.br
 .RB [ \-\-ignore\-errors
-.IR errors  ]
+.IR errors ]
+.br
+.RB [ \-\-keep\-going ]
+.br
+.RB [ \-\-preserve ]
+.br
+.RB [ \-\-filter
+.IR type  ]
 .br
 .RB [ \-\-no\-recursion ]
 .I directory
@@ -47,13 +65,27 @@ geninfo \- Generate tracefiles from .da files
 .IR keyword = value ]
 .br
 .RB [ \-\-include
-.IR pattern ]
+.IR glob_pattern ]
+.br
 .RB [ \-\-exclude
-.IR pattern ]
+.IR glob_pattern ]
+.br
+.RB [ \-\-substitute
+.IR regexp_pattern ]
+.br
+.RB [ \-\-omit\-lines
+.IR regexp_pattern ]
+.br
+.RB [ \-\-version\-script
+.IR script_file  ]
+.br
+.RB [ \-\-tempdir
+.IR dirname  ]
+.br
 .RE
 .SH DESCRIPTION
-.B geninfo 
-converts all GCOV coverage data files found in 
+.B geninfo
+converts all GCOV coverage data files found in
 .I directory
 into tracefiles, which the
 .B genhtml
@@ -132,14 +164,14 @@ affected.
 .RE
 LCOV_EXCL_EXCEPTION_BR_START
 .RS
-Marks the beginning of a section which is excluded from exception branch 
+Marks the beginning of a section which is excluded from exception branch
 coverage. The current line is part of this section.
 .br
 .RE
 LCOV_EXCL_EXCEPTION_BR_STOP
 .RS
-Marks the end of a section which is excluded from exception branch coverage. 
-The current line not part of this section.
+Marks the end of a section which is excluded from exception branch coverage.
+The current line not part of this section
 .RE
 .br
 
@@ -174,6 +206,15 @@ directories are used. In that case use configuration file setting
 .B geninfo_auto_base=1
 (see
 .BR lcovrc (5)).
+.RE
+
+.B \-\-branch\-coverage
+.br
+Collect retain branch coverage data.
+
+This is equivalent to using the option "\-\-rc lcov_branch_coverage=1"; the option was added to better match the genhml interface.
+
+
 .RE
 
 .B \-\-checksum
@@ -289,6 +330,7 @@ libtool, disable this option to prevent problems when capturing coverage data.
 .br
 .RS
 Specify a configuration file to use.
+See the lcovrc man page for details of the file format and options.
 
 When this option is specified, neither the system\-wide configuration file
 /etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
@@ -297,6 +339,9 @@ This option may be useful when there is a need to run several
 instances of
 .B geninfo
 with different configuration file options in parallel.
+
+Note that this option must be specified in full - abbreviations are not supported.
+
 .RE
 
 .B \-\-derive\-func\-data
@@ -308,32 +353,6 @@ Use this option to collect function coverage data, even if the version of the
 gcov tool installed on the test system does not provide this data. lcov will
 instead derive function coverage data from line coverage data and
 information about which lines belong to a function.
-.RE
-
-.B \-\-exclude
-.I pattern
-.br
-.RS
-Exclude source files matching
-.IR pattern .
-
-Use this switch if you want to exclude coverage data for a particular set
-of source files matching any of the given patterns. Multiple patterns can be
-specified by using multiple
-.B --exclude
-command line switches. The
-.I patterns
-will be interpreted as shell wildcard patterns (note that they may need to be
-escaped accordingly to prevent the shell from expanding them first).
-
-Note: The pattern must be specified to match the
-.B absolute
-path of each source file.
-
-Can be combined with the
-.B --include
-command line switch. If a given file matches both the include pattern and the
-exclude pattern, the exclude pattern will take precedence.
 .RE
 
 .B \-\-external
@@ -390,9 +409,58 @@ command line switches. The
 will be interpreted as shell wildcard patterns (note that they may need to be
 escaped accordingly to prevent the shell from expanding them first).
 
+See the lcov man page for details
+
+.RE
+
+.B \-\-exclude
+.I pattern
+.br
+.RS
+Exclude source files matching
+.IR pattern .
+
+Use this switch if you want to exclude coverage data from a  particular set
+of source files matching any of the given patterns. Multiple patterns can be
+specified by using multiple
+.B --exclude
+command line switches. The
+.I patterns
+will be interpreted as shell wildcard patterns (note that they may need to be
+escaped accordingly to prevent the shell from expanding them first).
 Note: The pattern must be specified to match the
 .B absolute
 path of each source file.
+
+Can be combined with the
+.B --include
+command line switch. If a given file matches both the include pattern and the
+exclude pattern, the exclude pattern will take precedence.
+
+See the lcov man page for details.
+
+.RE
+
+.B \-\-substitute
+.I regexp_pattern
+.br
+.RS
+Apply Perl regexp
+.IR regexp_pattern
+to source file names found during processing.  This is useful when the path name reported by gcov does not match your source layout and the file is not found.See the lcov man page for more details.
+
+.RE
+
+.B \-\-omit\-lines
+.I regexp
+.br
+.RS
+Exclude coverage data from lines whose content matches
+.IR regexp .
+
+Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (e.g., some complicated macro).
+See the lcov man page for details.
+
 .RE
 
 .B \-\-ignore\-errors
@@ -403,6 +471,11 @@ Specify a list of errors after which to continue processing.
 
 Use this option to specify a list of one or more classes of errors after which
 geninfo should continue processing instead of aborting.
+Note that the tool will generate a warning (rather than a fatal error) unless you ignore the error two (or more) times:
+.br
+.RS
+geninfo ... --ignore-errors unused,unused
+.RE
 
 .I errors
 can be a comma\-separated list of the following keywords:
@@ -412,7 +485,42 @@ the gcov tool returned with a non\-zero return code.
 
 .B source:
 the source code file for a data set could not be found.
+
+.B unused
+the include/exclude/substitute/omit pattern did not match any file pathnames.
+
+.B parallel
+various types of errors related to parallelism - e.g., child process died due to some error.  If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
+
+.B package
+a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
+
+.B corrupt
+corrupt/unreadable file found.
+
 .RE
+.BI "\-\-keep\-going "
+.RS
+Do not stop if error occurs: attempt to generate a result, however flawed.
+
+This command line option corresponds to the
+.I stop_on_error [0|1]
+lcovrc option.   See the lcovrc man page for more details.
+
+.RE
+
+.BI "\-\-preserve "
+.RS
+Preserve intermediate data files (e.g., for debugging).
+
+By default, intermediate files are deleted.
+
+.RE
+.BI "\-\-filter "
+.I filters
+.RS
+Specify a list of coverpoint filters to apply to input data.
+See the genhtml man page for details.
 
 .B \-i
 .br
@@ -457,14 +565,64 @@ handling), use this option to specify the respective filename. By default,
 one tracefile will be created for each processed .da file.
 .RE
 
+.B \-\-version\-script
+.I script_file
+.br
+.RS
+call script_file to find file ID from revision control when extracting data.
+The ID is used for error checking when merging .info files.
+
+The script will be called as:
+.br
+.I script_file source_file_name
+;
+.br
+It should write the version ID to stdout and return a 0 exit status.
+If the file has is not versioned, it should write an empty string and return a 0 exit status.  See the genhtml man page for more details.
+
+.RE
+
+.B \-v
+.br
+.B \-\-verbose
+.RS
+Increment informational message verbosity.  This is mainly used for script and/or flow debugging - e.g., to figure out which data file are found, where.
+Also see the \-\-quiet flag.
+
+Messages are sent to stdout unless there is no output file (i.e., if the coverage data is written to stdout rather than to a file) and to stderr otherwise.
+
+.RE
 .B \-q
 .br
 .B \-\-quiet
 .RS
-Do not print progress messages.
+Decrement informational message verbosity.
 
-Suppresses all informational progress output. When this switch is enabled,
-only error or warning messages are printed.
+Decreased verbosity will suppres 'progress' messages for example - while error and warning messages will continue to be printed.
+
+.RE
+.B \-\-debug
+.RS
+Increment 'debug messages' verbosity.  This is useful primarily to developers who want to enhance the lcov tool suite.
+
+.RE
+
+.BI "\-\-parallel "
+.I [ integer ]
+.br
+.BI "\-j "
+.I [ integer ]
+.RS
+Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
+
+.RE
+.BI "\-\-memory "
+.I integer
+.RS
+Specify the maximum amount of memory to use during prallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
+
+This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
+
 .RE
 
 .B \-\-rc
@@ -487,7 +645,7 @@ for a list of available keywords and their meaning.
 .br
 .BI "\-\-test\-name " testname
 .RS
-Use test case name 
+Use test case name
 .I testname
 for resulting data. Valid test case names can consist of letters, decimal
 digits and the underscore character ('_').
@@ -497,13 +655,17 @@ simply concatenating the respective tracefiles) in which case a test
 name can be used to differentiate between data from each test case.
 .RE
 
-.B \-v
-.br
 .B \-\-version
 .RS
 Print version number, then exit.
 .RE
 
+.B \-\-tempdir
+.I dirname
+.br
+.RS
+Write temporary and intermediate data to indicated directory.  Default is "/tmp".
+.RE
 
 .SH FILES
 

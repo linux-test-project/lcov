@@ -19,6 +19,16 @@ location
 .IR ~/.lcovrc .
 Where available, command\-line options override configuration file settings.
 
+The
+.I genhtml, lcov,
+and
+.I geninfo
+commands also support the
+.I \-\-config\-file
+option, which can be used to specify one or more files which should be used instead of the system or user default rc files.
+Multiple options files may be useful if you have both project- and team-specific common options and want to ensure consistency across multiple users.  If multiple \-\-config\-file options are applied in the order they appear.
+Note that the "\-\-config\-file" option name must be specified in full and cannot be abbreviated.  An error will occur if the option is not recognized.
+
 Lines in a configuration file can either be:
 .IP "     *"
 empty lines or lines consisting only of white space characters. These lines are
@@ -29,8 +39,74 @@ lines and will be ignored.
 .IP "     *"
 statements in the form
 .RI ' key " = " value '.
+
+.IP "     *"
+Values may be taken from environment variables via the syntax
+
+.RI ' key " = " ... $ENV{ENV_VAR_NAME} ...'.
+
+.RI
+The substring '$ENV{ENV_VAR_NAME}' is replaced by the value of the environmetn variable.
+
+.RI
+One or more environment variables may be used to set the RC value.
+'key' is ignored if any of the environment variables are not set in your user environment.
+
+.PP
 A list of valid statements and their description can be found in
 section 'OPTIONS' below.
+
+Both 'list' and 'scalar' (non list) options are supported in the lcovrc file.
+
+For scalar (non list) options:
+.IP "     *"
+if specified on the command line and in the lcovrc file, the value specified on the command line wins.
+The value from the RC file is ignored.
+.IP "     *"
+Scalar options include:
+.RI 'genhtml_criteria_script " = " ...'
+,
+.RI 'genhtml_annotate_script " = " ...'
+,
+.RI 'version_script " = " ...'
+, etc.
+.PP
+.PP
+
+.PP
+For list options:
+.IP "     *"
+the RC file entry can be used multiple times; each use appends to the list.
+.br
+For example, the entry below will result in two 'omit' patterns which will both be checked:
+.IP "      "
+# note explicit start/end line markers in the regexp
+.br
+omit_lines = ^\s+//\s*MY_EXCLUDE_MARKER\s*$
+.br
+# Note that the regexp below matches anywhere on the line
+.br
+omit_lines = NR_CM_DBG_PRINT
+
+.IP "     *"
+If entries are specified on the command line, then the RC file entries are ignored:  command line wins.
+If entries are specified in more than one RC file (i.e., multiple \-\-config\-file arguments are supplied), then RC files are applied in order of appearance, and list entries are appended in order.  For most list-type options, order is not important.
+
+
+.IP "     *"
+list options include:
+.RI 'filter " = " ...'
+,
+.RI 'exclude " = " ...'
+.
+.RI 'include " = " ...'
+,
+.RI 'substitute " = " ...'
+,
+.RI 'omit_lines " = " ...'
+, etc.
+
+.PP
 .PP
 
 .B Example configuration:
@@ -57,6 +133,7 @@ section 'OPTIONS' below.
 # Alternate header text to use at top of each page
 .br
 #genhtml_header = Coverage report for my project
+
 .br
 
 # Alternate footer text to use at the bottom of each page
@@ -69,6 +146,45 @@ section 'OPTIONS' below.
 genhtml_hi_limit = 90
 .br
 genhtml_med_limit = 75
+.br
+
+# Ignore some errors (comma-separated list)
+.br
+#ignore_errors = empty,mismatch
+.br
+
+# If set, do not stop when an 'ignorable error' occurs - try
+.br
+#  to generate a result, however flawed.  This is equivalent to
+.br
+#  the '--keep-going' command line switch.
+.br
+# Default is 1:  stop when error occurs
+.br
+#stop_on_error = 1
+
+# list of file extensions which should be treated as C/C++ code
+.br
+# (comma-separated list)
+.br
+#c_file_extensions = h,c,cpp,hpp
+.br
+
+# list of file extensions which should be treated as RTL code
+.br
+# (e.g., Verilog) (comma-separated list)
+.br
+#rtl_file_extensions = v,vh,sv
+.br
+
+# maxmimum number of lines to look at, when filtering bogus branch expressions
+.br
+#filter_lookahead = 5
+.br
+
+# if nonzero, bitwise operators '|', '&', '~' indicate conditiional expressions
+.br
+#filter_bitwise_conditional = 1
 .br
 
 # Width of line coverage field in source code view
@@ -149,6 +265,13 @@ genhtml_legend = 0
 # Include sorted overview pages
 .br
 genhtml_sort = 1
+.br
+
+# Display coverage data in hierarchical directory structure
+.br
+# (rather than flat/3 level)
+.br
+#genhtml_hirearchical = 1
 .br
 
 # Include function coverage data display
@@ -313,6 +436,23 @@ lcov_fail_under_lines = 97.5
 lcov_json_module = auto
 .br
 
+# Specify maximum number of parallel slaves
+.br
+# default: 1 (no parallelism)
+.br
+#parallel = 1
+.br
+
+.br
+# Specify maximum memory to use during parallel processing, in Mb.
+.br
+# Do not fork if estimated memory consumption exceeds this number.
+.br
+# default: 0 (no limit)
+.br
+#memory = 1
+.br
+
 .PP
 
 .SH OPTIONS
@@ -336,14 +476,15 @@ By default, a standard CSS file is generated.
 .BR genhtml_header " ="
 .I string
 .IP
-Specify header text to use at top of each HTML page.
+
+Specify header text to use ta top of each HTML page.
 .br
 
 This option corresponds to the \-\-header\-title command line option of
 .BR genhtml .
 .br
+Default is "LCOV - (differential )? coverage report"
 
-Default is "LCOV - coverage report".
 .PP
 
 .BR genhtml_footer " ="
@@ -357,6 +498,7 @@ This option corresponds to the \-\-footer command line option of
 .br
 
 Default is LCOV tool version string.
+
 .PP
 
 .BR genhtml_dark_mode " ="
@@ -394,6 +536,96 @@ Low:    0         <= rate < med_limit   default color: red
 .br
 
 Defaults are 90 and 75 percent.
+.PP
+
+
+.BR rtl_file_extensions " ="
+.IR str[,str]+
+.IP
+Specify a comma-separage list of file extensions which should be assumed to be RTL code (e.g., Verilog).
+.br
+
+If not specified, the default set is 'v,vh,sv,vhdl?'.
+There is no command line option equivalent.
+.br
+This option is used by genhtml and lcov.
+
+.PP
+
+.BR c_file_extensions " ="
+.IR str[,str]+
+.IP
+Specify a comma-separage list of file extensions which should be assumed to be C/C++ code.
+.br
+
+If not specified, the default set is 'c,h,i,C,H,I,icc,cpp,cc,cxx,hh,hpp,hxx'.
+There is no command line option equivalent.
+.br
+This option is used by genhtml and lcov.
+
+.PP
+
+.BR filter_lookahead " ="
+.IR integer
+.IP
+Specify the maximum number of lines to look at when filtering bogus branch expressions.
+A larger number may catch more cases, but will increase execution time.
+.br
+
+If not specified, the default set is 10.
+There is no command line option equivalent.
+.br
+This option is used by genhtml and lcov.
+
+.PP
+
+.BR filter_bitwise_conditional " ="
+.IR 0|1
+.IP
+If set to non-zero value, bogus branch filtering will assume that expressions containing  bitwise operators '&', '|', '~' are conditional expressions - and will not filter them out.
+.br
+
+If not specified, the default set is 0 (do not treat them as conditional).
+There is no command line option equivalent.
+.br
+This option is used by genhtml and lcov.
+
+.PP
+
+.BR ignore_errors " ="
+.IR message_type(,message_type)*
+.IP
+Specify a  message type which should be ignored.
+.br
+
+This option can be used multiple times in the lcovrc file to ignore multiple message types.
+
+This option is equivalent to the \-\-ignore\-errors option to geninfo, genhtml, or lcov.  Note that the lcovrc file message list is not applied (those messages NOT ignored) if the '\-\-ignore\-errors' command line option is specified.
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR stop_on_error " = "
+.IR 0|1
+.IP
+If set to 1, tell the tools to ignore errors and keep going to try to generate a result - however flawed or incomplete that result might be.
+Note that ignoring some errors may lead to other errors.
+
+.br
+
+This is equivalent to the 
+.I '\-\-keep\-going'
+command line option.
+
+Default is 1:  stop when error occurs.
+
+If the 
+.I 'ignore_error msgType'
+option is also used, then those messages will be treated as warnings rather than errors (or will be entirely suppressed if the message type appears multiple times in the ignore_messages option).
+
+This option is used by genhtml, lcov, and geninfo.
+
 .PP
 
 .BR genhtml_line_field_width " ="
@@ -610,6 +842,33 @@ This option can be set to 0 by using the \-\-no\-sort option of
 Default is 1.
 .PP
 
+.BR genhtml_hierarchical " ="
+.IR 0 | 1
+.IP
+If non\-zero, the HTML report will follow the hierarchical directory structure of the source code.
+.br
+
+This option is equivalent to using the \-\-hierarchical command line option of
+.BR genhtml .
+.br
+
+Default is 0.
+.PP
+
+.BR genhtml_show_navigation " ="
+.IR 0 | 1
+.IP
+If non\-zero, the 'source code' view summary table will contain hyperlinks from the number to the first source line in the corresponding category ('Hit' or 'Not hit') in the non-differential coverage report.
+Source code hyperlinks are always enabled in differential coverage reports.
+.br
+
+This option is equivalent to using the \-\-show\-navigation command line option of
+.BR genhtml .
+.br
+
+Default is 0.
+.PP
+
 .BR genhtml_function_coverage " ="
 .IR 0 | 1
 .IP
@@ -737,7 +996,7 @@ Default is 0.
 .IP
 Specify the location of the gcov tool (see
 .BR gcov (1))
-which is used to generate coverage information from data files. 
+which is used to generate coverage information from data files.
 .br
 
 Default is 'gcov'.
@@ -1048,11 +1307,158 @@ Default is 'LCOV_EXCL_EXCEPTION_BR_LINE'.
 Specify line coverage threshold to lcov.  If the line coverage is below this threshold, lcov will generate all the normal result files and messages, but will return a non-zero exit code.
 .br
 
-This option is equivalent to the \-\-fail\-under\-lines lcov command line option.
+This option is equivalent to the \-\-fail\-under\-lines lcov command line argument.
 
 .br
 The default is 0 (no threshold).
+
 .PP
+
+.BR profile " ="
+.IR filename
+.IP
+If set, tells genhtml, lcov, or geninfo to generate some execution
+time/profile data which can be used to motivate future optimizations.
+The default is unset no data generated.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR parallel " ="
+.IR integer
+.IP
+Tells genhtml, lcov, or geninfo the maximum number of simultaneous processes
+to use.  Zero means to use as many cores as are available on the machine.
+The default is 1 (one) - which means to process sequentially (no parallelism).
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR memory " ="
+.IR integer_Mb
+.IP
+Tells genhtml, lcov, or geninfo the maximum memory to use during parallel processing
+operations.  Effectively, the process will not fork() if this limit would be
+exceeded.
+Zero means that there is no limit.
+The default is 0 (zero) - which that thre is no explicit limit.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR genhtml_date_bins " ="
+.IR integer[,integer..]
+.IP
+This option is equivalent to the "genhtml \-\-date\-bins" option.
+See the genhtml man page for details.
+
+This option can be used multiple tiems in the lcovrc file to set multiple cutpoints.
+The cutpoints specified in the lcovrc file are appended to the cutpoints (if any) specified on the command line.
+
+.PP
+
+.BR genhtml_annotate_script " ="
+.IR path_to_executable
+.IP
+This option is equivalent to the "genhtml \-\-annotate\-script" option.
+See the genhtml man page for details.
+
+.PP
+
+.BR genhtml_criteria_script " ="
+.IR path_to_executable
+.IP
+This option is equivalent to the "genhtml \-\-criteria\-script" option.
+See the genhtml man page for details.
+
+.PP
+
+.BR version_script " ="
+.IR path_to_executable
+.IP
+This option is equivalent to the geninfo/lcov/genhtml "\-\-version\-script" option.
+See the genhtml man page for details.
+
+.PP
+
+.BR filter " ="
+.IR str[,str...]
+.IP
+
+This option is equivalent to the \-\-filter option to geninfo, lcov, and genhtml.
+See the genhtml man page for details.
+
+This option can be used multiple tiems in the lcovrc file to enable multiple filters.
+The filters specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR exclude " ="
+.IR glob_pattern
+.IP
+
+This option is equivalent to the \-\-exclude option to geninfo, lcov, and genhtml.
+See the lcov man page for details.;
+
+This option can be used multiple tiems in the lcovrc file to specify multiple patterns to exclude.
+The patterns specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR include " ="
+.IR glob_pattern
+.IP
+
+This option is equivalent to the \-\-include option to geninfo, lcov, and genhtml.
+See the lcov man page for details.;
+
+This option can be used multiple tiems in the lcovrc file to specify multiple patterns to include.
+The patterns specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR substitute " ="
+.IR regexp
+.IP
+
+This option is equivalent to the \-\-substitute option to geninfo, lcov, and genhtml.
+See the lcov man page for details.;
+
+This option can be used multiple tiems in the lcovrc file to specify multiple subsitution patterns.
+The patterns specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR omit_lines " ="
+.IR regexp
+.IP
+
+This option is equivalent to the \-\-omit\-lines option to geninfo, lcov, and genhtml.
+See the genhtml man page for details.;
+
+This option can be used multiple tiems in the lcovrc file to specify multiple patterns to exclude.
+The patterns specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
 
 .BR lcov_json_module " ="
 .IR module | auto
@@ -1063,6 +1469,7 @@ others (notably JSON::PP can be very slow compared to JSON::XS).
 .br
 
 Default is 'auto'.
+
 .PP
 
 

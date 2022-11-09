@@ -10,7 +10,7 @@
 
 trap 'echo ; exit 1' SIGINT
 
-[[ -z "$TOPDIR" ]] && TOPDIR=$(realpath $(dirname $0)/..)
+[[ -z "$TOPDIR" ]] && TOPDIR=$(readlink -e $(dirname $0)/..)
 
 source "$TOPDIR/bin/common"
 

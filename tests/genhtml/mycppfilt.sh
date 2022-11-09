@@ -5,18 +5,18 @@
 
 # Skip over any valid options
 while [[ $1 =~ ^- ]] ; do
-	shift
+        shift
 done
 
 if [[ -n "$*" ]] ; then
-	PREFIX="$*"
+        PREFIX="$*"
 else
-	PREFIX="aaa"
+        PREFIX="aaa"
 fi
 
 while read LINE ; do
-	echo "${PREFIX}${LINE}"
-	unset LINE
+    echo $LINE | perl -pe "s/^FN(DA)?:([^,]+),(.+)$/FN\1:\2,${PREFIX}\3/";
+        unset LINE
 done
 
 # Last line isn't newline-terminated

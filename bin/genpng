@@ -34,15 +34,17 @@ use warnings;
 use File::Basename;
 use Getopt::Long;
 use Cwd qw/abs_path/;
+use FindBin;
+
+use lib "$FindBin::Bin/../lib";
+use lcovutil qw (%tlaColor %tlaTextColor
+                 $tool_name $tool_dir $lcov_version $lcov_url);
 
 # Constants
-our $tool_dir     = abs_path(dirname($0));
-our $lcov_version = 'LCOV version '.`"$tool_dir"/get_version.sh --full`;
-our $lcov_url     = "https://github.com/linux-test-project/lcov";
-our $tool_name    = basename($0);
+# (now imported from lcovutil.pm)
 
 # Prototypes
-sub gen_png($$$$@);
+sub gen_png($$$$$@);
 sub check_and_load_module($);
 sub genpng_print_usage(*);
 sub genpng_process_file($$$$$);
@@ -197,11 +199,12 @@ sub genpng_process_file($$$$$)
     }
     close(HANDLE);
 
-    gen_png($out_filename, $dark, $width, $tab_size, @source);
+    my $show_tla = 1;
+    gen_png($out_filename, $show_tla, $dark, $width, $tab_size, @source);
 }
 
 #
-# gen_png(filename, dark, width, tab_size, source)
+# gen_png(filename, show_tla, dark, width, tab_size, source)
 #
 # Write an overview PNG file to FILENAME. Source code is defined by SOURCE
 # which is a list of lines <count>:<source code> per source code line.
@@ -213,9 +216,10 @@ sub genpng_process_file($$$$$)
 # Die on error.
 #
 
-sub gen_png($$$$@)
+sub gen_png($$$$$@)
 {
     my $filename       = shift(@_);    # Filename for PNG file
+    my $show_tla       = shift(@_);    # differential categories
     my $dark_mode      = shift(@_);    # dark-on-light, if set
     my $overview_width = shift(@_);    # Imagewidth for image
     my $tab_size       = shift(@_);    # Replacement string for tab signs
@@ -232,11 +236,17 @@ sub gen_png($$$$@)
                            # covered (count == 0)
     my $col_hi_back;       # Color for background of highlighted lines
     my $col_hi_text;       # Color for text of highlighted lines
+
+    my %col_tla_back;      # Color for background of TLA lines
+    my %col_tla_text;      # Color for text of TLA lines
+
     my $line;              # Current line during iteration
     my $row = 0;           # Current row number during iteration
     my $column;            # Current column number during iteration
     my $color_text;        # Current text color during iteration
     my $color_back;        # Current background color during iteration
+    my $last_tag;          # Tag of last processed line
+    my $tag;               # Tag of current line
     my $last_count;        # Count of last processed line
     my $count;             # Count of current line
     my $source;            # Source code of current line
@@ -277,6 +287,39 @@ sub gen_png($$$$@)
         $col_hi_text    = $overview->colorAllocate(0x00, 0xaa, 0x00);
     }
 
+    foreach my $tla (keys(%lcovutil::tlaColor)) {
+        next if 'D' eq substr($tla, 0, 1); # skip deleted TLAs..they don't apper
+
+        if ($show_tla) {
+            my $text = $tlaTextColor{$tla};
+            my $back = $tlaColor{$tla};
+            $text =~ s/^#/0x/;
+            $back =~ s/^#/0x/;
+            $text = hex($text);
+            $back = hex($back);
+
+            $col_tla_back{$tla} =
+                $overview->colorAllocate($back >> 16,
+                                         ($back >> 8) & 0xFF,
+                                         $back & 0xFF);
+            $col_tla_text{$tla} =
+                $overview->colorAllocate($text >> 16,
+                                         ($text >> 8) & 0xFF,
+                                         $text & 0xFF);
+        } else {
+            # no differential categories...use vanilla colors
+            if (grep(/^$tla$/, ("GBC", "CBC", "GIC", "GNC"))) {
+                $col_tla_back{$tla} = $col_cov_back;
+                $col_tla_text{$tla} = $col_cov_text;
+            } elsif (grep(/^$tla$/, ("ECB", "EUB"))) {
+                $col_tla_back{$tla} = $col_plain_back;
+                $col_tla_text{$tla} = $col_plain_text;
+            } else {
+                $col_tla_back{$tla} = $col_nocov_back;
+                $col_tla_text{$tla} = $col_nocov_text;
+            }
+        }
+    }
     # Visualize each line
     foreach $line (@source) {
         # Replace tabs with spaces to keep consistent with source
@@ -285,14 +328,15 @@ sub gen_png($$$$@)
             $replacement = " " x ($tab_size - ((length($1) - 1) % $tab_size));
             $line =~ s/^([^\t]*)(\t)/$1$replacement/;
         }
-
         # Skip lines which do not follow the <count>:<line>
         # specification, otherwise $1 = count, $2 = source code
-        if (!($line =~ /(\*?)(\d*):(.*)$/)) { next; }
+        if (!($line =~ /([-+<>=]?)(\d*):(.*)$/)) { next; }
+        $tag    = $1;
         $count  = $2;
         $source = $3;
 
         # Decide which color pair to use
+        my $tla = undef;
 
         # If this line was not instrumented but the one before was,
         # take the color of that line to widen color areas in
@@ -300,27 +344,25 @@ sub gen_png($$$$@)
         if (($count eq "") &&
             defined($last_count) &&
             ($last_count ne "")) {
+            $tag   = $last_tag;
             $count = $last_count;
         }
 
-        if ($count eq "") {
+        if ($tag eq "" && $count eq "") {
             # Line was not instrumented
             $color_text = $col_plain_text;
             $color_back = $col_plain_back;
-        } elsif ($count == 0) {
-            # Line was instrumented but not executed
-            $color_text = $col_nocov_text;
-            $color_back = $col_nocov_back;
-        } elsif ($1 eq "*") {
-            # Line was highlighted
-            $color_text = $col_hi_text;
-            $color_back = $col_hi_back;
         } else {
-            # Line was instrumented and executed
-            $color_text = $col_cov_text;
-            $color_back = $col_cov_back;
+            die("unexpected PNG tag '$tag'")
+                unless exists($lcovutil::pngMap{$tag});
+            # index '1' if not covered (count is zero)
+            $tla = $lcovutil::pngMap{$tag}[$count == 0];
         }
 
+        if (defined($tla)) {
+            $color_text = $col_tla_text{$tla};
+            $color_back = $col_tla_back{$tla};
+        }
         # Write one pixel for each source character
         $column = 0;
         foreach (split("", $source)) {
@@ -341,6 +383,7 @@ sub gen_png($$$$@)
             $overview->setPixel($column++, $row, $color_back);
         }
 
+        $last_tag   = $1;
         $last_count = $2;
 
         $row++;

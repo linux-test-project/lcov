@@ -1,0 +1,96 @@
+#!/usr/bin/env perl
+
+#   Copyright (c) MediaTek USA Inc., 2020
+#
+#   This program is free software;  you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or (at
+#   your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY;  without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, see
+#   <http://www.gnu.org/licenses/>.
+#
+#
+# gitblame
+#
+#   This script runs "git blame" for the specified file and formats the result
+#   to match the diffcov(1) age/ownership annotation specification.
+
+#use strict;
+use DateTime::Format::W3CDTF;
+use POSIX qw(strftime);
+
+my $pathname = shift @ARGV;
+
+# set working directory to account for nested repos and submodules
+my $dirname = `dirname $pathname`;
+chomp $dirname;
+chdir $dirname;
+
+if (0 == system("git rev-parse --show-toplevel >/dev/null 2>&1")) {
+    # in a git repo
+    if (0 == system("git ls-files --error-unmatch $pathname >/dev/null 2>&1")) {
+        # matched a tracked pathname
+        if (open(HANDLE, "-|", "git blame -e $pathname")) {
+            while (my $line = <HANDLE>) {
+                chomp $line;
+                # Also remove CR from line-end
+                s/\015$//;
+
+                if ($line =~
+                    m/(\S+)\s+\(<([^>]+)>\s+([-0-9]+\s+[0-9:]+\s+[-+0-9]+)\s+([0-9]+)\) (.*)/
+                ) {
+                    my $commit = $1;
+                    my $owner  = $2;
+                    my $when   = $3;
+                    my $text   = $5;
+
+                    # line owner filtering to canonical form
+                    $owner =~ s/ dot /./g;
+                    $owner =~ s/ at /\@/;
+                    # strip domain part (disable if using alternate policy below)
+                    $owner =~ s/\@.*$//;
+                    ### Sample alternate policy for use in private annotation script
+                    ## strip domain part for MediaTek line owners
+                    #$owner =~ s/\@mediatek\.com//;
+                    ## replace domain-qualified line owners with "Other"
+                    #$owner =~ s/.*\@.*/Other/;
+
+                    # Convert Git date/time to diffcov canonical format
+                    # replace space between date and time with 'T'
+                    $when =~ s/\s/T/;
+                    # remove space between time and zone offset
+                    $when =~ s/\s//;
+                    # insert ':' between hour and minute digits of zone offset
+                    $when =~ s/([0-9][0-9])$/:$1/;
+                    printf("%s|%s|%s|%s\n", $commit, $owner, $when, $text);
+                } else {
+                    printf("%s|%s|%s|%s\n", "NONE", "NONE", "NONE", $line);
+                }
+            }
+            exit(0);
+        }
+    }
+}
+
+# fallthrough from error conditions
+
+my @stat = stat $pathname;
+my $tz   = strftime("%z", localtime($stat[9]));
+$tz =~ s/([0-9][0-9])$/:\1/;
+my $mtime = strftime("%Y-%m-%dT%H:%M:%S", localtime($stat[9])) . $tz;
+if (open(HANDLE, $pathname)) {
+    while (my $line = <HANDLE>) {
+        chomp $line;
+        # Also remove CR from line-end
+        s/\015$//;
+
+        printf("%s|%s|%s|%s\n", "NONE", "NONE", $mtime, $line);
+    }
+}
