@@ -13,7 +13,7 @@
 #genhtml_dark_mode = 1
 
 # Header text to use at top of each page
-# Default is "LCOV - coverage report"
+# Default is "LCOV - (differential )? coverage report"
 #genhtml_header = Coverage report for my project
 
 # Footer text to use at the bottom of each page
@@ -26,6 +26,32 @@
 # LO:         0  <= rate <  med_limit   graph color: red
 genhtml_hi_limit = 90
 genhtml_med_limit = 75
+
+# Ignore some errors during geninfo/lcov/genhtml processing - comma-separated
+# string.  Same as using "--ignore-errors a,b,c" command line option.
+# See man pages for list of ignorable messsages
+#ignore_errors = empty,mismatch
+
+# If set, do not stop when an 'ignorable error' occurs - try to generate
+#  a result, however flawed.  This is equivalent to the '--keep-going'
+#  command line switch.
+# Default is 1:  stop when error occurs
+# See the man pages for more detail
+#stop_on_error = 1
+
+# List of file extensions which should be treated as RTL code (e.g., Verilog)
+# Comma-separated list.  Default is "v,vh,sv,vhd?"
+#rtl_file_extensions = v,vh,sv,vhd?
+
+# list of file extensions which should be treated as C/C++ code
+# (comma-separated list)
+#c_file_extensions = h,c,i,C,H,I,cpp,hpp,icc,cc,hh,cxx,hxx
+
+# maxmimum number of lines to look at, when filtering bogus branch expressions
+#filter_lookahead = 5
+
+# if nonzero, bitwise operators '|', '&', '~' indicate conditiional expressions
+#filter_bitwise_conditional = 1
 
 # Width of line coverage field in source code view
 genhtml_line_field_width = 12
@@ -90,6 +116,15 @@ genhtml_legend = 0
 # Include sorted overview pages (can be disabled by the --no-sort option of
 # genhtml)
 genhtml_sort = 1
+
+# Display coverage idata in hierarchical directory structure rather than
+# top/directory/source
+#genhtml_hierarchical = 1
+
+# Enable hyperlinks from coverage summary table to first source code line
+#   in corresponding category ('Hit' or "Missed') in non-differential report.
+# Feature is always enabled in differential coverage report.
+#genhtml_show_navigation = 1
 
 # Include function coverage data display (can be disabled by the
 # --no-func-coverage option of genhtml)
@@ -196,5 +231,52 @@ lcov_branch_coverage = 0
 # Default is 0.0 - i.e., do not check threshold.
 #lcov_fail_under_lines = 97.5
 
+# specify revision control annotation script for genhtml
+#genhtml_annotate_script = path_to_my_executable
+
+# specify coverage criteria script for genhtml
+#genhtml_criteria_script = path_to_my_executable
+
+# specify age cutpoints for genhtml date bins
+# can call option multiple times or use comma-separted list (or both)
+#genhtml_date_bins = 7
+#genhtml_date_bins = 30,180
+
+# ask geninfo/lcov/genhtml to include only certain files (glob match pattern)
+# call multiple times to specify multiple patterns
+#include = my/files/*.c
+#include = my/files/*.h
+
+# ask geninfo/lcov/genhtml to exclude certain files (glob match pattern)
+# call multiple times to specify multiple patterns
+#exclude = your/files/*.c
+#exclude = your/files/*.h
+
+# ask geninfo/lcov/genhtml to munge file pathnames when reading/writing .info files
+# call multiple times to specify multiple patterns
+#  this pattern removes "/.lib" from the pathname (see the lcov man page for details)
+#substitute = s#/.libs##g
+#  this pattern changes "/tmp/build" to "/usr/src" (see the lcov man page for details)
+#substitute = s#/tmp/build#/usr/src#g
+
+# ask geninfo/lcov/genhtml to exclude coverpoints associated with lines which match
+# the regexp.  Call multiple times to specify multiple patterns
+#   omit lines which end with "// MY_LINE_EXCLUDE_MARKER
+#omit_lines = .+?//\s*MY_LINE_EXCLUDE_MARKER\s*
+#   add another exclusion marker
+#omit_lines = .+?//\s*MY_PROJECT_EXCLUDE_MARKER\s*
+
+# specify path to version identification script
+#version_script = path_to_my_executable
+
 # Specify JSON module to use, or choose best available if set to auto
 lcov_json_module = auto
+
+# Specify maximum number of parallel slaves
+# default: 1 (no parallelism)
+#parallel = 1
+
+# Specify maximum memory to use during parallel processing, in Mb.
+# Do not fork if estimated memory consumption exceeds this number.
+# default: 0 (no limit)
+#memory = 1

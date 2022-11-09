@@ -40,12 +40,13 @@ use warnings;
 use File::Basename;
 use Getopt::Long;
 use Cwd qw/abs_path/;
+use FindBin;
+
+use lib "$FindBin::Bin/../lib";
+use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url);
 
 # Constants
-our $tool_dir     = abs_path(dirname($0));
-our $lcov_version = 'LCOV version '.`"$tool_dir"/get_version.sh --full`;
-our $lcov_url     = "https://github.com/linux-test-project/lcov";
-our $tool_name    = basename($0);
+# (now imported from lcovutil.pm)
 
 # Prototypes
 sub print_usage(*);
@@ -91,7 +92,7 @@ if ($version) {
 
 # Check for input filename
 if (!$input_filename) {
-    die("No input filename specified\n".
+    die("No input filename specified\n" .
         "Use $tool_name --help to get usage information\n");
 }
 

@@ -1,17 +1,20 @@
 .TH genhtml 1 "LCOV 1.16" 2022\-06\-02 "User Manuals"
 .SH NAME
-genhtml \- Generate HTML view from LCOV coverage data files
+genhtml \- Generate HTML differential coverage view from LCOV coverage data files
 .SH SYNOPSIS
 .B genhtml
 .RB [ \-h | \-\-help ]
-.RB [ \-v | \-\-version ]
+.RB [ \-\-version ]
 .RS 8
 .br
 .RB [ \-q | \-\-quiet ]
+.RB [ \-v | \-\-verbose ]
+.br
 .RB [ \-s | \-\-show\-details ]
+.br
 .RB [ \-f | \-\-frames ]
 .br
-.RB [ \-b | \-\-baseline\-file  ]
+.RB [ \-b | \-\-baseline\-file ]
 .IR baseline\-file
 .br
 .RB [ \-o | \-\-output\-directory
@@ -65,6 +68,7 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-ignore\-errors
 .IR errors  ]
 .br
+.RB [ \-\-keep\-going ]
 .RB [ \-\-config\-file
 .IR config\-file ]
 .RB [ \-\-rc
@@ -74,28 +78,204 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .IR num ]
 .RB [ \-\-missed ]
 .br
-.RB [ \-\-dark\-mode ]
+.RB [ \-\-dark-mode ]
+.br
+.RB [ \-\-baseline\-file
+.IR baseline\-trace\-file ]
+.br
+.RB [ \-\-baseline\-title
+.IR baseline\-title\-string ]
+.br
+.RB [ \-\-baseline\-date
+.IR baseline\-date\-string ]
+.br
+.RB [ \-\-current\-date
+.IR current\-date\-string ]
+.br
+.RB [ \-\-diff\-file
+.IR unified\-diff\-file ]
+.br
+.RB [ \-\-annotate\-script
+.IR source\-annotation\-script ]
+.br
+.RB [ \-\-criteria\-script
+.IR coverage\-criteria\-script ]
+.br
+.RB [ \-\-version\-script
+.IR script_file  ]
+.br
+.RB [ \-\-new\-files\-as\-baseline]
+.br
+.RB [ \-\-elide\-path\-mismatch]
+.br
+.RB [ \-\-date\-bins
+.IR day[,day,...]]
+.br
+.RB [ \-\-show\-owners
+.IR [ all ] ]
+.br
+.RB [ \-\-show\-noncode ]
+.br
+.RB [ \-\-show\=navigation ]
+.br
+.RB [ \-\-simplified-colors ]
+.br
+.RB [ \-\-hierarchical ]
+.br
+.RB [ \-\-filter
+.IR filters ]
+.br
+.RB [ \-\-include
+.IR glob_pattern ]
+.br
+.RB [ \-\-exclude
+.IR glob_pattern ]
+.br
+.RB [ \-\-substitute
+.IR regexp_pattern ]
+.br
+.RB [ \-\-omit\-lines
+.IR regexp_pattern ]
+.br
+.RB [ (\-\-parallel | -j)
+.IR [integer] ]
+.br
+.RB [ (\-\-memory 
+.IR integer_num_Mb ]
+.br
+.RB [ \-\-tempdir
+.IR dirname ]
 .br
 .IR tracefile(s)
 .RE
 .SH DESCRIPTION
-Create an HTML view of coverage data found in
-.IR tracefile .
-Note that
+Create an HTML differential coverage view of current coverage data found in
+.IR tracefile ,
+with differential comparison against baseline coverage data found in
+.IR baseline\-trace\-file .
+Note that while
 .I tracefile
-may also be a list of filenames.
+may be a list of filenames,
+.I baseline\-trace\-file
+must be a single consolidated file.
+
+The basic concepts of differential coverage and date/owner binning are described in the paper found at
+.I https://arxiv.org/abs/2008.07947
+
+The difference in coverage between
+.I tracefile
+and
+.I baseline\-trace\-file
+is classified line by line into one of 12 categories:
+.RE
+.B UNC
+.RS
+Uncovered New Code (new code since the baseline is uncovered).
+.RE
+.B LBC
+.RS
+Lost Baseline Coverage (existing active code covered in the baseline is now uncovered).
+.RE
+.B UIC
+.RS
+Uncovered Included Code (existing inactive code from the baseline is now active and uncovered).
+.RE
+.B UBC
+.RS
+Uncovered Baseline Code (existing active and uncovered baseline code remains uncovered).
+.RE
+.B GBC
+.RS
+Gained Baseline Coverage (new code since the baseline is covered).
+.RE
+.B GIC
+.RS
+Gained Included Code (existing inactive code from the baseline is now active and covered).
+.RE
+.B GNC
+.RS
+Gained New Code (new code since the baseline is covered).
+.RE
+.B CBC
+.RS
+Covered Baseline Code (existing active and covered baseline code remains covered).
+.RE
+.B EUB
+.RS
+Excluded Uncovered Baseline (previously active and uncovered baseline code has become inactive).
+.RE
+.B ECB
+.RS
+Excluded Covered Baseline (previously active and covered baseline code has become inactive).
+.RE
+.B DUB
+.RS
+Deleted Uncovered Baseline (previously active and uncovered baseline code has been removed).
+Note: Because these lines are not represented in the current source version, they are only
+represented in the classification summary table.
+.RE
+.B DCB
+.RS
+Deleted Covered Baseline (previously active and covered baseline code has been removed).
+Note: Because these lines are not represented in the current source version, they are only
+represented in the classification summary table.
+.RE
+
+To create a differential coverage report,
+.B genhtml
+requires both a
+.I baseline\-trace\-file
+and a
+.I unified\-diff\-file .
+
+The differential coverage report colorizes categorized regions in the source code view using unique colors for each.  You can use the
+.I \-\-simplified\-colors
+option to instead use one color for 'covered' code an another for 'uncovered'.
+
+If the
+.I \-\-annotate\-script
+option is used, the coverage report will use the referenced script to retrieve annotated
+source listings for each file, from which it will extract age and ownership data for each
+line.  For each source line, age is the interval since the most recent modification date
+and the owner is the user identity responsible for the most recent change to that line.
+Line coverage overall totals and counts for each of the 12 classification categories are
+collected for each of the specified age ranges (see the
+.I \-\-date\-bins
+option, below).  Age and ownership reporting enhance team efforts to maintain good
+coverage discipline by spotlighting coverage shortfalls in recently modified code, even
+in the absence of baseline coverage data.
+
+If the
+.I \-\-criteria\-script
+option is used, genhtml will use the referenced script to determine whether your coverage criteria has been met - and will return a non\-zero status and print a message if the criteria is not met.
+
+The
+.I \-\-version\-script
+option is used to verify that the same/compatible source code versions are displayed as were used to capture coverage data.
 
 HTML output files are created in the current working directory unless the
-\-\-output\-directory option is used. If 
-.I tracefile
+.I \-\-output\-directory
+option is used. If
+.I \-\-tracefile
+or
+I \-\-baseline\-trace\-file
 ends with ".gz", it is assumed to be GZIP\-compressed and the gunzip tool
 will be used to decompress it transparently.
 
 Note that all source code files have to be present and readable at the
-exact file system location they were compiled.
+exact file system location they were compiled, and all path references in the input data ".info" and "diff" files must match exactly (i.e., exact string match).  Further, the \-\-version\-script, \-\-annotate\-script and \-\-criteria\-script callbacks use the same path strings. (However, see the
+.I \-\- substitute
+option for a mechanism to adjust extracted paths so they match your source and/or revision control layout.)
 
 Use option
-.I \--css\-file
+.I \-\-diff\-file
+to supply a unified diff file that represents the changes to the source
+code files between the version used to compile and capture the baseline
+trace files, and the version used to compile and capture the current
+trace files.
+
+Use option
+.I \-\-css\-file
 to modify layout and colors of the generated HTML output. Files are
 marked in different colors depending on the associated coverage rate. By
 default, the coverage limits for low, medium and high coverage are set to
@@ -106,7 +286,7 @@ values, use configuration file options
 Also note that when displaying percentages, 0% and 100% are only printed when
 the values are exactly 0% and 100% respectively. Other values which would
 conventionally be rounded to 0% or 100% are instead printed as nearest
-non-boundary value. This behavior is in accordance with that of the
+non\-boundary value. This behavior is in accordance with that of the
 .BR gcov (1)
 tool.
 
@@ -118,21 +298,47 @@ tool.
 Print a short help text, then exit.
 
 .RE
-.B \-v
-.br
 .B \-\-version
 .RS
 Print version number, then exit.
+
+.RE
+.B \-v
+.br
+.B \-\-verbose
+.RS
+Increment informational message verbosity.  This is mainly used for script and/or flow debugging - e.g., to figure out which data file are found, where.
+Also see the \-\-quiet flag.
 
 .RE
 .B \-q
 .br
 .B \-\-quiet
 .RS
-Do not print progress messages.
+Decrement informational message verbosity.
 
-Suppresses all informational progress output. When this switch is enabled,
-only error or warning messages are printed.
+Decreased verbosity will suppres 'progress' messages for example - while error and warning messages will continue to be printed.
+
+.RE
+.B \-\-hierarchical
+.RS
+Generate an hierarchical HTML report - which follows the directory
+structure of the source code.
+
+The default is to generate a three-level HTML report:
+.RS
+.IP top\-level 0.4i
+containing table of directories,
+.IP directory
+ containing table of source files in that directory, and
+.IP source file detail
+containing annotated source code.
+.RE
+
+When the
+.I \-\-hierarchical
+flag is set, then the HTML report will show the directory structure of the source code, to the common root.
+Note that some 'directory' pages will hold both a table of child subdirectories as well as a table of source files contained within this directory.
 
 .RE
 .B \-f
@@ -163,40 +369,351 @@ file view. One containing the standard information plus a link to a
 which test case covered how many lines of each source file.
 
 .RE
-.BI "\-b " baseline\-file
+.BI "\-b " baseline\-trace\-file
 .br
-.BI "\-\-baseline\-file " baseline\-file
+.BI "\-\-baseline\-file " baseline\-trace\-file
 .RS
 Use data in
-.I baseline\-file
+.I baseline\-trace\-file
 as coverage baseline.
 
 The tracefile specified by
-.I baseline\-file
-is read and all counts found in the original
-.I tracefile
-are decremented by the corresponding counts in 
-.I baseline\-file
-before creating any output.
+.I baseline\-trace\-file
+ is read and used as the baseline for classifying the change in coverage represented by the coverage counts in
+.IR tracefile .
 
-Note that when a count for a particular line in
-.I baseline\-file
-is greater than the count in the
-.IR tracefile ,
-the result is zero.
+Note that you must specfiy
+.I \-\-diff\-file unfied\-diff\-file
+when you specify
+.I \-\-baseline\-file .
+Both are needed for differential coverage categorization.
+
+.RE
+.BI "\-\-baseline\-title " baseline\-title\-string
+.RS
+Use the
+.I baseline\-title\-string
+as the descriptive label for the source of coverage baseline data.
+
+.RE
+.BI "\-\-baseline\-date " baseline\-date\-string
+.RS
+Use the
+.I baseline\-date\-string
+as the collection date for the coverage baseline data.
+If this argument is not specified, the default is to use the creation time of the
+.I baseline\-trace\-file
+as the baseline date.
+
+.RE
+.BI "\-\-current\-date " current\-date\-string
+.RS
+Use the
+.I current\-date\-string
+as the collection date for the coverage baseline data.
+If this argument is not specified, the default is to use the creation time of the
+.I current\-trace\-file.
+
+.RE
+.BI "\-\-diff\-file " unified\-diff\-file
+.RS
+Use the
+.I unified\-diff\-file
+as the definition for source file changes between the sample points for
+.I baseline\-trace\-file
+and
+.IR tracefile(s) .
+A suitable
+.I unified\-diff\-file
+can be generated using the command "git diff \-\-relative SHA_base SHA_current", or using the "p4udiff" or "gitdiff" sample scripts (found in the share/lcov/support\-scripts directory shipped as part of this release).
+"p4udiff" accepts either a changelist ID or the literal string "sandbox"; "sandbox" indicates that there are modified files which have not been checked in.
+
+These scripts post\-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly note files which have not changed.  It is useful to note unchanged files (denoted by lines of the form
+  diff [optional header strings]
+  === file_path
+
+in the p4diff/gitdiff output) as this knowledge will help to suppres spurious 'path mismatch' warnings.  See the
+.I \-\-elide\-path\-mismatch
+option, below.
+
+Note that you must specfiy
+.I \-\-baseline\-file baseline\-trace\-file
+when you specify
+.I \-\-diff\-file .
+Both are needed for differential coverage categorization.
+
+.RE
+.BI "\-\-annotate\-script " source\-annotation\-script
+.RS
+Use the
+.I source\-annotation\-script
+to supply age and ownership data for each source line. The script is
+required to filter data supplied by the revision management system, and
+represent it in the format expected by
+.BR genhtml .
+'source\-annotation\-script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the filename) when the script is executed.  Parameter order is 'str[0] file_name str[1:]'.
+When a
+.I source\-annotation\-script
+is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
+Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support\-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.  Also, see the \-\-version\-script option - which is used to check that the file version found locally matches the version whose coverage data was captured.
+
+.RE
+.BI "\-\-criteria\-script " coverage\-criteria\-script
+.RS
+Use the
+.I coverage\-criteria\-script
+to enable genhtml to determine whether your coverage criteria is satisfied or not.
+coverage\-criteria\-script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the 'name' and 'type' and JSON coverage data) when the script is executed.  The script callback is executed for every 'summary' coverage data element:  leaf level file, containig directory, and top\-level report if any).  Parameter order is "str[0] name type 'json-string' str[1:]", where "name" is the file or directory name (or "top" in the case of the top\-level report), "type" is the callback type:  "file", "directory", or "top", and "json-string" is a JSON representation of the corresponding line/function/branch coverage data.
+
+The script should return 0 (zero) if your criteria is met and non\-zero otherwise.  If desired, it may print a single line output string which will be appended to the error log if the return status is non\-zero.  Additionally, non\-empty lines are appended to the genhtml log (stdout).
+
+A sample coverage criteria script can be found in the share/lcov/support\-scripts/criteria, shipped as part of this release.  The sample script checks that top\-level line coverage meets the criteria "UNC + LBC + UIC == 0".
+
+It is not difficult to create another script which mimics the LOCV '\-\-fail\-\uner\-lines feature by instead checking that the ratio of exercised lines to total lines ("(GNC + GIC + CBC)/(GNC + GIC + CBC + UNC + UIC + UBC)") is greater than the threshold - either only at the top level, in every directory, or wherever desired.  Similarly, your criteria may include branch and function coverage metrics.
+
+.RE
+
+.B \-\-version\-script
+.I script_file
+.br
+.RS
+call script_file to find file ID from revision control when generating HTML or applying source filters (see \-\-filter option).
+The ID is used to check the version ID of the source file which is loaded against the version ID which was used to generate coverage data (i.e., the file version seen by lcov/geninfo).  It is important that source code versions match - otherwise inconsistent or confusing results may be produced.  Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - e.g., when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revions.
+
+The script will be called as either:
+
+.B
+.I script_file source_file_name
+.br
+It should write the version ID to stdout and return a 0 exit status.
+If the file has is not versioned, it should write an empty string and return a 0 exit status, OR
+
+.B
+.I script_file \-\-compare source_file_name source_file_id info_file_id
+.br
+It should return non\-zero if the IDs do not match.
+\'source_file_id\' is the ID returned by calling "script_file source_file_name", and \'info_file_id\' is the ID found in the corresponding .info file.
+\'script_file\' is used both to generate and to compare the signature to enable you to retain history between calls or to do more complex processing to determine equivalence.
+
+Note that you must use the same script/same mechanism to determine the file version when you extract, merge, and display coverage data - otherwise, you may see spurious mismatch reports.
+
+Please see sample scripts
+.I share/lcov/support-scripts/getp4version
+and
+.I share/lcov/support-scripts/get_signature
+which are shipped as part of this release.
+
+.RE
+.BI "\-\-new\-file\-as\-baseline "
+.RS
+By default, when code is identified on source lines in the 'current' data which where not identified as code in the 'baseline' data but the source text has not changed, their coverpoints are categorized as "included code":
+.I GIC
+or
+.I UIC.
+However, if the configuration of the coverage job has been recently changed to instrument additional files (
+.I i.e.
+, to measure more than we had previously), then all un\-exercised coverpoints in those files will fall into the
+.I GIC
+category - which may cause our Jenkins "coverage ratchet" to fail.
+When this option is specified, genhtml pretends that the baseline data for the file is the same as the current data - so coverpoints are categorized as
+.I CBC
+or
+.I UBC
+which do not trigger the coverage criteria check.
+
+Please note that coverpoints in the file are re\-categorized only if:
+  - There is no 'baseline' data for any coverpoint in this file, AND
+  - The file pre\-dates the baseline:  the oldest line in the file is older than the 'baseline' data file (or the value specified by the "\-\-baseline\-date" option).
+
+.RE
+.BI "\-\-elide\-path\-mismatch"
+.RS
+
+Differential categorization uses file pathnames to match coverage entries from the ".info" file with file difference entries in the unified\-diff\-file.  If the entries are not identical, then categorization may be incorrect or strange.
+
+When paths do not match, genhtml will produce "path" error messages to tell you about the mismatches.
+
+If mismatches occur, the best solution is to fix the incorrect entries in the .info and/or unified\-diff\-file files.  However, if you do not able to fix the entries, then you can use this option to attempt to automatically work around them.
+When this option is specified, genhtml will pretend that the unified\-diff\-file entry matches the .info file entries if:
+.RS
+
+\- the same path is found in both the 'baseline' and 'current' .info files, and
+`<
+\- the basename of the path in the .info file and the path in the unified\-diff\-file are the same, and
+
+\- there is only one unmatched unified\-diff\-file entry with that basename.
+.RE
+
+See the
+I
+\-\-diff\-file unified\-diff\-file
+discussion above for a discussion of how to avoid spurious warnings and/or incorrect matches.
+
+.RE
+.BI "\-\-date\-bins " day[,day,...]
+.RS
+The
+.I \-\-date\-bins
+option is used to specify age boundaries (cutpoints) for date\-binning classification.  If not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days.
+This argument has no effect if there is no
+.I source\-annotation\-script .
+
+.RE
+.BI "\-\-show\-owners " [all]
+.RS
+If the
+.I \-\-show\-owners
+option is used, each coverage report header report contain a summary table, showing counts in the various coverage categories for everyone who appears in the revision control annotation as the most recent editor of the corresponding line.  If the optional argument 'all' is not specified, the table will show only users who are responsible for un\-excercised code lines.  If the optional argument is specified, then users responsible for any code lines will appear.  In both cases, users who are responsible for non\-code lines (e.g, comments) are not shown.
+This option does nothing if
+.I \-\-annotate\-script
+is not used; it needs revision control information provided by calling the script.
+
+Please note: if the
+.I all
+option is not specified, the the summary table will contain "Total" rows for all date/owner bins which are not empty - but there will be no secondary "File/Directory" entries for elements which have no "missed" coverpoints.
+
+.RE
+.BI "\-\-show\-noncode "
+.RS
+By default, the source code detail view does not show owner or date annotations in the far left column for non\-code lines (e.g., comments). If the
+.I \-\-show\-noncode
+option is used, then the source code view will show annotations for both code and non\-code lines.
+This argument has no effect if there is no
+.I source\-annotation\-script .
+
+.RE
+.BI "\-\-show\-navigation "
+.RS
+By default, the summary table in the source code detail view does not contain hyperlinks from the number to the first line in the corresponding category ('Hit' or 'Missed') and from the current location to the next location in the current category, in non-differential coverage reports.  (This is the lcov 'legacy' view non-differential reports.)
+
+If the
+.I \-\-show\-navigation
+option is used, then the source code summary table will be generated with navigation links.
+Hyperlinks are always generated for differential coverage reports.
+
+This feature eanbles developers to find and understand coverage issues more quickly than they might otherwise, if they had to rely on scrolling.
+
+.RE
+.BI "\-\-simplified\-colors "
+.RS
+By default, each differential category is colorized uniquely in the source code detail view.  With this option, only two colors are used:  one for covered code and another for uncovered code.  Note that ECB and EUB code is neither covered nor uncovered - and so may be difficult to distinguish in the source code view, as they will be presented in normal background color.
+
+.RE
+.BI "\-\-exclude "
+.I pattern
+.RS
+pattern is a glob\-match pattern of filenames to exclude from the report.
+Files which do NOT match will be included.
+See the lcov man page for details.
+
+.RE
+.BI "\-\-include "
+.I pattern
+.RS
+pattern is a glob\-match pattern of filenames to include in processing.
+Files which do not match will be excluded from the report.
+See the lcov man page for details.
+.RE
+
+.B \-\-substitute
+.I regexp_pattern
+.br
+.RS
+Apply Perl regexp
+.IR regexp_pattern
+to source file names found during processing.  This is useful when some file paths in the baseline or current .info file do not match your source layout and so the source code is not found.
+See the lcov man page for more details.
+
+.B \-\-omit\-lines
+.I regexp_pattern
+.br
+.RS
+Exclude coverage data from lines whose content matches
+.IR regexp .
+
+Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (e.g., some complicated macro).
+See the lcov man page for details.
+
+.RE
+.BI "\-\-parallel "
+.I [ integer ]
+.br
+.BI "\-j "
+.I [ integer ]
+.RS
+Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
+
+.RE
+.BI "\-\-memory "
+.I integer
+.RS
+Specify the maximum amount of memory to use during prallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
+
+This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
+
+
+.RE
+.BI "\-\-filter "
+.I filters
+.RS
+Specify a list of coverpoint filters to apply to input data.
+
+.I filters
+can be a comma\-separated list of the following keywords:
+
+.B branch:
+ignore branch counts for C/C++ source code lines which do not appear to contain conditionals.  These may be generated automatically by the compiler (e.g., from C++ exception handling) - and are not interesting to users.
+This option has no effect unless
+.I \-\-branch\-coverage
+is used.
+
+See also the lcovrc man page - which describes several variables which affect branch filtering:
+.I filter_lookahead
+and
+.I filter_bitwise_conditional.
+
+.B brace:
+ignore line coverage counts on the closing brace of C/C++ code block, if the line contai linesns only a closing brace and the preceeding line has the same count or if the close brace has a zero count and either the preceding line has a non\-zero count or the close brace is not the body of a conditional.
+
+These lines seem to appear and disappear in gcov output - and cause differential coverage to report bogus LBC and/or GIC and/or UIC counts.  Bogus LBC or UIC counts are a problem because an automated regression which uses pass criteria "LBC + UIC + UNC == 0" will fail.
+
+.B blank:
+ignore lines which contain only whitespace (or whitespace + commments) whose 'hit' count is zero.  These appeaer to be an 'gcov' artifact related to compiler-generated code - such as exception handlers and destructor calls at the end of scope - and can confuse differential coverage criteria.
+
+.B range:
+Ignore line and branch coverpoints on lines which are out-of range/whose line number is beyond the end of the source file.  These appear to be gcov artifacts caused by a macro instantiation on the last line of the file.
+
+.B line:
+alias for "--ignore brace,blank".
+
+.B region:
+apply LCOV_EXCL_START/LCOV_EXCL_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
+This option may be useful in cases that the source code was not found during 'lcov --capture ...' but is accessible now.
+
+.B branch_region:
+apply LCOV_EXCL_BR_START/LCOV_EXCL_BR_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
+This is similar to the 'region option, above - but applies to branch coverpoints only.
+
+.B function:
+combine data for every "unique" function which is defined at the same file/line.
+.I geninfo/gcov
+seem to have a bug such that they create multiple entries for the same function.
+This feature also merges all instances of the same template function/template method.
+
+
 
 .RE
 .BI "\-o " output\-directory
 .br
 .BI "\-\-output\-directory " output\-directory
 .RS
-Create files in 
+Create files in
 .I output\-directory.
 
-Use this option to tell 
+Use this option to tell
 .B genhtml
 to write the resulting files to a directory other than
-the current one. If 
+the current one. If
 .I output\-directory
 does not exist, it will be created.
 
@@ -208,17 +725,18 @@ project size, a lot of files and subdirectories may be created.
 .br
 .BI "\-\-title " title
 .RS
-Display 
+Display
 .I title
 in header table of all pages.
 
 .I title
 is written to the "Test:"-field in the header table at the top of each
 generated HTML page to identify the context in which a particular output
-was created. By default this is the name of the tracefile.
+was created. By default this is the name of the 'current; tracefile.
 
-A potential use is to specify a test run name, or a version control system
-identifier that indicates the code level that was tested.
+A common use is to specify a test run name, or a version control system
+identifier (perforce changelist or git SHA, for example) that indicates
+the code level that was tested.
 
 .RE
 .BI "\-\-header\-title " BANNER
@@ -228,11 +746,12 @@ Display
 in header of all pages.
 
 .I BANNER
-is written to the header portion of each generated HTML page. By default this
-simply identifies this as an LCOV coverage report.
+is written to the header portion of each generated HTML page.
+By default this
+simply identifies this as an LCOV (differential) coverage report.
 
-A potential use is to specify the name of the project or project branch and
-build ID.
+A common use is to specify the name of the project or project branch and the
+Jenkins build ID.
 
 .RE
 .BI "\-\-footer " FOOTER
@@ -250,7 +769,7 @@ The default simply identifies the LCOV tool version used to generate the report.
 .br
 .BI "\-\-description\-file " description\-file
 .RS
-Read test case descriptions from 
+Read test case descriptions from
 .IR description\-file .
 
 All test case descriptions found in
@@ -306,7 +825,7 @@ option
 .br
 .BI "\-\-prefix " prefix
 .RS
-Remove 
+Remove
 .I prefix
 from all directory names.
 
@@ -384,7 +903,7 @@ option
 .RE
 .BI "\-\-html\-prolog " prolog\-file
 .RS
-Read customized HTML prolog from 
+Read customized HTML prolog from
 .IR prolog\-file .
 
 Use this option to replace the default HTML prolog (the initial part of the
@@ -408,7 +927,7 @@ option
 .RE
 .BI "\-\-html\-epilog " epilog\-file
 .RS
-Read customized HTML epilog from 
+Read customized HTML epilog from
 .IR epilog\-file .
 
 Use this option to replace the default HTML epilog (the final part of the HTML
@@ -484,15 +1003,16 @@ Use \-\-function\-coverage to enable function coverage summaries or
 .B enabled
 by default
 
+This option can also be configured permanently using the configuration file
+option
+.IR genhtml_function_coverage .
+
 When function coverage summaries are enabled, each overview page will contain
 the number of functions found and hit per file or directory, together with
 the resulting coverage rate. In addition, each source code view will contain
 a link to a page which lists all functions found in that file plus the
 respective call count for those functions.
-
-This option can also be configured permanently using the configuration file
-option
-.IR genhtml_function_coverage .
+The function coverage page groups the data for every alias of each function, sorted by name or execution count.  The representative name of the group of functions is the shorted (i.e., containing the fewest characters).
 
 .RE
 .B \-\-branch\-coverage
@@ -545,13 +1065,72 @@ This option requires that the c++filt tool is installed (see
 Specify a list of errors after which to continue processing.
 
 Use this option to specify a list of one or more classes of errors after which
-geninfo should continue processing instead of aborting.
+genhtml should continue processing instead of aborting.
+Note that the tool will generate a warning (rather than a fatal error) unless you ignore the error two (or more) times:
+.br
+.RS
+genhtml ... \-\-ignore\-errors unmapped,unmapped ...
+.RE
 
 .I errors
 can be a comma\-separated list of the following keywords:
 
+.B empty:
+the 'unified\-diff\-file' specified by the \-\-diff\-file argument does not contain any differences.  This may be OK if there were no source code changes between 'baseline' and 'current' (e.g., the only change was to modify a Makefile) - or may indicate an unsupported file format.
+
+.B format:
+unexpected syntax found in .info file.
+
 .B source:
 the source code file for a data set could not be found.
+
+.B unmapped:
+coverage data for a particular line cannot be found (possibly because the source code was not found, or because the line number mapping in the \.info file is wrong.  This can happen if the source file used in HTML generation is not the same as the file used to generate the coverage data - for example, lines have been added or removed.
+
+.B category:
+line number categorizations are incorrect in the .info file, so branch coverage line number turns out to not be an executable source line.
+
+.B mismatch:
+Inconsistent entries found in trace file:
+ - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
+ - function execution count (FNDA:...) but no function declaration (FN:...).
+
+.B path:
+File name found in '\-\-diff\-file' file but does not appear in either baseline or current trace data.  These may be mapping issues - different pathname in the tracefile vs. the diff file.
+
+.B inconsistent:
+Files have been moved or repository history presented by '\-\-diff\-file' data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' and 'annotate' scripts.
+
+.B branch:
+branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+
+.B annotate:
+\-\-annotate\-script returned non\-zero exit status - likely a file path or related error.  HTML source code display will not be correct and ownership/date information may be missing.
+
+.B unused
+the include/exclude/substitute/omit pattern did not match any file pathnames.
+
+.B version:
+\-\-version\-script comparison returned non\-zero mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
+
+.B parallel
+various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
+
+.B package
+a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
+
+.B corrupt
+corrupt/unreadable file found.
+
+.RE
+.BI "\-\-keep\-going "
+.RS
+Do not stop if error occurs: attempt to generate a result, however flawed.
+
+This command line option corresponds to the
+.I stop_on_error [0|1]
+lcovrc option.  See the lcovrc man page for more details.
+
 .RE
 
 .B \-\-config\-file
@@ -559,6 +1138,7 @@ the source code file for a data set could not be found.
 .br
 .RS
 Specify a configuration file to use.
+See the lcov man page for details of the file format and options.
 
 When this option is specified, neither the system\-wide configuration file
 /etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
@@ -567,6 +1147,9 @@ This option may be useful when there is a need to run several
 instances of
 .B genhtml
 with different configuration file options in parallel.
+
+Note that this option must be specified in full - abbreviations are not supported.
+
 .RE
 
 .B \-\-rc
@@ -589,7 +1172,7 @@ for a list of available keywords and their meaning.
 .RS
 Show coverage rates with
 .I num
-number of digits after the decimal-point.
+number of digits after the decimal point.
 
 Default value is 1.
 
@@ -615,10 +1198,17 @@ option
 
 .B \-\-dark\-mode
 .RS
-Use a light-display-on-dark-background color scheme rather than the default dark-display-on-light-background.
+Use a light\-display\-on\-dark\-background color scheme rather than the default dark\-display\-on\-light\-background.
 
 The idea is to reduce eye strain due to viewing dark text on a bright screen - particularly at night.
+.RE
 
+.B \-\-tempdir
+.I dirname
+.br
+.RS
+Write temporary and intermediate data to indicated directory.  Default is "/tmp".
+.RE
 
 .SH FILES
 
@@ -634,6 +1224,8 @@ The per\-user configuration file.
 
 .SH AUTHOR
 Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
+
+Henry Cox <henry.cox@mediatek.com> (differential coverage and date/owner binning sections)
 
 .SH SEE ALSO
 .BR lcov (1),

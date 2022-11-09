@@ -7,7 +7,7 @@
 # Announce start of test suite and prepare log files.
 #
 
-TOPDIR=$(realpath $(dirname $0)/..) && source "$TOPDIR/bin/common"
+TOPDIR=$(readlink -e $(dirname $0)/..) && source "$TOPDIR/bin/common"
 
 echo -e $BOLD"Starting tests"$RESET
 echo "start_time $(date +%s.%N)" >"$COUNTFILE"

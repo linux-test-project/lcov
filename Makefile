@@ -9,6 +9,7 @@
 #                and RELEASE variables below - both version and date strings
 #                will be updated in all necessary files.
 #   - checkstyle: check source files for coding style issues
+#                 MODE=(full|diff) [UPDATE=1]
 #   - clean:     remove all generated files
 #   - release:   finalize release and create git tag for specified VERSION
 #
@@ -25,16 +26,29 @@ PREFIX  := /usr/local
 
 CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/bin
+LIB_DIR := $(PREFIX)/lib
 MAN_DIR := $(PREFIX)/share/man
+SCRIPT_DIR := $(PREFIX)/share/lcov/support-scripts
 TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
 
-# Files to be checked for coding style issue issuess
-CHECKFILES = $(shell grep -lr '^#!.*perl' --exclude-dir .git --exclude '*.tdy')
+EXES = lcov genhtml geninfo genpng gendesc
+SCRIPTS = p4udiff p4annotate getp4version get_signature gitblame gitdiff \
+	criteria analyzeInfoFiles spreadsheet.py
+LIBS = lcovutil
+MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 \
+	man1/gendesc.1 man5/lcovrc.5
+
+# Files to be checked for coding style issue issues -
+#   - anything containing "#!/usr/bin/env perl" or the like
+#   - anything named *.pm - expected to be perl module
+CHECKFILES := $(shell grep -lr '^\#!.*perl' --exclude-dir .git --exclude '*.tdy' ) $(shell find . -name '*.pm' )
+
 
 # Program for checking coding style
 CHECKSTYLE = $(CURDIR)/bin/checkstyle.sh
+
 
 .PHONY: all info clean install uninstall rpms test
 
@@ -54,52 +68,47 @@ clean:
 	rm -f lcov-*.rpm
 	make -C example clean
 	make -C tests -s clean
-	find . -name '*.tdy' | xargs rm -f
+	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
 
 install:
-	bin/install.sh bin/lcov $(DESTDIR)$(BIN_DIR)/lcov -m 755
-	bin/install.sh bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml -m 755
-	bin/install.sh bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo -m 755
-	bin/install.sh bin/genpng $(DESTDIR)$(BIN_DIR)/genpng -m 755
-	bin/install.sh bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc -m 755
-	bin/install.sh man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1 -m 644
-	bin/install.sh man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 -m 644
-	bin/install.sh man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 -m 644
-	bin/install.sh man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1 -m 644
-	bin/install.sh man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 -m 644
-	bin/install.sh man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 -m 644
+	for b in $(EXES) ; do \
+		bin/install.sh bin/$$b $(DESTDIR)$(BIN_DIR)/$$b -m 755 ; \
+		bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/$$b $(VERSION) $(RELEASE) $(FULL) ; \
+	done
+	for s in $(SCRIPTS) ; do \
+		bin/install.sh bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s -m 755 ; \
+	done
+	for l in $(LIBS) ; do \
+		bin/install.sh lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm -m 755 ; \
+		bin/updateversion.pl $(DESTDIR)$(LIB_DIR)/$${l}.pm $(VERSION) $(RELEASE) $(FULL) ; \
+	done
+	for m in $(MANPAGES) ; do \
+		bin/install.sh man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m -m 644 ; \
+		bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/$$m $(VERSION) $(RELEASE) $(FULL) ; \
+	done
+
 	bin/install.sh lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/lcov $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genhtml $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/geninfo $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/genpng $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/gendesc $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/lcov.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genhtml.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/geninfo.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/genpng.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man1/gendesc.1 $(VERSION) $(RELEASE) $(FULL)
-	bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5 $(VERSION) $(RELEASE) $(FULL)
 
 uninstall:
-	bin/install.sh --uninstall bin/lcov $(DESTDIR)$(BIN_DIR)/lcov
-	bin/install.sh --uninstall bin/genhtml $(DESTDIR)$(BIN_DIR)/genhtml
-	bin/install.sh --uninstall bin/geninfo $(DESTDIR)$(BIN_DIR)/geninfo
-	bin/install.sh --uninstall bin/genpng $(DESTDIR)$(BIN_DIR)/genpng
-	bin/install.sh --uninstall bin/gendesc $(DESTDIR)$(BIN_DIR)/gendesc
-	bin/install.sh --uninstall man/lcov.1 $(DESTDIR)$(MAN_DIR)/man1/lcov.1
-	bin/install.sh --uninstall man/genhtml.1 $(DESTDIR)$(MAN_DIR)/man1/genhtml.1
-	bin/install.sh --uninstall man/geninfo.1 $(DESTDIR)$(MAN_DIR)/man1/geninfo.1
-	bin/install.sh --uninstall man/genpng.1 $(DESTDIR)$(MAN_DIR)/man1/genpng.1
-	bin/install.sh --uninstall man/gendesc.1 $(DESTDIR)$(MAN_DIR)/man1/gendesc.1
-	bin/install.sh --uninstall man/lcovrc.5 $(DESTDIR)$(MAN_DIR)/man5/lcovrc.5
+	for b in $(EXES) ; do \
+		bin/install.sh --uninstall bin/$$b $(DESTDIR)$(BIN_DIR)/$$b ; \
+	done
+	for s in $(SCRIPTS) ; do \
+		bin/install.sh --uninstall bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
+	done
+	for l in $(LIBS) ; do \
+		bin/install.sh --uninstall lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm ; \
+	done
+	for m in $(MANPAGES) ; do \
+		bin/install.sh --uninstall man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m ; \
+	done
 	bin/install.sh --uninstall lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
 
 lcov-$(VERSION).tar.gz: $(FILES)
-	mkdir $(TMP_DIR)/lcov-$(VERSION)
+	mkdir -p $(TMP_DIR)/lcov-$(VERSION)
 	cp -r * $(TMP_DIR)/lcov-$(VERSION)
 	bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
 	make -C $(TMP_DIR)/lcov-$(VERSION) clean
@@ -115,15 +124,17 @@ lcov-$(VERSION)-$(RELEASE).noarch.rpm: rpms
 lcov-$(VERSION)-$(RELEASE).src.rpm: rpms
 
 rpms: lcov-$(VERSION).tar.gz
-	mkdir $(TMP_DIR)
+	mkdir -p $(TMP_DIR)
 	mkdir $(TMP_DIR)/BUILD
 	mkdir $(TMP_DIR)/RPMS
 	mkdir $(TMP_DIR)/SOURCES
 	mkdir $(TMP_DIR)/SRPMS
 	cp lcov-$(VERSION).tar.gz $(TMP_DIR)/SOURCES
-	cd $(TMP_DIR)/BUILD ; \
-	tar xfz $(TMP_DIR)/SOURCES/lcov-$(VERSION).tar.gz \
-		lcov-$(VERSION)/rpm/lcov.spec
+	( \
+	  cd $(TMP_DIR)/BUILD ; \
+	  tar xfz ../SOURCES/lcov-$(VERSION).tar.gz \
+		lcov-$(VERSION)/rpm/lcov.spec \
+	)
 	rpmbuild --define '_topdir $(TMP_DIR)' --define '_buildhost localhost' \
 		 --undefine vendor --undefine packager \
 		 -ba $(TMP_DIR)/BUILD/lcov-$(VERSION)/rpm/lcov.spec
@@ -134,7 +145,7 @@ rpms: lcov-$(VERSION).tar.gz
 test: check
 
 check:
-	@make -s -C tests check
+	@$(MAKE) -s -C tests check
 
 checkstyle:
 ifeq ($(MODE),full)
@@ -142,9 +153,21 @@ ifeq ($(MODE),full)
 else
 	@echo "Checking changes in source files for coding style issues (MODE=diff):"
 endif
-	@RC=0 ; for FILE in $(CHECKFILES) ; do \
-		$(CHECKSTYLE) "$$FILE" || RC=1 ; \
-	done ; exit $$RC
+	#echo "checking $(CHECKFILES)"
+	@RC=0 ;                                                  \
+	for FILE in $(CHECKFILES) ; do                           \
+	  $(CHECKSTYLE) "$$FILE";                                \
+	  if [ 0 != $$? ] ; then                                 \
+	    RC=1;                                                \
+	    echo "saw mismatch for $$FILE";                      \
+	    if [[ -f $$FILE.tdy && "$(UPDATE)x" != 'x' ]] ; then \
+	      echo "updating $$FILE";                            \
+	      mv $$FILE $$FILE.orig;                             \
+	      mv $$FILE.tdy $$FILE ;                             \
+            fi                                                   \
+	  fi                                                     \
+	done ;                                                   \
+	exit $$RC
 
 release:
 	@if [ "$(origin VERSION)" != "command line" ] ; then echo "Please specify new version number, e.g. VERSION=1.16" >&2 ; exit 1 ; fi
@@ -153,7 +176,7 @@ release:
 	@echo "Preparing release tag for version $(VERSION)"
 	git checkout master
 	bin/copy_dates.sh . .
-	for FILE in README man/* rpm/* ; do \
+	for FILE in README man/* rpm/* lib/* ; do \
 		bin/updateversion.pl "$$FILE" $(VERSION) 1 $(VERSION) ; \
 	done
 	git commit -a -s -m "lcov: Finalize release $(VERSION)"

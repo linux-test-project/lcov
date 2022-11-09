@@ -1,6 +1,6 @@
 include common.mak
 
-TESTS := genhtml/ lcov/
+TESTS := genhtml/ lcov/ gendiffcov/
 
 clean:
 	rm -rf *.info *.counts test.log src/

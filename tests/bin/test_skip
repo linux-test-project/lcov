@@ -8,7 +8,7 @@
 # optional reason text. Must be run after testsuite_init.
 #
 
-TOPDIR=$(realpath $(dirname $0)/..) && source "$TOPDIR/bin/common"
+TOPDIR=$(readlink -e $(dirname $0)/..) && source "$TOPDIR/bin/common"
 TESTNAME="$1"
 REASON="${*:2}" ; [ -z "$REASON" ] && REASON="<no reason given>"
 

@@ -15,7 +15,7 @@ else
 fi
 
 while read LINE ; do
-	echo "${PREFIX}${LINE}"
+	echo $LINE | perl -pe "s/^FN(DA)?:([^,]+),(.+)$/FN\1:\2,${PREFIX}\3/";
 	unset LINE
 done
 

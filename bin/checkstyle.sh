@@ -136,7 +136,7 @@ GITBASE=${GITBASE:-HEAD}
 
 # diff is default mode
 MODE=${MODE:-diff}
-MODE=${MODE@L}
+#MODE=${MODE@L}
 
 case "$MODE" in
 "diff")	[[ ! -d "$TOOLDIR/.git" ]] && die "Not in a git repository" ;;

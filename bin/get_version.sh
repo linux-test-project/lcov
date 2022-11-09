@@ -15,9 +15,8 @@ if [ -z "$GITVER" ] ; then
 	fi
 else
 	# Get version information from git
-	FULL=${GITVER:1}
+	FULL=${GITVER}
 	VERSION=${GITVER%%-*}
-	VERSION=${VERSION:1}
 	if [ "${GITVER#*-}" != "$GITVER" ] ; then
 		RELEASE=${GITVER#*-}
 		RELEASE=${RELEASE/-/.}

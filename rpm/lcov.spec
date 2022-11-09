@@ -9,6 +9,8 @@ Source0: https://github.com/linux-test-project/%{name}/releases/download/v%{vers
 BuildRoot: %{_tmppath}/%{name}-%{version}-root
 BuildArch: noarch
 Requires: perl >= 5.8.8
+Prefix: /usr
+Prefix: /etc
 
 %description
 LCOV is a graphical front-end for GCC's coverage testing tool gcov. It collects
@@ -32,7 +34,9 @@ rm -rf $RPM_BUILD_ROOT
 %files
 %defattr(-,root,root)
 /usr/bin/*
+/usr/lib/*
 /usr/share/man/man*/*
+/usr/share/lcov/support-scripts/*
 %config /etc/*
 
 %changelog
