@@ -72,7 +72,7 @@ use Getopt::Long;
 use Cwd qw /abs_path getcwd/;
 use POSIX qw (floor);
 use FindBin;
-use Data::Dumper;
+use Storable;
 use Time::HiRes; # for profiling
 
 use lib "$FindBin::Bin/../lib";
@@ -1831,15 +1831,10 @@ sub add_traces()
 	my $then = Time::HiRes::gettimeofday();
 	$lcovutil::profileData{$idx}{total} = $then - $now;
 	my $file = "$tempDir/dumper_$$";
-	if (open(DUMPER, ">", $file)) {
-	  my @excluded = keys %lcovutil::excluded_files;
-	  print DUMPER Data::Dumper->Dump(
-	    [$total_trace, \@interesting, $function_mapping, \@excluded,
-	     \@lcovutil::file_subst_patterns, \%lcovutil::profileData],
-	    [qw(current interesting func_map excluded subst_patterns profile)]);
-	} else {
-	  die "unable to open $file: $!";
-	}
+	my @excluded = keys %lcovutil::excluded_files;
+	Storable::store([$total_trace, \@interesting, $function_mapping, \@excluded,
+			 \@lcovutil::file_subst_patterns, \%lcovutil::profileData],
+			$file);
 	close(STDOUT1);
 	close(STDERR1);
 	exit(0);
@@ -1855,7 +1850,7 @@ sub add_traces()
       my $childstatus = $? >> 8;
       my ($start, $idx) = @{$children{$child}};
       lcovutil::info(1, "Merging segment $idx, status $childstatus"
-		     . ($lcovutil::debug ? (' mem:' . lcovutil::current_process_size()) : '') 
+		     . ($lcovutil::debug ? (' mem:' . lcovutil::current_process_size()) : '')
 		     . "\n");
       my $dumpfile = "$tempDir/dumper_$child";
       my $childLog = "$tempDir/lcov_$child.log";
@@ -1878,17 +1873,12 @@ sub add_traces()
 	    $lcovutil::verbose);
       print(STDERR $childErr);
 
-      if (0 != $childstatus) {
-	report_parallel_error('lcov', "child $child returned non-zero code $childstatus");
-      } else {
+      if (0 == $childstatus) {
         # undump the data
-	if (open(RESTORE, "<", $dumpfile)) {
-	  # slurp into a string and eval..
-	  my $str = do { local $/; <RESTORE> }; # slurp whole thing
-	  close(RESTORE);
-	  my ($current, $interesting, $func_map, $excluded, $subst_patterns,
-	      $profile);
-	  eval $str;
+	my $data = Storable::retrieve($dumpfile);
+	if (defined($data)) {
+	  my ($current, $interesting, $func_map, $excluded, $subst_patterns, $profile)
+	    = @$data;
 	  my $then = Time::HiRes::gettimeofday();
 	  $lcovutil::profileData{$idx}{undump} = $then - $now;
 	  $lcovutil::profileData{$idx}{total} = $profile->{$idx}{total};
@@ -1927,8 +1917,10 @@ sub add_traces()
 	    }
 	  }
 	} else {
-	  report_parallel_error('lcov', "unable to open segment $idx $dumpfile: $!");
+	  report_parallel_error('lcov', "unable to deserialize segment $idx $dumpfile");
 	}
+      } else {
+	report_parallel_error('lcov', "child $child returned non-zero code $childstatus");
       }
       my $end = Time::HiRes::gettimeofday();
       $lcovutil::profileData{$idx}{merge} = $end - $start;

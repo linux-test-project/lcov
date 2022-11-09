@@ -66,10 +66,10 @@ use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 use Time::HiRes; # for profiling
-use Data::Dumper;
 use Capture::Tiny;
 use Module::Load;
 use FindBin;
+use Storable;
 
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (define_errors parse_ignore_errors
@@ -885,7 +885,6 @@ sub _merge_one_child($$$$$) {
   debug("_merge_one_child: $child $type (parent $$) status $childstatus from $tmp\n");
   my ($directory, $filename, $from) = @{$children->{$child}};
   my $dumped = "$tmp/dumper_$child";
-  my $childInfoFile = "$tmp/geninfo_$child.info$tempFileExt";
   my $childLog = "$tmp/geninfo_$child.log";
   my $childErr = "$tmp/geninfo_$child.err";
   foreach my $f ($childLog, $childErr) {
@@ -906,46 +905,30 @@ sub _merge_one_child($$$$$) {
     if ($childstatus != 0 ||
 	$lcovutil::verbose);
   if ( 0 == $childstatus ) {
-    if (open(RESTORE, "<", $dumped)) {
-      # slurp into a string and eval..
-      my $str = do { local $/; <RESTORE> }; # slurp whole thing
-      close(RESTORE);
-      unlink $dumped;
-      my ($excluded, $subst_patterns, $profile);
-      eval $str;
+    my $data = Storable::retrieve($dumped);
+    if (defined($data)) {
+      my ($childInfo, $excluded, $subst_patterns, $profile) = @$data;
       # HGC:  need to pass back substitutions, etc.
       lcovutil::merge_child_pattern_counts($excluded, $subst_patterns);
       lcovutil::merge_child_profile($profile);
-    } else {
-      report_parallel_error('geninfo', "unable to open $dumped: $!");
-    }
-    # would have been better if the child had dumped a datastructure
-    #  rather than writing a file...be we will just parse it back now...
 
-    my $now = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{undump}{$directory}{$filename} = $now - $start;
-    my $current = TraceFile->load($childInfoFile)
-      if (-f $childInfoFile &&
-	  -r $childInfoFile && # readable
-	  ! -z $childInfoFile ); # not empty
-    my $then = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{parse}{$directory}{$filename} = $then - $now;
-    if (defined $current) {
+      my $now = Time::HiRes::gettimeofday();
+      $lcovutil::profileData{undump}{$directory}{$filename} = $now - $start;
+
       if (defined($trace_data)) {
-	$trace_data->append_tracefile($current);
+	$trace_data->append_tracefile($childInfo);
 	my $final = Time::HiRes::gettimeofday();
-	$lcovutil::profileData{append}{$directory}{$filename} = $final - $then;
+	$lcovutil::profileData{append}{$directory}{$filename} = $final - $now;
       } else {
-	$trace_data = $current;
+	$trace_data = $childInfo;
       }
     } else {
-      # can get here if the gcov didn't produce any data for some file(s)
-      lcovutil::ignorable_error($ERROR_EMPTY, "$childInfoFile not found");
+      report_parallel_error('geninfo', "unable to deserialize $dumped");
     }
   } else {
     report_parallel_error('geninfo', "child $child returned non-zero code $childstatus: ignoring data in $filename");
   }
-  foreach my $f ($childInfoFile, $dumped) {
+  foreach my $f ($dumped) {
     unlink $f
       if -f $f;
   }
@@ -1067,20 +1050,27 @@ sub gen_info($)
 	      }
 	      my $then = Time::HiRes::gettimeofday();
 	      my $dumpf = "$tmp/dumper_$$";
-	      # dump parsed data - then read back and merge
-	      $lcovutil::profileData{process}{$directory}{$file} = $then - $now;
-	      $lcovutil::profileData{child}{$directory}{$file} = $childStart - $now;
-	      if (open(DUMPER, ">", $dumpf)) {
-		my @excluded = keys %lcovutil::excluded_files;
-		# keep separate timestamp for when this child block was entered
-		# vs when fork() was called - lest this job waited in queue for
-		# a while
-		print DUMPER Data::Dumper->Dump(
-		  [\@excluded, \@lcovutil::file_subst_patterns, \%lcovutil::profileData],
-		  [qw(excluded subst_patterns profile)]);
-	      } else {
-		die "geninfo child $$ unable to open $dumpf: $!";
+	      # read the child info file back and dump serial data to parent -
+	      #  would be better if the GCOV file readers directly create a
+	      #  TraceFile object rather than a .info file (future enhancement)
+	      # However, at this way we at least incur the 'parse' cost in the
+	      #   child (parallel) rather than the parent (sequential)
+	      my $childInfo = TraceFile->load($output_filename);
+	      foreach my $f ($output_filename) {
+		unlink $f unless $main::preserve_intermediates;
 	      }
+	      my @excluded = keys %lcovutil::excluded_files;
+	      my $done = Time::HiRes::gettimeofday();
+	      $lcovutil::profileData{parse}{$directory}{$file} = $done - $then;
+	      # keep separate timestamp for when this child block was entered
+	      # vs when fork() was called - lest this job waited in queue for
+	      # a while
+	      $lcovutil::profileData{process}{$directory}{$file} = $done - $now;
+	      # dump parsed data - then read back and merge
+	      Storable::store([$childInfo, \@excluded,
+			       \@lcovutil::file_subst_patterns,
+			       \%lcovutil::profileData],
+			      $dumpf);
 	      exit(0);
 	    } else {
 	      # I'm the parent

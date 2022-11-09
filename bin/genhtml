@@ -94,7 +94,7 @@ use Carp;
 use Storable qw(dclone);
 use FindBin;
 use Time::HiRes; # for profiling
-use Data::Dumper;
+use Storable;
 
 use lib "$FindBin::Bin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
@@ -4151,14 +4151,8 @@ sub compute {
         my $criteria = $SummaryInfo::coverageCriteria{$name}
           if exists($SummaryInfo::coverageCriteria{$name});
         my $file = "$tmp/dumper_$$";
-        if (open(DUMPER, ">", $file)) {
-          print DUMPER Data::Dumper->Dump([$perTestData, $selfSummary,
-                                           $criteria,
-                                           \%lcovutil::profileData],
-                                          [qw(perTest summary criteria profile)]);
-        } else {
-          die "unable to open $file: $!";
-        }
+	Storable::store([$perTestData, $selfSummary, $criteria,
+			 \%lcovutil::profileData], $file);
         close(STDOUT1);
         close(STDERR1);
         exit(0);
@@ -4251,16 +4245,12 @@ sub merge_child($$$) {
         $lcovutil::verbose);
   print(STDERR $childErr);
 
-  if ( 0 != $childstatus) {
-    lcovutil::report_parallel_error('genhtml',"child $childPid returned non-zero code $childstatus");
-  } else {
+  if ( 0 == $childstatus) {
     # now undump the data ...
-    if (open(RESTORE, "<", $dumpfile)) {
-      # slurp into a string and eval..
-      my $str = do { local $/; <RESTORE> }; # slurp whole thing
-      close(RESTORE);
-      my ($perTest, $summary, $criteria, $profile);
-      eval $str;
+    my $data = Storable::retrieve($dumpfile);
+    if (defined($data)) {
+      my ($perTest, $summary, $criteria, $profile) = @$data;
+
       $childSummary->copyGuts($summary);
       if ('file' eq $type) {
         my $base_name = File::Basename::basename($fullname);
@@ -4289,8 +4279,10 @@ sub merge_child($$$) {
       }
       lcovutil::merge_child_profile($profile);
     } else {
-      lcovutil::report_parallel_error('genhtml', "unable to open $dumpfile: $!");
+      lcovutil::report_parallel_error('genhtml', "unable to deserialize $dumpfile");
     }
+  } else {
+    lcovutil::report_parallel_error('genhtml',"child $childPid returned non-zero code $childstatus");
   }
   my $end = Time::HiRes::gettimeofday();
   $lcovutil::profileData{$type}{$fullname} = $end - $start;

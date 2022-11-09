@@ -12,6 +12,7 @@ use Cwd qw/abs_path/;
 use Storable qw(dclone);
 use Capture::Tiny;
 use Module::Load::Conditional qw(check_install);
+use Storable;
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK =
@@ -2808,6 +2809,20 @@ sub new {
 
   return $self;
 }
+
+sub serialize {
+  my ($self, $filename) = @_;
+
+  Storable::store($self, $filename);
+}
+
+sub deserialize {
+  my ($class, $file) = @_;
+  my $self = Storable::retrieve($file) or die("unable to deserialize $file");
+  ref($self) eq $class or die("did not deserialize a $class");
+  return $self;
+}
+  
 
 sub empty {
   my $self = shift;

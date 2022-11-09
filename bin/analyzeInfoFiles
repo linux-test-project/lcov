@@ -10,7 +10,6 @@
 use strict;
 use warnings;
 use Getopt::Long;
-use Data::Dumper;
 use FindBin;
 
 use lib "$FindBin::Bin/../lib";
