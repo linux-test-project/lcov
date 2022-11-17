@@ -807,7 +807,7 @@ sub lcov_copy_single($$)
 # lcov_find(dir, function, data[, extension, ...)])
 #
 # Search DIR for files and directories whose name matches PATTERN and run
-# FUNCTION for each match. If not pattern is specified, match all names.
+# FUNCTION for each match. If no pattern is specified, match all names.
 #
 # FUNCTION has the following prototype:
 #   function(dir, relative_name, data)
