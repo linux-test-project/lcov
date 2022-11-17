@@ -18,5 +18,9 @@ int main(int argc, const char *argv[])
   str = "cd";
 
   std::cout << str << std::endl;
+
+  // LCOV_EXCL_START
+  std::cout << "adding some code to ignore" << std::endl;
+  // LCOV_EXCL_STOP
   return 0;
 }

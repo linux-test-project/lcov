@@ -41,7 +41,7 @@ while [ $# -gt 0 ] ; do
         --no-profile )
             PROFILE=''
             ;;
-        
+
         * )
             echo "Error: unexpected option '$OPT'"
             exit 1
@@ -113,8 +113,9 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
+BRACE_LINE="DA:26"
 # a bit of a hack:  gcc/10 doesn't put a DA entry on the closing brace
-COUNT=`grep -v DA:22 omit.info | grep -c ^DA:`
+COUNT=`grep -v $BRACE_LINE omit.info | grep -c ^DA:`
 if [ $COUNT != '11' ] ; then
     echo "expected 11 DA entries in 'omit.info' - found $COUNT"
     exit 1
@@ -134,7 +135,7 @@ if [ 0 != $? ] ; then
     echo "Error:  unexpected expected error code from lcov --omit --ignore.."
     exit 1
 fi
-COUNT=`grep -v DA:22 omitWarn.info | grep -c ^DA:`
+COUNT=`grep -v $BRACE_LINE omitWarn.info | grep -c ^DA:`
 if [ $COUNT != '12' ] ; then
     echo "expected 12 DA entries in 'omitWarn.info' - found $COUNT"
     exit 1
@@ -159,11 +160,40 @@ if [ 0 != $? ] ; then
     echo "Error:  saw unexpected error code from lcov --config with ignored bad omit"
     exit 1
 fi
-COUNT=`grep -v DA:22  rc_omitWarn.info | grep -c ^DA:`
+COUNT=`grep -v $BRACE_LINE  rc_omitWarn.info | grep -c ^DA:`
 if [ $COUNT != '11' ] ; then
     echo "expected 11 DA entries in 'rc_omitWarn.info' - found $COUNT"
     exit 1
 fi
+
+# test with checksum..
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o checksum.info --checksum
+if [ $? != 0 ] ; then
+    echo "capture with checksum failed"
+    exit 1
+fi
+# read file with matching checksum...
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary checksum.info --checksum
+if [ $? != 0 ] ; then
+    echo "summary with checksum failed"
+    exit 1
+fi
+#munge the checksum in the outpt file
+perl -i -pe 's/DA:6,1.+/DA:6,1,abcde/g' < checksum.info > mismatch.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary mismatch.info --checksum
+if [ $? == 0 ] ; then
+    echo "summary with mismatched checksum expected to fail"
+    exit 1
+fi
+
+perl -i -pe 's/DA:6,1.+/DA:6,1/g' < checksum.info > missing.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary missing.info --checksum
+if [ $? == 0 ] ; then
+    echo "summary with missing checksum expected to fail"
+    exit 1
+fi
+
+
 
 echo "Tests passed"
 

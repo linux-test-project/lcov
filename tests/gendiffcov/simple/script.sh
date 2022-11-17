@@ -51,7 +51,7 @@ while [ $# -gt 0 ] ; do
             #EXTRA_GCOV_OPTS="--gcov-tool '\"llvm-cov gcov\"'"
             CXX="clang++"
             ;;
-        
+
         * )
             echo "Error: unexpected option '$OPT'"
             exit 1
@@ -524,8 +524,10 @@ done
 
 
 # test file substitution option
-echo lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream'
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream'
+#  need to ignore the 'missing source' error which will happen when we try to
+#  filter for exclude patterns - the file 'pwd/test.cpp' does not exist
+echo lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     exit 1
@@ -559,13 +561,14 @@ if [ $COUNT != '1' ] ; then
 fi
 
 # some error checks...
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output err1.info -a baseline.info -a baseline.info --substitute "s#xyz#pwd#g" --exclude 'foo'
+# use 'no_markers' flag so we won't see the filter message
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output err1.info -a baseline.info -a baseline.info --substitute "s#xyz#pwd#g" --exclude 'foo' --no-markers
 if [ 0 == $? ] ; then
     echo "ERROR: lcov ran despite error"
     exit 1
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output unused.info -a baseline.info -a baseline.info --substitute "s#xyz#pwd#g" --exclude 'foo' --ignore unused
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output unused.info -a baseline.info -a baseline.info --substitute "s#xyz#pwd#g" --exclude 'foo' --ignore unused --no-markers
 if [ 0 != $? ] ; then
     echo "ERROR: lcov failed despite suppression"
     exit 1
@@ -576,7 +579,7 @@ SPREADSHEET=$LCOV_HOME/bin/spreadsheet.py
 if [ ! -f $SPREADSHEET ] ; then
     SPREADSHEET=$LCOV_HOME/share/lcov/support-scripts/spreadsheet.py
 fi
-if [ -f $SPREADSHEET ] ; then    
+if [ -f $SPREADSHEET ] ; then
     $SPREADSHEET -o results.xlsx `find . -name "*.json"`
     if [ 0 != $? ] ; then
         echo "ERROR:  spreadsheet generation failed"

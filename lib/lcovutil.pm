@@ -13,6 +13,7 @@ use Storable qw(dclone);
 use Capture::Tiny;
 use Module::Load::Conditional qw(check_install);
 use Storable;
+use Digest::MD5 qw(md5_base64);
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
@@ -52,7 +53,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
-     $extractVersionScript
+     $extractVersionScript $verify_checksum
 
      is_external @internal_dirs $opt_no_external
      rate get_overall_line $default_precision check_precision
@@ -82,7 +83,7 @@ our $ERROR_GRAPH    = 2;
 our $ERROR_FORMAT   = 3;     # bad record in .info file
 our $ERROR_EMPTY    = 4;     # no records found in info file
 our $ERROR_VERSION  = 5;
-our $ERROR_UNUSED   = 6;
+our $ERROR_UNUSED   = 6;     # exclude/include/substitute pattern not used
 our $ERROR_MISMATCH = 7;
 our $ERROR_BRANCH   = 8;     # branch numbering is not correct
 our $ERROR_PACKAGE  = 9;     # missing package
@@ -96,8 +97,7 @@ our %geninfoErrs = ("gcov"     => $ERROR_GCOV,
                     "format"   => $ERROR_FORMAT,
                     "empty"    => $ERROR_EMPTY,
                     "version"  => $ERROR_VERSION,
-                    "unused"   => $ERROR_UNUSED
-                    ,    # exclude/include/substitute pattern not used
+                    "unused"   => $ERROR_UNUSED,
                     "parallel" => $ERROR_PARALLEL,    # error on wait
                     "corrupt"  => $ERROR_CORRUPT,
                     "package"  => $ERROR_PACKAGE,);
@@ -115,7 +115,8 @@ our $cpp_demangle;
 our $cpp_demangle_tool   = "c++filt"; # Default demangler for C++ function names
 our $cpp_demangle_params = "";        # Extra parameters for demangling
 
-our $extractVersionScript;    # script/callback to find version ID of file
+our $extractVersionScript;   # script/callback to find version ID of file
+our $verify_checksum;        # compute and/or check MD5 sum of source code lines
 
 # Specify coverage rate default precision
 our $default_precision = 1;
@@ -836,9 +837,9 @@ sub define_errors($)
     my $hash = shift;
     foreach my $k (keys(%$hash)) {
         my $id = $hash->{$k};
-        $ERROR_ID{$k}          = $id;
-        $ERROR_NAME{$id}       = $k;
-        $ignore[$ERROR_ID{$k}] = 0;
+        $ERROR_ID{$k}                 = $id;
+        $ERROR_NAME{$id}              = $k;
+        $ignore[$ERROR_ID{$k}]        = 0;
     }
 }
 
@@ -891,6 +892,7 @@ sub ignorable_error($$;$)
     my $errName = "code_$code";
     $errName = $ERROR_NAME{$code}
         if exists($ERROR_NAME{$code});
+
     if ($code >= scalar(@ignore) ||
         !$ignore[$code]) {
         my $ignoreOpt =
@@ -920,6 +922,7 @@ sub ignorable_warning($$;$)
     my $errName = "code_$code";
     $errName = $ERROR_NAME{$code}
         if exists($ERROR_NAME{$code});
+
     if ($code >= scalar(@ignore) ||
         !$ignore[$code]) {
         # only tell the user how to suppress this on the first occurrence
@@ -1224,6 +1227,7 @@ sub extractFileVersion
         unless -f $filename;
     my $version;
     my $cmd = "$extractVersionScript $filename";
+    lcovutil::debug(1, "extractFileVersion: $cmd\n");
     if (open(VERS, "-|", $cmd)) {
         $version = <VERS>;
         chomp($version);
@@ -1530,10 +1534,8 @@ sub new
 sub append
 {
     # return 1 if we hit something new, 0 if not (count was already non-zero)
-    my $self        = shift;
-    my $key         = shift;
-    my $count       = shift;
-    my $interesting = 0;       # hit something new or not
+    my ($self, $key, $count) = @_;
+    my $interesting = 0;    # hit something new or not
 
     my $data = $self->[0];
     if (!defined($data->{$key})) {
@@ -2972,10 +2974,10 @@ our $UNNAMED_BLOCK = vec(pack('b*', 1 x 32), 0, 32);
 
 sub load
 {
-    my ($class, $tracefile, $readSource) = @_;
+    my ($class, $tracefile, $readSource, $verify_checksum) = @_;
     my $self = $class->new();
 
-    $self->_read_info($tracefile, $readSource);
+    $self->_read_info($tracefile, $readSource, $verify_checksum);
     return $self;
 }
 
@@ -3175,7 +3177,8 @@ sub is_c_file
 #
 sub _read_info
 {
-    my ($self, $tracefile, $readSourceCallback) = @_;
+    my ($self, $tracefile, $readSourceCallback, $verify_checksum) = @_;
+    $verify_checksum = 0 unless defined($verify_checksum);
 
     if (!defined($readSourceCallback)) {
         $readSourceCallback = ReadCurrentSource->new();
@@ -3265,7 +3268,7 @@ sub _read_info
             %branchRenumber   = ();
             %excludedFunction = ();
 
-            if (lcovutil::is_filter_enabled()) {
+            if (lcovutil::is_filter_enabled() || $verify_checksum) {
                 # unconditionally 'close' the current file - in case we don't
                 #   open a new one.  If that happened, then we would be looking
                 #   at the source for some previous file.
@@ -3275,8 +3278,10 @@ sub _read_info
                     if (-e $filename) {
                         $readSourceCallback->open($filename);
                     } else {
+                        my $why = lcovutil::is_filter_enabled() ? "filtering" :
+                            "checksum";
                         lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                        "'$filename' not found (for filtering)")
+                                             "'$filename' not found (for $why)")
                             if (lcovutil::warn_once($filename));
                     }
                 }
@@ -3320,11 +3325,31 @@ sub _read_info
                 last;
             };
 
-            /^DA:(\d+),(-?\d+)(,[^,\s]+)?/ && do {
-                my ($line, $count, $checksum) = ($1, $2, $3);
-                next
-                    if ($readSourceCallback->notEmpty() &&
-                        $readSourceCallback->isOutOfRange($line, 'line'));
+            /^DA:(\d+),(-?\d+)(,([^,\s]+))?/ && do {
+                my ($line, $count, $checksum) = ($1, $2, $4);
+                if ($readSourceCallback->notEmpty()) {
+                    next
+                        if $readSourceCallback->isOutOfRange($line, 'line');
+                    # does the source checksum match the recorded checksum?
+                    if ($verify_checksum) {
+                        if (defined($checksum)) {
+                            my $content = $readSourceCallback->getLine($line);
+                            my $chk     = Digest::MD5::md5_base64($content);
+                            if ($chk ne $checksum) {
+                                lcovutil::ignorable_error(
+                                    $lcovutil::ERROR_VERSION,
+                                    "checksum mismatch at between source $filename:$line and $tracefile: $checksum -> $chk"
+                                );
+                            }
+                        } else {
+                            # no checksum there
+                            lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
+                                 "no checksum for $filename:$line in $tracefile"
+                            );
+                        }
+                    }
+                }
+
                 my $region =
                     $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
                 if (defined($region) &&
@@ -3390,6 +3415,7 @@ sub _read_info
                         last;
                     }
                 }
+
                 # Execution count found, add to structure
                 # Add summary counts
                 $linesum->append($line, $count);
@@ -3401,15 +3427,15 @@ sub _read_info
 
                 # Store line checksum if available
                 if (defined($checksum)) {
-                    $line_checksum = substr($checksum, 1);
-
                     # Does it match a previous definition
-                    if ($fileData->check()->mapped($1) &&
-                        ($fileData->check()->value($1) ne $line_checksum)) {
-                        die("ERROR: checksum mismatch " . "at $filename:$1\n");
+                    if ($fileData->check()->mapped($line) &&
+                        ($fileData->check()->value($line) ne $checksum)) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
+                            "checksum mismatch at $filename:$line in $tracefile"
+                        );
                     }
 
-                    $fileData->check()->replace($line, $line_checksum);
+                    $fileData->check()->replace($line, $checksum);
                 }
                 last;
             };
@@ -3520,6 +3546,7 @@ sub _read_info
                         last;
                     }
                 }
+
                 # Notes:
                 #   - there may be other branches on the same line (..the next
                 #     contiguous BRDA entry).
@@ -3706,7 +3733,7 @@ sub _read_info
                               "no valid records found in tracefile $tracefile");
     }
     if ($negative) {
-        warn("WARNING: negative counts found in tracefile " . "$tracefile\n");
+        warn("WARNING: negative counts found in tracefile $tracefile\n");
     }
     if (defined($changed_testname)) {
         warn("WARNING: invalid characters removed from testname in " .
@@ -3735,7 +3762,7 @@ sub write_info($$$)
 {
     my $self = $_[0];
     local *INFO_HANDLE = $_[1];
-    my $checksum = defined($_[2]) ? $_[2] : 0;
+    my $verify_checksum = defined($_[2]) ? $_[2] : 0;
     my $br_found;
     my $br_hit;
     my $ln_total_found = 0;
@@ -3746,7 +3773,7 @@ sub write_info($$$)
     my $br_total_hit   = 0;
 
     my $srcReader = ReadCurrentSource->new()
-        if (lcovutil::is_filter_enabled());
+        if (lcovutil::is_filter_enabled() || $verify_checksum);
 
     foreach my $source_file (sort($self->files())) {
         next if lcovutil::is_external($source_file);
@@ -3783,13 +3810,15 @@ sub write_info($$$)
             if (defined($srcReader)) {
                 $srcReader->close();
                 if (is_c_file($source_file)) {
-                    lcovutil::debug(
-                                   "reading $source_file for lcov filtering\n");
+                    my $why = lcovutil::is_filter_enabled() ? "filtering" :
+                        "checksum";
+
+                    lcovutil::debug("reading $source_file for lcov $why\n");
                     if (-e $source_file) {
                         $srcReader->open($source_file);
                     } else {
                         lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                     "'$source_file' not found (for filtering)")
+                                          "'$source_file' not found (for $why)")
                             if (lcovutil::warn_once($source_file));
                     }
                 } else {
@@ -3926,9 +3955,18 @@ sub write_info($$$)
                         next;
                     }
                 }
-                my $chk = $checkdata->{$line};
-                print(INFO_HANDLE "DA:$line,$l_hit" .
-                      (defined($chk) && $checksum ? "," . $chk : "") . "\n");
+                my $chk = '';
+                if ($verify_checksum) {
+                    if (defined($checkdata->{$line})) {
+                        $chk = $checkdata->{$line};
+                    } elsif (defined($reader)) {
+                        my $content = $reader->getLine($line);
+                        $chk = Digest::MD5::md5_base64($content);
+                    }
+                    $chk = ',' . $chk if ($chk);
+                }
+
+                print(INFO_HANDLE "DA:$line,$l_hit$chk\n");
                 $found++;
                 $hit++
                     if ($l_hit > 0);

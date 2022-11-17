@@ -153,6 +153,7 @@ genhtml_med_limit = 75
 #ignore_errors = empty,mismatch
 .br
 
+.br
 # If set, do not stop when an 'ignorable error' occurs - try
 .br
 #  to generate a result, however flawed.  This is equivalent to
@@ -329,9 +330,14 @@ genhtml_desc_html=0
 #geninfo_adjust_testname = 0
 .br
 
-# Calculate a checksum for each line if non\-zero
+# Calculate a checksum for each line if non\-zero (this option is deprecated)
 .br
-geninfo_checksum = 0
+#geninfo_checksum = 0
+.br
+
+# Calculate and/or compute checksum for each line if non\-zero
+.br
+checksum = 0
 .br
 
 # Enable libtool compatibility mode if non\-zero
@@ -614,13 +620,13 @@ Note that ignoring some errors may lead to other errors.
 
 .br
 
-This is equivalent to the 
+This is equivalent to the
 .I '\-\-keep\-going'
 command line option.
 
 Default is 1:  stop when error occurs.
 
-If the 
+If the
 .I 'ignore_error msgType'
 option is also used, then those messages will be treated as warnings rather than errors (or will be entirely suppressed if the message type appears multiple times in the ignore_messages option).
 
@@ -1014,6 +1020,9 @@ Default is 0.
 
 .BR geninfo_checksum " ="
 .IR 0 | 1
+.br
+.BR checksum " ="
+.IR 0 | 1
 .IP
 If non\-zero, generate source code checksums when capturing coverage data.
 Checksums are useful to prevent merging coverage data from incompatible
@@ -1027,6 +1036,11 @@ option of
 .br
 
 Default is 0.
+
+Note that this options is somewhat subsumed by the
+.I verification_script
+option - which does something similar, but at the 'whole file' level.
+
 .PP
 
 .BR geninfo_compat_libtool " ="

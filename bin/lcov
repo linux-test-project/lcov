@@ -98,7 +98,7 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
 
                  apply_rc_params
                  strip_directories transform_pattern
-                 $extractVersionScript
+                 $extractVersionScript $verify_checksum
 
                  $maxParallelism init_parallel_params $maxMemory
   );
@@ -181,7 +181,6 @@ our $follow;              # If set, indicates that find shall follow links
 our $diff_path            = ""; # Path removed from tracefile when applying diff
 our $opt_fail_under_lines = 0;
 our $base_directory;     # Base directory (cwd of gcc during compilation)
-our $checksum;           # If set, calculate a checksum for each line
 our $no_checksum;        # If set, don't calculate a checksum for each line
 our $compat_libtool;     # If set, indicates that libtool mode is to be enabled
 our $no_compat_libtool;  # If set, indicates that libtool mode is to be disabled
@@ -265,6 +264,7 @@ lcovutil::apply_rc_params(
                'substitute'                  => \@rc_subst_patterns,
                'omit_lines'                  => \@rc_omit_patterns,
                "version_script" => \$lcovutil::extractVersionScript,
+               "checksum"       => \$lcovutil::verify_checksum,
               });
 
 set_rtl_extensions($rtlExtensions)
@@ -302,7 +302,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
                 "follow|f"             => \$follow,
                 "path=s"               => \$diff_path,
                 "base-directory|b=s"   => \$base_directory,
-                "checksum"             => \$checksum,
+                "checksum"             => \$verify_checksum,
                 "no-checksum"          => \$no_checksum,
                 "compat-libtool"       => \$compat_libtool,
                 "no-compat-libtool"    => \$no_compat_libtool,
@@ -334,6 +334,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
                 "fail-under-lines=s"   => \$opt_fail_under_lines,
                 "profile:s"            => \$lcovutil::profile,
                 "version-script=s"     => \$lcovutil::extractVersionScript,
+                "checksum"             => \$lcovutil::verify_checksum,
                 "parallel|j:i"         => \$lcovutil::maxParallelism,
                 "memory=i"             => \$lcovutil::maxMemory,
                 "prune-tests"          => \$prune_testcases,
@@ -365,8 +366,8 @@ $lcovutil::stop_on_error = 0
 
 # Merge options
 if (defined($no_checksum)) {
-    $checksum    = ($no_checksum ? 0 : 1);
-    $no_checksum = undef;
+    $verify_checksum = ($no_checksum ? 0 : 1);
+    $no_checksum     = undef;
 }
 
 if (defined($no_compat_libtool)) {
@@ -933,8 +934,8 @@ sub lcov_geninfo(@)
             }
         }
     }
-    if (defined($checksum)) {
-        push(@param, $checksum ? '--checksum' : '--no-checksum');
+    if (defined($verify_checksum)) {
+        push(@param, $verify_checksum ? '--checksum' : '--no-checksum');
     }
     if ($base_directory) {
         push(@param, "--base-directory", $base_directory);
@@ -1619,7 +1620,7 @@ sub emit
             if $info_msg;
         info("Writing data to $output_filename\n");
     }
-    return $trace->write_info_file($to, $checksum);
+    return $trace->write_info_file($to, $lcovutil::verify_checksum);
 }
 
 #
@@ -1653,7 +1654,8 @@ sub _process_segment($$$)
         }
         my $current;
         eval {
-            $current = TraceFile->load($tracefile, $readSourceFile);
+            $current = TraceFile->load($tracefile, $readSourceFile,
+                                       $lcovutil::verify_checksum);
             print("after load $tracefile: memory: " .
                   lcovutil::current_process_size() . "\n")
                 if $lcovutil::debug;    # predicate to avoid function call...
@@ -1958,8 +1960,9 @@ sub remove_file_patterns($)
 
     my $readSourceFile = ReadCurrentSource->new();
     my $now            = Time::HiRes::gettimeofday();
-    my $data           = TraceFile->load($filename, $readSourceFile);
-    my $then           = Time::HiRes::gettimeofday();
+    my $data =
+        TraceFile->load($filename, $readSourceFile, $lcovutil::verify_checksum);
+    my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{parse} = $then - $now;
 
     # Write extracted data
@@ -2083,7 +2086,8 @@ sub shorten_rate($$$)
 sub list()
 {
     my $readSourceFile = ReadCurrentSource->new();
-    my $data           = TraceFile->load($list, $readSourceFile);
+    my $data =
+        TraceFile->load($list, $readSourceFile, $lcovutil::verify_checksum);
     my $found;
     my $hit;
     my $entry;
@@ -2756,7 +2760,8 @@ sub adjust_fncdata($$$)
 sub diff()
 {
     my $readSourceFile = ReadCurrentSource->new();
-    my $trace_data     = TraceFile->load($diff, $readSourceFile);
+    my $trace_data =
+        TraceFile->load($diff, $readSourceFile, $lcovutil::verify_checksum);
     my %path_conversion_data;
     my $converted = 0;
     my $unchanged = 0;
@@ -2880,7 +2885,7 @@ sub diff()
     # Write data
     my $file   = InOutFile->out($output_filename);
     my $hdl    = $file->hdl();
-    my @result = $trace_data->write_info($hdl);
+    my @result = $trace_data->write_info($hdl, $lcovutil::verify_checksum);
     return @result;
 }
 
@@ -2901,7 +2906,8 @@ sub summary()
 
     # Read and combine trace files
     foreach my $filename (@opt_summary) {
-        my $current = TraceFile->load($filename, $readSourceFile);
+        my $current = TraceFile->load($filename, $readSourceFile,
+                                      $lcovutil::verify_checksum);
         $total->append_tracefile($current);
     }
     # Calculate coverage data

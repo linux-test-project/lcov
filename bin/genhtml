@@ -4725,6 +4725,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            'substitute'     => \@rc_subst_patterns,
                            'omit_lines'     => \@rc_omit_patterns,
                            "version_script" => \$lcovutil::extractVersionScript,
+                           "checksum"       => \$lcovutil::verify_checksum,
                           });
 
 # Copy related values if not specified
@@ -4761,6 +4762,7 @@ if (!GetOptions("output-directory|o=s" => \$output_directory,
                 "annotate-script=s"    => \$SourceFile::annotateScript,
                 "criteria-script=s"    => \$SummaryInfo::coverageCriteriaScript,
                 "version-script=s"     => \$lcovutil::extractVersionScript,
+                "checksum"             => \$lcovutil::verify_checksum,
                 "new-file-as-baseline" => \$treatNewFileAsBaseline,
                 'elide-path-mismatch'  => \$elide_path_mismatch,
                 # if 'show-owners' is set: generate the owner table
@@ -5179,6 +5181,7 @@ Operation:
       --version-script SCRIPT       Execute SCRIPT to check that source code
                                     version used to generate coverage data matches
                                     version used in display
+      --checksum                    Compare source line checksum
       --diff-file UDIFF             unified diff file UDIFF desribes source
                                     code changes between baseline and current
       --elide-path-mismatch         identify matching files if their basename
@@ -5306,7 +5309,8 @@ sub gen_html()
     # Read in all specified .info files
     my $now = Time::HiRes::gettimeofday();
     foreach (@info_filenames) {
-        $new_info = TraceFile->load($_, $readSourceFile);
+        $new_info =
+            TraceFile->load($_, $readSourceFile, $lcovutil::verify_checksum);
 
         # Combine %new_info with %current_data
         $current_data->append_tracefile($new_info);
@@ -5336,7 +5340,8 @@ sub gen_html()
 
         $now = Time::HiRes::gettimeofday();
         info("Reading baseline file $base_filename\n");
-        $new_info = TraceFile->load($base_filename, $readBaseSource);
+        $new_info = TraceFile->load($base_filename, $readBaseSource,
+                                    $lcovutil::verify_checksum);
         $base_data->append_tracefile($new_info);
         info("Found %d baseline entries.\n", scalar($base_data->files()));
         $then = Time::HiRes::gettimeofday();

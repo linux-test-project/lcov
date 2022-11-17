@@ -171,13 +171,31 @@ class GenerateSpreadsheet(object):
 
             elif tool == 'geninfo':
                 d = data['gen_info']
-                for k in ('reload', 'emit'):
+                for k in ('emit', ):
                     try:
                         sheet.write_number(row, 3, data[k], twoDecimal)
                         sheet.write_string(row, 2, k)
                         row += 1
                     except:
                         pass
+
+                dataKeys = ('process',  'parse', 'append', 'child', 'exec', 'merge', 'undump')
+                col = 4;
+                for k in dataKeys:
+                    sheet.write_string(row, col, k)
+                    col += 1
+                row += 1
+                sumRow = row
+                sheet.write_string(row, 2, "total")
+                row += 1
+                avgRow = row
+                sheet.write_string(row, 2, "average")
+                row += 1
+                devRow = row
+                sheet.write_string(row, 2, "variance")
+                row += 1
+
+                firstRow = row + 2
                 for dirname in sorted(d.keys()):
                     sheet.write_string(row, 0, 'gen_info')
                     sheet.write_string(row, 1, dirname)
@@ -219,9 +237,7 @@ class GenerateSpreadsheet(object):
                                 # parse: time to read child tracefile.info
                                 # append: time to merge that into parent master report
 
-                                for key in ('process', 'child', 'exec', 'merge', 'undump', 'parse', 'append'):
-                                    sheet.write_string(row, col, key)
-                                    col += 1
+                                for key in dataKeys:
                                     try:
                                         val = float(data[key][dirname][f])
                                         sheet.write_number(row, col, val, twoDecimal)
@@ -239,6 +255,27 @@ class GenerateSpreadsheet(object):
                             'total': xl_rowcol_to_cell(start-1, 2),
                         }
                         sheet.write_formula(start-1, 3, effectiveParallelism, twoDecimal)
+                        col = 4
+                        for key in dataKeys:
+                            f = xl_rowcol_to_cell(firstRow, col)
+                            t = xl_rowcol_to_cell(row-1, col)
+
+                            total = "+SUM(%(from)s:%(to)s)" % {
+                                "from" : f,
+                                "to": t
+                            }
+                            sheet.write_formula(sumRow, col, total, twoDecimal)
+                            avg = "+AVERAGE(%(from)s:%(to)s)" % {
+                                'from': f,
+                                'to': t,
+                            }
+                            sheet.write_formula(avgRow, col, avg, twoDecimal)
+                            var = "+STDEV(%(from)s:%(to)s) / AVERAGE(%(from)s:%(to)s)" % {
+                                'from': f,
+                                'to': t,
+                            }
+                            sheet.write_formula(devRow, col, var, twoDecimal)
+                            col += 1
 
                 continue
 
