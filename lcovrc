@@ -163,7 +163,9 @@ genhtml_desc_html=0
 
 # Calculate checksum for each source code line if non-zero (same as --checksum
 # option of geninfo if non-zero, same as --no-checksum if zero)
+# (the geninfo_checksum option is deprecated in favor of 'checksum = ...')
 #geninfo_checksum = 1
+#checksum = 1
 
 # Specify whether to capture coverage data for external source files (can
 # be overridden by the --external and --no-external options of geninfo/lcov)

@@ -358,7 +358,8 @@ This is equivalent to using the option "\-\-rc lcov_branch_coverage=1"; the opti
 .B \-\-no\-checksum
 .br
 .RS
-Specify whether to generate checksum data when writing tracefiles.
+Specify whether to generate checksum data when writing tracefiles and/or to
+verify matching checksums when combining trace files.
 
 Use \-\-checksum to enable checksum generation or \-\-no\-checksum to
 disable it. Checksum generation is
@@ -372,6 +373,10 @@ code versions.
 
 If you don't work with different source code versions, disable this option
 to speed up coverage data processing and to reduce the size of tracefiles.
+
+Note that this options is somewhat subsumed by the
+.I \-\-verification\-script
+option - which does something similar, but at the 'whole file' level.
 .RE
 
 .B \-\-compat
@@ -824,17 +829,20 @@ lcov ... --ignore-errors source,source ...
 .I errors
 can be a comma\-separated list of the following keywords:
 
-.B format:
-unexpected syntax found in .info file.
+.B branch:
+branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+
+.B corrupt:
+corrupt/unreadable file found.
 
 .B empty:
 the .info data file is empty (e.g., because all the code was 'removed' or excluded.
 
+.B format:
+unexpected syntax found in .info file.
+
 .B gcov:
 the gcov tool returned with a non\-zero return code.
-
-.B source:
-the source code file for a data set could not be found.
 
 .B graph:
 the graph file could not be found or is corrupted.
@@ -844,23 +852,20 @@ Inconsistent entries found in trace file:
  - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
  - function execution count (FNDA:...) but no function declaration (FN:...).
 
-.B branch:
-branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+.B package:
+a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
 
-.B unused
+.B parallel:
+various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
+
+.B source:
+the source code file for a data set could not be found.
+
+.B unused:
 the include/exclude/omit/substitute pattern did not match any file pathnames.
 
 .B version:
 revision control IDs of the file which we are trying to merge are not the same - line numbering and other information may be incorrect.
-
-.B parallel
-various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
-
-.B package
-a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
-
-.B corrupt
-corrupt/unreadable file found.
 
 
 .RE

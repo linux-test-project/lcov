@@ -59,10 +59,9 @@ use File::Basename qw(basename dirname);
 use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
                               splitpath catpath/;
 use File::Temp;
-use File::Copy qw(copy);
+use File::Copy qw(copy move);
 use File::Path;
 use Getopt::Long;
-use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path/;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 use Time::HiRes;    # for profiling
@@ -79,9 +78,7 @@ use lcovutil qw (define_errors parse_ignore_errors
                  debug $debug
                  system_no_output
                  die_handler warn_handler
-                 parse_cov_filters summarize_cov_filters @cov_filter
-                 $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE
-                 $FILTER_BLANK_LINE $FILTER_LINE_RANGE
+                 parse_cov_filters summarize_cov_filters
                  $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
@@ -173,13 +170,13 @@ our $preserve_intermediates;    # this is useful only for debugging
 # Prototypes
 sub print_usage(*);
 sub gen_info($);
-sub process_dafile($$$);
+sub process_dafile($$$$);
 sub match_filename($@);
 sub solve_ambiguous_match($$$);
 sub split_filename($);
 sub solve_relative_path($$);
 sub read_gcov_header($);
-sub read_gcov_file($$);
+sub read_gcov_file($$$);
 sub my_info(@);
 set_info_callback(\&my_info);
 sub process_intermediate($$$$);
@@ -237,7 +234,6 @@ our $output_filename;
 our $base_directory;
 our $version;
 our $follow;
-our $checksum;
 our $no_checksum;
 our $opt_compat_libtool;
 our $opt_no_compat_libtool;
@@ -293,10 +289,11 @@ if (lcovutil::apply_rc_params(
                   {
                    "geninfo_gcov_tool"       => \$gcov_tool,
                    "geninfo_adjust_testname" => \$adjust_testname,
-                   "geninfo_checksum"        => \$checksum,
-                   "geninfo_no_checksum"     => \$no_checksum,      # deprecated
-                   "geninfo_compat_libtool"      => \$opt_compat_libtool,
-                   "geninfo_external"            => \$opt_external,
+                   "geninfo_checksum"        => \$lcovutil::verify_checksum,
+                   "checksum"                => \$lcovutil::verify_checksum,
+                   "geninfo_no_checksum"    => \$no_checksum,       # deprecated
+                   "geninfo_compat_libtool" => \$opt_compat_libtool,
+                   "geninfo_external"       => \$opt_external,
                    "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
                    "geninfo_compat"              => \$opt_compat,
                    "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
@@ -326,8 +323,8 @@ if (lcovutil::apply_rc_params(
     # we set some RC values...
     # Merge options
     if (defined($no_checksum)) {
-        $checksum    = ($no_checksum ? 0 : 1);
-        $no_checksum = undef;
+        $lcovutil::verify_checksum = ($no_checksum ? 0 : 1);
+        $no_checksum               = undef;
     }
 
     # Check regexp
@@ -361,12 +358,12 @@ my %unsupported_rc;    # for error checking
 my @unsupported_config;
 my $keepGoing;
 my $quiet = 0;
-
+my $tempdirname;
 # Parse command line options
 if (!GetOptions("test-name|t=s"       => \$test_name,
-                "tempdir=s"           => \$lcovutil::tmp_dir,
+                "tempdir=s"           => \$tempdirname,
                 "output-filename|o=s" => \$output_filename,
-                "checksum"            => \$checksum,
+                "checksum"            => \$lcovutil::verify_checksum,
                 "no-checksum"         => \$no_checksum,
                 "branch-coverage"     => \$br_coverage,
                 "base-directory|b=s"  => \$base_directory,
@@ -404,6 +401,11 @@ if (!GetOptions("test-name|t=s"       => \$test_name,
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
+if (defined($tempdirname)) {
+    $lcovutil::tmp_dir = $tempdirname;
+    system("mkdir -p $tempdirname") and die("unable to mkdir $tempdirname: $!")
+        unless (-d $tempdirname);
+}
 init_verbose_flag($quiet);
 
 foreach my $d (['--config-file', scalar(@unsupported_config)],
@@ -427,8 +429,8 @@ $lcovutil::stop_on_error = 0
 
 # Merge options
 if (defined($no_checksum)) {
-    $checksum    = ($no_checksum ? 0 : 1);
-    $no_checksum = undef;
+    $lcovutil::verify_checksum = ($no_checksum ? 0 : 1);
+    $no_checksum               = undef;
 }
 
 if (defined($opt_no_compat_libtool)) {
@@ -528,6 +530,8 @@ parse_compat_modes($opt_compat);
 # Determine which errors the user wants us to ignore
 parse_ignore_errors(@ignore_errors);
 # Determine what coverpoints the user wants to filter
+# backward compatibility:  filter exclusions unless user passes 'no markers' flag
+push(@opt_filter, "region", "branch_region") unless $no_markers;
 parse_cov_filters(@opt_filter);
 
 # Make sure test names only contain valid characters
@@ -553,14 +557,9 @@ if ($follow) {
     $follow = "";
 }
 
-# Determine checksum mode
-if (defined($checksum)) {
-    # Normalize to boolean
-    $checksum = ($checksum ? 1 : 0);
-} else {
-    # Default is off
-    $checksum = 0;
-}
+# Determine checksum mode - normalize to boolean
+$lcovutil::verify_checksum =
+    defined($lcovutil::verify_checksum) && $lcovutil::verify_checksum;
 
 # Determine max depth for recursion
 if ($no_recursion) {
@@ -634,18 +633,13 @@ if ($initial && $br_coverage && !$intermediate) {
     warn("Note: --initial does not generate branch coverage data\n");
 }
 
-# somewhat expensive to do source-based filtering - so don't do it during
-#  'read' operation as we may process the same file repeatedly
-# instead: set up to do it only on write
-my $have_filters = lcovutil::is_filter_enabled();
-my $save_filters = lcovutil::disable_cov_filters();
-
 # where to write parallel child data
-my $tempFileDir = File::Temp->newdir(
-                                    "geninfo_datXXXX",
-                                    DIR     => $lcovutil::tmp_dir,
-                                    CLEANUP => !defined($preserve_intermediates)
-);
+my $tempFileDir =
+    defined($tempdirname) ? $tempdirname :
+    File::Temp->newdir("geninfo_datXXXX",
+                       DIR     => $lcovutil::tmp_dir,
+                       CLEANUP => !defined($preserve_intermediates));
+
 lcovutil::info("Writing temporary data to $tempFileDir\n");
 # Do something
 foreach my $entry (@data_directory) {
@@ -655,35 +649,19 @@ foreach my $entry (@data_directory) {
     $lcovutil::profileData{gen_info}{$entry} = $then - $now;
 }
 
-if ($have_filters &&
-    !defined($trace_data)) {
-    # Somewhat of a hack:  if we weren't doing parallel processing,
-    # then we will have written the output file directly (without applying
-    # filters) - so read that file back and apply filtering now (on write,
-    # in next block).
+my $now = Time::HiRes::gettimeofday();
+$trace_data->write_info_file($output_filename, $lcovutil::verify_checksum);
+my $then = Time::HiRes::gettimeofday();
+$lcovutil::profileData{emit} = $then - $now;
 
-    my $now = Time::HiRes::gettimeofday();
-    $trace_data = TraceFile->load($output_filename);
-    my $then = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{reload} = $then - $now;
-}
-
-lcovutil::reenable_cov_filters($save_filters);
-
-if (defined($trace_data)) {
-    my $now = Time::HiRes::gettimeofday();
-    $trace_data->write_info_file($output_filename, $checksum);
-    my $then = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{emit} = $then - $now;
-}
 info("Finished .info-file creation\n");
 summarize_cov_filters();
 
 # print warnings
 lcovutil::warn_file_patterns();
 
-my $now = Time::HiRes::gettimeofday();
-$lcovutil::profileData{total} = $now - $start;
+my $end = Time::HiRes::gettimeofday();
+$lcovutil::profileData{total} = $end - $start;
 
 lcovutil::save_profile(
      (defined($output_filename) && '-' ne $output_filename) ? $output_filename :
@@ -834,18 +812,26 @@ sub _process_one_file($$$$)
          defined($pid) ? " in child $pid" : "");
 
     # Process file
+    my $trace;
+    # multiple gcda files may refer to the same source - so generate the
+    #  same 'source.gcda' output file - so they each need a different directory
+    #  This is necessary to preserve intermediates, and if we are running
+    #  in parallel; we don't want to overwrite and don't want multiple children to
+    #  conflict.
+    my $tmp = File::Temp->newdir("geninfo_XXXXX",
+                                 DIR     => $tempFileDir,
+                                 CLEANUP => !defined($preserve_intermediates)
+    ) if ($intermediate || !defined($initial));
     if ($intermediate) {
-        my $tempdir = File::Temp->newdir(
-                                    "geninfo_XXXXX",
-                                    DIR     => $tempFileDir,
-                                    CLEANUP => !defined($preserve_intermediates)
-        );
-        process_intermediate($directory, $file, $prefix, $tempdir->dirname);
+        $trace =
+            process_intermediate($directory, $file, $prefix, $tmp->dirname);
     } elsif ($initial) {
-        process_graphfile($directory, $file, $prefix);
+        # just read the gcno file and set all the counters to zero
+        $trace = process_graphfile($directory, $file, $prefix);
     } else {
-        process_dafile($directory, $file, $prefix);
+        $trace = process_dafile($directory, $file, $prefix, $tmp->dirname);
     }
+    return $trace;
 }
 
 sub _merge_one_child($$$$$)
@@ -1021,9 +1007,11 @@ sub gen_info($)
                 # It does not work directly open/reopne the STDOUT and STDERR
                 #   descriptors due to interactions between the child and parent
                 #   processes (see the Capture::Tiny doc for some details)
+                my $childInfo;
                 my ($stdout, $stderr, $code) = Capture::Tiny::capture {
                     $trace_data = undef;
-                    _process_one_file($directory, $file, $prefix, $$);
+                    $childInfo =
+                        _process_one_file($directory, $file, $prefix, $$);
                 };
                 # print stdout and stderr ...
                 foreach my $d (['log', $stdout], ['err', $stderr]) {
@@ -1033,14 +1021,11 @@ sub gen_info($)
                 }
                 my $then  = Time::HiRes::gettimeofday();
                 my $dumpf = "$tmp/dumper_$$";
-                # read the child info file back and dump serial data to parent -
-                #  would be better if the GCOV file readers directly create a
-                #  TraceFile object rather than a .info file (future enhancement)
-                # However, at this way we at least incur the 'parse' cost in the
-                #   child (parallel) rather than the parent (sequential)
-                my $childInfo = TraceFile->load($output_filename);
+                die("can't find child struct")
+                    unless (defined($childInfo) &&
+                            ref($childInfo) eq "TraceFile");
                 foreach my $f ($output_filename) {
-                    unlink $f unless $main::preserve_intermediates;
+                    unlink $f if -f $f && !$main::preserve_intermediates;
                 }
                 my @excluded = keys %lcovutil::excluded_files;
                 my $done     = Time::HiRes::gettimeofday();
@@ -1051,6 +1036,8 @@ sub gen_info($)
                 # a while
                 $lcovutil::profileData{process}{$directory}{$file} =
                     $done - $now;
+                $lcovutil::profileData{child}{$directory}{$file} =
+                    $done - $childStart;
                 # dump parsed data - then read back and merge
                 Storable::store([$childInfo,
                                  \@excluded,
@@ -1066,10 +1053,19 @@ sub gen_info($)
             }
         } else {
             # not parallel..
-            my $now = Time::HiRes::gettimeofday();
-            _process_one_file($directory, $file, $prefix, undef);
-            my $then = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{$type}{$directory}{$file} = $then - $now;
+            my $now      = Time::HiRes::gettimeofday();
+            my $fileData = _process_one_file($directory, $file, $prefix, undef);
+            my $then     = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{process}{$directory}{$file} = $then - $now;
+            if (defined($trace_data)) {
+                $trace_data->append_tracefile($fileData);
+                my $end = Time::HiRes::gettimeofday();
+                $lcovutil::profileData{merge}{$directory}{$file} = $end - $then;
+            } else {
+                $trace_data = $fileData;
+            }
+            my $end = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{$type}{$directory}{$file} = $end - $now;
         }
     }    # end foreach
 
@@ -1212,9 +1208,9 @@ sub get_filenames($$)
 # Die on error.
 #
 
-sub process_dafile($$$)
+sub process_dafile($$$$)
 {
-    my ($dirname, $file, $dir) = @_;
+    my ($dirname, $file, $dir, $tempdir) = @_;
     my $da_filename;        # Name of data file to process
     my $da_dir;             # Directory of data file
     my $source_dir;         # Directory of source file
@@ -1245,7 +1241,6 @@ sub process_dafile($$$)
     my @result;
     my $index;
     my $da_renamed;         # If data file is to be renamed
-    my $infoFile;
 
     # Get path to data file in absolute and normalized form (begins with /,
     # contains no more ../ or ./)
@@ -1399,25 +1394,19 @@ sub process_dafile($$$)
     }
 
     # Collect data from resulting .gcov files and create .info file
-    @gcov_list = get_filenames('.', '\.gcov$');
+    # this version of gcov wrote the files to "." - but we want to
+    # save them in tempdir
+    @gcov_list = get_filenames(".", '\.gcov$');
 
     # Check for files
     if (!@gcov_list) {
         warn("WARNING: gcov did not create any files for " . "$da_filename!\n");
     }
-
-    # Check whether we're writing to a single file
-    if ($output_filename) {
-        $infoFile = InOutFile->out($output_filename, 'append');
-    } else {
-        # Open .info file for output
-        $infoFile = inOutFile->out("$da_filename.info");
+    for my $f (@gcov_list) {
+        File::Copy::move($f, $tempdir) or die("unable to move $f");
     }
-    my $infoHdl = $infoFile->hdl();
-    # Write test name
-    printf($infoHdl "TN:%s\n", $test_name);
+    my $traceFile = TraceFile->new();
 
-    my @source_file_data;
     # Traverse the list of generated .gcov files and combine them into a
     # single .info file
     foreach $gcov_file (sort(@gcov_list)) {
@@ -1427,8 +1416,9 @@ sub process_dafile($$$)
 
             # Skip gcov file for gcc built-in code
             next if ($gcov_file eq "<built-in>.gcov");
+            my $gcov_data = "$tempdir/$gcov_file";
 
-            ($source, $object) = read_gcov_header($gcov_file);
+            ($source, $object) = read_gcov_header($gcov_data);
             if (!defined($source)) {
                 # Derive source file name from gcov file name if
                 # header format could not be parsed
@@ -1441,15 +1431,6 @@ sub process_dafile($$$)
             #  apply more patterns here
             $source = lcovutil::subst_file_name($source);
 
-            # gcov will happily create output even if there's no source code
-            # available - this interferes with checksum creation so we need
-            # to pull the emergency brake here.
-            if (!-r $source && $checksum) {
-                ignorable_error($ERROR_SOURCE,
-                                "could not read source file $source");
-                next;
-            }
-
             @matches = match_filename($source, keys(%{$instr}));
 
             # Skip files that are not mentioned in the graph file
@@ -1461,10 +1442,10 @@ sub process_dafile($$$)
             }
 
             # Read in contents of gcov file
-            @result = read_gcov_file($gcov_file, $da_filename);
+            @result = read_gcov_file($gcov_data, $da_filename, $source);
             if (!defined($result[0])) {
-                warn("WARNING: skipping unreadable file " . $gcov_file . "\n");
-                unlink($gcov_file) unless $main::preserve_intermediates;
+                warn("WARNING: skipping unreadable file " . $gcov_data . "\n");
+                unlink($gcov_data) unless $main::preserve_intermediates;
                 next;
             }
             @gcov_content = @{$result[0]};
@@ -1489,43 +1470,27 @@ sub process_dafile($$$)
             $source_filename = lcovutil::subst_file_name($source_filename);
             if (TraceFile::skipCurrentFile($source_filename)) {
                 $lcovutil::excluded_files{$source_filename} = ();
-                unlink($gcov_file) unless $main::preserve_intermediates;
+                unlink($gcov_data) unless $main::preserve_intermediates;
                 next GCOV_FILE_LOOP;
             }
 
             # Skip external files if requested
             if (is_external($source_filename)) {
                 info("  ignoring data for external file $source_filename\n");
-                unlink($gcov_file) unless $main::preserve_intermediates;
+                unlink($gcov_data) unless $main::preserve_intermediates;
                 next;
             }
 
-            # Write absolute path of source file
-            printf($infoHdl "SF:%s\n", $source_filename);
+            my $fileData    = $traceFile->data($source_filename);
+            my $functionMap = $fileData->testfnc($test_name);
+            my $branchMap   = $fileData->testbr($test_name);
+            my $lineMap     = $fileData->test($test_name);
+
             if (defined($lcovutil::extractVersionScript) &&
                 -f $source_filename) {
                 my $version = lcovutil::extractFileVersion($source_filename);
-
-                printf($infoHdl "VER:%s\n", $version)
+                $fileData->version($version)
                     if (defined($version) && $version ne "");
-            }
-            if (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]
-                ) ||
-                defined($lcovutil::cov_filter[$lcovutil::FILTER_BLANK_LINE]) ||
-                defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE])
-                ||
-                defined(
-                       $lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE]
-                )
-            ) {
-                if ($source_filename =~
-                    /\.(c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|H)$/) {
-                    @source_file_data =
-                        get_source_data($da_filename,    # context
-                                        $source_filename);
-                } else {
-                    @source_file_data = ();
-                }
             }
 
             # If requested, derive function coverage data from
@@ -1536,29 +1501,15 @@ sub process_dafile($$$)
                                 $graph->{$source_filename});
             }
 
-            my $srcReader;
-            if (lcovutil::is_filter_enabled()) {
-                $srcReader = ReadCurrentSource->new();
-                $srcReader->setData($source_filename, $source_file_data[3]);
-            }
-            # Write function-related information
-            my %functionLocations;
+            # Hold function-related information
+            my %functionData;
             if (defined($graph->{$source_filename})) {
                 my $fn_data = $graph->{$source_filename};
-                my $fn;
 
-                foreach $fn (
-                            sort { $fn_data->{$a}->[0] <=> $fn_data->{$b}->[0] }
-                            keys(%{$fn_data})
-                ) {
-                    my $ln_data = $fn_data->{$fn};
-                    my $line    = $ln_data->[0];
+                while (my ($fn, $ln_data) = each(%$fn_data)) {
+                    my $line = $ln_data->[0];
 
-                    if ($fn eq "" ||    # Skip empty function
-                        (defined($srcReader) &&
-                         $srcReader->notEmpty() &&
-                         $srcReader->isOutOfRange($line, "function '$fn'"))
-                    ) {
+                    if ($fn eq "") {
                         next;
                     }
                     # Remove excluded functions
@@ -1579,81 +1530,25 @@ sub process_dafile($$$)
 
                     # Normalize function name
                     $fn = filter_fn_name($fn);
-
-                    print($infoHdl "FN:$line,$fn\n");
-                    $functionLocations{$fn} = $line;
+                    $functionData{$fn} =
+                        $functionMap->define_function($fn, $source_filename,
+                                                      $line);
                 }
             }
 
-            #--
-            #-- FNDA: <call-count>, <function-name>
-            #-- FNF: overall count of functions
-            #-- FNH: overall count of functions with non-zero call count
-            #--
-            $funcs_found = 0;
-            $funcs_hit   = 0;
             while (@gcov_functions) {
                 my $count = shift(@gcov_functions);
                 my $fn    = shift(@gcov_functions);
 
                 $fn = filter_fn_name($fn);
-                next unless exists($functionLocations{$fn});
-                printf($infoHdl "FNDA:$count,$fn\n");
-                $funcs_found++;
-                $funcs_hit++ if ($count > 0);
-            }
-            if ($funcs_found > 0) {
-                printf($infoHdl "FNF:%s\n", $funcs_found);
-                printf($infoHdl "FNH:%s\n", $funcs_hit);
+                next unless exists($functionData{$fn});
+                $functionData{$fn}->addAlias($fn, $count);
             }
 
-            # Write coverage information for each instrumented branch:
-            #
-            #   BRDA:<line number>,<block number>,<branch number>,<taken>
-            #
-            # where 'taken' is the number of times the branch was taken
-            # or '-' if the block to which the branch belongs was never
-            # executed
-            $br_found = 0;
-            $br_hit   = 0;
-
-            my $histogram     = $cov_filter[$FILTER_BRANCH_NO_COND];
-            my $skipBranch    = 0;
-            my $excludeBranch = 0;
-            my $currentBranchLine;
-            foreach my $line (sort $branchData->keylist()) {
+            # Coverage information for each instrumented branch:
+            foreach my $line ($branchData->keylist()) {
 
                 my $branchEntry = $branchData->value($line);
-                # skip this branch data if the line seems to
-                #   contain no conditionals
-                if (defined($srcReader) &&
-                    $srcReader->notEmpty()) {
-                    if (!defined($currentBranchLine) ||
-                        $currentBranchLine != $line) {
-
-                        # haven't looked at this line yet..
-                        $currentBranchLine = $line;
-
-                        $excludeBranch =
-                            ($srcReader->isOutOfRange($line, 'branch') ||
-                             $srcReader->isExcluded($line));
-                        next if $excludeBranch;
-                        $skipBranch = !$srcReader->containsConditional($line)
-                            if defined($cov_filter[$FILTER_BRANCH_NO_COND]);
-
-                        if ($skipBranch) {
-                            ++$histogram->[0];    # one line where we skip
-                            lcovutil::info(2,
-                                    "skip BRDA '" . $srcReader->getLine($line) .
-                                        "' $source_filename:$line\n");
-                        }
-                    }
-                    if ($skipBranch) {
-                        # skip coverpoints
-                        $histogram->[1] += scalar($branchEntry->blocks());
-                        next;
-                    }
-                }
 
                 # gcov extraction block numbers can be strange - so
                 #  just renumber them.
@@ -1661,114 +1556,45 @@ sub process_dafile($$$)
                 foreach my $blockId ($branchEntry->blocks()) {
                     my $blockData = $branchEntry->getBlock($blockId);
                     foreach my $br (@$blockData) {
-                        # check whether this line looks like an actual
-                        #  branch or not
-                        my $branch      = $br->id();
-                        my $taken       = $br->data();
-                        my $branch_expr = $br->expr();
-                        printf($infoHdl "BRDA:%u,%u,%s,%s\n",
-                               $line, $blockRenumber,  #$branch,#$blockRenumber,
-                               defined($branch_expr) ? $branch_expr : $branch,
-                               $taken);
-                        $br_found++;
-                        $br_hit++ if ($taken ne '-' && $taken > 0);
+                        $branchMap->append($line, $blockRenumber,
+                                           $br, $source_filename);
                     }
                     ++$blockRenumber;
                 }
             }    # end for each branch
-            if ($br_found > 0) {
-                printf($infoHdl "BRF:%s\n", $br_found);
-                printf($infoHdl "BRH:%s\n", $br_hit);
-            }
 
             # Reset line counters
             $line_number = 0;
-            $lines_found = 0;
-            $lines_hit   = 0;
 
             # Write coverage information for each instrumented line
             # Note: @gcov_content contains a list of (flag, count, source)
             # tuple for each source code line
-            my $prevCount;
-            my ($brace_histogram, $blank_histogram);
-            if (defined($srcReader) &&
-                $srcReader->notEmpty()) {
-                $brace_histogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE];
-                $blank_histogram = $cov_filter[$FILTER_BLANK_LINE];
-            }
             while (@gcov_content) {
 
                 $line_number++;
 
                 # Check for instrumented line
                 if ($gcov_content[0]) {
-                    # skip excluded line
-                    if (!(defined($srcReader) &&
-                          $srcReader->notEmpty() &&
-                          ($srcReader->isOutOfRange($line_number, 'line') ||
-                            $srcReader->isExcluded($line_number))
-                    )) {
-                        my $hit = $gcov_content[1];
-                        # NOTE: the 'gcov' content array hold only instrumented
-                        #   lines - so we would need to look at previous source
-                        #   code lines to decide if one of them was an open
-                        #   brace/if this block is empty.
-                        # For the moment:  not bothering to do that.  Wait for
-                        #   a more extensive refactoring of geninfo - to re-use
-                        #   the common lcovutil implementation.
-                        if (defined($brace_histogram) &&
-                            defined($prevCount) &&
-                            $prevCount == $hit  &&
-                            $srcReader->isCharacter($line_number, '}')) {
-                            lcovutil::info(2,
-                                       "skip DA '" .
-                                           $srcReader->getLine($line_number) .
-                                           "' $source_filename:$line_number\n");
-                            # one location where this applied
-                            ++$brace_histogram->[0];
-                            ++$brace_histogram->[1]; # one coverpoint suppressed
-                        } elsif (defined($blank_histogram) &&
-                                 $hit == 0 &&
-                                 $srcReader->isBlank($line_number)) {
-                            lcovutil::info(2,
-                                  "skip blank $source_filename:$line_number\n");
-                            # one location where this applied
-                            ++$blank_histogram->[0];
-                            ++$blank_histogram->[1]; # one coverpoint suppressed
-                        } else {
-                            $prevCount = $hit;
-
-                            printf($infoHdl "DA:" . $line_number . "," . $hit
-                                       .
-                                       ($checksum ?
-                                            "," . md5_base64($gcov_content[2]) :
-                                            "") .
-                                       "\n");
-                            $lines_found++;
-                            # Increase $lines_hit in case of an execution
-                            # count>0
-                            $lines_hit++
-                                if ($gcov_content[1] > 0);
-                        }
-                    }
+                    my $hit = $gcov_content[1];
+                    $lineMap->append($line_number, $hit);
                 }
                 # Remove already processed data from array
                 splice(@gcov_content, 0, 3);
             }
-
-            # Write line statistics and section separator
-            printf($infoHdl "LF:%s\n", $lines_found);
-            printf($infoHdl "LH:%s\n", $lines_hit);
-            print($infoHdl "end_of_record\n");
+            # now go through lines, functions, branches - append to test_name data
+            $fileData->sum()->merge($lineMap);
+            $fileData->sumbr()->merge($branchMap);
+            $fileData->func()->merge($functionMap);
 
             # Remove .gcov file after processing
-            unlink($gcov_file) unless $main::preserve_intermediates;
+            unlink($gcov_data) unless $main::preserve_intermediates;
         }
     }
 
     # Change back to initial directory
     debug(2, "chdir back to $cwd\n");
     chdir($cwd);
+    return $traceFile;
 }
 
 #
@@ -2003,7 +1829,7 @@ sub read_gcov_header($)
 }
 
 #
-# read_gcov_file(gcov_filename, gcda_filename)
+# read_gcov_file(gcov_filename, gcda_filename, source_filename)
 #
 # Parse file GCOV_FILENAME (.gcov file format) and return the list:
 # (reference to gcov_content, reference to gcov_branch, reference to gcov_func)
@@ -2023,9 +1849,9 @@ sub read_gcov_header($)
 # Die on error.
 #
 
-sub read_gcov_file($$)
+sub read_gcov_file($$$)
 {
-    my ($filename, $da_filename) = @_;
+    my ($filename, $da_filename, $source_filename) = @_;
     my @result     = ();
     my $branchData = BranchData->new();
     my @functions  = ();
@@ -2053,6 +1879,7 @@ sub read_gcov_file($$)
     # Expect gcov format as used in gcc >= 3.3
     debug("reading $filename\n");
     my $foundEOF = 0;
+    my $warnEOF  = 0;    # turn off the warnings for now
     while (<INPUT>) {
         chomp($_);
         # Also remove CR from line-end
@@ -2071,11 +1898,10 @@ sub read_gcov_file($$)
                     (($exclude_exception_branch || $no_exception_br) &&
                      defined($3) &&
                      ($3 eq "throw")));
-            if ($foundEOF) {
+            if ($warnEOF && $foundEOF) {
                 lcovutil::ignorable_error($ERROR_GCOV,
-                    "branch entry after EOF marker at $filename:$last_line while processing $da_filename"
+                    "branch entry after EOF marker for $source_filename:$last_line at $filename:$. while processing $da_filename"
                 );
-                next;
             }
             # $1 is block ID, $2 is hit count
             my $br = BranchBlock->new($branchId, $2);
@@ -2085,11 +1911,10 @@ sub read_gcov_file($$)
             next if (!$br_coverage ||
                      $exclude_line ||
                      $exclude_branch);
-            if ($foundEOF) {
+            if ($warnEOF && $foundEOF) {
                 lcovutil::ignorable_error($ERROR_GCOV,
-                    "branch entry after EOF marker at $filename:$last_line while processing $da_filename"
+                    "branch entry after EOF marker for $source_filename:$last_line at $filename:$. while processing $da_filename"
                 );
-                next;
             }
             # this branch not taken
             my $br = BranchBlock->new($branchId, '-');
@@ -2097,11 +1922,10 @@ sub read_gcov_file($$)
             ++$branchId;
         } elsif (/^function\s+(.+)\s+called\s+(\d+)\s+/) {
             next if (!$func_coverage || $exclude_line);
-            if ($foundEOF) {
+            if ($warnEOF && $foundEOF) {
                 lcovutil::ignorable_error($ERROR_GCOV,
-                    "function entry $1 after EOF marker at $filename while processing $da_filename"
+                    "function entry $1 after EOF marker at $filename:$. while processing $da_filename"
                 );
-                next;
             }
             push(@functions, $2, $1);
         } elsif (/^call/) {
@@ -2111,22 +1935,20 @@ sub read_gcov_file($$)
             # Skip instance-specific counts
             next if ($line <= (scalar(@result) / 3));
             # skip fake line inserted by gcov
-            # I think that these happen when a macro is the last line in the file -
+            # line content "/*EOF*/" seems to occur when gcov knows the
+            # number of lines in the file but can't find the source code
             # but I am not 100% certain.
-            # Bogus lines with non-zero hit counts are definitely a problem, though.
             if ($code eq '/*EOF*/') {
                 lcovutil::ignorable_error($ERROR_GCOV,
-                  "EOF marker in $filename:$line while processing $da_filename")
-                    unless $foundEOF;
+                    "EOF marker for $source_filename:$line at $filename:$. while processing $da_filename"
+                ) unless ($foundEOF && $warnEOF);
                 $foundEOF = 1;
-                next;
             } elsif ($foundEOF) {
                 # data looks inconsistent...we started finding some EOF entries
                 # and now we found a following entry which claims not to be EOF
                 lcovutil::ignorable_error($ERROR_GCOV,
-                    "non-EOF at $filename:$line while processing $da_filename: '$code'"
+                    "non-EOF for $source_filename:$line at $filename:$. while processing $da_filename: '$code'"
                 );
-                next;
             }
             $branchId   = 0;                # if $last_line != $line;
             $last_line  = $line;
@@ -2286,74 +2108,43 @@ sub read_intermediate_json($$$)
 }
 
 #
-# intermediate_text_to_info(fd, data, srcdata)
+# intermediate_text_to_info(data)
 #
 # Write DATA in info format to file descriptor FD.
 #
 # data:      filename -> file_data:
 # file_data: concatenated lines of intermediate text data
 #
-# srcdata:   filename -> [ excl, brexcl, checksums ]
-# excl:      lineno -> 1 for all lines for which to exclude all data
-# brexcl:    lineno -> 1 for all lines for which to exclude branch data
-#                      2 for all lines for which to exclude exception branch data
-# checksums: lineno -> source code checksum
-#
 # Note: To simplify processing, gcov data is not combined here, that is counts
 #       that appear multiple times for the same lines/branches are not added.
 #       This is done by lcov/genhtml when reading the data files.
 #
 
-sub intermediate_text_to_info($$$)
+sub intermediate_text_to_info($)
 {
-    my ($fd, $data, $srcdata) = @_;
+    my $data       = shift;
     my $branch_num = 0;
-    my $c;
 
     return if (!%{$data});
 
-    print($fd "TN:$test_name\n");
+    my $traceFile = TraceFile->new();
+
     for my $filename (keys(%{$data})) {
-        my ($excl, $brexcl, $checksums, $src_code);
-        my $lines_found     = 0;
-        my $lines_hit       = 0;
-        my $functions_found = 0;
-        my $functions_hit   = 0;
-        my $branches_found  = 0;
-        my $branches_hit    = 0;
 
-        if (defined($srcdata->{$filename})) {
-            ($excl, $brexcl, $checksums, $src_code) = @{$srcdata->{$filename}};
-        }
-        lcovutil::info(1,
-                       "emit data for $filename " .
-                           (defined($src_code) ? "have source" : "") . "\n");
-        my $srcReader;
-        if (defined($src_code) &&
-            lcovutil::is_filter_enabled()) {
-            $srcReader = ReadCurrentSource->new();
-            $srcReader->setData($filename, $src_code);
-        }
+        lcovutil::info(1, "emit data for $filename\n");
 
-        print($fd "SF:$filename\n");
+        # there is no meaningful parse location for this data
+        my $fileData    = $traceFile->data($filename);
+        my $functionMap = $fileData->testfnc($test_name);
+        my $branchMap   = $fileData->testbr($test_name);
+        my $lineMap     = $fileData->test($test_name);
+
         if (defined($lcovutil::extractVersionScript) &&
             -f $filename) {
             my $version = lcovutil::extractFileVersion($filename);
-
-            printf($fd "VER:%s\n", $version)
+            $fileData->version($version)
                 if (defined($version) && $version ne "");
         }
-        my $skipBranch        = 0;
-        my $currentBranchLine = 0;
-        # I need the line numbers to be ordered in order to support
-        #  line filtering - so store them temporarily.
-        #  (gcc-8.3.0 seems to emit unsorted lines).
-        my @linecov;
-        my $branchHistogram = $cov_filter[$FILTER_BRANCH_NO_COND]
-            if (defined($srcReader) && $srcReader->notEmpty());
-        my $reader =
-            (defined($srcReader) && $srcReader->notEmpty()) ? $srcReader :
-            undef;
         for my $line (split(/\n/, $data->{$filename})) {
             if ($line =~ /^lcount:(\d+),(\d+),?/) {
                 # lcount:<line>,<count>
@@ -2361,12 +2152,7 @@ sub intermediate_text_to_info($$$)
                 my $lineNo = $1;
                 my $hit    = $2;
 
-                next
-                    if ($excl->{$lineNo} ||
-                        (defined($reader) &&
-                         ($reader->isOutOfRange($lineNo, 'line') ||
-                            $reader->isExcluded($lineNo))));
-                push(@linecov, [$lineNo, $hit]);
+                $lineMap->append($lineNo, $hit);
 
                 # Intermediate text format does not provide
                 # branch numbers, and the same branch may appear
@@ -2378,65 +2164,20 @@ sub intermediate_text_to_info($$$)
                 # b) an instance starts with an lcount line
                 $branch_num = 0;
             } elsif ($line =~ /^function:(\d+),(\d+),([^,]+)$/) {
-                next if (!$func_coverage || $excl->{$1});
+                next unless $func_coverage;
 
                 # function:<line>,<count>,<name>
-                next
-                    if ($excl->{$1} ||
-                        (defined($reader) &&
-                         ($reader->isOutOfRange($1, "function '$3'") ||
-                            $reader->isExcluded($1))));
-                print($fd "FN:$1,$3\n");
-                print($fd "FNDA:$2,$3\n");
-
-                $functions_found++;
-                $functions_hit++ if ($2 > 0);
+                my $func = $functionMap->define_function($3, $filename, $1);
+                $func->addAlias($3, $2);
             } elsif ($line =~ /^function:(\d+),\d+,(\d+),([^,]+)$/) {
-                next if (!$func_coverage || $excl->{$1});
-
                 # function:<start_line>,<end_line>,<count>,
-                #          <name>
-                next
-                    if ($excl->{$1} ||
-                        (defined($reader) &&
-                         ($reader->isOutOfRange($1, "function '$3'") ||
-                            $reader->isExcluded($1))));
-                print($fd "FN:$1,$3\n");
-                print($fd "FNDA:$2,$3\n");
-
-                $functions_found++;
-                $functions_hit++ if ($2 > 0);
+                my $func = $functionMap->define_function($3, $filename, $1);
+                $func->addAlias($3, $2);
             } elsif ($line =~ /^branch:(\d+),(taken|nottaken|notexec)/) {
                 my $lineNo = $1;
                 next
-                    if (!$br_coverage ||
-                        $excl->{$lineNo} ||
-                        (defined($brexcl->{$lineNo}) &&
-                         ($brexcl->{$lineNo} == 1))
-                        ||
-                        (defined($reader) &&
-                         ($reader->isOutOfRange($lineNo, 'branch') ||
-                            $reader->isExcluded($lineNo, 1))));
-
-                if (defined($branchHistogram)) {
-                    if ($currentBranchLine != $lineNo) {
-                        $currentBranchLine = $lineNo;
-                        if ($srcReader->containsConditional($lineNo)) {
-                            $skipBranch = 0;
-                        } else {
-                            $skipBranch = 1;
-                            ++$branchHistogram->[0];    # one line where we skip
-                            lcovutil::info(2,
-                                  "skip BRDA '" . $srcReader->getLine($lineNo) .
-                                      "' $filename:$lineNo\n");
-                        }
-                    }
-                    if ($skipBranch) {
-                        ++$branchHistogram->[1];    # skip one coverpoint
-                        next;
-                    }
-                }
-
+                    unless $br_coverage;
+                my $c;
                 # branch:<line>,taken|nottaken|notexec
                 if ($2 eq "taken") {
                     $c = 1;
@@ -2445,128 +2186,54 @@ sub intermediate_text_to_info($$$)
                 } else {
                     $c = "-";
                 }
-                print($fd "BRDA:$1,0,$branch_num,$c\n");
-                $branch_num++;
-
-                $branches_found++;
-                $branches_hit++ if ($2 eq "taken");
+                my $br = BranchBlock->new($branch_num, $c);
+                # "block" is always zero for intermedaite text
+                $branchMap->append($lineNo, 0, $br, $filename);
+                ++$branch_num;
             }
         }
-        # now process the line coverage data..
-        my $prevLineCount;
-        my ($brace_histogram, $blank_histogram);
-        if (defined($reader)) {
-            $brace_histogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE];
-            $blank_histogram = $cov_filter[$FILTER_BLANK_LINE];
-        }
-        foreach my $d (sort { $a->[0] <=> $b->[0] } @linecov) {
-            my ($lineNo, $hit) = @$d;
-
-            next if (defined($reader) &&
-                     $reader->isExcluded($lineNo));
-
-            if (defined($brace_histogram) &&
-                defined($prevLineCount) &&
-                $prevLineCount == $hit  &&
-                $srcReader->isCharacter($lineNo, '}')) {
-                lcovutil::info(2,
-                               "skip DA '" . $srcReader->getLine($lineNo) .
-                                   "' $filename:$lineNo\n");
-                ++$brace_histogram->[0];    # one location where this applied
-                ++$brace_histogram->[1];    # one coverpoint suppressed
-                next;
-            } elsif (defined($blank_histogram) &&
-                     0 == $hit &&
-                     $srcReader->isBlank($lineNo)) {
-                lcovutil::info(2, "skip blank DA $filename:$lineNo\n");
-                ++$blank_histogram->[0];    # one location where this applied
-                ++$blank_histogram->[1];    # one coverpoint suppressed
-                next;
-            }
-            $prevLineCount = $hit;
-
-            ++$lines_found;
-            ++$lines_hit
-                if (0 != $hit);
-            # lcount:<line>,<count>
-            # lcount:<line>,<count>,<has_unexecuted_blocks>
-            if ($checksum && exists($checksums->{$lineNo})) {
-                $c = "," . $checksums->{$lineNo};
-            } else {
-                $c = "";
-            }
-            print($fd "DA:$lineNo,$hit$c\n")
-                if (!$excl->{$lineNo});
-        }
-
-        if ($functions_found > 0) {
-            printf($fd "FNF:%s\n", $functions_found);
-            printf($fd "FNH:%s\n", $functions_hit);
-        }
-        if ($branches_found > 0) {
-            printf($fd "BRF:%s\n", $branches_found);
-            printf($fd "BRH:%s\n", $branches_hit);
-        }
-        printf($fd "LF:%s\n", $lines_found);
-        printf($fd "LH:%s\n", $lines_hit);
-        print($fd "end_of_record\n");
+        # now go through lines, functions, branches - append to test_name data
+        $fileData->sum()->merge($lineMap);
+        $fileData->sumbr()->merge($branchMap);
+        $fileData->func()->merge($functionMap);
     }
+    return $traceFile;
 }
 
 #
-# intermediate_json_to_info(fd, data, srcdata)
+# intermediate_json_to_info(data)
 #
 # Write DATA in info format to file descriptor FD.
 #
 # data:      filename -> file_data:
 # file_data: GCOV JSON data for file
 #
-# srcdata:   filename -> [ excl, brexcl, checksums ]
-# excl:      lineno -> 1 for all lines for which to exclude all data
-# brexcl:    lineno -> 1 for all lines for which to exclude branch data
-#                      2 for all lines for which to exclude exception branch data
-# checksums: lineno -> source code checksum
-#
 # Note: To simplify processing, gcov data is not combined here, that is counts
 #       that appear multiple times for the same lines/branches are not added.
 #       This is done by lcov/genhtml when reading the data files.
 #
 
-sub intermediate_json_to_info($$$)
+sub intermediate_json_to_info($)
 {
-    my ($fd, $data, $srcdata) = @_;
+    my $data       = shift;
     my $branch_num = 0;
 
     return if (!%{$data});
 
-    print($fd "TN:$test_name\n");
-    for my $filename (keys(%{$data})) {
-        my ($excl, $brexcl, $checksums, $src_code);
-        my $file_data       = $data->{$filename};
-        my $lines_found     = 0;
-        my $lines_hit       = 0;
-        my $functions_found = 0;
-        my $functions_hit   = 0;
-        my $branches_found  = 0;
-        my $branches_hit    = 0;
+    my $traceFile = TraceFile->new();
+    lcovutil::debug(1,
+          "called intermediate_json_to_info " . join(' ', keys(%$data)) . "\n");
+    while (my ($filename, $file_data) = each(%$data)) {
+        # there is no meaningful parse location for this data
+        my $fileData    = $traceFile->data($filename);
+        my $functionMap = $fileData->testfnc($test_name);
+        my $branchMap   = $fileData->testbr($test_name);
+        my $lineMap     = $fileData->test($test_name);
 
-        if (defined($srcdata->{$filename})) {
-            ($excl, $brexcl, $checksums, $src_code) = @{$srcdata->{$filename}};
-        }
-
-        my $srcReader;
-        if (defined($src_code) &&
-            lcovutil::is_filter_enabled()) {
-            $srcReader = ReadCurrentSource->new();
-            $srcReader->setData($filename, $src_code);
-        }
-
-        print($fd "SF:$filename\n");
         if (defined($lcovutil::extractVersionScript) &&
             -f $filename) {
             my $version = lcovutil::extractFileVersion($filename);
-
-            printf($fd "VER:%s\n", $version)
+            $fileData->version($version)
                 if (defined($version) && $version ne "");
         }
 
@@ -2577,140 +2244,71 @@ sub intermediate_json_to_info($$$)
                 my $count = $d->{"execution_count"};
                 my $name  = $d->{"name"};
 
-                next
-                    if (
-                     !defined($line)  ||
-                     !defined($count) ||
-                     !defined($name)  ||
-                     $excl->{$line}   ||
-                     (  defined($srcReader) &&
-                        $srcReader->notEmpty() &&
-                        ($srcReader->isOutOfRange($line, "function '$name'") ||
-                            $srcReader->isExcluded($line))));
-
-                print($fd "FN:$line,$name\n");
-                print($fd "FNDA:$count,$name\n");
-
-                $functions_found++;
-                $functions_hit++ if ($count > 0);
+                my $func =
+                    $functionMap->define_function($name, $filename, $line);
+                $func->addAlias($name, $count);
             }
         }
-
-        if ($functions_found > 0) {
-            printf($fd "FNF:%s\n", $functions_found);
-            printf($fd "FNH:%s\n", $functions_hit);
-        }
-
-        # Line data
-        my ($brace_histogram, $blank_histogram, $branch_histogram);
-        if (defined($srcReader) && $srcReader->notEmpty()) {
-            $brace_histogram  = $cov_filter[$FILTER_LINE_CLOSE_BRACE];
-            $blank_histogram  = $cov_filter[$FILTER_BLANK_LINE];
-            $branch_histogram = $cov_filter[$FILTER_BRANCH_NO_COND];
-        }
-
-        my $prevLineCount;
-        for my $d (sort { $a->{line_number} <=> $b->{line_number} }
-                   @{$file_data->{"lines"}}) {
-            my $line = $d->{"line_number"};
-            next
-                if (defined($srcReader) &&
-                    $srcReader->notEmpty() &&
-                    ($srcReader->isOutOfRange($line, 'line') ||
-                     $srcReader->isExcluded($line)));
+        for my $d (@{$file_data->{"lines"}}) {
+            my $line  = $d->{"line_number"};
             my $count = $d->{"count"};
-            my $c;
+
             my $branches = $d->{"branches"};
             my $unexec   = $d->{"unexecuted_block"};
 
             next
-                if (!defined($line) || !defined($count) || $excl->{$line});
+                if (!defined($line) || !defined($count));
+
+            # just add the line - worry about filtering later
+            $lineMap->append($line, $count);
 
             if (defined($unexec) && $unexec && $count == 0) {
                 $unexec = 1;
             } else {
                 $unexec = 0;
             }
-
-            if (defined($brace_histogram) &&
-                defined($prevLineCount)  &&
-                $prevLineCount == $count &&
-                $srcReader->isCloseBrace($line)) {
-                lcovutil::info(2,
-                               "skip DA '" . $srcReader->getLine($line) .
-                                   "' $filename:$line\n");
-                ++$brace_histogram->[0];    # one location where this applied
-                ++$brace_histogram->[1];    # one coverpoint suppressed
-            } elsif (defined($blank_histogram) &&
-                     $count == 0 &&
-                     $srcReader->isBlank($line)) {
-                lcovutil::info(2, "skip blank DA $filename:$line\n");
-                ++$blank_histogram->[0];    # one location where this applied
-                ++$blank_histogram->[1];    # one coverpoint suppressed
-            } else {
-                if ($checksum && exists($checksums->{$line})) {
-                    $c = "," . $checksums->{$line};
-                } else {
-                    $c = "";
-                }
-                print($fd "DA:$line,$count$c\n");
-                $lines_found++;
-                $lines_hit++ if ($count > 0);
-            }
             # there may be compiler-generated branch data on
             #  the closing brace of the function...
             $branch_num = 0;
             # Branch data
-            if ($br_coverage &&
-                (   !defined($brexcl->{$line}) ||
-                    ($brexcl->{$line} != 1)
-                    ||
-                    (   defined($srcReader) &&
-                        $srcReader->notEmpty() &&
-                        ($srcReader->isOutOfRange($line, 'branch') ||
-                            $srcReader->isExcluded($line, 1))))
-            ) {
+            if ($br_coverage) {
 
-                if (defined($branch_histogram) &&
-                    0 != scalar(@$branches) &&
-                    !$srcReader->containsConditional($line)) {
-                    lcovutil::info(2,
-                                   "skip BRDA '" . $srcReader->getLine($line) .
-                                       "' $filename:$line\n");
-                    ++$branch_histogram->[0];    # one line where we skip
-                    $branch_histogram->[1] +=
-                        scalar(@$branches);      # number we skip
-                    next;
-                }
+                my %branchRenumber;
+
                 for my $b (@$branches) {
                     my $brcount      = $b->{"count"};
                     my $is_exception = $b->{"throw"};
 
                     if (!$is_exception ||
-                        (   (!defined($brexcl->{$line}) ||
-                             ($brexcl->{$line} != 2)) &&
-                            !$no_exception_br)
-                    ) {
+                        !$no_exception_br) {
                         if (!defined($brcount) || $unexec) {
                             $brcount = "-";
                         }
-                        print($fd "BRDA:$line,0,$branch_num,$brcount\n");
+                        my $entry = BranchBlock->new($branch_num, $brcount);
+                        if (exists($branchRenumber{$branch_num})) {
+                            $branchRenumber{$branch_num}->merge($entry);
+                        } else {
+                            $branchRenumber{$branch_num} = $entry;
+                        }
+                        ++$branch_num;
                     }
-
-                    $branches_found++;
-                    $branches_hit++ if ($brcount ne "-" && $brcount > 0);
-                    $branch_num++;
+                }
+                my $id = 0;
+                foreach my $b (sort { $a <=> $b } keys(%branchRenumber)) {
+                    my $br    = $branchRenumber{$b};
+                    my $newBr = BranchBlock->new($id, $br->data());
+                    # "block" is always zero for intermediate JSON data
+                    $branchMap->append($line, 0, $newBr, $filename);
+                    ++$id;
                 }
             }
         }
-        if ($branches_found > 0) {
-            printf($fd "BRF:%s\n", $branches_found);
-            printf($fd "BRH:%s\n", $branches_hit);
-        }
-        printf($fd "LF:%s\n", $lines_found);
-        printf($fd "LH:%s\n", $lines_hit);
-        print($fd "end_of_record\n");
+        # now go through lines, functions, branches - append to test_name data
+        $fileData->sum()->merge($lineMap);
+        $fileData->sumbr()->merge($branchMap);
+        $fileData->func()->merge($functionMap);
     }
+    return $traceFile;
 }
 
 our $gcov_tool_path;
@@ -2797,7 +2395,6 @@ sub process_intermediate($$$$)
     my %data;
     my $fd;
     my $base;
-    my $srcdata;
     my $is_graph = 0;
     my ($out, $err, $rc);
     my $json_basedir;
@@ -2914,24 +2511,15 @@ sub process_intermediate($$$$)
     # Remove excluded source files
     filter_source_files(\%data);
 
-    # Get data on exclusion markers and checksums if requested
-    if (!$no_markers || $checksum) {
-        $srcdata = get_all_source_data($file, keys(%data));
-    }
-
     # Generate output
-    my $of = InOutFile->out(
-                  defined($output_filename) ? $output_filename : "${file}.info",
-                  "append");
-    if ($json_format) {
-        intermediate_json_to_info($of->hdl(), \%data, $srcdata);
-    } else {
-        intermediate_text_to_info($of->hdl(), \%data, $srcdata);
-    }
+    my $trace =
+        $json_format ? intermediate_json_to_info(\%data) :
+        intermediate_text_to_info(\%data);
+
     debug(2, "chdir back to '$cwd'\n");
     chdir($cwd);
 
-    return;
+    return $trace;
 
     err:
     ignorable_error($ERROR_GCOV, "$errmsg!");
@@ -3055,219 +2643,6 @@ sub int_handler()
     exit(1);
 }
 
-#
-#
-# get_source_data(context, filename)
-#
-# Scan specified source code file for exclusion markers and checksums. Return
-#   ( excl, brexcl, checksums ) where
-#   excl:      lineno -> 1 for all lines for which to exclude all data
-#   brexcl:    lineno -> 1 for all lines for which to exclude branch data
-#   checksums: lineno -> source code checksum
-# use 'context' for messaging: what file(s) were we trying to process when
-#   something bad happened?
-
-sub get_source_data($$)
-{
-    my ($context, $filename) = @_;
-    my %list;
-    my $flag = 0;
-    my %brdata;
-    my $brflag          = 0;
-    my $exceptionbrflag = 0;
-    my %checksums;
-    my @source;
-    local *HANDLE;
-
-    if (!open(HANDLE, "<", $filename)) {
-        lcovutil::ignorable_warning(
-                       $ERROR_SOURCE,
-                       "could not open $filename for exclusion marker filtering"
-                           .
-                           (
-                           defined($context) ? " while processing $context" : ""
-                           ));
-        return;
-    }
-    while (<HANDLE>) {
-        chomp;
-        push(@source, $_)
-            if (lcovutil::is_filter_enabled());
-
-        if (/$EXCL_STOP/) {
-            $flag = 0;
-        } elsif (/$EXCL_START/) {
-            $flag = 1;
-        }
-        if (/$excl_line/ || $flag) {
-            $list{$.} = 1;
-        }
-        if (/$EXCL_BR_STOP/) {
-            $brflag = 0;
-        } elsif (/$EXCL_BR_START/) {
-            $brflag = 1;
-        }
-        if (/$EXCL_EXCEPTION_BR_STOP/) {
-            $exceptionbrflag = 0;
-        } elsif (/$EXCL_EXCEPTION_BR_START/) {
-            $exceptionbrflag = 1;
-        }
-        if (/$excl_br_line/ || $brflag) {
-            $brdata{$.} = 1;
-        } elsif (/$excl_exception_br_line/ || $exceptionbrflag) {
-            $brdata{$.} = 2;
-        }
-        if ($checksum) {
-            chomp();
-            $checksums{$.} = md5_base64($_);
-        }
-        if ($intermediate &&
-            !$gcov_caps->{'json-format'} &&
-            /($EXCL_EXCEPTION_BR_STOP|$EXCL_EXCEPTION_BR_START|$excl_exception_br_line)/
-        ) {
-            warn("WARNING: $1 found at $filename:$. but branch exceptions " .
-                   "exclusion is not supported when using text intermediate "
-                 . "format\n");
-        }
-    }
-    close(HANDLE);
-
-    if ($flag || $brflag || $exceptionbrflag) {
-        warn("WARNING: unterminated exclusion section in $filename\n");
-    }
-    return (\%list, \%brdata, \%checksums, \@source);
-}
-
-#
-# get_all_source_data(context, filenames)
-#
-# Scan specified source code files for exclusion markers and return
-#   filename -> [ excl, brexcl, checksums ]
-#   excl:      lineno -> 1 for all lines for which to exclude all data
-#   brexcl:    lineno -> 1 for all lines for which to exclude branch data
-#   checksums: lineno -> source code checksum
-# Use 'context' for messaging:  what data file(s) were we working on
-#   when something bad happened?
-
-sub get_all_source_data($@)
-{
-    my $context   = shift;
-    my @filenames = @_;
-    my %data;
-    my $failed = 0;
-
-    for my $filename (@filenames) {
-        my @d;
-        next if (exists($data{$filename}));
-
-        @d = get_source_data($context, $filename);
-        if (@d) {
-            $data{$filename} = [@d];
-        } else {
-            $failed = 1;
-        }
-    }
-
-    if ($failed) {
-        # use same message type as case that we couldn't open the file
-        lcovutil::ignorable_warning($ERROR_SOURCE,
-                                    "some exclusion markers may be ignored"
-                                        .
-                                        (defined($context) ?
-                                             " while processing $context" :
-                                             ""));
-    }
-    return \%data;
-}
-
-#
-# apply_exclusion_data(context, instr, graph)
-#
-# Remove lines from instr and graph data structures which are marked
-# for exclusion in the source code file.
-# 'context' is used for messaging: the data file name that we are processing
-#
-# Return adjusted (instr, graph).
-#
-# graph         : file name -> function data
-# function data : function name -> line data
-# line data     : [ line1, line2, ... ]
-#
-# instr     : filename -> line data
-# line data : [ line1, line2, ... ]
-#
-
-sub apply_exclusion_data($$$)
-{
-    my ($context, $instr, $graph) = @_;
-    my $filename;
-    my $excl_data;
-
-    ($excl_data) =
-        get_all_source_data($context, keys(%{$graph}), keys(%{$instr}));
-
-    # Skip if no markers were found
-    return ($instr, $graph) if (!%$excl_data);
-
-    # Apply exclusion marker data to graph
-    foreach $filename (keys(%$excl_data)) {
-        my $function_data = $graph->{$filename};
-        my $excl          = $excl_data->{$filename}->[0];
-
-        next if (!defined($function_data));
-
-        foreach my $function (keys(%{$function_data})) {
-            my $line_data = $function_data->{$function};
-            my $line;
-            my @new_data;
-
-            # To be consistent with exclusion parser in non-initial
-            # case we need to remove a function if the first line
-            # was excluded
-            if ($excl->{$line_data->[0]}) {
-                delete($function_data->{$function});
-                next;
-            }
-            # Copy only lines which are not excluded
-            foreach $line (@{$line_data}) {
-                push(@new_data, $line) if (!$excl->{$line});
-            }
-
-            # Store modified list
-            if (scalar(@new_data) > 0) {
-                $function_data->{$function} = \@new_data;
-            } else {
-                # All of this function was excluded
-                delete($function_data->{$function});
-            }
-        }
-
-        # Check if all functions of this file were excluded
-        if (keys(%{$function_data}) == 0) {
-            delete($graph->{$filename});
-        }
-    }
-
-    # Apply exclusion marker data to instr
-    foreach $filename (keys(%$excl_data)) {
-        my $line_data = $instr->{$filename};
-        my $excl      = $excl_data->{$filename}->[0];
-        my @new_data;
-
-        next if (!defined($line_data));
-
-        # Copy only lines which are not excluded
-        foreach my $line (@{$line_data}) {
-            push(@new_data, $line) if (!$excl->{$line});
-        }
-
-        # Store modified list
-        $instr->{$filename} = \@new_data;
-    }
-
-    return ($instr, $graph);
-}
-
 sub process_graphfile($$$)
 {
     my ($dirname, $file, $dir) = @_;
@@ -3278,8 +2653,6 @@ sub process_graphfile($$$)
     my $base_dir;
     my $graph;
     my $instr;
-    my $filename;
-    my $infoFile;
 
     # Get path to data file in absolute and normalized form (begins with /,
     # contains no more ../ or ./)
@@ -3326,26 +2699,8 @@ sub process_graphfile($$$)
     adjust_source_filenames($instr, $base_dir);
     adjust_source_filenames($graph, $base_dir);
 
-    if (!$no_markers) {
-        # Apply exclusion marker data to graph file data
-        ($instr, $graph) =
-            apply_exclusion_data($graph_filename,    # context
-                                 $instr, $graph);
-    }
-
-    # Check whether we're writing to a single file
-    if ($output_filename) {
-        $infoFile = InOutFile->out($output_filename, 'append');
-    } else {
-        # Open .info file for output
-        $infoFile = InOutFile->out("$graph_filename.info");
-    }
-    my $infoHdl = $infoFile->hdl();
-
-    my $srcReader = ReadCurrentSource->new();
-    # Write test name
-    printf($infoHdl "TN:%s\n", $test_name);
-    foreach $filename (sort(keys(%{$instr}))) {
+    my $traceFile = TraceFile->new();
+    foreach my $filename (sort(keys(%{$instr}))) {
         my $funcdata = $graph->{$filename};
         my $line;
         my $linedata;
@@ -3355,58 +2710,40 @@ sub process_graphfile($$$)
             info("  ignoring data for external file $filename\n");
             next;
         }
+        # there is no meaningful parse location for this data
+        my $fileData    = $traceFile->data($filename);
+        my $functionMap = $fileData->testfnc($test_name);
+        my $lineMap     = $fileData->test($test_name);
 
-        print($infoHdl "SF:$filename\n");
         if (defined($lcovutil::extractVersionScript) &&
             -f $filename) {
             my $version = lcovutil::extractFileVersion($filename);
-            printf($infoHdl "VER:%s\n", $version)
+            $fileData->version($version)
                 if (defined($version) && $version ne "");
         }
-        $srcReader->open($filename);
         if (defined($funcdata) && $func_coverage) {
             my @functions =
                 sort({ $funcdata->{$a}->[0] <=> $funcdata->{$b}->[0] }
                      keys(%{$funcdata}));
             # Gather list of instrumented lines and functions
-            my %functionLocations;
             foreach my $func (@functions) {
                 $linedata = $funcdata->{$func};
                 my $lineNo = $linedata->[0];
-
-                next
-                    if (defined($srcReader) &&
-                        $srcReader->notEmpty() &&
-                        $srcReader->outOfRange($lineNo));
-                $functionLocations{$func} = $lineNo;
-                # Print function name and starting line
-                print($infoHdl "FN:$lineNo," . filter_fn_name($func) . "\n");
+                my $fnName = filter_fn_name($func);
+                my $func =
+                    $functionMap->define_function($fnName, $filename, $lineNo);
+                $func->addAlias($fnName, 0);
             }
-            # Print zero function coverage data
-            foreach my $func (@functions) {
-                next unless exists($functionLocations{$func});
-                print($infoHdl "FNDA:0," . filter_fn_name($func) . "\n");
-            }
-            # Print function summary
-            print($infoHdl "FNF:" . scalar(keys %functionLocations) . "\n");
-            print($infoHdl "FNH:0\n");
         }
         # Print zero line coverage data
-        my $numLines = 0;
         foreach $line (@{$instr->{$filename}}) {
-            next
-                if (defined($srcReader) &&
-                    $srcReader->notEmpty() &&
-                    $srcReader->outOfRange($line));
-            print($infoHdl "DA:$line,0\n");
-            ++$numLines;
+            $lineMap->append($line, 0);
         }
-        # Print line summary
-        print($infoHdl "LF:$numLines\n");
-        print($infoHdl "LH:0\n");
-
-        print($infoHdl "end_of_record\n");
+        # now go through lines, functions, branches - append to test_name data
+        $fileData->sum()->merge($lineMap);
+        $fileData->func()->merge($functionMap);
     }
+    return $traceFile;
 }
 
 sub filter_fn_name($)

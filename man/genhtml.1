@@ -104,6 +104,8 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-version\-script
 .IR script_file  ]
 .br
+.RB [ \-\-checksum ]
+.br
 .RB [ \-\-new\-files\-as\-baseline]
 .br
 .RB [ \-\-elide\-path\-mismatch]
@@ -140,7 +142,7 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ (\-\-parallel | -j)
 .IR [integer] ]
 .br
-.RB [ (\-\-memory 
+.RB [ (\-\-memory
 .IR integer_num_Mb ]
 .br
 .RB [ \-\-tempdir
@@ -502,6 +504,24 @@ Please see sample scripts
 and
 .I share/lcov/support-scripts/get_signature
 which are shipped as part of this release.
+
+.RE
+.BI "\-\-checksum "
+.RS
+Specify whether to compare stored tracefile checksum to checksum computed from the source code.
+
+Checksum verification is
+.B disabled
+by default.
+
+When checksum verification is enabled, a checksum will be computed for each source
+code line and compared to the checksum found in the 'current' tracefile.
+This will help to prevent attempts to display source code which is not identical
+to the code used to generate the coverage data.
+
+Note that this options is somewhat subsumed by the
+.I \-\-verification\-script
+option - which does something similar, but at the 'whole file' level.
 
 .RE
 .BI "\-\-new\-file\-as\-baseline "
@@ -1075,11 +1095,41 @@ genhtml ... \-\-ignore\-errors unmapped,unmapped ...
 .I errors
 can be a comma\-separated list of the following keywords:
 
+
+.B annotate:
+\-\-annotate\-script returned non\-zero exit status - likely a file path or related error.  HTML source code display will not be correct and ownership/date information may be missing.
+
+.B branch:
+branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+
+.B category:
+line number categorizations are incorrect in the .info file, so branch coverage line number turns out to not be an executable source line.
+
+.B corrup:t
+corrupt/unreadable file found.
+
 .B empty:
 the 'unified\-diff\-file' specified by the \-\-diff\-file argument does not contain any differences.  This may be OK if there were no source code changes between 'baseline' and 'current' (e.g., the only change was to modify a Makefile) - or may indicate an unsupported file format.
 
 .B format:
 unexpected syntax found in .info file.
+
+.B inconsistent:
+Files have been moved or repository history presented by '\-\-diff\-file' data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' and 'annotate' scripts.
+
+.B mismatch:
+Inconsistent entries found in trace file:
+ - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
+ - function execution count (FNDA:...) but no function declaration (FN:...).
+
+.B package:
+a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
+
+.B parallel:
+various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
+
+.B path:
+File name found in '\-\-diff\-file' file but does not appear in either baseline or current trace data.  These may be mapping issues - different pathname in the tracefile vs. the diff file.
 
 .B source:
 the source code file for a data set could not be found.
@@ -1087,40 +1137,12 @@ the source code file for a data set could not be found.
 .B unmapped:
 coverage data for a particular line cannot be found (possibly because the source code was not found, or because the line number mapping in the \.info file is wrong.  This can happen if the source file used in HTML generation is not the same as the file used to generate the coverage data - for example, lines have been added or removed.
 
-.B category:
-line number categorizations are incorrect in the .info file, so branch coverage line number turns out to not be an executable source line.
-
-.B mismatch:
-Inconsistent entries found in trace file:
- - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
- - function execution count (FNDA:...) but no function declaration (FN:...).
-
-.B path:
-File name found in '\-\-diff\-file' file but does not appear in either baseline or current trace data.  These may be mapping issues - different pathname in the tracefile vs. the diff file.
-
-.B inconsistent:
-Files have been moved or repository history presented by '\-\-diff\-file' data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' and 'annotate' scripts.
-
-.B branch:
-branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
-
-.B annotate:
-\-\-annotate\-script returned non\-zero exit status - likely a file path or related error.  HTML source code display will not be correct and ownership/date information may be missing.
-
-.B unused
+.B unused:
 the include/exclude/substitute/omit pattern did not match any file pathnames.
 
 .B version:
 \-\-version\-script comparison returned non\-zero mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
 
-.B parallel
-various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
-
-.B package
-a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
-
-.B corrupt
-corrupt/unreadable file found.
 
 .RE
 .BI "\-\-keep\-going "
