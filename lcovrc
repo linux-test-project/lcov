@@ -32,6 +32,10 @@ genhtml_med_limit = 75
 # See man pages for list of ignorable messsages
 #ignore_errors = empty,mismatch
 
+# Stop emitting message after this number have been printed
+# 0 == no limit
+max_message_count = 100
+
 # If set, do not stop when an 'ignorable error' occurs - try to generate
 #  a result, however flawed.  This is equivalent to the '--keep-going'
 #  command line switch.

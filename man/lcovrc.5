@@ -153,6 +153,12 @@ genhtml_med_limit = 75
 #ignore_errors = empty,mismatch
 .br
 
+# Stop emitting message after this number have been printed
+.br
+# 0 == no limit
+.br
+max_message_count = 100
+
 .br
 # If set, do not stop when an 'ignorable error' occurs - try
 .br
@@ -607,6 +613,18 @@ Specify a  message type which should be ignored.
 This option can be used multiple times in the lcovrc file to ignore multiple message types.
 
 This option is equivalent to the \-\-ignore\-errors option to geninfo, genhtml, or lcov.  Note that the lcovrc file message list is not applied (those messages NOT ignored) if the '\-\-ignore\-errors' command line option is specified.
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR max_message_count " ="
+.IR integer
+.IP
+Set the maximum number of warnings of any particular type which should be emitted. This can be used to reduce the size of log files.
+.br
+
+No more warnings will be printed after this number is reached.  0 (zero) is interpreted as 'no limit'.
 .br
 This option is used by genhtml, lcov, and geninfo.
 

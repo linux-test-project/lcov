@@ -102,7 +102,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  ignorable_error
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED $ERROR_PACKAGE
-                 $ERROR_CORRUPT
+                 $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
                  $ERROR_PARALLEL report_parallel_error
                  info $verbose init_verbose_flag
                  do_mangle_check
@@ -206,6 +206,8 @@ our $ERROR_ANNOTATE_SCRIPT = 11;
 $ERROR_PARALLEL = 12;
 $ERROR_PACKAGE  = 13;
 $ERROR_CORRUPT  = 14;
+$ERROR_NEGATIVE = 15;
+$ERROR_COUNT    = 16;
 
 our %htmlErrs = ("source"       => $ERROR_SOURCE,
                  "unmapped"     => $ERROR_UNMAPPED_LINE,
@@ -221,6 +223,8 @@ our %htmlErrs = ("source"       => $ERROR_SOURCE,
                  "unused"       => $ERROR_UNUSED,
                  "parallel"     => $ERROR_PARALLEL,
                  "package"      => $ERROR_PACKAGE,
+                 "negative"     => $ERROR_NEGATIVE,
+                 "count"        => $ERROR_COUNT,
                  "corrupt"      => $ERROR_CORRUPT,);
 lcovutil::define_errors(\%htmlErrs);
 
@@ -4708,6 +4712,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "lcov_function_coverage" => \$lcov_func_coverage,
                            "lcov_branch_coverage"   => \$lcov_branch_coverage,
                            "ignore_errors"          => \@rc_ignore,
+                           "max_message_count"   => \$lcovutil::suppressAfter,
                            'stop_on_error'       => \$lcovutil::stop_on_error,
                            "rtl_file_extensions" => \$rtlExtensions,
                            "c_file_extensions"   => \$cExtensions,

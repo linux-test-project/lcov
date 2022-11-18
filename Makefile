@@ -40,12 +40,6 @@ LIBS = lcovutil
 MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 \
 	man1/gendesc.1 man5/lcovrc.5
 
-# Files to be checked for coding style issue issues -
-#   - anything containing "#!/usr/bin/env perl" or the like
-#   - anything named *.pm - expected to be perl module
-CHECKFILES := $(shell grep -lr '^\#!.*perl' --exclude-dir .git --exclude '*.tdy' ) $(shell find . -name '*.pm' )
-
-
 # Program for checking coding style
 CHECKSTYLE = $(CURDIR)/bin/checkstyle.sh
 
@@ -147,15 +141,19 @@ test: check
 check:
 	@$(MAKE) -s -C tests check
 
+# Files to be checked for coding style issue issues -
+#   - anything containing "#!/usr/bin/env perl" or the like
+#   - anything named *.pm - expected to be perl module
+# ... as long as the name doesn't end in .tdy or .orig
 checkstyle:
 ifeq ($(MODE),full)
 	@echo "Checking source files for coding style issues (MODE=full):"
 else
 	@echo "Checking changes in source files for coding style issues (MODE=diff):"
 endif
-	#echo "checking $(CHECKFILES)"
 	@RC=0 ;                                                  \
-	for FILE in $(CHECKFILES) ; do                           \
+	CHECKFILES=`find . \( \( -type f -exec grep -q '^\#!.*perl' {} \; \) -o -name '*.pm' \) -not \( -name '*.tdy' -o -name '*.orig' \) -print `; \
+	for FILE in $$CHECKFILES ; do                            \
 	  $(CHECKSTYLE) "$$FILE";                                \
 	  if [ 0 != $$? ] ; then                                 \
 	    RC=1;                                                \
