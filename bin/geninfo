@@ -308,6 +308,7 @@ if (lcovutil::apply_rc_params(
                    "lcov_excl_br_line"      => \$excl_br_line,
                    "lcov_excl_exception_br_line" => \$excl_exception_br_line,
                    'ignore_errors'               => \@rc_ignore,
+                   "max_message_count"           => \$lcovutil::suppressAfter,
                    'stop_on_error'               => \$lcovutil::stop_on_error,
                    "profile"                     => \$lcovutil::profile,
                    "parallel"                    => \$lcovutil::maxParallelism,
@@ -2008,6 +2009,12 @@ sub read_gcov_file($$$)
                 } else {
                     # Check for zero count
                     if ($count =~ /^[#=]/) {
+                        $count = 0;
+                    } elsif ($count < 0) {
+                        #negative...
+                        lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                            "Unexpected negative count '$count' for $source_filename:$line at $filename:$.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                        );
                         $count = 0;
                     }
                     push(@result, 1, $count);

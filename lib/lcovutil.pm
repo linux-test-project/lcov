@@ -49,7 +49,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
-     $ERROR_PACKAGE $ERROR_CORRUPT
+     $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
@@ -64,6 +64,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
 );
 
 our @ignore;
+our @message_count;
+our $suppressAfter = 100;    # stop warning after this number of messsages
 our %ERROR_ID;
 our %ERROR_NAME;
 our $tool_dir     = abs_path(dirname($0));
@@ -88,7 +90,9 @@ our $ERROR_MISMATCH = 7;
 our $ERROR_BRANCH   = 8;     # branch numbering is not correct
 our $ERROR_PACKAGE  = 9;     # missing package
 our $ERROR_CORRUPT  = 10;    # corrupt file
-our $ERROR_PARALLEL = 11;    # error in fork/join
+our $ERROR_NEGATIVE = 11;    # unexpected negative count in coverage data
+our $ERROR_COUNT    = 13;    # too many messages of type
+our $ERROR_PARALLEL = 14;    # error in fork/join
 our %geninfoErrs = ("gcov"     => $ERROR_GCOV,
                     "source"   => $ERROR_SOURCE,
                     "branch"   => $ERROR_BRANCH,
@@ -100,6 +104,8 @@ our %geninfoErrs = ("gcov"     => $ERROR_GCOV,
                     "unused"   => $ERROR_UNUSED,
                     "parallel" => $ERROR_PARALLEL,    # error on wait
                     "corrupt"  => $ERROR_CORRUPT,
+                    "negative" => $ERROR_NEGATIVE,
+                    "count"    => $ERROR_COUNT,
                     "package"  => $ERROR_PACKAGE,);
 our $stop_on_error;                                   # attempt to keep going
 
@@ -840,6 +846,7 @@ sub define_errors($)
         $ERROR_ID{$k}                 = $id;
         $ERROR_NAME{$id}              = $k;
         $ignore[$ERROR_ID{$k}]        = 0;
+        $message_count[$ERROR_ID{$k}] = 0;
     }
 }
 
@@ -863,8 +870,6 @@ sub parse_ignore_errors(@)
     }
 }
 
-our %didwarning;
-
 sub is_ignored($)
 {
     my $code = shift;
@@ -884,15 +889,42 @@ sub warn_once
     return 1;
 }
 
+sub warnSuppress($$)
+{
+    my ($code, $errName) = @_;
+    if ($message_count[$code] == $suppressAfter - 1) {
+        my $explain =
+            $message_count[$ERROR_COUNT] == 0 ?
+            "\n\tTo increase or decrease this limit us '--rc max_message_count=value'."
+            :
+            '';
+        ignorable_warning($ERROR_COUNT,
+            "$suppressAfter count reached for '$errName' messages: no more will be reported.$explain"
+        );
+    }
+}
+
 sub ignorable_error($$;$)
 {
     my ($code, $msg, $quiet) = @_;
 
-    chomp($msg);    # we insert the newline
     my $errName = "code_$code";
     $errName = $ERROR_NAME{$code}
         if exists($ERROR_NAME{$code});
 
+    if ($message_count[$code]++ > $suppressAfter &&
+        0 < $suppressAfter) {
+        # safe to just continue without checking anything else - as either
+        #  this message is not fatal and we emitted it some number of times,
+        #  or the message is fatal - and this is the first time we see it
+
+        # warn that we are suppressing from here on - for the first skipped
+        #   message of this type
+        warnSuppress($code, $errName);
+        return;
+    }
+
+    chomp($msg);    # we insert the newline
     if ($code >= scalar(@ignore) ||
         !$ignore[$code]) {
         my $ignoreOpt =
@@ -900,16 +932,15 @@ sub ignorable_error($$;$)
 
         if (defined($stop_on_error) && 0 == $stop_on_error) {
             warn_handler("Error: $msg\n" .
-                         (exists($didwarning{$code}) ? '' : "$ignoreOpt\n"));
-            $didwarning{$code} = 1;
+                         ($message_count[$code] == 1 ? '' : "$ignoreOpt\n"));
             return;
         }
         die_handler("Error: $msg\n$ignoreOpt");
     }
     # only tell the user how to suppress this on the first occurrence
-    my $ignoreOpt = exists($didwarning{$code}) ? "" :
+    my $ignoreOpt =
+        ($message_count[$code] == 1) ? "" :
         "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
-    $didwarning{$code} = 1;
     warn_handler("Warning: ('$errName') $msg\n$ignoreOpt")
         unless $ignore[$code] > 1 || (defined($quiet) && $quiet);
 }
@@ -917,18 +948,23 @@ sub ignorable_error($$;$)
 sub ignorable_warning($$;$)
 {
     my ($code, $msg, $quiet) = @_;
-
-    chomp($msg);    # we insert the newline
     my $errName = "code_$code";
     $errName = $ERROR_NAME{$code}
         if exists($ERROR_NAME{$code});
-
+    if ($message_count[$code]++ > $suppressAfter &&
+        0 < $suppressAfter) {
+        # warn that we are suppressing from here on - for the first skipped
+        #   message of this type
+        warnSuppress($code, $errName);
+        return;
+    }
+    chomp($msg);    # we insert the newline
     if ($code >= scalar(@ignore) ||
         !$ignore[$code]) {
         # only tell the user how to suppress this on the first occurrence
-        my $ignoreOpt = exists($didwarning{$code}) ? "" :
+        my $ignoreOpt =
+            ($message_count[$code] == 1) ? "" :
             "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
-        $didwarning{$code} = 1;
         warn_handler("Warning: $msg\n$ignoreOpt");
     }
 }
@@ -1537,6 +1573,10 @@ sub append
     my ($self, $key, $count) = @_;
     my $interesting = 0;    # hit something new or not
 
+    if ($count < 0) {
+        lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                          "Unexpected negative count '$count' for line '$key'");
+    }
     my $data = $self->[0];
     if (!defined($data->{$key})) {
         $interesting = 1;         # something new - whether we hit it or not
@@ -1656,6 +1696,10 @@ sub new
     # if branchID is not an expression - go back to legacy behaviour
     my $self = [$id, $taken, (defined($expr) && $expr eq $id) ? undef : $expr];
     bless $self, $class;
+    if ($self->count() < 0) {
+        lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                           "Unexpected negative taken '$taken' for branch $id");
+    }
     return $self;
 }
 
@@ -1838,6 +1882,13 @@ sub line
 sub addAlias
 {
     my ($self, $name, $count) = @_;
+
+    if ($count < 0) {
+        my $alias =
+            $name ne $self->name() ? " (alias of '" . $self->name() . "'" : "";
+        lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+               "Unexpected negative count '$count' for function '$name'$alias");
+    }
 
     my $interesting;
     if (exists($self->[1]->{$name})) {
@@ -3199,7 +3250,6 @@ sub _read_info
     my $filename;            # Current filename
     my $hitcount;            # Count for lines hit
     my $count;               # Execution count of current line
-    my $negative;            # If set, warn about negative counts
     my $changed_testname;    # If set, warn about changed testname
     my $line_checksum;       # Checksum of current line
     my $notified_about_relative_paths;
@@ -3363,11 +3413,6 @@ sub _read_info
                     ++$region->[1];    # one coverpoint suppressed
                     last;
                 }
-                # Fix negative counts
-                if ($count < 0) {
-                    $count    = 0;
-                    $negative = 1;
-                }
                 # hold line, count and testname for postprocessing?
                 my $linesum = $fileData->sum();
                 my ($brace_histogram, $blank_histogram);
@@ -3414,6 +3459,13 @@ sub _read_info
                         ++$blank_histogram->[1];    # one coverpoint suppressed
                         last;
                     }
+                }
+
+                if ($count < 0) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                        "\"$filename\":$line: Unexpected negative line hit count '$count'"
+                    );
+                    $count = 0;
                 }
 
                 # Execution count found, add to structure
@@ -3481,6 +3533,13 @@ sub _read_info
                 my $hit    = $1;
                 last if exists($excludedFunction{$fnName});
                 # we expect to find a function with ths name...
+                if ($hit < 0) {
+                    my $line = $functionMap->findName($fnName)->line();
+                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                        "\"$filename\":$line: Unexpected negative hit count '$hit' for function $fnName"
+                    );
+                    $hit = 0;
+                }
                 $functionMap->add_count($fnName, $hit);
 
                 last;
@@ -3545,6 +3604,12 @@ sub _read_info
                         ++$histogram->[1];    # one coverpoint suppressed
                         last;
                     }
+                }
+                if ($taken ne '-' && $taken < 0) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                        "\"$filename\":$line: Unexpected negative taken count '$taken' for branch"
+                    );
+                    $taken = 0;
                 }
 
                 # Notes:
@@ -3732,9 +3797,6 @@ sub _read_info
         lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
                               "no valid records found in tracefile $tracefile");
     }
-    if ($negative) {
-        warn("WARNING: negative counts found in tracefile $tracefile\n");
-    }
     if (defined($changed_testname)) {
         warn("WARNING: invalid characters removed from testname in " .
              "tracefile $tracefile: '$changed_testname'->'$testname'\n");
@@ -3851,6 +3913,12 @@ sub write_info($$$)
                     my $aliases = $data->aliases();
                     foreach my $alias (keys %$aliases) {
                         my $hit = $aliases->{$alias};
+                        if ($hit < 0) {
+                            lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                                "Unexpected negative count '$hit' for function $alias at $."
+                            );
+                            $hit = 0;
+                        }
                         ++$f_found;
                         ++$f_hit if $hit > 0;
                         print(INFO_HANDLE "FNDA:$hit,$alias\n");
@@ -3901,6 +3969,13 @@ sub write_info($$$)
                             my $branch_id   = $br->id();
                             my $branch_expr = $br->expr();
                             # mostly for Verilog:  if there is a branch expression: use it.
+                            if ($taken ne '-' && $taken < 0) {
+                                lcovutil::ignorable_error(
+                                    $lcovutil::ERROR_NEGATIVE,
+                                    "Unexpected negative count '$taken' for branch $branch_id at $."
+                                );
+                                $taken = 0;
+                            }
                             printf(INFO_HANDLE "BRDA:%u,%u,%s,%s\n",
                                    $line,
                                    $block_id,
@@ -3966,6 +4041,11 @@ sub write_info($$$)
                     $chk = ',' . $chk if ($chk);
                 }
 
+                if ($l_hit < 0) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                     "Unexpected negative count '$l_hit' for line $line at $.");
+                    $l_hit = 0;
+                }
                 print(INFO_HANDLE "DA:$line,$l_hit$chk\n");
                 $found++;
                 $hit++

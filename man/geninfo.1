@@ -491,6 +491,10 @@ branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected in
 .B corrupt:
 corrupt/unreadable file found.
 
+.B count:
+An excessive number of messages of some class have been reported - subsequent messaages of that type will be suppressed.
+The limit can be controlled by the 'max_message_count' variable. See the lcovrc man page.
+
 .B empty:
 the .info data file is empty (e.g., because all the code was 'removed' or excluded.
 
@@ -508,6 +512,11 @@ Inconsistent entries found in trace file:
  - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
  - function execution count (FNDA:...) but no function declaration (FN:...).
 
+.B negative:
+negative 'hit' count found.
+.br
+ Note that negative counts may be caused by a knwon GCC bug - see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080, and try compiling with "-fprofile-update=atomic". (You will need to recompile and re-run your tests.)
+
 .B package:
 a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
 
@@ -522,6 +531,9 @@ the include/exclude/omit/substitute pattern did not match any file pathnames.
 
 .B version:
 revision control IDs of the file which we are trying to merge are not the same - line numbering and other information may be incorrect.
+
+.br
+Also see man lcovrc for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed.  This can be used to reduce log file volume.
 
 .RE
 .BI "\-\-keep\-going "
