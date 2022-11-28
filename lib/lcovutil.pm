@@ -3155,8 +3155,9 @@ sub insert
 
 sub append_tracefile
 {
-    my $self  = shift;
-    my $trace = shift;
+    my ($self, $trace) = @_;
+    die("expected TraceFile")
+        unless (defined($trace) && 'TraceFile' eq ref($trace));
 
     my $interesting = 0;
     foreach my $filename ($trace->files()) {

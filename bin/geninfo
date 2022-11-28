@@ -877,14 +877,15 @@ sub _merge_one_child($$$$$)
             my $now = Time::HiRes::gettimeofday();
             $lcovutil::profileData{undump}{$directory}{$filename} =
                 $now - $start;
-
-            if (defined($trace_data)) {
-                $trace_data->append_tracefile($childInfo);
-                my $final = Time::HiRes::gettimeofday();
-                $lcovutil::profileData{append}{$directory}{$filename} =
-                    $final - $now;
-            } else {
-                $trace_data = $childInfo;
+            if (defined($childInfo)) {
+                if (defined($trace_data)) {
+                    $trace_data->append_tracefile($childInfo);
+                    my $final = Time::HiRes::gettimeofday();
+                    $lcovutil::profileData{append}{$directory}{$filename} =
+                        $final - $now;
+                } else {
+                    $trace_data = $childInfo;
+                }
             }
         } else {
             report_parallel_error('geninfo', "unable to deserialize $dumped");
@@ -1058,12 +1059,15 @@ sub gen_info($)
             my $fileData = _process_one_file($directory, $file, $prefix, undef);
             my $then     = Time::HiRes::gettimeofday();
             $lcovutil::profileData{process}{$directory}{$file} = $then - $now;
-            if (defined($trace_data)) {
-                $trace_data->append_tracefile($fileData);
-                my $end = Time::HiRes::gettimeofday();
-                $lcovutil::profileData{merge}{$directory}{$file} = $end - $then;
-            } else {
-                $trace_data = $fileData;
+            if (defined($fileData)) {
+                if (defined($trace_data)) {
+                    $trace_data->append_tracefile($fileData);
+                    my $end = Time::HiRes::gettimeofday();
+                    $lcovutil::profileData{merge}{$directory}{$file} =
+                        $end - $then;
+                } else {
+                    $trace_data = $fileData;
+                }
             }
             my $end = Time::HiRes::gettimeofday();
             $lcovutil::profileData{$type}{$directory}{$file} = $end - $now;
