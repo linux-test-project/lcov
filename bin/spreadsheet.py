@@ -17,6 +17,10 @@ class GenerateSpreadsheet(object):
 
         s = xlsxwriter.Workbook(excelFile)
 
+        # keep a list of sheets so we can insert a summary..
+        geninfoSheets = []
+        summarySheet = s.add_worksheet("geninfo_summary")
+        geninfoKeys = ('process',  'parse', 'append', 'child', 'exec', 'merge', 'undump')
 
         self.formats = {
             'twoDecimal': s.add_format({'num_format': '0.00'}),
@@ -28,9 +32,86 @@ class GenerateSpreadsheet(object):
             'italic': s.add_format({'italic': True,
                                     'align': 'center',
                                     'valign': 'vcenter'}),
+            'highlight': s.add_format({'bg_color': 'yellow'}),
+            'danger': s.add_format({'bg_color': 'red'}),
         }
         intFormat = self.formats['intFormat']
         twoDecimal = self.formats['twoDecimal']
+
+        def insertStats(keys, sawData, sumRow, avgRow, devRow, beginRow, endRow, col):
+            firstCol = col
+            col -= 1
+            for key in keys:
+                col += 1
+                f = xl_rowcol_to_cell(beginRow, col)
+                t = xl_rowcol_to_cell(endRow, col)
+
+                if key not in sawData:
+                    continue
+                sum = "+SUM(%(from)s:%(to)s)" % {
+                    "from" : f,
+                    "to": t
+                }
+                sheet.write_formula(sumRow, col, sum, twoDecimal)
+                avg = "+AVERAGE(%(from)s:%(to)s)" % {
+                    'from': f,
+                    'to': t,
+                }
+                sheet.write_formula(avgRow, col, avg, twoDecimal)
+                if sawData[key] < 2:
+                    continue
+                dev = "+STDEV(%(from)s:%(to)s)" % {
+                    'from': f,
+                    'to': t,
+                }
+                sheet.write_formula(devRow, col, dev, twoDecimal)
+
+                # absolute row, relative column
+                avgCell = xl_rowcol_to_cell(avgRow, col, True, False)
+                devCell = xl_rowcol_to_cell(devRow, col, True, False)
+                # relative row, relative column
+                dataCell = xl_rowcol_to_cell(beginRow, col, False, False)
+                # absolute value of differnce from the average
+                diff = 'ABS(%(cell)s - %(avg)s)' % {
+                    'cell' : dataCell,
+                    'avg' : avgCell,
+                }
+
+                # min difference is difference > 15% of average
+                #  only look at positive difference:  taking MORE than average time
+                threshold = '(%(cell)s - %(avg)s) > (%(percent)s * %(avg)s)' % {
+                    'cell' : dataCell,
+                    'avg' : avgCell,
+                    'percent': "0.15",
+                }
+
+                # cell not blank and difference > 2X std.dev and > 15% of average
+                dev2 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s > (2.0 * %(dev)s), %(threshold)s)' % {
+                    'diff' : diff,
+                    'threshold' : threshold,
+                    'cell' : dataCell,
+                    'avg' : avgCell,
+                    'dev' : devCell,
+                }
+                dev1 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s >  %(dev)s, %(diff)s <= (2.0 * %(dev)s), %(threshold)s) ' % {
+                    'diff' : diff,
+                    'threshold' : threshold,
+                    'cell' : dataCell,
+                    'avg' : avgCell,
+                    'dev' : devCell,
+                }
+                # yellow if between 1 and 2 standard deviations away
+                sheet.conditional_format(firstRow, col, endRow, col,
+                                         { 'type': 'formula',
+                                           'criteria': dev1,
+                                           'format' : self.formats['highlight'],
+                                         })
+                # red if more than 2 2 standard deviations away
+                sheet.conditional_format(firstRow, col, endRow, col,
+                                         { 'type': 'formula',
+                                           'criteria': dev2,
+                                           'format' : self.formats['danger'],
+                                         })
 
         for name in files:
             try:
@@ -170,6 +251,31 @@ class GenerateSpreadsheet(object):
                 continue
 
             elif tool == 'geninfo':
+
+                if len(geninfoSheets) == 0:
+                    # first one - add titles, etc
+                    title = self.formats['title']
+                    summarySheet.write_string(1, 0, "average", title)
+                    summarySheet.write_string(2, 0, "stddev", title)
+                    titleRow = 0
+                    summarySheet.write_string(titleRow, 0, "case", title)
+                    col = 1
+                    for k in ('total', *geninfoKeys):
+                        summarySheet.write_string(titleRow, col, k, title)
+                        col += 1
+                        if k == 'total':
+                            summarySheet.write_string(titleRow, col, 'parallel', title)
+                        else:
+                            summarySheet.write_string(titleRow, col, k + ' avg', title)
+                        col += 1
+                    summarySheet.write_string(3, 0, "Value between [1,2) standard deviations from average colored yellow", self.formats['highlight'])
+                    summarySheet.write_string(4, 0, "Value between more than 2 standard deviations from average colored red", self.formats['danger'])
+                    firstSummaryRow = 6
+                    
+                # want rows for average and variance - leave a blank row
+                summaryRow = firstSummaryRow + len(geninfoSheets)
+                geninfoSheets.append(sheet)
+                
                 d = data['gen_info']
                 for k in ('emit', ):
                     try:
@@ -179,10 +285,40 @@ class GenerateSpreadsheet(object):
                     except:
                         pass
 
-                dataKeys = ('process',  'parse', 'append', 'child', 'exec', 'merge', 'undump')
+                sawData = {}
+                sawData['total'] = 0
+                summarySheet.write_string(summaryRow, 0, name)
+                # href to the corresponding page..
+                summarySheet.write_url(summaryRow, 0, "internal:'%s'!A1" % (
+                    sheet.get_name()))
+                summaryCol = 1;
+                
+                sheetRef = "='" + sheet.get_name() + "'!"
+                
+                # insert total time and observed parallelism for this
+                # geninfo call
+                sum = xl_rowcol_to_cell(totalRow, 1)
+                summarySheet.write_formula(summaryRow, summaryCol,
+                                           sheetRef + sum)
+                summaryCol += 1
+                parallel = xl_rowcol_to_cell(totalRow, 2)
+                summarySheet.write_formula(summaryRow, summaryCol,
+                                           sheetRef + parallel)
+                summaryCol += 1
                 col = 4;
-                for k in dataKeys:
+                # now label this sheet's columns
+                #  and also insert reference to total time and average time
+                #  for each step into the summary sheet.
+                for k in geninfoKeys:
                     sheet.write_string(row, col, k)
+                    sum = xl_rowcol_to_cell(row+1, col)
+                    summarySheet.write_formula(summaryRow, summaryCol,
+                                               sheetRef + sum)
+                    summaryCol +=1
+                    avg = xl_rowcol_to_cell(row+2, col)
+                    summarySheet.write_formula(summaryRow, summaryCol,
+                                               sheetRef + avg)
+                    summaryCol +=1
                     col += 1
                 row += 1
                 sumRow = row
@@ -192,7 +328,7 @@ class GenerateSpreadsheet(object):
                 sheet.write_string(row, 2, "average")
                 row += 1
                 devRow = row
-                sheet.write_string(row, 2, "variance")
+                sheet.write_string(row, 2, "stddev")
                 row += 1
 
                 firstRow = row + 2
@@ -220,62 +356,43 @@ class GenerateSpreadsheet(object):
                                 # this is the total time from fork in the parent
                                 #  to end of child merge
                                 sheet.write_number(row, 3, float(d3), twoDecimal)
+                                sawData['total'] += 1
                             except:
                                 print("%s: failed to write %s for geninfo[%s][%s]" % (name, str(d3), type, f))
                             col = 4
-                            try:
-                                # process: time from immediately before fork in parent
-                                #          to immediately after 'process_one_file' in
-                                #          child (can't record 'dumper' call time
-                                #          because that also dumps the profile
-                                # child:   time from child coming to life after fork
-                                #          to immediately afer 'process_one_file'
-                                # exec: time take to by 'gcov' call
-                                # merge: time to merge child process (undump, read
-                                #       trace data, append to summary, etc.)
-                                # undump: dumper 'eval' call + stdout/stderr recovery
-                                # parse: time to read child tracefile.info
-                                # append: time to merge that into parent master report
+                            # process: time from immediately before fork in parent
+                            #          to immediately after 'process_one_file' in
+                            #          child (can't record 'dumper' call time
+                            #          because that also dumps the profile
+                            # child:   time from child coming to life after fork
+                            #          to immediately afer 'process_one_file'
+                            # exec: time take to by 'gcov' call
+                            # merge: time to merge child process (undump, read
+                            #       trace data, append to summary, etc.)
+                            # undump: dumper 'eval' call + stdout/stderr recovery
+                            # parse: time to read child tracefile.info
+                            # append: time to merge that into parent master report
 
-                                for key in dataKeys:
-                                    try:
-                                        val = float(data[key][dirname][f])
-                                        sheet.write_number(row, col, val, twoDecimal)
-                                    except:
-                                        pass # no such key
-                                    col += 1
-                            except:
-                                # get here if this file/directory was not processed in parallel
-                                pass
+                            for key in geninfoKeys:
+                                try:
+                                    val = float(data[key][dirname][f])
+                                    sheet.write_number(row, col, val, twoDecimal)
+                                    if key in sawData:
+                                        sawData[key] += 1
+                                    else:
+                                        sawData[key] = 1
+                                except:
+                                    pass # no such key
+                                col += 1
                             row += 1
 
-                        effectiveParallelism = "+SUM(%(from)s:%(to)s)/%(total)s" % {
-                            'from': xl_rowcol_to_cell(start, 3),
-                            'to': xl_rowcol_to_cell(row-1, 3),
-                            'total': xl_rowcol_to_cell(start-1, 2),
-                        }
-                        sheet.write_formula(start-1, 3, effectiveParallelism, twoDecimal)
-                        col = 4
-                        for key in dataKeys:
-                            f = xl_rowcol_to_cell(firstRow, col)
-                            t = xl_rowcol_to_cell(row-1, col)
-
-                            total = "+SUM(%(from)s:%(to)s)" % {
-                                "from" : f,
-                                "to": t
-                            }
-                            sheet.write_formula(sumRow, col, total, twoDecimal)
-                            avg = "+AVERAGE(%(from)s:%(to)s)" % {
-                                'from': f,
-                                'to': t,
-                            }
-                            sheet.write_formula(avgRow, col, avg, twoDecimal)
-                            var = "+STDEV(%(from)s:%(to)s) / AVERAGE(%(from)s:%(to)s)" % {
-                                'from': f,
-                                'to': t,
-                            }
-                            sheet.write_formula(devRow, col, var, twoDecimal)
-                            col += 1
+                effectiveParallelism = "+%(sum)s/%(total)s" % {
+                    'sum': xl_rowcol_to_cell(sumRow, 4),
+                    'total': total,
+                }
+                sheet.write_formula(totalRow, 2, effectiveParallelism, twoDecimal)
+                insertStats(geninfoKeys, sawData, sumRow, avgRow, devRow,
+                            firstRow, row-1, 4)
 
                 continue
 
@@ -287,15 +404,63 @@ class GenerateSpreadsheet(object):
                         sheet.write_string(row, 0, k)
                         sheet.write_number(row, 1, data[k], twoDecimal)
                         row += 1
-                #print(" ".join(data.keys()))
-                dirData = data['directory']
 
+                # total: time from start to end of the particular unit -
+                # child: time from start to end of child process
+                # annotate: annotate callback time (if called)
+                # load:  load source file (if no annotation)
+                # synth:  generate file content (no annotation and no no file found)
+                # categorize: compute owner/date bins, differenntial categories
+                # process:  time to generate data and write HTML for file
+                # synth:  generate file content (no file found)
+                # source:
+                genhtmlKeys = ('total', 'child', 'annotate', 'synth', 'categorize', 'source', 'check_version', 'html')
+                col = 3
+                for k in genhtmlKeys:
+                    sheet.write_string(row, col, k)
+                    col += 1
+                row += 1
+                sumRow = row
+                sheet.write_string(row, 2, "total")
+                row += 1
+                avgRow = row
+                sheet.write_string(row, 2, "average")
+                row += 1
+                devRow = row
+                sheet.write_string(row, 2, "stddev")
+                row += 1
+
+                #print(" ".join(data.keys()))
+                try:
+                    dirData = data['directory']
+                except:
+                    dirData = data['dir']
                 fileData = data['file']
                 begin = row
+                sawData = {}
+                sawData['total'] = 0
+                def printDataRow(name):
+                    col = 4
+                    for k in genhtmlKeys[1:]:
+                        if (k in data and
+                            name in data[k]):
+                            try:
+                                sheet.write_number(row, col, float(data[k][name]), twoDecimal)
+                                if k in sawData:
+                                    sawData[k] += 1
+                                else:
+                                    sawData[k] = 1
+                            except:
+                                print("%s: failed to write %s" %(name, data[k][name]))
+                        col += 1
+                
+
                 for dirname in sorted(dirData.keys()):
                     sheet.write_string(row, 0, "directory")
                     sheet.write_string(row, 1, dirname)
-                    sheet.write_number(row, 2, dirData[dirname], twoDecimal)
+                    sheet.write_number(row, 3, dirData[dirname], twoDecimal)
+                    #pdb.set_trace()
+                    printDataRow(dirname)
                     row += 1
 
                     start = row
@@ -306,29 +471,15 @@ class GenerateSpreadsheet(object):
                             continue
                         sheet.write_string(row, 2, name)
                         sheet.write_number(row, 3, fileData[f], twoDecimal)
-
-                        col = 4
-                        for k in ('check_version', 'synth', 'load', 'annotate',
-                                  'categorize', 'source'):
-                            if (k in data and
-                                f in data[k]):
-                                sheet.write_string(row, col, k)
-                                try:
-                                    sheet.write_number(row, col+1, float(data[k][f]), twoDecimal)
-                                except:
-                                    print("%s: failed to write %s" %(name, data[k][f]))
-                                col += 2
+                        sawData['total'] += 1
+                        printDataRow(f)
                         row += 1
-                    effectiveParallelism = "+SUM(%(from)s:%(to)s)/%(total)s" % {
-                        'from': xl_rowcol_to_cell(start, 3),
-                        'to': xl_rowcol_to_cell(row-1, 3),
-                        'total': xl_rowcol_to_cell(start-1, 2),
-                    }
-                    sheet.write_formula(start-1, 4, effectiveParallelism, twoDecimal)
 
-                overallParallelism = "+SUM(%(from)s:%(to)s)/%(total)s" % {
-                    'from': xl_rowcol_to_cell(begin, 3),
-                    'to': xl_rowcol_to_cell(row-1, 3),
+                insertStats(genhtmlKeys, sawData, sumRow, avgRow, devRow, begin,
+                           row-1, 3)
+
+                overallParallelism = "+%(from)s/%(total)s" % {
+                    'from': xl_rowcol_to_cell(sumRow, 3),
                     'total': total,
                     }
                 sheet.write_formula(totalRow,2, overallParallelism, twoDecimal);
@@ -358,6 +509,78 @@ class GenerateSpreadsheet(object):
                 else:
                     print("not sure what to do with %s" % (k))
 
+        if len(geninfoSheets) < 2:
+            # can't delete the sheet after creation - but we can hide it
+            summarySheet.hide()
+        else:
+            # insert the average and variance data...
+            col = 1
+            lastSummaryRow = firstSummaryRow + len(geninfoSheets) - 1
+            avgRow = 1
+            devRow = 2
+            firstCol = col
+            for k in ('total', *geninfoKeys):
+                for j in ('sum', 'avg'):
+                    f = xl_rowcol_to_cell(firstSummaryRow, col)
+                    t = xl_rowcol_to_cell(lastSummaryRow, col)
+                    avg = "+AVERAGE(%(from)s:%(to)s)" % {
+                        'from': f,
+                        'to': t,
+                    }
+                    summarySheet.write_formula(avgRow, col, avg, twoDecimal)
+                    avgCell = xl_rowcol_to_cell(avgRow, col)
+                    dev = "+STDEV(%(from)s:%(to)s)" % {
+                        'from': f,
+                        'to': t,
+                    }
+                    summarySheet.write_formula(devRow, col, dev, twoDecimal)
+
+                    # absolute row, relative column
+                    avgCell = xl_rowcol_to_cell(avgRow, col, True)
+                    devCell = xl_rowcol_to_cell(devRow, col, True)
+                    # relative row, relative column
+                    dataCell = xl_rowcol_to_cell(firstRow, col)
+                    # absolute value of differnce from the average
+                    diff = 'ABS(%(cell)s - %(avg)s)' % {
+                        'cell' : dataCell,
+                        'avg' : avgCell,
+                    }
+                    # min difference is difference > 15% of average
+                    # NOTE:  not using ABS(diff) - so we only colorize larger values
+                    threshold = '(%(cell)s - %(avg)s) > (%(percent)s * %(avg)s)' % {
+                        'cell' : dataCell,
+                        'avg' : avgCell,
+                        'percent': "0.15",
+                    }
+
+                    # cell not blank and difference > 2X std.dev and > 15% of average
+                    dev2 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s > (2.0 * %(dev)s), %(threshold)s)' % {
+                        'diff' : diff,
+                        'threshold' : threshold,
+                        'cell' : dataCell,
+                        'avg' : avgCell,
+                        'dev' : devCell,
+                    }
+                    dev1 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s >  %(dev)s, %(diff)s <= (2.0 * %(dev)s), %(threshold)s) ' % {
+                        'diff' : diff,
+                        'threshold' : threshold,
+                        'cell' : dataCell,
+                        'avg' : avgCell,
+                        'dev' : devCell,
+                    }
+                    # yellow if between 1 and 2 standard deviations away
+                    summarySheet.conditional_format(firstRow, col, lastSummaryRow, col,
+                                                    { 'type': 'formula',
+                                                      'criteria': dev1,
+                                                      'format' : self.formats['highlight'],
+                                                    })
+                    # red if more than 2 2 standard deviations away
+                    summarySheet.conditional_format(firstRow, col, lastSummaryRow, col,
+                                                    { 'type': 'formula',
+                                                      'criteria': dev2,
+                                                      'format' : self.formats['danger'],
+                                                    })
+                    col += 1
         s.close()
 
 if __name__ == "__main__":

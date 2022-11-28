@@ -245,7 +245,7 @@ sub apply_prefix($@);
 sub get_html_prolog($);
 sub get_html_epilog($);
 #sub write_dir_page($$$$$$$;$);
-sub write_summary_pages($$$$$$$);
+sub write_summary_pages($$$$$$$$);
 sub classify_rate($$$$);
 sub parse_dir_prefix(@);
 
@@ -4351,6 +4351,7 @@ sub compute
             if (0 == $pid) {
                 # I'm the child
                 # clear the profile data - we want just my contribution
+                my $childStart = Time::HiRes::gettimeofday();
                 %lcovutil::profileData = ();
                 my $tmp         = '' . $self->[4];
                 my $stdout_file = "$tmp/genhtml_$$.log";
@@ -4373,7 +4374,7 @@ sub compute
                 } elsif ('dir' eq $type) {
                     # Create sorted summary pages
                     main::write_summary_pages(
-                                            1,    # this is a directory,
+                                            $name, 1,    # this is a directory,
                                             $selfSummary, $main::show_details,
                                             $rel_dir, $base_dir, $trunc_dir,
                                             $perTestData);
@@ -4385,7 +4386,7 @@ sub compute
                     lcovutil::info("Writing top-level directory view page.\n");
                     # Create sorted pages
                     main::write_summary_pages(
-                        0,                        # 0 == list directories
+                        $name, 0,                        # 0 == list directories
                         $selfSummary,
                         0, # don't generate 'details' links for top-level report
                         ".", "", undef, undef);
@@ -4402,6 +4403,9 @@ sub compute
                 my $criteria = $SummaryInfo::coverageCriteria{$name}
                     if exists($SummaryInfo::coverageCriteria{$name});
                 my $file = "$tmp/dumper_$$";
+
+                my $childEnd = Time::HiRes::gettimeofday();
+                $lcovutil::profileData{child}{$name} = $childEnd - $childStart;
                 Storable::store([$perTestData, $selfSummary,
                                  $criteria, \%lcovutil::profileData
                                 ],
@@ -4428,7 +4432,7 @@ sub compute
                 $parentSummary->append($selfSummary);
             } elsif ('dir' eq $type) {
                 # process the directory...
-                main::write_summary_pages(1,    # this is a directory,
+                main::write_summary_pages($name, 1,    # this is a directory,
                                           $selfSummary, $main::show_details,
                                           $rel_dir, $base_dir, $trunc_dir,
                                           $perTestData);
@@ -4438,7 +4442,7 @@ sub compute
                     unless 'top' eq $type;
                 # Create sorted pages
                 main::write_summary_pages(
-                       0,                       # 0 == list directories
+                       $name, 0,                       # 0 == list directories
                        $selfSummary,
                        0,  # don't generate 'details' links for top-level report
                        ".", "", undef, undef);
@@ -5487,11 +5491,12 @@ sub write_dir_page
     close(*HTML_HANDLE);
 }
 
-sub write_summary_pages($$$$$$$)
+sub write_summary_pages($$$$$$$$)
 {
-    my ($summaryType, $summary, $show_details, $rel_dir,
-        $base_dir, $trunc_dir, $testhashes) = @_;
+    my ($name, $summaryType, $summary, $show_details,
+        $rel_dir, $base_dir, $trunc_dir, $testhashes) = @_;
 
+    my $start = Time::HiRes::gettimeofday();
     my @summaryBins;
     push(@summaryBins, 'owner') if defined($main::show_ownerBins);
     push(@summaryBins, 'date') if defined($main::show_dateBins);
@@ -5537,6 +5542,8 @@ sub write_summary_pages($$$$$$$)
     foreach my $params (@dirPageCalls) {
         write_dir_page(@$params);
     }
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{html}{$name} = $end - $start;
 }
 
 sub write_function_page($$$$$$$$$$$$$)
@@ -5644,10 +5651,10 @@ sub process_file($$$$$)
     #    we clear this setting before we return the generated summary
     $fileSummary->setParent($parent_dir_summary);
 
+    my $from = Time::HiRes::gettimeofday();
     # Return after this point in case user asked us not to generate
     # source code view
     if (!$no_sourceview) {
-        my $from = Time::HiRes::gettimeofday();
         # Generate source code view for this file
         html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.$html_ext");
         $pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
@@ -5678,8 +5685,6 @@ sub process_file($$$$$)
                                     $testbrdata, $_,
                                     $fileSummary);
             }
-            my $to = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{source}{$filename} = $to - $from;
         }
 
         # Additional files are needed in case of frame output
@@ -5708,6 +5713,8 @@ sub process_file($$$$$)
             close(*HTML_HANDLE);
         }
     }
+    my $to = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{html}{$filename} = $to - $from;
     return ($testdata, $testfncdata, $testbrdata);
 }
 
