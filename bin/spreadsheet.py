@@ -11,6 +11,10 @@ import sys
 
 from xlsxwriter.utility import xl_rowcol_to_cell
 
+devMinThreshold = 1.5
+devMaxThreshold = 2.0
+thresholdPercent = 0.15
+
 class GenerateSpreadsheet(object):
 
     def __init__(self, excelFile, files):
@@ -20,7 +24,7 @@ class GenerateSpreadsheet(object):
         # keep a list of sheets so we can insert a summary..
         geninfoSheets = []
         summarySheet = s.add_worksheet("geninfo_summary")
-        geninfoKeys = ('process',  'parse', 'append', 'child', 'exec', 'merge', 'undump')
+        geninfoKeys = ('process', 'child', 'parse', 'append', 'exec', 'merge', 'undump')
 
         self.formats = {
             'twoDecimal': s.add_format({'num_format': '0.00'}),
@@ -34,9 +38,77 @@ class GenerateSpreadsheet(object):
                                     'valign': 'vcenter'}),
             'highlight': s.add_format({'bg_color': 'yellow'}),
             'danger': s.add_format({'bg_color': 'red'}),
+            'good': s.add_format({'bg_color': 'green'}),
         }
         intFormat = self.formats['intFormat']
         twoDecimal = self.formats['twoDecimal']
+
+        def insertConditional(sheet, avgRow, devRow,
+                              beginRow, beginCol, endRow, endCol):
+            # absolute row, relative column
+            avgCell = xl_rowcol_to_cell(avgRow, beginCol, True, False)
+            devCell = xl_rowcol_to_cell(devRow, beginCol, True, False)
+            # relative row, relative column
+            dataCell = xl_rowcol_to_cell(beginRow, beginCol, False, False)
+            # absolute value of differnce from the average
+            diff = 'ABS(%(cell)s - %(avg)s)' % {
+                'cell' : dataCell,
+                'avg' : avgCell,
+            }
+
+            # min difference is difference > 15% of average
+            #  only look at positive difference:  taking MORE than average time
+            threshold = '(%(cell)s - %(avg)s) > (%(percent)f * %(avg)s)' % {
+                'cell' : dataCell,
+                'avg' : avgCell,
+                'percent': thresholdPercent,
+            }
+
+            # cell not blank and difference > 2X std.dev and > 15% of average
+            dev2 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s > (%(devMaxThresh)f * %(dev)s), %(threshold)s)' % {
+                'diff' : diff,
+                'threshold' : threshold,
+                'cell' : dataCell,
+                'avg' : avgCell,
+                'dev' : devCell,
+                'devMaxThresh': devMaxThreshold,
+            }
+            # yellow if between 1.5 and 2 standard deviations away
+            dev1 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s >  (%(devMinThresh)f * %(dev)s), %(diff)s <= (%(devMaxThresh)f * %(dev)s), %(threshold)s) ' % {
+                'diff' : diff,
+                'threshold' : threshold,
+                'cell' : dataCell,
+                'avg' : avgCell,
+                'dev' : devCell,
+                'devMaxThresh': devMaxThreshold,
+                'devMinThresh': devMinThreshold,
+            }
+            # yellow if between 1 and 2 standard deviations away
+            sheet.conditional_format(beginRow, beginCol, endRow, endCol,
+                                     { 'type': 'formula',
+                                       'criteria': dev1,
+                                       'format' : self.formats['highlight'],
+                                   })
+            # red if more than 2 2 standard deviations away
+            sheet.conditional_format(beginRow, beginCol, endRow, endCol,
+                                     { 'type': 'formula',
+                                       'criteria': dev2,
+                                       'format' : self.formats['danger'],
+                                   })
+            # green if more than 1.5 standard deviations better
+            good = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), (%(cell)s - %(avg)s) < (%(devMaxThresh)f * -%(dev)s), %(threshold)s)' % {
+                'cell' : dataCell,
+                'threshold' : threshold,
+                'cell' : dataCell,
+                'avg' : avgCell,
+                'dev' : devCell,
+                'devMaxThresh': devMaxThreshold,
+            }
+            sheet.conditional_format(beginRow, beginCol, endRow, endCol,
+                                     { 'type': 'formula',
+                                       'criteria': good,
+                                       'format' : self.formats['good'],
+                                   })
 
         def insertStats(keys, sawData, sumRow, avgRow, devRow, beginRow, endRow, col):
             firstCol = col
@@ -66,52 +138,8 @@ class GenerateSpreadsheet(object):
                 }
                 sheet.write_formula(devRow, col, dev, twoDecimal)
 
-                # absolute row, relative column
-                avgCell = xl_rowcol_to_cell(avgRow, col, True, False)
-                devCell = xl_rowcol_to_cell(devRow, col, True, False)
-                # relative row, relative column
-                dataCell = xl_rowcol_to_cell(beginRow, col, False, False)
-                # absolute value of differnce from the average
-                diff = 'ABS(%(cell)s - %(avg)s)' % {
-                    'cell' : dataCell,
-                    'avg' : avgCell,
-                }
-
-                # min difference is difference > 15% of average
-                #  only look at positive difference:  taking MORE than average time
-                threshold = '(%(cell)s - %(avg)s) > (%(percent)s * %(avg)s)' % {
-                    'cell' : dataCell,
-                    'avg' : avgCell,
-                    'percent': "0.15",
-                }
-
-                # cell not blank and difference > 2X std.dev and > 15% of average
-                dev2 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s > (2.0 * %(dev)s), %(threshold)s)' % {
-                    'diff' : diff,
-                    'threshold' : threshold,
-                    'cell' : dataCell,
-                    'avg' : avgCell,
-                    'dev' : devCell,
-                }
-                dev1 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s >  %(dev)s, %(diff)s <= (2.0 * %(dev)s), %(threshold)s) ' % {
-                    'diff' : diff,
-                    'threshold' : threshold,
-                    'cell' : dataCell,
-                    'avg' : avgCell,
-                    'dev' : devCell,
-                }
-                # yellow if between 1 and 2 standard deviations away
-                sheet.conditional_format(firstRow, col, endRow, col,
-                                         { 'type': 'formula',
-                                           'criteria': dev1,
-                                           'format' : self.formats['highlight'],
-                                         })
-                # red if more than 2 2 standard deviations away
-                sheet.conditional_format(firstRow, col, endRow, col,
-                                         { 'type': 'formula',
-                                           'criteria': dev2,
-                                           'format' : self.formats['danger'],
-                                         })
+            insertConditional(sheet, avgRow, devRow,
+                              beginRow, firstCol, endRow, col)
 
         for name in files:
             try:
@@ -268,14 +296,22 @@ class GenerateSpreadsheet(object):
                         else:
                             summarySheet.write_string(titleRow, col, k + ' avg', title)
                         col += 1
-                    summarySheet.write_string(3, 0, "Value between [1,2) standard deviations from average colored yellow", self.formats['highlight'])
-                    summarySheet.write_string(4, 0, "Value between more than 2 standard deviations from average colored red", self.formats['danger'])
-                    firstSummaryRow = 6
-                    
+                    summarySheet.write_string(3, 0, "YELLOW: Value between [%(devMinThresh)0.2f,%(devMaxThresh)0.2f) standard deviations larger than average" % {
+                        'devMinThresh': devMinThreshold,
+                        'devMaxThresh': devMaxThreshold,
+                    }, self.formats['highlight'])
+                    summarySheet.write_string(4, 0, "RED: Value more than %(devMaxThresh)0.2f standard deviations larger than average" % {
+                        'devMaxThresh': devMaxThreshold,
+                    }, self.formats['danger'])
+                    summarySheet.write_string(5, 0, "GREEN: Value more than %(devMaxThresh)0.2f standard deviations smaller than average" % {
+                        'devMaxThresh': devMaxThreshold,
+                    }, self.formats['good'])
+                    firstSummaryRow = 7
+
                 # want rows for average and variance - leave a blank row
                 summaryRow = firstSummaryRow + len(geninfoSheets)
                 geninfoSheets.append(sheet)
-                
+
                 d = data['gen_info']
                 for k in ('emit', ):
                     try:
@@ -292,9 +328,9 @@ class GenerateSpreadsheet(object):
                 summarySheet.write_url(summaryRow, 0, "internal:'%s'!A1" % (
                     sheet.get_name()))
                 summaryCol = 1;
-                
+
                 sheetRef = "='" + sheet.get_name() + "'!"
-                
+
                 # insert total time and observed parallelism for this
                 # geninfo call
                 sum = xl_rowcol_to_cell(totalRow, 1)
@@ -305,7 +341,9 @@ class GenerateSpreadsheet(object):
                 summarySheet.write_formula(summaryRow, summaryCol,
                                            sheetRef + parallel)
                 summaryCol += 1
-                col = 4;
+                col = 3;
+                sheet.write_string(row, col, 'cumuative')
+                col += 1
                 # now label this sheet's columns
                 #  and also insert reference to total time and average time
                 #  for each step into the summary sheet.
@@ -391,8 +429,10 @@ class GenerateSpreadsheet(object):
                     'total': total,
                 }
                 sheet.write_formula(totalRow, 2, effectiveParallelism, twoDecimal)
-                insertStats(geninfoKeys, sawData, sumRow, avgRow, devRow,
-                            firstRow, row-1, 4)
+                keys = ['total']
+                keys.extend(geninfoKeys)
+                insertStats(keys, sawData, sumRow, avgRow, devRow,
+                            firstRow, row-1, 3)
 
                 continue
 
@@ -453,7 +493,6 @@ class GenerateSpreadsheet(object):
                             except:
                                 print("%s: failed to write %s" %(name, data[k][name]))
                         col += 1
-                
 
                 for dirname in sorted(dirData.keys()):
                     sheet.write_string(row, 0, "directory")
@@ -534,53 +573,10 @@ class GenerateSpreadsheet(object):
                         'to': t,
                     }
                     summarySheet.write_formula(devRow, col, dev, twoDecimal)
-
-                    # absolute row, relative column
-                    avgCell = xl_rowcol_to_cell(avgRow, col, True)
-                    devCell = xl_rowcol_to_cell(devRow, col, True)
-                    # relative row, relative column
-                    dataCell = xl_rowcol_to_cell(firstRow, col)
-                    # absolute value of differnce from the average
-                    diff = 'ABS(%(cell)s - %(avg)s)' % {
-                        'cell' : dataCell,
-                        'avg' : avgCell,
-                    }
-                    # min difference is difference > 15% of average
-                    # NOTE:  not using ABS(diff) - so we only colorize larger values
-                    threshold = '(%(cell)s - %(avg)s) > (%(percent)s * %(avg)s)' % {
-                        'cell' : dataCell,
-                        'avg' : avgCell,
-                        'percent': "0.15",
-                    }
-
-                    # cell not blank and difference > 2X std.dev and > 15% of average
-                    dev2 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s > (2.0 * %(dev)s), %(threshold)s)' % {
-                        'diff' : diff,
-                        'threshold' : threshold,
-                        'cell' : dataCell,
-                        'avg' : avgCell,
-                        'dev' : devCell,
-                    }
-                    dev1 = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), %(diff)s >  %(dev)s, %(diff)s <= (2.0 * %(dev)s), %(threshold)s) ' % {
-                        'diff' : diff,
-                        'threshold' : threshold,
-                        'cell' : dataCell,
-                        'avg' : avgCell,
-                        'dev' : devCell,
-                    }
-                    # yellow if between 1 and 2 standard deviations away
-                    summarySheet.conditional_format(firstRow, col, lastSummaryRow, col,
-                                                    { 'type': 'formula',
-                                                      'criteria': dev1,
-                                                      'format' : self.formats['highlight'],
-                                                    })
-                    # red if more than 2 2 standard deviations away
-                    summarySheet.conditional_format(firstRow, col, lastSummaryRow, col,
-                                                    { 'type': 'formula',
-                                                      'criteria': dev2,
-                                                      'format' : self.formats['danger'],
-                                                    })
                     col += 1
+
+            insertConditional(summarySheet, avgRow, devRow,
+                              firstSummaryRow, firstCol, lastSummaryRow, col -1)
         s.close()
 
 if __name__ == "__main__":
@@ -596,6 +592,13 @@ Example usage:
     parser.add_argument("-o", dest='out', action='store',
                         default='stats.xlsx',
                         help='save excel to file')
+    parser.add_argument("--threshold", dest='thresholdPercent', type=float,
+                        help="difference from average smaller than this percentage is ignored (not colorized).  Default %0.2f" % (thresholdPercent))
+    parser.add_argument("--low", dest='devMinThreshold', type=float,
+                        help="difference from average larger than this * stddev colored yellow.  Default: %0.2f" %(devMinThreshold))
+    parser.add_argument("--high", dest='devMinThreshold', type=float,
+                        help="difference from average larger than this * stddev colored red.  Default: %0.2f" %(devMaxThreshold))
+
     parser.add_argument('files', nargs=argparse.REMAINDER)
 
     try:

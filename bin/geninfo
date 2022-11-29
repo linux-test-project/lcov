@@ -811,6 +811,7 @@ sub _process_one_file($$$$)
     info("Processing %s%s\n",
          abs2rel($file, $prefix),
          defined($pid) ? " in child $pid" : "");
+    my $now = Time::HiRes::gettimeofday();
 
     # Process file
     my $trace;
@@ -832,6 +833,8 @@ sub _process_one_file($$$$)
     } else {
         $trace = process_dafile($directory, $file, $prefix, $tmp->dirname);
     }
+    my $then = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{parse}{$directory}{$file} = $then - $now;
     return $trace;
 }
 
@@ -1031,8 +1034,7 @@ sub gen_info($)
                 }
                 my @excluded = keys %lcovutil::excluded_files;
                 my $done     = Time::HiRes::gettimeofday();
-                $lcovutil::profileData{parse}{$directory}{$file} =
-                    $done - $then;
+
                 # keep separate timestamp for when this child block was entered
                 # vs when fork() was called - lest this job waited in queue for
                 # a while
@@ -1408,7 +1410,10 @@ sub process_dafile($$$$)
         warn("WARNING: gcov did not create any files for " . "$da_filename!\n");
     }
     for my $f (@gcov_list) {
-        File::Copy::move($f, $tempdir) or die("unable to move $f");
+        File::Copy::move($f, $tempdir)
+            or
+            lcovutil::ignorable_error($ERROR_GCOV,
+                                      "unable to move $f to $tempdir: $!");
     }
     my $traceFile = TraceFile->new();
 
@@ -1422,6 +1427,7 @@ sub process_dafile($$$$)
             # Skip gcov file for gcc built-in code
             next if ($gcov_file eq "<built-in>.gcov");
             my $gcov_data = "$tempdir/$gcov_file";
+            next unless -f $gcov_data;    # skp if we didn't copy it over
 
             ($source, $object) = read_gcov_header($gcov_data);
             if (!defined($source)) {
@@ -1946,7 +1952,7 @@ sub read_gcov_file($$$)
             if ($code eq '/*EOF*/') {
                 lcovutil::ignorable_error($ERROR_GCOV,
                     "EOF marker for $source_filename:$line at $filename:$. while processing $da_filename"
-                ) unless ($foundEOF && $warnEOF);
+                ) if (!$foundEOF && $warnEOF);    #first time only
                 $foundEOF = 1;
             } elsif ($foundEOF) {
                 # data looks inconsistent...we started finding some EOF entries
