@@ -3464,7 +3464,7 @@ sub _read_info
 
                 if ($count < 0) {
                     lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "\"$filename\":$line: Unexpected negative line hit count '$count'"
+                        "\"$tracefile\":$.: Unexpected negative line hit count '$count' for \"$filename\":$line"
                     );
                     $count = 0;
                 }
@@ -3517,7 +3517,6 @@ sub _read_info
                                                                       $lineNo) .
                                            "' $filename:$lineNo\n");
                         ++$region->[0];    # one location where this applied
-                        ++$region->[1];    # one coverpoint suppressed
                         $excludedFunction{$fnName} = 1;
                         last;
                     }
@@ -3532,12 +3531,17 @@ sub _read_info
                 last if (!$main::func_coverage);
                 my $fnName = $2;
                 my $hit    = $1;
-                last if exists($excludedFunction{$fnName});
+                if (exists($excludedFunction{$fnName})) {
+                    my $region =
+                        $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
+                    ++$region->[1];    # one coverpoint suppressed
+                    last;
+                }
                 # we expect to find a function with ths name...
                 if ($hit < 0) {
                     my $line = $functionMap->findName($fnName)->line();
                     lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "\"$filename\":$line: Unexpected negative hit count '$hit' for function $fnName"
+                        "\"$tracefile\":$.: Unexpected negative hit count '$hit' for function $fnName at \"$filename\":$line."
                     );
                     $hit = 0;
                 }
@@ -3608,7 +3612,7 @@ sub _read_info
                 }
                 if ($taken ne '-' && $taken < 0) {
                     lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "\"$filename\":$line: Unexpected negative taken count '$taken' for branch"
+                        "\"$tracefile\":$.: Unexpected negative taken count '$taken' for branch $block at \"$filename\":$line: "
                     );
                     $taken = 0;
                 }
@@ -3741,7 +3745,7 @@ sub _read_info
             };
 
             lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                                      "unexpected .info file record '$_'");
+                        "\"$tracefile\":$.: unexpected .info file record '$_'");
             # default
             last;
         }
@@ -3895,22 +3899,42 @@ sub write_info($$$)
             if ($main::func_coverage &&
                 $functionMap) {
                 # Write function related data - sort  by line number
+                my $region =
+                    $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]
+                    if $reader;
+
                 foreach my $key (
                              sort(
                                  { $functionMap->findKey($a)->line()
                                          cmp $functionMap->findKey($b)->line() }
                                  $functionMap->keylist())
                 ) {
-                    my $data    = $functionMap->findKey($key);
+                    my $data = $functionMap->findKey($key);
+                    my $line = $data->line();
+                    if (defined($region) &&
+                        $reader->isExcluded($line)) {
+                        lcovutil::info(1,
+                                       "exclude FN " . $data->name() .
+                                           " '" . $reader->getLine($line) .
+                                           "' " . $data->file() . ":$line\n");
+                        ++$region->[0];    # one location where this applied
+                        next;
+                    }
                     my $aliases = $data->aliases();
                     foreach my $alias (keys %$aliases) {
-                        print(INFO_HANDLE "FN:" . $data->line() . ",$alias\n");
+                        print(INFO_HANDLE "FN:$line,$alias\n");
                     }
                 }
                 my $f_found = 0;
                 my $f_hit   = 0;
                 foreach my $key ($functionMap->keylist()) {
-                    my $data    = $functionMap->findKey($key);
+                    my $data = $functionMap->findKey($key);
+                    my $line = $data->line();
+                    if (defined($region) &&
+                        $reader->isExcluded($line)) {
+                        ++$region->[1];    # one coverpoint ignored
+                        next;
+                    }
                     my $aliases = $data->aliases();
                     foreach my $alias (keys %$aliases) {
                         my $hit = $aliases->{$alias};

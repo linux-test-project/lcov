@@ -1082,7 +1082,6 @@ sub gen_info($)
         --$currentParallel;
         _merge_one_child($child, \%children, $type, $tempFileExt, $childstatus);
     }
-
     # Report whether files were excluded.
     if (%lcovutil::excluded_files) {
         my $count = scalar keys %lcovutil::excluded_files;
@@ -1182,32 +1181,6 @@ sub derive_data($$$)
 }
 
 #
-# get_filenames(directory, pattern)
-#
-# Return a list of filenames found in directory which match the specified
-# pattern.
-#
-# Die on error.
-#
-
-sub get_filenames($$)
-{
-    my ($dirname, $pattern) = @_;
-    my @result;
-    my $directory;
-    local *DIR;
-
-    opendir(DIR, $dirname) or
-        die("ERROR: cannot read directory $dirname: $1\n");
-    while ($directory = readdir(DIR)) {
-        push(@result, $directory) if ($directory =~ /$pattern/);
-    }
-    closedir(DIR);
-
-    return @result;
-}
-
-#
 # process_dafile(dirname, da_filename, dir)
 #
 # Create a .info file for a single data file.
@@ -1232,7 +1205,6 @@ sub process_dafile($$$$)
     my @gcov_content;       # Content of a .gcov file
     my $gcov_branches;      # Branch content of a .gcov file
     my @gcov_functions;     # Function calls of a .gcov file
-    my @gcov_list;          # List of generated .gcov files
     my $line_number;        # Line number count
     my $lines_hit;          # Number of instrumented lines hit
     my $lines_found;        # Number of instrumented lines found
@@ -1273,12 +1245,6 @@ sub process_dafile($$$$)
         $base_dir = $base_directory;
     } else {
         $base_dir = $source_dir;
-    }
-
-    # Check for writable $base_dir (gcov will try to write files there)
-    stat($base_dir);
-    if (!-w _) {
-        die("ERROR: cannot write to directory $base_dir: $!\n");
     }
 
     # Construct name of graph file
@@ -1347,31 +1313,25 @@ sub process_dafile($$$$)
         }
     }
 
-    # Change to directory containing data files and apply GCOV
-    debug("chdir($base_dir)\n");
-    chdir($base_dir);
-
-    if ($da_renamed) {
-        # Need to rename empty data file to workaround
-        # gcov <= 3.2.x bug (Abort)
-        system_no_output(3, "mv", "$da_filename", "$da_filename.ori") and
-            die("ERROR: cannot rename $da_filename\n");
-    }
-
+    chdir($tempdir) or die("can't cd to $tempdir: $!");
     # Execute gcov command and suppress standard output
     #  also redirect stderr to /dev/null if 'quiet'
     # HGC: what we really want to do is to redirect stdout/stderr
     #  unless verbose - but echo them for non-zero exit status.
-    debug("$gcov_tool $da_filename -o $object_dir " .
-          join(" ", @gcov_options) . "\n");
     my $now = Time::HiRes::gettimeofday();
+    debug("$gcov_tool $base_dir/$da_filename -o $object_dir " .
+          join(" ", @gcov_options) . "\n");
+    lcovutil::info(2, "process $base_dir/$da_filename in $tempdir\n");
     my ($out, $err, $code) =
         system_no_output(1 + 2 + 4,
-                         $gcov_tool, $da_filename,
+                         $gcov_tool, "$base_dir/$da_filename",
                          "-o", $object_dir, @gcov_options);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{exec}{$dirname}{$file} = $then - $now;
 
+    if (0 != $code) {
+        check_gcov_fail($err, $da_filename);
+    }
     print_gcov_warnings('stdout', $out, 0, {})
         if ('' ne $out &&
             (0 != $code ||
@@ -1381,13 +1341,18 @@ sub process_dafile($$$$)
             (0 != $code ||
              $lcovutil::verbose));
 
-    if (0 != $code) {
-        check_gcov_fail($err, $da_filename);
+    # Collect data from resulting .gcov files and create .info file
+    # this version of gcov wrote the files to "." - but we want to
+    # save them in tempdir
+    my @gcov_list;
+    foreach my $f (glob('*.gcov .*.gcov')) {
+        # Skip gcov file for gcc built-in code
+        push(@gcov_list, $f) unless ($f eq "<built-in>.gcov");
     }
 
-    if ($da_renamed) {
-        system_no_output(3, "mv", "$da_filename.ori", "$da_filename") and
-            die("ERROR: cannot rename $da_filename.ori");
+    # Check for files
+    if (!@gcov_list) {
+        warn("WARNING: gcov did not create any files for " . "$da_filename!\n");
     }
 
     # Clean up temporary links
@@ -1400,36 +1365,17 @@ sub process_dafile($$$$)
         return;
     }
 
-    # Collect data from resulting .gcov files and create .info file
-    # this version of gcov wrote the files to "." - but we want to
-    # save them in tempdir
-    @gcov_list = get_filenames(".", '\.gcov$');
-
-    # Check for files
-    if (!@gcov_list) {
-        warn("WARNING: gcov did not create any files for " . "$da_filename!\n");
-    }
-    for my $f (@gcov_list) {
-        File::Copy::move($f, $tempdir)
-            or
-            lcovutil::ignorable_error($ERROR_GCOV,
-                                      "unable to move $f to $tempdir: $!");
-    }
     my $traceFile = TraceFile->new();
 
     # Traverse the list of generated .gcov files and combine them into a
     # single .info file
-    foreach $gcov_file (sort(@gcov_list)) {
+    foreach $gcov_file (@gcov_list) {
         GCOV_FILE_LOOP: {
             my $i;
             my $num;
+            next unless -f $gcov_file;    # skp if we didn't copy it over
 
-            # Skip gcov file for gcc built-in code
-            next if ($gcov_file eq "<built-in>.gcov");
-            my $gcov_data = "$tempdir/$gcov_file";
-            next unless -f $gcov_data;    # skp if we didn't copy it over
-
-            ($source, $object) = read_gcov_header($gcov_data);
+            ($source, $object) = read_gcov_header($gcov_file);
             if (!defined($source)) {
                 # Derive source file name from gcov file name if
                 # header format could not be parsed
@@ -1453,10 +1399,10 @@ sub process_dafile($$$$)
             }
 
             # Read in contents of gcov file
-            @result = read_gcov_file($gcov_data, $da_filename, $source);
+            @result = read_gcov_file($gcov_file, $da_filename, $source);
             if (!defined($result[0])) {
-                warn("WARNING: skipping unreadable file " . $gcov_data . "\n");
-                unlink($gcov_data) unless $main::preserve_intermediates;
+                warn("WARNING: skipping unreadable file " . $gcov_file . "\n");
+                unlink($gcov_file) unless $main::preserve_intermediates;
                 next;
             }
             @gcov_content = @{$result[0]};
@@ -1481,14 +1427,14 @@ sub process_dafile($$$$)
             $source_filename = lcovutil::subst_file_name($source_filename);
             if (TraceFile::skipCurrentFile($source_filename)) {
                 $lcovutil::excluded_files{$source_filename} = ();
-                unlink($gcov_data) unless $main::preserve_intermediates;
+                unlink($gcov_file) unless $main::preserve_intermediates;
                 next GCOV_FILE_LOOP;
             }
 
             # Skip external files if requested
             if (is_external($source_filename)) {
                 info("  ignoring data for external file $source_filename\n");
-                unlink($gcov_data) unless $main::preserve_intermediates;
+                unlink($gcov_file) unless $main::preserve_intermediates;
                 next;
             }
 
@@ -1598,7 +1544,7 @@ sub process_dafile($$$$)
             $fileData->func()->merge($functionMap);
 
             # Remove .gcov file after processing
-            unlink($gcov_data) unless $main::preserve_intermediates;
+            unlink($gcov_file) unless $main::preserve_intermediates;
         }
     }
 
@@ -1889,8 +1835,15 @@ sub read_gcov_file($$$)
 
     # Expect gcov format as used in gcc >= 3.3
     debug("reading $filename\n");
+    # line content "/*EOF*/" occurs when gcov knows the
+    # number of lines in the file but can't find the source code -
+    # most of the time, that is deliberate because we run gcov in a
+    # temp directory in order to avoid conflicts from parallel execution
+    # we do a bit of error checking that the content is not inconsistent
+    # - e.g., if we find the file due to fully qualified paths, and find
+    # a non-EOF line following an EOF line.
     my $foundEOF = 0;
-    my $warnEOF  = 0;    # turn off the warnings for now
+    my ($warnedBranch, $warnedFunction, $warnedLine);
     while (<INPUT>) {
         chomp($_);
         # Also remove CR from line-end
@@ -1909,36 +1862,40 @@ sub read_gcov_file($$$)
                     (($exclude_exception_branch || $no_exception_br) &&
                      defined($3) &&
                      ($3 eq "throw")));
-            if ($warnEOF && $foundEOF) {
-                lcovutil::ignorable_error($ERROR_GCOV,
-                    "branch entry after EOF marker for $source_filename:$last_line at $filename:$. while processing $da_filename"
-                );
-            }
             # $1 is block ID, $2 is hit count
-            my $br = BranchBlock->new($branchId, $2);
+            my $count = $2;
+            if ($count < 0) {
+                #negative...
+                lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                    "Unexpected negative count '$count' for branch $1 of $source_filename:$last_line at $filename:$.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                ) unless $warnedBranch;
+                $warnedBranch = 1;    # only once
+                $count        = 0;
+            }
+            my $br = BranchBlock->new($branchId, $count);
             $branchData->append($last_line, $last_block, $br, $filename);
             ++$branchId;
         } elsif (/^branch\s+(\d+)\s+never\s+executed/) {
             next if (!$br_coverage ||
                      $exclude_line ||
                      $exclude_branch);
-            if ($warnEOF && $foundEOF) {
-                lcovutil::ignorable_error($ERROR_GCOV,
-                    "branch entry after EOF marker for $source_filename:$last_line at $filename:$. while processing $da_filename"
-                );
-            }
             # this branch not taken
             my $br = BranchBlock->new($branchId, '-');
             $branchData->append($last_line, $last_block, $br, $filename);
             ++$branchId;
         } elsif (/^function\s+(.+)\s+called\s+(\d+)\s+/) {
             next if (!$func_coverage || $exclude_line);
-            if ($warnEOF && $foundEOF) {
-                lcovutil::ignorable_error($ERROR_GCOV,
-                    "function entry $1 after EOF marker at $filename:$. while processing $da_filename"
-                );
+            my $name  = $1;
+            my $count = $2;
+            if ($count < 0) {
+                #negative...
+                lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                    "Unexpected negative count '$count' for function $name of $source_filename:$last_line at $filename:$.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                ) unless $warnedFunction;
+                $warnedFunction = 1;
+                $count          = 0;
             }
-            push(@functions, $2, $1);
+            push(@functions, $count, $name);
         } elsif (/^call/) {
             # Function call return data
         } elsif (/^\s*([^:]+):\s*([^:]+):(.*)$/) {
@@ -1946,13 +1903,7 @@ sub read_gcov_file($$$)
             # Skip instance-specific counts
             next if ($line <= (scalar(@result) / 3));
             # skip fake line inserted by gcov
-            # line content "/*EOF*/" seems to occur when gcov knows the
-            # number of lines in the file but can't find the source code
-            # but I am not 100% certain.
             if ($code eq '/*EOF*/') {
-                lcovutil::ignorable_error($ERROR_GCOV,
-                    "EOF marker for $source_filename:$line at $filename:$. while processing $da_filename"
-                ) if (!$foundEOF && $warnEOF);    #first time only
                 $foundEOF = 1;
             } elsif ($foundEOF) {
                 # data looks inconsistent...we started finding some EOF entries
@@ -1966,7 +1917,6 @@ sub read_gcov_file($$$)
             $last_block = $UNNAMED_BLOCK;
             # Check for exclusion markers
             if (!$no_markers) {
-
                 # universal markers..
                 if (/$EXCL_STOP/) {
                     $exclude_flag = 0;
@@ -2024,8 +1974,9 @@ sub read_gcov_file($$$)
                         #negative...
                         lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
                             "Unexpected negative count '$count' for $source_filename:$line at $filename:$.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                        );
-                        $count = 0;
+                        ) unless $warnedLine;
+                        $warnedLine = 1;
+                        $count      = 0;
                     }
                     push(@result, 1, $count);
                 }
@@ -2146,6 +2097,7 @@ sub intermediate_text_to_info($)
 
     my $traceFile = TraceFile->new();
 
+    my ($warnedLine, $warnedBranch, $warnedFunction);    # once only
     for my $filename (keys(%{$data})) {
 
         lcovutil::info(1, "emit data for $filename\n");
@@ -2168,7 +2120,14 @@ sub intermediate_text_to_info($)
                 # lcount:<line>,<count>,<has_unexecuted_blocks>
                 my $lineNo = $1;
                 my $hit    = $2;
-
+                if ($hit < 0) {
+                    #negative...
+                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                        "Unexpected negative count '$hit' for $filename:$lineNo.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                    ) unless $warnedLine;
+                    $warnedLine = 1;
+                    $hit        = 0;
+                }
                 $lineMap->append($lineNo, $hit);
 
                 # Intermediate text format does not provide
@@ -2184,12 +2143,36 @@ sub intermediate_text_to_info($)
                 next unless $func_coverage;
 
                 # function:<line>,<count>,<name>
-                my $func = $functionMap->define_function($3, $filename, $1);
-                $func->addAlias($3, $2);
+                my $lineNo = $1;
+                my $hit    = $2;
+                my $name   = $3;
+                if ($hit < 0) {
+                    #negative...
+                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                        "Unexpected negative count '$hit' for function $name at $filename:$lineNo.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                    ) unless $warnedFunction;
+                    $warnedFunction = 1;
+                    $hit            = 0;
+                }
+                my $func =
+                    $functionMap->define_function($name, $filename, $lineNo);
+                $func->addAlias($name, $hit);
             } elsif ($line =~ /^function:(\d+),\d+,(\d+),([^,]+)$/) {
                 # function:<start_line>,<end_line>,<count>,
-                my $func = $functionMap->define_function($3, $filename, $1);
-                $func->addAlias($3, $2);
+                my $lineNo = $1;
+                my $hit    = $2;
+                my $name   = $3;
+                if ($hit < 0) {
+                    #negative...
+                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                        "Unexpected negative count '$hit' for function $name at $filename:$lineNo.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                    ) unless $warnedFunction;
+                    $warnedFunction = 1;
+                    $hit            = 0;
+                }
+                my $func =
+                    $functionMap->define_function($name, $filename, $lineNo);
+                $func->addAlias($name, $hit);
             } elsif ($line =~ /^branch:(\d+),(taken|nottaken|notexec)/) {
                 my $lineNo = $1;
                 next
@@ -2240,6 +2223,7 @@ sub intermediate_json_to_info($)
     my $traceFile = TraceFile->new();
     lcovutil::debug(1,
           "called intermediate_json_to_info " . join(' ', keys(%$data)) . "\n");
+    my ($warnedLine, $warnedBranch, $warnedFunction);    # once only
     while (my ($filename, $file_data) = each(%$data)) {
         # there is no meaningful parse location for this data
         my $fileData    = $traceFile->data($filename);
@@ -2261,6 +2245,14 @@ sub intermediate_json_to_info($)
                 my $count = $d->{"execution_count"};
                 my $name  = $d->{"name"};
 
+                if ($count < 0) {
+                    #negative...
+                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                        "Unexpected negative count '$count' for function $name at $filename:$line.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                    ) unless $warnedFunction;
+                    $warnedFunction = 1;
+                    $count          = 0;
+                }
                 my $func =
                     $functionMap->define_function($name, $filename, $line);
                 $func->addAlias($name, $count);
@@ -2276,6 +2268,14 @@ sub intermediate_json_to_info($)
             next
                 if (!defined($line) || !defined($count));
 
+            if ($count < 0) {
+                #negative...
+                lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
+                    "Unexpected negative count '$count' for $filename:$line.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                ) unless $warnedLine;
+                $warnedLine = 1;
+                $count      = 0;
+            }
             # just add the line - worry about filtering later
             $lineMap->append($line, $count);
 
@@ -2300,6 +2300,16 @@ sub intermediate_json_to_info($)
                         !$no_exception_br) {
                         if (!defined($brcount) || $unexec) {
                             $brcount = "-";
+                        } else {
+                            if ($brcount < 0) {
+                                #negative...
+                                lcovutil::ignorable_error(
+                                    $lcovutil::ERROR_NEGATIVE,
+                                    "Unexpected negative count '$brcount' for branch $branch_num of $filename:$line.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                                ) unless $warnedBranch;
+                                $warnedBranch = 1;
+                                $brcount      = 0;
+                            }
                         }
                         my $entry = BranchBlock->new($branch_num, $brcount);
                         if (exists($branchRenumber{$branch_num})) {
@@ -2476,25 +2486,22 @@ sub process_intermediate($$$$)
     }
 
     # Parse resulting file(s)
-    for my $gcov_filename (glob("*.gcov")) {
-        read_intermediate_text($gcov_filename, \%data);
+    # 'meson' build system likes to use "." as leading character in generated
+    # files.  Seems an unfortunate decision.
+    for my $gcov_filename (glob('*.gcov .*.gcov *.gcov.json.gz .*gcov.json.gz'))
+    {
+        if ($gcov_filename =~ /\.gcov\.json/) {
+            read_intermediate_json($gcov_filename, \%data, \$json_basedir);
+            $json_format = 1;
+        } else {
+            read_intermediate_text($gcov_filename, \%data);
+        }
         if ($main::preserve_intermediates) {
-            system_no_output(3, "mv", "$gcov_filename", "$fdir") and
-                die("ERROR: cannot rename $gcov_filename\n");
+            File::Copy::move($gcov_filename, $fdir) or
+                die("ERROR: cannot rename $gcov_filename: $!");
         } else {
             unlink($gcov_filename);
         }
-    }
-
-    for my $gcov_filename (glob("*.gcov.json.gz")) {
-        read_intermediate_json($gcov_filename, \%data, \$json_basedir);
-        if ($main::preserve_intermediates) {
-            system_no_output(3, "mv", "$gcov_filename", "$fdir") and
-                die("ERROR: cannot rename $gcov_filename\n");
-        } else {
-            unlink($gcov_filename);
-        }
-        $json_format = 1;
     }
 
     if (!%data) {
