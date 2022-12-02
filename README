@@ -75,6 +75,13 @@ Change to the resulting lcov directory and type:
 
   make install
 
+The default install location is /usr/local.  Note that you may need to
+have superuser permissions to write into system directories.
+
+To install in a different location - for example, your home directory, run:
+
+  make PREFIX=$HOME/my_lcov install
+
 
 3. An example of how to access Linux kernel coverage data
 ---------------------------------------------------------

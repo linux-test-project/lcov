@@ -8,6 +8,7 @@ example:
  * Fixes for code or documentation
  * Performance and compatibility improvements
  * Functional enhancements
+ * New and/or improved testcases
 
 There are some rules that these contributions must follow to be acceptable for
 inclusion:
@@ -52,8 +53,13 @@ Project goals
 =============
 
 The goal of LCOV is to provide a set of command line tools that can be used to
-collect, process and visualize code coverage data as produced by the gcov tool
-that is part of the GNU Compiler Collection (GCC) [2].
+collect, process, and visualize code coverage data in an easy-to-use way,
+suitable for deployment in projects of a wide range of sizes - in particular,
+deployment in automated CI/CD systems and large projects implemented using
+multiple languages.
+LCOV is based on existing environment-specific profiling mechanisms including,
+but not limited to, the gcov tool that is part of the GNU Compiler Collection
+(GCC) [2].
 
 If you have an idea for a contribution but are unsure if it aligns with the
 project goals, feel free to discuss the idea using the issue tracker on the
@@ -62,6 +68,49 @@ LCOV code repository site [1].
 
 Contribution format
 ===================
+
+Coding style:
+-------------
+
+The lcov project maintainers try to adhere to a common set of code formatting
+rules.  While no one ever agrees with anyone else's choices, almost everyone
+agrees that consistency is better than its lack.
+
+To this end, the lcov project uses 'perltidy' [3] to format our code.
+Perl-Tidy-20221112 has been tested and is known to work.  Newer versions
+may also work, but some older versions are known not to.
+
+Please execute
+    make checkstyle MODE=full UPDATE=true
+on your code and verify correctness of the reformating (if any) before
+submitting a pull request.
+
+Testing:
+--------
+
+At minimum, please execute
+    make test
+and verify that all testcases pass, then execute
+    make clean
+and veryify that all shrapnel has been removed - before submitting a
+pull request.
+
+It is highly, highly requested that PRs containing new features be 
+accompanied by tests for those features.  Lack of tests may substantially
+delay review and/or acceptance of your contribution.
+
+Pull requests which add tests for existing features or which enhance
+existing tests are actively encouraged.
+The lcov maintainers are painfully aware that the code coverage of the
+lcov test suite on the lcov code base is embarassingly low.
+
+Note that existing tests and/or test drivers may themselves need to be
+modified in order to work correctly on other platforms and with other
+toolchains.  Pull requests which address issues of this nature are
+also actively encouraged.
+
+Submitting a change:
+--------------------
 
 To contribute a change, please create a patch using 'git format-patch'.
 Alternatively you can use the diff utility with the following command line
@@ -91,3 +140,4 @@ With your Signed-off-by, you certify the rules stated in section
 
 [1] https://github.com/linux-test-project/lcov
 [2] https://gcc.gnu.org
+[3] https://metacpan.org/dist/Perl-Tidy/view/bin/perltidy
