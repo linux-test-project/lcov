@@ -63,7 +63,7 @@ The LCOV package is available as either RPM or tarball from:
 
   https://github.com/linux-test-project/lcov/releases
 
-To install the tarball, unpack it to a directory and run:
+To install the tarball, unpack it to a directory and run as root:
 
   make install
 
@@ -71,9 +71,13 @@ Use Git for the most recent (but possibly unstable) version:
 
   git clone https://github.com/linux-test-project/lcov.git
 
-Change to the resulting lcov directory and type:
+Change to the resulting lcov directory and run as root:
 
   make install
+  
+To install to a different directory, such as $HOME/.local, run:
+
+  make PREFIX=$HOME/.local install
 
 
 3. An example of how to access Linux kernel coverage data
