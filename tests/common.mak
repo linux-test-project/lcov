@@ -1,5 +1,5 @@
-export TOPDIR       := $(dir $(shell readlink -e $(lastword $(MAKEFILE_LIST))))
-export TESTDIR      := $(dir $(shell readlink -e $(firstword $(MAKEFILE_LIST))))
+export TOPDIR       := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
+export TESTDIR      := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
 export PARENTDIR    := $(dir $(patsubst %/,%,$(TOPDIR)))
 export RELDIR       := $(TESTDIR:$(PARENTDIR)%=%)
 
@@ -27,9 +27,9 @@ SIZE         := small
 CC           := gcc
 
 # Specify programs under test
-export PATH    := $(TOPDIR)/../bin:$(TOPDIR)/bin:$(PATH)
-export LCOV    := $(TOPDIR)/../bin/lcov --config-file $(LCOVRC) $(LCOVFLAGS)
-export GENHTML := $(TOPDIR)/../bin/genhtml --config-file $(LCOVRC) $(GENHTMLFLAGS)
+export PATH    := $(realpath $(TOPDIR)/../bin):$(realpath $(TOPDIR)/bin):$(PATH)
+export LCOV    := $(realpath $(TOPDIR)/../bin/lcov) --config-file $(LCOVRC) $(LCOVFLAGS)
+export GENHTML := $(realpath $(TOPDIR)/../bin/genhtml) --config-file $(LCOVRC) $(GENHTMLFLAGS)
 
 # Ensure stable output
 export LANG    := C
