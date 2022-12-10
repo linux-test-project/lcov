@@ -10,7 +10,7 @@
 
 trap 'echo ; exit 1' SIGINT
 
-[[ -z "$TOPDIR" ]] && TOPDIR=$(readlink -e $(dirname $0)/..)
+[[ -z "$TOPDIR" ]] && TOPDIR=$(readlink -f $(dirname $0)/..) && test -d "$TOPDIR"
 
 source "$TOPDIR/bin/common"
 
@@ -28,7 +28,14 @@ fi
 
 t_announce "$TESTNAME"
 
-let POS=$(stat -c %s "$LOGFILE")+1
+case "$OSTYPE" in
+linux*)
+    let POS=$(stat -c %s "$LOGFILE")+1
+    ;;
+*)
+    let POS=$(stat -f %z "$LOGFILE")+1
+    ;;
+esac
 
 t_detail "COMMAND" "\"$*\"" >>"$LOGFILE"
 t_detail "OUTPUT" "" >>"$LOGFILE"

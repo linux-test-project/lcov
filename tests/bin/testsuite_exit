@@ -7,7 +7,8 @@
 # Announce end of test suite and show aggregate results.
 #
 
-TOPDIR=$(readlink -e $(dirname $0)/..) && source "$TOPDIR/bin/common"
+TOPDIR=$(readlink -f $(dirname $0)/..) && test -d "$TOPDIR" \
+    && source "$TOPDIR/bin/common"
 
 echo "end_time $(date +%s.%N)" >>"$COUNTFILE"
 
@@ -59,7 +60,7 @@ MEM="mem ${TOTAL_MEM}MB"
 [ "$FAILED"  -gt 0 ] && FAIL="$RED$FAIL$DEFAULT"
 [ "$SKIPPED" -gt 0 ] && SKIP="$BLUE$SKIP$DEFAULT"
 
-echo -en "$TOTAL, $PASS, $FAIL, $SKIP$RESET" >&3
+printf "$TOTAL, $PASS, $FAIL, $SKIP$RESET" >&3
 [ $HAVE_EXT -eq 1 ] && echo -n " ($TIME, $MEM)" >&3
 echo >&3
 echo "Result log stored in $LOGFILE" >&3
