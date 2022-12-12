@@ -71,7 +71,7 @@ our %ERROR_NAME;
 our $tool_dir     = abs_path(dirname($0));
 our $tool_name    = basename($0);            # import from lcovutil module
 our $lcov_version = 'LCOV version ' . `"$tool_dir"/get_version.sh --full`;
-our $lcov_url     = "https://github.com/henry2cox/lcov/tree/diffcov_initial";
+our $lcov_url     = "https://github.com//linux-test-project/lcov";
 our @temp_dirs;
 our $tmp_dir = '/tmp';    # where to put temporary/intermediate files
 
@@ -500,6 +500,9 @@ sub save_profile($)
         $lcovutil::profileData{config}{url}         = $lcovutil::lcov_url;
         $lcovutil::profileData{config}{date}        = `date`;
         $lcovutil::profileData{config}{uname}       = `uname -a`;
+        foreach my $k ('date', 'uname') {
+            chomp($lcovutil::profileData{config}{$k});
+        }
 
         my $save = $maxParallelism;
         count_cores();
@@ -535,6 +538,7 @@ sub set_c_extensions
 
 sub do_mangle_check
 {
+    return unless $lcovutil::cpp_demangle;
     $lcovutil::cpp_demangle = $lcovutil::cpp_demangle_tool;
     $lcovutil::cpp_demangle .= ' ' . $lcovutil::cpp_demangle_params
         if '' ne $lcovutil::cpp_demangle_params;
@@ -1372,7 +1376,8 @@ sub checkGzip
 
 sub out
 {
-    my ($class, $f, $mode) = @_;
+    my ($class, $f, $mode, $demangle) = @_;
+    $demangle = 0 unless defined($demangle);
 
     my $self = [undef, $f];
     bless $self, $class;
@@ -1380,16 +1385,30 @@ sub out
 
     if (!defined($f) ||
         '-' eq $f) {
-        $self->[0] = \*STDOUT;
+        if ($demangle) {
+            open(HANDLE, '|-', $lcovutil::cpp_demangle) or
+                die("Error: unable to demangle: $!\n");
+            $self->[0] = \*HANDLE;
+        } else {
+            $self->[0] = \*STDOUT;
+        }
     } else {
+        my $cmd = $demangle ? "$lcovutil::cpp_demangle " : '';
         if ($f =~ /\.gz$/) {
             checkGzip()
                 unless defined($checkedGzipAvail);
+            $cmd .= '| ' if $cmd;
             # Open compressed file
-            open(HANDLE, "|-", "gzip -c $m$f") or
+            $cmd .= "gzip -c $m'$f'";
+            open(HANDLE, "|-", $cmd) or
                 die("ERROR: cannot start gzip to compress to file $f: $!\n");
         } else {
-            open(HANDLE, $m, $f) or
+            if ($demangle) {
+                $cmd .= "$m '$f'";
+            } else {
+                $cmd .= $f;
+            }
+            open(HANDLE, $demangle ? '|-' : $m, $cmd) or
                 die("ERROR: cannot write to $f: $!\n");
         }
         $self->[0] = \*HANDLE;
@@ -1400,6 +1419,7 @@ sub out
 sub in
 {
     my ($class, $f, $demangle) = @_;
+    $demangle = 0 unless defined($demangle);
 
     my $self = [undef, $f];
     bless $self, $class;
@@ -1424,13 +1444,13 @@ sub in
             # Open compressed file
             my $cmd = "gzip -cd '$f'";
             $cmd .= " | " . $lcovutil::cpp_demangle
-                if defined($demangle);
+                if ($demangle);
             open(HANDLE, "-|", $cmd) or
                 die("ERROR: cannot start gunzip to decompress file $f: $!\n");
 
-        } elsif (defined($demangle) &&
+        } elsif ($demangle &&
                  defined($lcovutil::cpp_demangle)) {
-            open(HANDLE, "-|", $lcovutil::cpp_demangle . " < $f") or
+            open(HANDLE, "-|", "cat '$f' | $lcovutil::cpp_demangle") or
                 die("ERROR: cannot start demangler for file $f: $!\n");
         } else {
             # Open decompressed file

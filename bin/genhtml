@@ -4627,11 +4627,10 @@ our $html_prolog_file;  # Custom HTML prolog file (up to and including <body>)
 our $html_epilog_file;  # Custom HTML epilog file (from </body> onwards)
 our $html_prolog;       # Actual HTML prolog
 our $html_epilog;       # Actual HTML epilog
-our $html_ext     = "html";    # Extension for generated HTML files
-our $html_gzip    = 0;         # Compress with gzip
-our $demangle_cpp = 0;         # Demangle C++ function names
-our @opt_ignore_errors;        # Ignore certain error classes during processing
-our @opt_filter;               # Filter out requested coverpoints
+our $html_ext  = "html";    # Extension for generated HTML files
+our $html_gzip = 0;         # Compress with gzip
+our @opt_ignore_errors;     # Ignore certain error classes during processing
+our @opt_filter;            # Filter out requested coverpoints
 our @ignore;
 our @opt_config_file;             # User-specified configuration files (paths)
 our $opt_missed;                  # List/sort lines by missed counts
@@ -4700,7 +4699,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "genhtml_sort"               => \$sort,
                            "genhtml_charset"            => \$charset,
                            "genhtml_desc_html"          => \$rc_desc_html,
-                           "genhtml_demangle_cpp"       => \$demangle_cpp,
+                           "genhtml_demangle_cpp" => \$lcovutil::cpp_demangle,
                            "genhtml_demangle_cpp_tool" => \$lcovutil::cpp_demangle_tool,
                            "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
                            "genhtml_missed"          => \$opt_missed,
@@ -4804,7 +4803,7 @@ if (!GetOptions("output-directory|o=s" => \$output_directory,
                 "hierarchical"         => \$hierarchical,
                 "sort"                 => \$sort,
                 "no-sort"              => \$no_sort,
-                "demangle-cpp"         => \$demangle_cpp,
+                "demangle-cpp"         => \$lcovutil::cpp_demangle,
                 "ignore-errors=s"      => \@opt_ignore_errors,
                 "keep-going"           => \$keepGoing,
                 "config-file=s"        => \@unsupported_config,
@@ -5067,9 +5066,7 @@ if ($frames) {
 }
 
 # Ensure that the c++filt tool is available when using --demangle-cpp
-if ($demangle_cpp) {
-    lcovutil::do_mangle_check();
-}
+lcovutil::do_mangle_check();
 
 # Make sure precision is within valid range
 check_precision();

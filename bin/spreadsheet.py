@@ -181,18 +181,18 @@ class GenerateSpreadsheet(object):
             row = 0
             sheet.write_string(row, 0, name)
             row += 1
-            try:
-                sheet.write_string(row, 0, 'config')
-                for n in sorted(data['config'].keys()):
+            sheet.write_string(row, 0, 'config')
+            for n in sorted(data['config'].keys()):
+                try:
                     sheet.write_string(row, 1, n)
-                    if n in ("tool", ):
-                        sheet.write_string(row, 1, data['config'][n])
+                    if n in ("tool", 'date', ):
+                        sheet.write_string(row, 2, data['config'][n])
                     else:
                         sheet.write_number(row, 2, data['config'][n], intFormat)
                     row += 1
-            except:
-                # old file format..skip it
-                pass
+                except:
+                    # old file format..skip it
+                    pass
 
             for k in ('total', 'overall'):
                 if k in data:
