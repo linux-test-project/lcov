@@ -175,6 +175,9 @@ our $SORT_FILE   = 0;
 our $SORT_LINE   = 1;
 our $SORT_FUNC   = 2;
 our $SORT_BRANCH = 3;
+# function detail sort types
+our $SORT_MISSING_LINE   = 4;    # by number of not-hit lines in function
+our $SORT_MISSING_BRANCH = 5;    # by number of not-hit branches in function
 
 # Fileview heading types
 our $HEAD_NO_DETAIL     = 1;
@@ -1924,7 +1927,7 @@ sub curr_count
 
 sub _mergeBranchData
 {
-    my ($self, $loc, $branchData) = @_;
+    my ($self, $loc, $branchData, $filename, $testcase) = @_;
     my $branch = $self->[4];
     if (defined($branch->[$loc])) {
 
@@ -1935,11 +1938,10 @@ sub _mergeBranchData
                 # managed to do it - so we need to handle the error
                 my $which = $loc == 0 ? 'baseline' : 'current';
                 lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
-                                        "'$which' line " . $current->line() .
-                                            " (" . $self->lineNo($which) .
-                                            ") merge block (line " .
-                                            $branchData->line() .
-                                            ") does not contain branch $branchId."
+                    $filename . ':' . $current->line() .
+                        ": '$which' line " . $self->lineNo($which) .
+                        " merge block (line " . $branchData->line() .
+                        ") in testcase '$testcase' does not contain branch $branchId."
                 );
                 next;
             }
@@ -1953,14 +1955,19 @@ sub _mergeBranchData
                 #  similarly: this should not happen - but it might
                 my $which = $loc == 0 ? 'baseline' : 'current';
                 lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
-                    "'$which' line " .
-                        $current->line() . " (" . $self->lineNo($which) .
-                        ") branch $branchId contains $nc elements but merge data contains $nd."
+                    $filename . ':' . $current->line() .
+                        ": '$which' line " . $self->lineNo($which) .
+                        " branch $branchId contains $nc elements but testcase '$testcase' merge data contains $nd."
                 );
             }
             for (my $i = ($nc > $nd ? $nd : $nc) - 1; $i >= 0; --$i) {
                 my $br = $d->[$i];
                 $c->[$i]->merge($br);
+            }
+            # now append any new values from 'branchData':
+            #  (go here only if |D| > |C| and we ignore the mismatch error
+            for (my $i = $nc; $i < $nd; ++$i) {
+                push(@$c, Storable::dclone($d->[$i]));
             }
         }
     } else {
@@ -1970,11 +1977,11 @@ sub _mergeBranchData
 
 sub baseline_branch
 {
-    my ($self, $branchData) = @_;
+    my ($self, $branchData, $filename, $testcase) = @_;
     die("has baseline branch data but not in baseline")
         if (defined($branchData) && !defined($self->[1]));
     if (defined($branchData)) {
-        $self->_mergeBranchData(0, $branchData);
+        $self->_mergeBranchData(0, $branchData, $filename, $testcase);
     }
     my $branch = $self->[4];
     return $branch->[0];
@@ -1982,11 +1989,11 @@ sub baseline_branch
 
 sub current_branch
 {
-    my ($self, $branchData) = @_;
+    my ($self, $branchData, $filename, $testcase) = @_;
     die("has current branch data but not in current")
         if (defined($branchData) && !defined($self->[2]));
     if (defined($branchData)) {
-        $self->_mergeBranchData(1, $branchData);
+        $self->_mergeBranchData(1, $branchData, $filename, $testcase);
     }
     my $branch = $self->[4];
     return $branch->[1];
@@ -2094,7 +2101,7 @@ sub lineMap
 
 sub functionMap
 {
-    # simply a map of funtion leader name -> differeential FunctionEntry
+    # simply a map of function leader name -> differential FunctionEntry
     my $self = shift;
     return (scalar(@$self) > 2) ? $self->[2] : undef;
 }
@@ -2303,7 +2310,7 @@ sub _categorizeBranchCov
             $data->lineNo("current", $line);
             # append this branch data for the line
             my $currBranchData = $branchCurrent->value($line);
-            $data->current_branch($currBranchData);
+            $data->current_branch($currBranchData, $filename, $testcase);
         }    # foreach line in this testcase's branch data
     }    #foreach current testcase
 
@@ -2335,7 +2342,7 @@ sub _categorizeBranchCov
             }
             $data->lineNo("base", $base_line);
             my $baseBranchData = $branchBaseline->value($base_line);
-            $data->baseline_branch($baseBranchData);
+            $data->baseline_branch($baseBranchData, $filename, $testcase);
         }    # foreach line in baseline data for this test..
     }    # foreach baseline testcase
 
@@ -2445,6 +2452,11 @@ sub _categorizeFunctionCov
 
     my $funcBase    = $base_data->testfnc();
     my $funcCurrent = $current_data->testfnc();
+    # use merged line coverage to categorize function by checking for edits in
+    # function range
+    # $lineCovBase and $lineCovCurrent are 'CountData' objects
+    my $lineCovBase    = $base_data->test()->value('');  # use merged "''" value
+    my $lineCovCurrent = $current_data->test()->value('');
 
     my %funcCovLines;
     foreach my $testcase ($funcCurrent->keylist()) {
@@ -2514,12 +2526,14 @@ sub _categorizeFunctionCov
 
     # now go through function data for each line and categorize...
     foreach my $line (keys %funcCovLines) {
-        my $data        = $lineDataMap->{$line};
-        my $type        = $data->type();
-        my $curr        = $data->current_function();
-        my $base        = $data->baseline_function();
-        my $name        = defined($curr) ? $curr->name() : $base->name();
-        my $categorized = FunctionEntry->new($name, $filename, $line);
+        my $data = $lineDataMap->{$line};
+        my $type = $data->type();
+        my $curr = $data->current_function();
+        my $base = $data->baseline_function();
+        my $name = defined($curr) ? $curr->name() : $base->name();
+        my $categorized =
+            FunctionEntry->new($name, $filename, $line,
+                               defined($curr) ? $curr->end_line() : undef);
         $differentialMap->{$name} = $categorized;
 
         $data->differential_function($categorized);
@@ -2558,9 +2572,79 @@ sub _categorizeFunctionCov
             }
         } else {
             lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
-                   "unexpected function coverage type $type ar $filename:$line")
+                   "unexpected function coverage type $type at $filename:$line")
                 if $type ne 'equal';
+            # if we know end lines for this function, then check if there
+            # have been any changes in the function body.  If any changes,
+            # then mark GNC or UNC
+            my $changed;
+            my $end_line = $curr->end_line();
+
+            if (defined($end_line)) {
+                # @todo could keep list of functions and branch coverpoints
+                #  contained in the function - then report per-function coverage
+                #  in the function detail view.  Maybe user would want to
+                #  work on functions which are hit but whose coverage is low
+                $changed = 0;
+                for (my $line = $curr->line(); $line <= $end_line; ++$line) {
+                    # data for this line
+                    my $type = $linemap->type($filename, "new", $line);
+
+                    # claim a change if:
+                    #   - line is new and is source code, OR
+                    #   - line is unchanged and was code before and isn't code
+                    #      now, or line wasn't code before and is now
+                    if ($type eq 'insert' &&
+                        defined($lineCovCurrent->value($line)))   # line is code
+                    {
+                        $changed = 1;
+                        last;
+                    } else {
+                        # line is same
+                        my $bline = $linemap->lookup($filename, 'old', $line);
+                        if (defined($lineCovBase->value($bline)) ^
+                            defined($lineCovCurrent->value($line))) {
+                            $changed = 1;
+                            last;
+                        }
+                    }
+                }    # end for each current line in current function
+                $end_line = $base->end_line();
+                if (defined($end_line) && !$changed) {
+                    # check for baseline lines which were deleted
+                    for (my $bline = $base->line();
+                         $bline <= $end_line;
+                         ++$bline) {
+                        # data for this line
+                        my $type = $linemap->type($filename, 'old', $bline);
+                        # claim a change if line is deleted and was code
+                        #  before.
+                        # note that we already checked unchanged lines, above
+                        if ($type ne 'equal' &&  # line is in old but not in new
+                            defined($lineCovBase->value($bline))
+                            )    # line is code
+                        {
+                            $changed = 1;
+                            last;
+                        }
+                    }    # end for each current line in current function
+                }
+                lcovutil::info(1, "$name body at $filename:$line is changed\n")
+                    if ($changed);
+            }
             my $tla = _categorize($base->hit(), $curr->hit());
+            if (defined($changed) &&
+                $changed) {
+                if ($tla eq 'UBC') {
+                    $tla = 'UNC';
+                } elsif ($tla eq 'GBC' ||
+                         $tla eq 'CBC') {
+                    $tla = 'GNC';
+                }    # else is LBC - leave it that way
+                lcovutil::info(2,
+                            "$name recategorized to $tla at $filename:$line\n");
+            }
+
             $categorized->setCountDifferential([$curr->hit(), $tla]);
             # particular alias may be in both versions
             my $base_aliases = $base->aliases();
@@ -2573,6 +2657,19 @@ sub _categorizeFunctionCov
                     my $hitCurr = $curr_aliases->{$alias};
                     $tla = _categorize($hit, $hitCurr);
                     $hit = $hitCurr;
+                    # adjust TLA if function range known..
+                    if (defined($changed) &&
+                        $changed) {
+                        if ($tla eq 'UBC') {
+                            $tla = 'UNC';
+                        } elsif ($tla eq 'GBC' ||
+                                 $tla eq 'CBC') {
+                            $tla = 'GNC';
+                        }    # else is LBC - leave it that way
+                        lcovutil::info(2,
+                            "$name alias $alias recategorized to $tla at $filename:$line\n"
+                        );
+                    }
                 } else {
                     $tla = (0 == $hit) ? 'EUB' : 'ECB';
                 }
@@ -4616,6 +4713,8 @@ our $no_func_coverage;    # Disable func_coverage
 our $br_coverage;         # If set, generate branch coverage statistics
 our $no_br_coverage;      # Disable br_coverage
 our $show_tla;            # categorize coverage data (or not)
+our $show_functionProportions = 0
+    ; # show proportion of lines/branches containted in the function whihc are hit
 our $show_hitTotalCol;    # include the 'hit' or 'missed' total count in tables
                           #   - this is part of the 'legacy' view
     #   - also enabled when full differential categories are used
@@ -4641,6 +4740,8 @@ our $sort = 1;          # If set, provide directory listings with sorted entries
 our $no_sort;           # Disable sort
 our $frames;            # If set, use frames for source code view
 our $keep_descriptions; # If set, do not remove unused test case descriptions
+our $suppress_function_aliases;    # if set, don't show list of collapsed
+                                   # function aliases
 our $no_sourceview;     # If set, do not create a source code view for each file
 our $highlight;         # If set, highlight lines covered by converted data only
 our $legend;            # If set, include legend in output
@@ -4687,7 +4788,7 @@ my @datebins;
 # retrieve settings from RC file - use these if not overridden on command line
 my (@rc_datebins, @rc_filter, @rc_ignore,
     @rc_exclude_patterns, @rc_include_patterns, @rc_subst_patterns,
-    @rc_omit_patterns);
+    @rc_omit_patterns, @rc_erase_patterns);
 
 lcovutil::apply_rc_params(\@opt_config_file,
                           {
@@ -4728,6 +4829,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "genhtml_dark_mode"       => \$dark_mode,
                            "genhtml_hierarchical"    => \$hierarchical,
                            "genhtml_show_havigation" => \$show_tla,
+                           "genhtml_show_function_proportion" => \$show_functionProportions,
                            'genhtml_annotate_script' => \$SourceFile::annotateScript,
                            'genhtml_criteria_script' => \$SummaryInfo::coverageCriteriaScript,
                            'genhtml_date_bins' => \@rc_datebins,
@@ -4749,13 +4851,16 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "parallel" => \$lcovutil::maxParallelism,
                            "memory"   => \$lcovutil::maxMemory,
 
-                           'filter'         => \@rc_filter,
-                           'exclude'        => \@rc_exclude_patterns,
-                           'include'        => \@rc_include_patterns,
-                           'substitute'     => \@rc_subst_patterns,
-                           'omit_lines'     => \@rc_omit_patterns,
+                           'filter'          => \@rc_filter,
+                           'exclude'         => \@rc_exclude_patterns,
+                           'include'         => \@rc_include_patterns,
+                           'substitute'      => \@rc_subst_patterns,
+                           'omit_lines'      => \@rc_omit_patterns,
+                           'erase_functions' => \@rc_erase_patterns,
                            "version_script" => \$lcovutil::extractVersionScript,
                            "checksum"       => \$lcovutil::verify_checksum,
+                           "suppress_function_aliases" =>
+                               \$suppress_function_aliases,
                           });
 
 # Copy related values if not specified
@@ -4838,12 +4943,15 @@ if (!GetOptions("output-directory|o=s" => \$output_directory,
                 "profile:s"            => \$lcovutil::profile,
                 "exclude=s"            => \@lcovutil::exclude_file_patterns,
                 "include=s"            => \@lcovutil::include_file_patterns,
+                "erase-functions=s"    => \@lcovutil::exclude_function_patterns,
                 "omit-lines=s"         => \@lcovutil::omit_line_patterns,
                 "substitute=s"         => \@lcovutil::file_subst_patterns,
                 "parallel|j:i"         => \$lcovutil::maxParallelism,
                 "memory=i"             => \$lcovutil::maxMemory,
                 "show-navigation"      => \$show_tla,
+                "show-proportion"      => \$show_functionProportions,
                 "preserve"             => \$lcovutil::preserve_intermediates,
+                "suppress-aliases"     => \$suppress_function_aliases,
 )) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
@@ -4859,6 +4967,8 @@ lcovutil::init_verbose_flag($quiet);
     unless @lcovutil::subst_file_patterns;
 @lcovutil::omit_line_patterns = @rc_omit_patterns
     unless @lcovutil::omit_line_patterns;
+@lcovutil::exclude_function_patterns = @rc_erase_patterns
+    unless @lcovutil::exclude_function_patterns;
 
 $lcovutil::stop_on_error = 0
     if (defined $keepGoing);
@@ -5082,6 +5192,10 @@ if ($sort) {
     push(@fileview_sortlist, $SORT_FUNC) if ($func_coverage);
     push(@fileview_sortlist, $SORT_BRANCH) if ($br_coverage);
     push(@funcview_sortlist, $SORT_LINE);
+    if ($show_functionProportions) {
+        push(@funcview_sortlist, $SORT_MISSING_LINE);
+        push(@funcview_sortlist, $SORT_MISSING_BRANCH) if ($br_coverage);
+    }
 }
 
 if ($frames) {
@@ -5239,6 +5353,8 @@ Operation:
       --exclude PATTERNS            Do not display for files matching PATTERNS.
       --substitute PATTERNS         Munge source file names according to these
                                     Perl regexps (applied in order)
+      --erase-functions PATTERN     Exclude coverpoints contained in matching
+                                    function name
       --omit-lines REGEXP           Ignore coverage data associated with lines
                                     whose content matches regexp.
                                     Perl regexps (applied in order)
@@ -5467,7 +5583,9 @@ sub gen_html()
 
     print_overall_rate(1, $func_coverage, $br_coverage, $genhtml->top());
 
-    info(1, "chdir $cwd (from " . Cwd::cwd() . ") \n");
+    info(1,
+         "chdir $cwd" .
+             (defined(Cwd::cwd()) ? ("from " . Cwd::cwd()) : ')') . "\n");
     chdir($cwd) or
         die("ERROR: cannot change directory to $cwd: $!\n");
 
@@ -5580,10 +5698,19 @@ sub write_function_page($$$$$$$$$$$$$)
     my $filename;
 
     # Generate function table for this file
-    if ($sort_type == 0) {
+    if ($sort_type == $main::SORT_FILE) {
         $filename = "$rel_dir/$base_name.func.$html_ext";
+    } elsif ($sort_type == $main::SORT_LINE) {
+        # by declaration line number
+        $filename = "$rel_dir/$base_name.func-c.$html_ext";
+    } elsif ($sort_type == $main::SORT_MISSING_LINE) {
+        # by number of un-exercised lines
+        $filename = "$rel_dir/$base_name.func-l.$html_ext";
     } else {
-        $filename = "$rel_dir/$base_name.func-sort-c.$html_ext";
+        die("Unexpected sort $sort_type")
+            unless ($sort_type == $main::SORT_MISSING_BRANCH);
+        # by declaration line number
+        $filename = "$rel_dir/$base_name.func-b.$html_ext";
     }
     html_create(*HTML_HANDLE, $filename);
     $pagetitle = "LCOV - $title - $trunc_dir/$base_name - functions";
@@ -5700,15 +5827,47 @@ sub process_file($$$$$)
             my $lineCovMap = $fileCovInfo->lineMap();
             # simply map between function leader name and differential data
             my $differentialMap = $fileCovInfo->functionMap();
+            # compute number of hit/missed coverpoints in each function
+            my %lineCov;
+            my %branchCov;
+            if ($main::show_functionProportions) {
+                while (my ($name, $funcEntry) = each(%$differentialMap)) {
+
+                    my $lineData = $funcEntry->findMyLines($sumcount);
+                    if (defined($lineData)) {
+                        my $found = 0;
+                        my $hit   = 0;
+                        foreach my $d (@$lineData) {
+                            ++$found;
+                            ++$hit if (0 != $d->[1]);
+                        }
+                        $lineCov{$name} = [$found, $hit];
+                    }
+                    if ($main::br_coverage) {
+                        my $branchData =
+                            $funcEntry->findMyBranches($sumbrcount);
+                        if (defined($branchData) &&
+                            0 != scalar(@$branchData)) {
+                            # there are branches here..
+                            my $found = 0;
+                            my $hit   = 0;
+                            foreach my $branch (@$branchData) {
+                                my ($f, $h) = $branch->totals();
+                                $found += $f;
+                                $hit   += $h;
+                            }
+                            $branchCov{$name} = [$found, $hit];
+                        }
+                    }
+                }
+            }
 
             foreach (@funcview_sortlist) {
-                write_function_page($differentialMap, $base_dir,
-                                    $rel_dir, $trunc_dir,
-                                    $base_name, $test_title,
-                                    $sumcount, $funcdata,
-                                    $testfncdata, $sumbrcount,
-                                    $testbrdata, $_,
-                                    $fileSummary);
+                write_function_page([$differentialMap, \%lineCov, \%branchCov],
+                                    $base_dir, $rel_dir, $trunc_dir,
+                                    $base_name, $test_title, $sumcount,
+                                    $funcdata, $testfncdata, $sumbrcount,
+                                    $testbrdata, $_, $fileSummary);
             }
         }
 
@@ -8913,7 +9072,7 @@ sub write_header(*$$$$$)
             if ($type == $HDR_SOURCE) {
                 if ($sort) {
                     $view .=
-                        " (source / <a href=\"$base_name.func-sort-c.$html_ext\">functions</a>)";
+                        " (source / <a href=\"$base_name.func-c.$html_ext\">functions</a>)";
                 } else {
                     $view .=
                         " (source / <a href=\"$base_name.func.$html_ext\">functions</a>)";
@@ -9943,29 +10102,35 @@ sub write_source($$$$$$$)
     return (@result);
 }
 
-sub funcview_get_func_code($$$)
+sub funcview_get_label($$$$)
 {
-    my ($name, $base, $type) = @_;
+    my ($name, $base, $col, $sort_type) = @_;
     my $link;
 
-    if ($sort && $type == 1) {
-        $link = "$name.func.$html_ext";
+    if ($col eq 'function') {
+        if ($sort && $sort_type != $SORT_FILE) {
+            $link = "$name.func.$html_ext";
+        }
+        return "Function Name" . get_sort_code($link, "function name", $base);
+    } elsif ($col eq 'hit') {
+        if ($sort && $sort_type != $SORT_LINE) {
+            $link = "$name.func-c.$html_ext";
+        }
+        return "Hit count" . get_sort_code($link, "function hit count", $base);
+    } elsif ($col eq 'missed_line') {
+        if ($sort && $sort_type != $SORT_MISSING_LINE) {
+            $link = "$name.func-l.$html_ext";
+        }
+        return "Lines" .
+            get_sort_code($link, "unexercised lines in function", $base);
+    } else {
+        die("unexpected sort $col") unless ($col eq 'missed_branch');
+        if ($sort && $sort_type != $SORT_MISSING_BRANCH) {
+            $link = "$name.func-b.$html_ext";
+        }
+        return "Branches" .
+            get_sort_code($link, "unexercised branches in function", $base);
     }
-    my $result =
-        "Function Name" . get_sort_code($link, "Sort by function name", $base);
-    return $result;
-}
-
-sub funcview_get_count_code($$$)
-{
-    my ($name, $base, $type) = @_;
-    my $link;
-
-    if ($sort && $type == 0) {
-        $link = "$name.func-sort-c.$html_ext";
-    }
-    my $result = "Hit count" . get_sort_code($link, "Sort by hit count", $base);
-    return $result;
 }
 
 #
@@ -9977,11 +10142,12 @@ sub funcview_get_count_code($$$)
 
 sub funcview_get_sorted($$$)
 {
-    my ($differential_func, $type, $merged) = @_;
+    my ($funcData, $type, $merged) = @_;
 
+    my ($differential_func, $lineFuncData, $branchFuncData) = @$funcData;
     my @rtn = keys(%$differential_func);
 
-    if ($type != 0) {
+    if ($type == $SORT_LINE) {
         @rtn = sort({
                         my $da = $differential_func->{$a}->hit();
                         my $db = $differential_func->{$b}->hit();
@@ -9989,6 +10155,43 @@ sub funcview_get_sorted($$$)
                             # sort by function name if count matches
                             $a cmp $b
         } @rtn);
+    } elsif ($type == $SORT_MISSING_LINE) {
+        @rtn = sort({
+                        my $linea =
+                            exists($lineFuncData->{$a}) ? $lineFuncData->{$a} :
+                            undef;
+                        my $lineb =
+                            exists($lineFuncData->{$b}) ? $lineFuncData->{$b} :
+                            undef;
+                        my $missedA =
+                            defined($linea) ? $linea->[0] - $linea->[1] : -1;
+                        my $missedB =
+                            defined($lineb) ? $lineb->[0] - $lineb->[1] : -1;
+
+                        # highest to lowest 'missed lines', then by
+                        # function name if count matches
+                        $missedB <=> $missedA or $a cmp $b
+        } @rtn);
+    } elsif ($type == $SORT_MISSING_BRANCH) {
+        @rtn = sort({
+                        my $bra =
+                            exists($branchFuncData->{$a}) ?
+                            $branchFuncData->{$a} :
+                            undef;
+                        my $brb =
+                            exists($branchFuncData->{$b}) ?
+                            $branchFuncData->{$b} :
+                            undef;
+                        my $missedA =
+                            defined($bra) ? $bra->[0] - $bra->[1] : -1;
+                        my $missedB =
+                            defined($brb) ? $brb->[0] - $brb->[1] : -1;
+
+                        # highest to lowest 'missed branches', then by
+                        # function name if count matches
+                        $missedB <=> $missedA or $a cmp $b
+        } @rtn);
+
     } elsif (!defined($main::no_sort)) {
         # sort alphabetically by function name
         @rtn = sort(@rtn);
@@ -9997,7 +10200,7 @@ sub funcview_get_sorted($$$)
 }
 
 #
-# write_function_table(filehandle, differentialMap, source_file, sumcount, funcdata,
+# write_function_table(filehandle, funcData, source_file, sumcount, funcdata,
 #                      testfncdata, sumbrcount, testbrdata,
 #                      base_name, base_dir, sort_type)
 #
@@ -10010,35 +10213,48 @@ sub funcview_get_sorted($$$)
 sub write_function_table(*$$$$$$$$$$)
 {
     local *HTML_HANDLE = shift;
-    my ($differentialMap, $source, $sumcount, $funcdata,
-        $testfncdata, $sumbrcount, $testbrdata, $name,
-        $base, $type) = @_;
-
+    my ($funcData, $source, $sumcount, $funcdata, $testfncdata,
+        $sumbrcount, $testbrdata, $name, $base, $type) = @_;
+    my ($differentialMap, $funcLineCovMap, $funcBranchCovMap) = @$funcData;
     # Get HTML code for headings
-    my $func_code  = funcview_get_func_code($name, $base, $type);
-    my $count_code = funcview_get_count_code($name, $base, $type);
-    my $showTlas   = $main::show_tla && 0 != scalar(keys %$differentialMap);
-    my $tlaRow     = "";
-    my $countWidth = 20;
+    my $func_code   = funcview_get_label($name, $base, 'function', $type);
+    my $count_code  = funcview_get_label($name, $base, 'hit', $type);
+    my $line_code   = funcview_get_label($name, $base, 'missed_line', $type);
+    my $branch_code = funcview_get_label($name, $base, 'missed_branch', $type);
+    my $showTlas    = $main::show_tla && 0 != scalar(keys %$differentialMap);
+    my $tlaRow      = "";
+    my $lineProportionRow   = '';
+    my $branchProportionRow = '';
+    my $countWidth          = 20;
+
     if ($showTlas) {
         my $label = $main::use_legacyLabels ? 'Hit?' : 'TLA';
         $tlaRow     = "<td width=\"10%\" class=\"tableHead\">$label</td>";
         $countWidth = 10;
     }
+    if ($main::show_functionProportions) {
+        $lineProportionRow = "<td class=\"tableHead\">$line_code</td>"
+            if (%$funcLineCovMap);
+        $branchProportionRow = "<td class=\"tableHead\">$branch_code</td>"
+            if $main::br_coverage && %$funcBranchCovMap;
+    }
+
     write_html(*HTML_HANDLE, <<END_OF_HTML);
           <center>
-          <table width="60%" cellpadding=1 cellspacing=1 border=0>
+          <table cellpadding=1 cellspacing=1 border=0>
             <tr><td><br></td></tr>
             <tr>
-              <td width="80%" class="tableHead">$func_code</td>
+              <td class="tableHead">$func_code</td>
               $tlaRow
-              <td width="${countWidth}%" class="tableHead">$count_code</td>
+              <td class="tableHead">$count_code</td>
+              $lineProportionRow
+              $branchProportionRow
             </tr>
 END_OF_HTML
 
     my $merged =
         defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
-    foreach my $func (funcview_get_sorted($differentialMap, $type, $merged)) {
+    foreach my $func (funcview_get_sorted($funcData, $type, $merged)) {
 
         my $funcEntry = $differentialMap->{$func};
         my ($count, $tla) = @{$funcEntry->hit()};
@@ -10057,24 +10273,66 @@ END_OF_HTML
         } else {
             $countstyle = "coverFnHi";
         }
-        my $tlaRow = "";
+        my $tlaRow              = "";
+        my $lineProportionRow   = '';
+        my $branchProportionRow = '';
         if ($showTlas) {
             my $label =
                 $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} :
                 $tla;
             $tlaRow = "<td class=\"tla$tla\">$label</td>";
         }
+        if ($main::show_functionProportions) {
+            if (exists($funcLineCovMap->{$func})) {
+                my ($found, $hit) = @{$funcLineCovMap->{$func}};
+                # colorize based on hit proportion
+                my $style = $rate_name[classify_rate($found, $hit, $med_limit,
+                                                     $hi_limit)];
+                my $rate = rate($hit, $found, "&nbsp;%");
+                $lineProportionRow =
+                    "<td class=coverPer$style>$rate ($hit / $found)</td>";
+            } else {
+                $lineProportionRow = "<td class=\"coverFn\"></td>"
+                    if %$funcLineCovMap;
+            }
+            if ($main::br_coverage && %$funcBranchCovMap) {
+                if (exists($funcBranchCovMap->{$func})) {
+                    my ($found, $hit) = @{$funcBranchCovMap->{$func}};
+                    # colorize based on hit proportion
+                    my $style = $rate_name[
+                        classify_rate($found, $hit, $br_med_limit, $br_hi_limit)
+                    ];
+                    my $rate = rate($hit, $found, "&nbsp;%");
+                    $branchProportionRow =
+                        "<td class=coverPer$style>$rate ($hit / $ found)</td>";
+                } else {
+                    $branchProportionRow = "<td class=\"coverFn\"></td>";
+                }
+            }
+        }
+
         write_html(*HTML_HANDLE, <<END_OF_HTML);
             <tr>
               <td class="coverFn"><a href="$source#$startline">$name</a></td>
               $tlaRow
               <td class="$countstyle">$count</td>
+              $lineProportionRow
+              $branchProportionRow
             </tr>
 END_OF_HTML
 
-        if ($funcEntry->numAliases() > 1) {
+        if ((!defined($main::suppress_function_aliases) ||
+             0 == $main::suppress_function_aliases) &&
+            $funcEntry->numAliases() > 1
+        ) {
             my $aliases   = $funcEntry->aliases();
             my @aliasList = keys(%$aliases);
+            if ($main::show_functionProportions) {
+                $lineProportionRow = "<td class=\"coverFn\"></td>"
+                    if %$funcLineCovMap;
+                $branchProportionRow = $lineProportionRow
+                    if $main::br_coverage && %$funcBranchCovMap;
+            }
             if (0 != $type) {
                 @aliasList =
                     sort({
@@ -10104,6 +10362,8 @@ END_OF_HTML
               <td class="coverFnAlias"><a href="$source#$startline">$alias</a></td>
               $tlaRow
               <td class="$style">$hit</td>
+              $lineProportionRow
+              $branchProportionRow
             </tr>
 END_OF_HTML
             }

@@ -281,7 +281,7 @@ $ENV{"LC_ALL"} = "C";
 # retrieve settings from RC file - use these if not overridden on command line
 my (@rc_filter, @rc_ignore,
     @rc_exclude_patterns, @rc_include_patterns, @rc_subst_patterns,
-    @rc_omit_patterns);
+    @rc_omit_patterns, @rc_erase_patterns);
 
 if (lcovutil::apply_rc_params(
                   \@opt_config_file,
@@ -318,6 +318,7 @@ if (lcovutil::apply_rc_params(
                    'include'                     => \@rc_include_patterns,
                    'substitute'                  => \@rc_subst_patterns,
                    'omit_lines'                  => \@rc_omit_patterns,
+                   'erase_functions'             => \@rc_erase_patterns,
                    "version_script" => \$lcovutil::extractVersionScript,
                   }
 )) {
@@ -384,6 +385,7 @@ if (!GetOptions("test-name|t=s"       => \$test_name,
                 "exclude=s"           => \@lcovutil::exclude_file_patterns,
                 "substitute=s"        => \@lcovutil::file_subst_patterns,
                 "omit-lines=s"        => \@lcovutil::omit_line_patterns,
+                "erase-functions=s"   => \@lcovutil::exclude_function_patterns,
                 "no-recursion"        => \$no_recursion,
                 "no-markers"          => \$no_markers,
                 "derive-func-data"    => \$opt_derive_func_data,
@@ -425,6 +427,8 @@ foreach my $d (['--config-file', scalar(@unsupported_config)],
     unless @lcovutil::subst_file_patterns;
 @lcovutil::omit_line_patterns = @rc_omit_patterns
     unless @lcovutil::omit_line_patterns;
+@lcovutil::exclude_function_patterns = @rc_erase_patterns
+    unless @lcovutil::exclude_function_patterns;
 
 $lcovutil::stop_on_error = 0
     if (defined $keepGoing);
@@ -661,6 +665,10 @@ foreach my $entry (@data_directory) {
 }
 
 my $now = Time::HiRes::gettimeofday();
+# have to check the loaded input data for exclusion markers because the
+#  data was generated directly from the gcov files - did not go through
+#  TraceFile::load which explicitly checks
+$trace_data->applyFilters();
 $trace_data->write_info_file($output_filename, $lcovutil::verify_checksum);
 my $then = Time::HiRes::gettimeofday();
 $lcovutil::profileData{emit} = $then - $now;
@@ -726,6 +734,8 @@ sequentially.
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN             Include files matching PATTERN
       --exclude PATTERN             Exclude files matching PATTERN
+      --erase-functions PATTERN     Exclude coverpoints contained in matching
+                                    function name
       --omit-lines REGEXP           Ignore coverage data associated with lines
                                     whose content matches REGEXP
       --substitute PATTERNS         Munge source file names according to these
@@ -2036,7 +2046,8 @@ sub read_intermediate_json($$$)
     my $json;
 
     {
-        my $f     = InOutFile->in($gcov_filename, $lcovutil::cpp_demangle);
+        # intermediate JSON contains the demangled name
+        my $f     = InOutFile->in($gcov_filename);
         my $h     = $f->hdl();
         my @lines = <$h>;
         $text = join("\n", @lines);
@@ -2239,20 +2250,24 @@ sub intermediate_json_to_info($)
         # Function data
         if ($func_coverage) {
             for my $d (@{$file_data->{"functions"}}) {
-                my $line  = $d->{"start_line"};
+                my $start_line = $d->{"start_line"};
+                my $end_line   = $d->{"end_line"}
+                    if exists($d->{end_line});
                 my $count = $d->{"execution_count"};
-                my $name  = $d->{"name"};
+                my $name  = $lcovutil::cpp_demangle ? $d->{demangled_name} :
+                    $d->{"name"};
 
                 if ($count < 0) {
                     #negative...
                     lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "Unexpected negative count '$count' for function $name at $filename:$line.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
+                        "Unexpected negative count '$count' for function $name at $filename:$start_line.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
                     ) unless $warnedFunction;
                     $warnedFunction = 1;
                     $count          = 0;
                 }
                 my $func =
-                    $functionMap->define_function($name, $filename, $line);
+                    $functionMap->define_function($name, $filename,
+                                                  $start_line, $end_line);
                 $func->addAlias($name, $count);
             }
         }

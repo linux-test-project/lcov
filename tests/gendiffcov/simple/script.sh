@@ -94,7 +94,7 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx
-rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation
+rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion
 
 if [ "x$COVER" != 'x' ] ; then
     cover -delete
@@ -573,6 +573,68 @@ if [ 0 != $? ] ; then
     echo "ERROR: lcov failed despite suppression"
     exit 1
 fi
+
+# test function "coverpoint proportion" feature
+grep -E 'FN:[0-9]+,[0-9]+,.+' baseline.info
+NO_END_LINE=$?
+
+if [ $NO_END_LINE == 0 ] ; then
+    echo "----------------------"
+    echo "   compiler version support start/end reporting"
+    SUFFIX='_region'
+else
+    echo "----------------------"
+    echo "   compiler version DOES NOT support start/end reporting"
+    SUFFIX=''
+fi
+
+echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./proportion --show-proportion
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS baseline.info --output-directory ./proportion --show-proportion
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml baseline proportional failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# and then a differential report...
+echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o ./differential_prop ./current.info --show-proportion
+$COVER ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o ./differential_prop ./current.info --show-proportion
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml differential proportional failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# and see if we find the content we expected...
+for test in proportion differential_prop ; do
+    for s in "unexercised branches" "unexercised lines" ; do
+        if [ 0 == $NO_END_LINE ] ; then
+            for f in "" '-c' '-b' '-l' ; do
+                NAME=$test/simple/test.cpp.func$f.html
+                grep "sort table by $s" $NAME
+                if [ 0 != $? ] ; then
+                    echo "did not find col '$s' in $NAME"
+                    if [ 0 == $KEEP_GOING ] ; then
+                        exit 1
+                    fi
+                fi
+            done
+        else
+            for f in "" '-c' ; do
+                NAME=$test/simple/test.cpp.func$f.html
+                grep "sort table by $s" $NAME
+                if [ 0 == $? ] ; then
+                    echo "unexpected col '$s' in $NAME"
+                    if [ 0 == $KEEP_GOING ] ; then
+                        exit 1
+                    fi
+                fi
+            done
+        fi
+    done
+done
+
 
 # and generate a spreadsheet..check that we don't crash
 SPREADSHEET=$LCOV_HOME/bin/spreadsheet.py

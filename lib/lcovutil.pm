@@ -39,7 +39,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
      @exclude_file_patterns @include_file_patterns %excluded_files
-     @omit_line_patterns
+     @omit_line_patterns @exclude_function_patterns
      munge_file_patterns warn_file_patterns transform_pattern
      parse_cov_filters summarize_cov_filters
      disable_cov_filters reenable_cov_filters is_filter_enabled
@@ -187,6 +187,7 @@ our %excluded_files;
 
 # list of regexps applied to line text - if exclude if matched
 our @omit_line_patterns;
+our @exclude_function_patterns;
 
 our $rtl_file_extensions = 'v|vh|sv|vhdl?';
 our $c_file_extensions   = 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx';
@@ -763,34 +764,39 @@ sub munge_file_patterns
     }
 
     # check for valid match patterns...
-    foreach my $pat (@file_subst_patterns) {
-        my $text = "abc";
-        eval '$text =~ ' . $pat . ';';    # apply pattern that user provided...
-        die("invalid regexp \"--substitute $pat\":\n$@")
-            if ($@);
-    }
-    foreach my $pat (@omit_line_patterns) {
-        my $text = "abc";
-        eval '$text =~ /' . $pat . '/;';   # apply pattern that user provided...
-        die("invalid regexp \"--omit-lines $pat\":\n$@")
-            if ($@);
-    }
+    foreach my $p (['substitute', \@file_subst_patterns],
+                   ['omit-lines', \@omit_line_patterns],
+                   ['exclude-functions', \@exclude_function_patterns]
+    ) {
+        my ($flag, $list) = @$p;
+        foreach my $pat (@$list) {
+            my $text = "abc";
+            my $str  = '$text =~ ';
+            if ('substitute' eq $flag) {
+                $str .= $pat;
+            } else {
+                $str .= '/' . $pat . '/';
+            }
+            $str .= ';';
+            eval $str;    # apply pattern that user provided...
+            die("invalid regexp \"--omit-lines $pat\":\n$@")
+                if ($@);
+        }
 
-    foreach my $p (\@file_subst_patterns, \@omit_line_patterns) {
-        # just keep track of number of times this was applied
-        if (0 != scalar(@$p)) {
-            @$p = map({ [$_, 0]; } @$p);
+        # keep track of number of times this was applied
+        if (0 != scalar(@$list)) {
+            @$list = map({ [$_, 0]; } @$list);
         }
     }
 }
 
 sub warn_file_patterns
 {
-
     foreach my $p (['include', \@include_file_patterns],
                    ['exclude', \@exclude_file_patterns],
                    ['substitute', \@file_subst_patterns],
-                   ['omit-lines', \@omit_line_patterns]
+                   ['omit-lines', \@omit_line_patterns],
+                   ['exclude-functions', \@exclude_function_patterns]
     ) {
         my ($type, $patterns) = @$p;
         foreach my $pat (@$patterns) {
@@ -1064,7 +1070,9 @@ sub disable_cov_filters
     }
     my @omit = @lcovutil::omit_line_patterns;
     @lcovutil::omit_line_patterns = ();
-    return [\@filters, \@omit];
+    my @erase = @lcovutil::exclude_function_patterns;
+    @lcovutil::exclude_function_patterns = ();
+    return [\@filters, \@omit, \@erase];
 }
 
 sub reenable_cov_filters
@@ -1075,7 +1083,8 @@ sub reenable_cov_filters
     for (my $i = 0; $i < scalar(@$filters); $i++) {
         $cov_filter[$i] = $filters->[$i];
     }
-    @lcovutil::omit_line_patterns = @{$data->[1]};
+    @lcovutil::omit_line_patterns        = @{$data->[1]};
+    @lcovutil::exclude_function_patterns = @{$data->[2]};
 }
 
 sub merge_child_pattern_counts
@@ -1540,11 +1549,13 @@ sub value
 
 sub remove
 {
-    my $self = shift;
-    my $key  = shift;
+    my ($self, $key, $check_is_present) = @_;
 
-    delete $self->{$key};
-    return $self;
+    if (!defined($check_is_present) || exists($self->{$key})) {
+        delete $self->{$key};
+        return 1;
+    }
+    return 0;
 }
 
 sub mapped
@@ -1636,19 +1647,23 @@ sub value
 
 sub remove
 {
-    my $self = shift;
-    my $key  = shift;
+    my ($self, $key, $check_if_present) = @_;
 
     my $data = $self->[0];
-    die("$key not found")
-        unless exists($data->{$key});
-    --$self->[2];    # found;
-    --$self->[3]     # hit
-        if ($data->{$key} > 0);
+    if (!defined($check_if_present) ||
+        exists($data->{$key})) {
 
-    delete $data->{$key};
+        die("$key not found")
+            unless exists($data->{$key});
+        --$self->[2];    # found;
+        --$self->[3]     # hit
+            if ($data->{$key} > 0);
 
-    return $self;
+        delete $data->{$key};
+        return 1;
+    }
+
+    return 0;
 }
 
 sub _summary
@@ -1842,6 +1857,24 @@ sub addBlock
     return $blockData;
 }
 
+sub totals
+{
+    my $self = shift;
+    # return (found, hit) counts of coverpoints in this entry
+    my $found = 0;
+    my $hit   = 0;
+    foreach my $blockId ($self->blocks()) {
+        my $bdata = $self->getBlock($blockId);
+
+        foreach my $br (@$bdata) {
+            my $count = $br->count();
+            ++$found;
+            ++$hit if (0 != $count);
+        }
+    }
+    return ($found, $hit);
+}
+
 package FunctionEntry;
 # keep track of all the functions/all the function aliases
 #  at a particular line in the file.  THey must all be the
@@ -1850,8 +1883,8 @@ package FunctionEntry;
 sub new
 {
     my ($class, $name, $filename, $startLine, $endLine) = @_;
-    my %aliases = ($name => 0);                                   # not hit, yet
-    my $self    = [$name, \%aliases, $filename, $startLine, 0];
+    my %aliases = ($name => 0);    # not hit, yet
+    my $self    = [$name, \%aliases, $filename, $startLine, 0, $endLine];
 
     bless $self, $class;
     return $self;
@@ -1904,6 +1937,12 @@ sub line
 {
     my $self = shift;
     return $self->[3];
+}
+
+sub end_line
+{
+    my $self = shift;
+    return $self->[5];
 }
 
 sub addAlias
@@ -1966,6 +2005,38 @@ sub setCountDifferential
     $self->[4] = $data;
 }
 
+sub findMyLines
+{
+    # use my start/end location to find my list of line coverpoints within
+    # this function.
+    # return sorted list of [ [lineNo, hitCount], ...]
+    my ($self, $lineData) = @_;
+    return undef unless $self->end_line();
+    my @lines;
+    for (my $lineNo = $self->line(); $lineNo <= $self->end_line; ++$lineNo) {
+        my $hit = $lineData->value($lineNo);
+        push(@lines, [$lineNo, $hit])
+            if (defined($hit));
+    }
+    return \@lines;
+}
+
+sub findMyBranches
+{
+    # use my start/end location to list of branch entries within this function
+    # return sorted list [ branchEntry, ..] sorted by line
+    my ($self, $branchData) = @_;
+    die("expected BranchData") unless ref($branchData) eq "BranchData";
+    return undef               unless $self->end_line();
+    my @branches;
+    for (my $lineNo = $self->line(); $lineNo <= $self->end_line; ++$lineNo) {
+        my $entry = $branchData->value($lineNo);
+        push(@branches, $entry)
+            if (defined($entry));
+    }
+    return \@branches;
+}
+
 package FunctionMap;
 
 sub new
@@ -1991,16 +2062,31 @@ sub list_functions
 
 sub define_function
 {
-    my ($self, $fnName, $filename, $lineNo) = @_;
+    my ($self, $fnName, $filename, $start_line, $end_line) = @_;
+    #lcovutil::info("define: $fnName $filename:$start_line->$end_line\n");
+    # could check that function ranges within file are non-overlapping
 
     my ($locationMap, $nameMap) = @$self;
 
-    my $key = $filename . ":" . $lineNo;
+    my $key = $filename . ":" . $start_line;
     my $data;
     if (exists($locationMap->{$key})) {
         $data = $locationMap->{$key};
+        # @todo maybe refactor to make the ERROR_INCONSISTENT_DATA
+        lcovutil::ignorable_error(
+                    $ERROR_MISMATCH,
+                    "mismatched end line for $fnName at $filename:$start_line: "
+                        .
+                        (
+                        defined($data->end_line()) ? $data->end_line() : 'undef'
+                        ) .
+                        " -> " . (defined($end_line) ? $end_line : 'undef'))
+            unless ((defined($end_line) &&
+                     defined($data->end_line()) &&
+                     $end_line == $data->end_line()) ||
+                    (!defined($end_line) && !defined($data->end_line())));
     } else {
-        $data = FunctionEntry->new($fnName, $filename, $lineNo);
+        $data = FunctionEntry->new($fnName, $filename, $start_line, $end_line);
         $locationMap->{$key} = $data;
     }
     if (!exists($nameMap->{$fnName})) {
@@ -2092,7 +2178,8 @@ sub merge
         if (!exists($self->[0]->{$key})) {
             $thisData =
                 $self->define_function($thatData->name(), $thatData->file(),
-                                       $thatData->line());
+                                       $thatData->line(), $thatData->end_line()
+                );
             $interesting = 1;    # something new...
         } else {
             $thisData = $self->[0]->{$key};
@@ -2106,7 +2193,8 @@ sub merge
         my $aliases = $thatData->aliases();
         foreach my $alias (keys %$aliases) {
             my $count = $aliases->{$alias};
-            $self->define_function($alias, $thisData->file(), $thisData->line())
+            $self->define_function($alias, $thisData->file(), $thisData->line(),
+                                   $thisData->end_line())
                 unless defined($self->findName($alias));
             if ($thisData->addAlias($alias, $count)) {
                 $interesting = 1;
@@ -2135,7 +2223,8 @@ sub cloneWithRename
                 . " vs " . $data->line() . ") in " . $newData->file())
                 if (defined($newData->findName($cn)) &&
                     $newData->findName($cn)->line() != $data->line());
-            $newData->define_function($cn, $data->file(), $data->line());
+            $newData->define_function($cn, $data->file(), $data->line(),
+                                      $data->end_line());
             $newData->add_count($cn, $hit);
         }
     }
@@ -2164,6 +2253,19 @@ sub insert
             if (exists($nameMap->{$alias}));
         $nameMap->{$alias} = $entry;
     }
+}
+
+sub remove
+{
+    my ($self, $entry) = @_;
+    die("expected FunctionEntry - " . ref($entry))
+        unless 'FunctionEntry' eq ref($entry);
+    my ($locationMap, $nameMap) = @$self;
+    my $key = $entry->file() . ":" . $entry->line();
+    foreach my $alias (keys %{$entry->aliases()}) {
+        delete($nameMap->{$alias});
+    }
+    delete($locationMap->{$key});
 }
 
 package BranchData;
@@ -2264,6 +2366,18 @@ sub append
     return $interesting;
 }
 
+sub remove
+{
+    my ($self, $line, $check_if_present) = @_;
+    my $data = $self->[0];
+
+    return 0 if ($check_if_present && !exists($data->{$line}));
+
+    $self->[3] = 1;    # modified counts
+    delete($data->{$line});
+    return 1;
+}
+
 sub _summary
 {
     my $self = shift;
@@ -2276,21 +2390,11 @@ sub _summary
     my $found = 0;
     my $hit   = 0;
 
-    # why are we bothering to sort?
-    #  for that matter - why do this calculation at all?
-    #  just keep track of counts when we insert data.
-    foreach my $line (sort({ $a <=> $b } keys(%$data))) {
-        my $branch = $data->{$line};
+    while (my ($line, $branch) = each(%$data)) {
         $line == $branch->line() or die("lost track of line");
-        foreach my $blockId (sort($branch->blocks())) {
-            my $bdata = $branch->getBlock($blockId);
-
-            foreach my $br (@$bdata) {
-                my $count = $br->count();
-                ++$found;
-                ++$hit if (0 != $count);
-            }
-        }
+        my ($f, $h) = $branch->totals();
+        $found += $f;
+        $hit   += $h;
     }
     $self->[1] = $found;
     $self->[2] = $hit;
@@ -2842,7 +2946,7 @@ sub isOutOfRange
         if (defined($filt)) {
             my $c = ($context eq 'line') ? 'line' : "$context at line";
             lcovutil::info(2,
-                           "exclude out-of-range $c $lineNo in " .
+                           "filter out-of-range $c $lineNo in " .
                                $self->filename() . " (" .
                                scalar(@{$self->[2]}) . " lines in file)\n");
             ++$filt->[0];    # applied in 1 location
@@ -3050,10 +3154,14 @@ our $UNNAMED_BLOCK = vec(pack('b*', 1 x 32), 0, 32);
 
 sub load
 {
-    my ($class, $tracefile, $readSource, $verify_checksum) = @_;
+    my ($class, $tracefile, $readSource, $verify_checksum,
+        $ignore_function_exclusions)
+        = @_;
     my $self = $class->new();
 
     $self->_read_info($tracefile, $readSource, $verify_checksum);
+
+    $self->applyFilters();
     return $self;
 }
 
@@ -3197,6 +3305,267 @@ sub append_tracefile
         }
     }
     return $interesting;
+}
+
+my $didUnsupportedWarning;
+
+sub _eraseFunctions
+{
+    my ($source_file, $functionMap, $lineData, $branchData, $checksum) = @_;
+
+    foreach my $key ($functionMap->keylist()) {
+        my $fcn      = $functionMap->findKey($key);
+        my $end_line = $fcn->end_line();
+        my $name     = $fcn->name();
+        if (!defined($end_line)) {
+            if (!defined($didUnsupportedWarning)) {
+                $didUnsupportedWarning = 1;
+                lcovutil::ignorable_error($ERROR_UNSUPPORTED,
+                    "Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer"
+                );
+            }
+            # we can skip out of processing if we don't know the end line
+            # - there is no way for us to remove line and branch points in
+            #   the function region
+            # Or we can keep going and at least removed the matched function
+            #   coverpoint.
+            #last; # at least for now:  keep going
+        }
+
+        PAT: foreach my $p (@lcovutil::exclude_function_patterns) {
+            my $pat = $p->[0];
+            while (my ($alias, $hit) = each(%{$fcn->aliases()})) {
+                if ($alias =~ /$pat/) {
+                    ++$p->[1];
+                    if (defined($end_line)) {
+                        # if user ignored the unsupported message, then the
+                        # best we can do is to remove the matched function -
+                        # and leave the lines and branches in place
+                        lcovutil::info(1,
+                                  "exclude FN $name line range $source_file:[" .
+                                      $fcn->line() .
+                                      ":$end_line] due to '$pat'\n");
+                        for (my $line = $fcn->line();
+                             $line <= $end_line;
+                             ++$line) {
+
+                            if (defined($checksum)) {
+                                $checksum->remove($line, 1); # remove if present
+                            }
+                            if ($lineData->remove($line, 1)) {
+                                lcovutil::info(2,
+                                    "exclude DA in FN '$alias' on $source_file:$line\n"
+                                );
+                            }
+                            if ($branchData->remove($line, 1)) {
+                                lcovutil::info(2,
+                                    "exclude BRDA in FN '$alias' on $source_file:$line\n"
+                                );
+                            }
+                        }    # foreach line
+                    }
+                    # and remove this function and all its aliases...
+                    $functionMap->remove($fcn);
+                    last PAT;
+                }    # if match
+            }    # foreach alias
+        }    # foreach pattern
+    }    # foreach function
+}
+
+sub applyFilters
+{
+    my $self = shift;
+
+    my $srcReader = ReadCurrentSource->new();
+    my $region    = $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
+    my $range     = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE];
+    my $branch_histogram         = $cov_filter[$FILTER_BRANCH_NO_COND];
+    my $brace_histogram          = $cov_filter[$FILTER_LINE_CLOSE_BRACE];
+    my $blank_histogram          = $cov_filter[$FILTER_BLANK_LINE];
+    my $function_alias_histogram = $cov_filter[$FILTER_FUNCTION_ALIAS];
+
+    # have to look through each file in each testcase; they may be different
+    # due to differences in #ifdefs when the corresponding tests were compiled.
+
+    foreach my $source_file ($self->files()) {
+
+        if (lcovutil::is_external($source_file)) {
+            delete($self->{$source_file});
+            next;
+        }
+
+        if (defined($main::func_coverage) &&
+            !defined($didUnsupportedWarning) &&
+            0 != scalar(@lcovutil::exclude_function_patterns)) {
+
+            # filter excluded function line ranges
+            my $traceInfo = $self->data($source_file);
+
+            my $funcData   = $traceInfo->testfnc();
+            my $lineData   = $traceInfo->test();
+            my $branchData = $traceInfo->testbr();
+            foreach my $tn ($lineData->keylist()) {
+                _eraseFunctions($source_file, $funcData->value($tn),
+                                $lineData->value($tn), $branchData->value($tn));
+            }
+            _eraseFunctions($source_file, $traceInfo->func(),
+                            $traceInfo->sum(), $traceInfo->sumbr(),
+                            $traceInfo->check());
+        }
+
+        next unless (lcovutil::is_filter_enabled());
+
+        my $entry = $self->data($source_file);
+        die("expected TraceInfo, got '" . ref($entry) . "'")
+            unless ('TraceInfo' eq ref($entry));
+
+        # munge the source file name, if requested
+        $source_file = lcovutil::subst_file_name($source_file);
+        next unless is_c_file($source_file);
+        $srcReader->close();
+
+        lcovutil::debug("reading $source_file for lcov filterig\n");
+        if (-e $source_file) {
+            $srcReader->open($source_file);
+        } else {
+            lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                     "'$source_file' not found (for filtering)")
+                if (lcovutil::warn_once($source_file));
+            next;
+        }
+
+        my ($testdata, $sumcount, $funcdata, $checkdata,
+            $testfncdata, $testbrdata, $sumbrcount) = $entry->get_info();
+
+        foreach my $testname (sort($testdata->keylist())) {
+            my $testcount    = $testdata->value($testname);
+            my $testfnccount = $testfncdata->value($testname);
+            my $testbrcount  = $testbrdata->value($testname);
+
+            my $functionMap = $testfncdata->{$testname};
+            if ($main::func_coverage &&
+                $functionMap &&
+                ($region || $range)) {
+                # Write function related data - sort  by line number
+
+                foreach my $key ($functionMap->keylist()) {
+                    my $data = $functionMap->findKey($key);
+                    my $line = $data->line();
+
+                    if ($srcReader->isOutOfRange($line) ||
+                        $srcReader->isExcluded($line)) {
+                        lcovutil::info(1,
+                                       "filter FN " . $data->name() .
+                                           " '" . $srcReader->getLine($line) .
+                                           "' " . $data->file() . ":$line\n");
+                        ++$region->[0];    # one location where this applied
+                        $region->[2] += scalar(keys %{$data->aliases()});
+                        #remove this function from everywhere
+                        foreach my $tn ($testfncdata->keylist()) {
+                            my $d = $testfncdata->value($tn);
+                            my $f = $d->findKey($key);
+                            next unless $f;
+                            $d->remove($f);
+                        }
+                        # and remove from the master table
+                        $funcdata->remove($funcdata->findKey($key));
+                        next;
+                    }    # if excluded
+                }    # foreach function
+            }    # if func_coverage
+                 # $testbrcount is undef if there are no branches in the scope
+            if ($main::br_coverage &&
+                defined($testbrcount) &&
+                ($branch_histogram || $region || $range)) {
+                foreach my $line ($testbrcount->keylist()) {
+
+                    # omit if line excluded or branches excluded on this line
+                    next
+                        unless ($srcReader->isOutOfRange($line, 'branch') ||
+                                $srcReader->isExcluded($line, 1) ||
+                                !$srcReader->containsConditional($line));
+                    if ($branch_histogram) {
+                        my $brdata = $testbrcount->value($line);
+                        ++$branch_histogram->[0];    # one line where we skip
+                        $branch_histogram->[1] += scalar($brdata->blocks());
+                        lcovutil::info(2,
+                                       "filter BRDA '" .
+                                           $srcReader->getLine($line) .
+                                           "' $source_file:$line\n");
+                    }
+                    # now remove this branch everywhere...
+                    foreach my $tn ($testbrdata->keylist()) {
+                        my $d = $testbrdata->value($tn);
+                        $d->remove($line, 1);        # remove if present
+                    }
+                    # remove at top
+                    $sumbrcount->remove($line);
+                }    # foreach line
+            }    # if branch_coverage
+                 # Line related data
+            next
+                unless $region   ||
+                $range           ||
+                $brace_histogram ||
+                $branch_histogram;
+            foreach my $line ($testcount->keylist()) {
+
+                # don't suppresss if this line has associated branch data
+                next if (defined($sumbrcount->value($line)));
+
+                my $outOfRange = $srcReader->isOutOfRange($line, 'line');
+                my $excluded   = $srcReader->isExcluded($line)
+                    unless $outOfRange;
+                my $l_hit = $testcount->value($line);
+                my $isCloseBrace = (
+                             $brace_histogram && $srcReader->suppressCloseBrace(
+                                                       $line, $l_hit, $testcount
+                             ))
+                    unless $outOfRange ||
+                    $excluded;
+                my $isBlank =
+                    ($blank_histogram &&
+                     $l_hit == 0 &&
+                     $srcReader->isBlank($line))
+                    unless $outOfRange ||
+                    $excluded;
+                next
+                    unless $outOfRange ||
+                    $excluded          ||
+                    $isCloseBrace      ||
+                    $isBlank;
+
+                lcovutil::info(2,
+                               "filter DA '" . $srcReader->getLine($line) .
+                                   "' $source_file:$line\n");
+                if (defined($isCloseBrace) && $isCloseBrace) {
+                    # one location where this applied
+                    ++$brace_histogram->[0];
+                    ++$brace_histogram->[1];    # one coverpoint suppressed
+                } elsif (defined($isBlank) && $isBlank) {
+                    # one location where this applied
+                    ++$blank_histogram->[0];
+                    ++$blank_histogram->[1];    # one coverpoint suppressed
+                }
+
+                # now remove everywhere
+                foreach my $tn ($testdata->keylist()) {
+                    my $d = $testdata->value($tn);
+                    $d->remove($line, 1);       # remove if present
+                }
+                $sumcount->remove($line);
+                if (exists($checkdata->{$line})) {
+                    delete($checkdata->{$line});
+                }
+            }    # foreach line
+        }    #foreach test
+             # count the number of function aliases..
+        if ($function_alias_histogram) {
+            $function_alias_histogram->[0] += $funcdata->numFunc(1);
+            $function_alias_histogram->[1] += $funcdata->numFunc(0);
+        }
+    }    # foreach file
 }
 
 sub is_rtl_file
@@ -3344,7 +3713,7 @@ sub _read_info
             %branchRenumber   = ();
             %excludedFunction = ();
 
-            if (lcovutil::is_filter_enabled() || $verify_checksum) {
+            if ($verify_checksum) {
                 # unconditionally 'close' the current file - in case we don't
                 #   open a new one.  If that happened, then we would be looking
                 #   at the source for some previous file.
@@ -3354,10 +3723,8 @@ sub _read_info
                     if (-e $filename) {
                         $readSourceCallback->open($filename);
                     } else {
-                        my $why = lcovutil::is_filter_enabled() ? "filtering" :
-                            "checksum";
                         lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                             "'$filename' not found (for $why)")
+                                         "'$filename' not found (for checksum)")
                             if (lcovutil::warn_once($filename));
                     }
                 }
@@ -3404,8 +3771,6 @@ sub _read_info
             /^DA:(\d+),(-?\d+)(,([^,\s]+))?/ && do {
                 my ($line, $count, $checksum) = ($1, $2, $4);
                 if ($readSourceCallback->notEmpty()) {
-                    next
-                        if $readSourceCallback->isOutOfRange($line, 'line');
                     # does the source checksum match the recorded checksum?
                     if ($verify_checksum) {
                         if (defined($checksum)) {
@@ -3426,66 +3791,8 @@ sub _read_info
                     }
                 }
 
-                my $region =
-                    $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
-                if (defined($region) &&
-                    $readSourceCallback->notEmpty() &&
-                    $readSourceCallback->isExcluded($line)) {
-                    lcovutil::info(2,
-                                   "exclude DA '" .
-                                       $readSourceCallback->getLine($line) .
-                                       "' $filename:$line\n");
-                    ++$region->[0];    # one location where this applied
-                    ++$region->[1];    # one coverpoint suppressed
-                    last;
-                }
                 # hold line, count and testname for postprocessing?
                 my $linesum = $fileData->sum();
-                my ($brace_histogram, $blank_histogram);
-                if ($readSourceCallback->notEmpty()) {
-                    $brace_histogram = $lcovutil::cov_filter
-                        [$lcovutil::FILTER_LINE_CLOSE_BRACE];
-                    $blank_histogram =
-                        $lcovutil::cov_filter[$lcovutil::FILTER_BLANK_LINE];
-                }
-
-                if ((defined($brace_histogram) || defined($blank_histogram)) &&
-                    !defined($sumbrcount->value($line))) {
-                    # does this line contain only a closing brace and
-                    #   - previous line is hit, OR
-                    #   - previous line is not an open-brace which has no associated
-                    #     count - i.e., this is not an empty block where the zero
-                    #     count is tagged to the closing brace, OR
-                    # is line empty (no code) and
-                    #   - count is zero, and
-                    #   - either previous or next non-blank lines have an associated count
-                    #
-                    # don't suppresss if this line has associated branch data
-                    #   note that BRDA entries come before DA entries in the .info file -
-                    #   so this check is in the right order
-                    if ($readSourceCallback->suppressCloseBrace($line, $count,
-                                                                $linesum) &&
-                        defined($brace_histogram)
-                    ) {
-                        lcovutil::info(2,
-                                       "skip DA '" .
-                                           $readSourceCallback->getLine($line)
-                                           . "' $filename:$line\n");
-                        # one location where this applied
-                        ++$brace_histogram->[0];
-                        ++$brace_histogram->[1];    # one coverpoint suppressed
-                        last;
-                    } elsif ($count == 0 &&
-                             $readSourceCallback->isBlank($line) &&
-                             defined($blank_histogram)) {
-                        # line is empty
-                        lcovutil::info(2, "skip DA (empty) $filename:$line\n");
-                        # one location where this applied
-                        ++$blank_histogram->[0];
-                        ++$blank_histogram->[1];    # one coverpoint suppressed
-                        last;
-                    }
-                }
 
                 if ($count < 0) {
                     lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
@@ -3518,35 +3825,16 @@ sub _read_info
                 last;
             };
 
-            /^FN:(\d+),(.+)$/ && do {
+            /^FN:(\d+),((\d+),)?(.+)$/ && do {
                 last if (!$main::func_coverage);
                 # Function data found, add to structure
-                my $lineNo = $1;
-                my $fnName = $2;
-                # skip if out-of-range
-                # the function may already be defined by another testcase (for the
-                #  same file)
-                if (defined($readSourceCallback) &&
-                    $readSourceCallback->notEmpty()) {
-                    last
-                        if $readSourceCallback->isOutOfRange($lineNo,
-                                                          "function '$fnName'");
-                    my $region =
-                        $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
-                    if (defined($region) &&
-                        $readSourceCallback->isExcluded($lineNo)) {
-                        lcovutil::info(1,
-                                       "exclude FN $fnName '"
-                                           .
-                                           $readSourceCallback->getLine(
-                                                                      $lineNo) .
-                                           "' $filename:$lineNo\n");
-                        ++$region->[0];    # one location where this applied
-                        $excludedFunction{$fnName} = 1;
-                        last;
-                    }
-                }
-                $functionMap->define_function($fnName, $filename, $lineNo)
+                my $lineNo   = $1;
+                my $fnName   = $4;
+                my $end_line = $3;
+                # the function may already be defined by another testcase
+                #  (for the same file)
+                $functionMap->define_function($fnName, $filename, $lineNo,
+                                              $end_line ? $end_line : undef)
                     unless defined($functionMap->findName($fnName));
 
                 last;
@@ -3556,12 +3844,6 @@ sub _read_info
                 last if (!$main::func_coverage);
                 my $fnName = $2;
                 my $hit    = $1;
-                if (exists($excludedFunction{$fnName})) {
-                    my $region =
-                        $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
-                    ++$region->[1];    # one coverpoint suppressed
-                    last;
-                }
                 # we expect to find a function with ths name...
                 if ($hit < 0) {
                     my $line = $functionMap->findName($fnName)->line();
@@ -3584,57 +3866,12 @@ sub _read_info
                 #     and check whether we found an integer or an expression
                 my ($line, $block, $d) = ($1, $2, $3);
 
-                if ($readSourceCallback->notEmpty()) {
-                    my $skip = 0;
-                    foreach my $filt ($lcovutil::FILTER_EXCLUDE_REGION,
-                                      $lcovutil::FILTER_EXCLUDE_BRANCH) {
-                        my $region = $lcovutil::cov_filter[$filt];
-                        if (defined($region) &&
-                            $readSourceCallback->isExcluded($line, 1)) {
-                            lcovutil::info(2,
-                                       "exclude BRDA '" .
-                                           $readSourceCallback->getLine($line) .
-                                           "' $filename:$line\n");
-                            ++$region->[0];    # one location where this applied
-                            ++$region->[1];    # one coverpoint suppressed
-                            $skip = 1;
-                        }
-                    }
-                    last if $skip;
-                }
-
                 my $comma = rindex($d, ',');
                 my $taken = substr($d, $comma + 1);
                 my $expr  = substr($d, 0, $comma);
                 # hold line, block, expr etc - to process when we get to end of file
                 #  (for parallelism support...)
 
-                my $histogram =
-                    $lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND];
-                if (defined($histogram) &&
-                    $readSourceCallback->notEmpty()) {
-                    # look though source the first time we see the line -
-                    #   skip branches defined here if it seems to contain no
-                    #   conditionals
-                    if (!defined($currentBranchLine) ||
-                        $currentBranchLine != $line) {
-                        $currentBranchLine = $line;
-                        $skipBranch =
-                            !$readSourceCallback->containsConditional($line);
-                        if ($skipBranch) {
-                            lcovutil::info(2,
-                                       "skip BRDA '" .
-                                           $readSourceCallback->getLine($line) .
-                                           "' $filename:$line\n");
-                            # one location where filter applied
-                            ++$histogram->[0];
-                        }
-                    }
-                    if ($skipBranch) {
-                        ++$histogram->[1];    # one coverpoint suppressed
-                        last;
-                    }
-                }
                 if ($taken ne '-' && $taken < 0) {
                     lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
                         "\"$tracefile\":$.: Unexpected negative taken count '$taken' for branch $block at \"$filename\":$line: "
@@ -3664,7 +3901,8 @@ sub _read_info
                     # Verilog/SystemVerilog/VHDL
                     my $key = "$line,$block";
                     my $branch =
-                        exists($branchRenumber{$key}) ? $branchRenumber{$key} :
+                        exists($branchRenumber{$key}) ?
+                        $branchRenumber{$key} :
                         0;
                     $branchRenumber{$key} = $branch + 1;
 
@@ -3702,20 +3940,22 @@ sub _read_info
                     if (!is_rtl_file($filename)) {
                         # RTL code was added directly - no issue with duplicate
                         #  data entries in geninfo result
-                        foreach
-                            my $line (sort { $a <=> $b } keys(%branchRenumber))
-                        {
+                        foreach my $line (sort { $a <=> $b }
+                                          keys(%branchRenumber)
+                        ) {
                             my $l_data = $branchRenumber{$line};
-                            foreach
-                                my $block (sort { $a <=> $b } keys(%$l_data)) {
+                            foreach my $block (sort { $a <=> $b }
+                                               keys(%$l_data)
+                            ) {
                                 my $bdata    = $l_data->{$block};
                                 my $branchId = 0;
-                                foreach
-                                    my $b_id (sort { $a <=> $b } keys(%$bdata))
-                                {
+                                foreach my $b_id (sort { $a <=> $b }
+                                                  keys(%$bdata)
+                                ) {
                                     my $br = $bdata->{$b_id};
-                                    my $b  = BranchBlock->new($branchId,
-                                                             $br->data());
+                                    my $b =
+                                        BranchBlock->new($branchId,
+                                                         $br->data());
                                     $fileData->sumbr()
                                         ->append($line, $block, $b, $filename);
 
@@ -3732,16 +3972,6 @@ sub _read_info
                     }    # end "if (! rtl)"
                     if ($main::func_coverage) {
 
-                        my $histogram =
-                            $lcovutil::cov_filter
-                            [$lcovutil::FILTER_FUNCTION_ALIAS]
-                            if defined(
-                            $lcovutil::cov_filter[
-                                $lcovutil::FILTER_FUNCTION_ALIAS]);
-                        if (defined($histogram)) {
-                            $histogram->[0] += $functionMap->numFunc(1);
-                            $histogram->[1] += $functionMap->numFunc(0);
-                        }
                         if ($funcdata != $functionMap) {
                             $funcdata->merge($functionMap);
                         }
@@ -3865,10 +4095,10 @@ sub write_info($$$)
     my $br_total_hit   = 0;
 
     my $srcReader = ReadCurrentSource->new()
-        if (lcovutil::is_filter_enabled() || $verify_checksum);
-
+        if ($verify_checksum);
     foreach my $source_file (sort($self->files())) {
-        next if lcovutil::is_external($source_file);
+        die("expected to have have filtered $source_file out")
+            if lcovutil::is_external($source_file);
         my $entry = $self->data($source_file);
         die("expected TraceInfo, got '" . ref($entry) . "'")
             unless ('TraceInfo' eq ref($entry));
@@ -3902,66 +4132,49 @@ sub write_info($$$)
             if (defined($srcReader)) {
                 $srcReader->close();
                 if (is_c_file($source_file)) {
-                    my $why = lcovutil::is_filter_enabled() ? "filtering" :
-                        "checksum";
-
-                    lcovutil::debug("reading $source_file for lcov $why\n");
+                    lcovutil::debug("reading $source_file for lcov checksum\n");
                     if (-e $source_file) {
                         $srcReader->open($source_file);
                     } else {
                         lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                          "'$source_file' not found (for $why)")
+                                      "'$source_file' not found (for checksum)")
                             if (lcovutil::warn_once($source_file));
                     }
                 } else {
                     lcovutil::debug("not reading $source_file: no ext match\n");
                 }
             }
-            my $reader = $srcReader
-                if (defined($srcReader) && $srcReader->notEmpty());
 
             my $functionMap = $testfncdata->{$testname};
             if ($main::func_coverage &&
                 $functionMap) {
                 # Write function related data - sort  by line number
-                my $region =
-                    $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]
-                    if $reader;
+                # sort enables diff of output data files, for testing
+                my @functionOrder =
+                    sort({ $functionMap->findKey($a)->line()
+                                 cmp $functionMap->findKey($b)->line() }
+                         $functionMap->keylist());
 
-                foreach my $key (
-                             sort(
-                                 { $functionMap->findKey($a)->line()
-                                         cmp $functionMap->findKey($b)->line() }
-                                 $functionMap->keylist())
-                ) {
+                foreach my $key (@functionOrder) {
                     my $data = $functionMap->findKey($key);
                     my $line = $data->line();
-                    if (defined($region) &&
-                        $reader->isExcluded($line)) {
-                        lcovutil::info(1,
-                                       "exclude FN " . $data->name() .
-                                           " '" . $reader->getLine($line) .
-                                           "' " . $data->file() . ":$line\n");
-                        ++$region->[0];    # one location where this applied
-                        next;
-                    }
+
                     my $aliases = $data->aliases();
+                    my $endLine =
+                        defined($data->end_line()) ?
+                        ',' . $data->end_line() :
+                        '';
                     foreach my $alias (keys %$aliases) {
-                        print(INFO_HANDLE "FN:$line,$alias\n");
+                        print(INFO_HANDLE "FN:$line$endLine,$alias\n");
                     }
                 }
                 my $f_found = 0;
                 my $f_hit   = 0;
-                foreach my $key ($functionMap->keylist()) {
-                    my $data = $functionMap->findKey($key);
-                    my $line = $data->line();
-                    if (defined($region) &&
-                        $reader->isExcluded($line)) {
-                        ++$region->[1];    # one coverpoint ignored
-                        next;
-                    }
+                foreach my $key (@functionOrder) {
+                    my $data    = $functionMap->findKey($key);
+                    my $line    = $data->line();
                     my $aliases = $data->aliases();
-                    foreach my $alias (keys %$aliases) {
+                    foreach my $alias (sort keys %$aliases) {
                         my $hit = $aliases->{$alias};
                         if ($hit < 0) {
                             lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
@@ -3983,31 +4196,10 @@ sub write_info($$$)
                 # Write branch related data
                 $br_found = 0;
                 $br_hit   = 0;
-                my $currentBranchLine;
-                my $skipBranch      = 0;
-                my $branchHistogram = $cov_filter[$FILTER_BRANCH_NO_COND]
-                    if $reader;
 
                 foreach my $line (sort({ $a <=> $b } $testbrcount->keylist())) {
 
-                    # omit if line excluded or branches excluded on this line
-                    next
-                        if (defined($reader) &&
-                            ($reader->isOutOfRange($line, 'branch') ||
-                             $reader->isExcluded($line, 1)));
-
                     my $brdata = $testbrcount->value($line);
-                    if (defined($branchHistogram)) {
-                        $skipBranch = !$reader->containsConditional($line);
-                        if ($skipBranch) {
-                            ++$branchHistogram->[0];    # one line where we skip
-                            $branchHistogram->[1] += scalar($brdata->blocks());
-                            lcovutil::info(2,
-                                       "skip BRDA '" . $reader->getLine($line) .
-                                           "' $source_file:$line\n");
-                            next;
-                        }
-                    }
                     # want the block_id to be treated as 32-bit unsigned integer
                     #  (need masking to match regression tests)
                     my $mask = (1 << 32) - 1;
@@ -4044,48 +4236,14 @@ sub write_info($$$)
                 }
             }
             # Write line related data
-            my ($brace_histogram, $blank_histogram);
-            if (defined($reader)) {
-                $brace_histogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE];
-                $blank_histogram = $cov_filter[$FILTER_BLANK_LINE];
-            }
             foreach my $line (sort({ $a <=> $b } $testcount->keylist())) {
-                next
-                    if (defined($reader) &&
-                        ($reader->isOutOfRange($line, 'line') ||
-                         $reader->isExcluded($line)));
-
                 my $l_hit = $testcount->value($line);
-                if (!defined($sumbrcount->value($line))) {
-                    # don't suppresss if this line has associated branch data
-
-                    if ($brace_histogram &&
-                        $reader->suppressCloseBrace($line, $l_hit, $testcount))
-                    {
-                        lcovutil::info(2,
-                                       "skip DA '" . $reader->getLine($line) .
-                                           "' $source_file:$line\n");
-                        # one location where this applied
-                        ++$brace_histogram->[0];
-                        ++$brace_histogram->[1];    # one coverpoint suppressed
-                        next;
-                    } elsif ($blank_histogram &&
-                             $l_hit == 0 &&
-                             $reader->isBlank($line)) {
-                        lcovutil::info(2,
-                                       "skip DA (empty) $source_file:$line\n");
-                        # one location where this applied
-                        ++$blank_histogram->[0];
-                        ++$blank_histogram->[1];    # one coverpoint suppressed
-                        next;
-                    }
-                }
-                my $chk = '';
+                my $chk   = '';
                 if ($verify_checksum) {
-                    if (defined($checkdata->{$line})) {
+                    if (exists($checkdata->{$line})) {
                         $chk = $checkdata->{$line};
-                    } elsif (defined($reader)) {
-                        my $content = $reader->getLine($line);
+                    } elsif (defined($srcReader)) {
+                        my $content = $srcReader->getLine($line);
                         $chk = Digest::MD5::md5_base64($content);
                     }
                     $chk = ',' . $chk if ($chk);

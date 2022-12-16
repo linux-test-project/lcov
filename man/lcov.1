@@ -222,6 +222,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-exclude
 .IR glob_pattern ]
 .br
+.RB [ \-\-exrase\-functions
+.IR regexp_pattern ]
+.br
 .RB [ \-\-substitute
 .IR regexp_pattern ]
 .br
@@ -577,6 +580,15 @@ command line switch. If a given file matches both the include pattern and the
 exclude pattern, the exclude pattern will take precedence.
 .RE
 
+.B \-\-erase\-functions
+.I regexp
+.br
+.RS
+Exclude coverage data from lines which fall within a function whose name matches the supplied regexp.  Note that this is a mangled or demangled name, depending on whether the \-\-demangle\-cpp option is used or not.
+
+Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports.
+
+.RE
 .B \-\-substitute
 .I regexp_pattern
 .br
@@ -874,7 +886,7 @@ the source code file for a data set could not be found.
 the requested feature is not supported for this tool configuration.  For example, function begin/end line range exclusions use some GCOV features that are not available in older GCC releases.
 
 .B unused:
-the include/exclude/omit/substitute pattern did not match any file pathnames.
+the include/exclude/erase/omit/substitute pattern did not match any file pathnames.
 
 .B version:
 revision control IDs of the file which we are trying to merge are not the same - line numbering and other information may be incorrect.

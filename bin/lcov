@@ -229,7 +229,7 @@ my $cExtensions;
 # retrieve settings from RC file - use these if not overridden on command line
 my (@rc_filter, @rc_ignore,
     @rc_exclude_patterns, @rc_include_patterns, @rc_subst_patterns,
-    @rc_omit_patterns);
+    @rc_omit_patterns, @rc_erase_patterns);
 
 lcovutil::apply_rc_params(
               \@opt_config_file,
@@ -263,6 +263,7 @@ lcovutil::apply_rc_params(
                'include'                     => \@rc_include_patterns,
                'substitute'                  => \@rc_subst_patterns,
                'omit_lines'                  => \@rc_omit_patterns,
+               'erase_functions'             => \@rc_erase_patterns,
                "version_script" => \$lcovutil::extractVersionScript,
                "checksum"       => \$lcovutil::verify_checksum,
               });
@@ -317,6 +318,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
                 "exclude=s"            => \@lcovutil::exclude_file_patterns,
                 "substitute=s"         => \@lcovutil::file_subst_patterns,
                 "omit-lines=s"         => \@lcovutil::omit_line_patterns,
+                "erase-functions=s"    => \@lcovutil::exclude_function_patterns,
                 "no-recursion"         => \$no_recursion,
                 "to-package=s"         => \$to_package,
                 "from-package=s"       => \$from_package,
@@ -361,6 +363,8 @@ foreach my $d (['--config-file', scalar(@unsupported_config)],
     unless @lcovutil::subst_file_patterns;
 @lcovutil::omit_line_patterns = @rc_omit_patterns
     unless @lcovutil::omit_line_patterns;
+@lcovutil::exclude_function_patterns = @rc_erase_patterns
+    unless @lcovutil::exclude_function_patterns;
 $lcovutil::stop_on_error = 0
     if (defined $keepGoing);
 
@@ -542,6 +546,9 @@ temp_cleanup();
 chdir($cwd);
 
 if (defined($ln_overall_found)) {
+    # the numbers do not reflect coverpoints in 'erased' functions.
+    #  the issue is that we filter them out in the write operation - but
+    #  we don't bother to read it back
     print_overall_rate(1, $ln_overall_found,
                        $ln_overall_hit, 1,
                        $fn_overall_found, $fn_overall_hit,
@@ -634,6 +641,8 @@ Options:
       --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN           Include files matching PATTERN
       --exclude PATTERN           Exclude files matching PATTERN
+      --erase-functions PATTERN   Exclude coverpoints contained in matching
+                                  function name
       --omit-lines REGEXP         Ignore coverage data associated with lines
                                   whose content matches REGEXP
       --substitute PATTERNS       Munge source file names according to these
@@ -1020,6 +1029,9 @@ sub lcov_geninfo(@)
     }
     foreach (@lcovutil::omit_line_patterns) {
         push(@param, "--omit-lines", $_);
+    }
+    foreach (@lcovutil::exclude_function_patterns) {
+        push(@param, "--erase-functions", $_);
     }
     if (defined($lcovutil::profile)) {
         push(@param, '--profile');
@@ -1665,7 +1677,7 @@ sub _process_segment($$$)
         my $current;
         eval {
             $current = TraceFile->load($tracefile, $readSourceFile,
-                                       $lcovutil::verify_checksum);
+                                       $lcovutil::verify_checksum, 1);
             print("after load $tracefile: memory: " .
                   lcovutil::current_process_size() . "\n")
                 if $lcovutil::debug;    # predicate to avoid function call...
@@ -1952,6 +1964,8 @@ sub add_traces()
     }
     #...and turn any enabled filters back on...
     lcovutil::reenable_cov_filters($save_filters);
+    # filters had been disabled - need to explicitly exclude function bodies
+    $total_trace->applyFilters();
 
     my @result;
     if ($function_mapping) {
@@ -2593,17 +2607,25 @@ sub apply_diff_to_funcdata($$)
     my $line_diff = get_hash_reverse($linedata);
 
     foreach my $key ($funcdata->keylist()) {
-        my $func = $funcdata->findKey($key);
-        my $line = $func->line();
+        my $func     = $funcdata->findKey($key);
+        my $line     = $func->line();
+        my $end_line = $func->end_line();
 
         if (defined($line_diff->{$line})) {
             $line = $line_diff->{$line};
         } elsif ($line > $last_old) {
             $line += $last_new - $last_old;
         }
+        if (defined($end_line)) {
+            if (defined($line_diff->{$end_line})) {
+                $end_line = $line_diff->{$end_line};
+            } elsif ($end_line > $last_old) {
+                $end_line += $last_new - $last_old;
+            }
+        }
         my $aliases = $func->aliases();
         foreach my $alias (keys %$aliases) {
-            $result->define_function($alias, $func->file(), $line);
+            $result->define_function($alias, $func->file(), $line, $end_line);
             $result->add_count($alias, $aliases->{$alias});
         }
     }
@@ -2894,9 +2916,9 @@ sub diff()
          ($unchanged != 1 ? "ies" : "y") . " left unchanged.\n");
 
     # Write data
-    my $file   = InOutFile->out($output_filename);
-    my $hdl    = $file->hdl();
-    my @result = $trace_data->write_info($hdl, $lcovutil::verify_checksum);
+    my @result =
+        $trace_data->write_info_file($output_filename,
+                                     $lcovutil::verify_checksum);
     return @result;
 }
 

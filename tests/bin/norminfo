@@ -35,13 +35,13 @@ sub print_sorted($$$)
 
         if ($line =~ /^end_of_record$/) {
             last;
-        } elsif ($line =~ /^FN:(\d+),(.*)$/) {
-            my ($lineno, $fnname) = ($1, $2);
+        } elsif ($line =~ /^FN:(\d+),((\d+),)?(.*)$/) {
+            my ($lineno, $fnname) = ($1, $4);
 
             if (exists($fn{$lineno})) {
                 ferr($., $info, "Duplicate FN: entry\n");
             }
-            $fn{$lineno} = $fnname;
+            $fn{$lineno} = [$fnname, $3];
             if (exists($fns{$fnname})) {
                 ferr($., $info, "Duplicate function name\n");
             }
@@ -106,8 +106,10 @@ sub print_sorted($$$)
 
     # FN:<line>,<fnname>
     foreach my $lineno (sort({ $a <=> $b } keys(%fn))) {
-        my $fnname = $fn{$lineno};
-        print("FN:$lineno,$fnname\n");
+        my ($fnname, $endLine) = @{$fn{$lineno}};
+        $endLine = '.' . $endLine
+            if $endLine;
+        print("FN:$lineno$endLine,$fnname\n");
     }
 
     # FNDA:<counts>,<fnname>

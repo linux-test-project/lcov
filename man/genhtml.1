@@ -79,7 +79,9 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .IR num ]
 .RB [ \-\-missed ]
 .br
-.RB [ \-\-dark-mode ]
+.RB [ \-\-suppress\-aliases ]
+.br
+.RB [ \-\-dark\-mode ]
 .br
 .RB [ \-\-baseline\-file
 .IR baseline\-trace\-file ]
@@ -119,7 +121,9 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .br
 .RB [ \-\-show\-noncode ]
 .br
-.RB [ \-\-show\=navigation ]
+.RB [ \-\-show\-navigation ]
+.br
+.RB [ \-\-show\-proportions ]
 .br
 .RB [ \-\-simplified-colors ]
 .br
@@ -133,6 +137,9 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .br
 .RB [ \-\-exclude
 .IR glob_pattern ]
+.br
+.RB [ \-\-erase\-functions
+.IR regexp_pattern ]
 .br
 .RB [ \-\-substitute
 .IR regexp_pattern ]
@@ -619,7 +626,18 @@ If the
 option is used, then the source code summary table will be generated with navigation links.
 Hyperlinks are always generated for differential coverage reports.
 
-This feature eanbles developers to find and understand coverage issues more quickly than they might otherwise, if they had to rely on scrolling.
+This feature enables developers to find and understand coverage issues more quickly than they might otherwise, if they had to rely on scrolling.
+
+.RE
+.BI "\-\-show\-proportions "
+.RS
+In the 'function coverage detail' table, also show the percentage of lines and branches within the function which are exercised.
+
+This feature enables developers to focus attention on functions which have the largest effect on overall code coverage.
+
+This feature is disabled by default.
+Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports.
+
 
 .RE
 .BI "\-\-simplified\-colors "
@@ -643,6 +661,15 @@ Files which do not match will be excluded from the report.
 See the lcov man page for details.
 .RE
 
+.B \-\-erase\-functions
+.I regexp
+.br
+.RS
+Exclude coverage data from lines which fall within a function whose name matches the supplied regexp.  Note that this is a mangled or demangled name, depending on whether the \-\-demangle\-cpp option is used or not.
+
+Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports.
+
+.RE
 .B \-\-substitute
 .I regexp_pattern
 .br
@@ -1042,6 +1069,9 @@ a link to a page which lists all functions found in that file plus the
 respective call count for those functions.
 The function coverage page groups the data for every alias of each function, sorted by name or execution count.  The representative name of the group of functions is the shorted (i.e., containing the fewest characters).
 
+If using differential coverage and a sufficiently recent gcc version which report both begin and end line of functions (gcc/9 and newer), functions are considered 'new' if any of their source lines have changed.
+With older gcc versions, functiions are considered 'new' if the function signature has changed or if the entire function is new.
+
 .RE
 .B \-\-branch\-coverage
 .br
@@ -1158,7 +1188,7 @@ coverage data for a particular line cannot be found (possibly because the source
 the requested feature is not supported for this tool configuration.  For example, function begin/end line range exclusions use some GCOV features that are not available in older GCC releases.
 
 .B unused:
-the include/exclude/substitute/omit pattern did not match any file pathnames.
+the include/exclude/erase/substitute/omit pattern did not match any file pathnames.
 
 .B version:
 \-\-version\-script comparison returned non\-zero mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
@@ -1223,6 +1253,22 @@ Default value is 1.
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_precision .
+.RE
+
+.B \-\-suppress\-aliases
+.RS
+Suppress list of aliases in function detail table.
+Functions whose file/line is the same are considered to be aliases;  genthml uses the shortest name in the list of aliases(fewest characters) as the leader.
+
+The number of aliases can be large widely instantiated templates - which can make function coverage results difficult to read.  This option removes the list of aliases, making it easier to focus on the overall function coverage number, which is likely more interesting.
+
+Note that this option has an effect only when
+.IR \-\-filter function
+is applied.
+
+This option can also be configured permanently using the configuration file
+option
+.IR suppress_function_aliases .
 .RE
 
 .B \-\-missed

@@ -144,6 +144,65 @@ for k in FN FNDA ; do
     fi
 done
 
+# see if we can exclude a function - does the generated data contain
+#  function end line numbers?
+grep -E 'FN:[0-9]+,[0-9]+,.+' demangle.info
+if [ $? == 0 ] ; then
+    echo "----------------------"
+    echo "   compiler version support start/end reporting - testing erase"
+
+    # end line is captured - so we should be able to filter
+    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main -o exclude.info -v -v
+    if [ $? != 0 ] ; then
+        echo "geninfo with exclusion failed"
+        exit 1
+    fi
+
+    for type in DA FNDA FN ; do
+        ORIG=`grep -c -E "^$type:" demangle.info`
+        NOW=`grep -c -E "^$type:" exclude.info`
+        if [ $ORIG -le $NOW ] ; then
+            echo "unexpected $type count: $ORIG -> $NOW"
+            exit 1
+        fi
+    done
+
+    # check that the same lines are removed by 'aggregate'
+    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o aggregate.info -a demangle.info --erase-functions main -v
+
+    diff exclude.info aggregate.info
+    if [ $? != 0 ] ; then
+        echo "unexpected 'exclude function' mismatch"
+        exit 1
+    fi
+
+else
+    # no end line in data - check for error message...
+    echo "----------------------"
+    echo "   compiler version DOESN't support start/end reporting - check error"
+    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude.info
+    if [ 0 == $? ] ; then
+        echo "Error:  expected exit for unsupported feature"
+    fi
+
+    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unsupported,unused -o ignore.info
+    if [ 0 != $? ] ; then
+        echo "Error:  expected to ignore unsupported message"
+    fi
+    # expect not to find 'main'
+    grep main ignore.info
+    if [ $? == 0 ] ; then
+        echo "expected 'main' to be filterd out"
+        exit 1
+    fi
+    # but expect to find coverpoint within main..
+    grep DA:40,1 ignore.info
+    if [ $? != 0 ] ; then
+        echo "expected to find coverpoint at line 40"
+        exit 1
+    fi
+fi
+
 
 echo "Tests passed"
 

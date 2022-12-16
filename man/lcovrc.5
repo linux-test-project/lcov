@@ -104,6 +104,8 @@ list options include:
 .RI 'substitute " = " ...'
 ,
 .RI 'omit_lines " = " ...'
+,
+.RI erase_functions " = " ...'
 , etc.
 
 .PP
@@ -309,6 +311,11 @@ genhtml_desc_html=0
 # Show missed counts instead of hit counts
 .br
 #genhtml_missed=1
+.br
+
+# If set, suppress list of aliases in function detail table
+.br
+#suppress_function_aliases = 1
 .br
 
 # Demangle C++ symbols
@@ -893,6 +900,20 @@ This option is equivalent to using the \-\-show\-navigation command line option 
 Default is 0.
 .PP
 
+.BR genhtml_show_function_proportion " ="
+.IR 0 | 1
+.IP
+
+If nonzero, add column to "function coverage detail" table to show the proportion of lines and branches within the function which are exercised.
+.br
+
+This option is equivalent to using the \-\-show\-proportion command line option of
+.BR genhtml .
+.br
+
+Default is 0.
+.PP
+
 .BR genhtml_function_coverage " ="
 .IR 0 | 1
 .IP
@@ -1009,6 +1030,16 @@ Default is 1.
 .IP
 If non-zero, the count of missed lines, functions, or branches is shown
 as negative numbers in overview pages.
+.br
+
+Default is 0.
+.PP
+
+.BR suppress_function_aliases " ="
+.IR  0 | 1
+.IP
+If non-zero, do not show aliases in the function detail table.
+See the genhtml man page for more details.
 .br
 
 Default is 0.
@@ -1484,7 +1515,20 @@ This option is used by genhtml, lcov, and geninfo.
 .IP
 
 This option is equivalent to the \-\-omit\-lines option to geninfo, lcov, and genhtml.
-See the genhtml man page for details.;
+See the genhtml man page for details.
+
+This option can be used multiple tiems in the lcovrc file to specify multiple patterns to exclude.
+The patterns specified in the lcovrc file are appended to the list specified on the command line.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.BR erase_functions " ="
+.IR regexp
+.IP
+
+This option is equivalent to the \-\-erase\-functions option to geninfo, lcov, and genhtml.
+See the genhtml man page for details.
 
 This option can be used multiple tiems in the lcovrc file to specify multiple patterns to exclude.
 The patterns specified in the lcovrc file are appended to the list specified on the command line.

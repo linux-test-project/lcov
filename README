@@ -198,7 +198,8 @@ New features and capabilities fall into 6 major categories:
 
       Related options:
           --baseline-title, --baseline-date, --current-date, --hierarchical,
-          --show-owners, --show-noncode, --show-navigation
+          --show-owners, --show-noncode, --show-navigation, --show-proportion,
+          --suppress-aliases
 
   d) Data manipulation
 
@@ -217,7 +218,8 @@ New features and capabilities fall into 6 major categories:
      the available filters and manipulation features.
 
      Related options:
-        --include, --exclude, --omit-lines, --substitute, --filter
+        --include, --exclude, --erase-functions, --omit-lines,
+        --substitute, --filter
 
   e) Callbacks/customization
 

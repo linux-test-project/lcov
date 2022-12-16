@@ -130,6 +130,9 @@ genhtml_sort = 1
 # Feature is always enabled in differential coverage report.
 #genhtml_show_navigation = 1
 
+# If nonzero, add column to "function coverage detail" table to show the proportion of lines and branches within the function which are exercised.
+#genhtml_show_function_proportion = 0
+
 # Include function coverage data display (can be disabled by the
 # --no-func-coverage option of genhtml)
 #genhtml_function_coverage = 1
@@ -149,6 +152,9 @@ genhtml_desc_html=0
 
 # Show missed counts instead of hit counts
 #genhtml_missed=1
+
+# If set, suppress list of aliases in function detail table
+#suppress_function_alizes = 1
 
 # Demangle C++ symbols
 #genhtml_demangle_cpp=1
@@ -271,6 +277,14 @@ lcov_branch_coverage = 0
 #omit_lines = .+?//\s*MY_LINE_EXCLUDE_MARKER\s*
 #   add another exclusion marker
 #omit_lines = .+?//\s*MY_PROJECT_EXCLUDE_MARKER\s*
+
+# ask geninfo/lcov/genhtml to exclude coverpoints whose lines are within
+#  the start/end of a function matching the regexp.
+#Call multiple times to specify multiple patterns
+#erase_functions = main
+# and another - note that this looks like a demangled C++ function
+# that the argument is a regexp - so special characters need to be escaped
+#erase_functions = debug)_.*\(int,\s*int\)
 
 # specify path to version identification script
 #version_script = path_to_my_executable
