@@ -102,7 +102,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  ignorable_error
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED $ERROR_PACKAGE
-                 $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
+                 $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_UNSUPPORTED
                  $ERROR_PARALLEL report_parallel_error
                  info $verbose init_verbose_flag
                  do_mangle_check
@@ -203,11 +203,12 @@ $ERROR_UNUSED   = 8;
 $ERROR_FORMAT   = 9;
 $ERROR_EMPTY    = 10;
 our $ERROR_ANNOTATE_SCRIPT = 11;
-$ERROR_PARALLEL = 12;
-$ERROR_PACKAGE  = 13;
-$ERROR_CORRUPT  = 14;
-$ERROR_NEGATIVE = 15;
-$ERROR_COUNT    = 16;
+$ERROR_PARALLEL    = 12;
+$ERROR_PACKAGE     = 13;
+$ERROR_CORRUPT     = 14;
+$ERROR_NEGATIVE    = 15;
+$ERROR_COUNT       = 16;
+$ERROR_UNSUPPORTED = 17;
 
 our %htmlErrs = ("source"       => $ERROR_SOURCE,
                  "unmapped"     => $ERROR_UNMAPPED_LINE,
@@ -225,6 +226,7 @@ our %htmlErrs = ("source"       => $ERROR_SOURCE,
                  "package"      => $ERROR_PACKAGE,
                  "negative"     => $ERROR_NEGATIVE,
                  "count"        => $ERROR_COUNT,
+                 "unsupported"  => $ERROR_UNSUPPORTED,
                  "corrupt"      => $ERROR_CORRUPT,);
 lcovutil::define_errors(\%htmlErrs);
 
@@ -4820,6 +4822,7 @@ if (!GetOptions("output-directory|o=s" => \$output_directory,
                 "parallel|j:i"         => \$lcovutil::maxParallelism,
                 "memory=i"             => \$lcovutil::maxMemory,
                 "show-navigation"      => \$show_tla,
+                "preserve"             => \$lcovutil::preserve_intermediates,
 )) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
@@ -5170,6 +5173,7 @@ Misc:
       --keep-going                  Do not stop if error occurs.  Try to
                                     produce a result
       --tempdir dirname             Write temporary and intermediate data here
+      --preserve                    Preserve intermediate files (for debugging)
 
 Operation:
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
@@ -7348,10 +7352,10 @@ sub write_file_table_entry(*$$@)
         #   visible (you have to scroll up to see it).
         # the fix is to put the anchor in the next column
         if ($primary_key eq 'owner') {
-            $anchor = "<a name=$name>NAME</a>";
+            $anchor = "<a id=$name>NAME</a>";
         } elsif ($primary_key eq 'date') {
             my $bin = $SummaryInfo::ageHeaderToBin{$name};
-            $anchor = "<a name=$bin>NAME</a>";
+            $anchor = "<a id=$bin>NAME</a>";
         }
     }
 
@@ -7661,7 +7665,7 @@ sub write_test_table_entry(*$$)
     # *************************************************************
 
     write_html($_[0], <<END_OF_HTML);
-          <dt>$_[1]<a name="$_[1]">&nbsp;</a></dt>
+          <dt>$_[1]<a id="$_[1]">&nbsp;</a></dt>
           <dd>$_[2]<br><br></dd>
 END_OF_HTML
 
@@ -8119,7 +8123,7 @@ sub write_source_line(*$$$$)
 
     # Write out a line number navigation anchor every $nav_resolution
     # lines if necessary
-    $anchor_start = "<a name=\"$line\">";
+    $anchor_start = "<a id=\"$line\">";
     $anchor_end   = "</a>";
 
     # *************************************************************

@@ -85,7 +85,8 @@ use lcovutil qw (define_errors parse_ignore_errors
                  $extractVersionScript
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_PACKAGE
-                 $ERROR_EMPTY $ERROR_PARALLEL report_parallel_error
+                 $ERROR_EMPTY $ERROR_PARALLEL $ERROR_UNSUPPORTED
+                 report_parallel_error
                  is_external @internal_dirs
                  apply_rc_params
                  $maxParallelism init_parallel_params $maxMemory
@@ -164,7 +165,6 @@ our $BR_VEC_MAX     = vec(pack('b*', 1 x $BR_VEC_WIDTH), 0, $BR_VEC_WIDTH);
 our $UNNAMED_BLOCK = -1;
 
 our $trace_data;
-our $preserve_intermediates;    # this is useful only for debugging
 
 # Prototypes
 sub print_usage(*);
@@ -398,7 +398,7 @@ if (!GetOptions("test-name|t=s"       => \$test_name,
                 "profile:s"           => \$lcovutil::profile,
                 "parallel|j:i"        => \$lcovutil::maxParallelism,
                 "memory=i"            => \$lcovutil::maxMemory,
-                "preserve"            => \$preserve_intermediates,
+                "preserve"            => \$lcovutil::preserve_intermediates,
 )) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
@@ -488,6 +488,14 @@ if ($rc_intermediate eq "0") {
 } else {
     die("ERROR: invalid value for geninfo_intermediate: " .
         "'$rc_intermediate'\n");
+}
+
+if ($gcov_version >= (9 << 16) &&
+    !$intermediate) {
+    lcovutil::ignorable_error($ERROR_UNSUPPORTED,
+        "geninfo does not support text format for gcov/9 or higher (your version appears to be '$gcov_version_string').\n  Please remove config file entry 'geninfo_intermdediate = 0'."
+    );
+    $intermediate = 1;
 }
 
 if ($intermediate) {
@@ -641,7 +649,7 @@ my $tempFileDir =
     defined($tempdirname) ? $tempdirname :
     File::Temp->newdir("geninfo_datXXXX",
                        DIR     => $lcovutil::tmp_dir,
-                       CLEANUP => !defined($preserve_intermediates));
+                       CLEANUP => !defined($lcovutil::preserve_intermediates));
 
 lcovutil::info("Writing temporary data to $tempFileDir\n");
 # Do something
@@ -823,9 +831,10 @@ sub _process_one_file($$$$)
     #  This is necessary to preserve intermediates, and if we are running
     #  in parallel; we don't want to overwrite and don't want multiple children to
     #  conflict.
-    my $tmp = File::Temp->newdir("geninfo_XXXXX",
-                                 DIR     => $tempFileDir,
-                                 CLEANUP => !defined($preserve_intermediates)
+    my $tmp = File::Temp->newdir(
+                          "geninfo_XXXXX",
+                          DIR     => $tempFileDir,
+                          CLEANUP => !defined($lcovutil::preserve_intermediates)
     ) if ($intermediate || !defined($initial));
     if ($intermediate) {
         $trace =
@@ -1036,7 +1045,7 @@ sub gen_info($)
                     unless (defined($childInfo) &&
                             ref($childInfo) eq "TraceFile");
                 foreach my $f ($output_filename) {
-                    unlink $f if -f $f && !$main::preserve_intermediates;
+                    unlink $f if -f $f && !$lcovutil::preserve_intermediates;
                 }
                 my @excluded = keys %lcovutil::excluded_files;
                 my $done     = Time::HiRes::gettimeofday();
@@ -1400,7 +1409,7 @@ sub process_dafile($$$$)
             if (!@matches) {
                 warn("WARNING: cannot find an entry for " . $gcov_file .
                      " in $graph_file_extension file, skipping file!\n");
-                unlink($gcov_file) unless $main::preserve_intermediates;
+                unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
 
@@ -1408,7 +1417,7 @@ sub process_dafile($$$$)
             @result = read_gcov_file($gcov_file, $da_filename, $source);
             if (!defined($result[0])) {
                 warn("WARNING: skipping unreadable file " . $gcov_file . "\n");
-                unlink($gcov_file) unless $main::preserve_intermediates;
+                unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
             @gcov_content = @{$result[0]};
@@ -1418,7 +1427,7 @@ sub process_dafile($$$$)
             # Skip empty files
             if (!@gcov_content) {
                 warn("WARNING: skipping empty file " . $gcov_file . "\n");
-                unlink($gcov_file) unless $main::preserve_intermediates;
+                unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
 
@@ -1433,14 +1442,14 @@ sub process_dafile($$$$)
             $source_filename = lcovutil::subst_file_name($source_filename);
             if (TraceFile::skipCurrentFile($source_filename)) {
                 $lcovutil::excluded_files{$source_filename} = ();
-                unlink($gcov_file) unless $main::preserve_intermediates;
+                unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next GCOV_FILE_LOOP;
             }
 
             # Skip external files if requested
             if (is_external($source_filename)) {
                 info("  ignoring data for external file $source_filename\n");
-                unlink($gcov_file) unless $main::preserve_intermediates;
+                unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
 
@@ -1535,7 +1544,7 @@ sub process_dafile($$$$)
             $fileData->func()->merge($functionMap);
 
             # Remove .gcov file after processing
-            unlink($gcov_file) unless $main::preserve_intermediates;
+            unlink($gcov_file) unless $lcovutil::preserve_intermediates;
         }
     }
 
@@ -1992,7 +2001,6 @@ sub read_gcov_file($$$)
 sub read_intermediate_text($$)
 {
     my ($gcov_filename, $data) = @_;
-    my $fd;
     my $filename;
 
     my $f = InOutFile->in($gcov_filename, $lcovutil::cpp_demangle);
@@ -2007,7 +2015,6 @@ sub read_intermediate_text($$)
             $data->{$filename} .= $line;
         }
     }
-    close($fd);
 }
 
 #
@@ -2473,7 +2480,7 @@ sub process_intermediate($$$$)
 
     if ($is_graph) {
         # Remove graph file copy
-        unlink($data_file) unless $main::preserve_intermediates;
+        unlink($data_file) unless $lcovutil::preserve_intermediates;
     }
 
     # Parse resulting file(s)
@@ -2487,7 +2494,7 @@ sub process_intermediate($$$$)
         } else {
             read_intermediate_text($gcov_filename, \%data);
         }
-        if ($main::preserve_intermediates) {
+        if ($lcovutil::preserve_intermediates) {
             File::Copy::move($gcov_filename, $fdir) or
                 die("ERROR: cannot rename $gcov_filename: $!");
         } else {
@@ -2611,7 +2618,9 @@ sub get_gcov_version()
 
     if ($version_string =~ /(\d+)\.(\d+)(\.(\d+))?/) {
         ($a, $b, $c) = ($1, $2, $4);
-        $c = 0 if (!defined($c));
+        $c              = 0 if (!defined($c));
+        $version_string = (split('\n', $version_string))[0];
+        chomp($version_string);
     } else {
         warn("WARNING: cannot determine gcov version - assuming $a.$b.$c\n");
     }

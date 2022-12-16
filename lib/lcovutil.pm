@@ -20,7 +20,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      @temp_dirs set_tool_name
      info warn_once set_info_callback init_verbose_flag $verbose
      debug $debug
-     append_tempdir temp_cleanup folder_is_empty $tmp_dir
+     append_tempdir temp_cleanup folder_is_empty $tmp_dir $preserve_intermediates
      define_errors parse_ignore_errors ignorable_error ignorable_warning is_ignored
      die_handler warn_handler abort_handler
 
@@ -50,6 +50,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
+     $ERROR_UNSUPPORTED
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
@@ -73,41 +74,44 @@ our $tool_name    = basename($0);            # import from lcovutil module
 our $lcov_version = 'LCOV version ' . `"$tool_dir"/get_version.sh --full`;
 our $lcov_url     = "https://github.com//linux-test-project/lcov";
 our @temp_dirs;
-our $tmp_dir = '/tmp';    # where to put temporary/intermediate files
+our $tmp_dir = '/tmp';          # where to put temporary/intermediate files
+our $preserve_intermediates;    # this is useful only for debugging
 
-our $debug   = 0;         # if set, emit debug messages
-our $verbose = 0;         # default level - higher to enable additional logging
+our $debug   = 0;    # if set, emit debug messages
+our $verbose = 0;    # default level - higher to enable additional logging
 
 # geninfo errors are shared by 'lcov' - so we put them in a common location
-our $ERROR_GCOV     = 0;
-our $ERROR_SOURCE   = 1;
-our $ERROR_GRAPH    = 2;
-our $ERROR_FORMAT   = 3;     # bad record in .info file
-our $ERROR_EMPTY    = 4;     # no records found in info file
-our $ERROR_VERSION  = 5;
-our $ERROR_UNUSED   = 6;     # exclude/include/substitute pattern not used
-our $ERROR_MISMATCH = 7;
-our $ERROR_BRANCH   = 8;     # branch numbering is not correct
-our $ERROR_PACKAGE  = 9;     # missing package
-our $ERROR_CORRUPT  = 10;    # corrupt file
-our $ERROR_NEGATIVE = 11;    # unexpected negative count in coverage data
-our $ERROR_COUNT    = 13;    # too many messages of type
-our $ERROR_PARALLEL = 14;    # error in fork/join
-our %geninfoErrs = ("gcov"     => $ERROR_GCOV,
-                    "source"   => $ERROR_SOURCE,
-                    "branch"   => $ERROR_BRANCH,
-                    "mismatch" => $ERROR_MISMATCH,
-                    "graph"    => $ERROR_GRAPH,
-                    "format"   => $ERROR_FORMAT,
-                    "empty"    => $ERROR_EMPTY,
-                    "version"  => $ERROR_VERSION,
-                    "unused"   => $ERROR_UNUSED,
-                    "parallel" => $ERROR_PARALLEL,    # error on wait
-                    "corrupt"  => $ERROR_CORRUPT,
-                    "negative" => $ERROR_NEGATIVE,
-                    "count"    => $ERROR_COUNT,
-                    "package"  => $ERROR_PACKAGE,);
-our $stop_on_error;                                   # attempt to keep going
+our $ERROR_GCOV        = 0;
+our $ERROR_SOURCE      = 1;
+our $ERROR_GRAPH       = 2;
+our $ERROR_FORMAT      = 3;     # bad record in .info file
+our $ERROR_EMPTY       = 4;     # no records found in info file
+our $ERROR_VERSION     = 5;
+our $ERROR_UNUSED      = 6;     # exclude/include/substitute pattern not used
+our $ERROR_MISMATCH    = 7;
+our $ERROR_BRANCH      = 8;     # branch numbering is not correct
+our $ERROR_PACKAGE     = 9;     # missing package
+our $ERROR_CORRUPT     = 10;    # corrupt file
+our $ERROR_NEGATIVE    = 11;    # unexpected negative count in coverage data
+our $ERROR_COUNT       = 13;    # too many messages of type
+our $ERROR_UNSUPPORTED = 14;    # some unsupported feature or usage
+our $ERROR_PARALLEL    = 15;    # error in fork/join
+our %geninfoErrs = ("gcov"        => $ERROR_GCOV,
+                    "source"      => $ERROR_SOURCE,
+                    "branch"      => $ERROR_BRANCH,
+                    "mismatch"    => $ERROR_MISMATCH,
+                    "graph"       => $ERROR_GRAPH,
+                    "format"      => $ERROR_FORMAT,
+                    "empty"       => $ERROR_EMPTY,
+                    "version"     => $ERROR_VERSION,
+                    "unused"      => $ERROR_UNUSED,
+                    "parallel"    => $ERROR_PARALLEL,      # error on wait
+                    "corrupt"     => $ERROR_CORRUPT,
+                    "negative"    => $ERROR_NEGATIVE,
+                    "count"       => $ERROR_COUNT,
+                    "unsupported" => $ERROR_UNSUPPORTED,
+                    "package"     => $ERROR_PACKAGE,);
+our $stop_on_error;    # attempt to keep going
 
 # for external file filtering
 our @internal_dirs;
@@ -1329,8 +1333,11 @@ sub load_json_module($)
         }
 
         if (!defined($did_init)) {
-            die("No JSON module found (tried " .
-                join(" ", @alternatives) . ")\n");
+            die("No Perl JSON module found on your system.  Please install of of the following supported modules: "
+                    . join(" ", @alternatives)
+                    . " - for example (as root):\n  \$ perl -MCPAN -e 'install "
+                    . $alternatives[0]
+                    . "'\n");
         }
     } else {
         $did_init = $rc;
@@ -1524,7 +1531,7 @@ sub value
     my $self = shift;
     my $key  = shift;
 
-    if (!defined($self->{$key})) {
+    if (!exists($self->{$key})) {
         return undef;
     }
 
@@ -2507,8 +2514,7 @@ sub check
 # function coverage
 sub testfnc
 {
-    my $self = shift;
-    my $name = defined($_[0]) ? shift : undef;
+    my ($self, $name) = @_;
 
     if (!defined($name)) {
         return $self->{_testfncdata};
@@ -2524,8 +2530,7 @@ sub testfnc
 # branch coverage
 sub testbr
 {
-    my $self = shift;
-    my $name = defined($_[0]) ? shift : undef;
+    my ($self, $name) = @_;
 
     if (!defined($name)) {
         return $self->{_testbrdata};

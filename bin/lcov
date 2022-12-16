@@ -276,7 +276,6 @@ my %unsupported_rc;    # for error checking
 my @unsupported_config;
 my $keepGoing;
 our @cmdArgs = @ARGV;
-my $preserve_intermediates;
 my $quiet = 0;
 my $tempdirname;
 
@@ -311,7 +310,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
                 "branch-coverage"      => \$br_coverage,
                 "ignore-errors=s"      => \@opt_ignore_errors,
                 "keep-going"           => \$keepGoing,
-                "preserve"             => \$preserve_intermediates,
+                "preserve"             => \$lcovutil::preserve_intermediates,
                 "filter=s"             => \@opt_filter,
                 "initial|i"            => \$initial,
                 "include=s"            => \@lcovutil::include_file_patterns,
@@ -439,6 +438,12 @@ push(@lcovutil::include_file_patterns, @ARGV)
 
 lcovutil::munge_file_patterns()    # for exclude/include directives
     unless $capture;
+
+if (defined($lcovutil::opt_no_external) &&
+    !(defined($capture) && $capture != 0)) {
+    warn("'--no-external' is ignored except in 'lcov --capture|-c'\n");
+    $lcovutil::opt_no_external = 0;
+}
 
 # Check for output filename
 $data_stdout = !($output_filename && ($output_filename ne "-"));
@@ -955,7 +960,8 @@ sub lcov_geninfo(@)
     if (defined($lcovutil::stop_on_error) && $lcovutil::stop_on_error == 0) {
         push(@param, "--keep-going");
     }
-    if (defined($preserve_intermediates) && $preserve_intermediates) {
+    if (defined($lcovutil::preserve_intermediates) &&
+        $lcovutil::preserve_intermediates) {
         push(@param, "--preserve");
     }
     foreach (split(',', join(',', @opt_ignore_errors))) {
@@ -1602,7 +1608,7 @@ sub my_info(@)
 sub create_temp_dir()
 {
     my $dir = tempdir(DIR     => $lcovutil::tmp_dir,
-                      CLEANUP => !defined($preserve_intermediates));
+                      CLEANUP => !defined($lcovutil::preserve_intermediates));
     if (!defined($dir)) {
         die("ERROR: cannot create temporary directory\n");
     }
@@ -1857,7 +1863,8 @@ sub add_traces()
                     # slurp into a string and eval..
                     my $str = do { local $/; <RESTORE> };    # slurp whole thing
                     close(RESTORE);
-                    unlink $f unless ($str && $preserve_intermediates);
+                    unlink $f
+                        unless ($str && $lcovutil::preserve_intermediates);
                     $f = $str;
                 } else {
                     my $msg = "unable to open $f: $!";
@@ -1939,7 +1946,7 @@ sub add_traces()
         @effective = _process_segment($total_trace, $readSourceFile, \@merge);
     }
     if (defined($tempdirname) &&
-        !$preserve_intermediates) {
+        !$lcovutil::preserve_intermediates) {
         # won't remove if directory not empty...probably what I want, for debugging
         rmdir($tempdirname);
     }

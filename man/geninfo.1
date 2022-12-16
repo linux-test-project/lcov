@@ -528,6 +528,9 @@ various types of errors related to parallelism - e.g., child process died due to
 .B source:
 the source code file for a data set could not be found.
 
+.B unsupported:
+the requested feature is not supported for this tool configuration.  For example, function begin/end line range exclusions use some GCOV features that are not available in older GCC releases.
+
 .B unused:
 the include/exclude/omit/substitute pattern did not match any file pathnames.
 
