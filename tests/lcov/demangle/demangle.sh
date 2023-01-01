@@ -6,6 +6,9 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+COVER_DB='cover_db'
+LOCAL_COVERAGE=1
+KEEP_GOING=0
 while [ $# -gt 0 ] ; do
 
     OPT=$1
@@ -20,12 +23,21 @@ while [ $# -gt 0 ] ; do
             set -x
             ;;
 
-        --coverage )
-            #COVER="perl -MDevel::Cover "
-            COVER="perl -MDevel::Cover=-db,cover_db,-coverage,statement,branch,condition,subroutine "
+        --keep-going )
+            KEEP_GOING=1
             ;;
 
-        --home | home )
+        --coverage )
+            #COVER="perl -MDevel::Cover "
+            if [[ "$1"x != 'x' && $1 != "-"* ]] ; then
+               COVER_DB=$1
+               LOCAL_COVERAGE=0
+               shift
+            fi
+            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            ;;
+
+        --home | -home )
             LCOV_HOME=$1
             shift
             if [ ! -f $LCOV_HOME/bin/lcov ] ; then
@@ -73,7 +85,7 @@ LCOV_OPTS="--branch-coverage --no-external $PARALLEL $PROFILE"
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.*
 
-if [ "x$COVER" != 'x' ] ; then
+if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
 fi
 
@@ -155,7 +167,9 @@ if [ $? == 0 ] ; then
     $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main -o exclude.info -v -v
     if [ $? != 0 ] ; then
         echo "geninfo with exclusion failed"
-        exit 1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
     fi
 
     for type in DA FNDA FN ; do
@@ -183,11 +197,17 @@ else
     $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude.info
     if [ 0 == $? ] ; then
         echo "Error:  expected exit for unsupported feature"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
     fi
 
     $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unsupported,unused -o ignore.info
     if [ 0 != $? ] ; then
         echo "Error:  expected to ignore unsupported message"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
     fi
     # expect not to find 'main'
     grep main ignore.info
@@ -206,6 +226,6 @@ fi
 
 echo "Tests passed"
 
-if [ "x$COVER" != "x" ] ; then
+if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ]; then
     cover
 fi

@@ -12,7 +12,21 @@
 #                 MODE=(full|diff) [UPDATE=1]
 #   - clean:     remove all generated files
 #   - release:   finalize release and create git tag for specified VERSION
-#
+#   - test:      run regression tests.
+#                additional Make variables:
+#                  COVERGAGE=1
+#                     - enable perl coverage data collection
+#                  TESTCASE_ARGS=string
+#                     - pass these arguments to testcase script
+#                       Sample args:
+#                          --update      - overwrite GOLD file with
+#                                          result
+#                          --parallel n  - use --parallel flag
+#                          --home path   - path to lcov script
+#                          --llvm        - use LLVM rather than gcc
+#                         --keep-going  - don't stop on error
+#                   Note that not all tests have been updated to use
+#                   all flags
 
 VERSION := $(shell bin/get_version.sh --version)
 RELEASE := $(shell bin/get_version.sh --release)
@@ -56,6 +70,7 @@ info:
 	@echo "  check     : perform self-tests"
 	@echo "  checkstyle: check source files for coding style issues"
 	@echo "  release   : finalize release and create git tag for specified VERSION"
+	@echo "  test      : same as 'make check"
 
 clean:
 	rm -f lcov-*.tar.gz
@@ -136,10 +151,22 @@ rpms: lcov-$(VERSION).tar.gz
 	mv $(TMP_DIR)/SRPMS/lcov-$(VERSION)-$(RELEASE).src.rpm .
 	rm -rf $(TMP_DIR)
 
+ifeq ($(COVERAGE), 1)
+# write to .../tests/cover_db
+export COVER_DB := ./cover_db
+endif
+export TESTCASE_ARGS COVER_DB
+
 test: check
 
 check:
+	if [ "x$(COVERAGE)" != 'x' ] && [ ! -d tests/$(COVER_DB) ]; then \
+	  mkdir tests/$(COVER_DB) ; \
+	fi
 	@$(MAKE) -s -C tests check
+	if [ "x$(COVERAGE)" != 'x' ] ; then \
+	  ( cd tests ; cover ) ; \
+	fi
 
 # Files to be checked for coding style issue issues -
 #   - anything containing "#!/usr/bin/env perl" or the like

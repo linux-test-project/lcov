@@ -7,6 +7,9 @@ UPDATE=0
 PARALLEL='--parallel 0'
 PROFILE="--profile"
 CXX='g++'
+COVER_DB='cover_db'
+LOCAL_COVERAGE=1
+KEEP_GOING=0
 while [ $# -gt 0 ] ; do
 
     OPT=$1
@@ -21,12 +24,24 @@ while [ $# -gt 0 ] ; do
             set -x
             ;;
 
-        --coverage )
-            #COVER="perl -MDevel::Cover "
-            COVER="perl -MDevel::Cover=-db,cover_db,-coverage,statement,branch,condition,subroutine "
+        --keep-going )
+            KEEP_GOING=1
             ;;
 
-        --home | home )
+        --coverage )
+            #COVER="perl -MDevel::Cover "
+            if [[ "$1"x != 'x' && $1 != "-"*  ]] ; then
+               COVER_DB=$1
+               LOCAL_COVERAGE=0
+               shift
+            fi
+            if [ ! -d $COVER_DB ] ; then
+                mkdir -p $COVER_DB
+            fi
+            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            ;;
+
+        --home | -home )
             LCOV_HOME=$1
             shift
             if [ ! -f $LCOV_HOME/bin/lcov ] ; then
@@ -100,7 +115,7 @@ DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverag
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx *.diff *.txt template
 rm -rf baseline_*call_current*call alias no_alias
 
-if [ "x$COVER" != 'x' ] ; then
+if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
 fi
 
@@ -122,7 +137,9 @@ echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
-    exit 1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
 fi
 gzip -c baseline_call.info > baseline_call.info.gz
 
@@ -135,7 +152,9 @@ echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (2) failed"
-    exit 1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
 fi
 gzip -c baseline_call.info > baseline_call.info.gz
 
@@ -150,7 +169,9 @@ echo lcov $LCOV_OPTS --capture --directory . --output-file current_call.info
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current_call.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (3) failed"
-    exit 1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
 fi
 gzip -c current_call.info > current_call.info.gz
 
@@ -161,7 +182,9 @@ echo lcov $LCOV_OPTS --capture --directory . --output-file current_nocall.info
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current_nocall.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (4) failed"
-    exit 1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
 fi
 gzip -c current_nocall.info > current_nocall.info.gz
 
@@ -195,7 +218,9 @@ for base in baseline_call baseline_nocall ; do
         $COVER $LCOV_HOME/bin/genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info
         if [ $? != 0 ] ; then
             echo "genhtml $OUT failed"
-            exit 1
+            if [ 0 == $KEEP_GOING ] ; then
+                exit 1
+            fi
         fi
         grep 'coverFn"' -A 1 $OUT/function/test.cpp.func.html > $OUT.txt
 
@@ -289,6 +314,6 @@ fi
 
 echo "Tests passed"
 
-if [ "x$COVER" != "x" ] ; then
+if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ] ; then
     cover
 fi

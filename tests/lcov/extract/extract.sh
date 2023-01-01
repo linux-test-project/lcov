@@ -6,6 +6,9 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+COVER_DB='cover_db'
+LOCAL_COVERAGE=1
+KEEP_GOING=0
 while [ $# -gt 0 ] ; do
 
     OPT=$1
@@ -20,12 +23,21 @@ while [ $# -gt 0 ] ; do
             set -x
             ;;
 
-        --coverage )
-            #COVER="perl -MDevel::Cover "
-            COVER="perl -MDevel::Cover=-db,cover_db,-coverage,statement,branch,condition,subroutine "
+        --keep-going )
+            KEEP_GOING=1
             ;;
 
-        --home | home )
+        --coverage )
+            #COVER="perl -MDevel::Cover "
+            if [[ "$1"x != 'x' &&  $1 != "-"* ]] ; then
+               COVER_DB=$1
+               LOCAL_COVERAGE=0
+               shift
+            fi
+            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            ;;
+
+        --home | -home )
             LCOV_HOME=$1
             shift
             if [ ! -f $LCOV_HOME/bin/lcov ] ; then
@@ -73,7 +85,7 @@ LCOV_OPTS="--rc lcov_branch_coverage=1 $PARALLEL $PROFILE"
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.*
 
-if [ "x$COVER" != 'x' ] ; then
+if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
 fi
 
@@ -110,7 +122,9 @@ $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines '\s+s
 
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --omit"
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
 fi
 
 BRACE_LINE="DA:26"
@@ -126,14 +140,18 @@ $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines 'xyz\
 
 if [ 0 == $? ] ; then
     echo "Error:  did not see expected error code from lcov --omit"
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
 fi
 
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines 'xyz\s+std::string str.+' --directory . -o omitWarn.info --ignore unused
 
 if [ 0 != $? ] ; then
     echo "Error:  unexpected expected error code from lcov --omit --ignore.."
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
 fi
 COUNT=`grep -v $BRACE_LINE omitWarn.info | grep -c ^DA:`
 if [ $COUNT != '12' ] ; then
@@ -149,7 +167,9 @@ $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --config-file test
 
 if [ 0 == $? ] ; then
     echo "Error:  did not see expected error code from lcov --config with bad omit"
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
 fi
 echo "ignore_errors = unused" >> testRC
 echo "ignore_errors = empty" >> testRC
@@ -158,7 +178,9 @@ $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --config-file test
 
 if [ 0 != $? ] ; then
     echo "Error:  saw unexpected error code from lcov --config with ignored bad omit"
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
 fi
 COUNT=`grep -v $BRACE_LINE  rc_omitWarn.info | grep -c ^DA:`
 if [ $COUNT != '11' ] ; then
@@ -170,33 +192,41 @@ fi
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o checksum.info --checksum
 if [ $? != 0 ] ; then
     echo "capture with checksum failed"
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
 fi
 # read file with matching checksum...
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary checksum.info --checksum
 if [ $? != 0 ] ; then
     echo "summary with checksum failed"
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
 fi
 #munge the checksum in the outpt file
 perl -i -pe 's/DA:6,1.+/DA:6,1,abcde/g' < checksum.info > mismatch.info
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary mismatch.info --checksum
 if [ $? == 0 ] ; then
     echo "summary with mismatched checksum expected to fail"
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
 fi
 
 perl -i -pe 's/DA:6,1.+/DA:6,1/g' < checksum.info > missing.info
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary missing.info --checksum
 if [ $? == 0 ] ; then
     echo "summary with missing checksum expected to fail"
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
 fi
 
 
 
 echo "Tests passed"
 
-if [ "x$COVER" != "x" ] ; then
+if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ]; then
     cover
 fi

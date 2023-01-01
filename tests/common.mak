@@ -39,13 +39,20 @@ ifneq ($(V),2)
 .SILENT:
 endif
 
+ifneq ($(COVER_DB),)
+OPTS += --coverage $(COVER_DB)
+endif
+ifneq ($(TESTCASE_ARGS),)
+OPTS += --script-args "$(TESTCASE_ARGS)"
+endif
+
 # Do not pass TESTS= specified on command line to subdirectories to allow
 #   make TESTS=subdir
 MAKEOVERRIDES := $(filter-out TESTS=%,$(MAKEOVERRIDES))
 
 # Default target
 check:
-	runtests "$(MAKE)" $(TESTS)
+	runtests "$(MAKE)" $(TESTS) $(OPTS)
 
 ifeq ($(_ONCE),)
 
