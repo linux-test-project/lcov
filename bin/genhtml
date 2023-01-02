@@ -240,7 +240,6 @@ sub shorten_prefix($);
 sub get_relative_base_path($);
 sub read_testfile($);
 sub get_date_string($);
-sub create_sub_dir($);
 sub remove_unused_descriptions();
 sub get_affecting_tests($$$);
 sub apply_prefix($@);
@@ -1059,7 +1058,7 @@ sub checkCoverageCriteria
            $self->type(), "'" . $json . "'");
     # command:  script name (top|dir|file) jsonString args..
     my $cmd = join(' ', @cmd);
-    lcovutil::info(1, "criteria: '$cmd'");
+    lcovutil::info(1, "criteria: '$cmd'\n");
     if (open(HANDLE, "-|", $cmd)) {
         my @msg;
         while (my $line = <HANDLE>) {
@@ -4137,7 +4136,7 @@ sub new
     ];
     bless $self, $class;
 
-    lcovutil::info(1, "Writing temporary data to " . $self->[4]);
+    lcovutil::info(1, "Writing temporary data to " . $self->[4] . "\n");
     my $pending           = $self->[$PENDING_IDX];
     my $worklist          = $self->[$WORKLIST_IDX];
     my $top_level_summary = $self->[0];
@@ -5006,7 +5005,7 @@ if ($base_filename) {
         if ($@) {
             #did not parse
             info(
-                "failed to parse date '$baseline_date' - falling back to file creation time"
+                "failed to parse date '$baseline_date' - falling back to file creation time\n"
             );
         }
     }
@@ -5075,12 +5074,10 @@ lcovutil::do_mangle_check();
 check_precision();
 
 # Make sure output_directory exists, create it if necessary
-if ($output_directory) {
-    stat($output_directory);
-
-    if (!-e _) {
-        create_sub_dir($output_directory);
-    }
+if ($output_directory &&
+    !-d $output_directory) {
+    info(1, "make_path $output_directory\n");
+    File::Path::make_path($output_directory);
 }
 
 # Do something
@@ -5421,8 +5418,9 @@ sub gen_html()
                 }
             }
         }
+        info(1, "chdir $output_directory\n");
         chdir($output_directory) or
-            die("ERROR: cannot change to directory " . "$output_directory!\n");
+            die("ERROR: cannot change directory to $output_directory: $!\n");
     }
 
     info("Writing .css and .png files.\n");
@@ -5446,7 +5444,10 @@ sub gen_html()
 
     print_overall_rate(1, $func_coverage, $br_coverage, $genhtml->top());
 
-    chdir($cwd);
+    info(1, "chdir $cwd (from " . Cwd::cwd() . ") \n");
+    chdir($cwd) or
+        die("ERROR: cannot change directory to $cwd: $!\n");
+
 }
 
 #
@@ -5460,10 +5461,10 @@ sub html_create($$)
 
     if ($html_gzip) {
         open($handle, "|-", "gzip -c >'$filename'") or
-            die("ERROR: cannot open $filename for writing (gzip)!\n");
+            die("ERROR: cannot open $filename for writing (gzip): $!\n");
     } else {
         open($handle, ">", $filename) or
-            die("ERROR: cannot open $filename for writing!\n");
+            die("ERROR: cannot open $filename for writing: $!\n");
     }
 }
 
@@ -5860,7 +5861,7 @@ sub read_testfile($)
     local *TEST_HANDLE;
 
     open(TEST_HANDLE, "<", $_[0]) or
-        die("ERROR: cannot open $_[0]!\n");
+        die("ERROR: cannot open $_[0]: $!\n");
 
     while (<TEST_HANDLE>) {
         chomp($_);
@@ -5955,23 +5956,6 @@ sub get_date_string($)
         sprintf("%d-%02d-%02d %02d:%02d:%02d",
                 $year + 1900,
                 $month + 1, $day, $hour, $min, $sec);
-}
-
-#
-# create_sub_dir(dir_name)
-#
-# Create subdirectory DIR_NAME if it does not already exist, including all its
-# parent directories.
-#
-# Die on error.
-#
-
-sub create_sub_dir($)
-{
-    my ($dir) = @_;
-
-    system("mkdir", "-p", $dir) and
-        die("ERROR: cannot create directory $dir!\n");
 }
 
 #
@@ -6199,7 +6183,7 @@ sub write_png_files()
 
     foreach (keys(%data)) {
         open(PNG_HANDLE, ">", $_) or
-            die("ERROR: cannot create $_!\n");
+            die("ERROR: cannot create $_!: $!\n");
         binmode(PNG_HANDLE);
         print(PNG_HANDLE map(chr, @{$data{$_}}));
         close(PNG_HANDLE);
@@ -6216,7 +6200,7 @@ sub write_htaccess_file()
     my $htaccess_data;
 
     open(*HTACCESS_HANDLE, ">", ".htaccess") or
-        die("ERROR: cannot open .htaccess for writing!\n");
+        die("ERROR: cannot open .htaccess for writing: $!\n");
 
     $htaccess_data = (<<"END_OF_HTACCESS")
 AddEncoding x-gzip .html
@@ -6242,12 +6226,12 @@ sub write_css_file()
     if ($css_filename) {
         # Simply copy that file
         system("cp", $css_filename, "gcov.css") and
-            die("ERROR: cannot copy file $css_filename!\n");
+            die("ERROR: cannot copy file $css_filename: $!\n");
         return;
     }
 
     open(CSS_HANDLE, ">", "gcov.css") or
-        die("ERROR: cannot open gcov.css for writing!\n");
+        die("ERROR: cannot open gcov.css for writing: $!\n");
 
     # *************************************************************
 
@@ -10189,7 +10173,7 @@ sub get_html_prolog($)
         local *HANDLE;
 
         open(HANDLE, "<", $filename) or
-            die("ERROR: cannot open html prolog $filename!\n");
+            die("ERROR: cannot open html prolog $filename: $!\n");
         while (<HANDLE>) {
             $result .= $_;
         }
@@ -10228,7 +10212,7 @@ sub get_html_epilog($)
         local *HANDLE;
 
         open(HANDLE, "<", $filename) or
-            die("ERROR: cannot open html epilog $filename!\n");
+            die("ERROR: cannot open html epilog $filename: $!\n");
         while (<HANDLE>) {
             $result .= $_;
         }

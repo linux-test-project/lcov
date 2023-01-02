@@ -405,7 +405,7 @@ if (!GetOptions("test-name|t=s"       => \$test_name,
 }
 if (defined($tempdirname)) {
     $lcovutil::tmp_dir = $tempdirname;
-    system("mkdir -p $tempdirname") and die("unable to mkdir $tempdirname: $!")
+    File::Path::make_path($tempdirname)
         unless (-d $tempdirname);
 }
 init_verbose_flag($quiet);
@@ -1694,7 +1694,7 @@ sub solve_ambiguous_match($$$)
 
         # Compare file contents
         open(SOURCE, "<", $filename) or
-            die("ERROR: cannot read $filename!\n");
+            die("ERROR: cannot read $filename: $!\n");
 
         $no_match = 0;
         for ($index = 2; <SOURCE>; $index += 3) {
@@ -2342,7 +2342,7 @@ sub get_gcov_tool_path
 {
     if (!defined($gcov_tool_path)) {
         open(GCOV_PIPE, "-|", "which \"$gcov_tool\"") or
-            die("ERROR: cannot execute 'which \"$gcov_tool\"\n");
+            die("ERROR: cannot execute 'which \"$gcov_tool\": $!\n");
         local $/;
         my $which = <GCOV_PIPE>;
         $which =~ /^\s*(\S+)\s*$/;
@@ -2608,7 +2608,7 @@ sub get_gcov_version()
     }
 
     open(GCOV_PIPE, "-|", "\"$gcov_tool\" --version") or
-        die("ERROR: cannot retrieve gcov version!\n");
+        die("ERROR: cannot retrieve gcov version: $!\n");
     local $/;
     $version_string = <GCOV_PIPE>;
     close(GCOV_PIPE);
@@ -3373,7 +3373,7 @@ sub read_bb($)
     return ($instr, $graph);
 
     open_error:
-    graph_error($bb_filename, "could not open file");
+    graph_error($bb_filename, "could not open file: $!");
     return undef;
     incomplete:
     graph_error($bb_filename, "reached unexpected end of file");
@@ -3561,7 +3561,7 @@ sub read_bbg($)
     return ($instr, $graph);
 
     open_error:
-    graph_error($bbg_filename, "could not open file");
+    graph_error($bbg_filename, "could not open file: $!");
     return undef;
     incomplete:
     graph_error($bbg_filename, "reached unexpected end of file");
@@ -3942,7 +3942,7 @@ sub read_gcno($)
     return ($instr, $graph);
 
     open_error:
-    graph_error($gcno_filename, "could not open file");
+    graph_error($gcno_filename, "could not open file: $!");
     return undef;
     incomplete:
     graph_error($gcno_filename, "reached unexpected end of file");

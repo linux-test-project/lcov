@@ -780,7 +780,7 @@ sub kernel_reset()
         die("ERROR: no reset control found in $gcov_dir\n");
     }
     open(HANDLE, ">", $reset_file) or
-        die("ERROR: cannot write to $reset_file!\n");
+        die("ERROR: cannot write to $reset_file: $!\n");
     print(HANDLE "0");
     close(HANDLE);
 }
@@ -1077,7 +1077,7 @@ sub get_package($)
     $file = abs_path($file);
     chdir($dir);
     open(HANDLE, "-|", "tar xvfz '$file' 2>/dev/null") or
-        die("ERROR: could not process package $file\n");
+        die("ERROR: could not process package $file: $!\n");
     $count = 0;
     while (<HANDLE>) {
         if (/\.da$/ || /\.gcda$/) {
