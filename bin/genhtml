@@ -104,7 +104,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED $ERROR_PACKAGE
                  $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_UNSUPPORTED
                  $ERROR_PARALLEL report_parallel_error
-                 info $verbose init_verbose_flag
+                 info $verbose init_verbose_flag debug $debug
                  do_mangle_check
                  apply_rc_params
                  strip_directories
@@ -1930,14 +1930,35 @@ sub _mergeBranchData
 
         my $current = $branch->[$loc];
         foreach my $branchId ($current->blocks()) {
-            $branchData->hasBlock($branchId) or
-                die("missing branch ID $branchId for line " . $self->lineNo());
+            if (!$branchData->hasBlock($branchId)) {
+                # don't know how to get here...but someone on the internet
+                # managed to do it - so we need to handle the error
+                my $which = $loc == 0 ? 'baseline' : 'current';
+                lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                        "'$which' line " . $current->line() .
+                                            " (" . $self->lineNo($which) .
+                                            ") merge block (line " .
+                                            $branchData->line() .
+                                            ") does not contain branch $branchId."
+                );
+                next;
+            }
+
             my $c = $current->getBlock($branchId);
             my $d = $branchData->getBlock($branchId);
-            scalar(@$c) == scalar(@$d) or
-                die("inconsistent data for branch ID $branchId for line " .
-                    $self->lineNo());
-            for (my $i = scalar(@$c) - 1; $i >= 0; --$i) {
+            # handle case of inconsisent branch data
+            my $nc = scalar(@$c);
+            my $nd = scalar(@$d);
+            if ($nc != $nd) {
+                #  similarly: this should not happen - but it might
+                my $which = $loc == 0 ? 'baseline' : 'current';
+                lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                    "'$which' line " .
+                        $current->line() . " (" . $self->lineNo($which) .
+                        ") branch $branchId contains $nc elements but merge data contains $nd."
+                );
+            }
+            for (my $i = ($nc > $nd ? $nd : $nc) - 1; $i >= 0; --$i) {
                 my $br = $d->[$i];
                 $c->[$i]->merge($br);
             }
@@ -4791,6 +4812,7 @@ if (!GetOptions("output-directory|o=s" => \$output_directory,
                 "legend"               => \$legend,
                 "quiet|q+"             => \$quiet,
                 "verbose|v+"           => \$lcovutil::verbose,
+                "debug+"               => \$lcovutil::debug,
                 "help|h|?"             => \$help,
                 "version"              => \$version,
                 "html-prolog=s"        => \$html_prolog_file,
@@ -5162,6 +5184,7 @@ Misc:
   -v, --verbose                     Increment verbosity (for debugging)
   -q, --quiet                       Decrement verbosity (e.g. to not print
                                     progress messages)
+      --debug                       Increment debug flag (for debugging)
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
       --ignore-errors ERRORS        Continue after ERRORS (source,unmapped,

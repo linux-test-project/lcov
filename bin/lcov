@@ -719,7 +719,7 @@ sub userspace_reset()
                 if ($?);
             chomp(@file_list);
             foreach (@file_list) {
-                unlink($_) or die("ERROR: cannot remove file $_!\n");
+                unlink($_) or die("ERROR: cannot remove file $_: $!\n");
             }
         }
         ignorable_error($ERROR_EMPTY,

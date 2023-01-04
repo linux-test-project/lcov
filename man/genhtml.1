@@ -9,6 +9,7 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .br
 .RB [ \-q | \-\-quiet ]
 .RB [ \-v | \-\-verbose ]
+.RB [ \-\-debug ]
 .br
 .RB [ \-s | \-\-show\-details ]
 .br
@@ -322,6 +323,11 @@ Also see the \-\-quiet flag.
 Decrement informational message verbosity.
 
 Decreased verbosity will suppress 'progress' messages for example - while error and warning messages will continue to be printed.
+
+.RE
+.B \-\-debug
+.RS
+Increment 'debug messages' verbosity.  This is useful primarily to developers who want to enhance the lcov tool suite.
 
 .RE
 .B \-\-hierarchical
