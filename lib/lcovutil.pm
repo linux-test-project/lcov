@@ -292,7 +292,7 @@ sub system_no_output($@)
 sub is_folder_empty
 {
     my $dirname = shift;
-    opendir(my $dh, $dirname) or die "Not a directory";
+    opendir(my $dh, $dirname) or die "Not a directory: $!";
     return scalar(grep { $_ ne "." && $_ ne ".." } readdir($dh)) == 0;
 }
 #
@@ -576,8 +576,9 @@ sub read_config($)
     my $value;
     local *HANDLE;
 
+    info(1, "read_config: $filename\n");
     if (!open(HANDLE, "<", $filename)) {
-        warn("WARNING: cannot read configuration file $filename\n");
+        warn("WARNING: cannot read configuration file $filename: $!\n");
         return undef;
     }
     VAR: while (<HANDLE>) {
@@ -602,6 +603,7 @@ sub read_config($)
             $value =~ s/^\$ENV{$varname}/$ENV{$varname}/g;
         }
         if (defined($key) && defined($value)) {
+            info(2, "  set: $key = $value\n");
             if (exists($result{$key})) {
                 if ('ARRAY' eq ref($result{$key})) {
                     push(@{$result{$key}}, $value);
@@ -1289,7 +1291,7 @@ sub extractFileVersion
         0 == $status or
             die("version-script '$cmd' returned non-zero exit code: '$!'");
     } else {
-        die("unable to call open(| $cmd)");
+        die("unable to call open(| $cmd): $!");
     }
     return $version;
 }
@@ -2835,7 +2837,7 @@ sub open
         $self->parseLines($filename, \@sourceLines);
     } else {
         lcovutil::info(
-                     "unable to open $filename (for bogus branch filtering)\n");
+                 "unable to open $filename (for bogus branch filtering): $!\n");
         $self->close();
     }
 }
@@ -3425,12 +3427,12 @@ sub applyFilters
         next unless is_c_file($source_file);
         $srcReader->close();
 
-        lcovutil::debug("reading $source_file for lcov filterig\n");
+        lcovutil::info(1, "reading $source_file for lcov filtering\n");
         if (-e $source_file) {
             $srcReader->open($source_file);
         } else {
             lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                     "'$source_file' not found (for filtering)")
+                                 "'$source_file' not found (for filtering): $!")
                 if (lcovutil::warn_once($source_file));
             next;
         }
@@ -4132,7 +4134,8 @@ sub write_info($$$)
             if (defined($srcReader)) {
                 $srcReader->close();
                 if (is_c_file($source_file)) {
-                    lcovutil::debug("reading $source_file for lcov checksum\n");
+                    lcovutil::info(1,
+                                   "reading $source_file for lcov checksum\n");
                     if (-e $source_file) {
                         $srcReader->open($source_file);
                     } else {

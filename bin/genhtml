@@ -4366,8 +4366,8 @@ sub top()
 sub add_dependency
 {
     my ($parent, $name) = @_;
-    lcovutil::info(2,
-                   "add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n")
+    lcovutil::debug(1,
+                    "add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n")
         unless exists($parent->[1]->{$name});
     $parent->[1]->{$name} = 1;
 }
@@ -5136,7 +5136,7 @@ if ($base_filename) {
         };
         if ($@) {
             #did not parse
-            info(
+            lcovutil::info(
                 "failed to parse date '$baseline_date' - falling back to file creation time\n"
             );
         }
@@ -5562,12 +5562,12 @@ sub gen_html()
             die("ERROR: cannot change directory to $output_directory: $!\n");
     }
 
-    info("Writing .css and .png files.\n");
+    info(1, "Writing .css and .png files.\n");
     write_css_file();
     write_png_files();
 
     if ($html_gzip) {
-        info("Writing .htaccess file.\n");
+        info(1, "Writing .htaccess file.\n");
         write_htaccess_file();
     }
 
@@ -5774,7 +5774,12 @@ sub process_file($$$$$)
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{categorize}{$filename} = $then - $now;
 
-    info("  lines=" . $lines_found . " hit=" . $lines_hit . "\n");
+    my $r = "  lines=$lines_found hit=$lines_hit";
+    $r .= " functions=$fn_found hit=$fn_hit"
+        if $main::func_coverage && $fn_found != 0;
+    $r .= " branches=$br_found hit=$br_hit"
+        if $main::br_coverage && $br_found != 0;
+    info($r . "\n");
 
     my $fileHasNoBaselineInfo =
         ($fileBase->is_empty() &&
