@@ -179,7 +179,7 @@ else
 	@echo "Checking changes in source files for coding style issues (MODE=diff):"
 endif
 	@RC=0 ;                                                  \
-	CHECKFILES=`find . \( \( -type f -exec grep -q '^\#!.*perl' {} \; \) -o -name '*.pm' \) -not \( -name '*.tdy' -o -name '*.orig' \) -print `; \
+	CHECKFILES=`find . -path ./.git -prune -o \( \( -type f -exec grep -q '^\#!.*perl' {} \; \) -o -name '*.pm' \) -not \( -name '*.tdy' -o -name '*.orig' -o -name '*~' \) -print `; \
 	for FILE in $$CHECKFILES ; do                            \
 	  $(CHECKSTYLE) "$$FILE";                                \
 	  if [ 0 != $$? ] ; then                                 \
