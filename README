@@ -120,6 +120,10 @@ in Python - and may require additional Python packages.
 In particular, 'xlsxwriter' is required in order to generate any
 of the spreadsheet reports.
 
+To measure Python code coverage, users will need Python packages:
+
+  - Coverage.py
+
 In addition, contributors will need:
 
   - perltidy
@@ -193,7 +197,7 @@ consult the gcov man page.
 6. New features (compared to lcov 1.16):
 ----------------------------------------
 
-New features and capabilities fall into 6 major categories:
+New features and capabilities fall into 7 major categories:
 
   a) Categorization
 
@@ -306,6 +310,14 @@ New features and capabilities fall into 6 major categories:
      See the genhtml/lcov/geninfo man pages for details
 
      Related options: --parallel, --memory, --profile
+
+  g) Language support
+
+     Added 'py2lcov' script, which translates python Coverage.py XML data
+     to lcov format.
+
+     See the Coverage.py documentation at https://coveerage.readthedocs.io,
+     as well as ".../py2lcov --help"
 
 In general, the new features and options are implemented uniformly in lcov,
 genhtml, and geninfo.  Most of the features can be enabled/disabled
