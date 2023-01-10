@@ -343,6 +343,9 @@ genhtml_desc_html=0
 #geninfo_adjust_testname = 0
 .br
 
+# Ignore testcase names in .info file
+forget_testcase_names = 0
+
 # Calculate a checksum for each line if non\-zero (this option is deprecated)
 .br
 #geninfo_checksum = 0
@@ -1062,6 +1065,19 @@ Default is 'gcov'.
 .IP
 If non\-zero,  adjust test names to include operating system information
 when capturing coverage data.
+.br
+
+Default is 0.
+.PP
+
+.BR forget_testcase_names " ="
+.IR 0 | 1
+.IP
+If non\-zero, ignore testcase names in .info file.
+This may improve performance and reduce memory consumption if user does
+not need per-testcase coverage summary in coverage reports.
+
+This is equivalent to the "\-\-forget\-test\-names" lcov/genhtml option.
 .br
 
 Default is 0.

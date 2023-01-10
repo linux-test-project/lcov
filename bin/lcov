@@ -264,8 +264,9 @@ lcovutil::apply_rc_params(
                'substitute'                  => \@rc_subst_patterns,
                'omit_lines'                  => \@rc_omit_patterns,
                'erase_functions'             => \@rc_erase_patterns,
-               "version_script" => \$lcovutil::extractVersionScript,
-               "checksum"       => \$lcovutil::verify_checksum,
+               "version_script"        => \$lcovutil::extractVersionScript,
+               "checksum"              => \$lcovutil::verify_checksum,
+               "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
               });
 
 set_rtl_extensions($rtlExtensions)
@@ -319,6 +320,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
                 "substitute=s"         => \@lcovutil::file_subst_patterns,
                 "omit-lines=s"         => \@lcovutil::omit_line_patterns,
                 "erase-functions=s"    => \@lcovutil::exclude_function_patterns,
+                "forget-test-names"    => \$TraceFile::ignore_testcase_name,
                 "no-recursion"         => \$no_recursion,
                 "to-package=s"         => \$to_package,
                 "from-package=s"       => \$from_package,

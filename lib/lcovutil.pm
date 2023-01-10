@@ -3153,6 +3153,7 @@ package TraceFile;
 
 # Block value used for unnamed blocks
 our $UNNAMED_BLOCK = vec(pack('b*', 1 x 32), 0, 32);
+our $ignore_testcase_name;    # use default name, if set
 
 sub load
 {
@@ -3767,6 +3768,14 @@ sub _read_info
                     $changed_testname = $orig;
                 }
                 $testname .= $2 if (defined($2));
+                if (defined($ignore_testcase_name) &&
+                    $ignore_testcase_name) {
+                    lcovutil::debug(1,
+                        "using default  testcase rather than $testname at $tracefile:$.\n"
+                    );
+
+                    $testname = '';
+                }
                 last;
             };
 

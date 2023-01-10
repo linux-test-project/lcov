@@ -171,6 +171,9 @@ genhtml_desc_html=0
 # Adjust test names to include operating system information if non-zero
 #geninfo_adjust_testname = 0
 
+# Ignore testcase names in .info file
+#forget_testcase_names = 0
+
 # Calculate checksum for each source code line if non-zero (same as --checksum
 # option of geninfo if non-zero, same as --no-checksum if zero)
 # (the geninfo_checksum option is deprecated in favor of 'checksum = ...')

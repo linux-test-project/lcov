@@ -4865,6 +4865,8 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "checksum"       => \$lcovutil::verify_checksum,
                            "suppress_function_aliases" =>
                                \$suppress_function_aliases,
+                           "forget_testcase_names" =>
+                               \$TraceFile::ignore_testcase_name,
                           });
 
 # Copy related values if not specified
@@ -4957,6 +4959,7 @@ if (!GetOptions("output-directory|o=s" => \$output_directory,
                 "show-proportion"      => \$show_functionProportions,
                 "preserve"             => \$lcovutil::preserve_intermediates,
                 "suppress-aliases"     => \$suppress_function_aliases,
+                "forget-test-names"    => \$TraceFile::ignore_testcase_name,
 )) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);

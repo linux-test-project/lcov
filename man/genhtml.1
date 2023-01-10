@@ -81,6 +81,8 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .br
 .RB [ \-\-suppress\-aliases ]
 .br
+.RB [ \-\-forget\-test\-names ]
+.br
 .RB [ \-\-dark\-mode ]
 .br
 .RB [ \-\-baseline\-file
@@ -1284,6 +1286,21 @@ is applied.
 This option can also be configured permanently using the configuration file
 option
 .IR suppress_function_aliases .
+.RE
+
+
+.B \-\-forget\-test\-names
+.br
+.RS
+If non\-zero, ignore testcase names in .info file -
+.I i.e.,
+treat all coverage data as if it came from the same testcase.
+This may improve performance and reduce memory consumption if user does
+not need per-testcase coverage summary in coverage reports.
+
+This option can also be configured permanently using the configuration file
+option
+.IR forget_testcase_names .
 .RE
 
 .B \-\-missed
