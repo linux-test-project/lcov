@@ -26,6 +26,7 @@
 
 use POSIX qw(strftime);
 use Getopt::Long;
+use Cwd qw(abs_path);
 
 sub usage
 {
@@ -40,12 +41,16 @@ if (!GetOptions("--compare" => \$compare) ||
     exit(1);
 }
 
-my $pathname = $ARGV[$compare ? 2 : 0];
+my $filename = $ARGV[$compare ? 2 : 0];
 
 if ($compare) {
     my ($old, $new) = @ARGV;
     exit($old ne $new);    # for the moment, just look for exact match
 }
+
+die("Error: $filename does not exist")
+    unless (-e $filename);
+$pathname = abs_path($filename);
 
 #my $sum = `sha512sum $pathname`;
 my $sum = `md5sum $pathname`;

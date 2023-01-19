@@ -28,6 +28,7 @@
 
 use POSIX qw(strftime);
 use Getopt::Long;
+use Cwd qw(abs_path);
 
 sub get_modify_time($)
 {
@@ -54,7 +55,7 @@ if (!GetOptions("--compare" => \$compare,
     exit(1);
 }
 
-my $pathname = $ARGV[$compare ? 2 : 0];
+my $filename = $ARGV[$compare ? 2 : 0];
 
 if ($compare) {
     my ($old, $new) = @ARGV;
@@ -64,6 +65,10 @@ if ($compare) {
 if ($use_md5) {
     $use_md5 = `md4sum $pathname`;
 }
+
+die("Error: $filename does not exist")
+    unless (-e $filename);
+$pathname = abs_path($filename);
 
 my $version;
 if (0 == system(

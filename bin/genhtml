@@ -3999,14 +3999,6 @@ sub _load
     my $lineno = 0;
     local *HANDLE;    # File handle for reading the diff file
 
-    # Check if file exists and is readable
-    if (!(-r $self->path())) {
-        $self->_synthesize($countdata);
-        my $end = Time::HiRes::gettimeofday();
-        $lcovutil::profileData{synth}{$self->path()} = $end - $start;
-        return $self;
-    }
-
     # check for version mismatch...
     if ($lcovutil::extractVersionScript) {
         my $version = lcovutil::extractFileVersion($self->path());
@@ -4018,6 +4010,13 @@ sub _load
 
     #stat($annotateScript);
     if (!defined($annotateScript)) {
+        # Check if file exists and is readable
+        if (!(-r $self->path())) {
+            $self->_synthesize($countdata);
+            my $end = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{synth}{$self->path()} = $end - $start;
+            return $self;
+        }
         my $begin = Time::HiRes::gettimeofday();
         $self->_bare_load();
         my $end = Time::HiRes::gettimeofday();
@@ -4086,12 +4085,14 @@ sub _synthesize
     my ($self, $countdata) = @_;
 
     # Synthesize source data from coverage trace to replace unreadable file
-    my $last_line = 0;
-
     lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-             "cannot read '" . $self->path() . "' - synthesizing fake content");
+              "cannot read '" . $self->path() . "' - synthesizing fake content")
+        unless $main::no_sourceview;
+
     return $self if (!defined($countdata));
-    my @lines = sort({ $a <=> $b } $countdata->keylist());
+
+    my $last_line = 0;
+    my @lines     = sort({ $a <=> $b } $countdata->keylist());
     if (@lines) {
         $last_line = $lines[scalar(@lines) - 1];
     }
