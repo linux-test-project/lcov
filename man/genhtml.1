@@ -121,6 +121,8 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .br
 .RB [ \-\-show\-noncode ]
 .br
+.RB [ \-\-show\-zero\-columns ]
+.br
 .RB [ \-\-show\-navigation ]
 .br
 .RB [ \-\-show\-proportions ]
@@ -615,6 +617,19 @@ By default, the source code detail view does not show owner or date annotations 
 option is used, then the source code view will show annotations for both code and non\-code lines.
 This argument has no effect if there is no
 .I source\-annotation\-script .
+
+.RE
+.BI "\-\-show\-zero\-columns "
+.RS
+By default, columns whose entries are all zero are removed (not shown) in the summary table at the top of each HTML page.
+If the
+.I \-\-show\-zero\-columns
+option is used, then those columns will be shown.
+
+When columns are retained, then all the tables have the same width/contain the same number of columns - which may be a benefit in some situations.
+
+When columns are removed, then the tables are more compact and easier to read.
+This is especially true in relatively mature development environments, when there are very few un-excercised coverpoints in the project.
 
 .RE
 .BI "\-\-show\-navigation "

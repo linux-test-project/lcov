@@ -154,7 +154,7 @@ genhtml_desc_html=0
 #genhtml_missed=1
 
 # If set, suppress list of aliases in function detail table
-#suppress_function_alizes = 1
+#suppress_function_aliases = 1
 
 # Demangle C++ symbols
 #genhtml_demangle_cpp=1

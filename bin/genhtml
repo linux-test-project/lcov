@@ -272,10 +272,10 @@ sub write_header_prolog(*$);
 sub write_header_line(*@);
 sub write_header_epilog(*$);
 
-sub write_file_table(*$$$$);
+sub write_file_table(*$$$$$);
 sub write_file_table_prolog(*$$$@);
 sub write_file_table_entry(*$$@);
-sub write_file_table_detail_entry(*$$$@);
+sub write_file_table_detail_entry(*$$$$@);
 sub write_file_table_epilog(*);
 
 sub write_test_table_prolog(*$);
@@ -4722,11 +4722,14 @@ our $show_hitTotalCol;    # include the 'hit' or 'missed' total count in tables
     #     (i.e., but not when there is no baseline data - so no
     #     categories apart from 'GNC' and 'UNC'
 our $use_legacyLabels;
-our $show_dateBins;         # show last modified and last author info
-our $show_ownerBins;        # show list of people who have edited code
-                            #   (in this file/this directory/etc)
-our $show_nonCodeOwners;    # show last modified and last author info for
-                            #  non-code lines (e.g., comments)
+our $show_dateBins;          # show last modified and last author info
+our $show_ownerBins;         # show list of people who have edited code
+                             #   (in this file/this directory/etc)
+our $show_nonCodeOwners;     # show last modified and last author info for
+                             #  non-code lines (e.g., comments)
+our $show_zeroTlaColumns;    # unless set, improve readability by removing
+                             #  summary table columns which contain
+                             #  only zero (blank) entries
 our $show_simplifiedColors;
 our $treatNewFileAsBaseline;
 our $elide_path_mismatch =
@@ -4906,6 +4909,7 @@ if (!GetOptions("output-directory|o=s" => \$output_directory,
                 #    regardless of whether thay have uncovered code or not
                 'show-owners:s'        => \$show_ownerBins,
                 'show-noncode'         => \$show_nonCodeOwners,
+                'show-zero-columns'    => \$show_zeroTlaColumns,
                 'simplified-colors'    => \$show_simplifiedColors,
                 "date-bins=s"          => \@datebins,
                 "prefix|p=s"           => \@opt_dir_prefix,
@@ -5337,6 +5341,9 @@ Operation:
                                     code or not.
       --show-noncode                Show author in summary table even if none
                                     of their lines are recognized as code.
+      --show-zero-columns           Keep summary columns whose entires are all
+                                    zero - default is to improve readability
+                                    by removing these columns.
       --date-bins day[,day,...]     'day' interpreted as integer number of
                                     days, used as upper bound of corresponding
                                     date bin
@@ -5424,12 +5431,12 @@ sub print_overall_rate($$$$)
         if ($main::show_tla) {
             for my $tla (@SummaryInfo::tlaPriorityOrder) {
                 my $v = $summary->get($tla, $type);
+                next if $v == 0;
                 my $label =
                     $main::use_legacyLabels ?
                     $SummaryInfo::tlaToLegacySrcLabel{$tla} :
                     $tla;
-                info(-1, "       $label...: $v\n")
-                    if $v != 0;
+                info(-1, "       $label...: $v\n");
             }
         }
     }
@@ -5628,9 +5635,11 @@ sub write_dir_page
     }
     $title .= " - " if ($trunc_dir ne "");
     write_html_prolog(*HTML_HANDLE, $base_dir, "LCOV - $title$trunc_dir");
-    write_header(*HTML_HANDLE, $ctrls, $trunc_dir, $rel_dir, $summary, undef);
+    my $activeTlaColsForType =
+        write_header(*HTML_HANDLE, $ctrls, $trunc_dir, $rel_dir, $summary,
+                     undef);
     write_file_table(*HTML_HANDLE, $base_dir, $perTestcaseResult,
-                     $summary, $ctrls);
+                     $summary, $ctrls, $activeTlaColsForType);
     write_html_epilog(*HTML_HANDLE, $base_dir);
     close(*HTML_HANDLE);
 }
@@ -7474,6 +7483,7 @@ END_OF_HTML
 
 # write_file_table_entry(handle, base_dir,
 #                        [ name, [filename, fileDetails, fileHref],
+#                          activeTlaCols,
 #                          rowspan, primary_key, is_secondary, fileview,
 #                          page_type, page_link, dirSummary, showDetailCol,
 #                          asterisk ],
@@ -7486,10 +7496,10 @@ END_OF_HTML
 sub write_file_table_entry(*$$@)
 {
     my ($handle, $base_dir, $data, @entries) = @_;
-    my ($name, $callbackData, $rowspan,
-        $primary_key, $is_secondary, $fileview,
-        $page_type, $page_link, $dirSummary,
-        $showBinDetailColumn, $asterisk) = @$data;
+    my ($name, $callbackData, $activeTlaCols,
+        $rowspan, $primary_key, $is_secondary,
+        $fileview, $page_type, $page_link,
+        $dirSummary, $showBinDetailColumn, $asterisk) = @$data;
     my $esc_name = escape_html($name);
     #$esc_name .= "<sup>" . escape_html($asterisk) . "</sup>"
     #  if defined($asterisk);
@@ -7648,7 +7658,7 @@ END_OF_HTML
                 push(@keys, $opt_missed ? "missed" : "hit");
             }
             if ($main::show_tla) {
-                push(@keys, @SummaryInfo::tlaPriorityOrder);
+                push(@keys, @{$activeTlaCols->{$covType}});
             }
             foreach my $key (@keys) {
                 my $count = $summary->get($key);
@@ -7732,14 +7742,15 @@ END_OF_HTML
 }
 
 #
-# write_file_table_detail_entry(filehandle, base_dir, test_name, bin_type, ([found, hit], ...))
+# write_file_table_detail_entry(filehandle, base_dir, test_name, bin_type, activeTlaCols, ([found, hit], ...))
 #
 # Write entry for detail section in file table.
 #
 
-sub write_file_table_detail_entry(*$$$@)
+sub write_file_table_detail_entry(*$$$$@)
 {
-    my ($handle, $base_dir, $test, $showBinDetail, @entries) = @_;
+    my ($handle, $base_dir, $test, $showBinDetail, $activeTlaCols, @entries) =
+        @_;
 
     if ($test eq "") {
         $test = "<span style=\"font-style:italic\">&lt;unnamed&gt;</span>";
@@ -7768,7 +7779,7 @@ END_OF_HTML
                            "              <td class='testNum'>$hit</td>\n");
             }
             if ($main::show_tla) {
-                foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
+                foreach my $tla (@{$activeTlaCols->{$covtype}}) {
                     my $count = $callback->count($tla);
                     $count = "" if 0 == $count;
                     write_html($handle,
@@ -8695,11 +8706,11 @@ sub max($$)
     return $b;
 }
 
-sub buildDateSummaryTable($$$$$$$$)
+sub buildDateSummaryTable($$$$$$$$$)
 {
-    my ($summary, $covType, $covCountCallback, $fileDetail,
-        $nextLocationCallback, $title, $detailLink, $numRows)
-        = @_;
+    my ($summary, $covType, $covCountCallback,
+        $fileDetail, $nextLocationCallback, $title,
+        $detailLink, $numRows, $activeTlaList) = @_;
 
     $title =
         "<a href=\"$detailLink\" title=\"Click to include date bin details in file table below\">$title</a>"
@@ -8743,7 +8754,7 @@ sub buildDateSummaryTable($$$$$$$$)
             push(@dataRow, [undef, "headerCovTableEntry", $hit]);
         }
         if ($main::show_tla) {
-            for my $tla (@SummaryInfo::tlaPriorityOrder) {
+            for my $tla (@$activeTlaList) {
                 my $value = &$covCountCallback($summary, $tla, "age", $ageval);
                 my $class =
                     !$main::use_legacyLabels &&
@@ -8793,11 +8804,11 @@ sub buildDateSummaryTable($$$$$$$$)
     return \@table;
 }
 
-sub buildOwnerSummaryTable($$$$$$$$)
+sub buildOwnerSummaryTable($$$$$$$$$)
 {
-    my ($ownerList, $summary, $covType, $fileDetail, $nextLocationCallback,
-        $title, $detailLink, $numRows)
-        = @_;
+    my ($ownerList, $summary, $covType,
+        $fileDetail, $nextLocationCallback, $title,
+        $detailLink, $numRows, $activeTlaList) = @_;
 
     $title .= " (containing " .
         ($main::show_ownerBins ? "" : "un-exercised ") . "code)";
@@ -8853,7 +8864,7 @@ sub buildOwnerSummaryTable($$$$$$$$)
             push(@dataRow, [undef, "ownerTla", $hit]);
         }
         if ($main::show_tla) {
-            for my $tla (@SummaryInfo::tlaPriorityOrder) {
+            for my $tla (@$activeTlaList) {
                 my $value = $summary->owner_tlaCount($name, $tla, $covType);
                 # suppress zeros - make table less busy/easier to read
                 my $class =
@@ -8897,13 +8908,14 @@ sub buildOwnerSummaryTable($$$$$$$$)
 
 sub buildHeaderSummaryTableRow
 {
-    my ($summary, $covType, $fileDetail, $nextLocationCallback) = @_;
+    my ($summary, $covType, $fileDetail, $nextLocationCallback, $activeTlaList)
+        = @_;
 
     $fileDetail = undef
         if (!$main::show_tla &&
             (defined($fileDetail) && !$fileDetail->isProjectFile()));
     my @row;
-    for my $tla (@SummaryInfo::tlaPriorityOrder) {
+    for my $tla (@$activeTlaList) {
         my $value = $summary->get($tla, $covType);
         # suppress zeros - make table less busy/easier to read
         if ("0" eq $value) {
@@ -8977,6 +8989,9 @@ sub build_html_path($$$$$)
 #    to corresponding view of parent
 #      - i.e., from 'owner detail' directory page to "owner detail"
 #        toplevel, and to my correspondign vanilla directory page.
+# return hash of coverType -> list of non-zero TLAs for that type (or to
+#        list of all TLA types if user has asked not to suppress all-zero
+#        columns)
 
 sub write_header(*$$$$$)
 {
@@ -9201,6 +9216,41 @@ END_OF_HTML
               [undef, "headerValueLeg", $text]
              ]);
     }
+    my %activeTlaColsForType;
+    my @nonZeroTlas;
+    if ($type != $HDR_TESTDESC && $main::show_tla) {
+        # compute which TLAs have non-zero entries for line/branch/function
+        my @visit = ('line');
+        push(@visit, 'branch')
+            if $main::br_coverage;
+        push(@visit, 'function')
+            if $main::func_coverage;
+
+        foreach my $covtype (@visit) {
+            if ($main::show_zeroTlaColumns) {
+                $activeTlaColsForType{$covtype} =
+                    \@SummaryInfo::tlaPriorityOrder;
+            } else {
+                my @found;
+                for my $tla (@SummaryInfo::tlaPriorityOrder) {
+                    push(@found, $tla)
+                        if (0 != $summary->get($tla, $covtype));
+                }
+                $activeTlaColsForType{$covtype} = \@found;
+            }
+        }
+        foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
+            # check to see that there are non-zero entries
+            my $skipTla = 1;
+            while (my ($covtype, $list) = each(%activeTlaColsForType)) {
+                if (grep(/^$tla$/, @$list)) {
+                    $skipTla = 0;
+                    last;
+                }
+            }
+            push(@nonZeroTlas, $tla) unless $skipTla;
+        }
+    }
     if ($type == $HDR_TESTDESC) {
         push(@row_right, [["80%"]]);
     } else {
@@ -9228,7 +9278,11 @@ END_OF_HTML
                  ]);
         }
         if ($main::show_tla) {
+            # compute which TLAs have non-zero entries
             for my $tla (@SummaryInfo::tlaPriorityOrder) {
+                # check to see that there are non-zero entries
+                next unless grep(/^$tla$/, @nonZeroTlas);
+
                 my ($title, $label);
                 if ($main::use_legacyLabels) {
                     $label = $SummaryInfo::tlaToLegacy{$tla};
@@ -9258,7 +9312,7 @@ END_OF_HTML
     if ($main::show_tla) {
         my @tlaRow =
             buildHeaderSummaryTableRow($summary, 'line', $fileDetail,
-                                       \&SourceFile::nextTlaGroup);
+                                     \&SourceFile::nextTlaGroup, \@nonZeroTlas);
         push(@dataRow, @tlaRow);
     }
     push(@row_right, \@dataRow)
@@ -9281,7 +9335,8 @@ END_OF_HTML
         if ($main::show_tla) {
             # no file position for function (yet)
             my @tlaRow =
-                buildHeaderSummaryTableRow($summary, 'function', undef, undef);
+                buildHeaderSummaryTableRow($summary, 'function', undef, undef,
+                                           \@nonZeroTlas);
             push(@dataRow, @tlaRow);
         }
         push(@row_right, \@dataRow)
@@ -9305,7 +9360,8 @@ END_OF_HTML
         if ($main::show_tla) {
             my @tlaRow =
                 buildHeaderSummaryTableRow($summary, 'branch', $fileDetail,
-                                           \&SourceFile::nextBranchTlaGroup);
+                                           \&SourceFile::nextBranchTlaGroup,
+                                           \@nonZeroTlas);
             push(@dataRow, @tlaRow);
         }
         push(@row_right, \@dataRow)
@@ -9323,7 +9379,8 @@ END_OF_HTML
                         $summary, "line",
                         \&SummaryInfo::lineCovCount, $fileDetail,
                         \&SourceFile::nextInDateBin, "Line coverage date bins:",
-                        $dateBinDetailPage, scalar(@dataRow));
+                        $dateBinDetailPage, scalar(@dataRow),
+                        \@nonZeroTlas);
         push(@row_right, @$table);
 
         if ($func_coverage) {
@@ -9335,7 +9392,8 @@ END_OF_HTML
                                       undef,
                                       "Function coverage date bins:",
                                       $dateBinDetailPage,
-                                      scalar(@dataRow));
+                                      scalar(@dataRow),
+                                      \@nonZeroTlas);
             push(@row_right, @$fn_table);
         }
 
@@ -9348,7 +9406,8 @@ END_OF_HTML
                                       \&SourceFile::nextBranchInDateBin,
                                       "Branch coverage date bins:",
                                       $dateBinDetailPage,
-                                      scalar(@dataRow));
+                                      scalar(@dataRow),
+                                      \@nonZeroTlas);
             push(@row_right, @$br_table);
         }
     }
@@ -9371,7 +9430,8 @@ END_OF_HTML
                                        \&SourceFile::nextInOwnerBin,
                                        "Line coverage ownership bins",
                                        $ownerBinDetailPage,
-                                       scalar(@dataRow));
+                                       scalar(@dataRow),
+                                       \@nonZeroTlas);
             push(@row_right, @$table);
 
             if ($br_coverage) {
@@ -9383,7 +9443,8 @@ END_OF_HTML
                                            \&SourceFile::nextBranchInOwnerBin,
                                            "Branch coverage ownership bins",
                                            $ownerBinDetailPage,
-                                           scalar(@dataRow));
+                                           scalar(@dataRow),
+                                           \@nonZeroTlas);
                 push(@row_right, @$br_table);
             }
         }
@@ -9408,6 +9469,7 @@ END_OF_HTML
 
     # Fourth line
     write_header_epilog(*HTML_HANDLE, $base_dir);
+    return \%activeTlaColsForType;
 }
 
 sub get_sort_code($$$)
@@ -9527,9 +9589,10 @@ sub get_br_code($$$$$$)
 
 #
 # write_file_table(filehandle, base_dir, perTestcaseData,
-#                  parentSummary, ctrlSettings)
+#                  parentSummary, ctrlSettings, activeTlaCols)
 #   ctrlSettings = [fileview, sort_type, details_type, sort_name]
 #   perTestcaseData = [testhash, testfnchash, testbrhash]
+#   activeTlaCols = {coverage_type, [tlas with nonzero count]}
 #
 # Write a complete file table. OVERVIEW is a reference to a hash containing
 # the following mapping:
@@ -9547,13 +9610,14 @@ sub get_br_code($$$$$$)
 # otherwise.
 #
 
-sub write_file_table(*$$$$)
+sub write_file_table(*$$$$$)
 {
     local *HTML_HANDLE = $_[0];
     my $base_dir        = $_[1];
     my $perTestcaseData = $_[2];    # undef or [lineCov, funcCov, branchCov]
     my $dirSummary      = $_[3];    # SummaryInfo object
     my ($fileview, $primary_key, $sort_type, $bin_type) = @{$_[4]};
+    my $activeTlaCols = $_[5];
     # $fileview == 0 if listing directories, 1 if listing files
     # $primary_key in ("name", "owner", "date"). If $primary_key is:
     #   - 'name': leftmost column is file/directory name -
@@ -9616,22 +9680,26 @@ sub write_file_table(*$$$$)
         push(@functionCovCols, $t);
     }
     if ($main::show_tla) {
-        my @col_details;
-        foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
-            my $label =
-                $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} :
-                $tla;
-            push(@col_details,
-                 [$label,
-                  1,
-                  $main::use_legacyLabels ?
-                      undef :
-                      $SummaryInfo::tlaToTitle{$tla}
-                 ]);
+        my @visit = (['line', \@lineCovCols]);
+        push(@visit, ['branch', \@branchCovCols])
+            if $main::br_coverage;
+        push(@visit, ['function', \@functionCovCols])
+            if $main::func_coverage;
+        foreach my $d (@visit) {
+            my ($covtype, $cols) = @$d;
+            foreach my $tla (@{$activeTlaCols->{$covtype}}) {
+                my $label =
+                    $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} :
+                    $tla;
+                push(@$cols,
+                     [$label,
+                      1,
+                      $main::use_legacyLabels ?
+                          undef :
+                          $SummaryInfo::tlaToTitle{$tla}
+                     ]);
+            }
         }
-        push(@lineCovCols, @col_details);
-        push(@branchCovCols, @col_details);
-        push(@functionCovCols, @col_details);
     }
     push(@head_columns, [$line_code, $#lineCovCols + 2, \@lineCovCols]);
     push(@head_columns, [$br_code, $#branchCovCols + 1, \@branchCovCols])
@@ -9883,11 +9951,11 @@ sub write_file_table(*$$$$)
         write_file_table_entry(*HTML_HANDLE,
                                $base_dir,
                                [$primaryCb->name(), \@tableCallbackData,
-                                $numRows, $primary_key,
-                                0, $fileview,
-                                "fileOrDir", $page_link,
-                                $dirSummary, $showBinDetail,
-                                $asterisk
+                                $activeTlaCols, $numRows,
+                                $primary_key, 0,
+                                $fileview, "fileOrDir",
+                                $page_link, $dirSummary,
+                                $showBinDetail, $asterisk
                                ],
                                @columns);
 
@@ -9956,9 +10024,9 @@ sub write_file_table(*$$$$)
             write_file_table_entry(*HTML_HANDLE, $base_dir,
                                    # 'owner' page type - no span, no page link
                                    [$name, $fileInfo,
-                                    1, $primary_key,
-                                    1, $fileview,
-                                    $entry_type
+                                    $activeTlaCols, 1,
+                                    $primary_key, 1,
+                                    $fileview, $entry_type,
                                    ],
                                    @ownerColData);
         }
@@ -10024,7 +10092,7 @@ sub write_file_table(*$$$$)
                     "descriptions.$html_ext#$testname\">" . "$testname</a>";
             }
             write_file_table_detail_entry(*HTML_HANDLE, $base_dir,
-                                          $href, $showBinDetail, @results);
+                               $href, $showBinDetail, $activeTlaCols, @results);
         }
     }
 
