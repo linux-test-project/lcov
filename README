@@ -189,15 +189,16 @@ New features and capabilities fall into 6 major categories:
      cause of code coverage issues, and to then decide what to do.
 
      An option to generate a 'hierarchical' coverage report (which follows
-     the source code directory structure) as well as various other small
-     features (tooltip popups, user-specified HTML header, footer, and
-     table labels, etc.) are also available.
+     the source code directory structure) or 'flat' (all files in top level
+     of two-level report) as well as various other small features (tooltip
+     popups, user-specified HTML header, footer, and table labels, etc.) are
+     also available.
 
      See the genhtml man page for some details, as well as the
      'gendiffcov/simple' testcases for some examples.
 
       Related options:
-          --baseline-title, --baseline-date, --current-date, --hierarchical,
+          --baseline-title, --baseline-date, --current-date, --flat, --hierarchical,
           --show-owners, --show-noncode, --show-navigation, --show-proportion,
           --suppress-aliases
 

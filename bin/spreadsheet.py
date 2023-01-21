@@ -471,10 +471,6 @@ class GenerateSpreadsheet(object):
                 row += 1
 
                 #print(" ".join(data.keys()))
-                try:
-                    dirData = data['directory']
-                except:
-                    dirData = data['dir']
                 fileData = data['file']
                 begin = row
                 sawData = {}
@@ -494,6 +490,24 @@ class GenerateSpreadsheet(object):
                                 print("%s: failed to write %s" %(name, data[k][name]))
                         col += 1
 
+                def visitScope(f, dirname):
+                    pth, name = os.path.split(f)
+                    if None != dirname or pth != dirname:
+                        return
+                    sheet.write_string(row, 2, name)
+                    sheet.write_number(row, 3, fileData[f], twoDecimal)
+                    sawData['total'] += 1
+                    printDataRow(f)
+                    row += 1
+
+                try:
+                    dirData = data['dir']
+                except:
+                    # hack - 'flat' report doens't have directory data
+                    for f in sorted(fileData.keys()):
+                      visitScope(f, None)
+                    dirData = {}
+
                 for dirname in sorted(dirData.keys()):
                     sheet.write_string(row, 0, "directory")
                     sheet.write_string(row, 1, dirname)
@@ -505,14 +519,7 @@ class GenerateSpreadsheet(object):
                     start = row
 
                     for f in sorted(fileData.keys()):
-                        pth, name = os.path.split(f)
-                        if pth != dirname:
-                            continue
-                        sheet.write_string(row, 2, name)
-                        sheet.write_number(row, 3, fileData[f], twoDecimal)
-                        sawData['total'] += 1
-                        printDataRow(f)
-                        row += 1
+                      visitScope(f, dirnamt)
 
                 insertStats(genhtmlKeys, sawData, sumRow, avgRow, devRow, begin,
                            row-1, 3)

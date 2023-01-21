@@ -125,6 +125,10 @@ genhtml_sort = 1
 # top/directory/source
 #genhtml_hierarchical = 1
 
+# Display coverage data using 'flat' view:  top-level table holds all
+#  files with no intermediate directory pages.
+#genhtml_flat_view = 1
+
 # Enable hyperlinks from coverage summary table to first source code line
 #   in corresponding category ('Hit' or "Missed') in non-differential report.
 # Feature is always enabled in differential coverage report.

@@ -243,31 +243,53 @@ fi
 
 diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff.txt
 
-for dark in "" --dark-mode ; do
-  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $dark --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o ./noncode_differential$dark ./current.info.gz
-  $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $dark --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o ./noncode_differential$dark ./current.info.gz
+for opt in "" --dark-mode --flat ; do
+  outDir=./noncode_differential$opt
+  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz
+  $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz
   if [ 0 != $? ] ; then
-      echo "ERROR: genhtml noncode_differential$dark failed"
+      echo "ERROR: genhtml $outdir failed"
       if [ 0 == $KEEP_GOING ] ; then
           exit 1
       fi
   fi
   # expect to see non-code owners 'rupert.psmith' and 'pelham.wodehouse' in file annotations
-  FILE=`find noncode_differential$dark -name test.cpp.gcov.html`
+  FILE=`find $outDir -name test.cpp.gcov.html`
   for owner in rupert.psmith pelham.wodehouse ; do
       grep $owner $FILE
       if [ 0 != $? ] ; then
-          echo "ERROR: did not find $owner in noncode_differential$dark annotations"
+          echo "ERROR: did not find $owner in $outDir annotations"
           exit 1
       fi
   done
+  if [ "$opt"x == '--flat'x ] ; then
+
+      # flat view don't expect to see index.html in subdir
+      if [ -e $outDir/simple/index.html ] ; then
+          echo "ERROR:  --flat should not write subdir index in $outDir"
+          if [ 0 == $KEEP_GOING ] ; then
+              exit 1
+          fi
+      fi
+      # expect to see path to source file in the indices
+      for f in $outDir/index*.html ; do
+          grep "simple/test.cpp" $f
+          if [ 0 != $? ] ; then
+              echo "ERROR: expected to see path in $f"
+              if [ 0 == $KEEP_GOING ] ; then
+                  exit 1
+              fi
+          fi
+      done
+  fi
+
 done
 
 # run with several different combinations of options - and see
 #   if they do what we expect
 TEST_OPTS=$DIFFCOV_OPTS
 EXT=""
-for opt in "" "--show-details" "--hier" ; do
+for opt in "" "--show-details" "--hier"; do
 
     for o in "" $opt ; do
         OPTS="$TEST_OPTS $o"

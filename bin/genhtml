@@ -435,7 +435,8 @@ sub new
         $self->{is_absolute} = $is_absolute_dir
             if $type eq 'directory';
     }
-    $self->{parent} = undef;
+    $self->{parent}      = undef;
+    $self->{relativeDir} = undef;
 
     _initCounts($self, 'line');
     _initCounts($self, 'function');
@@ -476,6 +477,17 @@ sub name
     return $self->{name};
 }
 
+sub relativeDir
+{
+    my ($self, $dir_string) = @_;
+    die("bad usage")
+        unless ((!defined($dir_string) && defined($self->{relativeDir})) ||
+                (defined($dir_string) && !defined($self->{relativeDir})));
+    $self->{relativeDir} = $dir_string
+        if defined($dir_string);
+    return $self->{relativeDir};
+}
+
 sub type
 {
     my $self = shift;
@@ -503,7 +515,7 @@ sub setParent
     my ($self, $parent) = @_;
     die("expected parent dir")
         unless (ref($parent) eq "SummaryInfo" &&
-                'directory' eq $parent->type());
+                ($main::flat ? 'top' : 'directory') eq $parent->type());
     $self->{parent} = $parent;
 }
 
@@ -1219,7 +1231,10 @@ sub page_link
 {
     my $self      = shift;
     my $data      = $self->summary();
-    my $page_link = $self->name();
+    my $page_link = '';
+    $page_link = $data->relativeDir() . '/'
+        if ($main::flat && '.' ne $data->relativeDir);
+    $page_link .= $self->name();
     if ($data->type() eq 'file') {
         if ($main::no_sourceview) {
             return "";
@@ -1259,7 +1274,7 @@ sub secondaryElementFileData
     my $summary    = $self->summary();
     my $sourceFile = $summary->fileDetails()
         if 'file' eq $summary->type();
-    return [$summary->name(), $sourceFile, $self->page_link()];
+    return [$summary->name(), $summary, $sourceFile, $self->page_link()];
 }
 
 sub name
@@ -1333,6 +1348,12 @@ sub name
 {
     my $self = shift;
     return $self->[0];
+}
+
+sub summary
+{
+    my $self = shift;
+    return $self->[1];
 }
 
 sub data
@@ -1431,7 +1452,7 @@ sub secondaryElementFileData
     # pass owner in callback data
     my $sourceFile = $sourceSummary->fileDetails()
         if 'file' eq $sourceSummary->type();
-    return [$name, $sourceFile, $page_link, $self->[0]];
+    return [$name, $sourceSummary, $sourceFile, $page_link, $self->[0]];
 }
 
 package FileOrDirectoryDateCallback;
@@ -1451,6 +1472,12 @@ sub name
 {
     my $self = shift;
     return $SummaryInfo::ageGroupHeader[$self->[0]];
+}
+
+sub summary
+{
+    my $self = shift;
+    return $self->[2];
 }
 
 sub data
@@ -1542,7 +1569,7 @@ sub secondaryElementFileData
     # pass bin index in callback data
     my $sourceFile = $sourceSummary->fileDetails()
         if 'file' eq $sourceSummary->type();
-    return [$name, $sourceFile, $page_link, $self->[0]];
+    return [$name, $sourceSummary, $sourceFile, $page_link, $self->[0]];
 }
 
 package CovTypeSummaryCallback;
@@ -4323,7 +4350,7 @@ sub new
                 }
                 $relative_path .= '/';
             }
-        } else {
+        } elsif (!$main::flat) {
             # not hierarchical
             my $relative_path = join('/', @rel_dir_stack);
             if (!exists($pending->{$parentDir})) {
@@ -4346,12 +4373,15 @@ sub new
             add_dependency($pending->{$top_level_summary->name()}, $parentDir);
         }
 
-        # current file is a dependency of the directory...
-        add_dependency($pendingParent, $f);
+        # current file is a dependency of the top-level for a flat (2-level)
+        #  report - or of the parent directory otherwise
+        my $mergeInto = $main::flat ? $pending->{$top_level_summary->name()} :
+            $pendingParent;
+        add_dependency($mergeInto, $f);
         # this file is ready to be processed
         my @fileData = (SummaryInfo->new("file", $f), [{}, {}, {}], $f);
         push(@$worklist,
-             ['file', \@fileData, \@short_path, \@path, $pendingParent]);
+             ['file', \@fileData, \@short_path, \@path, $mergeInto]);
     }
 
     $self->compute();
@@ -4461,6 +4491,9 @@ sub compute
         } else {
             $rel_dir = '.';
         }
+        # keep track of where this data is stored - need it later for
+        #  top-level 'flat' view
+        $selfSummary->relativeDir($rel_dir);
 
         File::Path::make_path($rel_dir) unless -d $rel_dir;
         my $base_dir  = main::get_relative_base_path($rel_dir);
@@ -4549,7 +4582,8 @@ sub compute
                 $perTestData->[0]{$base_name} = $testdata;
                 $perTestData->[1]{$base_name} = $testfncdata;
                 $perTestData->[2]{$base_name} = $testbrdata;
-                $parentSummary->append($selfSummary);
+                my $mergeInto = $main::flat ? $self->top() : $parentSummary;
+                $mergeInto->append($selfSummary);
             } elsif ('dir' eq $type) {
                 # process the directory...
                 main::write_summary_pages($name, 1,    # this is a directory,
@@ -4571,7 +4605,8 @@ sub compute
 
             # remove current object from dependencies...
             if ($type ne 'top') {
-                $self->completed_dependency($parentPath, $name);
+                my $mergeInto = $main::flat ? '' : $parentPath;
+                $self->completed_dependency($mergeInto, $name);
             }
             my $end = Time::HiRes::gettimeofday();
             $lcovutil::profileData{$type}{$name} = $end - $start;
@@ -4651,8 +4686,10 @@ sub merge_child($$$)
                     unless $type eq 'top';
                 $self->[0] = $summary;    # set the top-level to this value...
             }
-            $parentSummary->append($childSummary)
-                unless $type eq 'top';
+            if ($type ne 'top') {
+                my $mergeInto = $main::flat ? $self->top() : $parentSummary;
+                $mergeInto->append($childSummary);
+            }
             if (defined($criteria)) {
                 my $name =
                     $childSummary->type() eq 'top' ? "" : $childSummary->name();
@@ -4733,12 +4770,13 @@ our $show_zeroTlaColumns;    # unless set, improve readability by removing
 our $show_simplifiedColors;
 our $treatNewFileAsBaseline;
 our $elide_path_mismatch =
-    0;                 # handle case that file in 'baseline' and 'current' .info
-                       # data matches some name in the 'diff' file such that
-                       # the basename is the same but the pathname is different
-                       # - then pretend that the names DID match
-our $hierarchical = 0; # if true: show directory hierarchy
-                       # default: legacy two-level report
+    0;    # handle case that file in 'baseline' and 'current' .info
+          # data matches some name in the 'diff' file such that
+          # the basename is the same but the pathname is different
+          # - then pretend that the names DID match
+our $hierarchical = 0;    # if true: show directory hierarchy
+                          # default: legacy two-level report
+our $flat         = 0;    # if true: single table of all files in top level
 
 our $sort = 1;          # If set, provide directory listings with sorted entries
 our $no_sort;           # Disable sort
@@ -4832,6 +4870,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "genhtml_missed"          => \$opt_missed,
                            "genhtml_dark_mode"       => \$dark_mode,
                            "genhtml_hierarchical"    => \$hierarchical,
+                           "genhtml_flat_view"       => \$flat,
                            "genhtml_show_havigation" => \$show_tla,
                            "genhtml_show_function_proportion" => \$show_functionProportions,
                            'genhtml_annotate_script' => \$SourceFile::annotateScript,
@@ -4936,6 +4975,7 @@ if (!GetOptions("output-directory|o=s" => \$output_directory,
                 "branch-coverage"      => \$br_coverage,
                 "no-branch-coverage"   => \$no_br_coverage,
                 "hierarchical"         => \$hierarchical,
+                "flat"                 => \$flat,
                 "sort"                 => \$sort,
                 "no-sort"              => \$no_sort,
                 "demangle-cpp"         => \$lcovutil::cpp_demangle,
@@ -4997,6 +5037,9 @@ $br_coverage = 0
 # Merge sort options
 $sort = 0
     if ($no_sort);
+die(
+   "unsupported use of mutually exclusive '--flat' and '--hierachical' options")
+    if ($flat && $hierarchical);
 
 $show_tla = 1
     if defined($base_filename);
@@ -5397,6 +5440,8 @@ HTML output:
       --dark-mode                   Use the dark-mode CSS
       --hierarchical                Generate multilevel HTML report,
                                     matching source code directory structure.
+      --flat                        Generate flat HTML report, with all files
+                                    listed on top-level page.
       --show-navigation             Include 'goto first hit/not hit' and
                                     'goto next hit/not hit' hyperlinks in
                                     non-differential source code detail page
@@ -7485,7 +7530,7 @@ END_OF_HTML
 }
 
 # write_file_table_entry(handle, base_dir,
-#                        [ name, [filename, fileDetails, fileHref],
+#                        [ name, [filename, fileDetails, fileHref, cbdata],
 #                          activeTlaCols,
 #                          rowspan, primary_key, is_secondary, fileview,
 #                          page_type, page_link, dirSummary, showDetailCol,
@@ -7503,13 +7548,21 @@ sub write_file_table_entry(*$$@)
         $rowspan, $primary_key, $is_secondary,
         $fileview, $page_type, $page_link,
         $dirSummary, $showBinDetailColumn, $asterisk) = @$data;
+    my ($filename, $fileDetails, $fileSummary, $file_link, $cbData) =
+        @$callbackData;
     my $esc_name = escape_html($name);
+    if ($main::flat &&
+        !$is_secondary) {
+        my $relDir = $fileDetails->relativeDir();
+        die("relative directory not set") unless $relDir;
+        $esc_name = escape_html($relDir) . '/' . $esc_name
+            if '.' ne $relDir;
+    }
     #$esc_name .= "<sup>" . escape_html($asterisk) . "</sup>"
     #  if defined($asterisk);
     my $namecode = $esc_name;
     my $owner;
 
-    my ($filename, $fileDetails, $file_link, $cbData) = @$callbackData;
     # Add link to source if provided
     my $anchor = 'NAME';
     if (!$is_secondary &&
@@ -7569,34 +7622,43 @@ sub write_file_table_entry(*$$@)
             ($primary_key ne 'name' &&
                 $fileview == 0))
     ) {
-        # link to the entry in date/owner 'summary' table
-        my $href = "<a href=\"";
-        my $bin  = "";
         if ($fileview == 0 &&
-            $primary_key ne 'name') {
-            $href .= $filename . '/';
-            $bin = $cbData if defined($cbData);
-        }
-        $href .= "index";
-
-        my $help;
-        if ($page_type eq 'owner') {
-            $bin = $esc_name
-                if ($primary_key eq 'name');
-            $href .= "-bin_owner." . $html_ext . "#" . $bin;
-            $help = "owner $bin";
-        } elsif ($page_type eq 'date') {
-            $bin = $SummaryInfo::ageHeaderToBin{$name}
-                if ($primary_key eq 'name');
-
-            $href .= "-bin_date." . $html_ext . "#$bin";
-            $help = "the period '" . $SummaryInfo::ageGroupHeader[$bin] . "'";
+            $primary_key ne 'name' &&
+            $main::flat) {
+            # link to (flat) file detail
+            my $relDir = $fileDetails->relativeDir();
+            die("relative directory not set") unless $relDir;
+            $namecode =
+                "<a href=\"$relDir/$filename.gcov.$html_ext\">$esc_name</a>";
         } else {
-            die("unexpected type '$page_type'");
-        }
+            # link to the entry in date/owner 'summary' table (keyed other way up)
+            $namecode = "<a href=\"";
 
-        $href .= "\" title=\"go to coverage summary for $help\">$esc_name</a>";
-        $namecode = $href;
+            my $bin = "";
+            if ($fileview == 0 &&
+                $primary_key ne 'name') {
+                $namecode .= $filename . '/';
+                $bin = $cbData if defined($cbData);
+            }
+            $namecode .= "index";
+            my $help;
+            if ($page_type eq 'owner') {
+                $bin = $esc_name
+                    if ($primary_key eq 'name');
+                $namecode .= "-bin_owner." . $html_ext . "#" . $bin;
+                $help = "owner $bin";
+            } elsif ($page_type eq 'date') {
+                $bin = $SummaryInfo::ageHeaderToBin{$name}
+                    if ($primary_key eq 'name');
+                $namecode .= "-bin_date." . $html_ext . "#$bin";
+                $help =
+                    "the period '" . $SummaryInfo::ageGroupHeader[$bin] . "'";
+            } else {
+                die("unexpected type '$page_type'");
+            }
+            $namecode .=
+                "\" title=\"go to coverage summary for $help\">$esc_name</a>";
+        }
     }
     my $span = (1 == $rowspan) ? "" : " rowspan=$rowspan";
     write_html($handle, <<END_OF_HTML);
@@ -9082,13 +9144,19 @@ sub write_header(*$$$$$)
         my $parent = $frames ? " target=\"_parent\"" : "";
         $view = "<a href=\"$base_dir" .
             "index.$html_ext\"$parent>" . "$overview_title</a> - ";
-        if ($main::hierarchical) {
-            $html_path =~ s/<a/<a$parent/g;
-            $view .= $html_path;
+        if ($main::flat) {
+            # for flat view, point only to the top-levevl and show path
+            #  to this file.  No other links
+            $view .= "$esc_dir_name/$esc_base_name";
         } else {
-            $view .= "<a href=\"index.$html_ext\"$parent>$esc_dir_name</a>";
+            if ($main::hierarchical) {
+                $html_path =~ s/<a/<a$parent/g;
+                $view .= $html_path;
+            } else {
+                $view .= "<a href=\"index.$html_ext\"$parent>$esc_dir_name</a>";
+            }
+            $view .= " - $esc_base_name";
         }
-        $view .= " - $esc_base_name";
 
         # Add function suffix
         if ($func_coverage) {
@@ -9653,7 +9721,8 @@ sub write_file_table(*$$$$$)
         $show = $detailed ? $HEAD_DETAIL_SHOWN : $HEAD_DETAIL_HIDDEN;
     }
     my $file_col_title =
-        $fileview ? ('' eq $bin_type ? 'Filename' : 'File') : "Directory";
+        $fileview ? ('' eq $bin_type ? 'Filename' : 'File') :
+        ($main::flat ? 'Filename' : 'Directory');
     my $file_code =
         get_file_code($hide, $file_col_title, $sort && $sort_type != $SORT_FILE,
                       $bin_type, $primary_key, $base_dir);
@@ -9918,8 +9987,9 @@ sub write_file_table(*$$$$$)
 
         my @columns;
 
-        my @tableCallbackData = ($primaryCb->name(), $fileDetails, $page_link);
-        my $showLineGraph     = 1;
+        my @tableCallbackData = ($primaryCb->name(), $primaryCb->summary(),
+                                 $fileDetails, $page_link);
+        my $showLineGraph = 1;
         # Line coverage
         push(@columns,
              [$found, $hit, $med_limit, $hi_limit, $showLineGraph,

@@ -283,6 +283,11 @@ genhtml_sort = 1
 #genhtml_hirearchical = 1
 .br
 
+# Display coverage data using 'flat' view
+.br
+#genhtml_flat_view = 1
+.br
+
 # Include function coverage data display
 .br
 #genhtml_function_coverage = 1
@@ -884,6 +889,21 @@ If non\-zero, the HTML report will follow the hierarchical directory structure o
 
 This option is equivalent to using the \-\-hierarchical command line option of
 .BR genhtml .
+'Hierarchical' and 'flat' views are mutually exclusive.
+.br
+
+Default is 0.
+.PP
+
+.BR genhtml_flat_view " ="
+.IR 0 | 1
+.IP
+If non\-zero, the top-level HTML table will contain all of the files in the project and there will be no intermediate directory pages.
+.br
+
+This option is equivalent to using the \-\-flat command line option of
+.BR genhtml .
+'Hierarchical' and 'flat' views are mutually exclusive.
 .br
 
 Default is 0.

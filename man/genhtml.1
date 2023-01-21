@@ -66,6 +66,7 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-no\-branch\-coverage ]
 .br
 .RB [ \-\-demangle\-cpp ]
+.br
 .RB [ \-\-ignore\-errors
 .IR errors  ]
 .br
@@ -132,6 +133,7 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-simplified-colors ]
 .br
 .RB [ \-\-hierarchical ]
+.RB [ \-\-flat ]
 .br
 .RB [ \-\-filter
 .IR filters ]
@@ -360,6 +362,52 @@ When the
 .I \-\-hierarchical
 flag is set, then the HTML report will show the directory structure of the source code, to the common root.
 Note that some 'directory' pages will hold both a table of child subdirectories as well as a table of source files contained within this directory.
+
+The
+.I \-\-flat
+and
+.I \-\-hierarchical
+options are mutually exclusive.
+
+This option can also be set using
+.I genhtml_hierarchical = 1
+in your lcovrc config file.  See the lcovrc man page for details.
+
+
+.RE
+.B \-\-flat
+.RS
+Generate a flat HTML report:  the top-level HTML table will hold all of the source files in the project and no intermediate directory pages are produced.
+
+The default is to generate a three-level HTML report:
+.RS
+.IP top\-level 0.4i
+containing table of directories which contain source code,
+.IP directory
+ containing table of source files in that directory, and
+.IP source file detail
+containing annotated source code.
+.RE
+When
+.I \-\-flat
+is used, genhtml will generate a two-level HTML report:
+.RS
+.IP top\-level 0.4i
+containing table of all project source files,
+.IP source file detail
+containing annotated source code.
+.RE
+
+The
+.I \-\-flat
+and
+.I \-\-hierarchical
+options are mutually exclusive.
+
+This option can also be set using
+.I genhtml_flat_view = 1
+in your lcovrc config file.  See the lcovrc man page for details.
+
 
 .RE
 .B \-f
