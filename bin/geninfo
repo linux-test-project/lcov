@@ -249,7 +249,8 @@ our $opt_external;
 our $gcov_caps;
 our @gcov_options;
 our @opt_config_file;
-our $opt_gcov_all_blocks = 1;
+our $opt_gcov_all_blocks          = 1;
+our $opt_adjust_unexecuted_blocks = 0;
 our $opt_compat;
 our %compat_value;
 our $gcno_split_crc;
@@ -284,43 +285,44 @@ my (@rc_filter, @rc_ignore,
     @rc_omit_patterns, @rc_erase_patterns);
 
 if (lcovutil::apply_rc_params(
-                  \@opt_config_file,
-                  {
-                   "geninfo_gcov_tool"       => \$gcov_tool,
-                   "geninfo_adjust_testname" => \$adjust_testname,
-                   "geninfo_checksum"        => \$lcovutil::verify_checksum,
-                   "checksum"                => \$lcovutil::verify_checksum,
-                   "geninfo_no_checksum"    => \$no_checksum,       # deprecated
-                   "geninfo_compat_libtool" => \$opt_compat_libtool,
-                   "geninfo_external"       => \$opt_external,
-                   "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
-                   "geninfo_compat"              => \$opt_compat,
-                   "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
-                   "geninfo_auto_base"           => \$rc_auto_base,
-                   "geninfo_intermediate"        => \$rc_intermediate,
-                   "geninfo_no_exception_branch" => \$no_exception_br,
-                   "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
-                   "lcov_json_module"       => \$JsonSupport::rc_json_module,
-                   "lcov_function_coverage" => \$func_coverage,
-                   "lcov_branch_coverage"   => \$br_coverage,
-                   "lcov_excl_line"         => \$excl_line,
-                   "lcov_excl_br_line"      => \$excl_br_line,
-                   "lcov_excl_exception_br_line" => \$excl_exception_br_line,
-                   "genhtml_demangle_cpp"        => \$lcovutil::cpp_demangle,
-                   'ignore_errors'               => \@rc_ignore,
-                   "max_message_count"           => \$lcovutil::suppressAfter,
-                   'stop_on_error'               => \$lcovutil::stop_on_error,
-                   "profile"                     => \$lcovutil::profile,
-                   "parallel"                    => \$lcovutil::maxParallelism,
-                   "memory"                      => \$lcovutil::maxMemory,
-                   'filter'                      => \@rc_filter,
-                   'exclude'                     => \@rc_exclude_patterns,
-                   'include'                     => \@rc_include_patterns,
-                   'substitute'                  => \@rc_subst_patterns,
-                   'omit_lines'                  => \@rc_omit_patterns,
-                   'erase_functions'             => \@rc_erase_patterns,
-                   "version_script" => \$lcovutil::extractVersionScript,
-                  }
+              \@opt_config_file,
+              {
+               "geninfo_gcov_tool"       => \$gcov_tool,
+               "geninfo_adjust_testname" => \$adjust_testname,
+               "geninfo_checksum"        => \$lcovutil::verify_checksum,
+               "checksum"                => \$lcovutil::verify_checksum,
+               "geninfo_no_checksum"     => \$no_checksum,          # deprecated
+               "geninfo_compat_libtool"  => \$opt_compat_libtool,
+               "geninfo_external"        => \$opt_external,
+               "geninfo_gcov_all_blocks" => \$opt_gcov_all_blocks,
+               "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
+               "geninfo_compat"              => \$opt_compat,
+               "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
+               "geninfo_auto_base"           => \$rc_auto_base,
+               "geninfo_intermediate"        => \$rc_intermediate,
+               "geninfo_no_exception_branch" => \$no_exception_br,
+               "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
+               "lcov_json_module"            => \$JsonSupport::rc_json_module,
+               "lcov_function_coverage"      => \$func_coverage,
+               "lcov_branch_coverage"        => \$br_coverage,
+               "lcov_excl_line"              => \$excl_line,
+               "lcov_excl_br_line"           => \$excl_br_line,
+               "lcov_excl_exception_br_line" => \$excl_exception_br_line,
+               "genhtml_demangle_cpp"        => \$lcovutil::cpp_demangle,
+               'ignore_errors'               => \@rc_ignore,
+               "max_message_count"           => \$lcovutil::suppressAfter,
+               'stop_on_error'               => \$lcovutil::stop_on_error,
+               "profile"                     => \$lcovutil::profile,
+               "parallel"                    => \$lcovutil::maxParallelism,
+               "memory"                      => \$lcovutil::maxMemory,
+               'filter'                      => \@rc_filter,
+               'exclude'                     => \@rc_exclude_patterns,
+               'include'                     => \@rc_include_patterns,
+               'substitute'                  => \@rc_subst_patterns,
+               'omit_lines'                  => \@rc_omit_patterns,
+               'erase_functions'             => \@rc_erase_patterns,
+               "version_script" => \$lcovutil::extractVersionScript,
+              }
 )) {
     # we set some RC values...
     # Merge options
@@ -523,7 +525,7 @@ if ($no_exception_br && ($gcov_version < $GCOV_VERSION_3_3_0)) {
 # Determine gcov options
 push(@gcov_options, "-b")
     if ($gcov_caps->{'branch-probabilities'} &&
-        ($br_coverage || $func_coverage));
+        ($br_coverage || $func_coverage || $opt_adjust_unexecuted_blocks));
 push(@gcov_options, "-c") if ($gcov_caps->{'branch-counts'} &&
                               $br_coverage);
 push(@gcov_options, "-a")
@@ -1391,7 +1393,7 @@ sub process_dafile($$$$)
     }
 
     my $traceFile = TraceFile->new();
-
+    my $warnedUnexecuted;
     # Traverse the list of generated .gcov files and combine them into a
     # single .info file
     foreach $gcov_file (@gcov_list) {
@@ -1543,6 +1545,27 @@ sub process_dafile($$$$)
                 # Check for instrumented line
                 if ($gcov_content[0]) {
                     my $hit = $gcov_content[1];
+                    # do we have branch data on this line?
+                    # if no branch data and this line was marked as
+                    # 'unexecuted' - then set its hit count to zero
+                    if ('ARRAY' eq ref($hit)) {
+                        die("unexpected 'unexec' count") unless $hit->[1] == 1;
+                        $hit = $hit->[0];
+                        if ($hit != 0 &&
+                            !defined($branchMap->value($line_number))) {
+                            lcovutil::debug(
+                                "$source_filename:$line_number: unexecuted block on non-branch line with count=$hit\n"
+                            );
+                            if ($opt_adjust_unexecuted_blocks) {
+                                $hit = 0;
+                            } else {
+                                lcovutil::ignorable_warning($ERROR_GCOV,
+                                    "$source_filename:$line_number: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
+                                ) unless $warnedUnexecuted;
+                                $warnedUnexecuted = 1;
+                            }
+                        }
+                    }
                     $lineMap->append($line_number, $hit);
                 }
                 # Remove already processed data from array
@@ -1832,6 +1855,7 @@ sub read_gcov_file($$$)
     my $last_block                = $UNNAMED_BLOCK;
     my $last_line                 = 0;
     my $branchId;
+    my $unexec;
 
     my $f     = InOutFile->in($filename, $lcovutil::cpp_demangle);
     my $input = $f->hdl();
@@ -1962,7 +1986,19 @@ sub read_gcov_file($$$)
             }
 
             # Strip unexecuted basic block marker
-            $count =~ s/\*$//;
+            if (/^([^*]+)$/) {
+                $unexec = 1;
+                $count =~ $1;
+                # need to do something about lines which have non-zero count
+                #  but unexecuted block.  If there are no branches associated
+                #  with this line, then we should mark the line as not hit.
+                # Otherwise, result is misleading because we can see
+                #  (for example) a non-zero hit could for the the 'if' clause
+                #  of an untaken branch.
+
+            } else {
+                $unexec = 0;
+            }
 
             # <exec count>:<line number>:<source code>
             if ($line eq "0") {
@@ -1985,7 +2021,11 @@ sub read_gcov_file($$$)
                         $warnedLine = 1;
                         $count      = 0;
                     }
-                    push(@result, 1, $count);
+                    if ($unexec) {
+                        push(@result, 1, [$count, $unexec]);
+                    } else {
+                        push(@result, 1, $count);
+                    }
                 }
                 push(@result, $code);
             }
@@ -2232,7 +2272,8 @@ sub intermediate_json_to_info($)
     my $traceFile = TraceFile->new();
     lcovutil::debug(1,
           "called intermediate_json_to_info " . join(' ', keys(%$data)) . "\n");
-    my ($warnedLine, $warnedBranch, $warnedFunction);    # once only
+    my ($warnedLine, $warnedBranch, $warnedFunction, $warnedUnexecuted)
+        ;    # once only
     while (my ($filename, $file_data) = each(%$data)) {
         # there is no meaningful parse location for this data
         my $fileData    = $traceFile->data($filename);
@@ -2289,20 +2330,30 @@ sub intermediate_json_to_info($)
                 $warnedLine = 1;
                 $count      = 0;
             }
+            if (0 == scalar(@$branches) && $unexec && $count != 0) {
+                lcovutil::debug(
+                    "$filename:$line: unexecuted block on non-branch line with count=$count\n"
+                );
+                if ($opt_adjust_unexecuted_blocks) {
+                    $count = 0;
+                } else {
+                    lcovutil::ignorable_warning($ERROR_GCOV,
+                        "$filename:$line: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
+                    ) unless $warnedUnexecuted;
+                    $warnedUnexecuted = 1;
+                }
+            }
+
             # just add the line - worry about filtering later
             $lineMap->append($line, $count);
 
-            if (defined($unexec) && $unexec && $count == 0) {
-                $unexec = 1;
-            } else {
-                $unexec = 0;
-            }
-            # there may be compiler-generated branch data on
-            #  the closing brace of the function...
-            $branch_num = 0;
             # Branch data
             if ($br_coverage) {
 
+                # there may be compiler-generated branch data on
+                #  the closing brace of the function...
+                $branch_num = 0;
+                $unexec     = (defined($unexec) && $unexec && $count == 0);
                 my %branchRenumber;
 
                 for my $b (@$branches) {

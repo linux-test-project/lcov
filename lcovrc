@@ -195,6 +195,10 @@ genhtml_desc_html=0
 # Use gcov's --all-blocks option if non-zero
 #geninfo_gcov_all_blocks = 1
 
+# Adjust 'executed' non-zero hit count of lines which contain no branches
+# and have attribute '"unexecuted_blocks": true'
+#geninfo_unexecuted_blocks = 0
+
 # Specify compatiblity modes (same as --compat option of geninfo).
 #geninfo_compat = libtool=on, hammer=auto, split_crc=auto
 
