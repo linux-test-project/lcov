@@ -34,10 +34,11 @@ Further README contents
 -----------------------
   1. Included files
   2. Installing LCOV
-  3. An example of how to access kernel coverage data
-  4. An example of how to access coverage data for a user space program
-  5. New features (compared to lcov 1.16).
-  6. Questions and Comments
+  3. Dependencies
+  4. An example of how to access kernel coverage data
+  5. An example of how to access coverage data for a user space program
+  6. New features (compared to lcov 1.16).
+  7. Questions and Comments
 
 
 
@@ -83,7 +84,44 @@ To install in a different location - for example, your home directory, run:
   make PREFIX=$HOME/my_lcov install
 
 
-3. An example of how to access Linux kernel coverage data
+3. Dependencies:
+----------------
+
+The lcov module is implemented primarily in Perl - and requires both a
+moderately up-to-date Perl installation and multiple Perl packages.
+
+These perl packages include:
+
+  - Capture::Tiny
+  - DateTime
+  - DateTime::Format::W3CDTF
+  - Devel::Cover
+  - Digest::MD5
+  - File::Spec
+  - at least one flavor of JSON module.
+    In order of performance/preference:
+       - JSON::XS
+       - Cpanel::JSON::XS
+       - JSON::PP
+       - JSON
+ - Memory::Process
+ - Time::HiRes
+
+If your system is missing any of these, then you may be able to install them
+via:
+
+   $ perl -MCPAN -e 'install "packageName"'
+
+You will very likely need superuser access to be able to install Perl
+modules.
+
+Some of the applications provided with the lcov module are written
+in Python - and may require additional Python packages.
+In particular, 'xlsxwriter' is required in order to generate any
+of the spreadsheet reports.
+
+
+4. An example of how to access Linux kernel coverage data
 ---------------------------------------------------------
 Requirements: Follow the Linux kernel coverage setup instructions at:
 
@@ -106,7 +144,7 @@ As root, do the following:
 Point the web browser of your choice to the resulting index.html file.
 
 
-4. An example of how to access coverage data for a user space program
+5. An example of how to access coverage data for a user space program
 ---------------------------------------------------------------------
 Requirements: compile the program in question using GCC with the options
 -fprofile-arcs and -ftest-coverage. During linking, make sure to specify
@@ -144,7 +182,8 @@ For further information on the gcc profiling mechanism, please also
 consult the gcov man page.
 
 
-5. New features (compared to lcov 1.16):
+6. New features (compared to lcov 1.16):
+----------------------------------------
 
 New features and capabilities fall into 6 major categories:
 
@@ -266,7 +305,7 @@ using either command line options or by setting defaults in your 'lcovrc'
 file.  See the lcovrc man page for details.
 
 
-6. Questions and comments
+7. Questions and comments
 -------------------------
 See the included man pages for more information on how to use the LCOV tools.
 
