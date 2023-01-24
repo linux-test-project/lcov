@@ -242,7 +242,7 @@ done
 
 # test function alias suppression
 rm *.gcda *.gcno
-${CXX} --coverage -o template template.cpp
+${CXX} --coverage -std=c++11 -o template template.cpp
 ./template
 echo lcov $LCOV_OPTS --capture --directory . --demangle --output-file template.info --no-external --branch-coverage
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --demangle --directory . --output-file template.info --no-external --branch-coverage
@@ -268,9 +268,9 @@ if [ $? != 0 ] ; then
     fi
 fi
 #expect 5 entries in 'func' list (main, leader, 3 aliases
-COUNT=`grep -c 'coverFn"' alias/function/template.cpp.func.html`
-if [ 5 != $COUNT ] ; then
-    echo "ERROR: expected 5 functions - found $COUNT"
+COUNT=`grep -c 'coverFnAlias"' alias/function/template.cpp.func.html`
+if [ 3 != $COUNT ] ; then
+    echo "ERROR: expected 3 aliases - found $COUNT"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
@@ -289,6 +289,13 @@ fi
 COUNT=`grep -c 'coverFn"' no_alias/function/template.cpp.func.html`
 if [ 2 != $COUNT ] ; then
     echo "ERROR: expected 2 functions - found $COUNT"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+COUNT=`grep -c 'coverFnAlias"' no_alias/function/template.cpp.func.html`
+if [ 0 != $COUNT ] ; then
+    echo "ERROR: expected zero aliases - found $COUNT"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi

@@ -1986,16 +1986,15 @@ sub read_gcov_file($$$)
             }
 
             # Strip unexecuted basic block marker
-            if (/^([^*]+)$/) {
-                $unexec = 1;
-                $count =~ $1;
+            if ($count =~ /^([^*]+)\*$/) {
                 # need to do something about lines which have non-zero count
                 #  but unexecuted block.  If there are no branches associated
                 #  with this line, then we should mark the line as not hit.
                 # Otherwise, result is misleading because we can see
                 #  (for example) a non-zero hit could for the the 'if' clause
                 #  of an untaken branch.
-
+                $unexec = 1;
+                $count  = $1;
             } else {
                 $unexec = 0;
             }
