@@ -9352,16 +9352,23 @@ END_OF_HTML
         }
         foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
             # check to see that there are non-zero entries
-            my $skipTla = 1;
-            while (my ($covtype, $list) = each(%activeTlaColsForType)) {
-                if (grep(/^$tla$/, @$list)) {
-                    $skipTla = 0;
+            foreach my $covtype (@visit) {
+                if (grep({ $tla eq $_ } @{$activeTlaColsForType{$covtype}})) {
+                    push(@nonZeroTlas, $tla);
                     last;
                 }
             }
-            push(@nonZeroTlas, $tla) unless $skipTla;
         }
     }
+    # if $showAllTlasInSummary is set, then put all TLA categories in the
+    #   summary tables at the top of the page (but only the non-zero categories
+    #   in the 'file detail' tables.
+    # Otherwise, only show non-zero categories in both places
+    my $showAllTlasInSummary = 0;    # turn off for now
+    my $tlaSummaryTypes =
+        $showAllTlasInSummary ? \@$SummaryInfo::tlaPriorityOrder :
+        \@nonZeroTlas;
+
     if ($type == $HDR_TESTDESC) {
         push(@row_right, [["80%"]]);
     } else {
@@ -9389,10 +9396,9 @@ END_OF_HTML
                  ]);
         }
         if ($main::show_tla) {
-            # compute which TLAs have non-zero entries
-            for my $tla (@SummaryInfo::tlaPriorityOrder) {
-                # check to see that there are non-zero entries
-                next unless grep(/^$tla$/, @nonZeroTlas);
+            # Show selected TLAs in title row - either all of them, or
+            # only types which have non-zero entries
+            for my $tla (@$tlaSummaryTypes) {
 
                 my ($title, $label);
                 if ($main::use_legacyLabels) {
@@ -9424,7 +9430,7 @@ END_OF_HTML
     if ($main::show_tla) {
         my @tlaRow =
             buildHeaderSummaryTableRow($summary, 'line', $fileDetail,
-                                     \&SourceFile::nextTlaGroup, \@nonZeroTlas);
+                                  \&SourceFile::nextTlaGroup, $tlaSummaryTypes);
         push(@dataRow, @tlaRow);
     }
     push(@row_right, \@dataRow)
@@ -9448,7 +9454,7 @@ END_OF_HTML
             # no file position for function (yet)
             my @tlaRow =
                 buildHeaderSummaryTableRow($summary, 'function', undef, undef,
-                                           \@nonZeroTlas);
+                                           $tlaSummaryTypes);
             push(@dataRow, @tlaRow);
         }
         push(@row_right, \@dataRow)
@@ -9473,7 +9479,7 @@ END_OF_HTML
             my @tlaRow =
                 buildHeaderSummaryTableRow($summary, 'branch', $fileDetail,
                                            \&SourceFile::nextBranchTlaGroup,
-                                           \@nonZeroTlas);
+                                           $tlaSummaryTypes);
             push(@dataRow, @tlaRow);
         }
         push(@row_right, \@dataRow)
@@ -9492,7 +9498,7 @@ END_OF_HTML
                         \&SummaryInfo::lineCovCount, $fileDetail,
                         \&SourceFile::nextInDateBin, "Line coverage date bins:",
                         $dateBinDetailPage, scalar(@dataRow),
-                        \@nonZeroTlas);
+                        $tlaSummaryTypes);
         push(@row_right, @$table);
 
         if ($func_coverage) {
@@ -9505,7 +9511,7 @@ END_OF_HTML
                                       "Function coverage date bins:",
                                       $dateBinDetailPage,
                                       scalar(@dataRow),
-                                      \@nonZeroTlas);
+                                      $tlaSummaryTypes);
             push(@row_right, @$fn_table);
         }
 
@@ -9519,7 +9525,7 @@ END_OF_HTML
                                       "Branch coverage date bins:",
                                       $dateBinDetailPage,
                                       scalar(@dataRow),
-                                      \@nonZeroTlas);
+                                      $tlaSummaryTypes);
             push(@row_right, @$br_table);
         }
     }
@@ -9543,7 +9549,7 @@ END_OF_HTML
                                        "Line coverage ownership bins",
                                        $ownerBinDetailPage,
                                        scalar(@dataRow),
-                                       \@nonZeroTlas);
+                                       $tlaSummaryTypes);
             push(@row_right, @$table);
 
             if ($br_coverage) {
@@ -9556,7 +9562,7 @@ END_OF_HTML
                                            "Branch coverage ownership bins",
                                            $ownerBinDetailPage,
                                            scalar(@dataRow),
-                                           \@nonZeroTlas);
+                                           $tlaSummaryTypes);
                 push(@row_right, @$br_table);
             }
         }
