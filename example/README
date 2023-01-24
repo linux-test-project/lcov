@@ -1,6 +1,11 @@
-
 To get an example of how the LCOV generated HTML output looks like,
 type 'make output' and point a web browser to the resulting file
 
-  output/index.html
+output/index.html
 
+Separate reports
+bash <(curl -Ls https://coverage.codacy.com/get.sh) report --partial -l C -r trace_args.info -t <project-token> --codacy-api-base-url https://app.dev.codacy.org/
+
+bash <(curl -Ls https://coverage.codacy.com/get.sh) report --partial -l C -r trace_noargs.info -t <project-token> --codacy-api-base-url https://app.dev.codacy.org/
+
+bash <(curl -Ls https://coverage.codacy.com/get.sh) report --partial -l C -r trace_overflow.info -t <project-token> --codacy-api-base-url https://app.dev.codacy.org/
