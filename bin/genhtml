@@ -7548,12 +7548,18 @@ sub write_file_table_entry(*$$@)
         $rowspan, $primary_key, $is_secondary,
         $fileview, $page_type, $page_link,
         $dirSummary, $showBinDetailColumn, $asterisk) = @$data;
-    my ($filename, $fileDetails, $fileSummary, $file_link, $cbData) =
+    my ($filename, $fileSummary, $fileDetails, $file_link, $cbData) =
         @$callbackData;
+    die("unexpected callback arg types: write_file_table_entry(" .
+        ref($fileSummary) . ', ' .
+        ref($fileDetails) .
+        ", $file_link, " . (defined($cbData) ? $cbData : 'undef') . ')')
+        unless (!defined($fileDetails) || 'SourceFile' eq ref($fileDetails)) &&
+        'SummaryInfo' eq ref($fileSummary);
     my $esc_name = escape_html($name);
     if ($main::flat &&
         !$is_secondary) {
-        my $relDir = $fileDetails->relativeDir();
+        my $relDir = $fileSummary->relativeDir();
         die("relative directory not set") unless $relDir;
         $esc_name = escape_html($relDir) . '/' . $esc_name
             if '.' ne $relDir;
@@ -7626,7 +7632,7 @@ sub write_file_table_entry(*$$@)
             $primary_key ne 'name' &&
             $main::flat) {
             # link to (flat) file detail
-            my $relDir = $fileDetails->relativeDir();
+            my $relDir = $fileSummary->relativeDir();
             die("relative directory not set") unless $relDir;
             $namecode =
                 "<a href=\"$relDir/$filename.gcov.$html_ext\">$esc_name</a>";
