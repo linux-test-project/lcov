@@ -299,7 +299,10 @@ marked in different colors depending on the associated coverage rate. By
 default, the coverage limits for low, medium and high coverage are set to
 0\-75%, 75\-90% and 90\-100% percent respectively. To change these
 values, use configuration file options
-.IR genhtml_hi_limit " and " genhtml_med_limit .
+.IR genhtml_hi_limit " and " genhtml_med_limit
+or type-specific limits:
+.IR genhtml_line_hi_limit ", " genhtml_line_med_limit, genhtml_branch_hi_limit ", " genhtml_branch_med_limit genhtml_function_hi_limit ", and " genhtml_function_med_limit.
+See the lcovrc man page for details.
 
 Also note that when displaying percentages, 0% and 100% are only printed when
 the values are exactly 0% and 100% respectively. Other values which would

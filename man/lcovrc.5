@@ -570,8 +570,54 @@ Low:    0         <= rate < med_limit   default color: red
 .br
 
 Defaults are 90 and 75 percent.
+
+There are also options to configure different thresholds for line, brannch, and function coveraages.  See below.
 .PP
 
+.BR genhtml_line_hi_limit "  ="
+.I line_hi_limit
+.br
+.BR genhtml_line_med_limit " ="
+.I line_med_limit
+.br
+.IP
+Specify specific threshold for line coverage limits used to decide whether a particular line coverage percentage is classified as high, medium, or low coverage.
+If the line-specific values are not specified, then the default
+.I genhtml_med_limit
+or
+.I genhtml_hi_limit
+values are used.
+.PP
+
+.BR genhtml_branch_hi_limit "  ="
+.I branch_hi_limit
+.br
+.BR genhtml_branch_med_limit " ="
+.I branch_med_limit
+.br
+.IP
+Specify specific threshold for branch coverage limits used to decide whether a particular branch coverage percentage is classified as high, medium, or low coverage.
+If the branch-specific values are not specified, then the default
+.I genhtml_med_limit
+or
+.I genhtml_hi_limit
+values are used.
+.PP
+
+.BR genhtml_function_hi_limit "  ="
+.I function_hi_limit
+.br
+.BR genhtml_function_med_limit " ="
+.I function_med_limit
+.br
+.IP
+Specify specific threshold for function coverage limits used to decide whether a particular function coverage percentage is classified as high, medium, or low coverage.
+If the function-specific values are not specified, then the default
+.I genhtml_med_limit
+or
+.I genhtml_hi_limit
+value is used.
+.PP
 
 .BR rtl_file_extensions " ="
 .IR str[,str]+

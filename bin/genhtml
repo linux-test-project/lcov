@@ -127,6 +127,10 @@ lcovutil::set_tool_name(basename($0));
 our $hi_limit  = 90;
 our $med_limit = 75;
 
+# For line coverage
+our $ln_hi_limit;
+our $ln_med_limit;
+
 # For function coverage
 our $fn_hi_limit;
 our $fn_med_limit;
@@ -4837,8 +4841,6 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "genhtml_css_file"          => \$css_filename,
                            "genhtml_header"            => \$header_title,
                            "genhtml_footer"            => \$footer,
-                           "genhtml_hi_limit"          => \$hi_limit,
-                           "genhtml_med_limit"         => \$med_limit,
                            "genhtml_line_field_width"  => \$line_field_width,
                            "genhtml_overview_width"    => \$overview_width,
                            "genhtml_nav_resolution"    => \$nav_resolution,
@@ -4854,6 +4856,10 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "genhtml_html_extension"    => \$html_ext,
                            "genhtml_html_gzip"         => \$html_gzip,
                            "genhtml_precision" => \$lcovutil::default_precision,
+                           "genhtml_hi_limit"  => \$hi_limit,
+                           "genhtml_med_limit" => \$med_limit,
+                           "genhtml_line_hi_limit"      => \$ln_hi_limit,
+                           "genhtml_line_med_limit"     => \$ln_med_limit,
                            "genhtml_function_hi_limit"  => \$fn_hi_limit,
                            "genhtml_function_med_limit" => \$fn_med_limit,
                            "genhtml_function_coverage"  => \$func_coverage,
@@ -4909,6 +4915,8 @@ lcovutil::apply_rc_params(\@opt_config_file,
                           });
 
 # Copy related values if not specified
+$ln_hi_limit   = $hi_limit if (!defined($ln_hi_limit));
+$ln_med_limit  = $med_limit if (!defined($ln_med_limit));
 $fn_hi_limit   = $hi_limit if (!defined($fn_hi_limit));
 $fn_med_limit  = $med_limit if (!defined($fn_med_limit));
 $br_hi_limit   = $hi_limit if (!defined($br_hi_limit));
@@ -7228,7 +7236,7 @@ sub get_bar_graph_code($$$)
 
     # Decide which .png file to use
     my $png_name =
-        $rate_png[classify_rate($found, $hit, $med_limit, $hi_limit)];
+        $rate_png[classify_rate($found, $hit, $ln_med_limit, $ln_hi_limit)];
 
     if ($width == 0) {
         # Zero coverage
@@ -8802,6 +8810,19 @@ sub buildDateSummaryTable($$$$$$$$$)
         $page =~ s/^index-bin_-/index-bin_/;
     }
 
+    my ($lim_med, $lim_high);
+    if ($covType eq 'line') {
+        $lim_med  = $ln_med_limit;
+        $lim_high = $ln_hi_limit;
+    } elsif ($covType eq 'branch') {
+        $lim_med  = $br_med_limit;
+        $lim_high = $br_hi_limit;
+    } elsif ($covType eq 'function') {
+        $lim_med  = $fn_med_limit;
+        $lim_high = $fn_hi_limit;
+    } else {
+        die("unexpected cover type $covType");
+    }
     for (my $bin = 0; $bin <= $#SummaryInfo::ageGroupHeader; ++$bin) {
         my $ageval = $summary->age_sample($bin);
         my $found  = &$covCountCallback($summary, "found", "age", $ageval);
@@ -8809,7 +8830,7 @@ sub buildDateSummaryTable($$$$$$$$$)
             if 0 == $found;
         my $hit = &$covCountCallback($summary, "hit", "age", $ageval);
         my $style =
-            $rate_name[classify_rate($found, $hit, $med_limit, $hi_limit)];
+            $rate_name[classify_rate($found, $hit, $lim_med, $lim_high)];
         my $rate = rate($hit, $found, "&nbsp;%");
         my $href = $SummaryInfo::ageGroupHeader[$bin];
         if (defined($detailLink)) {
@@ -8901,6 +8922,19 @@ sub buildOwnerSummaryTable($$$$$$$$$)
                         $numRows,            # colspan
     ];
 
+    my ($lim_med, $lim_high);
+    if ($covType eq 'line') {
+        $lim_med  = $ln_med_limit;
+        $lim_high = $ln_hi_limit;
+    } elsif ($covType eq 'branch') {
+        $lim_med  = $br_med_limit;
+        $lim_high = $br_hi_limit;
+    } elsif ($covType eq 'function') {
+        $lim_med  = $fn_med_limit;
+        $lim_high = $fn_hi_limit;
+    } else {
+        die("unexpected cover type $covType");
+    }
     my $first = 1;
     # owners are sorted from most uncovered lines to least
     foreach my $od (@$ownerList) {
@@ -8918,7 +8952,7 @@ sub buildOwnerSummaryTable($$$$$$$$$)
         my $hit = $found - $missed;
 
         my $style =
-            $rate_name[classify_rate($found, $hit, $med_limit, $hi_limit)];
+            $rate_name[classify_rate($found, $hit, $lim_med, $lim_high)];
         my $rate = rate($hit, $found, '&nbsp;%');
 
         my $href = $name;
@@ -9374,10 +9408,11 @@ END_OF_HTML
         push(@row_right, \@headerRow);
     }
     # Line coverage
-    my $tot   = $summary->l_found();
-    my $hit   = $summary->l_hit();
-    my $style = $rate_name[classify_rate($tot, $hit, $med_limit, $hi_limit)];
-    my $rate  = rate($hit, $tot, "&nbsp;%");
+    my $tot = $summary->l_found();
+    my $hit = $summary->l_hit();
+    my $style =
+        $rate_name[classify_rate($tot, $hit, $ln_med_limit, $ln_hi_limit)];
+    my $rate = rate($hit, $tot, "&nbsp;%");
     $hit -= $tot
         if $main::opt_missed;    # negative number
     my @dataRow = ([undef, "headerItem", "Lines:"],
@@ -10439,8 +10474,9 @@ END_OF_HTML
             if (exists($funcLineCovMap->{$func})) {
                 my ($found, $hit) = @{$funcLineCovMap->{$func}};
                 # colorize based on hit proportion
-                my $style = $rate_name[classify_rate($found, $hit, $med_limit,
-                                                     $hi_limit)];
+                my $style =
+                    $rate_name[classify_rate($found, $hit, $ln_med_limit,
+                                             $ln_hi_limit)];
                 my $rate = rate($hit, $found, "&nbsp;%");
                 $lineProportionRow =
                     "<td class=coverPer$style>$rate ($hit / $found)</td>";

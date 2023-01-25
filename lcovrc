@@ -20,12 +20,33 @@
 # Default is LCOV tool version
 #genhtml_footer = My footer text
 
-# Specify coverage rate limits (in %) for classifying file entries
+# Specify global coverage rate limits (in %) for classifying file entries
 # HI:   hi_limit <= rate <= 100         graph color: green
 # MED: med_limit <= rate <  hi_limit    graph color: orange
 # LO:         0  <= rate <  med_limit   graph color: red
 genhtml_hi_limit = 90
 genhtml_med_limit = 75
+
+# Specify line coverage rate limits (in %) for classifying file entries
+# HI:  ln_hi_limit  <= rate <= 100            graph color: green
+# MED: ln_med_limit <= rate <  ln_hi_limit    graph color: orange
+# LO:            0  <= rate <  ln_med_limit   graph color: red
+# genhtml_line_hi_limit = 90
+# genhtml_line_med_limit = 75
+
+# Specify function coverage rate limits (in %) for classifying file entries
+# HI:  fn_hi_limit  <= rate <= 100            graph color: green
+# MED: fn_med_limit <= rate <  fn_hi_limit    graph color: orange
+# LO:            0  <= rate <  fn_med_limit   graph color: red
+# genhtml_function_hi_limit = 90
+# genhtml_function_med_limit = 75
+
+# Specify branch coverage rate limits (in %) for classifying file entries
+# HI:  br_hi_limit  <= rate <= 100            graph color: green
+# MED: br_med_limit <= rate <  br_hi_limit    graph color: orange
+# LO:            0  <= rate <  br_med_limit   graph color: red
+# genhtml_branch_hi_limit = 90
+# genhtml_branch_med_limit = 75
 
 # Ignore some errors during geninfo/lcov/genhtml processing - comma-separated
 # string.  Same as using "--ignore-errors a,b,c" command line option.
