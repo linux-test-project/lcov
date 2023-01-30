@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-#   Copyright (c) MediaTek USA Inc., 2020
+#   Copyright (c) MediaTek USA Inc., 2020-2022
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -25,19 +25,20 @@
 #use strict;
 use DateTime::Format::W3CDTF;
 use POSIX qw(strftime);
+use File::Basename qw(dirname basename);
 
 my $pathname = shift @ARGV;
 
 # set working directory to account for nested repos and submodules
-my $dirname = `dirname $pathname`;
-chomp $dirname;
-chdir $dirname;
+my $dirname  = dirname($pathname);
+my $basename = basename($pathname);
+chdir($dirname) or die("unable to 'cd $dirname': $!");
 
 if (0 == system("git rev-parse --show-toplevel >/dev/null 2>&1")) {
     # in a git repo
-    if (0 == system("git ls-files --error-unmatch $pathname >/dev/null 2>&1")) {
+    if (0 == system("git ls-files --error-unmatch $basename >/dev/null 2>&1")) {
         # matched a tracked pathname
-        if (open(HANDLE, "-|", "git blame -e $pathname")) {
+        if (open(HANDLE, "-|", "git blame -e $basename")) {
             while (my $line = <HANDLE>) {
                 chomp $line;
                 # Also remove CR from line-end
@@ -54,13 +55,17 @@ if (0 == system("git rev-parse --show-toplevel >/dev/null 2>&1")) {
                     # line owner filtering to canonical form
                     $owner =~ s/ dot /./g;
                     $owner =~ s/ at /\@/;
-                    # strip domain part (disable if using alternate policy below)
+                    # strip domain part (comment this out if using alternate
+                    #  policy below)
                     $owner =~ s/\@.*$//;
-                    ### Sample alternate policy for use in private annotation script
+
+                    ##################
+                    ## Sample policy for use in private annotation script
                     ## strip domain part for MediaTek line owners
                     #$owner =~ s/\@mediatek\.com//;
                     ## replace domain-qualified line owners with "Other"
                     #$owner =~ s/.*\@.*/Other/;
+                    ##################
 
                     # Convert Git date/time to diffcov canonical format
                     # replace space between date and time with 'T'
@@ -81,11 +86,11 @@ if (0 == system("git rev-parse --show-toplevel >/dev/null 2>&1")) {
 
 # fallthrough from error conditions
 
-my @stat = stat $pathname;
+my @stat = stat $basename;
 my $tz   = strftime("%z", localtime($stat[9]));
 $tz =~ s/([0-9][0-9])$/:\1/;
 my $mtime = strftime("%Y-%m-%dT%H:%M:%S", localtime($stat[9])) . $tz;
-if (open(HANDLE, $pathname)) {
+if (open(HANDLE, $basename)) {
     while (my $line = <HANDLE>) {
         chomp $line;
         # Also remove CR from line-end
