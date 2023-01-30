@@ -120,6 +120,14 @@ in Python - and may require additional Python packages.
 In particular, 'xlsxwriter' is required in order to generate any
 of the spreadsheet reports.
 
+In addition, contributors will need:
+
+  - perltidy
+
+Your platform may support other mechanisms to install and/or update
+required packages.
+
+
 
 4. An example of how to access Linux kernel coverage data
 ---------------------------------------------------------

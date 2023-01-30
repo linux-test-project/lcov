@@ -3753,6 +3753,9 @@ sub _read_info
         next if $skipCurrentFile;
 
         # Switch statement
+        # Please note:  if you add or change something here (lcov info file format) -
+        #   then please make corresponding changes to the 'write_info' method, below
+        #   and update the format description found in .../man/geninfo.1.
         foreach ($line) {
             /^VER:(.+)$/ && do {
                 # revision control version string found
@@ -4129,6 +4132,9 @@ sub write_info($$$)
         $br_total_found += $br_found;
         $br_total_hit   += $br_hit;
 
+        # Please note:  if you add or change something here (lcov info file format) -
+        #   then please make corresponding changes to the '_read_info' method, above
+        #   and update the format description found in .../man/geninfo.1.
         foreach my $testname (sort($testdata->keylist())) {
             my $testcount    = $testdata->value($testname);
             my $testfnccount = $testfncdata->value($testname);
