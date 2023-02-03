@@ -98,7 +98,7 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
 
                  apply_rc_params
                  strip_directories transform_pattern
-                 $extractVersionScript $verify_checksum
+                 @extractVersionScript $verify_checksum
 
                  $maxParallelism init_parallel_params $maxMemory
   );
@@ -185,7 +185,7 @@ our $no_checksum;        # If set, don't calculate a checksum for each line
 our $compat_libtool;     # If set, indicates that libtool mode is to be enabled
 our $no_compat_libtool;  # If set, indicates that libtool mode is to be disabled
 
-our $gcov_tool;
+our @gcov_tool;
 our @opt_ignore_errors;
 our @opt_filter;
 our $initial;
@@ -264,7 +264,7 @@ lcovutil::apply_rc_params(
                'substitute'                  => \@rc_subst_patterns,
                'omit_lines'                  => \@rc_omit_patterns,
                'erase_functions'             => \@rc_erase_patterns,
-               "version_script"        => \$lcovutil::extractVersionScript,
+               "version_script"        => \@lcovutil::extractVersionScript,
                "checksum"              => \$lcovutil::verify_checksum,
                "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
               });
@@ -307,7 +307,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
                 "no-checksum"          => \$no_checksum,
                 "compat-libtool"       => \$compat_libtool,
                 "no-compat-libtool"    => \$no_compat_libtool,
-                "gcov-tool=s"          => \$gcov_tool,
+                "gcov-tool=s"          => \@gcov_tool,
                 "demangle-cpp"         => \$lcovutil::cpp_demangle,
                 "branch-coverage"      => \$br_coverage,
                 "ignore-errors=s"      => \@opt_ignore_errors,
@@ -337,7 +337,7 @@ if (!GetOptions("directory|d|di=s"     => \@directory,
                 "rc=s%"                => \%unsupported_rc,
                 "fail-under-lines=s"   => \$opt_fail_under_lines,
                 "profile:s"            => \$lcovutil::profile,
-                "version-script=s"     => \$lcovutil::extractVersionScript,
+                "version-script=s"     => \@lcovutil::extractVersionScript,
                 "checksum"             => \$lcovutil::verify_checksum,
                 "parallel|j:i"         => \$lcovutil::maxParallelism,
                 "memory=i"             => \$lcovutil::maxMemory,
@@ -965,8 +965,8 @@ sub lcov_geninfo(@)
     } elsif ($compat_libtool) {
         push(@param, "--compat-libtool");
     }
-    if ($gcov_tool) {
-        push(@param, "--gcov-tool", $gcov_tool);
+    foreach my $arg (@gcov_tool) {
+        push(@param, "--gcov-tool", $arg);
     }
     if (defined($lcovutil::stop_on_error) && $lcovutil::stop_on_error == 0) {
         push(@param, "--keep-going");
@@ -1023,8 +1023,8 @@ sub lcov_geninfo(@)
     foreach (@lcovutil::exclude_file_patterns) {
         push(@param, "--exclude", $_);
     }
-    if (defined $lcovutil::extractVersionScript) {
-        push(@param, "--version-script", $lcovutil::extractVersionScript);
+    foreach my $seg (@lcovutil::extractVersionScript) {
+        push(@param, "--version-script", $seg);
     }
     foreach (@lcovutil::file_subst_patterns) {
         push(@param, "--substitute", $_);

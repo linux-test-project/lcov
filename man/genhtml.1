@@ -116,6 +116,8 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .br
 .RB [ \-\-elide\-path\-mismatch]
 .br
+.RB [ \-\-synthesize\-missing]
+.br
 .RB [ \-\-date\-bins
 .IR day[,day,...]]
 .br
@@ -504,7 +506,7 @@ These scripts post\-process the 'p4' or 'git' output to (optionally) remove file
   diff [optional header strings]
   === file_path
 
-in the p4diff/gitdiff output) as this knowledge will help to suppres spurious 'path mismatch' warnings.  See the
+in the p4diff/gitdiff output) as this knowledge will help to suppress spurious 'path mismatch' warnings.  See the
 .I \-\-elide\-path\-mismatch
 option, below.
 
@@ -515,27 +517,51 @@ when you specify
 Both are needed for differential coverage categorization.
 
 .RE
-.BI "\-\-annotate\-script " source\-annotation\-script
+.BI "\-\-annotate\-script " source_annotation_string
 .RS
 Use the
-.I source\-annotation\-script
-to supply age and ownership data for each source line. The script is
-required to filter data supplied by the revision management system, and
+.I source_annotation_string
+callback to supply age and ownership data for each source line.
+The callback script is expected to filter data supplied by the revision management system, and
 represent it in the format expected by
 .BR genhtml .
-'source\-annotation\-script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the filename) when the script is executed.  Parameter order is 'str[0] file_name str[1:]'.
+'source_annotation_string is treated as a (possibly space\-separated) string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the filename) when the script is executed.  Parameter order is
+.I source_annotation_string 'file_name'.
+Spaces in the script name will be treated as argument delimeters by the shell - and may need additional quotation.  Note that the filename is quoted when
+passed to the shell (to handle filenames which contain spaces).
+
+If the
+.I \-\-annotate\-script
+option is used multiple times, then the arguments are concatenated when the callback
+is executed - similar to how the gcc
+.I \-Xlinker
+parameter works.  This provides a possibly easier way to pass arguments to
+your callback without worrying about shell expansions.
+In that case, your callback will be executed as:
+.I source_annotation_string\-0 'source_annotation_string\-1' ... 'filename'.
+Note that the second and subsequent arguments are quoted when passed to
+the shell, in order to handle parameters which contain spaces.
+
 When a
-.I source\-annotation\-script
+.I source_annotation_strring
 is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
 Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support\-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.  Also, see the \-\-version\-script option - which is used to check that the file version found locally matches the version whose coverage data was captured.
 
 .RE
-.BI "\-\-criteria\-script " coverage\-criteria\-script
+.BI "\-\-criteria\-script " coverage_criteria_script
 .RS
 Use the
-.I coverage\-criteria\-script
+.I coverage_criteria_script
 to enable genhtml to determine whether your coverage criteria is satisfied or not.
-coverage\-criteria\-script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the 'name' and 'type' and JSON coverage data) when the script is executed.  The script callback is executed for every 'summary' coverage data element:  leaf level file, containig directory, and top\-level report if any).  Parameter order is "str[0] name type 'json-string' str[1:]", where "name" is the file or directory name (or "top" in the case of the top\-level report), "type" is the callback type:  "file", "directory", or "top", and "json-string" is a JSON representation of the corresponding line/function/branch coverage data.
+coverage_criteria_script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the 'name' and 'type' and JSON coverage data) when the script is executed.  The script callback is executed for every 'summary' coverage data element:  leaf level file, containig directory, and top\-level report if any).  The callback is passed to the shell as:
+.I coverage_criteria_script 'name' type 'json-string'
+where "name" is the file or directory name (or "top" in the case of the top\-level report), "type" is the callback type:  "file", "directory", or "top", and "json-string" is a JSON representation of the corresponding line/function/branch coverage data.  The callback parameters are quoted in order to handle embedded spaces.
+
+If the
+.I \-\-criteria\-script
+option is used multiple times, then the arguments are concatenated when the callback is executed.  See the
+.I \-\-annotate\-script
+description, above.
 
 The script should return 0 (zero) if your criteria is met and non\-zero otherwise.  If desired, it may print a single line output string which will be appended to the error log if the return status is non\-zero.  Additionally, non\-empty lines are appended to the genhtml log (stdout).
 
@@ -546,28 +572,37 @@ It is not difficult to create another script which mimics the LOCV '\-\-fail\-\u
 .RE
 
 .B \-\-version\-script
-.I script_file
+.I version_script_file
 .br
 .RS
-call script_file to find file ID from revision control when generating HTML or applying source filters (see \-\-filter option).
+Use
+.I version_script_file
+to find file ID from revision control when generating HTML or applying source filters (see \-\-filter option).
 The ID is used to check the version ID of the source file which is loaded against the version ID which was used to generate coverage data (i.e., the file version seen by lcov/geninfo).  It is important that source code versions match - otherwise inconsistent or confusing results may be produced.  Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - e.g., when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revions.
 
 The script will be called as either:
 
 .B
-.I script_file source_file_name
+.I version_script_file 'source_file_name'
 .br
 It should write the version ID to stdout and return a 0 exit status.
 If the file has is not versioned, it should write an empty string and return a 0 exit status, OR
 
 .B
-.I script_file \-\-compare source_file_name source_file_id info_file_id
+.I version_script_file \-\-compare 'source_file_name' 'source_file_id' 'info_file_id'
 .br
 It should return non\-zero if the IDs do not match.
-\'source_file_id\' is the ID returned by calling "script_file source_file_name", and \'info_file_id\' is the ID found in the corresponding .info file.
-\'script_file\' is used both to generate and to compare the signature to enable you to retain history between calls or to do more complex processing to determine equivalence.
+\'source_file_id\' is the ID returned by calling "version_script_file source_file_name", and \'info_file_id\' is the ID found in the corresponding .info file.
+\version_'script_file\' is used both to generate and to compare the signature to enable you to retain history between calls or to do more complex processing to determine equivalence.
 
 Note that you must use the same script/same mechanism to determine the file version when you extract, merge, and display coverage data - otherwise, you may see spurious mismatch reports.
+
+If the
+.I \-\-version\-script
+option is used multiple times, then the arguments are concatenated when the callback is executed.  See the
+.I \-\-annotate\-script
+description, above.
+
 
 Please see sample scripts
 .I share/lcov/support-scripts/getp4version
@@ -635,9 +670,15 @@ When this option is specified, genhtml will pretend that the unified\-diff\-file
 .RE
 
 See the
-I
-\-\-diff\-file unified\-diff\-file
+.I \-\-diff\-file unified\-diff\-file
 discussion above for a discussion of how to avoid spurious warnings and/or incorrect matches.
+
+.RE
+.BI "\-\-synthesize\-missing"
+.RS
+
+Generate (fake) file content if source file does not exist.
+This option can be used to work around otherwise fatal annotation errors.
 
 .RE
 .BI "\-\-date\-bins " day[,day,...]

@@ -1130,7 +1130,9 @@ Specify the location of the gcov tool (see
 which is used to generate coverage information from data files.
 .br
 
-Default is 'gcov'.
+This option can be used multiple times - e.g., to add arguments to the gcov
+callback.  See the geninfo man page for details.
+
 .PP
 
 .BR geninfo_adjust_testname " ="
@@ -1523,7 +1525,7 @@ This option is used by genhtml, lcov, and geninfo.
 This option is equivalent to the "genhtml \-\-date\-bins" option.
 See the genhtml man page for details.
 
-This option can be used multiple tiems in the lcovrc file to set multiple cutpoints.
+This option can be used multiple times in the lcovrc file to set multiple cutpoints.
 The cutpoints specified in the lcovrc file are appended to the cutpoints (if any) specified on the command line.
 
 .PP
@@ -1532,6 +1534,9 @@ The cutpoints specified in the lcovrc file are appended to the cutpoints (if any
 .IR path_to_executable
 .IP
 This option is equivalent to the "genhtml \-\-annotate\-script" option.
+
+This option can be used multiple times in the lcovrc file to specify both an annotateion script and additional options which are passed to the script.
+
 See the genhtml man page for details.
 
 .PP
@@ -1540,6 +1545,9 @@ See the genhtml man page for details.
 .IR path_to_executable
 .IP
 This option is equivalent to the "genhtml \-\-criteria\-script" option.
+
+This option can be used multiple times in the lcovrc file to specify both a criteria script and additional options which are passed to the script.
+
 See the genhtml man page for details.
 
 .PP
@@ -1548,6 +1556,9 @@ See the genhtml man page for details.
 .IR path_to_executable
 .IP
 This option is equivalent to the geninfo/lcov/genhtml "\-\-version\-script" option.
+
+This option can be used multiple times in the lcovrc file to specify both a version script and additional options which are passed to the script.
+
 See the genhtml man page for details.
 
 .PP
@@ -1559,7 +1570,7 @@ See the genhtml man page for details.
 This option is equivalent to the \-\-filter option to geninfo, lcov, and genhtml.
 See the genhtml man page for details.
 
-This option can be used multiple tiems in the lcovrc file to enable multiple filters.
+This option can be used multiple times in the lcovrc file to enable multiple filters.
 The filters specified in the lcovrc file are appended to the list specified on the command line.
 
 .br
@@ -1574,7 +1585,7 @@ This option is used by genhtml, lcov, and geninfo.
 This option is equivalent to the \-\-exclude option to geninfo, lcov, and genhtml.
 See the lcov man page for details.;
 
-This option can be used multiple tiems in the lcovrc file to specify multiple patterns to exclude.
+This option can be used multiple times in the lcovrc file to specify multiple patterns to exclude.
 The patterns specified in the lcovrc file are appended to the list specified on the command line.
 
 .br
@@ -1589,7 +1600,7 @@ This option is used by genhtml, lcov, and geninfo.
 This option is equivalent to the \-\-include option to geninfo, lcov, and genhtml.
 See the lcov man page for details.;
 
-This option can be used multiple tiems in the lcovrc file to specify multiple patterns to include.
+This option can be used multiple times in the lcovrc file to specify multiple patterns to include.
 The patterns specified in the lcovrc file are appended to the list specified on the command line.
 
 .br
@@ -1604,7 +1615,7 @@ This option is used by genhtml, lcov, and geninfo.
 This option is equivalent to the \-\-substitute option to geninfo, lcov, and genhtml.
 See the lcov man page for details.;
 
-This option can be used multiple tiems in the lcovrc file to specify multiple subsitution patterns.
+This option can be used multiple times in the lcovrc file to specify multiple subsitution patterns.
 The patterns specified in the lcovrc file are appended to the list specified on the command line.
 
 .br
@@ -1619,7 +1630,7 @@ This option is used by genhtml, lcov, and geninfo.
 This option is equivalent to the \-\-omit\-lines option to geninfo, lcov, and genhtml.
 See the genhtml man page for details.
 
-This option can be used multiple tiems in the lcovrc file to specify multiple patterns to exclude.
+This option can be used multiple times in the lcovrc file to specify multiple patterns to exclude.
 The patterns specified in the lcovrc file are appended to the list specified on the command line.
 
 .br
@@ -1632,7 +1643,7 @@ This option is used by genhtml, lcov, and geninfo.
 This option is equivalent to the \-\-erase\-functions option to geninfo, lcov, and genhtml.
 See the genhtml man page for details.
 
-This option can be used multiple tiems in the lcovrc file to specify multiple patterns to exclude.
+This option can be used multiple times in the lcovrc file to specify multiple patterns to exclude.
 The patterns specified in the lcovrc file are appended to the list specified on the command line.
 
 .br

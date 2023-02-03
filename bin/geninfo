@@ -82,7 +82,7 @@ use lcovutil qw (define_errors parse_ignore_errors
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
                  munge_file_patterns warn_file_patterns
-                 $extractVersionScript
+                 @extractVersionScript
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_PACKAGE
                  $ERROR_EMPTY $ERROR_PARALLEL $ERROR_UNSUPPORTED
@@ -97,7 +97,7 @@ if ($^O eq "msys") {
 }
 
 # Constants
-our $gcov_tool = "gcov";
+our @gcov_tool;
 
 our $GCOV_VERSION_8_0_0 = 0x80000;
 our $GCOV_VERSION_4_7_0 = 0x40700;
@@ -247,7 +247,6 @@ our $no_markers           = 0;
 our $opt_derive_func_data = 0;
 our $opt_external;
 our $gcov_caps;
-our @gcov_options;
 our @opt_config_file;
 our $opt_gcov_all_blocks          = 1;
 our $opt_adjust_unexecuted_blocks = 0;
@@ -287,7 +286,7 @@ my (@rc_filter, @rc_ignore,
 if (lcovutil::apply_rc_params(
               \@opt_config_file,
               {
-               "geninfo_gcov_tool"       => \$gcov_tool,
+               "geninfo_gcov_tool"       => \@gcov_tool,
                "geninfo_adjust_testname" => \$adjust_testname,
                "geninfo_checksum"        => \$lcovutil::verify_checksum,
                "checksum"                => \$lcovutil::verify_checksum,
@@ -321,7 +320,7 @@ if (lcovutil::apply_rc_params(
                'substitute'                  => \@rc_subst_patterns,
                'omit_lines'                  => \@rc_omit_patterns,
                'erase_functions'             => \@rc_erase_patterns,
-               "version_script" => \$lcovutil::extractVersionScript,
+               "version_script" => \@lcovutil::extractVersionScript,
               }
 )) {
     # we set some RC values...
@@ -378,7 +377,7 @@ if (!GetOptions("test-name|t=s"       => \$test_name,
                 "follow|f"            => \$follow,
                 "compat-libtool"      => \$opt_compat_libtool,
                 "no-compat-libtool"   => \$opt_no_compat_libtool,
-                "gcov-tool=s"         => \$gcov_tool,
+                "gcov-tool=s"         => \@gcov_tool,
                 "ignore-errors=s"     => \@ignore_errors,
                 "keep-going"          => \$keepGoing,
                 "filter=s"            => \@opt_filter,
@@ -398,7 +397,7 @@ if (!GetOptions("test-name|t=s"       => \$test_name,
                 "compat=s"            => \$opt_compat,
                 "config-file=s"       => \@unsupported_config,
                 "rc=s%"               => \%unsupported_rc,
-                "version-script=s"    => \$lcovutil::extractVersionScript,
+                "version-script=s"    => \@lcovutil::extractVersionScript,
                 "profile:s"           => \$lcovutil::profile,
                 "parallel|j:i"        => \$lcovutil::maxParallelism,
                 "memory=i"            => \$lcovutil::maxMemory,
@@ -472,9 +471,14 @@ if ($version) {
     exit(0);
 }
 
+if (0 == scalar(@gcov_tool)) {
+    # not specified - use gcov by default - expected to be in user's path
+    push(@gcov_tool, 'gcov');
+}
 # Check gcov tool
-if (system_no_output(3, $gcov_tool, "--help") == -1) {
-    die("ERROR: need tool $gcov_tool!\n");
+if (system_no_output(3, @gcov_tool, "--help") == -1) {
+    die("ERROR: failed execution of gcov_tool \"" .
+        join(' ', @gcov_tool) . " --help\": $!");
 }
 
 ($gcov_version, $gcov_version_string) = get_gcov_version();
@@ -523,22 +527,22 @@ if ($no_exception_br && ($gcov_version < $GCOV_VERSION_3_3_0)) {
 }
 
 # Determine gcov options
-push(@gcov_options, "-b")
+push(@gcov_tool, "-b")
     if ($gcov_caps->{'branch-probabilities'} &&
         ($br_coverage || $func_coverage || $opt_adjust_unexecuted_blocks));
-push(@gcov_options, "-c") if ($gcov_caps->{'branch-counts'} &&
-                              $br_coverage);
-push(@gcov_options, "-a")
+push(@gcov_tool, "-c") if ($gcov_caps->{'branch-counts'} &&
+                           $br_coverage);
+push(@gcov_tool, "-a")
     if ($gcov_caps->{'all-blocks'} &&
         $opt_gcov_all_blocks &&
         $br_coverage         &&
         !$intermediate);
 if ($gcov_caps->{'hash-filenames'}) {
-    push(@gcov_options, "-x");
+    push(@gcov_tool, "-x");
 } else {
-    push(@gcov_options, "-p") if ($gcov_caps->{'preserve-paths'});
+    push(@gcov_tool, "-p") if ($gcov_caps->{'preserve-paths'});
 }
-push(@gcov_options, '-i') if $intermediate;
+push(@gcov_tool, '-i') if $intermediate;
 
 # Determine compatibility modes
 parse_compat_modes($opt_compat);
@@ -1346,13 +1350,13 @@ sub process_dafile($$$$)
     # HGC: what we really want to do is to redirect stdout/stderr
     #  unless verbose - but echo them for non-zero exit status.
     my $now = Time::HiRes::gettimeofday();
-    debug("$gcov_tool $base_dir/$da_filename -o $object_dir " .
-          join(" ", @gcov_options) . "\n");
+    debug("call gcov: " .
+          join(' ', @gcov_tool) . " $base_dir/$da_filename -o $object_dir\n");
     lcovutil::info(2, "process $base_dir/$da_filename in $tempdir\n");
     my ($out, $err, $code) =
         system_no_output(1 + 2 + 4,
-                         $gcov_tool, "$base_dir/$da_filename",
-                         "-o", $object_dir, @gcov_options);
+                         @gcov_tool, "$base_dir/$da_filename",
+                         "-o", $object_dir);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{exec}{$dirname}{$file} = $then - $now;
 
@@ -1470,7 +1474,7 @@ sub process_dafile($$$$)
             my $branchMap   = $fileData->testbr($test_name);
             my $lineMap     = $fileData->test($test_name);
 
-            if (defined($lcovutil::extractVersionScript) &&
+            if (@lcovutil::extractVersionScript &&
                 -f $source_filename) {
                 my $version = lcovutil::extractFileVersion($source_filename);
                 $fileData->version($version)
@@ -2156,7 +2160,7 @@ sub intermediate_text_to_info($)
         my $branchMap   = $fileData->testbr($test_name);
         my $lineMap     = $fileData->test($test_name);
 
-        if (defined($lcovutil::extractVersionScript) &&
+        if (@lcovutil::extractVersionScript &&
             -f $filename) {
             my $version = lcovutil::extractFileVersion($filename);
             $fileData->version($version)
@@ -2280,7 +2284,7 @@ sub intermediate_json_to_info($)
         my $branchMap   = $fileData->testbr($test_name);
         my $lineMap     = $fileData->test($test_name);
 
-        if (defined($lcovutil::extractVersionScript) &&
+        if (@lcovutil::extractVersionScript &&
             -f $filename) {
             my $version = lcovutil::extractFileVersion($filename);
             $fileData->version($version)
@@ -2406,8 +2410,8 @@ our $gcov_tool_path;
 sub get_gcov_tool_path
 {
     if (!defined($gcov_tool_path)) {
-        open(GCOV_PIPE, "-|", "which \"$gcov_tool\"") or
-            die("ERROR: cannot execute 'which \"$gcov_tool\": $!\n");
+        open(GCOV_PIPE, "-|", "which \"$gcov_tool[0]\"") or
+            die("ERROR: cannot execute 'which \"$gcov_tool[0]\": $!\n");
         local $/;
         my $which = <GCOV_PIPE>;
         $which =~ /^\s*(\S+)\s*$/;
@@ -2517,10 +2521,9 @@ sub process_intermediate($$$$)
     }
 
     # Run gcov on data file
-    debug("$gcov_tool $data_file " . join(" ", @gcov_options) . "\n");
+    debug("gcov: " . join(' ', @gcov_tool) . " $data_file\n");
     my $now = Time::HiRes::gettimeofday();
-    ($out, $err, $rc) =
-        system_no_output(1 + 2 + 4, $gcov_tool, $data_file, @gcov_options);
+    ($out, $err, $rc) = system_no_output(1 + 2 + 4, @gcov_tool, $data_file);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{exec}{$dirname}{$filename} = $then - $now;
     print_gcov_warnings('stdout', $out, $is_graph, {$data_file => $file,})
@@ -2672,7 +2675,7 @@ sub get_gcov_version()
         lcovutil::info("gcov is '$which'\n");
     }
 
-    open(GCOV_PIPE, "-|", "\"$gcov_tool\" --version") or
+    open(GCOV_PIPE, "-|", "\"$gcov_tool[0]\" --version") or
         die("ERROR: cannot retrieve gcov version: $!\n");
     local $/;
     $version_string = <GCOV_PIPE>;
@@ -2804,7 +2807,7 @@ sub process_graphfile($$$)
         my $functionMap = $fileData->testfnc($test_name);
         my $lineMap     = $fileData->test($test_name);
 
-        if (defined($lcovutil::extractVersionScript) &&
+        if (@lcovutil::extractVersionScript &&
             -f $filename) {
             my $version = lcovutil::extractFileVersion($filename);
             $fileData->version($version)
@@ -4031,8 +4034,8 @@ sub read_gcno($)
 
 sub get_gcov_capabilities()
 {
-    my $help = `"$gcov_tool" --help`;
-    die("Error return code from '\"$gcov_tool\" --help': $!")
+    my $help = `"$gcov_tool[0]" --help`;
+    die("Error return code from '\"$gcov_tool[0]\" --help': $!")
         if ($?);
     my %capabilities;
     my %short_option_translations = ('a' => 'all-blocks',

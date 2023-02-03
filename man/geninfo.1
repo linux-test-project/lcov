@@ -394,6 +394,28 @@ Follow links when searching .da files.
 .br
 .RS
 Specify the location of the gcov tool.
+
+If the
+.I \-\-gcov\-tool
+option is used multiple times, then the arguments are concatenated when the callback
+is executed - similar to how the gcc
+.I \-Xlinker
+parameter works.  This provides a possibly easier way to pass arguments to
+your tool, without requiring a wrapper script.
+In that case, your callback will be executed as:
+.I tool\-0 'tool\-1; ... 'filename'.
+Note that the second and subsequent arguments are quoted when passed to
+the shell, in order to handle parameters which contain spaces.
+
+A common use for this option is to enable LLVM:
+.br
+.RS
+.I geninfo \-\-gcov-tool llvm-cov \-\-gcov-tool gcov -o lcov.info ...
+.RE
+(Use "llvm-cov gcov da_file_name ..." to capture LLVM coverage data in gcov-comptible form.)
+
+If not specified, 'gcov' is used by default.
+
 .RE
 
 .B \-h

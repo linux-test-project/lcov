@@ -54,7 +54,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
-     $extractVersionScript $verify_checksum
+     @extractVersionScript $verify_checksum
 
      is_external @internal_dirs $opt_no_external
      rate get_overall_line $default_precision check_precision
@@ -125,7 +125,7 @@ our $cpp_demangle;
 our $cpp_demangle_tool   = "c++filt"; # Default demangler for C++ function names
 our $cpp_demangle_params = "";        # Extra parameters for demangling
 
-our $extractVersionScript;   # script/callback to find version ID of file
+our @extractVersionScript;   # script/callback to find version ID of file
 our $verify_checksum;        # compute and/or check MD5 sum of source code lines
 
 # Specify coverage rate default precision
@@ -1276,12 +1276,12 @@ sub extractFileVersion
     my $filename = shift;
 
     return undef
-        unless defined($extractVersionScript);
+        unless @extractVersionScript;
 
     die("$filename does not exist")
         unless -f $filename;
     my $version;
-    my $cmd = "$extractVersionScript $filename";
+    my $cmd = join(' ', @extractVersionScript) . " '$filename'";
     lcovutil::debug(1, "extractFileVersion: $cmd\n");
     if (open(VERS, "-|", $cmd)) {
         $version = <VERS>;
@@ -1301,8 +1301,11 @@ sub checkVersionMatch
     my ($filename, $me, $you) = @_;
 
     my $match;
-    if ($extractVersionScript) {
-        my $rtn = `$extractVersionScript --compare $you $me $filename`;
+    if (@extractVersionScript) {
+        my $cmd = join(' ', @extractVersionScript) .
+            " --compare '$you' '$me' '$filename'";
+        lcovutil::debug("compare_version: \"$cmd\"\n");
+        my $rtn = `$cmd`;
         $match = $? ? 0 : 1;
     } else {
         $match = $me eq $you;    # simple string compare
@@ -2909,7 +2912,7 @@ sub setData
         0 != scalar(@$data)) {
         $self->parseLines($filename, $data);
     } else {
-        $self->open($filename, $lcovutil::extractVersionScript);
+        $self->open($filename, join(' ', @lcovutil::extractVersionScript));
     }
 }
 

@@ -300,7 +300,7 @@ sub gen_png($$$$$@);
 
 package SummaryInfo;
 
-our $coverageCriteriaScript;
+our @coverageCriteriaScript;
 our %coverageCriteria;              # hash of name->(type, success 0/1, string)
 our $coverageCriteriaStatus = 0;    # set to non-zero if we see any errors
 
@@ -1054,7 +1054,7 @@ sub b_hit
 sub checkCoverageCriteria
 {
     my $self = shift;
-    return unless defined $coverageCriteriaScript;
+    return unless @coverageCriteriaScript;
 
     my %data;
     foreach my $t ('line', 'function', 'branch') {
@@ -1070,13 +1070,12 @@ sub checkCoverageCriteria
             }
         }
     }
-    my $json = JsonSupport::encode(\%data);          # imported from lcovutil.pm
-    my @cmd  = split(' ', $coverageCriteriaScript);
-    splice(@cmd, 1, 0,
-           "'" . ($self->type() eq 'top' ? 'top' : $self->name()) . "'",
-           $self->type(), "'" . $json . "'");
+    my $json = JsonSupport::encode(\%data);    # imported from lcovutil.pm
+    my $cmd =
+        join(' ', @coverageCriteriaScript) .
+        ' \'' . ($self->type() eq 'top' ? 'top' : $self->name()) .
+        '\' \'' . $self->type() . '\' \'' . $json . '\'';
     # command:  script name (top|dir|file) jsonString args..
-    my $cmd = join(' ', @cmd);
     lcovutil::info(1, "criteria: '$cmd'\n");
     if (open(HANDLE, "-|", $cmd)) {
         my @msg;
@@ -3318,7 +3317,7 @@ sub text
 }
 
 package SourceFile;
-our $annotateScript;
+our @annotateScript;
 
 sub new
 {
@@ -3401,7 +3400,7 @@ sub _countBranchTlaData
     my %foundBranchTlas;
     my ($src_age, $developer, $srcLine);
     my $lineTla = $lineData->tla();
-    if (defined($SourceFile::annotateScript) &&
+    if (@SourceFile::annotateScript &&
         'D' ne substr($lineTla, 0, 1)) {
         # deleted lines don't have owner data...
         $srcLine = $self->line($line);
@@ -4026,12 +4025,22 @@ sub _load
 {
     my ($self, $countdata, $currentVersion) = @_;
 
-    my $start  = Time::HiRes::gettimeofday();
-    my $lineno = 0;
-    local *HANDLE;    # File handle for reading the diff file
+    my $start = Time::HiRes::gettimeofday();
+
+    if (!(-r $self->path())) {
+        if ($main::synthesizeMissingFile) {
+            $self->_synthesize($countdata);
+            my $end = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{synth}{$self->path()} = $end - $start;
+            return $self;
+        }
+        die($self->path() .
+                " is not readble or doesn't exist. See --syntheszie-missing option for workaround."
+        );
+    }
 
     # check for version mismatch...
-    if ($lcovutil::extractVersionScript) {
+    if (@lcovutil::extractVersionScript) {
         my $version = lcovutil::extractFileVersion($self->path());
 
         lcovutil::checkVersionMatch($self->path(), $version, $currentVersion);
@@ -4040,14 +4049,8 @@ sub _load
     }
 
     #stat($annotateScript);
-    if (!defined($annotateScript)) {
+    if (0 == scalar(@annotateScript)) {
         # Check if file exists and is readable
-        if (!(-r $self->path())) {
-            $self->_synthesize($countdata);
-            my $end = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{synth}{$self->path()} = $end - $start;
-            return $self;
-        }
         my $begin = Time::HiRes::gettimeofday();
         $self->_bare_load();
         my $end = Time::HiRes::gettimeofday();
@@ -4055,15 +4058,24 @@ sub _load
         return $self;
     }
 
-    my $begin     = Time::HiRes::gettimeofday();
+    my $begin = Time::HiRes::gettimeofday();
+    # try to simplify path - 'realpath' will fail if the file does
+    #   not exist - but that might be fine if it exists in the repo
     my $repo_path = Cwd::realpath($self->path());
+    if (!defined($repo_path)) {
+        lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
+                           "\"" . $self->path() . "\" does not exist: $!" .
+                               " (see --synthesize-missing option to work around)"
+        );
+        $repo_path = $self->path();
+    }
 
     my $lineNum = 0;
-    my @cmd     = split(' ', $annotateScript);
-    splice(@cmd, 1, 0, $repo_path);
-    my $cmd = join(' ', @cmd);
+    my @cmd     = @annotateScript;
+    my $cmd     = join(' ', @cmd) . ' ' . $repo_path;
     lcovutil::info(1, "annotate: '$cmd'\n");
     my $found;    # check that either all lines are annotated or none are
+    local *HANDLE;
     if (open(HANDLE, "-|", $cmd)) {
         while (my $line = <HANDLE>) {
             chomp $line;
@@ -4104,7 +4116,8 @@ sub _load
                                   "non-zero exit status from annotate '$cmd' pipe"
             );
     } else {
-        print("Error: 'open(-| $cmd)' failed: \"$!\"\n");
+        lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
+                                  "'open(-| $cmd)' failed: \"$!\"\n");
     }
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{annotate}{$self->path()} = $end - $begin;
@@ -4499,7 +4512,8 @@ sub compute
         #  top-level 'flat' view
         $selfSummary->relativeDir($rel_dir);
 
-        File::Path::make_path($rel_dir) unless -d $rel_dir;
+        my $p = File::Spec->catdir($main::output_directory, $rel_dir);
+        File::Path::make_path($p) unless -d $p;
         my $base_dir  = main::get_relative_base_path($rel_dir);
         my $trunc_dir = ($rel_dir eq '') ? 'root' : $rel_dir;
 
@@ -4778,6 +4792,8 @@ our $elide_path_mismatch =
           # data matches some name in the 'diff' file such that
           # the basename is the same but the pathname is different
           # - then pretend that the names DID match
+our $synthesizeMissingFile =
+    0;    # create file content if not found for annotation
 our $hierarchical = 0;    # if true: show directory hierarchy
                           # default: legacy two-level report
 our $flat         = 0;    # if true: single table of all files in top level
@@ -4879,8 +4895,8 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "genhtml_flat_view"       => \$flat,
                            "genhtml_show_havigation" => \$show_tla,
                            "genhtml_show_function_proportion" => \$show_functionProportions,
-                           'genhtml_annotate_script' => \$SourceFile::annotateScript,
-                           'genhtml_criteria_script' => \$SummaryInfo::coverageCriteriaScript,
+                           'genhtml_annotate_script' => \@SourceFile::annotateScript,
+                           'genhtml_criteria_script' => \@SummaryInfo::coverageCriteriaScript,
                            'genhtml_date_bins' => \@rc_datebins,
 
                            "lcov_tmp_dir"     => \$lcovutil::tmp_dir,
@@ -4906,7 +4922,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            'substitute'      => \@rc_subst_patterns,
                            'omit_lines'      => \@rc_omit_patterns,
                            'erase_functions' => \@rc_erase_patterns,
-                           "version_script" => \$lcovutil::extractVersionScript,
+                           "version_script" => \@lcovutil::extractVersionScript,
                            "checksum"       => \$lcovutil::verify_checksum,
                            "suppress_function_aliases" =>
                                \$suppress_function_aliases,
@@ -4947,12 +4963,13 @@ if (!GetOptions("output-directory|o=s" => \$output_directory,
                 "baseline-date=s"      => \$baseline_date,
                 "current-date=s"       => \$current_date,
                 "diff-file=s"          => \$diff_filename,
-                "annotate-script=s"    => \$SourceFile::annotateScript,
-                "criteria-script=s"    => \$SummaryInfo::coverageCriteriaScript,
-                "version-script=s"     => \$lcovutil::extractVersionScript,
+                "annotate-script=s"    => \@SourceFile::annotateScript,
+                "criteria-script=s"    => \@SummaryInfo::coverageCriteriaScript,
+                "version-script=s"     => \@lcovutil::extractVersionScript,
                 "checksum"             => \$lcovutil::verify_checksum,
                 "new-file-as-baseline" => \$treatNewFileAsBaseline,
                 'elide-path-mismatch'  => \$elide_path_mismatch,
+                'synthesize-missing'   => \$synthesizeMissingFile,
                 # if 'show-owners' is set: generate the owner table
                 #    if it is passed a value: show all the owners,
                 #    regardless of whether thay have uncovered code or not
@@ -5059,7 +5076,7 @@ if ($show_tla && !defined($base_filename)) {
     SummaryInfo::noBaseline();
 }
 
-if ($SourceFile::annotateScript) {
+if (@SourceFile::annotateScript) {
     eval {
         require DateTime::Format::W3CDTF;
         DateTime::Format::W3CDTF->import();
@@ -5069,11 +5086,11 @@ if ($SourceFile::annotateScript) {
             "package DateTime::Format::W3CDTF is required to compute code agae when annotations are enabled: $@"
         );
         # OK..user ignored the error - so turn off annotations.
-        undef $SourceFile::annotateScript;
+        @SourceFile::annotateScript = ();
     }
 }
 
-if ($SourceFile::annotateScript) {
+if (@SourceFile::annotateScript) {
     $show_dateBins = 1;
     if (0 == scalar(@datebins)) {
         # default: 7, 30, 180 days
@@ -5285,7 +5302,7 @@ $lcovutil::profileData{overall} = $then - $now;
 my $exit_status = 0;
 
 # now check the coverage criteria (if any)
-if (defined($SummaryInfo::coverageCriteriaScript)) {
+if (@SummaryInfo::coverageCriteriaScript) {
     # print the criteria summary to stdout:
     #   all criteria fails + any non-empty messages
     # In addtion:  print fails to stderr
@@ -5605,26 +5622,22 @@ sub gen_html()
     }
 
     # Change to output directory if specified
-    if ($output_directory) {
-        foreach my $s (\$SourceFile::annotateScript,
-                       \$SummaryInfo::coverageCriteriaScript,
-                       \$lcovutil::extractVersionScript
-        ) {
-            # if any of the scripts use relative paths, then turn them into
-            #  absolute paths - so they continue to work correctly after we 'cd'
-            if (defined($$s)) {
-                chomp($$s);
-                my @scr = split(' ', $$s);
-                if (!File::Spec->file_name_is_absolute($scr[0])) {
-                    $scr[0] = File::Spec->rel2abs($scr[0]);
-                    $$s = join(' ', @scr);
-                }
-            }
+    foreach my $s (\@SourceFile::annotateScript,
+                   \@SummaryInfo::coverageCriteriaScript,
+                   \@lcovutil::extractVersionScript
+    ) {
+        my $count = scalar(@$s);
+        next unless $count > 1;
+        my $sawfirst;
+        foreach my $e (@$s) {
+            $e = "'$e'"
+                if defined($sawfirst);
+            $sawfirst = 1;
         }
-        info(1, "chdir $output_directory\n");
-        chdir($output_directory) or
-            die("ERROR: cannot change directory to $output_directory: $!\n");
     }
+
+    $output_directory = '.'
+        if !defined($output_directory);
 
     info(1, "Writing .css and .png files.\n");
     write_css_file();
@@ -5646,13 +5659,6 @@ sub gen_html()
     }
 
     print_overall_rate(1, $func_coverage, $br_coverage, $genhtml->top());
-
-    info(1,
-         "chdir $cwd" .
-             (defined(Cwd::cwd()) ? ("from " . Cwd::cwd()) : ')') . "\n");
-    chdir($cwd) or
-        die("ERROR: cannot change directory to $cwd: $!\n");
-
 }
 
 #
@@ -5662,10 +5668,10 @@ sub gen_html()
 sub html_create($$)
 {
     my $handle   = $_[0];
-    my $filename = $_[1];
+    my $filename = File::Spec->catfile($output_directory, $_[1]);
 
     if ($html_gzip) {
-        open($handle, "|-", "gzip -c >'$filename'") or
+        open($handle, "|-", "gzip -c > $filename'") or
             die("ERROR: cannot open $filename for writing (gzip): $!\n");
     } else {
         open($handle, ">", $filename) or
@@ -5685,7 +5691,9 @@ sub write_dir_page
     my $bin_prefix = $ctrls->[3];
     # Generate directory overview page including details
     html_create(*HTML_HANDLE,
-                "$rel_dir/index$bin_prefix$page_suffix.$html_ext");
+                File::Spec->catfile(
+                              $rel_dir, "index$bin_prefix$page_suffix.$html_ext"
+                ));
     if (!defined($trunc_dir)) {
         $trunc_dir = "";
     }
@@ -5765,24 +5773,31 @@ sub write_function_page($$$$$$$$$$$$$)
 
     # Generate function table for this file
     if ($sort_type == $main::SORT_FILE) {
-        $filename = "$rel_dir/$base_name.func.$html_ext";
+        $filename = File::Spec->catfile($rel_dir, "$base_name.func.$html_ext");
     } elsif ($sort_type == $main::SORT_LINE) {
         # by declaration line number
-        $filename = "$rel_dir/$base_name.func-c.$html_ext";
+        $filename =
+            File::Spec->catfile($rel_dir, "$base_name.func-c.$html_ext");
     } elsif ($sort_type == $main::SORT_MISSING_LINE) {
         # by number of un-exercised lines
-        $filename = "$rel_dir/$base_name.func-l.$html_ext";
+        $filename =
+            File::Spec->catfile($rel_dir, "$base_name.func-l.$html_ext");
     } else {
         die("Unexpected sort $sort_type")
             unless ($sort_type == $main::SORT_MISSING_BRANCH);
         # by declaration line number
-        $filename = "$rel_dir/$base_name.func-b.$html_ext";
+        $filename =
+            File::Spec->catfile($rel_dir, "$base_name.func-b.$html_ext");
     }
     html_create(*HTML_HANDLE, $filename);
-    $pagetitle = "LCOV - $title - $trunc_dir/$base_name - functions";
+    $pagetitle = "LCOV - $title - " .
+        File::Spec->catfile($trunc_dir, $base_name) . " - functions";
     write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
-    write_header(*HTML_HANDLE, [4, 'name', $sort_type,],
-                 "$trunc_dir/$base_name", "$rel_dir/$base_name", $summary,
+    write_header(*HTML_HANDLE,
+                 [4, 'name', $sort_type,],
+                 File::Spec->catfile($trunc_dir, $base_name),
+                 File::Spec->catfile($rel_dir, $base_name),
+                 $summary,
                  undef);
     write_function_table(*HTML_HANDLE, $fileCovInfo,
                          "$base_name.gcov.$html_ext", $sumcount,
@@ -5879,12 +5894,17 @@ sub process_file($$$$$)
     # source code view
     if (!$no_sourceview) {
         # Generate source code view for this file
-        html_create(*HTML_HANDLE, "$rel_dir/$base_name.gcov.$html_ext");
-        $pagetitle = "LCOV - $test_title - $trunc_dir/$base_name";
+        html_create(*HTML_HANDLE,
+                    File::Spec->catfile($rel_dir, "$base_name.gcov.$html_ext"));
+        $pagetitle = "LCOV - $test_title - " .
+            File::Spec->catfile($trunc_dir, $base_name);
         write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
-        write_header(*HTML_HANDLE, [2, 'name', 0],
-                     "$trunc_dir/$base_name",
-                     "$rel_dir/$base_name", $fileSummary, $srcfile);
+        write_header(*HTML_HANDLE,
+                     [2, 'name', 0],
+                     File::Spec->catfile($trunc_dir, $base_name),
+                     File::Spec->catfile($rel_dir, $base_name),
+                     $fileSummary,
+                     $srcfile);
 
         @source = write_source(*HTML_HANDLE, $srcfile, $sumcount,
                                $checkdata, $fileCovInfo, $funcdata,
@@ -5947,7 +5967,8 @@ sub process_file($$$$$)
             # Create overview png file
             my $simplified = defined($main::show_simplifiedColors) &&
                 $main::show_simplifiedColors;
-            gen_png("$rel_dir/$base_name.gcov.png",
+            gen_png(File::Spec->catfile($output_directory, $rel_dir,
+                                        "$base_name.gcov.png"),
                     $main::show_tla && !$simplified,
                     $main::dark_mode,
                     $overview_width,
@@ -5956,13 +5977,17 @@ sub process_file($$$$$)
 
             # Create frameset page
             html_create(*HTML_HANDLE,
-                        "$rel_dir/$base_name.gcov.frameset.$html_ext");
+                        File::Spec->catfile(
+                                  $rel_dir, "$base_name.gcov.frameset.$html_ext"
+                        ));
             write_frameset(*HTML_HANDLE, $base_dir, $base_name, $pagetitle);
             close(*HTML_HANDLE);
 
             # Write overview frame
             html_create(*HTML_HANDLE,
-                        "$rel_dir/$base_name.gcov.overview.$html_ext");
+                        File::Spec->catfile(
+                                  $rel_dir, "$base_name.gcov.overview.$html_ext"
+                        ));
             write_overview(*HTML_HANDLE, $base_dir, $base_name,
                            $pagetitle, scalar(@source));
             close(*HTML_HANDLE);
@@ -6231,7 +6256,9 @@ sub write_description_file($$)
     my $test_name;
     local *HTML_HANDLE;
 
-    html_create(*HTML_HANDLE, "descriptions.$html_ext");
+    html_create(*HTML_HANDLE,
+                File::Spec->catfile($output_directory, "descriptions.$html_ext")
+    );
     write_html_prolog(*HTML_HANDLE, "", "LCOV - test case descriptions");
     write_header(*HTML_HANDLE, [3, 'name', 0], "", "", $summary, undef);
 
@@ -6435,8 +6462,9 @@ sub write_png_files()
     }
 
     foreach (keys(%data)) {
-        open(PNG_HANDLE, ">", $_) or
-            die("ERROR: cannot create $_!: $!\n");
+        my $f = File::Spec->catfile($main::output_directory, $_);
+        open(PNG_HANDLE, ">", $f) or
+            die("ERROR: cannot create $f: $!\n");
         binmode(PNG_HANDLE);
         print(PNG_HANDLE map(chr, @{$data{$_}}));
         close(PNG_HANDLE);
@@ -6452,8 +6480,9 @@ sub write_htaccess_file()
     local *HTACCESS_HANDLE;
     my $htaccess_data;
 
-    open(*HTACCESS_HANDLE, ">", ".htaccess") or
-        die("ERROR: cannot open .htaccess for writing: $!\n");
+    my $f = File::Spec->catdir($main::output_directory, '.htaccess');
+    open(*HTACCESS_HANDLE, ">", $f) or
+        die("ERROR: cannot open $f for writing: $!\n");
 
     $htaccess_data = (<<"END_OF_HTACCESS")
 AddEncoding x-gzip .html
@@ -6475,16 +6504,17 @@ sub write_css_file()
 {
     local *CSS_HANDLE;
 
+    my $f = File::Spec->catdir($main::output_directory, 'gcov.css');
     # Check for a specified external style sheet file
     if ($css_filename) {
         # Simply copy that file
-        system("cp", $css_filename, "gcov.css") and
+        system("cp", $css_filename, $f) and
             die("ERROR: cannot copy file $css_filename: $!\n");
         return;
     }
 
-    open(CSS_HANDLE, ">", "gcov.css") or
-        die("ERROR: cannot open gcov.css for writing: $!\n");
+    open(CSS_HANDLE, ">", $f) or
+        die("ERROR: cannot open $f for writing: $!\n");
 
     # *************************************************************
 
@@ -9266,7 +9296,7 @@ sub write_header(*$$$$$)
     }
     if ($type != $HDR_SOURCE &&
         (defined($main::show_ownerBins) ||
-            defined($SourceFile::annotateScript))
+            @SourceFile::annotateScript)
     ) {
         # we are going to have 3 versions of of the page:
         #   flat, with owner bin data, with date bin data

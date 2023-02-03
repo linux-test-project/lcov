@@ -17,10 +17,15 @@
 #   <http://www.gnu.org/licenses/>.
 #
 #
-# gitblame
+# gitblame [domain]
 #
 #   This script runs "git blame" for the specified file and formats the result
 #   to match the diffcov(1) age/ownership annotation specification.
+#
+# By default, it strips the domain from each author's email address.
+# If passed a domain name (or domain regexp) - then it strips that domain
+# from the author's address, and treats all users outside the matching domain
+# as "External".
 
 #use strict;
 use DateTime::Format::W3CDTF;
@@ -28,6 +33,12 @@ use POSIX qw(strftime);
 use File::Basename qw(dirname basename);
 
 my $pathname = shift @ARGV;
+die("$0 expected readable file, found '" .
+    (defined($pathname) ? $pathname : '<undef>') . "'")
+    unless defined($pathname) && -f $pathname && -r $pathname;
+
+my $internal_domain = $ARGV[0]
+    if (@ARGV);
 
 # set working directory to account for nested repos and submodules
 my $dirname  = dirname($pathname);
@@ -55,17 +66,16 @@ if (0 == system("git rev-parse --show-toplevel >/dev/null 2>&1")) {
                     # line owner filtering to canonical form
                     $owner =~ s/ dot /./g;
                     $owner =~ s/ at /\@/;
-                    # strip domain part (comment this out if using alternate
-                    #  policy below)
-                    $owner =~ s/\@.*$//;
 
-                    ##################
-                    ## Sample policy for use in private annotation script
-                    ## strip domain part for MediaTek line owners
-                    #$owner =~ s/\@mediatek\.com//;
-                    ## replace domain-qualified line owners with "Other"
-                    #$owner =~ s/.*\@.*/Other/;
-                    ##################
+                    if ($internal_domain) {
+                        ## strip domain part for internal users...
+                        $owner =~ s/\@$internal_domain//;
+                        # replace everybody else with "External"
+                        $owner =~ s/.*\@.*/External/;
+                    } else {
+                        # strip domain part from everyone
+                        $owner =~ s/\@.*$//;
+                    }
 
                     # Convert Git date/time to diffcov canonical format
                     # replace space between date and time with 'T'
