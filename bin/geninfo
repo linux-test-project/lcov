@@ -57,7 +57,7 @@ use strict;
 use warnings;
 use File::Basename qw(basename dirname);
 use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
-                              splitpath catpath/;
+                              splitpath catpath catfile/;
 use File::Temp;
 use File::Copy qw(copy move);
 use File::Path;
@@ -474,7 +474,17 @@ if ($version) {
 if (0 == scalar(@gcov_tool)) {
     # not specified - use gcov by default - expected to be in user's path
     push(@gcov_tool, 'gcov');
+} elsif (scalar(@gcov_tool) > 1) {
+    foreach my $e (@gcov_tool) {
+        $e = "'$e'" if ($e =~ /\s/);
+    }
 }
+if (scalar(@lcovutil::extractVersionScript) > 1) {
+    foreach my $e (@lcovutil::extractVersionScript) {
+        $e = "'$e'" if ($e =~ /\s/);
+    }
+}
+
 # Check gcov tool
 if (system_no_output(3, @gcov_tool, "--help") == -1) {
     die("ERROR: failed execution of gcov_tool \"" .
@@ -1280,7 +1290,7 @@ sub process_dafile($$$$)
 
     # Construct name of graph file
     $bb_basename = $da_basename . $graph_file_extension;
-    $bb_filename = "$da_dir/$bb_basename";
+    $bb_filename = File::Spec->catfile($da_dir, $bb_basename);
 
     # Find out the real location of graph file in case we're just looking at
     # a link
@@ -1325,22 +1335,22 @@ sub process_dafile($$$$)
     $object_dir = dirname($bb_filename);
 
     # Is the data file in a different directory? (this happens e.g. with
-    # the gcov-kernel patch)
+    # the gcov-kernel patch).
     if ($object_dir ne $da_dir) {
         # Need to create link to data file in $object_dir
-        system("ln", "-s", $da_filename,
-               "$object_dir/$da_basename$data_file_extension") and
-            die("ERROR: cannot create link $object_dir/" .
-                "$da_basename$data_file_extension: $!\n");
-        push(@tmp_links, "$object_dir/$da_basename$data_file_extension");
+        my $l = File::Spec->catfile($object_dir,
+                                    "$da_basename$data_file_extension");
+        system("ln", "-s", $da_filename, $l) and
+            die("ERROR: cannot create link $l: $!\n");
+        push(@tmp_links, $l);
         # Need to create link to graph file if basename of link
         # and file are different (CONFIG_MODVERSION compat)
+        my $b = File::Spec::catfile($object_dir, $bb_basename);
         if ((basename($bb_filename) ne $bb_basename) &&
-            (!-e "$object_dir/$bb_basename")) {
-            symlink($bb_filename, "$object_dir/$bb_basename") or
-                warn("WARNING: cannot create link " .
-                     "$object_dir/$bb_basename: $!\n");
-            push(@tmp_links, "$object_dir/$bb_basename");
+            (!-e $b)) {
+            symlink($bb_filename, $b) or
+                warn("WARNING: cannot create link $b: $!\n");
+            push(@tmp_links, $b);
         }
     }
 
@@ -1355,8 +1365,8 @@ sub process_dafile($$$$)
     lcovutil::info(2, "process $base_dir/$da_filename in $tempdir\n");
     my ($out, $err, $code) =
         system_no_output(1 + 2 + 4,
-                         @gcov_tool, "$base_dir/$da_filename",
-                         "-o", $object_dir);
+                       @gcov_tool, File::Spec->catfile($base_dir, $da_filename),
+                       "-o", $object_dir);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{exec}{$dirname}{$file} = $then - $now;
 
@@ -2503,7 +2513,8 @@ sub process_intermediate($$$$)
     if ($is_graph) {
         # Process graph file - copy to temp directory to prevent
         # accidental processing of associated data file
-        $data_file = "$tempdir/$fbase$graph_file_extension";
+        $data_file =
+            File::Spec->catfile($tempdir, "$fbase$graph_file_extension");
         if (!copy($file, $data_file)) {
             $errmsg = "ERROR: Could not copy file $file";
             goto err;
@@ -2519,6 +2530,15 @@ sub process_intermediate($$$$)
         $errmsg = "Could not change to directory $tempdir: $!";
         goto err;
     }
+    # could handle case that gcda and gcno are in different directories
+    #  - say, where is the gcda that we found, then see if gcno is
+    #    in the same directory. If not, then look in a gcno path and
+    #    link both gcda and gcno into this tempdir, run gcov, then unlink
+    # from the directory where the gcda file is found:
+    #   strip off the directory where we start the search
+    #   then strip off the GCOV_PREFIX (if there is one)
+    #   then append the remaining path the the GCDA file, to the 'GCNO_PATH'
+    #   that we were provided.  If there is a file there:  use it.
 
     # Run gcov on data file
     debug("gcov: " . join(' ', @gcov_tool) . " $data_file\n");
@@ -4034,7 +4054,8 @@ sub read_gcno($)
 
 sub get_gcov_capabilities()
 {
-    my $help = `"$gcov_tool[0]" --help`;
+    my $help = join(' ', @gcov_tool) . ' --help';
+    $help = `$help`;
     die("Error return code from '\"$gcov_tool[0]\" --help': $!")
         if ($?);
     my %capabilities;

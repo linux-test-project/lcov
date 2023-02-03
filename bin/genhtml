@@ -1074,7 +1074,7 @@ sub checkCoverageCriteria
     my $cmd =
         join(' ', @coverageCriteriaScript) .
         ' \'' . ($self->type() eq 'top' ? 'top' : $self->name()) .
-        '\' \'' . $self->type() . '\' \'' . $json . '\'';
+        '\' ' . $self->type() . ' \'' . $json . '\'';
     # command:  script name (top|dir|file) jsonString args..
     lcovutil::info(1, "criteria: '$cmd'\n");
     if (open(HANDLE, "-|", $cmd)) {
@@ -1235,9 +1235,10 @@ sub page_link
     my $self      = shift;
     my $data      = $self->summary();
     my $page_link = '';
-    $page_link = $data->relativeDir() . '/'
-        if ($main::flat && '.' ne $data->relativeDir);
-    $page_link .= $self->name();
+    $page_link =
+        ($main::flat && '.' ne $data->relativeDir) ?
+        File::Spec->catfile($data->relativeDir(), $self->name()) :
+        $self->name();
     if ($data->type() eq 'file') {
         if ($main::no_sourceview) {
             return "";
@@ -1442,7 +1443,8 @@ sub secondaryElementFileData
 
     my $page_link;
     if ($sourceSummary->is_directory()) {
-        $page_link = $name . "/index-bin_owner." . $main::html_ext;
+        $page_link =
+            File::Spec->catfile($name, "index-bin_owner." . $main::html_ext);
     } elsif ($main::no_sourceview) {
         $page_link = "";
     } else {
@@ -1559,7 +1561,8 @@ sub secondaryElementFileData
 
     my $page_link;
     if ($sourceSummary->is_directory()) {
-        $page_link = $name . "/index-bin_date." . $main::html_ext;
+        $page_link =
+            File::Spec->catfile($name, "index-bin_date." . $main::html_ext);
     } elsif ($main::no_sourceview) {
         $page_link = "";
     } else {
@@ -4072,7 +4075,7 @@ sub _load
 
     my $lineNum = 0;
     my @cmd     = @annotateScript;
-    my $cmd     = join(' ', @cmd) . ' ' . $repo_path;
+    my $cmd     = join(' ', @cmd) . ' \'' . $repo_path . '\'';
     lcovutil::info(1, "annotate: '$cmd'\n");
     my $found;    # check that either all lines are annotated or none are
     local *HANDLE;
@@ -4320,8 +4323,8 @@ sub new
             $main::no_prefix ? $f : main::apply_prefix($f, @main::dir_prefix);
         my $is_absolute = $short_name =~ /^\//;
         $short_name =~ s|^/||;
-        my @short_path = split('/', $short_name);
-        my @path       = split('/', $parentDir);
+        my @short_path = File::Spec->splitdir($short_name);
+        my @path       = File::Spec->splitdir($parentDir);
 
         my @rel_dir_stack =
             @short_path;    # @rel_dir_stack: relative path to parent dir of $f
@@ -4369,7 +4372,7 @@ sub new
             }
         } elsif (!$main::flat) {
             # not hierarchical
-            my $relative_path = join('/', @rel_dir_stack);
+            my $relative_path = File::Spec->catdir(@rel_dir_stack);
             if (!exists($pending->{$parentDir})) {
                 my $perTestData = [{}, {}, {}];
                 my @dirData = (SummaryInfo->new(
@@ -4500,11 +4503,12 @@ sub compute
 
         my $rel_dir;
         if ($type eq 'file') {
-            $rel_dir = join('/', @{$short_path}[0 .. $#$short_path - 1]);
-            die("file error for " . join('/', @$short_path))
+            $rel_dir =
+                File::Spec->catdir(@{$short_path}[0 .. $#$short_path - 1]);
+            die("file error for " . File::Spec->catdir(@$short_path))
                 if '' eq $rel_dir;
         } elsif ($type eq 'dir') {
-            $rel_dir = join('/', @$short_path);
+            $rel_dir = File::Spec->catdir(@$short_path);
         } else {
             $rel_dir = '.';
         }
@@ -5232,7 +5236,7 @@ if ($base_filename) {
 # directories)
 if ($css_filename) {
     if (!($css_filename =~ /^\/(.*)$/)) {
-        $css_filename = $cwd . "/" . $css_filename;
+        $css_filename = File::Spec->catfile($cwd, $css_filename);
     }
 }
 
@@ -5276,7 +5280,7 @@ if ($sort) {
 
 if ($frames) {
     # Include genpng code needed for overview image generation
-    do("$tool_dir/genpng");
+    do(File::Spec->catfile($tool_dir, 'genpng'));
 }
 
 # Ensure that the c++filt tool is available when using --demangle-cpp
@@ -5348,7 +5352,7 @@ if (@SummaryInfo::coverageCriteriaScript) {
 
 lcovutil::warn_file_patterns();   # warn about unused include/exclude directives
 
-lcovutil::save_profile("$output_directory/genhtml");
+lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'));
 
 exit($exit_status);
 
@@ -5621,18 +5625,15 @@ sub gen_html()
         }
     }
 
-    # Change to output directory if specified
+    # add quotes to args - so string concat works if there are embedded spaces, etc
     foreach my $s (\@SourceFile::annotateScript,
                    \@SummaryInfo::coverageCriteriaScript,
                    \@lcovutil::extractVersionScript
     ) {
         my $count = scalar(@$s);
         next unless $count > 1;
-        my $sawfirst;
         foreach my $e (@$s) {
-            $e = "'$e'"
-                if defined($sawfirst);
-            $sawfirst = 1;
+            $e = "'$e'" if ($e =~ /\s/);
         }
     }
 
@@ -6009,7 +6010,6 @@ sub process_file($$$$$)
 
 sub get_prefix($@)
 {
-
     my ($min_dir, @filename_list) = @_;
     my %prefix;     # mapping: prefix -> sum of lengths
     my $current;    # Temporary iteration variable
@@ -7599,7 +7599,7 @@ sub write_file_table_entry(*$$@)
         !$is_secondary) {
         my $relDir = $fileSummary->relativeDir();
         die("relative directory not set") unless $relDir;
-        $esc_name = escape_html($relDir) . '/' . $esc_name
+        $esc_name = File::Spec->catfile(escape_html($relDir), $esc_name)
             if '.' ne $relDir;
     }
     #$esc_name .= "<sup>" . escape_html($asterisk) . "</sup>"
@@ -7673,7 +7673,9 @@ sub write_file_table_entry(*$$@)
             my $relDir = $fileSummary->relativeDir();
             die("relative directory not set") unless $relDir;
             $namecode =
-                "<a href=\"$relDir/$filename.gcov.$html_ext\">$esc_name</a>";
+                "<a href=\"" .
+                File::Spec->catfile($relDir, "$filename.gcov.$html_ext") .
+                "\">$esc_name</a>";
         } else {
             # link to the entry in date/owner 'summary' table (keyed other way up)
             $namecode = "<a href=\"";
@@ -9085,7 +9087,7 @@ sub build_html_path($$$$$)
     my ($path, $key, $bin_type, $isFile, $isAbsolute) = @_;
 
     $path =~ s|^/||;
-    my @path      = split('/', $path);
+    my @path      = File::Spec->splitdir($path);
     my $html_path = "";
     if ($main::hierarchical &&
         scalar(@path) > 1) {
@@ -9217,7 +9219,7 @@ sub write_header(*$$$$$)
         if ($main::flat) {
             # for flat view, point only to the top-levevl and show path
             #  to this file.  No other links
-            $view .= "$esc_dir_name/$esc_base_name";
+            $view .= File::Spec->catfile($esc_dir_name, $esc_base_name);
         } else {
             if ($main::hierarchical) {
                 $html_path =~ s/<a/<a$parent/g;

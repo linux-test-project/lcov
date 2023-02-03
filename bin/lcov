@@ -410,6 +410,13 @@ lcovutil::parse_ignore_errors(@opt_ignore_errors);
 # Determine what coverpoints the user wants to filter
 parse_cov_filters(@opt_filter);
 
+if (!$capture &&
+    scalar(@lcovutil::extractVersionScript) > 1) {
+    foreach my $e (@lcovutil::extractVersionScript) {
+        $e = "'$e'" if ($e =~ /\s/);
+    }
+}
+
 # Check list width option
 if ($opt_list_width <= 40) {
     die("ERROR: lcov_list_width parameter out of range (needs to be " .
