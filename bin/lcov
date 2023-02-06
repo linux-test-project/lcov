@@ -155,7 +155,10 @@ sub summary();
 
 # Global variables & initialization
 
-our @directory;           # Specifies where to get coverage data from
+our @directory;                 # Specifies where to get coverage data from
+# Where code was built/where .gcno files can be found
+# (if .gcno files are in a different place than the .gcda files)
+our $build_directory;
 our @kernel_directory;    # If set, captures only from specified kernel subdirs
 our @add_tracefile;       # If set, reads in and combines all files in list
 our $list;                # If set, list contents of tracefile
@@ -284,6 +287,7 @@ my $tempdirname;
 # Parse command line options
 if (!GetOptions("directory|d|di=s"     => \@directory,
                 "tempdir=s"            => \$tempdirname,
+                "build-directory=s"    => \$build_directory,
                 "add-tracefile|a=s"    => \@add_tracefile,
                 "list|l=s"             => \$list,
                 "kernel-directory|k=s" => \@kernel_directory,
@@ -415,6 +419,7 @@ if (!$capture &&
     foreach my $e (@lcovutil::extractVersionScript) {
         $e = "'$e'" if ($e =~ /\s/);
     }
+    warn("--build-directory ignored except with --capture");
 }
 
 # Check list width option
@@ -626,6 +631,7 @@ Options:
   -f, --follow                    Follow links when searching .da files
   -k, --kernel-directory KDIR     Capture kernel coverage data only from KDIR
   -b, --base-directory DIR        Use DIR as base directory for relative paths
+      --build-directory DIR       Search DIR for .gcno files (during capture)
       --convert-filenames         Convert filenames when applying diff
       --strip DEPTH               Strip initial DEPTH directory levels in diff
       --path PATH                 Strip PATH from tracefile when applying diff
@@ -964,9 +970,8 @@ sub lcov_geninfo(@)
     if (defined($verify_checksum)) {
         push(@param, $verify_checksum ? '--checksum' : '--no-checksum');
     }
-    if ($base_directory) {
-        push(@param, "--base-directory", $base_directory);
-    }
+    push(@param, "--build-directory", $build_directory)
+        if ($build_directory);
     if ($no_compat_libtool) {
         push(@param, "--no-compat-libtool");
     } elsif ($compat_libtool) {

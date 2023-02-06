@@ -84,6 +84,10 @@ PARENT=`(cd .. ; pwd)`
 LCOV_OPTS="--rc lcov_branch_coverage=1 $PARALLEL $PROFILE"
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.*
+if [ -d separate ] ; then
+    chmod -R u+w separate
+    rm -rf separate
+fi
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -223,7 +227,62 @@ if [ $? == 0 ] ; then
     fi
 fi
 
+# check case when build dir and GCOV_PREFIX directory are not the same -
+#  so .gcno and .gcda files are in different places
+export DEPTH=0
+BASE=`pwd`
+while [ $BASE != '/' ] ; do
+  echo $BASE
+  BASE=`dirname $BASE`
+  let DEPTH=$DEPTH+1
+done
+echo "found depth $DEPTH"
+let STRIP=$DEPTH+2
 
+mkdir -p separate/build
+mkdir -p separate/run
+mkdir -p separate/copy
+( cd separate/build ; g++ -std=c++1y --coverage ../../extract.cpp )
+cp separate/build/*.gcno separate/copy
+# make unwritable - so we don't allow lcov to write temporaries
+#  this emulates what happens when the build job is owned by one user,
+#  the test job by another, and a third person is trying to create coverage reports
+chmod ugo-w separate/build
+chmod ugo-w separate/copy
+if [ 0 != $? ] ; then
+    echo "Error:  no .gcno files to copy"
+    exit 1
+fi
+
+( cd separate/run ; GCOV_PREFIX=my/test GCOV_PREFIX_STRIP=$STRIP ../build/a.out 1 )
+if [ 0 != $? ] ; then
+    echo "Error:  execution failed"
+    exit 1
+fi
+chmod ugo-w separate/run
+$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/build -d separate/run/my/test -o separate.info
+if [ 0 != $? ] ; then
+    echo "Error:  extract failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o copy.info
+if [ 0 != $? ] ; then
+    echo "Error:  extract from copy failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# captured data from GCOV_PREFIX result should be identical to vanilla build
+for d in separate.info copy.info ; do
+    diff external.info $d
+    if [ $? != 0 ] ; then
+        echo "Error: unexpected GCOV_PREFIX result"
+        exit 1
+    fi
+done
 
 echo "Tests passed"
 

@@ -21,6 +21,9 @@ geninfo \- Generate tracefiles from .da files
 .RB [ \-b | \-\-base\-directory
 .IR directory ]
 .br
+.RB [ \-\-build\-directory
+.IR directory ]
+.br
 .RB [ \-\-branch\-coverage ]
 .br
 .RB [ \-\-checksum ]
@@ -213,12 +216,44 @@ directories are used. In that case use configuration file setting
 .BR lcovrc (5)).
 .RE
 
+.B \-\-build\-directory
+.I build_dir
+.br
+.RS
+.RI Search for .gcno data files from build_dir rather finding them only
+adjacent to the corresponding .o and/or .gcda file.
+
+By default, geninfo expects to find the '.gcno'
+ and '.gcda' files (compile- and run-time data, respectively) in
+the same directory.
+.br
+When this option is used:
+.RS
+geninfo path/to/prefix_root \-\-build\-directory other/path/to/build_dir ...
+.RE
+then geninfo will look for .gcno file
+.RI other/path/to/build_dir/relative/path/to/da_base.gcno
+when it finds .gcda file
+.RI path/to/prefix_root/relative/path/to/da_base.gcda.
+
+Use this option when you have used the
+.I GCOV_PREFIX
+environment variable to direct the gcc or llvm runtime environment to write
+coverage data files to somewhere other than the directory where the code
+was originally compiled.
+See
+.B man gcc (1)
+and/or search for
+.I GCOV_PREFIX
+and
+.I GCOV_PREFIX_STRIP.
+
+.RE
 .B \-\-branch\-coverage
 .br
 Collect retain branch coverage data.
 
 This is equivalent to using the option "\-\-rc lcov_branch_coverage=1"; the option was added to better match the genhml interface.
-
 
 .RE
 

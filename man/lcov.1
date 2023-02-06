@@ -22,6 +22,9 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-b | \-\-base\-directory
 .IR directory ]
 .br
+.RB [ \-\-build\-directory
+.IR directory ]
+.br
 .RB [ \-i | \-\-initial ]
 .br
 .RB [ \-\-gcov\-tool
@@ -330,8 +333,21 @@ directories are used. In that case use configuration file setting
 .B geninfo_auto_base=1
 (see
 .BR lcovrc (5)).
+
 .RE
 
+.B \-\-build\-directory
+.I build_directory
+.br
+.RS
+.RI Search for .gcno data files from build_directory rather than
+adjacent to the corresponding .gcda file.
+
+See man
+.BR geninfo (1))
+for details.
+
+.RE
 .B \-c
 .br
 .B \-\-capture
