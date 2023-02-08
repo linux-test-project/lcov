@@ -829,8 +829,8 @@ sub lcov_geninfo(@)
     if ($follow) {
         push(@param, "--follow");
     }
-    if ($lcovutil::cpp_demangle) {
-        push(@param, "--demangle-cpp");
+    foreach my $param (@lcovutil::cpp_demangle) {
+        push(@param, "--demangle-cpp", $param);
     }
     if ($lcovutil::verbose != 0) {
         if ($lcovutil::verbose < 0) {

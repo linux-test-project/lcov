@@ -74,7 +74,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-branch\-coverage ]
 .RB [ \-\-no\-branch\-coverage ]
 .br
-.RB [ \-\-demangle\-cpp ]
+.RB [ \-\-demangle\-cpp
+.IR [ param ] ]
 .br
 .RB [ \-\-ignore\-errors
 .IR errors  ]
@@ -1914,14 +1915,29 @@ option
 .IR genhtml_branch_coverage .
 
 .RE
-.B \-\-demangle\-cpp
+.B \-\-demangle\-cpp [param]
 .RS
 Specify whether to demangle C++ function names.
 
 Use this option if you want to convert C++ internal function names to
 human readable format for display on the HTML function overview page.
-This option requires that the c++filt tool is installed (see
+
+If called with no parameters, genhtml will use
+.I c++filt
+for demangling.  This requires that the c++filt tool is installed (see
 .BR c++filt (1)).
+
+If
+.I param
+is specified, it is treated as th tool to call to demangle source code.
+The
+.I \-\-demangle\-cpp
+option can be used multiple times to specify the demangling tool and a set of
+command line options that are passed to the tool - similar to how the gcc
+.I -Xlinker
+paramter works.  In that case, you callback will be executed as:
+.I | demangle_param0 demangle_param1 ...
+Note that the demangle tool is called as a pipe and is expected to read from stdin and write to stdout.
 
 .RE
 .B \-\-ignore\-errors

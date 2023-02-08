@@ -5051,6 +5051,9 @@ my %genhtml_rc_opts = (
                "genhtml_flat_view"          => \$flat,
                "genhtml_show_havigation"    => \$show_tla,
                "genhtml_show_function_proportion" => \$show_functionProportions,
+               "genhtml_demangle_cpp"             => \@lcovutil::cpp_demangle,
+               "genhtml_demangle_cpp_tool"   => \$lcovutil::cpp_demangle_tool,
+               "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
                'genhtml_annotate_script'     => \@rc_annotate_script,
                'genhtml_criteria_script'     => \@rc_criteria_script,
                'criteria_callback_data'      => \@criteriaCallbackTypes,
@@ -5542,7 +5545,7 @@ HTML OUTPUT
       --html-extension EXT          Use EXT as filename extension for pages
       --html-gzip                   Use gzip to compress HTML
       --(no-)sort                   Enable (disable) sorted coverage views
-      --demangle-cpp                Demangle C++ function names
+      --demangle-cpp [OPT]          Demangle C++ function names
       --precision NUM               Set precision of coverage rate
       --missed                      Show miss counts as negative numbers
       --dark-mode                   Use the dark-mode CSS

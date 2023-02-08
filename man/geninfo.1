@@ -57,7 +57,7 @@ geninfo \- Generate tracefiles from GCOV coverage data files
 .RB [ \-\-filter
 .IR type  ]
 .br
-.RB [ \-\-demangle\-cpp ]
+.RB [ \-\-demangle\-cpp [param]]
 .br
 .RB [ \-\-no\-recursion ]
 .RB [ \-\-external ]
@@ -701,6 +701,11 @@ corrupt/unreadable file found.
 An excessive number of messages of some class have been reported - subsequent messages of that type will be suppressed.
 The limit can be controlled by the 'max_message_count' variable. See the lcovrc man page.
 
+.B deprecated:
+You are using a deprecated option.
+This option will be removed in an upcoming release - so you should change your
+scripts now.
+
 .B empty:
 the .info data file is empty (e.g., because all the code was 'removed' or excluded.
 
@@ -788,7 +793,7 @@ Specify a list of coverpoint filters to apply to input data.
 See the genhtml man page for details.
 
 .RE
-.BI "\-\-demangle\-cpp "
+.BI "\-\-demangle\-cpp [param]"
 .RS
 Demangle C++ method and function names in captured output.
 See the genhtml man page for details.

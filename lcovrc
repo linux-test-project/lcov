@@ -189,12 +189,15 @@ genhtml_desc_html=0
 #trivial_function_threshold = 5
 
 # Demangle C++ symbols
-#genhtml_demangle_cpp=1
+# Call multiple times to specify command and command line arguments
+#  ('-Xlinker'-like behaviour)
+#demangle_cpp = c++filt
 
 # Name of the tool used for demangling C++ function names
+# This argument is deprecated - please use 'demangle_cpp' instead
 #genhtml_demangle_cpp_tool = c++filt
-
 # Specify extra parameters to be passed to the demangling tool
+# This argument is deprecated - please use 'demangle_cpp' instead
 #genhtml_demangle_cpp_params = ""
 
 # Location of the gcov tool (same as --gcov-info option of geninfo)

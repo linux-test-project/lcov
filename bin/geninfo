@@ -667,9 +667,12 @@ OPTIONS
       --(no-)checksum               Enable (disable) line checksumming
       --(no-)compat-libtool         Enable (disable) libtool compatibility mode
       --gcov-tool TOOL              Specify gcov tool location
+      --ignore-errors ERROR         Continue after ERROR (gcov, source, graph)
+      --keep-going                  Do not stop if error occurs.  Try to
+                                    produce a result
       --filter TYPE                 Apply FILTERS to input data (see man page
                                     for full list of filters and their effects)
-      --demangle-cpp                Demangle C++ function names
+      --demangle-cpp [PARAM]        Demangle C++ function names
       --no-recursion                Exclude subdirectories from processing
       --no-markers                  Ignore exclusion markers in source code
       --derive-func-data            Generate function data from line data
@@ -1817,7 +1820,7 @@ sub read_gcov_file($$$)
     my $branchId;
     my $unexec;
 
-    my $f     = InOutFile->in($filename, $lcovutil::cpp_demangle);
+    my $f     = InOutFile->in($filename, $lcovutil::demangle_cpp_cmd);
     my $input = $f->hdl();
 
     my $currentBlock;
@@ -2016,7 +2019,7 @@ sub read_intermediate_text($$)
     my ($gcov_filename, $data) = @_;
     my $filename;
 
-    my $f = InOutFile->in($gcov_filename, $lcovutil::cpp_demangle);
+    my $f = InOutFile->in($gcov_filename, $lcovutil::demangle_cpp_cmd);
     my $h = $f->hdl();
     while (my $line = <$h>) {
         if ($line =~ /^file:(.*)$/) {
@@ -2241,7 +2244,7 @@ sub intermediate_json_to_info($)
                 my $end_line   = $d->{"end_line"}
                     if exists($d->{end_line});
                 my $count = $d->{"execution_count"};
-                my $name  = $lcovutil::cpp_demangle ? $d->{demangled_name} :
+                my $name  = $lcovutil::demangle_cpp_cmd ? $d->{demangled_name} :
                     $d->{"name"};
 
                 if ($count < 0) {
@@ -2792,7 +2795,7 @@ sub process_graphfile($$)
                 $linedata = $funcdata->{$func};
                 my $lineNo = $linedata->[0];
                 my $fnName =
-                    filter_fn_name($func, defined($lcovutil::cpp_demangle));
+                    filter_fn_name($func, defined($lcovutil::demangle_cpp_cmd));
                 my $func =
                     $functionMap->define_function($fnName, $filename, $lineNo);
                 $func->addAlias($fnName, 0);
@@ -2814,7 +2817,7 @@ sub filter_fn_name($$)
     my ($fn, $demangle) = @_;
     my $f;
     if ($demangle) {
-        $f = `$lcovutil::cpp_demangle $fn`;
+        $f = `$lcovutil::demangle_cpp_cmd $fn`;
         chomp($f);
         die("unable to demangle '$fn': $!") if ($?);
     } else {

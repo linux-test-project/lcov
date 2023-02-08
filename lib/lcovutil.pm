@@ -35,7 +35,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      @file_subst_patterns subst_file_name
 
      $br_coverage $func_coverage
-     $cpp_demangle $cpp_demangle_tool $cpp_demangle_params do_mangle_check
+     @cpp_demangle do_mangle_check $demangle_cpp_cmd
+     $cpp_demangle_tool $cpp_demangle_params
 
      $FILTER_BRANCH_NO_COND $FILTER_FUNCTION_ALIAS
      $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH $FILTER_LINE
@@ -147,9 +148,12 @@ our $opt_no_external;
 our @file_subst_patterns;
 
 # C++ demangling
-our $cpp_demangle;
-our $cpp_demangle_tool   = "c++filt"; # Default demangler for C++ function names
-our $cpp_demangle_params = "";        # Extra parameters for demangling
+our @cpp_demangle;         # the options passed in
+our $demangle_cpp_cmd;     # the computed command string
+# deprecated: demangler for C++ function names is c++filt
+our $cpp_demangle_tool;
+# Deprecated:  prefer -Xlinker approach with @cpp_dmangle_tool
+our $cpp_demangle_params;
 
 our @extractVersionScript;   # script/callback to find version ID of file
 our $verify_checksum;        # compute and/or check MD5 sum of source code lines
@@ -653,22 +657,41 @@ sub set_c_extensions
 
 sub do_mangle_check
 {
-    return unless $lcovutil::cpp_demangle;
-    $lcovutil::cpp_demangle = $lcovutil::cpp_demangle_tool;
-    $lcovutil::cpp_demangle .= ' ' . $lcovutil::cpp_demangle_params
-        if '' ne $lcovutil::cpp_demangle_params;
-    $lcovutil::cpp_demangle =~ s/^\s*(\S+)\s*$/$1/;
+    return unless @lcovutil::cpp_demangle;
 
-    my @params = split(" ", $lcovutil::cpp_demangle);
-    my $tool   = $params[0];
-    die("ERROR: could not find $tool tool needed for --demangle-cpp")
-        if (lcovutil::system_no_output(3, "echo \"\" | $tool"));
-
+    if (1 == scalar(@lcovutil::cpp_demangle)) {
+        if ('' eq $lcovutil::cpp_demangle[0]) {
+            # no demangler specified - use c++filt by default
+            if (defined($lcovutil::cpp_demangle_tool)) {
+                $lcovutil::cpp_demangle[0] = $lcovutil::cpp_demangle_tool;
+            } else {
+                $lcovutil::cpp_demangle[0] = 'c++filt';
+            }
+        }
+    } elsif (1 < scalar(@lcovutil::cpp_demangle)) {
+        die("unsupported usage:  --demangle-cpp with genhtml_demangle_cpp_tool")
+            if (defined($lcovutil::cpp_demangle_tool));
+        die(
+          "unsupported usage:  --demangle-cpp with genhtml_demangle_cpp_params")
+            if (defined($lcovutil::cpp_demangle_params));
+    }
+    if ($lcovutil::cpp_demangle_params) {
+        # deprecated usage
+        push(@lcovutil::cpp_demangle,
+             split(' ', $lcovutil::cpp_demangle_params));
+    }
     # Extra flag necessary on OS X so that symbols listed by gcov get demangled
     # properly.
-    $lcovutil::cpp_demangle .= " --no-strip-underscores"
-        if (scalar(@params) == 1 &&
-            $^ eq "darwin");
+    push(@lcovutil::cpp_demangle, '--no-strip-underscores')
+        if ($^ eq "darwin");
+
+    $lcovutil::demangle_cpp_cmd = '';
+    foreach my $e (@lcovutil::cpp_demangle) {
+        $lcovutil::demangle_cpp_cmd .= (($e =~ /\s/) ? "'$e'" : $e) . ' ';
+    }
+    my $tool = $lcovutil::cpp_demangle[0];
+    die("ERROR: could not find $tool tool needed for --demangle-cpp")
+        if (lcovutil::system_no_output(3, "echo \"\" | '$tool'"));
 }
 
 #
@@ -805,7 +828,10 @@ our @opt_config_files;
 our @opt_ignore_errors;
 our @opt_filter;
 
-my %deprecated_rc = ("geninfo_checksum"            => "checksum",
+my %deprecated_rc = ("genhtml_demangle_cpp"        => "demangle_cpp",
+                     "genhtml_demangle_cpp_tool"   => "demangle_cpp",
+                     "genhtml_demangle_cpp_params" => "demangle_cpp",
+                     "geninfo_checksum"            => "checksum",
                      "geninfo_no_exception_branch" => "no_exception_branch",
                      "lcov_branch_coverage"        => "branch_coverage",
                      "lcov_function_coverage"      => "function_coverage",
@@ -856,9 +882,7 @@ my %rc_common = (
              "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
              "split_char"            => \$lcovutil::split_char,
 
-             "genhtml_demangle_cpp" => \$lcovutil::cpp_demangle,
-             "genhtml_demangle_cpp_tool" => \$lcovutil::cpp_demangle_tool,
-             "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
+             "demangle_cpp" => \@lcovutil::cpp_demangle,
 
 );
 
@@ -878,7 +902,7 @@ our %argCommon = ("tempdir=s"        => \$tempdirname,
                   "no-branch-coverage"   => \$rc_no_branch_coverage,
 
                   "filter=s"          => \@opt_filter,
-                  "demangle-cpp"      => \$lcovutil::cpp_demangle,
+                  "demangle-cpp:s"    => \@lcovutil::cpp_demangle,
                   "ignore-errors=s"   => \@opt_ignore_errors,
                   "keep-going"        => \$keepGoing,
                   "config-file=s"     => \@unsupported_config,
@@ -1805,14 +1829,14 @@ sub out
     if (!defined($f) ||
         '-' eq $f) {
         if ($demangle) {
-            open(HANDLE, '|-', $lcovutil::cpp_demangle) or
+            open(HANDLE, '|-', $lcovutil::demangle_cpp_cmd) or
                 die("Error: unable to demangle: $!\n");
             $self->[0] = \*HANDLE;
         } else {
             $self->[0] = \*STDOUT;
         }
     } else {
-        my $cmd = $demangle ? "$lcovutil::cpp_demangle " : '';
+        my $cmd = $demangle ? "$lcovutil::demangle_cpp_cmd " : '';
         if ($f =~ /\.gz$/) {
             checkGzip()
                 unless defined($checkedGzipAvail);
@@ -1862,14 +1886,14 @@ sub in
 
             # Open compressed file
             my $cmd = "gzip -cd '$f'";
-            $cmd .= " | " . $lcovutil::cpp_demangle
+            $cmd .= " | " . $lcovutil::demangle_cpp_cmd
                 if ($demangle);
             open(HANDLE, "-|", $cmd) or
                 die("ERROR: cannot start gunzip to decompress file $f: $!\n");
 
         } elsif ($demangle &&
-                 defined($lcovutil::cpp_demangle)) {
-            open(HANDLE, "-|", "cat '$f' | $lcovutil::cpp_demangle") or
+                 defined($lcovutil::demangle_cpp_cmd)) {
+            open(HANDLE, "-|", "cat '$f' | $lcovutil::demangle_cpp_cmd") or
                 die("ERROR: cannot start demangler for file $f: $!\n");
         } else {
             # Open decompressed file
@@ -4385,7 +4409,7 @@ sub _read_info
     }
 
     # Check for .gz extension
-    my $inFile  = InOutFile->in($tracefile, $lcovutil::cpp_demangle);
+    my $inFile  = InOutFile->in($tracefile, $lcovutil::demangle_cpp_cmd);
     my $infoHdl = $inFile->hdl();
 
     $testname = "";

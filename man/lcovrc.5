@@ -334,15 +334,25 @@ genhtml_desc_html=0
 
 # Demangle C++ symbols
 .br
-#genhtml_demangle_cpp=1
+# Call multiple times to specify command and command line arguments
+.br
+#  ('-Xlinker'-like behaviour)
+.br
+#demangle_cpp = c++filt
 .br
 
 # Name of the tool used for demangling C++ function names
+.br
+# This argument is deprecated - please use demangle_cpp' instead
 .br
 #genhtml_demangle_cpp_tool = c++filt
 .br
 
 # Specify extra parameters to be passed to the demangling tool
+.br
+#  this argument is deprecated - use Xlinker-like demangle_cpp
+.br
+#  paramter instead
 .br
 #genhtml_demangle_cpp_params = ""
 .br
@@ -493,7 +503,7 @@ lcov_json_module = auto
 .br
 # default: 0 (no limit)
 .br
-#memory = 1
+#memory = 1024
 .br
 
 .br
@@ -1095,23 +1105,34 @@ when a custom HTML prolog is specified (see also
 Default is UTF-8.
 .PP
 
-.BR genhtml_demangle_cpp " ="
-.IR 0 | 1
+.BR demangle_cpp " ="
+.IR c++filt
 .IP
-If non-zero, demangle C++ function names in function overviews.
-
+If set, this option tells genhtml/lcov/geninfo to demangle C++ function names  in function overviews,
+and gives the name of the tool used for demangling.
 Set this option to one if you want to convert C++ internal function
 names to human readable format for display on the HTML function overview
-page.  This option requires that the c++filt tool is installed (see
-.BR c++filt(1)
-).
-.br
+page.
+
+If the
+.I demangle_cpp
+option is used multiple times, then the arguments are concatenated when the callback
+is executed - similar to how the gcc
+.I \-Xlinker
+parameter works.  This provides a possibly easier way to pass arguments to
+your tool, without requiring a wrapper script.
+In that case, your callback will be executed as:
+.I | tool\-0 'tool\-1; ...
+Arguments are quoted when passed to
+the shell, in order to handle parameters which contain spaces.
+
+Note that the demangling tool is called via a pipe, and is expected to read from stdin and write to stdout.
 
 This option corresponds to the \-\-demangle\-cpp command line option of
 .BR genhtml .
 .br
 
-Default is 0.
+Default is not set (C++ demangling is diabled).
 .PP
 
 .BR genhtml_demangle_cpp_tool " ="
@@ -1121,9 +1142,12 @@ Specify the location of the demangle tool (see
 .BR c++filt (1))
 used to convert C++ internal function names to human readable format
 for display on the HTML function overview page.
-.br
 
-Default is 'c++filt'.
+This option is deprecated and will be removed from a future lcov release.
+Please use
+.I demangle_cpp = path_to_c++filt
+instead.
+
 .PP
 
 .BR genhtml_demangle_cpp_params " ="
@@ -1137,7 +1161,10 @@ names. See also
 .BR c++filt (1)).
 .br
 
-Default is "".
+This argument is deprecated.  Please use the Xlinker-like
+.I demangle_cpp
+argument instead.
+
 .PP
 
 .BR genhtml_desc_html " ="
