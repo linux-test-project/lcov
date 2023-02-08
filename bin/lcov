@@ -1014,15 +1014,11 @@ sub lcov_geninfo(@)
     if (defined($opt_compat)) {
         push(@param, "--compat", $opt_compat);
     }
-    if (%lcovutil::opt_rc) {
-        foreach my $key (keys(%lcovutil::opt_rc)) {
-            push(@param, "--rc", "$key=" . $lcovutil::opt_rc{$key});
-        }
+    foreach my $key (@lcovutil::opt_rc) {
+        push(@param, "--rc", $key);
     }
-    if (0 != scalar(@opt_config_file)) {
-        foreach my $f (@opt_config_file) {
-            push(@param, "--config-file", $f);
-        }
+    foreach my $f (@opt_config_file) {
+        push(@param, "--config-file", $f);
     }
     foreach (@lcovutil::include_file_patterns) {
         push(@param, "--include", $_);

@@ -27,7 +27,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $maxParallelism $maxMemory init_parallel_params current_process_size
      save_profile merge_child_profile
 
-     %opt_rc apply_rc_params
+     @opt_rc apply_rc_params
      strip_directories
      @file_subst_patterns subst_file_name
 
@@ -245,7 +245,7 @@ our %pngMap = ('=' => ['CBC', 'LBC']
                '>' => ['GIC', 'UIC'],
                '+' => ['GNC', 'UNC'],);
 
-our %opt_rc;        # hash of RC file entries
+our @opt_rc;        # list of command line RC overrides
 
 our %profileData;
 our $profile;       # the 'enable' flag/name of output file
@@ -633,43 +633,48 @@ sub read_config($)
 # variable. If the global configuration hashes CONFIG or OPT_RC contain a value
 # for keyword KEY_STRING, VAR_REF will be assigned the value for that keyword.
 #
+# Return 1 if we set something
 
-sub apply_config($$)
+sub _set_config($$$)
 {
-    my ($ref, $config) = @_;
-
-    foreach (keys(%{$ref})) {
-        my $v;
-        if (defined($opt_rc{$_})) {
-            $v = $opt_rc{$_};
-        } elsif (defined($config->{$_})) {
-            $v = $config->{$_};
+    my ($ref, $key, $value) = @_;
+    my $r = $ref->{$key};
+    my $t = ref($r);
+    if ('ARRAY' eq $t) {
+        if ('ARRAY' eq ref($value)) {
+            push(@$r, @$value);
+        } else {
+            push(@$r, $value);
         }
-        if (defined($v)) {
-            my $r = $ref->{$_};
-            my $t = ref($r);
-            if ('ARRAY' eq $t) {
-                if ('ARRAY' eq ref($v)) {
-                    push(@$r, @$v);
-                } else {
-                    push(@$r, $v);
-                }
-            } else {
-                # opt is a scalar or not defined
-                if ('ARRAY' eq ref($v)) {
-                    warn("setting scalar config '$_' with array value [" .
-                         join(', ', @$v) . "] - using '" . $v->[-1] . "'");
-                    $$r = $v->[-1];
-                } else {
-                    $$r = $v;
-                }
-            }
+    } else {
+        # opt is a scalar or not defined
+        if ('ARRAY' eq ref($value)) {
+            warn("setting scalar config '$key' with array value [" .
+                 join(', ', @$value) . "] - using '" . $value->[-1] . "'");
+            $$r = $value->[-1];
+        } else {
+            $$r = $value;
         }
     }
 }
 
+sub apply_config($$$)
+{
+    my ($ref, $config, $rc_overrides) = @_;
+    my $set_value = 0;
+    foreach (keys(%{$ref})) {
+        next if ((exists($rc_overrides->{$_})) ||
+                 !exists($config->{$_}));
+        my $v = $config->{$_};
+        $set_value = 1;
+        _set_config($ref, $_, $v);    # write into options
+    }
+    return $set_value;
+}
+
 # common utility used by genhtml, geninfo, lcov to clean up RC options,
 #  check for various possible system-wide RC files, and apply the result
+# return 1 if we set something
 sub apply_rc_params($$)
 {
     my ($opt_config_file, $rcHash) = @_;
@@ -677,28 +682,32 @@ sub apply_rc_params($$)
     # Check command line for a configuration file name
     Getopt::Long::Configure("pass_through", "no_auto_abbrev");
     Getopt::Long::GetOptions("config-file=s" => $opt_config_file,
-                             "rc=s%"         => \%opt_rc);
+                             "rc=s%"         => \@opt_rc);
     Getopt::Long::Configure("default");
-    {
-        # Remove spaces around rc options
-        my %new_opt_rc;
 
-        while (my ($key, $value) = each(%opt_rc)) {
-            $key   =~ s/^\s+|\s+$//g;
-            $value =~ s/^\s+|\s+$//g;
-
-            $new_opt_rc{$key} = $value;
-        }
-        %opt_rc = %new_opt_rc;
+    my $set_value = 0;
+    my %new_opt_rc;
+    foreach my $v (@opt_rc) {
+        my $index = index($v, '=');
+        die("malformed --rc option '$v' - should be 'key=value'")
+            if $index == -1;
+        my $key   = substr($v, 0, $index);
+        my $value = substr($v, $index + 1);
+        $key =~ s/^\s+|\s+$//g;
+        next unless exists($rcHash->{$key});
+        # strip spaces
+        $value =~ s/^\s+|\s+$//g;
+        _set_config($rcHash, $key, $value);
+        $set_value = 1;
     }
     my $config;    # did we see a config file or not?
                    # Read configuration file if available
     if (0 != scalar(@$opt_config_file)) {
         foreach my $f (@$opt_config_file) {
             $config = read_config($f);
-            apply_config($rcHash, $config);
+            $set_value |= apply_config($rcHash, $config, \%new_opt_rc);
         }
-        return 0;
+        return $set_value;
     } elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"} . "/.lcovrc")) {
         $config = read_config($ENV{"HOME"} . "/.lcovrc");
     } elsif (-r "/etc/lcovrc") {
@@ -707,12 +716,11 @@ sub apply_rc_params($$)
         $config = read_config("/usr/local/etc/lcovrc");
     }
 
-    if ($config || %opt_rc) {
+    if ($config) {
         # Copy configuration file and --rc values to variables
-        apply_config($rcHash, $config);
-        return 1;
+        $set_value |= apply_config($rcHash, $config, \%new_opt_rc);
     }
-    return 0;    # did not find any RC params
+    return $set_value;
 }
 
 #
