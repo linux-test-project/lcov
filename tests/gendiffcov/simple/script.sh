@@ -135,6 +135,15 @@ if [ 0 != $? ] ; then
 fi
 gzip -c baseline.info > baseline.info.gz
 
+echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_name.info --test-name myTest
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_name.info.gz --test-name myTest
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov --capture with namefailed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 # test merge with differing version
 sed -e 's/VER:/VER:x/g' < baseline.info > baseline2.info
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output merge.info -a baseline.info -a baseline2.info
@@ -231,6 +240,15 @@ if [ 0 != $? ] ; then
 fi
 gzip -c current.info > current.info.gz
 
+echo lcov $LCOV_OPTS --capture --directory . --output-file current_name.info.gz --test-name myTest
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current_name.info.gz --test-name myTest
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov --capture (name) failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 #genhtml current.info --output-directory ./current
 echo genhtml $DIFFCOV_OPTS --show-details current.info --output-directory ./current
 $COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS current.info --show-details --output-directory ./current
@@ -284,6 +302,17 @@ for opt in "" --dark-mode --flat ; do
   fi
 
 done
+
+# check that this works with test names
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml differential testname failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 # run with several different combinations of options - and see
 #   if they do what we expect

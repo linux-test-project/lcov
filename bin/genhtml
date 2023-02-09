@@ -1960,7 +1960,7 @@ sub curr_count
 
 sub _mergeBranchData
 {
-    my ($self, $loc, $branchData, $filename, $testcase) = @_;
+    my ($self, $loc, $branchData, $filename) = @_;
     my $branch = $self->[4];
     if (defined($branch->[$loc])) {
 
@@ -1971,10 +1971,12 @@ sub _mergeBranchData
                 # managed to do it - so we need to handle the error
                 my $which = $loc == 0 ? 'baseline' : 'current';
                 lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
-                    $filename . ':' . $current->line() .
-                        ": '$which' line " . $self->lineNo($which) .
-                        " merge block (line " . $branchData->line() .
-                        ") in testcase '$testcase' does not contain branch $branchId."
+                                        $filename . ':' . $current->line() .
+                                            ": '$which' line " .
+                                            $self->lineNo($which) .
+                                            " merge block (line " .
+                                            $branchData->line() .
+                                            ") does not contain branch $branchId."
                 );
                 next;
             }
@@ -1990,7 +1992,7 @@ sub _mergeBranchData
                 lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
                     $filename . ':' . $current->line() .
                         ": '$which' line " . $self->lineNo($which) .
-                        " branch $branchId contains $nc elements but testcase '$testcase' merge data contains $nd."
+                        " branch $branchId contains $nc elements but merge data contains $nd."
                 );
             }
             for (my $i = ($nc > $nd ? $nd : $nc) - 1; $i >= 0; --$i) {
@@ -2010,11 +2012,11 @@ sub _mergeBranchData
 
 sub baseline_branch
 {
-    my ($self, $branchData, $filename, $testcase) = @_;
+    my ($self, $branchData, $filename) = @_;
     die("has baseline branch data but not in baseline")
         if (defined($branchData) && !defined($self->[1]));
     if (defined($branchData)) {
-        $self->_mergeBranchData(0, $branchData, $filename, $testcase);
+        $self->_mergeBranchData(0, $branchData, $filename);
     }
     my $branch = $self->[4];
     return $branch->[0];
@@ -2022,11 +2024,11 @@ sub baseline_branch
 
 sub current_branch
 {
-    my ($self, $branchData, $filename, $testcase) = @_;
+    my ($self, $branchData, $filename) = @_;
     die("has current branch data but not in current")
         if (defined($branchData) && !defined($self->[2]));
     if (defined($branchData)) {
-        $self->_mergeBranchData(1, $branchData, $filename, $testcase);
+        $self->_mergeBranchData(1, $branchData, $filename);
     }
     my $branch = $self->[4];
     return $branch->[1];
@@ -2227,53 +2229,52 @@ sub _categorizeLineCov
     my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
     my $lineDataMap = $self->lineMap();
 
-    my $lineCovBase    = $base_data->test();
-    my $lineCovCurrent = $current_data->test();
+    my $lineCovBase    = $base_data->sum();
+    my $lineCovCurrent = $current_data->sum();
 
-    foreach my $testcase ($lineCovCurrent->keylist()) {
-        my $testcount = $lineCovCurrent->value($testcase);
-        foreach my $line ($testcount->keylist()) {
-            my $type = $linemap->type($filename, "new", $line);
-            $type ne 'delete' or
-                die(
-                "'current' line $filename:$line should not be marked 'delete'");
-            # next if ($type ne "delete");
-            my $linedata;
-            if (!exists($lineDataMap->{$line})) {
-                $linedata = LineData->new($type);
-                $lineDataMap->{$line} = $linedata;
-            } else {
-                $linedata = $lineDataMap->{$line};
-            }
-            my $val = $testcount->value($line);
-            $linedata->lineNo("current", $line);
-            $linedata->curr_count($val);
+    # it is sufficient to just walk the 'global' (merged) line
+    #  coverage dataset because we only care/we only show total
+    #  coverage - not changed coverage per testcase.
+    #  (This observation is also true for branch and function
+    #  coverages.)
+    foreach my $line ($lineCovCurrent->keylist()) {
+        my $type = $linemap->type($filename, "new", $line);
+        $type ne 'delete' or
+            die("'current' line $filename:$line should not be marked 'delete'");
+        # next if ($type ne "delete");
+        my $linedata;
+        if (!exists($lineDataMap->{$line})) {
+            $linedata = LineData->new($type);
+            $lineDataMap->{$line} = $linedata;
+        } else {
+            $linedata = $lineDataMap->{$line};
         }
+        my $val = $lineCovCurrent->value($line);
+        $linedata->lineNo("current", $line);
+        $linedata->curr_count($val);
     }
-    foreach my $testcase ($lineCovBase->keylist()) {
-        my $testcount = $lineCovBase->value($testcase);
-        foreach my $bline ($testcount->keylist()) {
-            my $cline = $linemap->lookup($filename, "old", $bline);
-            my $type  = $linemap->type($filename, "old", $bline);
-            my $linedata;
-            if ($type ne "delete") {
-                if (!defined($lineDataMap->{$cline})) {
-                    $lineDataMap->{$cline} = LineData->new($type);
-                }
-                $linedata = $lineDataMap->{$cline};
-            } else {
-                # nothing walks the keylist so a prefix is sufficient to distiguish
-                # records that should be summarized but not displayed
-                my $dline = "<<<" . $bline;
-                if (!defined($lineDataMap->{$dline})) {
-                    $lineDataMap->{$dline} = LineData->new($type);
-                }
-                $linedata = $lineDataMap->{$dline};
+
+    foreach my $bline ($lineCovBase->keylist()) {
+        my $cline = $linemap->lookup($filename, "old", $bline);
+        my $type  = $linemap->type($filename, "old", $bline);
+        my $linedata;
+        if ($type ne "delete") {
+            if (!defined($lineDataMap->{$cline})) {
+                $lineDataMap->{$cline} = LineData->new($type);
             }
-            my $val = $testcount->value($bline);
-            $linedata->lineNo("base", $bline);
-            $linedata->base_count($val);
+            $linedata = $lineDataMap->{$cline};
+        } else {
+            # nothing walks the keylist so a prefix is sufficient to distiguish
+            # records that should be summarized but not displayed
+            my $dline = "<<<" . $bline;
+            if (!defined($lineDataMap->{$dline})) {
+                $lineDataMap->{$dline} = LineData->new($type);
+            }
+            $linedata = $lineDataMap->{$dline};
         }
+        my $val = $lineCovBase->value($bline);
+        $linedata->lineNo("base", $bline);
+        $linedata->base_count($val);
     }
 
     foreach my $line (keys %$lineDataMap) {
@@ -2313,71 +2314,65 @@ sub _categorizeBranchCov
     my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
     my $lineDataMap = $self->lineMap();
 
-    my $branchCovBase    = $base_data->testbr();
-    my $branchCovCurrent = $current_data->testbr();
+    my $branchBaseline = $base_data->sumbr();
+    my $branchCurrent  = $current_data->sumbr();
 
     my %branchCovLines;
     # look through the 'current' data, to find all the branch data
-    foreach my $testcase ($branchCovCurrent->keylist()) {
-        my $branchCurrent = $branchCovCurrent->value($testcase);
-        foreach my $line ($branchCurrent->keylist()) {
-            my $type = $linemap->type($filename, "new", $line);
-            lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
-                 "'current' line $filename:$line should not be marked 'delete'")
-                if $type eq 'delete';
-            #next if $type eq 'delete';
 
-            $branchCovLines{$line} = 1;
-            my $data;
-            if (!exists($lineDataMap->{$line})) {
-                $data = LineData->new($type);
-                $lineDataMap->{$line} = $data;
-                # we expect the associated line to also have line coverage data
-                lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
-                     "line $line of $filename has branchcov but no linecov data"
-                );
-            } else {
-                $data = $lineDataMap->{$line};
-            }
-            # we expect that the line number matches...
-            $data->lineNo("current", $line);
-            # append this branch data for the line
-            my $currBranchData = $branchCurrent->value($line);
-            $data->current_branch($currBranchData, $filename, $testcase);
-        }    # foreach line in this testcase's branch data
-    }    #foreach current testcase
+    foreach my $line ($branchCurrent->keylist()) {
+        my $type = $linemap->type($filename, "new", $line);
+        lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                 "'current' line $filename:$line should not be marked 'delete'")
+            if $type eq 'delete';
+        #next if $type eq 'delete';
+
+        $branchCovLines{$line} = 1;
+        my $data;
+        if (!exists($lineDataMap->{$line})) {
+            $data = LineData->new($type);
+            $lineDataMap->{$line} = $data;
+            # we expect the associated line to also have line coverage data
+            lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+                   "line $line of $filename has branchcov but no linecov data");
+        } else {
+            $data = $lineDataMap->{$line};
+        }
+        # we expect that the line number matches...
+        $data->lineNo("current", $line);
+        # append this branch data for the line
+        my $currBranchData = $branchCurrent->value($line);
+        $data->current_branch($currBranchData, $filename);
+    }    # foreach line in 'current' branch data
 
     # now look through the baseline to find matching data
-    foreach my $testcase ($branchCovBase->keylist()) {
-        my $branchBaseline = $branchCovBase->value($testcase);
-        foreach my $base_line ($branchBaseline->keylist()) {
-            my $curr_line = $linemap->lookup($filename, "old", $base_line);
-            my $type      = $linemap->type($filename, "old", $base_line);
-            my $data;
-            if ($type ne 'delete') {
-                $branchCovLines{$curr_line} = 1;
-                if (!exists($lineDataMap->{$curr_line})) {
-                    $data = LineData->new($type);
-                    $lineDataMap->{$curr_line} = $data;
-                } else {
-                    $data = $lineDataMap->{$curr_line};
-                }
+    foreach my $base_line ($branchBaseline->keylist()) {
+        my $curr_line = $linemap->lookup($filename, "old", $base_line);
+        my $type      = $linemap->type($filename, "old", $base_line);
+        my $data;
+        if ($type ne 'delete') {
+            $branchCovLines{$curr_line} = 1;
+            if (!exists($lineDataMap->{$curr_line})) {
+                $data = LineData->new($type);
+                $lineDataMap->{$curr_line} = $data;
             } else {
-                # the line has been deleted...just record the data
-                my $deleteKey = "<<<" . $base_line;
-                $branchCovLines{$deleteKey} = 1;
-                if (!exists($lineDataMap->{$deleteKey})) {
-                    $data = LineData->new($type);
-                    $lineDataMap->{$deleteKey} = $data;
-                } else {
-                    $data = $lineDataMap->{$deleteKey};
-                }
+                $data = $lineDataMap->{$curr_line};
             }
-            $data->lineNo("base", $base_line);
-            my $baseBranchData = $branchBaseline->value($base_line);
-            $data->baseline_branch($baseBranchData, $filename, $testcase);
-        }    # foreach line in baseline data for this test..
-    }    # foreach baseline testcase
+        } else {
+            # the line has been deleted...just record the data
+            my $deleteKey = "<<<" . $base_line;
+            $branchCovLines{$deleteKey} = 1;
+            if (!exists($lineDataMap->{$deleteKey})) {
+                $data = LineData->new($type);
+                $lineDataMap->{$deleteKey} = $data;
+            } else {
+                $data = $lineDataMap->{$deleteKey};
+            }
+        }
+        $data->lineNo("base", $base_line);
+        my $baseBranchData = $branchBaseline->value($base_line);
+        $data->baseline_branch($baseBranchData, $filename);
+    }    # foreach line in baseline data
 
     # now go through all the branch data for each line, and categorize everything
     foreach my $line (keys(%branchCovLines)) {
@@ -2483,79 +2478,74 @@ sub _categorizeFunctionCov
     push(@$self, $differentialMap);
     my $lineDataMap = $self->lineMap();
 
-    my $funcBase    = $base_data->testfnc();
-    my $funcCurrent = $current_data->testfnc();
-    # use merged line coverage to categorize function by checking for edits in
-    # function range
+    my $funcBase    = $base_data->func();
+    my $funcCurrent = $current_data->func();
+    # use merged line coverage to categorize function by checking for
+    #   edits in function range
     # $lineCovBase and $lineCovCurrent are 'CountData' objects
-    my $lineCovBase    = $base_data->test()->value('');  # use merged "''" value
-    my $lineCovCurrent = $current_data->test()->value('');
+    #  - of lineNo->hit count
+    my $lineCovBase    = $base_data->sum();
+    my $lineCovCurrent = $current_data->sum();
 
     my %funcCovLines;
-    foreach my $testcase ($funcCurrent->keylist()) {
-        my $test = $funcCurrent->value($testcase);
-        foreach my $key ($test->keylist()) {
-            my $func = $test->findKey($key);
-            my $line = $func->line();
-            my $type = $linemap->type($filename, 'new', $line);
-            $funcCovLines{$line} = 1;
-            lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+    foreach my $key ($funcCurrent->keylist()) {
+        my $func = $funcCurrent->findKey($key);
+        my $line = $func->line();
+        my $type = $linemap->type($filename, 'new', $line);
+        $funcCovLines{$line} = 1;
+        lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
                  "'current' line $filename:$line should not be marked 'delete'")
-                if $type eq 'delete';
+            if $type eq 'delete';
 
-            my $data;
-            if (!exists($lineDataMap->{$line})) {
-                $data = LineData->new($type);
-                $lineDataMap->{$line} = $data;
-            } else {
-                $data = $lineDataMap->{$line};
-                lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
-                            "type mismatch " .
-                                $data->type() . " -> $type for $filename:$line")
-                    unless $data->type() eq $type;
-            }
-            # we expect that the line number matches...
-            $data->lineNo("current", $line);
-            # function data for the line
-            $data->current_function($func);
+        my $data;
+        if (!exists($lineDataMap->{$line})) {
+            $data = LineData->new($type);
+            $lineDataMap->{$line} = $data;
+        } else {
+            $data = $lineDataMap->{$line};
+            lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+                                      "type mismatch " . $data->type() .
+                                          " -> $type for $filename:$line")
+                unless $data->type() eq $type;
         }
-    }    # foreach current testcase
+        # we expect that the line number matches...
+        $data->lineNo("current", $line);
+        # function data for the line
+        $data->current_function($func);
+    }    # foreach function in current data
          # now look through the baseline to find matching data
-    foreach my $testcase ($funcBase->keylist()) {
-        my $test = $funcBase->value($testcase);
-        foreach my $key ($test->keylist()) {
-            my $func      = $test->findKey($key);
-            my $line      = $func->line();
-            my $type      = $linemap->type($filename, 'old', $line);
-            my $curr_line = $linemap->lookup($filename, "old", $line);
-            my $data;
-            if ($type ne 'delete') {
-                $funcCovLines{$curr_line} = 1;
+    foreach my $key ($funcBase->keylist()) {
+        my $func      = $funcBase->findKey($key);
+        my $line      = $func->line();
+        my $type      = $linemap->type($filename, 'old', $line);
+        my $curr_line = $linemap->lookup($filename, "old", $line);
+        my $data;
+        if ($type ne 'delete') {
+            $funcCovLines{$curr_line} = 1;
 
-                if (!exists($lineDataMap->{$curr_line})) {
-                    $data = LineData->new($type);
-                    $lineDataMap->{$curr_line} = $data;
-                } else {
-                    $data = $lineDataMap->{$curr_line};
-                }
+            if (!exists($lineDataMap->{$curr_line})) {
+                $data = LineData->new($type);
+                $lineDataMap->{$curr_line} = $data;
             } else {
-                # the line has been deleted...just record the data
-                my $deleteKey = "<<<" . $line;
-                $funcCovLines{$deleteKey} = 1;
-                if (!exists($lineDataMap->{$deleteKey})) {
-                    $data = LineData->new($type);
-                    $lineDataMap->{$deleteKey} = $data;
-                } else {
-                    $data = $lineDataMap->{$deleteKey};
-                }
+                $data = $lineDataMap->{$curr_line};
             }
-            die("inconsistent 'base' line number")
-                if (defined($data->lineNo("base")) &&
-                    $data->lineNo("base") != $line);
-            $data->lineNo("base", $line);
-            $data->baseline_function($func);
-        }    # foreach line in baseline data for this test..
-    }    # foreach baseline testcase
+        } else {
+            # the line has been deleted...just record the data
+            my $deleteKey = "<<<" . $line;
+            $funcCovLines{$deleteKey} = 1;
+            if (!exists($lineDataMap->{$deleteKey})) {
+                $data = LineData->new($type);
+                $lineDataMap->{$deleteKey} = $data;
+            } else {
+                $data = $lineDataMap->{$deleteKey};
+            }
+        }
+        die("inconsistent 'base' line number")
+            if (defined($data->lineNo("base")) &&
+                $data->lineNo("base") != $line);
+        $data->lineNo("base", $line);
+        $data->baseline_function($func);
+    }    # foreach function in baseline data
 
     # now go through function data for each line and categorize...
     foreach my $line (keys %funcCovLines) {

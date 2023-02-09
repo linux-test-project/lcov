@@ -113,7 +113,7 @@ DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverag
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx *.diff *.txt template
-rm -rf baseline_*call_current*call alias no_alias
+rm -rf baseline_*call_current*call alias* no_alias*
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -133,8 +133,8 @@ ${CXX} --coverage -DCALL_FUNCTIONS test.cpp
 ./a.out
 
 
-echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info
+echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -148,8 +148,8 @@ rm -f test.gcno test.gcda a.out
 ${CXX} --coverage test.cpp
 ./a.out
 
-echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info
+echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (2) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -244,8 +244,8 @@ done
 rm *.gcda *.gcno
 ${CXX} --coverage -std=c++11 -o template template.cpp
 ./template
-echo lcov $LCOV_OPTS --capture --directory . --demangle --output-file template.info --no-external --branch-coverage
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --demangle --directory . --output-file template.info --no-external --branch-coverage
+echo lcov $LCOV_OPTS --capture --directory . --demangle --output-file template.info --no-external --branch-coverage --test-name myTest
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --demangle --directory . --output-file template.info --no-external --branch-coverage --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -259,48 +259,52 @@ if [ 4 != $COUNT ] ; then
         exit 1
     fi
 fi
-echo $LCOV_HOME/bin/genhtml -o alias $DIFFCOV_OPTS template.info --show-proportion
-$COVER $LCOV_HOME/bin/genhtml -o alias $DIFFCOV_OPTS  template.info --show-proportion
-if [ $? != 0 ] ; then
-    echo "genhtml alias failed"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
-    fi
-fi
-#expect 5 entries in 'func' list (main, leader, 3 aliases
-COUNT=`grep -c 'coverFnAlias"' alias/function/template.cpp.func.html`
-if [ 3 != $COUNT ] ; then
-    echo "ERROR: expected 3 aliases - found $COUNT"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
-    fi
-fi
 
-# suppres aliases
-echo $LCOV_HOME/bin/genhtml -o no_alias $DIFFCOV_OPTS template.info --show-proportion --suppress-alias
-$COVER $LCOV_HOME/bin/genhtml -o no_alias $DIFFCOV_OPTS  template.info --show-proportion --suppress-alias
-if [ $? != 0 ] ; then
-    echo "genhtml no_alias failed"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+for opt in '' '--forget-test-names' ; do
+    outdir="alias$opt"
+    echo $LCOV_HOME/bin/genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion
+    $COVER $LCOV_HOME/bin/genhtml -o $outdir $pt $DIFFCOV_OPTS  template.info --show-proportion
+    if [ $? != 0 ] ; then
+        echo "genhtml $outdir failed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
-#expect 2 entries in 'func' list
-COUNT=`grep -c 'coverFn"' no_alias/function/template.cpp.func.html`
-if [ 2 != $COUNT ] ; then
-    echo "ERROR: expected 2 functions - found $COUNT"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+    #expect 5 entries in 'func' list (main, leader, 3 aliases
+    COUNT=`grep -c 'coverFnAlias"' $outdir/function/template.cpp.func.html`
+    if [ 3 != $COUNT ] ; then
+        echo "ERROR: expected 3 aliases - found $COUNT"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
-COUNT=`grep -c 'coverFnAlias"' no_alias/function/template.cpp.func.html`
-if [ 0 != $COUNT ] ; then
-    echo "ERROR: expected zero aliases - found $COUNT"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
-    fi
-fi
 
+    outdir="no_alias$opt"
+    # suppres aliases
+    echo $LCOV_HOME/bin/genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion --suppress-alias
+    $COVER $LCOV_HOME/bin/genhtml -o $outdir $opt $DIFFCOV_OPTS  template.info --show-proportion --suppress-alias
+    if [ $? != 0 ] ; then
+        echo "genhtml $outdir failed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    #expect 2 entries in 'func' list
+    COUNT=`grep -c 'coverFn"' $outdir/function/template.cpp.func.html`
+    if [ 2 != $COUNT ] ; then
+        echo "ERROR: expected 2 functions - found $COUNT"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    COUNT=`grep -c 'coverFnAlias"' $outdir/function/template.cpp.func.html`
+    if [ 0 != $COUNT ] ; then
+        echo "ERROR: expected zero aliases - found $COUNT"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
 
 
 # and generate a spreadsheet..check that we don't crash

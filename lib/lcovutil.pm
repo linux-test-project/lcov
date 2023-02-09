@@ -189,8 +189,9 @@ our %excluded_files;
 our @omit_line_patterns;
 our @exclude_function_patterns;
 
-our $rtl_file_extensions = 'v|vh|sv|vhdl?';
-our $c_file_extensions   = 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx';
+our $rtl_file_extensions  = 'v|vh|sv|vhdl?';
+our $c_file_extensions    = 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx';
+our $java_file_extensions = 'java';
 # don't look more than 10 lines ahead when filtering (default)
 our $source_filter_lookahead = 10;
 # by default, don't treat expressions containing bitwise operators '|', '&', '~'
@@ -2489,13 +2490,13 @@ sub new
     $self->{_location} = [];    # will fill with file/line
 
     $self->{_filename} = $filename;
-    # _checkdata         : line number  -> source line checksum
+    # _checkdata   : line number  -> source line checksum
     $self->{_checkdata} = MapData->new();
-    # _sumcount          : line number  -> execution count
+    # _sumcount    : line number  -> execution count - merged over all testcases
     $self->{_sumcount} = CountData->new($CountData::SORTED);
-    # _funcdata          : function name or function location  -> FunctionEntry
+    # _funcdata    : function name or function location  -> FunctionEntry for all tests
     $self->{_funcdata} = FunctionMap->new();
-    # _sumbrcount        : line number  -> branch coverage
+    # _sumbrcount  : line number  -> branch coverage - for all tests
     $self->{_sumbrcount} = BranchData->new();
 
     $self->{_found}   = 0;
@@ -2572,12 +2573,16 @@ sub test
 
 sub sum
 {
+    # return MapData of line -> hit count
+    #   data merged over all testcases
     my $self = shift;
     return $self->{_sumcount};
 }
 
 sub func
 {
+    # return FunctionMap of function name or location -> FunctionEntry
+    #   data is merged over all testcases
     my $self = shift;
     return $self->{_funcdata};
 }
@@ -2662,6 +2667,8 @@ sub testbr
 
 sub sumbr
 {
+    # return BranchData map of line number -> BranchEntry
+    #   data is merged over all testcases
     my $self = shift;
     return $self->{_sumbrcount};
 }
@@ -3588,6 +3595,12 @@ sub is_rtl_file
     return $filename =~ /\.($rtl_file_extensions)$/ ? 1 : 0;
 }
 
+sub is_java_file
+{
+    my $filename = shift;
+    return $filename =~ /\.($java_file_extensions)$/ ? 1 : 0;
+}
+
 sub is_c_file
 {
     my $filename = shift;
@@ -3962,7 +3975,7 @@ sub _read_info
             /^end_of_record/ && do {
                 # Found end of section marker
                 if ($filename) {
-                    if (!is_rtl_file($filename)) {
+                    if (!(is_rtl_file($filename) || is_java_file($filename))) {
                         # RTL code was added directly - no issue with duplicate
                         #  data entries in geninfo result
                         foreach my $line (sort { $a <=> $b }
