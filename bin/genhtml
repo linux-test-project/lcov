@@ -4021,7 +4021,14 @@ sub _load
     my $start = Time::HiRes::gettimeofday();
 
     if (!(-r $self->path())) {
-        if ($main::synthesizeMissingFile) {
+        if ($main::synthesizeMissingFile ||
+            # don't complain if we weren't going to do anything with the file -
+            # not generating source view and not checking versions or annotating
+            ($main::no_sourceview                         &&
+             0 == scalar(@lcovutil::extractVersionScript) &&
+             0 == scalar(@SourceFile::annotateScript)     &&
+             !lcovutil::is_filter_enabled())
+        ) {
             $self->_synthesize($countdata);
             my $end = Time::HiRes::gettimeofday();
             $lcovutil::profileData{synth}{$self->path()} = $end - $start;
@@ -6246,9 +6253,8 @@ sub write_description_file($$)
     my $test_name;
     local *HTML_HANDLE;
 
-    html_create(*HTML_HANDLE,
-                File::Spec->catfile($output_directory, "descriptions.$html_ext")
-    );
+    html_create(*HTML_HANDLE, "descriptions.$html_ext");
+
     write_html_prolog(*HTML_HANDLE, "", "LCOV - test case descriptions");
     write_header(*HTML_HANDLE, [3, 'name', 0], "", "", $summary, undef);
 

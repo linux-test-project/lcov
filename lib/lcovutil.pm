@@ -3935,8 +3935,9 @@ sub _read_info
 
                 $block = -1 if ($block == $UNNAMED_BLOCK);
 
-                if (is_rtl_file($filename)) {
-                    # Verilog/SystemVerilog/VHDL
+                if (!is_c_file($filename)) {
+                    # At least at present, Verilog/SystemVerilog/VHDL,
+                    # java, python, etc don't need branch number fixing
                     my $key = "$line,$block";
                     my $branch =
                         exists($branchRenumber{$key}) ?
@@ -3954,7 +3955,9 @@ sub _read_info
                             ->append($line, $block, $br, $filename);
                     }
                 } else {
-                    # not an HDL file
+                    # only C code might need renumbering - but this
+                    #   is an artifact of some very old geninfo code,
+                    #   so any new data files will be OK
                     $branchRenumber{$line} = {}
                         unless exists($branchRenumber{$line});
                     $branchRenumber{$line}->{$block} = {}
@@ -3975,9 +3978,9 @@ sub _read_info
             /^end_of_record/ && do {
                 # Found end of section marker
                 if ($filename) {
-                    if (!(is_rtl_file($filename) || is_java_file($filename))) {
-                        # RTL code was added directly - no issue with duplicate
-                        #  data entries in geninfo result
+                    if (is_c_file($filename)) {
+                        # RTL code was added directly - no issue with
+                        #  duplicate data entries in geninfo result
                         foreach my $line (sort { $a <=> $b }
                                           keys(%branchRenumber)
                         ) {
