@@ -390,8 +390,10 @@ if (defined($opt_no_list_full_path)) {
     $opt_no_list_full_path = undef;
 }
 
-push(@lcovutil::internal_dirs, $base_directory)
-    if defined($base_directory);
+if (defined($base_directory)) {
+    push(@ReadCurrentSource::source_directories, $base_directory);
+    push(@lcovutil::internal_dirs, $base_directory);
+}
 if (defined($opt_external)) {
     $lcovutil::opt_no_external = 0;
     $opt_external              = undef;
@@ -987,6 +989,8 @@ sub lcov_geninfo(@)
         $lcovutil::preserve_intermediates) {
         push(@param, "--preserve");
     }
+    push(@param, "--base-directory", $base_directory)
+        if $base_directory;
     foreach (split(',', join(',', @opt_ignore_errors))) {
         # pass only the 'ignore' options that geninfo understands
         push(@param, "--ignore-errors", $_)

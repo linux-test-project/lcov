@@ -790,7 +790,7 @@ sub munge_file_patterns
             }
             $str .= ';';
             eval $str;    # apply pattern that user provided...
-            die("invalid regexp \"--omit-lines $pat\":\n$@")
+            die("invalid regexp \"$flag $pat\":\n$@")
                 if ($@);
         }
 
@@ -2828,6 +2828,8 @@ sub merge
 #  have diffs - but the current version does not.
 package ReadCurrentSource;
 
+our @source_directories;
+
 sub new
 {
     my ($class, $filename) = @_;
@@ -2847,12 +2849,27 @@ sub close
     }
 }
 
+sub resolve_path
+{
+    my $filename = shift;
+    my $path     = $filename;
+    my $idx      = 0;
+    while (!-e $path &&
+           !File::Spec->file_name_is_absolute($path) &&
+           $idx < scalar(@source_directories)) {
+        $path = File::Spec->catfile($source_directories[$idx], $filename);
+        $idx += 1;
+    }
+    return -e $path ? $path : $filename;
+}
+
 sub open
 {
     my ($self, $filename, $version) = @_;
 
     $version = "" unless defined($version);
-    if (open(SRC, "<", $filename)) {
+    my $path = resolve_path($filename);
+    if (open(SRC, "<", $path)) {
         lcovutil::info(1,
                     "reading $version$filename (for bogus branch filtering)\n");
         my @sourceLines = <SRC>;
@@ -2860,10 +2877,12 @@ sub open
         $self->[0] = $filename;
         $self->parseLines($filename, \@sourceLines);
     } else {
-        lcovutil::info(
-                 "unable to open $filename (for bogus branch filtering): $!\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                  "unable to open $filename: $!\n");
         $self->close();
+        return undef;
     }
+    return $self;
 }
 
 sub parseLines
@@ -3453,12 +3472,8 @@ sub applyFilters
         $srcReader->close();
 
         lcovutil::info(1, "reading $source_file for lcov filtering\n");
-        if (-e $source_file) {
-            $srcReader->open($source_file);
-        } else {
-            lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                 "'$source_file' not found (for filtering): $!")
-                if (lcovutil::warn_once($source_file));
+        if (!$srcReader->open($source_file)) {
+            # did not open file - and we ignored the error
             next;
         }
 
@@ -3673,14 +3688,9 @@ sub _read_info
     my $testbrdata;
     my $testbrcount;
     my $sumbrcount;
-    my $line;                # Current line read from .info file
     my $testname;            # Current test name
     my $filename;            # Current filename
-    my $hitcount;            # Count for lines hit
-    my $count;               # Execution count of current line
     my $changed_testname;    # If set, warn about changed testname
-    my $line_checksum;       # Checksum of current line
-    my $notified_about_relative_paths;
 
     lcovutil::info(1, "Reading data file $tracefile\n");
 
@@ -3716,7 +3726,7 @@ sub _read_info
     my $skipCurrentFile = 0;
     while (<$infoHdl>) {
         chomp($_);
-        $line = $_;
+        my $line = $_;
 
         if ($line =~ /^[SK]F:(.*)/) {
             # Filename information found
@@ -3731,18 +3741,6 @@ sub _read_info
             }
 
             # Retrieve data for new entry
-            # this could be parallelized by holding hash of file data -
-            #  then post-processing the filter functions (etc) after
-            #  parsing the .info file
-            $filename = File::Spec->rel2abs($filename, $main::cwd);
-
-            if (!File::Spec->file_name_is_absolute($1) &&
-                !$notified_about_relative_paths) {
-                lcovutil::info("Resolved relative source file " .
-                               "path \"$1\" with CWD to " . "\"$filename\".\n");
-                $notified_about_relative_paths = 1;
-            }
-
             %branchRenumber   = ();
             %excludedFunction = ();
 
@@ -3753,13 +3751,7 @@ sub _read_info
                 $readSourceCallback->close();
                 undef $currentBranchLine;
                 if (is_c_file($filename)) {
-                    if (-e $filename) {
-                        $readSourceCallback->open($filename);
-                    } else {
-                        lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                         "'$filename' not found (for checksum)")
-                            if (lcovutil::warn_once($filename));
-                    }
+                    $readSourceCallback->open($filename);
                 }
             }
             $fileData = $self->data($filename);
@@ -4078,7 +4070,7 @@ sub _read_info
         next;
 
         $filedata->{_found} = scalar(keys(%{$filedata->{_sumcount}}));
-        $hitcount = 0;
+        my $hitcount = 0;
 
         foreach (keys(%{$filedata->{_sumcount}})) {
             if ($filedata->{_sumcount}->{$_} > 0) { $hitcount++; }
@@ -4184,13 +4176,7 @@ sub write_info($$$)
                 if (is_c_file($source_file)) {
                     lcovutil::info(1,
                                    "reading $source_file for lcov checksum\n");
-                    if (-e $source_file) {
-                        $srcReader->open($source_file);
-                    } else {
-                        lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                      "'$source_file' not found (for checksum)")
-                            if (lcovutil::warn_once($source_file));
-                    }
+                    $srcReader->open($source_file);
                 } else {
                     lcovutil::debug("not reading $source_file: no ext match\n");
                 }

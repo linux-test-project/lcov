@@ -582,6 +582,7 @@ if ($adjust_testname) {
 # Make sure base_directory contains an absolute path specification
 if ($base_directory) {
     $base_directory = solve_relative_path($cwd, $base_directory);
+    push(@ReadCurrentSource::source_directories, $base_directory);
 }
 
 # Check for follow option

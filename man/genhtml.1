@@ -41,6 +41,9 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .IR prefix ]
 .RB [ \-\-no\-prefix ]
 .br
+.RB [ \-\-source\-directory
+.IR dirname ]
+.br
 .RB [ \-\-no\-source ]
 .RB [ \-\-num\-spaces
 .IR num ]
@@ -983,6 +986,20 @@ to jump out of their sockets :)
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_css_file .
+
+.RE
+.BI "\-\-source\-directory " dirname
+.RS
+Add 'dirname' to the list of places to look for source files.
+For relative paths listed in
+.IR tracefile,
+genhtml will first look for the path from 'cwd' (where genhtml was
+invoked invoked) and
+then from each alternate directory name in the order specified.
+The first location mmatching location is used.
+
+This option can be specified multiple times, to add more directories to the source search path.
+
 
 .RE
 .BI "\-p " prefix

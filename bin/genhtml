@@ -4020,7 +4020,9 @@ sub _load
 
     my $start = Time::HiRes::gettimeofday();
 
-    if (!(-r $self->path())) {
+    my $path = ReadCurrentSource::resolve_path($self->path());
+
+    if (!-r $path) {
         if ($main::synthesizeMissingFile ||
             # don't complain if we weren't going to do anything with the file -
             # not generating source view and not checking versions or annotating
@@ -4041,7 +4043,7 @@ sub _load
 
     # check for version mismatch...
     if (@lcovutil::extractVersionScript) {
-        my $version = lcovutil::extractFileVersion($self->path());
+        my $version = lcovutil::extractFileVersion($path);
 
         lcovutil::checkVersionMatch($self->path(), $version, $currentVersion);
         my $end = Time::HiRes::gettimeofday();
@@ -4052,7 +4054,7 @@ sub _load
     if (0 == scalar(@annotateScript)) {
         # Check if file exists and is readable
         my $begin = Time::HiRes::gettimeofday();
-        $self->_bare_load();
+        $self->_bare_load($path);
         my $end = Time::HiRes::gettimeofday();
         $lcovutil::profileData{load}{$self->path()} = $end - $begin;
         return $self;
@@ -4061,7 +4063,7 @@ sub _load
     my $begin = Time::HiRes::gettimeofday();
     # try to simplify path - 'realpath' will fail if the file does
     #   not exist - but that might be fine if it exists in the repo
-    my $repo_path = Cwd::realpath($self->path());
+    my $repo_path = Cwd::realpath($path);
     if (!defined($repo_path)) {
         lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
                            "\"" . $self->path() . "\" does not exist: $!" .
@@ -4157,12 +4159,12 @@ sub _synthesize
 
 sub _bare_load
 {
-    my $self = shift;
+    my ($self, $path) = @_;
 
     my $lineno = 0;
     local *HANDLE;    # File handle for reading the diff file
 
-    open(HANDLE, "<", $self->path()) or
+    open(HANDLE, "<", $path) or
         die("unable to open '" . $self->path() . "': $!\n");
     while (my $line = <HANDLE>) {
         chomp $line;
@@ -4315,9 +4317,19 @@ sub new
     ];
 
     foreach my $f ($current_data->files()) {
-        my $parentDir = main::shorten_prefix($f);
+        my $filename = ReadCurrentSource::resolve_path($f);
+        my ($vol, $parentDir, $file) = File::Spec->splitpath($filename);
+        if (!File::Spec->file_name_is_absolute($filename)) {
+            if ($parentDir) {
+                $parentDir = File::Spec->catfile($main::cwd, $parentDir);
+            } else {
+                $parentDir = $main::cwd;
+            }
+            $filename = File::Spec->catfile($parentDir, $filename);
+        }
         my $short_name =
-            $main::no_prefix ? $f : main::apply_prefix($f, @main::dir_prefix);
+            $main::no_prefix ? $filename :
+            main::apply_prefix($filename, @main::dir_prefix);
         my $is_absolute = $short_name =~ /^\//;
         $short_name =~ s|^/||;
         my @short_path = File::Spec->splitdir($short_name);
@@ -4329,7 +4341,7 @@ sub new
         my $pendingParent;
         if ($main::hierarchical) {
             # excludes trailing '/'
-            my $base          = substr($f, 0, -(length($short_name) + 1));
+            my $base = substr($filename, 0, -(length($short_name) + 1));
             my $relative_path = "";
             my $path          = $base;
             $pendingParent =
@@ -4396,7 +4408,7 @@ sub new
             $pendingParent;
         add_dependency($mergeInto, $f);
         # this file is ready to be processed
-        my @fileData = (SummaryInfo->new("file", $f), [{}, {}, {}], $f);
+        my @fileData = (SummaryInfo->new("file", $filename), [{}, {}, {}], $f);
         push(@$worklist,
              ['file', \@fileData, \@short_path, \@path, $mergeInto]);
     }
@@ -4951,81 +4963,83 @@ my $keepGoing;
 my $quiet = 0;
 
 # Parse command line options
-if (!GetOptions("output-directory|o=s" => \$output_directory,
-                "tempdir=s"            => \$lcovutil::tmp_dir,
-                "header-title=s"       => \$header_title,
-                "footer=s"             => \$footer,
-                "title|t=s"            => \$test_title,
-                "description-file|d=s" => \$desc_filename,
-                "keep-descriptions|k"  => \$keep_descriptions,
-                "css-file|c=s"         => \$css_filename,
-                "baseline-file|b=s"    => \$base_filename,
-                "baseline-title=s"     => \$baseline_title,
-                "baseline-date=s"      => \$baseline_date,
-                "current-date=s"       => \$current_date,
-                "diff-file=s"          => \$diff_filename,
-                "annotate-script=s"    => \@SourceFile::annotateScript,
-                "criteria-script=s"    => \@SummaryInfo::coverageCriteriaScript,
-                "version-script=s"     => \@lcovutil::extractVersionScript,
-                "checksum"             => \$lcovutil::verify_checksum,
-                "new-file-as-baseline" => \$treatNewFileAsBaseline,
-                'elide-path-mismatch'  => \$elide_path_mismatch,
-                'synthesize-missing'   => \$synthesizeMissingFile,
-                # if 'show-owners' is set: generate the owner table
-                #    if it is passed a value: show all the owners,
-                #    regardless of whether thay have uncovered code or not
-                'show-owners:s'        => \$show_ownerBins,
-                'show-noncode'         => \$show_nonCodeOwners,
-                'show-zero-columns'    => \$show_zeroTlaColumns,
-                'simplified-colors'    => \$show_simplifiedColors,
-                "date-bins=s"          => \@datebins,
-                "prefix|p=s"           => \@opt_dir_prefix,
-                "num-spaces=i"         => \$tab_size,
-                "no-prefix"            => \$no_prefix,
-                "no-sourceview"        => \$no_sourceview,
-                "show-details|s"       => \$show_details,
-                "frames|f"             => \$frames,
-                "highlight"            => \$highlight,
-                "legend"               => \$legend,
-                "quiet|q+"             => \$quiet,
-                "verbose|v+"           => \$lcovutil::verbose,
-                "debug+"               => \$lcovutil::debug,
-                "help|h|?"             => \$help,
-                "version"              => \$version,
-                "html-prolog=s"        => \$html_prolog_file,
-                "html-epilog=s"        => \$html_epilog_file,
-                "html-extension=s"     => \$html_ext,
-                "html-gzip"            => \$html_gzip,
-                "function-coverage"    => \$func_coverage,
-                "no-function-coverage" => \$no_func_coverage,
-                "branch-coverage"      => \$br_coverage,
-                "no-branch-coverage"   => \$no_br_coverage,
-                "hierarchical"         => \$hierarchical,
-                "flat"                 => \$flat,
-                "sort"                 => \$sort,
-                "no-sort"              => \$no_sort,
-                "demangle-cpp"         => \$lcovutil::cpp_demangle,
-                "ignore-errors=s"      => \@opt_ignore_errors,
-                "keep-going"           => \$keepGoing,
-                "config-file=s"        => \@unsupported_config,
-                "rc=s%"                => \%unsupported_rc,
-                "precision=i"          => \$lcovutil::default_precision,
-                "missed"               => \$opt_missed,
-                "filter=s"             => \@opt_filter,
-                "dark-mode"            => \$dark_mode,
-                "profile:s"            => \$lcovutil::profile,
-                "exclude=s"            => \@lcovutil::exclude_file_patterns,
-                "include=s"            => \@lcovutil::include_file_patterns,
-                "erase-functions=s"    => \@lcovutil::exclude_function_patterns,
-                "omit-lines=s"         => \@lcovutil::omit_line_patterns,
-                "substitute=s"         => \@lcovutil::file_subst_patterns,
-                "parallel|j:i"         => \$lcovutil::maxParallelism,
-                "memory=i"             => \$lcovutil::maxMemory,
-                "show-navigation"      => \$show_tla,
-                "show-proportion"      => \$show_functionProportions,
-                "preserve"             => \$lcovutil::preserve_intermediates,
-                "suppress-aliases"     => \$suppress_function_aliases,
-                "forget-test-names"    => \$TraceFile::ignore_testcase_name,
+if (!GetOptions(
+              "output-directory|o=s" => \$output_directory,
+              "tempdir=s"            => \$lcovutil::tmp_dir,
+              "header-title=s"       => \$header_title,
+              "footer=s"             => \$footer,
+              "title|t=s"            => \$test_title,
+              "description-file|d=s" => \$desc_filename,
+              "keep-descriptions|k"  => \$keep_descriptions,
+              "css-file|c=s"         => \$css_filename,
+              "baseline-file|b=s"    => \$base_filename,
+              "baseline-title=s"     => \$baseline_title,
+              "baseline-date=s"      => \$baseline_date,
+              "current-date=s"       => \$current_date,
+              "diff-file=s"          => \$diff_filename,
+              "annotate-script=s"    => \@SourceFile::annotateScript,
+              "criteria-script=s"    => \@SummaryInfo::coverageCriteriaScript,
+              "version-script=s"     => \@lcovutil::extractVersionScript,
+              "checksum"             => \$lcovutil::verify_checksum,
+              "new-file-as-baseline" => \$treatNewFileAsBaseline,
+              'elide-path-mismatch'  => \$elide_path_mismatch,
+              'synthesize-missing'   => \$synthesizeMissingFile,
+              # if 'show-owners' is set: generate the owner table
+              #    if it is passed a value: show all the owners,
+              #    regardless of whether thay have uncovered code or not
+              'show-owners:s'        => \$show_ownerBins,
+              'show-noncode'         => \$show_nonCodeOwners,
+              'show-zero-columns'    => \$show_zeroTlaColumns,
+              'simplified-colors'    => \$show_simplifiedColors,
+              "date-bins=s"          => \@datebins,
+              "prefix|p=s"           => \@opt_dir_prefix,
+              'source-directory=s'   => \@ReadCurrentSource::source_directories,
+              "num-spaces=i"         => \$tab_size,
+              "no-prefix"            => \$no_prefix,
+              "no-sourceview"        => \$no_sourceview,
+              "show-details|s"       => \$show_details,
+              "frames|f"             => \$frames,
+              "highlight"            => \$highlight,
+              "legend"               => \$legend,
+              "quiet|q+"             => \$quiet,
+              "verbose|v+"           => \$lcovutil::verbose,
+              "debug+"               => \$lcovutil::debug,
+              "help|h|?"             => \$help,
+              "version"              => \$version,
+              "html-prolog=s"        => \$html_prolog_file,
+              "html-epilog=s"        => \$html_epilog_file,
+              "html-extension=s"     => \$html_ext,
+              "html-gzip"            => \$html_gzip,
+              "function-coverage"    => \$func_coverage,
+              "no-function-coverage" => \$no_func_coverage,
+              "branch-coverage"      => \$br_coverage,
+              "no-branch-coverage"   => \$no_br_coverage,
+              "hierarchical"         => \$hierarchical,
+              "flat"                 => \$flat,
+              "sort"                 => \$sort,
+              "no-sort"              => \$no_sort,
+              "demangle-cpp"         => \$lcovutil::cpp_demangle,
+              "ignore-errors=s"      => \@opt_ignore_errors,
+              "keep-going"           => \$keepGoing,
+              "config-file=s"        => \@unsupported_config,
+              "rc=s%"                => \%unsupported_rc,
+              "precision=i"          => \$lcovutil::default_precision,
+              "missed"               => \$opt_missed,
+              "filter=s"             => \@opt_filter,
+              "dark-mode"            => \$dark_mode,
+              "profile:s"            => \$lcovutil::profile,
+              "exclude=s"            => \@lcovutil::exclude_file_patterns,
+              "include=s"            => \@lcovutil::include_file_patterns,
+              "erase-functions=s"    => \@lcovutil::exclude_function_patterns,
+              "omit-lines=s"         => \@lcovutil::omit_line_patterns,
+              "substitute=s"         => \@lcovutil::file_subst_patterns,
+              "parallel|j:i"         => \$lcovutil::maxParallelism,
+              "memory=i"             => \$lcovutil::maxMemory,
+              "show-navigation"      => \$show_tla,
+              "show-proportion"      => \$show_functionProportions,
+              "preserve"             => \$lcovutil::preserve_intermediates,
+              "suppress-aliases"     => \$suppress_function_aliases,
+              "forget-test-names"    => \$TraceFile::ignore_testcase_name,
 )) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
@@ -5053,6 +5067,12 @@ foreach my $d (['--config-file', scalar(@unsupported_config)],
                ['--rc', scalar(%unsupported_rc)]) {
     die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
         if ($d->[1]);
+}
+foreach my $d (@ReadCurrentSource::source_directories) {
+    if (!-d $d) {
+        lcovutil::ignorable_error($ERROR_SOURCE,
+                                  "--source-directory '$d' not found");
+    }
 }
 
 # Merge options
@@ -6012,10 +6032,21 @@ sub get_prefix($@)
     my $current;    # Temporary iteration variable
 
     # Find list of prefixes
+    my @munged;
     foreach (@filename_list) {
         # Need explicit assignment to get a copy of $_ so that
         # shortening the contained prefix does not affect the list
-        $current = $_;
+        my $current = ReadCurrentSource::resolve_path($_);
+        my ($vol, $parentDir, $file) = File::Spec->splitpath($current);
+        if (!File::Spec->file_name_is_absolute($current)) {
+            if ($parentDir) {
+                $parentDir = File::Spec->catfile($main::cwd, $parentDir);
+            } else {
+                $parentDir = $main::cwd;
+            }
+            $current = File::Spec->catfile($parentDir, $file);
+        }
+        push(@munged, $current);
         while ($current = shorten_prefix($current)) {
             $current .= "/";
 
@@ -6031,7 +6062,7 @@ sub get_prefix($@)
 
     # Remove all prefixes that would cause filenames to have less than
     # the minimum number of parent directories
-    foreach my $filename (@filename_list) {
+    foreach my $filename (@munged) {
         my $dir = dirname($filename);
 
         for (my $i = 0; $i < $min_dir; $i++) {
@@ -6045,7 +6076,7 @@ sub get_prefix($@)
 
     # Calculate sum of lengths for all prefixes
     foreach $current (keys(%prefix)) {
-        foreach (@filename_list) {
+        foreach (@munged) {
             # Add original length
             $prefix{$current} += length($_);
 
