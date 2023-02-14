@@ -689,8 +689,12 @@ my $now = Time::HiRes::gettimeofday();
 # have to check the loaded input data for exclusion markers because the
 #  data was generated directly from the gcov files - did not go through
 #  TraceFile::load which explicitly checks
-$trace_data->applyFilters();
-$trace_data->write_info_file($output_filename, $lcovutil::verify_checksum);
+if (defined($trace_data)) {
+    $trace_data->applyFilters();
+    $trace_data->write_info_file($output_filename, $lcovutil::verify_checksum);
+} else {
+    warn("WARNING:  no data generated\n");
+}
 my $then = Time::HiRes::gettimeofday();
 $lcovutil::profileData{emit} = $then - $now;
 
@@ -819,7 +823,8 @@ sub _process_one_file($$$$)
     my ($searchdir, $gcda_file, $gcno_file, $pid) = @_;
     # "file" will be .gcno if "$initial" else will be $gcda
 
-    info("Processing $gcda_file%s\n", defined($pid) ? " in child $pid" : "");
+    my $name = defined($gcda_file) ? $gcda_file : $gcno_file;
+    info("Processing $name%s\n", defined($pid) ? " in child $pid" : "");
     my $now = Time::HiRes::gettimeofday();
 
     # Process file
@@ -840,13 +845,13 @@ sub _process_one_file($$$$)
                                       $gcno_file, $tmp->dirname);
     } elsif ($initial) {
         # just read the gcno file and set all the counters to zero
-        $trace = process_graphfile($searchdir, $gcda_file);
+        $trace = process_graphfile($searchdir, $gcno_file);
     } else {
         $trace =
             process_dafile($searchdir, $gcda_file, $gcno_file, $tmp->dirname);
     }
     my $then = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{parse}{$searchdir}{$gcda_file} = $then - $now;
+    $lcovutil::profileData{parse}{$searchdir}{$name} = $then - $now;
     return $trace;
 }
 
@@ -1043,8 +1048,9 @@ sub gen_info($)
                 --$currentParallel;
             }
 
-            my $now = Time::HiRes::gettimeofday();
-            my $pid = fork();
+            my $now      = Time::HiRes::gettimeofday();
+            my $pid      = fork();
+            my $filename = defined($gcda_file) ? $gcda_file : $gcno_file;
             if (0 == $pid) {
                 # I'm the child...
                 #   set my output file to temp location so my dump won't
@@ -1093,9 +1099,9 @@ sub gen_info($)
                 # keep separate timestamp for when this child block was entered
                 # vs when fork() was called - lest this job waited in queue for
                 # a while
-                $lcovutil::profileData{process}{$searchdir}{$gcda_file} =
+                $lcovutil::profileData{process}{$searchdir}{$filename} =
                     $done - $now;
-                $lcovutil::profileData{child}{$searchdir}{$gcda_file} =
+                $lcovutil::profileData{child}{$searchdir}{$filename} =
                     $done - $childStart;
                 # dump parsed data - then read back and merge
                 Storable::store([$childInfo,
@@ -1107,7 +1113,7 @@ sub gen_info($)
                 exit(0);
             } else {
                 # I'm the parent
-                $children{$pid} = [$searchdir, $gcda_file, $now];
+                $children{$pid} = [$searchdir, $filename, $now];
                 ++$currentParallel;
             }
         } else {
@@ -1116,20 +1122,20 @@ sub gen_info($)
             my $fileData =
                 _process_one_file($searchdir, $gcda_file, $gcno_file, undef);
             my $then = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{process}{$searchdir}{$gcda_file} =
+            $lcovutil::profileData{process}{$searchdir}{$filename} =
                 $then - $now;
             if (defined($fileData)) {
                 if (defined($trace_data)) {
                     $trace_data->append_tracefile($fileData);
                     my $end = Time::HiRes::gettimeofday();
-                    $lcovutil::profileData{merge}{$searchdir}{$gcda_file} =
+                    $lcovutil::profileData{merge}{$searchdir}{$filename} =
                         $end - $then;
                 } else {
                     $trace_data = $fileData;
                 }
             }
             my $end = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{$type}{$searchdir}{$gcda_file} = $end - $now;
+            $lcovutil::profileData{$type}{$searchdir}{$filename} = $end - $now;
         }
     }    # end foreach
 
@@ -2484,9 +2490,9 @@ sub process_intermediate($$$$)
     my $json_basedir;
     my $json_format;
 
-    my $filename = $file;
-    $file = solve_relative_path($cwd, $file);
-    ($fdir, $fbase, $fext) = split_filename($file);
+    my $filename = defined($file) ? $file : $gcno_file;
+    $file = solve_relative_path($cwd, $filename);
+    ($fdir, $fbase, $fext) = split_filename($filename);
 
     my $is_graph = (".$fext" eq $graph_file_extension);
 

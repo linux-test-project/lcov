@@ -98,6 +98,14 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 g++ -std=c++1y --coverage extract.cpp
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --initial --directory . -o initial.info
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from lcov --initial"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
 ./a.out 1
 
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o external.info
