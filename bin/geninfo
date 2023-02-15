@@ -1301,7 +1301,7 @@ sub process_dafile($$$$)
     # Ignore empty graph file (e.g. source file with no statement)
     if (-z $bb_filename) {
         warn("WARNING: empty $bb_filename (skipped)\n");
-        chdir($cwd);
+        chdir($cwd) or die("can't cd back to $cwd: $!");
         return;
     }
 
@@ -1373,11 +1373,14 @@ sub process_dafile($$$$)
             (0 != $code ||
              $lcovutil::verbose));
 
+    # Change back to initial directory
+    debug(2, "chdir back to $cwd\n");
+    chdir($cwd) or die("can't cd back to $cwd: $!");
     # Collect data from resulting .gcov files and create .info file
     # this version of gcov wrote the files to "." - but we want to
     # save them in tempdir
     my @gcov_list;
-    foreach my $f (glob('*.gcov .*.gcov')) {
+    foreach my $f (glob("$tempdir/*.gcov $tempdir/.*.gcov")) {
         # Skip gcov file for gcc built-in code
         push(@gcov_list, $f) unless ($f eq "<built-in>.gcov");
     }
@@ -1389,7 +1392,6 @@ sub process_dafile($$$$)
 
     if ($code) {
         ignorable_error($ERROR_GCOV, "GCOV failed for $da_filename!");
-        chdir($cwd);
         return;
     }
 
@@ -1582,9 +1584,6 @@ sub process_dafile($$$$)
         }
     }
 
-    # Change back to initial directory
-    debug(2, "chdir back to $cwd\n");
-    chdir($cwd);
     return $traceFile;
 }
 
@@ -2550,6 +2549,8 @@ sub process_intermediate($$$$)
             (0 != $rc ||
              $lcovutil::verbose > 1));
     unlink($out);
+    debug(2, "chdir back to '$cwd'\n");
+    chdir($cwd) or die("can't cd back to $cwd: $!");
     print_gcov_warnings('stderr', $err, $is_graph, {$data_file => $file,})
         if ('' ne $err &&
             (0 != $rc ||
@@ -2573,8 +2574,11 @@ sub process_intermediate($$$$)
     # Parse resulting file(s)
     # 'meson' build system likes to use "." as leading character in generated
     # files.  Seems an unfortunate decision.
-    for my $gcov_filename (glob('*.gcov .*.gcov *.gcov.json.gz .*gcov.json.gz'))
-    {
+    for my $gcov_filename (
+        glob(
+            "$tempdir/*.gcov $tempdir/.*.gcov $tempdir/*.gcov.json.gz $tempdir/.*gcov.json.gz"
+        )
+    ) {
         if ($gcov_filename =~ /\.gcov\.json/) {
             read_intermediate_json($gcov_filename, \%data, \$json_basedir);
             $json_format = 1;
@@ -2592,7 +2596,6 @@ sub process_intermediate($$$$)
     if (!%data) {
         ignorable_warning($ERROR_GCOV,
                           "WARNING: GCOV did not produce any data for $file");
-        chdir($cwd);
         return;
     }
 
@@ -2626,13 +2629,9 @@ sub process_intermediate($$$$)
         $json_format ? intermediate_json_to_info(\%data) :
         intermediate_text_to_info(\%data);
 
-    debug(2, "chdir back to '$cwd'\n");
-    chdir($cwd);
-
     return $trace;
 
     err:
-    chdir($cwd);
     ignorable_error($ERROR_GCOV, "$errmsg!");
 }
 
