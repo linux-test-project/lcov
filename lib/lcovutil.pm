@@ -1371,6 +1371,12 @@ sub load_json_module($)
         die("Module is not installed: " . "'$did_init':$@\n");
     }
     lcovutil::info(1, "Using JSON module $did_init\n");
+    my ($index) =
+        grep { $alternatives[$_] eq $did_init } (0 .. @alternatives - 1);
+    warn(
+        "using JSON module \"$did_init\" - which is much slower than some alternatives.  Consider installing one of "
+            . join(" or ", @alternatives[0 .. $index - 1]))
+        if (defined($index) && $index > 1);
 }
 
 sub encode($)
