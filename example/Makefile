@@ -30,7 +30,7 @@ endif
 all: output
 
 example: example.o iterate.o gauss.o
-	$(CC) example.o iterate.o gauss.o -o example -lgcov
+	$(CC) example.o iterate.o gauss.o -o example -coverage
 
 example.o: example.c iterate.h gauss.h
 	$(CC) $(CFLAGS) -c example.c -o example.o
