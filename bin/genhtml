@@ -4001,17 +4001,27 @@ sub nextBranchInOwnerBin
 
 sub _computeAge
 {
-    my $when = shift;
+    my ($when, $path) = @_;
 
-    # a hack for the production of stable examples for publication:
-    #   if the 'when' value is an integer, treat it as a day count
-    #   (rather than a date) - so the HTML result is stable
-    #   (where age does not change every time the example runs).
-    return $when
-        if ($when =~ /^[0-9]+$/);
-
-    return DateTime::Format::W3CDTF->parse_datetime($when)
-        ->delta_days(DateTime->now())->in_units('days');
+    # if SOURCE_DATE_EPOCH is set, then use that as 'now':  age of this
+    #   file is as of the epoch date.
+    # if this file is newer than that ($when is in the future of epoch) - then
+    #  warn and put this file into the 'zero age' bin.
+    my $now =
+        exists($ENV{SOURCE_DATE_EPOCH}) ?
+        DateTime->from_epoch(epoch => $ENV{SOURCE_DATE_EPOCH}) :
+        DateTime->now();
+    my $then = DateTime::Format::W3CDTF->parse_datetime($when);
+    if ($then > $now) {
+        my $data =
+            exists($ENV{SOURCE_DATE_EPOCH}) ?
+            "'SOURCE_DATE_EPOCH=$ENV{SOURCE_DATE_EPOCH}'" :
+            "'now'";
+        lcovutil::ignorable_error($ERROR_INCONSISTENT_DATA,
+            "File \"$path\": $data ($now) is older than annotate time '$when'");
+        return 0;
+    }
+    return $then->delta_days($now)->in_units('days');
 }
 
 sub _load
@@ -4085,7 +4095,7 @@ sub _load
             ++$lineNum;
 
             my ($commit, $owner, $when, $text) = split(/\|/, $line, 4);
-            my $age = _computeAge($when);
+            my $age = _computeAge($when, $path);
             if ($commit ne 'NONE') {
                 die("inconsistent 'annotate' data for '$repo_path': both 'commit' and 'no commit' lines"
                 ) if (defined($found) && !$found);
