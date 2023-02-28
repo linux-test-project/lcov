@@ -642,6 +642,7 @@ sub _set_config($$$)
     my $r = $ref->{$key};
     my $t = ref($r);
     if ('ARRAY' eq $t) {
+        info(2, "  append $value to list $key\n");
         if ('ARRAY' eq ref($value)) {
             push(@$r, @$value);
         } else {
@@ -656,6 +657,7 @@ sub _set_config($$$)
         } else {
             $$r = $value;
         }
+        info(2, "  assign $$r to $key\n");
     }
 }
 
@@ -664,6 +666,7 @@ sub apply_config($$$)
     my ($ref, $config, $rc_overrides) = @_;
     my $set_value = 0;
     foreach (keys(%{$ref})) {
+        # if sufficiently verbose, could mention that key is ignored
         next if ((exists($rc_overrides->{$_})) ||
                  !exists($config->{$_}));
         my $v = $config->{$_};
@@ -681,13 +684,22 @@ sub apply_rc_params($$)
     my ($opt_config_file, $rcHash) = @_;
 
     # Check command line for a configuration file name
+    # have to set 'verbosity' flag from environment - otherwise, it isn't
+    #  set (from GetOpt) when we parse the RC file
     Getopt::Long::Configure("pass_through", "no_auto_abbrev");
+    my $save_verbose = $verbose;
+    my $save_debug   = $debug;
+    my $quiet        = 0;
     Getopt::Long::GetOptions("config-file=s" => $opt_config_file,
-                             "rc=s%"         => \@opt_rc);
+                             "rc=s%"         => \@opt_rc,
+                             "quiet|q+"      => \$quiet,
+                             "verbose|v+"    => \$lcovutil::verbose,
+                             "debug+"        => \$lcovutil::debug,);
+    init_verbose_flag($quiet);
     Getopt::Long::Configure("default");
-
     my $set_value = 0;
     my %new_opt_rc;
+
     foreach my $v (@opt_rc) {
         my $index = index($v, '=');
         die("malformed --rc option '$v' - should be 'key=value'")
@@ -696,10 +708,15 @@ sub apply_rc_params($$)
         my $value = substr($v, $index + 1);
         $key =~ s/^\s+|\s+$//g;
         next unless exists($rcHash->{$key});
+        info(1, "apply --rc overrides\n")
+            unless $set_value;
         # strip spaces
         $value =~ s/^\s+|\s+$//g;
         _set_config($rcHash, $key, $value);
         $set_value = 1;
+        # record override of this one - so we skip the value from the
+        #  config file
+        $new_opt_rc{$key} = $value;
     }
     my $config;    # did we see a config file or not?
                    # Read configuration file if available
@@ -721,6 +738,9 @@ sub apply_rc_params($$)
         # Copy configuration file and --rc values to variables
         $set_value |= apply_config($rcHash, $config, \%new_opt_rc);
     }
+    # restore
+    $verbose = $save_verbose;
+    $debug   = $save_debug;
     return $set_value;
 }
 
