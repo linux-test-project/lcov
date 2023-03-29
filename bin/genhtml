@@ -4047,7 +4047,7 @@ sub _load
             return $self;
         }
         die($self->path() .
-                " is not readble or doesn't exist. See --syntheszie-missing option for workaround."
+                " is not readble or doesn't exist. See --synthesize-missing option for workaround."
         );
     }
 
