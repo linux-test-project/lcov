@@ -4205,12 +4205,13 @@ sub write_info($$$)
             my $functionMap = $testfncdata->{$testname};
             if ($main::func_coverage &&
                 $functionMap) {
-                # Write function related data - sort  by line number
+                # Write function related data - sort  by line number then
+                #  by name (compiler-generated functions may have same line)
                 # sort enables diff of output data files, for testing
                 my @functionOrder =
                     sort({ $functionMap->findKey($a)->line()
-                                 cmp $functionMap->findKey($b)->line() }
-                         $functionMap->keylist());
+                                 cmp $functionMap->findKey($b)->line() or
+                                 $a cmp $b } $functionMap->keylist());
 
                 foreach my $key (@functionOrder) {
                     my $data = $functionMap->findKey($key);
@@ -4221,7 +4222,7 @@ sub write_info($$$)
                         defined($data->end_line()) ?
                         ',' . $data->end_line() :
                         '';
-                    foreach my $alias (keys %$aliases) {
+                    foreach my $alias (sort keys %$aliases) {
                         print(INFO_HANDLE "FN:$line$endLine,$alias\n");
                     }
                 }

@@ -98,6 +98,10 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 g++ -std=c++1y --coverage extract.cpp
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error from gcc"
+    exit 1
+fi
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --initial --directory . -o initial.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --initial"
@@ -107,6 +111,10 @@ if [ 0 != $? ] ; then
 fi
 
 ./a.out 1
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error return from a.out"
+    exit 1
+fi
 
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o external.info
 
@@ -287,7 +295,7 @@ fi
 for d in separate.info copy.info ; do
     diff external.info $d
     if [ $? != 0 ] ; then
-        echo "Error: unexpected GCOV_PREFIX result"
+        echo "Error: unexpected GCOV_PREFIX result '$d'"
         exit 1
     fi
 done

@@ -135,6 +135,17 @@ if [ 0 != $? ] ; then
 fi
 gzip -c baseline.info > baseline.info.gz
 
+# newer versions of gcc generate coverage data with full paths to sources
+#   in '.' - whereas older versions have relative paths.
+# In case of relative paths, need some additional genhtml flags to make
+#   tests run the same way
+grep './test.cpp' baseline.info
+if [ 0 == $? ] ; then
+    # found - need some flags
+    GENHTML_PORT='--elide-path-mismatch'
+    LCOV_PORT='--substitute s#./#pwd/# --ignore unused'
+fi
+
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_name.info --test-name myTest
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_name.info.gz --test-name myTest
 if [ 0 != $? ] ; then
@@ -264,7 +275,7 @@ diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > dif
 for opt in "" --dark-mode --flat ; do
   outDir=./noncode_differential$opt
   echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz
-  $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz
+  $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT
   if [ 0 != $? ] ; then
       echo "ERROR: genhtml $outdir failed"
       if [ 0 == $KEEP_GOING ] ; then
@@ -305,7 +316,7 @@ done
 
 # check that this works with test names
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential testname failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -324,7 +335,7 @@ for opt in "" "--show-details" "--hier"; do
         OPTS="$TEST_OPTS $o"
         outdir=./differential${EXT}${o}
         echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info
-        $COVER ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info
+        $COVER ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $GENHTML_PORT
         if [ 0 != $? ] ; then
             echo "ERROR: genhtml $outdir failed"
             if [ 0 == $KEEP_GOING ] ; then
@@ -407,7 +418,7 @@ done
 
 
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info $GENHTML_PORT
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential_nobranch failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -440,7 +451,7 @@ done
 diff -u simple2.cpp simple.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff_r.txt
 
 echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz
-$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz $GENHTML_PORT
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml branch failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -449,7 +460,7 @@ if [ 0 != $? ] ; then
 fi
 
 echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz
-$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz $GENHTML_PORT
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml reverse_nobranch failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -458,7 +469,7 @@ if [ 0 != $? ] ; then
 fi
 
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script ./annotate.sh -o ./no_owners ./current.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script ./annotate.sh -o ./no_owners ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script ./annotate.sh -o ./no_owners ./current.info $GENHTML_PORT
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml no_owners failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -477,7 +488,7 @@ for summary in ownership ; do
 done
 
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info $GENHTML_PORT
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml no_annotation failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -505,7 +516,7 @@ for key in "date bins" "ownership bins" ; do
 done
 
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info $GENHTML_PORT
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml no_baseline failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -599,7 +610,7 @@ fi
 # test 'coverage criteria' callback
 #  we expect to fail - and to see error message - it coverage criteria not met
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o $outdir ./current.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o criteria ./current.info > criteria.log 2> criteria.err
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o criteria ./current.info $GENHTML_PORT > criteria.log 2> criteria.err
 if [ 0 == $? ] ; then
     echo "ERROR: genhtml criteria should have failed but didn't"
     if [ 0 == $KEEP_GOING ] ; then
@@ -634,7 +645,7 @@ done
 # test '--show-navigation' option
 # need "--ignore-unused for gcc/10.2.0 - which doesn't see code in its c++ headers
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' ./current.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' ./current.info > navigation.log 2> navigation.err
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' $GENHTML_PORT ./current.info > navigation.log 2> navigation.err
 
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml --show-navigation failed"
@@ -677,7 +688,7 @@ done
 #  need to ignore the 'missing source' error which will happen when we try to
 #  filter for exclude patterns - the file 'pwd/test.cpp' does not exist
 echo lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source $LCOV_PORT
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -762,7 +773,7 @@ if [ 0 != $? ] ; then
 fi
 # and then a differential report...
 echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o ./differential_prop ./current.info --show-proportion
-$COVER ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o ./differential_prop ./current.info --show-proportion
+$COVER ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o ./differential_prop ./current.info --show-proportion $GENHTML_PORT
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential proportional failed"
     if [ 0 == $KEEP_GOING ] ; then

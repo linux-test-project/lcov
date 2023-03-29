@@ -662,7 +662,12 @@ lcovutil::do_mangle_check();
 # Build list of directories to identify external files
 foreach my $entry (@data_directory, $base_directory) {
     next if (!defined($entry));
-    push(@lcovutil::internal_dirs, solve_relative_path($cwd, $entry));
+    my $p = solve_relative_path($cwd, $entry);
+    push(@lcovutil::internal_dirs, $p);
+    if (!file_name_is_absolute($entry) &&
+        $entry ne $p) {
+        push(@lcovutil::internal_dirs, $entry);
+    }
 }
 
 if ($initial && $br_coverage && !$intermediate) {
@@ -1651,6 +1656,11 @@ sub solve_relative_path($$)
     # Solve ..
     while ($result =~ s/\/[^\/]+\/\.\.\//\//) {
     }
+    # change "X/dirname/../Y" into "X/Y"
+    while ($result =~ s#\/[^\/.][^\/]+\/\.\.\/#\/#) {
+    }
+    # change "dirname/../Y" into "./Y" (i.e,, at head of path)
+    $result =~ s#^[^\/.][^\/]+\/\.\.\/#.\/#;
 
     # Remove preceding ..
     $result =~ s/^\/\.\.\//\//g;

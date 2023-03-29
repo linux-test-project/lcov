@@ -3,7 +3,7 @@ prog.info:
 include ../../../common.mak
 
 prog.info: prog.gcda
-	$(LCOV) -c -d . -o prog.info
+	$(LCOV) -c -d `pwd` -o prog.info
 
 prog.gcda: prog
 	./prog || true
