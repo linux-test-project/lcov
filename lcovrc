@@ -348,6 +348,11 @@ lcov_json_module = auto
 # default: 0 (no limit)
 #memory = 1024
 
+# Character used to split list-type parameters
+#  - for example, the list of "--ignore_errors source,mismatch"
+# default: , (comma)
+#split_char = ,
+
 # use case insensitive compare to find matching files, for include/exclude
 #  directives, etc
 #case_insensitive = 0

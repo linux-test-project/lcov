@@ -30,7 +30,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $maxParallelism $maxMemory init_parallel_params current_process_size
      save_profile merge_child_profile save_cmd_line
 
-     @opt_rc apply_rc_params parseOptions
+     @opt_rc apply_rc_params $split_char parseOptions
      strip_directories
      @file_subst_patterns subst_file_name
 
@@ -94,6 +94,8 @@ our $interp       = ($^O =~ /Win/) ? $^X : undef;
 
 our $debug   = 0;    # if set, emit debug messages
 our $verbose = 0;    # default level - higher to enable additional logging
+
+our $split_char = ',';    # by default: split on comma
 
 # geninfo errors are shared by 'lcov' - so we put them in a common location
 our $ERROR_GCOV              = 0;
@@ -646,13 +648,13 @@ sub save_profile($)
 sub set_rtl_extensions
 {
     my $str = shift;
-    $rtl_file_extensions = join('|', split(',', $str));
+    $rtl_file_extensions = join('|', split($split_char, $str));
 }
 
 sub set_c_extensions
 {
     my $str = shift;
-    $c_file_extensions = join('|', split(',', $str));
+    $c_file_extensions = join('|', split($split_char, $str));
 }
 
 sub do_mangle_check
@@ -1277,7 +1279,7 @@ sub define_errors($)
 
 sub parse_ignore_errors(@)
 {
-    my @ignore_errors = split(',', join(',', @_));
+    my @ignore_errors = split($split_char, join($split_char, @_));
 
     # first, mark that all known errors are not ignored
     foreach my $item (keys(%ERROR_ID)) {
@@ -1419,7 +1421,7 @@ sub is_filter_enabled
 
 sub parse_cov_filters(@)
 {
-    my @filters = split(',', join(',', @_));
+    my @filters = split($split_char, join($split_char, @_));
 
     # first, mark that all known filters are disabled
     foreach my $item (keys(%COVERAGE_FILTERS)) {

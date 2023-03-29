@@ -5191,7 +5191,10 @@ if (@SourceFile::annotateScript) {
         # default: 7, 30, 180 days
         @datebins = @SummaryInfo::defaultCutpoints;
     } else {
-        my %uniqify = map { $_, 1 } split(/,/, join(',', @datebins));
+        my %uniqify =
+            map { $_, 1 }
+            split($lcovutil::split_char,
+                  join($lcovutil::split_char, @datebins));
         @datebins = sort(keys %uniqify);
     }
     SummaryInfo::setAgeGroups(@datebins);
@@ -10863,9 +10866,9 @@ sub parse_dir_prefix(@)
     return if (!@opt_dir_prefix);
 
     foreach my $item (@opt_dir_prefix) {
-        if ($item =~ /,/) {
+        if ($item =~ /$lcovutil::split_char/) {
             # Split and add comma-separated parameters
-            push(@dir_prefix, split(/,/, $item));
+            push(@dir_prefix, split($lcovutil::split_char, $item));
         } else {
             # Add single parameter
             push(@dir_prefix, $item);

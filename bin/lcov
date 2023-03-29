@@ -865,7 +865,10 @@ sub lcov_geninfo(@)
     }
     push(@param, "--base-directory", $base_directory)
         if $base_directory;
-    foreach (split(',', join(',', @lcovutil::opt_ignore_errors))) {
+    foreach (
+             split($lcovutil::split_char,
+                   join($lcovutil::split_char, @lcovutil::opt_ignore_errors))
+    ) {
         # pass only the 'ignore' options that geninfo understands
         push(@param, "--ignore-errors", $_)
             if exists($lcovutil::geninfoErrs{$_});

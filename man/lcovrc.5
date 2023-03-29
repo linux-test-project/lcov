@@ -505,6 +505,16 @@ lcov_json_module = auto
 .br
 #memory = 1024
 .br
+.br
+# Character used to split list-type parameters
+.br
+#  \- for example, the list of "--ignore_errors source,mismatch"
+.br
+# default: , (comma)
+.br
+#split_char = ,
+.br
+
 
 .br
 # use case insensitive compare to find matching files, for include/exclude
@@ -1938,6 +1948,20 @@ others (notably JSON::PP can be very slow compared to JSON::XS).
 .br
 
 Default is 'auto'.
+
+.PP
+
+.BR split_char " ="
+.IR char
+.IP
+Specify the character (or regexp) used to split list-like parameters which have
+been passed as a single string.
+This parameter is useful in the case that you need want to use a multi-option
+string but one or more of the options contains a comma character which would
+otherwise be seen as a delimiter.
+.br
+
+Default is ',' (comma - no quotes).
 
 .PP
 
