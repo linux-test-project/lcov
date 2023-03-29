@@ -2188,13 +2188,11 @@ sub intermediate_text_to_info($)
                 #    instances
                 # b) an instance starts with an lcount line
                 $branch_num = 0;
-            } elsif ($line =~ /^function:(\d+),(\d+),([^,]+)$/) {
+            } elsif ($line =~ /^function:((\d+)(,(\d+))?),(\d+),(.+)$/) {
                 next unless $func_coverage;
 
-                # function:<line>,<count>,<name>
-                my $lineNo = $1;
-                my $hit    = $2;
-                my $name   = $3;
+                # function:<line>,<endline,>?<count>,<name>
+                my ($lineNo, $endline, $hit, $name) = ($2, $4, $5, $6);
                 if ($hit < 0) {
                     #negative...
                     lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
@@ -2204,23 +2202,8 @@ sub intermediate_text_to_info($)
                     $hit            = 0;
                 }
                 my $func =
-                    $functionMap->define_function($name, $filename, $lineNo);
-                $func->addAlias($name, $hit);
-            } elsif ($line =~ /^function:(\d+),\d+,(\d+),([^,]+)$/) {
-                # function:<start_line>,<end_line>,<count>,
-                my $lineNo = $1;
-                my $hit    = $2;
-                my $name   = $3;
-                if ($hit < 0) {
-                    #negative...
-                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "Unexpected negative count '$hit' for function $name at $filename:$lineNo.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                    ) unless $warnedFunction;
-                    $warnedFunction = 1;
-                    $hit            = 0;
-                }
-                my $func =
-                    $functionMap->define_function($name, $filename, $lineNo);
+                    $functionMap->define_function($name, $filename, $lineNo,
+                                                  $endline);
                 $func->addAlias($name, $hit);
             } elsif ($line =~ /^branch:(\d+),(taken|nottaken|notexec)/) {
                 my $lineNo = $1;
