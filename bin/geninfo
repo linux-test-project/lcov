@@ -186,7 +186,6 @@ sub apply_exclusion_data($$$);
 sub process_graphfile($$);
 sub filter_fn_name($$);
 sub graph_error($$);
-sub graph_expect($);
 sub graph_read(*$;$$);
 sub graph_skip(*$;$);
 sub uniq(@);
@@ -2886,24 +2885,6 @@ sub graph_error($$)
 }
 
 #
-# graph_expect(description)
-#
-# If debug is set to a non-zero value, print the specified description of what
-# is expected to be read next from the graph file.
-#
-
-sub graph_expect($)
-{
-    my ($msg) = @_;
-
-    if (!$debug || !defined($msg)) {
-        return;
-    }
-
-    print(STDERR "DEBUG: expecting $msg\n");
-}
-
-#
 # graph_read(handle, bytes[, description, peek])
 #
 # Read and return the specified number of bytes from handle. Return undef
@@ -2918,7 +2899,7 @@ sub graph_read(*$;$$)
     my $result;
     my $pos;
 
-    graph_expect($desc);
+    lcovutil::debug(2, $desc);
     if ($peek) {
         $pos = tell($handle);
         if ($pos == -1) {
@@ -2927,13 +2908,14 @@ sub graph_read(*$;$$)
         }
     }
     $result = read($handle, $data, $length);
-    if ($debug) {
+    if ($debug &&
+        $debug >= 2) {
         my $op    = $peek ? "peek" : "read";
         my $ascii = "";
         my $hex   = "";
         my $i;
 
-        print(STDERR "DEBUG: $op($length)=$result: ");
+        my $msg = "$op($length)=$result: ";
         for ($i = 0; $i < length($data); $i++) {
             my $c = substr($data, $i, 1);
             my $n = ord($c);
@@ -2945,8 +2927,7 @@ sub graph_read(*$;$$)
                 $ascii .= ".";
             }
         }
-        print(STDERR "$hex |$ascii|");
-        print(STDERR "\n");
+        lcovutil::debug(2, "$msg$hex |$ascii|\n");
     }
     if ($peek) {
         if (!seek($handle, $pos, 0)) {
@@ -3380,7 +3361,7 @@ sub read_bb_string(*$)
     my $value;
     my $string = "";
 
-    graph_expect("string");
+    lcovutil::debug(2, "string");
     do {
         ($word, $value) = read_bb_value($handle, "string or delimiter");
         return undef if (!defined($value));
@@ -3429,12 +3410,12 @@ sub read_bb($)
         goto incomplete if (!defined($value));
         if ($value == $minus_one) {
             # Source file name
-            graph_expect("filename");
+            lcovutil::debug(2, "filename");
             $filename = read_bb_string(*HANDLE, $minus_one);
             goto incomplete if (!defined($filename));
         } elsif ($value == $minus_two) {
             # Function name
-            graph_expect("function name");
+            lcovutil::debug(2, "function name");
             $function = read_bb_string(*HANDLE, $minus_two);
             goto incomplete if (!defined($function));
         } elsif ($value > 0) {
@@ -3504,7 +3485,7 @@ sub read_bbg_string(*)
     my $length;
     my $string;
 
-    graph_expect("string");
+    lcovutil::debug(2, "string");
     # Read string length
     $length = read_bbg_value($handle, "string length");
     return undef if (!defined($length));
@@ -3534,7 +3515,7 @@ sub read_bbg_lines_record(*$$$$$)
     my $string;
     my $lineno;
 
-    graph_expect("lines record");
+    lcovutil::debug(2, "lines record");
     # Skip basic block index
     graph_skip($handle, 4, "basic block index") or return undef;
     while (1) {
@@ -3543,7 +3524,7 @@ sub read_bbg_lines_record(*$$$$$)
         return undef if (!defined($lineno));
         if ($lineno == 0) {
             # Got a marker for a new filename
-            graph_expect("filename");
+            lcovutil::debug(2, "filename");
             $string = read_bbg_string($handle);
             return undef if (!defined($string));
             # Check for end of record
@@ -3614,9 +3595,9 @@ sub read_bbg($)
         $length = read_bbg_value(*HANDLE, "record length");
         goto incomplete if (!defined($tag));
         if ($tag == $tag_function) {
-            graph_expect("function record");
+            lcovutil::debug(2, "function record");
             # Read function name
-            graph_expect("function name");
+            lcovutil::debug(2, "function name");
             $function = read_bbg_string(*HANDLE);
             goto incomplete if (!defined($function));
             $filename = undef;
@@ -3701,7 +3682,7 @@ sub read_gcno_string(*$)
     my $length;
     my $string;
 
-    graph_expect("string");
+    lcovutil::debug(2, "string");
     # Read string length
     $length = read_gcno_value($handle, $big_endian, "string length");
     return undef if (!defined($length));
@@ -3733,7 +3714,7 @@ sub read_gcno_lines_record(*$$$$$$)
     my $string;
     my $lineno;
 
-    graph_expect("lines record");
+    lcovutil::debug(2, "lines record");
     # Skip basic block index
     graph_skip($handle, 4, "basic block index") or return undef;
     while (1) {
@@ -3742,7 +3723,7 @@ sub read_gcno_lines_record(*$$$$$$)
         return undef if (!defined($lineno));
         if ($lineno == 0) {
             # Got a marker for a new filename
-            graph_expect("filename");
+            lcovutil::debug(2, "filename");
             $string = read_gcno_string($handle, $big_endian);
             return undef if (!defined($string));
             # Check for end of record
@@ -3827,7 +3808,7 @@ sub read_gcno_function_record(*$$$$$)
     my $lines;
     my $artificial;
 
-    graph_expect("function record");
+    lcovutil::debug(2, "function record");
     # Skip ident and checksum
     graph_skip($handle, 8, "function ident and checksum") or return undef;
     # Determine if this is a function record with split checksums
@@ -3840,7 +3821,7 @@ sub read_gcno_function_record(*$$$$$)
     # Skip cfg checksum word in case of split checksums
     graph_skip($handle, 4, "function cfg checksum") if ($gcno_split_crc);
     # Read function name
-    graph_expect("function name");
+    lcovutil::debug(2, "function name");
     $function = read_gcno_string($handle, $big_endian);
     return undef if (!defined($function));
     if ($version >= $GCOV_VERSION_8_0_0) {
@@ -3849,7 +3830,7 @@ sub read_gcno_function_record(*$$$$$)
         return undef if (!defined($artificial));
     }
     # Read filename
-    graph_expect("filename");
+    lcovutil::debug(2, "filename");
     $filename = read_gcno_string($handle, $big_endian);
     return undef if (!defined($filename));
     # Read first line number
