@@ -15,8 +15,8 @@ Description
       graphs and specific colors.
 
     * Support for large projects: overview pages allow quick browsing of
-      coverage data by providing either a hierarchical directory structure
-      view or a three-level detail view: directory, file and source code view.
+      coverage data by providing a hierarchical directory structure
+      view, a flat list of all source files in the project,  or a three-level detail view: directory, file and source code view.
 
   LCOV was initially designed to support Linux kernel coverage measurements,
   but works as well for coverage measurements on standard user space
@@ -159,8 +159,8 @@ Point the web browser of your choice to the resulting index.html file.
 5. An example of how to access coverage data for a user space program
 ---------------------------------------------------------------------
 Requirements: compile the program in question using GCC with the options
--fprofile-arcs and -ftest-coverage. During linking, make sure to specify
--lgcov or -coverage.
+'-fprofile-arcs -ftest-coverage' or '--coverage'. During linking, make sure to specify
+'-lgcov' or '--coverage'.
 
 Assuming the compile directory is called "appdir", do the following:
 
@@ -175,6 +175,10 @@ Assuming the compile directory is called "appdir", do the following:
      Note that this step only works after the application has
      been started and stopped at least once. Otherwise lcov will
      abort with an error mentioning that there are no data/.gcda files.
+
+     The GCC runtime emits coverage data (the .gcda files) in an atexit
+     callback.  If your application exits abnormally or crashes before
+     the callback is executed, then no coverage data will be available.
 
   c) Getting HTML output
 
@@ -201,7 +205,7 @@ New features and capabilities fall into 7 major categories:
 
   a) Categorization
 
-     This refers primarily to differentical coverage categorization as
+     This refers primarily to differential coverage categorization as
      well as date- and owner-binning.  See https://arxiv.org/abs/2008.07947
      or https://ieeexplore.ieee.org/document/9438597 for a detailed
      description of the concepts.
@@ -316,7 +320,7 @@ New features and capabilities fall into 7 major categories:
      Added 'py2lcov' script, which translates python Coverage.py XML data
      to lcov format.
 
-     See the Coverage.py documentation at https://coveerage.readthedocs.io,
+     See the Coverage.py documentation at https://coverage.readthedocs.io,
      as well as ".../py2lcov --help"
 
 In general, the new features and options are implemented uniformly in lcov,
