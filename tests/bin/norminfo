@@ -63,14 +63,15 @@ sub print_sorted($$$)
                 ferr($., $info, "Duplicate FNH: entry\n");
             }
             $fnh = $1;
-        } elsif ($line =~ /^BRDA:(\d+),(\d+),(\d+),(\d+|-)$/) {
-            my ($lineno, $block, $branch, $count) = ($1, $2, $3, $4);
+        } elsif ($line =~ /^BRDA:(\d+),(e)?(\d+),(\d+),(\d+|-)$/) {
+            my ($lineno, $is_exception, $block, $branch, $count) =
+                ($1, defined($2) && $2 eq 'e', $3, $4, $5);
 
             if (exists($brda{$lineno}->{$block}->{$branch})) {
                 ferr($., $info, "Duplicate BRDA: entry\n");
             }
             $count = int($count * $multi) if ($count ne "-");
-            $brda{$lineno}->{$block}->{$branch} = $count;
+            $brda{$lineno}->{$block}->{$branch} = [$count, $is_exception];
 
         } elsif ($line =~ /^BRF:(\d+)$/) {
             if (defined($brf)) {
@@ -107,8 +108,7 @@ sub print_sorted($$$)
     # FN:<line>,<fnname>
     foreach my $lineno (sort({ $a <=> $b } keys(%fn))) {
         my ($fnname, $endLine) = @{$fn{$lineno}};
-        $endLine = '.' . $endLine
-            if $endLine;
+        $endLine = $endLine ? '.' . $endLine : '';
         print("FN:$lineno$endLine,$fnname\n");
     }
 
@@ -129,7 +129,7 @@ sub print_sorted($$$)
         $fnh = 0 if ($multi == 0);
         print("FNH:$fnh\n");
     }
-    # BRDA:<line>,<block>,<branch>,<count>
+    # BRDA:<line>,<exception><block>,<branch>,<count>
     foreach my $lineno (sort({ $a <=> $b } keys(%brda))) {
         my $blocks = $brda{$lineno};
 
@@ -139,10 +139,12 @@ sub print_sorted($$$)
             foreach my $branch (sort({ $a <=> $b }
                                      keys(%{$branches}))
             ) {
-                my $count = $branches->{$branch};
+                my ($count, $is_exception) = @{$branches->{$branch}};
 
                 $count = "-" if ($multi == 0);
-                print("BRDA:$lineno,$block,$branch,$count\n");
+                print("BRDA:$lineno," .
+                      (defined($is_exception) && $is_exception ? 'e' : '') .
+                      "$block,$branch,$count\n");
             }
         }
 

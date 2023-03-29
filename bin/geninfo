@@ -111,12 +111,6 @@ our $BBG_FILE_MAGIC     = 0x67626267;
 # Error classes which users may specify to ignore during processing
 lcovutil::define_errors(\%lcovutil::geninfoErrs);
 
-# Marker to exclude exception branch coverage but keep function, line coverage and non-exception branch coverage
-# these aren't shared via lcovutil because they don't apply to source code -
-#  so I can't think of a way to use them
-our $EXCL_EXCEPTION_BR_START = "LCOV_EXCL_EXCEPTION_BR_START";
-our $EXCL_EXCEPTION_BR_STOP  = "LCOV_EXCL_EXCEPTION_BR_STOP";
-
 # Compatibility mode values
 our $COMPAT_VALUE_OFF  = 0;
 our $COMPAT_VALUE_ON   = 1;
@@ -1913,7 +1907,8 @@ sub read_gcov_file($$$)
                 $warnedBranch = 1;    # only once
                 $count        = 0;
             }
-            my $br = BranchBlock->new($branchId, $count);
+            my $br = BranchBlock->new($branchId, $count, undef,
+                                      defined($3) && $3 eq 'throw');
             $branchData->append($last_line, $last_block, $br, $filename);
             ++$branchId;
         } elsif (/^branch\s+(\d+)\s+never\s+executed/) {
@@ -1959,36 +1954,37 @@ sub read_gcov_file($$$)
             # Check for exclusion markers
             if (!$no_markers) {
                 # universal markers..
-                if (/$EXCL_STOP/) {
+                if (/$lcovutil::EXCL_STOP/) {
                     $exclude_flag = 0;
-                } elsif (/$EXCL_START/) {
+                } elsif (/$lcovutil::EXCL_START/) {
                     $exclude_flag = 1;
                 }
-                if (/$excl_line/ || $exclude_flag) {
+                if (/$lcovutil::EXCL_LINE/ || $exclude_flag) {
                     $exclude_line = 1;
                 } else {
                     $exclude_line = 0;
                 }
 
                 # branch exclusion markers..
-                if (/$EXCL_BR_STOP/) {
+                if (/$lcovutil::EXCL_BR_STOP/) {
                     $exclude_br_flag = 0;
-                } elsif (/$EXCL_BR_START/) {
+                } elsif (/$lcovutil::EXCL_BR_START/) {
                     $exclude_br_flag = 1;
                 }
-                if (/$excl_br_line/ || $exclude_br_flag) {
+                if (/$lcovutil::EXCL_BR_LINE/ || $exclude_br_flag) {
                     $exclude_branch = 1;
                 } else {
                     $exclude_branch = 0;
                 }
 
                 # Check for exception branch exclude markers
-                if (/$EXCL_EXCEPTION_BR_STOP/) {
+                if (/$lcovutil::EXCL_EXCEPTION_BR_STOP/) {
                     $exclude_exception_br_flag = 0;
-                } elsif (/$EXCL_EXCEPTION_BR_START/) {
+                } elsif (/$lcovutil::EXCL_EXCEPTION_BR_START/) {
                     $exclude_exception_br_flag = 1;
                 }
-                if (/$excl_exception_br_line/ || $exclude_exception_br_flag) {
+                if (/$lcovutil::EXCL_EXCEPTION_LINE/ ||
+                    $exclude_exception_br_flag) {
                     $exclude_exception_branch = 1;
                 } else {
                     $exclude_exception_branch = 0;
@@ -2351,9 +2347,10 @@ sub intermediate_json_to_info($)
                 for my $b (@$branches) {
                     my $brcount      = $b->{"count"};
                     my $is_exception = $b->{"throw"};
+                    # need to keep track of whether compiler thinks this
+                    #  branch is an exception - so we can skip it later.
 
-                    if (!$is_exception ||
-                        !$no_exception_br) {
+                    if (!($is_exception && $no_exception_br)) {
                         if (!defined($brcount) || $unexec) {
                             $brcount = "-";
                         } else {
@@ -2367,7 +2364,9 @@ sub intermediate_json_to_info($)
                                 $brcount      = 0;
                             }
                         }
-                        my $entry = BranchBlock->new($branch_num, $brcount);
+                        my $entry =
+                            BranchBlock->new($branch_num, $brcount, undef,
+                                  defined($is_exception) && $is_exception != 0);
                         if (exists($branchRenumber{$branch_num})) {
                             $branchRenumber{$branch_num}->merge($entry);
                         } else {
@@ -2378,8 +2377,10 @@ sub intermediate_json_to_info($)
                 }
                 my $id = 0;
                 foreach my $b (sort { $a <=> $b } keys(%branchRenumber)) {
-                    my $br    = $branchRenumber{$b};
-                    my $newBr = BranchBlock->new($id, $br->data());
+                    my $br = $branchRenumber{$b};
+                    my $newBr =
+                        BranchBlock->new($id, $br->data(), undef,
+                                         $br->is_exception());
                     # "block" is always zero for intermediate JSON data
                     $branchMap->append($line, 0, $newBr, $filename);
                     ++$id;

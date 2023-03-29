@@ -38,6 +38,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $FILTER_LINE_CLOSE_BRACE $FILTER_BLANK_LINE $FILTER_LINE_RANGE
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
+     $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
      @exclude_file_patterns @include_file_patterns %excluded_files
      @omit_line_patterns @exclude_function_patterns
      munge_file_patterns warn_file_patterns transform_pattern
@@ -180,6 +181,9 @@ our $EXCL_STOP  = "LCOV_EXCL_STOP";
 # Marker to exclude branch coverage but keep function and line coverage
 our $EXCL_BR_START = "LCOV_EXCL_BR_START";
 our $EXCL_BR_STOP  = "LCOV_EXCL_BR_STOP";
+# marker to exclude exception branches but keep other branches
+our $EXCL_EXCEPTION_BR_START = 'LCOV_EXCL_EXCEPTION_BR_START';
+our $EXCL_EXCEPTION_BR_STOP  = 'LCOV_EXCL_EXCEPTION_BR_STOP';
 
 our @exclude_file_patterns;
 our @include_file_patterns;
@@ -1774,9 +1778,12 @@ package BranchBlock;
 
 sub new
 {
-    my ($class, $id, $taken, $expr) = @_;
+    my ($class, $id, $taken, $expr, $is_exception) = @_;
     # if branchID is not an expression - go back to legacy behaviour
-    my $self = [$id, $taken, (defined($expr) && $expr eq $id) ? undef : $expr];
+    my $self = [$id, $taken,
+                (defined($expr) && $expr eq $id) ? undef : $expr,
+                defined($is_exception) && $is_exception ? 1 : 0
+    ];
     bless $self, $class;
     if ($self->count() < 0) {
         lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
@@ -1822,6 +1829,12 @@ sub exprString
     return defined($e) ? $e : 'undef';
 }
 
+sub is_exception
+{
+    my $self = shift;
+    return $self->[3];
+}
+
 sub merge
 {
     # return 1 if something changed, 0 if nothing new covered or discovered
@@ -1834,6 +1847,13 @@ sub merge
                                       "' -> '" . $that->exprString() . "'");
         # else - ngore the issue and merge data even thought the expressions
         #  look different
+    }
+    if ($self->is_exception() != $that->is_exception()) {
+        lcovutil::ignorable_error($ERROR_MISMATCH,
+                                  "mismatched exception tag for id " .
+                                      $self->id() . ", " . $that->id() .
+                                      ": '" . $self->is_exception() .
+                                      "' -> '" . $that->is_exception() . "'");
     }
     my $t = $that->[1];
     return 0 if $t eq '-';    # no new news
@@ -1872,6 +1892,13 @@ sub hasBlock
 {
     my ($self, $id) = @_;
     return exists($self->[1]->{$id});
+}
+
+sub removeBlock
+{
+    my ($self, $id) = @_;
+    $self->hasBlock($id) or die("unknown block $id");
+    delete($self->[1]->{$id});
 }
 
 sub getBlock
@@ -2372,8 +2399,10 @@ sub append
                                       "unexpected non-zero initial branch");
         $branch = 0;
         my $l = $branchElem->addBlock($block);
-        push(@$l, BranchBlock->new($branch, $br->data(), $br->expr()));
-        $interesting = 1;                           # something new..
+        push(@$l,
+             BranchBlock->new($branch, $br->data(),
+                              $br->expr(), $br->is_exception()));
+        $interesting = 1;    # something new..
     } else {
         $block = $branchElem->getBlock($block);
 
@@ -2389,7 +2418,8 @@ sub append
 
         if (!exists($block->[$branch])) {
             $block->[$branch] =
-                BranchBlock->new($branch, $br->data(), $br->expr());
+                BranchBlock->new($branch, $br->data(), $br->expr(),
+                                 $br->is_exception());
             $self->[3] = 1;
             $interesting = 1;
         } else {
@@ -2416,6 +2446,26 @@ sub remove
     $self->[3] = 1;    # modified counts
     delete($data->{$line});
     return 1;
+}
+
+sub removeExceptionBranches
+{
+    my ($self, $line) = @_;
+
+    my $brdata = $self->value($line);
+    foreach my $block_id ($brdata->blocks()) {
+        my $blockData = $brdata->getBlock($block_id);
+        @$blockData = grep { !$_->is_exception() } (@$blockData);
+        if (0 == scalar(@$blockData)) {
+            $blockData->removeBlock($block_id);
+        }
+    }
+    if (0 == scalar($brdata->blocks())) {
+        $self->remove($line);
+    } else {
+        # just assume we changed something...
+        $self->[3] = 1;
+    }
 }
 
 sub _summary
@@ -2910,11 +2960,14 @@ sub parseLines
     my ($self, $filename, $sourceLines) = @_;
 
     my @excluded;
-    my $exclude_region    = 0;
-    my $exclude_br_region = 0;
-    my $line              = 0;
+    my $exclude_region           = 0;
+    my $exclude_br_region        = 0;
+    my $exclude_exception_region = 0;
+    my $line                     = 0;
     LINES: foreach (@$sourceLines) {
         $line += 1;
+        my $exclude_branch_line           = 0;
+        my $exclude_exception_branch_line = 0;
         chomp($_);
         if (/$lcovutil::EXCL_START/) {
             lcovutil::ignorable_error($ERROR_MISMATCH,
@@ -2936,6 +2989,16 @@ sub parseLines
                 "$filename: found $lcovutil::EXCL_BR_STOP directive at line $line without matching $lcovutil::EXCL_BR_START directive"
             ) unless $exclude_br_region;
             $exclude_br_region = 0;
+        } elsif (/$lcovutil::EXCL_EXCEPTION_BR_START/) {
+            lcovutil::ignorable_error($ERROR_MISMATCH,
+                "$filename: overlapping exclude exception branch directives. Found $lcovutil::EXCL_EXCEPTION_BR_START at line $line - but no matching $lcovutil::EXCL_EXCEPTION_BR_STOP for $lcovutil::EXCL_EXCEPTION_BR_START at line $exclude_exception_region"
+            ) if $exclude_exception_region;
+            $exclude_exception_region = $line;
+        } elsif (/$lcovutil::EXCL_EXCEPTION_BR_STOP/) {
+            lcovutil::ignorable_error($ERROR_MISMATCH,
+                "$filename: found $lcovutil::EXCL_EXCEPTION_BR_STOP directive at line $line without matching $lcovutil::EXCL_EXCEPTION_BR_START directive"
+            ) unless $exclude_exception_region;
+            $exclude_exception_region = 0;
         } elsif (0 != scalar(@lcovutil::omit_line_patterns)) {
             foreach my $p (@lcovutil::omit_line_patterns) {
                 my $pat = $p->[0];
@@ -2948,7 +3011,9 @@ sub parseLines
             }
         }
         push(@excluded,
-             ($exclude_region ? 1 : 0) | ($exclude_br_region ? 2 : 0));
+             ($exclude_region ? 1 : 0) | ($exclude_br_region ? 2 : 0) |
+                 ($exclude_exception_region ? 4 : 0) | $exclude_branch_line |
+                 $exclude_exception_branch_line);
     }
     lcovutil::ignorable_error($ERROR_MISMATCH,
         "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP"
@@ -2956,6 +3021,9 @@ sub parseLines
     lcovutil::ignorable_error($ERROR_MISMATCH,
         "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP"
     ) if $exclude_br_region;
+    lcovutil::ignorable_error($ERROR_MISMATCH,
+        "$filename: unmatched $lcovutil::EXCL_EXCEPTION_BR_START at line $exclude_exception_region - saw EOF while looking for matching $lcovutil::EXCL_EXCEPTION_BR_STOP"
+    ) if $exclude_exception_region;
 
     $self->[0] = $filename;
     $self->[1] = $sourceLines;
@@ -3067,7 +3135,7 @@ sub isExcluded
     }
     return 1
         if ($branch &&
-            0 != ($self->[2]->[$lineNo - 1] & 2));
+            0 != ($self->[2]->[$lineNo - 1] & $branch));
     return 0 != ($self->[2]->[$lineNo - 1] & 1);
 }
 
@@ -3515,14 +3583,19 @@ sub applyFilters
                     my $data = $functionMap->findKey($key);
                     my $line = $data->line();
 
-                    if ($srcReader->isOutOfRange($line) ||
-                        $srcReader->isExcluded($line)) {
+                    my $remove;
+                    if ($srcReader->isOutOfRange($line, 'line')) {
+                        $remove = 1;
                         lcovutil::info(1,
                                        "filter FN " . $data->name() .
                                            " '" . $srcReader->getLine($line) .
                                            "' " . $data->file() . ":$line\n");
                         ++$region->[0];    # one location where this applied
+                    } elsif ($region && $srcReader->isExcluded($line)) {
+                        $remove = 1;
                         $region->[2] += scalar(keys %{$data->aliases()});
+                    }
+                    if ($remove) {
                         #remove this function from everywhere
                         foreach my $tn ($testfncdata->keylist()) {
                             my $d = $testfncdata->value($tn);
@@ -3541,13 +3614,17 @@ sub applyFilters
                 defined($testbrcount) &&
                 ($branch_histogram || $region || $range)) {
                 foreach my $line ($testbrcount->keylist()) {
-
+                    my $remove;
                     # omit if line excluded or branches excluded on this line
-                    next
-                        unless ($srcReader->isOutOfRange($line, 'branch') ||
-                                $srcReader->isExcluded($line, 1) ||
-                                !$srcReader->containsConditional($line));
-                    if ($branch_histogram) {
+                    if ($srcReader->isOutOfRange($line, 'branch')) {
+                        $remove = 1;
+                    } elsif ($region &&
+                             $srcReader->isExcluded($line, 2)) {
+                        # all branches here
+                        $remove = 1;
+                    } elsif ($branch_histogram &&
+                             !$srcReader->containsConditional($line)) {
+                        $remove = 1;
                         my $brdata = $testbrcount->value($line);
                         ++$branch_histogram->[0];    # one line where we skip
                         $branch_histogram->[1] += scalar($brdata->blocks());
@@ -3556,13 +3633,27 @@ sub applyFilters
                                            $srcReader->getLine($line) .
                                            "' $source_file:$line\n");
                     }
-                    # now remove this branch everywhere...
-                    foreach my $tn ($testbrdata->keylist()) {
-                        my $d = $testbrdata->value($tn);
-                        $d->remove($line, 1);        # remove if present
+                    if ($remove) {
+                        # now remove this branch everywhere...
+                        foreach my $tn ($testbrdata->keylist()) {
+                            my $d = $testbrdata->value($tn);
+                            $d->remove($line, 1);    # remove if present
+                        }
+                        # remove at top
+                        $sumbrcount->remove($line);
+                    } else {
+                        # exclude exception branches here
+                        if ($region && $srcReader->isExcluded($line, 4)) {
+                            # skip exception branches in this region..
+                            $testbrcount->removeExceptionBranches($line);
+
+                            # now remove this branch everywhere...
+                            foreach my $tn ($testbrdata->keylist()) {
+                                $testbrdata->value($tn)
+                                    ->removeExceptionBranches($line);
+                            }
+                        }
                     }
-                    # remove at top
-                    $sumbrcount->remove($line);
                 }    # foreach line
             }    # if branch_coverage
                  # Line related data
@@ -3913,14 +4004,15 @@ sub _read_info
                 last;
             };
 
-            /^BRDA:(\d+),(\d+),(.+)$/ && do {
+            /^BRDA:(\d+),(e?)(\d+),(.+)$/ && do {
                 last if (!$main::br_coverage);
 
                 # Branch coverage data found
                 # line data is "lineNo,blockId,(branchIdx|branchExpr),taken
                 #   - so grab the last two elements, split on the last comma,
                 #     and check whether we found an integer or an expression
-                my ($line, $block, $d) = ($1, $2, $3);
+                my ($line, $is_exception, $block, $d) =
+                    ($1, defined($2) && 'e' eq $2, $3, $4);
 
                 my $comma = rindex($d, ',');
                 my $taken = substr($d, $comma + 1);
@@ -3963,7 +4055,8 @@ sub _read_info
                         0;
                     $branchRenumber{$key} = $branch + 1;
 
-                    my $br = BranchBlock->new($branch, $taken, $expr);
+                    my $br =
+                        BranchBlock->new($branch, $taken, $expr, $is_exception);
                     $fileData->sumbr()->append($line, $block, $br, $filename);
 
                     # Add test-specific counts
@@ -3982,7 +4075,8 @@ sub _read_info
                         unless exists($branchRenumber{$line}->{$block});
                     my $table = $branchRenumber{$line}->{$block};
 
-                    my $entry = BranchBlock->new($expr, $taken, $expr);
+                    my $entry =
+                        BranchBlock->new($expr, $taken, $expr, $is_exception);
                     if (exists($table->{$expr})) {
                         # merge
                         $table->{$expr}->merge($entry);
@@ -4013,8 +4107,8 @@ sub _read_info
                                 ) {
                                     my $br = $bdata->{$b_id};
                                     my $b =
-                                        BranchBlock->new($branchId,
-                                                         $br->data());
+                                        BranchBlock->new($branchId, $br->data(),
+                                                    undef, $br->is_exception());
                                     $fileData->sumbr()
                                         ->append($line, $block, $b, $filename);
 
@@ -4276,8 +4370,9 @@ sub write_info($$$)
                                 );
                                 $taken = 0;
                             }
-                            printf(INFO_HANDLE "BRDA:%u,%u,%s,%s\n",
+                            printf(INFO_HANDLE "BRDA:%u,%s%u,%s,%s\n",
                                    $line,
+                                   $br->is_exception() ? 'e' : '',
                                    $block_id,
                                    defined($branch_expr) ? $branch_expr :
                                        $branch_id,

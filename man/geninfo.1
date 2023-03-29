@@ -847,11 +847,12 @@ and hit:
 
 Branch coverage information is stored which one line per branch:
 
-  BRDA:<line number>,<block number>,<branch number>,<taken>
+  BRDA:<exception tag><line number>,<block number>,<branch number>,<taken>
 
 Block number and branch number are gcc internal IDs for the branch. Taken is
 either '-' if the basic block containing the branch was never executed or
 a number indicating how often that branch was taken.
+'exception tag' is 'e' if this is a branch related to exception handling - and is not present if the branch is not related to exceptions.
 
 Branch coverage summaries are stored in two lines:
 
