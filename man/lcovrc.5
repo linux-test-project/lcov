@@ -1445,6 +1445,7 @@ Default is 0.
 .I expression
 .IP
 Specify the regular expression of lines to exclude.
+Line, branch, and function coverpoints are associated with lines where this regexp is found are dropped.
 .br
 
 Default is 'LCOV_EXCL_LINE'.
@@ -1454,6 +1455,7 @@ Default is 'LCOV_EXCL_LINE'.
 .I expression
 .IP
 Specify the regular expression of lines to exclude from branch coverage.
+Branch coverpoints are associated with lines where this regexp is found are dropped.  (Line and function coverpoints are not affected.)
 .br
 
 Default is 'LCOV_EXCL_BR_LINE'.
@@ -1463,6 +1465,10 @@ Default is 'LCOV_EXCL_BR_LINE'.
 .I expression
 .IP
 Specify the regular expression of lines to exclude from exception branch coverage.
+Exception-related Branch coverpoints associated with lines where this regexp is found are dropped.  (Line, function coverpoints are not affected.  Branch coverpoints which are not associated with exceptions are also not affected.)
+
+.br
+Note that this feature requires support from your compiler - and thus may not ignore all exception-related coverpoints.
 .br
 
 Default is 'LCOV_EXCL_EXCEPTION_BR_LINE'.

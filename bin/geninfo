@@ -79,6 +79,8 @@ use lcovutil qw (define_errors parse_ignore_errors
                  die_handler warn_handler
                  parse_cov_filters summarize_cov_filters
                  $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
+                 $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
+                 $EXCL_LINE $EXCL_BR_LINE $EXCL_EXCEPTION_LINE
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
                  munge_file_patterns warn_file_patterns
@@ -255,9 +257,6 @@ our $no_exception_br = 0;
 our $rc_auto_base    = 1;
 our $rc_intermediate = "auto";
 our $intermediate;
-our $excl_line              = "LCOV_EXCL_LINE";
-our $excl_br_line           = "LCOV_EXCL_BR_LINE";
-our $excl_exception_br_line = "LCOV_EXCL_EXCEPTION_BR_LINE";
 
 our $cwd = `pwd`;
 chomp($cwd);
@@ -280,44 +279,46 @@ my (@rc_filter, @rc_ignore,
     @rc_omit_patterns, @rc_erase_patterns);
 
 if (lcovutil::apply_rc_params(
-              \@opt_config_file,
-              {
-               "geninfo_gcov_tool"       => \@gcov_tool,
-               "geninfo_adjust_testname" => \$adjust_testname,
-               "geninfo_checksum"        => \$lcovutil::verify_checksum,
-               "checksum"                => \$lcovutil::verify_checksum,
-               "geninfo_no_checksum"     => \$no_checksum,          # deprecated
-               "geninfo_compat_libtool"  => \$opt_compat_libtool,
-               "geninfo_external"        => \$opt_external,
-               "geninfo_gcov_all_blocks" => \$opt_gcov_all_blocks,
-               "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
-               "geninfo_compat"              => \$opt_compat,
-               "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
-               "geninfo_auto_base"           => \$rc_auto_base,
-               "geninfo_intermediate"        => \$rc_intermediate,
-               "geninfo_no_exception_branch" => \$no_exception_br,
-               "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
-               "lcov_json_module"            => \$JsonSupport::rc_json_module,
-               "lcov_function_coverage"      => \$func_coverage,
-               "lcov_branch_coverage"        => \$br_coverage,
-               "lcov_excl_line"              => \$excl_line,
-               "lcov_excl_br_line"           => \$excl_br_line,
-               "lcov_excl_exception_br_line" => \$excl_exception_br_line,
-               "genhtml_demangle_cpp"        => \$lcovutil::cpp_demangle,
-               'ignore_errors'               => \@rc_ignore,
-               "max_message_count"           => \$lcovutil::suppressAfter,
-               'stop_on_error'               => \$lcovutil::stop_on_error,
-               "profile"                     => \$lcovutil::profile,
-               "parallel"                    => \$lcovutil::maxParallelism,
-               "memory"                      => \$lcovutil::maxMemory,
-               'filter'                      => \@rc_filter,
-               'exclude'                     => \@rc_exclude_patterns,
-               'include'                     => \@rc_include_patterns,
-               'substitute'                  => \@rc_subst_patterns,
-               'omit_lines'                  => \@rc_omit_patterns,
-               'erase_functions'             => \@rc_erase_patterns,
-               "version_script" => \@lcovutil::extractVersionScript,
-              }
+           \@opt_config_file,
+           {
+            "geninfo_gcov_tool"           => \@gcov_tool,
+            "geninfo_adjust_testname"     => \$adjust_testname,
+            "geninfo_checksum"            => \$lcovutil::verify_checksum,
+            "checksum"                    => \$lcovutil::verify_checksum,
+            "geninfo_no_checksum"         => \$no_checksum,         # deprecated
+            "geninfo_compat_libtool"      => \$opt_compat_libtool,
+            "geninfo_external"            => \$opt_external,
+            "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
+            "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
+            "geninfo_compat"              => \$opt_compat,
+            "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
+            "geninfo_auto_base"           => \$rc_auto_base,
+            "geninfo_intermediate"        => \$rc_intermediate,
+            "geninfo_no_exception_branch" => \$no_exception_br,
+            "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
+            "lcov_json_module"            => \$JsonSupport::rc_json_module,
+            "lcov_function_coverage"      => \$func_coverage,
+            "lcov_branch_coverage"        => \$br_coverage,
+            "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
+            "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
+            "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
+            "genhtml_demangle_cpp"        => \$lcovutil::cpp_demangle,
+            "genhtml_demangle_cpp_tool"   => \$lcovutil::cpp_demangle_tool,
+            "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
+            'ignore_errors'               => \@rc_ignore,
+            "max_message_count"           => \$lcovutil::suppressAfter,
+            'stop_on_error'               => \$lcovutil::stop_on_error,
+            "profile"                     => \$lcovutil::profile,
+            "parallel"                    => \$lcovutil::maxParallelism,
+            "memory"                      => \$lcovutil::maxMemory,
+            'filter'                      => \@rc_filter,
+            'exclude'                     => \@rc_exclude_patterns,
+            'include'                     => \@rc_include_patterns,
+            'substitute'                  => \@rc_subst_patterns,
+            'omit_lines'                  => \@rc_omit_patterns,
+            'erase_functions'             => \@rc_erase_patterns,
+            "version_script"              => \@lcovutil::extractVersionScript,
+           }
 )) {
     # we set some RC values...
     # Merge options
@@ -343,13 +344,6 @@ if (lcovutil::apply_rc_params(
             $replace = "";
         }
         push(@lcovutil::file_subst_patterns, 's#$pattern#$replace#g');
-    }
-    for my $regexp (($excl_line, $excl_br_line, $excl_exception_br_line)) {
-        eval 'qr/' . $regexp . '/';
-        my $error = $@;
-        chomp($error);
-        $error =~ s/at \(eval.*$//;
-        die("ERROR: invalid exclude pattern: $error") if $error;
     }
 }
 

@@ -39,6 +39,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
      $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
+     $EXCL_LINE $EXCL_BR_LINE $EXCL_EXCEPTION_LINE
      @exclude_file_patterns @include_file_patterns %excluded_files
      @omit_line_patterns @exclude_function_patterns
      munge_file_patterns warn_file_patterns transform_pattern
@@ -184,6 +185,10 @@ our $EXCL_BR_STOP  = "LCOV_EXCL_BR_STOP";
 # marker to exclude exception branches but keep other branches
 our $EXCL_EXCEPTION_BR_START = 'LCOV_EXCL_EXCEPTION_BR_START';
 our $EXCL_EXCEPTION_BR_STOP  = 'LCOV_EXCL_EXCEPTION_BR_STOP';
+# exclude on this line
+our $EXCL_LINE           = 'LCOV_EXCL_LINE';
+our $EXCL_BR_LINE        = 'LCOV_EXCL_BR_LINE';
+our $EXCL_EXCEPTION_LINE = 'LCOV_EXCL_EXCEPTION_BR_LINE';
 
 our @exclude_file_patterns;
 our @include_file_patterns;
@@ -822,6 +827,20 @@ sub munge_file_patterns
         if (0 != scalar(@$list)) {
             @$list = map({ [$_, 0]; } @$list);
         }
+    }
+    # and check for valid region patterns
+    for my $regexp (['lcov_excl_line', $lcovutil::EXCL_LINE],
+                    ['lcov_excl_br_line', $lcovutil::EXCL_BR_LINE],
+                    ['lcov_excl_exception_br_line',
+                     $lcovutil::EXCL_EXCEPTION_LINE
+                    ]
+    ) {
+        eval 'qr/' . $regexp->[1] . '/';
+        my $error = $@;
+        chomp($error);
+        $error =~ s/at \(eval.*$//;
+        die("ERROR: invalid '" . $regexp->[0] . "' exclude pattern: $error")
+            if $error;
     }
 }
 
@@ -2999,6 +3018,13 @@ sub parseLines
                 "$filename: found $lcovutil::EXCL_EXCEPTION_BR_STOP directive at line $line without matching $lcovutil::EXCL_EXCEPTION_BR_START directive"
             ) unless $exclude_exception_region;
             $exclude_exception_region = 0;
+        } elsif (/$lcovutil::EXCL_LINE/) {
+            push(@excluded, 3);    #everything excluded
+            next;
+        } elsif (/$lcovutil::EXCL_BR_LINE/) {
+            $exclude_branch_line = 2;
+        } elsif (/$lcovutil::EXCL_EXCEPTION_LINE/) {
+            $exclude_branch_line = 4;
         } elsif (0 != scalar(@lcovutil::omit_line_patterns)) {
             foreach my $p (@lcovutil::omit_line_patterns) {
                 my $pat = $p->[0];
