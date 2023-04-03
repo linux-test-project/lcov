@@ -839,6 +839,8 @@ See also the lcovrc man page - which describes several variables which affect br
 and
 .I filter_bitwise_conditional.
 
+The most common use for branch filtering is to remove compiler-generated branches related to C++ exception handlers.  See the no_exception_branch' option in the lcovrc man page for a way to remove all identified exception branches.
+
 .B brace:
 ignore line coverage counts on the closing brace of C/C++ code block, if the line contai linesns only a closing brace and the preceeding line has the same count or if the close brace has a zero count and either the preceding line has a non\-zero count or the close brace is not the body of a conditional.
 

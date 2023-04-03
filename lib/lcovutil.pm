@@ -48,6 +48,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      filterStringsAndComments simplifyCode balancedParens
      set_rtl_extensions set_c_extensions
      $source_filter_lookahead $source_filter_bitwise_are_conditional
+     $exclude_exception_branch
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
@@ -193,6 +194,7 @@ our $EXCL_EXCEPTION_LINE = 'LCOV_EXCL_EXCEPTION_BR_LINE';
 our @exclude_file_patterns;
 our @include_file_patterns;
 our %excluded_files;
+our $exclude_exception_branch = 0;
 
 # list of regexps applied to line text - if exclude if matched
 our @omit_line_patterns;
@@ -2988,37 +2990,34 @@ sub parseLines
         my $exclude_branch_line           = 0;
         my $exclude_exception_branch_line = 0;
         chomp($_);
-        if (/$lcovutil::EXCL_START/) {
-            lcovutil::ignorable_error($ERROR_MISMATCH,
-                "$filename: overlapping exclude directives. Found $lcovutil::EXCL_START at line $line - but no matching $lcovutil::EXCL_STOP for $lcovutil::EXCL_START at line $exclude_region"
-            ) if $exclude_region;
-            $exclude_region = $line;
-        } elsif (/$lcovutil::EXCL_STOP/) {
-            lcovutil::ignorable_error($ERROR_MISMATCH,
-                "$filename: found $lcovutil::EXCL_STOP directive at line $line without matching $lcovutil::EXCL_START directive"
-            ) unless $exclude_region;
-            $exclude_region = 0;
-        } elsif (/$lcovutil::EXCL_BR_START/) {
-            lcovutil::ignorable_error($ERROR_MISMATCH,
-                "$filename: overlapping exclude branch directives. Found $lcovutil::EXCL_BR_START at line $line - but no matching $lcovutil::EXCL_BR_STOP for $lcovutil::EXCL_BR_START at line $exclude_br_region"
-            ) if $exclude_br_region;
-            $exclude_br_region = $line;
-        } elsif (/$lcovutil::EXCL_BR_STOP/) {
-            lcovutil::ignorable_error($ERROR_MISMATCH,
-                "$filename: found $lcovutil::EXCL_BR_STOP directive at line $line without matching $lcovutil::EXCL_BR_START directive"
-            ) unless $exclude_br_region;
-            $exclude_br_region = 0;
-        } elsif (/$lcovutil::EXCL_EXCEPTION_BR_START/) {
-            lcovutil::ignorable_error($ERROR_MISMATCH,
-                "$filename: overlapping exclude exception branch directives. Found $lcovutil::EXCL_EXCEPTION_BR_START at line $line - but no matching $lcovutil::EXCL_EXCEPTION_BR_STOP for $lcovutil::EXCL_EXCEPTION_BR_START at line $exclude_exception_region"
-            ) if $exclude_exception_region;
-            $exclude_exception_region = $line;
-        } elsif (/$lcovutil::EXCL_EXCEPTION_BR_STOP/) {
-            lcovutil::ignorable_error($ERROR_MISMATCH,
-                "$filename: found $lcovutil::EXCL_EXCEPTION_BR_STOP directive at line $line without matching $lcovutil::EXCL_EXCEPTION_BR_START directive"
-            ) unless $exclude_exception_region;
-            $exclude_exception_region = 0;
-        } elsif (/$lcovutil::EXCL_LINE/) {
+        foreach my $d ([$lcovutil::EXCL_START, $lcovutil::EXCL_STOP,
+                        \$exclude_region
+                       ],
+                       [$lcovutil::EXCL_BR_START, $lcovutil::EXCL_BR_STOP,
+                        \$exclude_br_region
+                       ],
+                       [$lcovutil::EXCL_EXCEPTION_BR_START,
+                        $lcovutil::EXCL_EXCEPTION_BR_STOP,
+                        \$exclude_exception_region
+                       ]
+        ) {
+            my ($start, $stop, $ref) = @$d;
+            if (/$start/) {
+                lcovutil::ignorable_error($ERROR_MISMATCH,
+                    "$filename: overlapping exclude directives. Found $start at line $line - but no matching $stop for $start at line "
+                        . $$ref)
+                    if $$ref;
+                $$ref = $line;
+                last;
+            } elsif (/$stop/) {
+                lcovutil::ignorable_error($ERROR_MISMATCH,
+                    "$filename: found $stop directive at line $line without matching $start directive"
+                ) unless $$ref;
+                $$ref = 0;
+                last;
+            }
+        }
+        if (/$lcovutil::EXCL_LINE/) {
             push(@excluded, 3);    #everything excluded
             next;
         } elsif (/$lcovutil::EXCL_BR_LINE/) {
@@ -3669,7 +3668,8 @@ sub applyFilters
                         $sumbrcount->remove($line);
                     } else {
                         # exclude exception branches here
-                        if ($region && $srcReader->isExcluded($line, 4)) {
+                        if ($lcovutil::exclude_exception_branch ||
+                            ($region && $srcReader->isExcluded($line, 4))) {
                             # skip exception branches in this region..
                             $testbrcount->removeExceptionBranches($line);
 
@@ -4040,6 +4040,7 @@ sub _read_info
                 my ($line, $is_exception, $block, $d) =
                     ($1, defined($2) && 'e' eq $2, $3, $4);
 
+                last if $is_exception && $lcovutil::exclude_exception_branch;
                 my $comma = rindex($d, ',');
                 my $taken = substr($d, $comma + 1);
                 my $expr  = substr($d, 0, $comma);

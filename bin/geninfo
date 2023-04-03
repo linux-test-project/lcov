@@ -253,7 +253,6 @@ our %compat_value;
 our $gcno_split_crc;
 our $func_coverage   = 1;
 our $br_coverage     = 0;
-our $no_exception_br = 0;
 our $rc_auto_base    = 1;
 our $rc_intermediate = "auto";
 our $intermediate;
@@ -279,46 +278,47 @@ my (@rc_filter, @rc_ignore,
     @rc_omit_patterns, @rc_erase_patterns);
 
 if (lcovutil::apply_rc_params(
-           \@opt_config_file,
-           {
-            "geninfo_gcov_tool"           => \@gcov_tool,
-            "geninfo_adjust_testname"     => \$adjust_testname,
-            "geninfo_checksum"            => \$lcovutil::verify_checksum,
-            "checksum"                    => \$lcovutil::verify_checksum,
-            "geninfo_no_checksum"         => \$no_checksum,         # deprecated
-            "geninfo_compat_libtool"      => \$opt_compat_libtool,
-            "geninfo_external"            => \$opt_external,
-            "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
-            "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
-            "geninfo_compat"              => \$opt_compat,
-            "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
-            "geninfo_auto_base"           => \$rc_auto_base,
-            "geninfo_intermediate"        => \$rc_intermediate,
-            "geninfo_no_exception_branch" => \$no_exception_br,
-            "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
-            "lcov_json_module"            => \$JsonSupport::rc_json_module,
-            "lcov_function_coverage"      => \$func_coverage,
-            "lcov_branch_coverage"        => \$br_coverage,
-            "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
-            "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
-            "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
-            "genhtml_demangle_cpp"        => \$lcovutil::cpp_demangle,
-            "genhtml_demangle_cpp_tool"   => \$lcovutil::cpp_demangle_tool,
-            "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
-            'ignore_errors'               => \@rc_ignore,
-            "max_message_count"           => \$lcovutil::suppressAfter,
-            'stop_on_error'               => \$lcovutil::stop_on_error,
-            "profile"                     => \$lcovutil::profile,
-            "parallel"                    => \$lcovutil::maxParallelism,
-            "memory"                      => \$lcovutil::maxMemory,
-            'filter'                      => \@rc_filter,
-            'exclude'                     => \@rc_exclude_patterns,
-            'include'                     => \@rc_include_patterns,
-            'substitute'                  => \@rc_subst_patterns,
-            'omit_lines'                  => \@rc_omit_patterns,
-            'erase_functions'             => \@rc_erase_patterns,
-            "version_script"              => \@lcovutil::extractVersionScript,
-           }
+      \@opt_config_file,
+      {
+       "geninfo_gcov_tool"       => \@gcov_tool,
+       "geninfo_adjust_testname" => \$adjust_testname,
+       "geninfo_checksum"        => \$lcovutil::verify_checksum,
+       "checksum"                => \$lcovutil::verify_checksum,
+       "geninfo_no_checksum"     => \$no_checksum,                  # deprecated
+       "geninfo_compat_libtool"  => \$opt_compat_libtool,
+       "geninfo_external"        => \$opt_external,
+       "geninfo_gcov_all_blocks" => \$opt_gcov_all_blocks,
+       "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
+       "geninfo_compat"              => \$opt_compat,
+       "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
+       "geninfo_auto_base"           => \$rc_auto_base,
+       "geninfo_intermediate"        => \$rc_intermediate,
+       "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
+       "no_exception_branch"         => \$lcovutil::exclude_exception_branch,
+       "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
+       "lcov_json_module"            => \$JsonSupport::rc_json_module,
+       "lcov_function_coverage"      => \$func_coverage,
+       "lcov_branch_coverage"        => \$br_coverage,
+       "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
+       "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
+       "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
+       "genhtml_demangle_cpp"        => \$lcovutil::cpp_demangle,
+       "genhtml_demangle_cpp_tool"   => \$lcovutil::cpp_demangle_tool,
+       "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
+       'ignore_errors'               => \@rc_ignore,
+       "max_message_count"           => \$lcovutil::suppressAfter,
+       'stop_on_error'               => \$lcovutil::stop_on_error,
+       "profile"                     => \$lcovutil::profile,
+       "parallel"                    => \$lcovutil::maxParallelism,
+       "memory"                      => \$lcovutil::maxMemory,
+       'filter'                      => \@rc_filter,
+       'exclude'                     => \@rc_exclude_patterns,
+       'include'                     => \@rc_include_patterns,
+       'substitute'                  => \@rc_subst_patterns,
+       'omit_lines'                  => \@rc_omit_patterns,
+       'erase_functions'             => \@rc_erase_patterns,
+       "version_script"              => \@lcovutil::extractVersionScript,
+      }
 )) {
     # we set some RC values...
     # Merge options
@@ -493,9 +493,9 @@ if ($rc_intermediate eq "0") {
 } elsif (lc($rc_intermediate) eq "auto") {
     # Use intermediate format if supported by gcov and not conflicting with
     # exception branch exclusion
-    $intermediate =
-        (($gcov_caps->{'intermediate-format'} && !$no_exception_br) ||
-         $gcov_caps->{'json-format'}) ? 1 : 0;
+    $intermediate = (($gcov_caps->{'intermediate-format'} &&
+                          !$lcovutil::exclude_exception_branch) ||
+                         $gcov_caps->{'json-format'}) ? 1 : 0;
 } else {
     die("ERROR: invalid value for geninfo_intermediate: " .
         "'$rc_intermediate'\n");
@@ -516,13 +516,14 @@ if ($intermediate) {
              "intermediate format - ignoring\n");
         $opt_derive_func_data = 0;
     }
-    if ($no_exception_br && !$gcov_caps->{'json-format'}) {
+    if ($lcovutil::exclude_exception_branch && !$gcov_caps->{'json-format'}) {
         die("ERROR: excluding exception branches is not compatible with " .
             "text intermediate format\n");
     }
 }
 
-if ($no_exception_br && ($gcov_version < $GCOV_VERSION_3_3_0)) {
+if ($lcovutil::exclude_exception_branch &&
+    ($gcov_version < $GCOV_VERSION_3_3_0)) {
     die("ERROR: excluding exception branches is not compatible with " .
         "gcov versions older than 3.3\n");
 }
@@ -1888,7 +1889,8 @@ sub read_gcov_file($$$)
                 if (!$br_coverage   ||
                     $exclude_line   ||
                     $exclude_branch ||
-                    (($exclude_exception_branch || $no_exception_br) &&
+                    (($exclude_exception_branch ||
+                      $lcovutil::exclude_exception_branch) &&
                      defined($3) &&
                      ($3 eq "throw")));
             # $1 is block ID, $2 is hit count
@@ -2344,7 +2346,9 @@ sub intermediate_json_to_info($)
                     # need to keep track of whether compiler thinks this
                     #  branch is an exception - so we can skip it later.
 
-                    if (!($is_exception && $no_exception_br)) {
+                    if (
+                        !( $is_exception && $lcovutil::exclude_exception_branch)
+                    ) {
                         if (!defined($brcount) || $unexec) {
                             $brcount = "-";
                         } else {

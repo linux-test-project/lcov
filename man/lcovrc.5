@@ -1348,8 +1348,16 @@ Default is "auto".
 
 .BR geninfo_no_exception_branch " ="
 .IR 0 | 1
+.br
+.BR no_exception_branch " ="
+.IR 0 | 1
 .IP
 Specify whether to exclude exception branches from branch coverage.
+Whether C++ exception branches are identified and removed is dependent on your compiler/toolchain correctly marking them in the generated coverage data.
+
+This option is used by lcov, geninfo, genhtml.
+
+Note that "no_exception_branch" is the preferred option to use as this makes it more clear that the option is used by lcov and genhtml as well as geninfo,
 .br
 
 Default is 0.
@@ -1466,6 +1474,8 @@ Default is 'LCOV_EXCL_BR_LINE'.
 .IP
 Specify the regular expression of lines to exclude from exception branch coverage.
 Exception-related Branch coverpoints associated with lines where this regexp is found are dropped.  (Line, function coverpoints are not affected.  Branch coverpoints which are not associated with exceptions are also not affected.)
+
+Also see 'geninfo_no_exception_branch'; if nonzero, then all identified exception branches will be removed.
 
 .br
 Note that this feature requires support from your compiler - and thus may not ignore all exception-related coverpoints.

@@ -4921,6 +4921,8 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            'genhtml_annotate_script' => \@SourceFile::annotateScript,
                            'genhtml_criteria_script' => \@SummaryInfo::coverageCriteriaScript,
                            'genhtml_date_bins' => \@rc_datebins,
+                           "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
+                           "no_exception_branch" => \$lcovutil::exclude_exception_branch,
 
                            "lcov_tmp_dir"     => \$lcovutil::tmp_dir,
                            "lcov_json_module" => \$JsonSupport::rc_json_module,
