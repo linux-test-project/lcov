@@ -274,6 +274,7 @@ lcovutil::apply_rc_params(
           'erase_functions'             => \@rc_erase_patterns,
           "version_script"              => \@lcovutil::extractVersionScript,
           "checksum"                    => \$lcovutil::verify_checksum,
+          "case_insensitive"            => \$lcovutil::case_insensitive,
           "forget_testcase_names"       => \$TraceFile::ignore_testcase_name,
          });
 
@@ -867,7 +868,8 @@ sub lcov_find($$$;@)
         }
         $filename = abs2rel($filename, $dir);
         foreach (@pattern) {
-            if ($filename =~ /$_/) {
+            if (($lcovutil::case_insensitive && $filename =~ /$_/i) ||
+                (!$lcovutil::case_insensitive && $filename =~ /$_/)) {
                 goto ok;
             }
         }
@@ -2183,7 +2185,11 @@ sub list()
     foreach my $filename ($data->files()) {
         if (!$opt_list_full_path) {
             if (!$got_prefix ||
-                !$root_prefix && !($filename =~ s/^\Q$prefix\/\E//)) {
+                !$root_prefix && !(($lcovutil::case_insensitive &&
+                                    $filename =~ s/^\Q$prefix\/\E//i) ||
+                                   (!$lcovutil::case_insensitive &&
+                                    $filename =~ s/^\Q$prefix\/\E//))
+            ) {
                 my ($v, $d, $f) = splitpath($filename);
 
                 $filename = $f;
@@ -2268,16 +2274,18 @@ sub list()
 
     # Print per file information
     foreach my $filename (sort($data->files())) {
-        my @file_data;
-        my $print_filename = $filename;
-
-        my $entry = $data->data($filename);
+        my $entry          = $data->data($filename);
+        my $print_filename = $entry->filename();
         if (!$opt_list_full_path) {
             my $p;
 
             $print_filename = $filename;
             if (!$got_prefix ||
-                !$root_prefix && !($print_filename =~ s/^\Q$prefix\/\E//)) {
+                !$root_prefix && !(($lcovutil::case_insensitive &&
+                                    $print_filename =~ s/^\Q$prefix\/\E//i) ||
+                                   (!$lcovutil::case_insensitive &&
+                                    $print_filename =~ s/^\Q$prefix\/\E//))
+            ) {
                 my ($v, $d, $f) = splitpath($filename);
 
                 $p = catpath($v, $d, "");
@@ -2328,6 +2336,7 @@ sub list()
         $brrate = shorten_rate($br_hit, $br_found, $fwidth[$F_BR_RATE]);
 
         # Assemble line parameters
+        my @file_data;
         push(@file_data, $print_filename);
         push(@file_data, $rate);
         push(@file_data, shorten_number($found, $fwidth[$F_LN_NUM]));
@@ -2680,7 +2689,11 @@ sub get_line_hash($$$)
         $sep = '/' if (!/^\//);
 
         # Try to match diff filename with filename
-        if ($filename =~ /^\Q$diff_path$sep$_\E$/) {
+        if (($lcovutil::case_insensitive &&
+             $filename =~ /^\Q$diff_path$sep$_\E$/i) ||
+            (!$lcovutil::case_insensitive &&
+                $filename =~ /^\Q$diff_path$sep$_\E$/)
+        ) {
             if ($diff_name) {
                 # Two files match, choose the more specific one
                 # (the one with more path components)
@@ -2699,7 +2712,10 @@ sub get_line_hash($$$)
     }
     if ($diff_name) {
         # Get converted path
-        if ($filename =~ /^(.*)$diff_name$/) {
+        if (   ($lcovutil::case_insensitive && $filename =~ /^(.*)$diff_name$/i)
+            ||
+            (!$lcovutil::case_insensitive && $filename =~ /^(.*)$diff_name$/)
+        ) {
             ($common, $old_path, $new_path) =
                 get_common_filename($filename, $1 . $path_data->{$diff_name});
         }
@@ -2718,8 +2734,6 @@ sub get_line_hash($$$)
 sub convert_paths($$)
 {
     my ($trace_data, $path_conversion_data) = @_;
-    my $filename;
-    my $new_path;
 
     if (scalar(keys(%{$path_conversion_data})) == 0) {
         info("No path conversion data available.\n");
@@ -2727,17 +2741,20 @@ sub convert_paths($$)
     }
 
     # Expand path conversion list
-    foreach $filename (keys(%{$path_conversion_data})) {
-        $new_path = $path_conversion_data->{$filename};
-        while (($filename =~ s/^(.*)\/[^\/]+$/$1/) &&
-               ($new_path =~ s/^(.*)\/[^\/]+$/$1/) &&
-               ($filename ne $new_path)) {
+    while (my ($filename, $new_path) = each(%{$path_conversion_data})) {
+	# remove extra trainling slashes
+        while ($filename =~ s/^(.*)\/[^\/]+$/$1/ &&
+	       $new_path =~ s/^(.*)\/[^\/]+$/$1/ &&
+	       (($lcovutil::case_insensitive &&
+		 lc($filename) ne lc($new_path)) ||
+		(!$lcovutil::case_insensitive &&
+		 $filename ne $new_path))) {
             $path_conversion_data->{$filename} = $new_path;
         }
     }
 
     # Adjust paths
-    FILENAME: foreach $filename ($trace_data->files()) {
+    FILENAME: foreach my $filename ($trace_data->files()) {
 
         # Find a path in our conversion table that matches, starting
         # with the longest path
@@ -2746,10 +2763,13 @@ sub convert_paths($$)
         ) {
 
             # Is this path a prefix of our filename?
-            if (!($filename =~ /^$_(.*)$/)) {
+            if (!(($lcovutil::case_insensitive  && $filename =~ /^$_(.*)$/i) ||
+                  (!$lcovutil::case_insensitive &&
+                    $filename =~ /^$_(.*)$/)
+            )) {
                 next;
             }
-            $new_path = $path_conversion_data->{$_} . $1;
+            my $new_path = $path_conversion_data->{$_} . $1;
 
             # Make sure not to overwrite an existing entry under
             # that path name
@@ -2759,9 +2779,12 @@ sub convert_paths($$)
                 $trace_data->data($new_path)->merge($file_data, $filename);
             } else {
                 # Simply rename entry
+	        $file_data->set_filename($new_path);
                 $trace_data->insert($new_path, $file_data);
             }
-            $filename ne $new_path or
+            (($lcovutil::case_insensitive && lc($filename) ne lc($new_path)) ||
+                 (!$lcovutil::case_insensitive &&
+                  $filename ne $new_path)) or
                 die("about to remove data we just inserted");
             $trace_data->remove($filename);
             next FILENAME;
@@ -2820,7 +2843,9 @@ sub diff()
 
     my ($diff_data, $path_data) = read_diff($ARGV[0]);
 
-    foreach my $filename (sort($trace_data->files())) {
+    foreach my $f (sort($trace_data->files())) {
+        my $entry    = $trace_data->data($f);
+        my $filename = $entry->filename();
 
         # Find a diff section corresponding to this file
         my ($line_hash, $old_path, $new_path) =
@@ -2841,7 +2866,6 @@ sub diff()
             next;
         }
         info("Converting $filename\n");
-        my $entry = $trace_data->data($filename);
         my ($testdata, $sumcount, $funcdata, $checkdata,
             $testfncdata, $testbrdata, $sumbrcount) = $entry->get_info($entry);
         # Convert test data

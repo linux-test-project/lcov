@@ -265,7 +265,8 @@ New features and capabilities fall into 7 major categories:
      coverage features that are interesting to the user.
 
      Other options are used to focus on or to exclude certain sections
-     of code, as well as to do regexp replacement of file names.
+     of code, as well as to do regexp replacement of file names - possibly
+     using case-insensitve comparison.
      (Path munging is useful primarily when the build structure does
      not exactly match the layout in your revision control system; this
      is common in large projects with reusable components.)

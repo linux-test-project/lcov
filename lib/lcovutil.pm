@@ -41,7 +41,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
      $EXCL_LINE $EXCL_BR_LINE $EXCL_EXCEPTION_LINE
      @exclude_file_patterns @include_file_patterns %excluded_files
-     @omit_line_patterns @exclude_function_patterns
+     @omit_line_patterns @exclude_function_patterns $case_insensitive
      munge_file_patterns warn_file_patterns transform_pattern
      parse_cov_filters summarize_cov_filters
      disable_cov_filters reenable_cov_filters is_filter_enabled
@@ -194,6 +194,7 @@ our $EXCL_EXCEPTION_LINE = 'LCOV_EXCL_EXCEPTION_BR_LINE';
 our @exclude_file_patterns;
 our @include_file_patterns;
 our %excluded_files;
+our $case_insensitive         = 0;
 our $exclude_exception_branch = 0;
 
 # list of regexps applied to line text - if exclude if matched
@@ -816,6 +817,21 @@ sub munge_file_patterns
             my $str  = '$text =~ ';
             if ('substitute' eq $flag) {
                 $str .= $pat;
+                if ($lcovutil::case_insensitive) {
+                    my $found;
+                    for (my $i = length($pat) - 1; $i >= 0; --$i) {
+                        my $char = substr($pat, $i, 1);
+                        if ($char eq 'i') {
+                            $found = 1;
+                            last;
+                        } elsif ($char =~ /[\/#!@%]/) {
+                            last;
+                        }
+                    }
+                    warn(
+                        "--substitute patter '$pat' does not seem to be case insensitive - but you asked for case insenstive matching\n"
+                    );
+                }
             } else {
                 $str .= '/' . $pat . '/';
             }
@@ -903,7 +919,11 @@ sub strip_directories($$)
         return $filename;
     }
     for ($i = 0; $i < $depth; $i++) {
-        $filename =~ s/^[^\/]*\/+(.*)$/$1/;
+        if ($lcovutil::case_insensitive) {
+            $filename =~ s/^[^\/]*\/+(.*)$/$1/i;
+        } else {
+            $filename =~ s/^[^\/]*\/+(.*)$/$1/;
+        }
     }
     return $filename;
 }
@@ -1243,7 +1263,9 @@ sub is_external($)
     return 0 unless (defined($opt_no_external) && $opt_no_external);
 
     foreach my $dir (@internal_dirs) {
-        return 0 if ($filename =~ /^\Q$dir\/\E/);
+        return 0
+            if (($lcovutil::case_insensitive && $filename =~ /^\Q$dir\/\E/i) ||
+                (!$lcovutil::case_insensitive && $filename =~ /^\Q$dir\/\E/));
     }
     return 1;
 }
@@ -1332,8 +1354,8 @@ sub extractFileVersion
     return undef
         unless @extractVersionScript;
 
-    die("$filename does not exist")
-        unless -f $filename;
+    #die("$filename does not exist")
+    #    unless -f $filename;
     my $version;
     my $cmd = join(' ', @extractVersionScript) . " '$filename'";
     lcovutil::debug(1, "extractFileVersion: $cmd\n");
@@ -2619,6 +2641,12 @@ sub filename
     return $self->{_filename};
 }
 
+sub set_filename
+{
+  my ($self, $name) = @_;
+  $self->{_filename} = $name;
+}
+
 # return true if no line, branch, or function coverage data
 sub is_empty
 {
@@ -3359,13 +3387,17 @@ sub files
 {
     my $self = shift;
 
+    # for case-insensitive support:  need to store the file keys in
+    #  lower case (so they can be found) - but return the actual
+    #  names of the files (mixed case)
+
     return keys %$self;
 }
 
 sub file_exists
 {
     my ($self, $name) = @_;
-
+    $name = lc($name) if $lcovutil::case_insensitive;
     return exists($self->{$name});
 }
 
@@ -3377,7 +3409,8 @@ sub skipCurrentFile
     if (@lcovutil::exclude_file_patterns) {
         foreach my $p (@lcovutil::exclude_file_patterns) {
             my $pattern = $p->[0];
-            if ($filename =~ /$pattern/) {
+            if (($lcovutil::case_insensitive && $filename =~ /$pattern/i) ||
+                (!$lcovutil::case_insensitive && $filename =~ /$pattern/)) {
                 ++$p->[2];
                 return 1;    # all done - explicitly excluded
             }
@@ -3386,7 +3419,8 @@ sub skipCurrentFile
     if (@lcovutil::include_file_patterns) {
         foreach my $p (@lcovutil::include_file_patterns) {
             my $pattern = $p->[0];
-            if ($filename =~ /$pattern/) {
+            if (($lcovutil::case_insensitive && $filename =~ /$pattern/i) ||
+                (!$lcovutil::case_insensitive && $filename =~ /$pattern/)) {
                 ++$p->[2];
                 return 0;    # exlicitly included
             }
@@ -3402,17 +3436,21 @@ sub data
     my $file                  = shift;
     my $checkMatchingBasename = shift;
 
-    if (!defined($self->{$file})) {
+    my $key = $lcovutil::case_insensitive ? lc($file) : $file;
+
+    if (!defined($self->{$key})) {
         if (defined $checkMatchingBasename) {
             # check if there is a file in the map that has the same basename
             #  as the lone we are looking for.
             # this can happen if the 'udiff' file refers to paths in the repo
             #  whereas the .info files refer to paths in the build area.
-            my $base  = File::Basename::basename($file);
+            my $base = File::Basename::basename($file);
+            $base = lc($base) if $lcovutil::case_insensitive;
             my $count = 0;
             my $found;
             foreach my $f (keys %$self) {
                 my $b = File::Basename::basename($f);
+                $b = lc($b) if $lcovutil::case_insensitive;
                 if ($b eq $base) {
                     $count++;
                     $found = $self->{$f};
@@ -3421,15 +3459,16 @@ sub data
             return $found
                 if $count == 1;
         }
-        $self->{$file} = TraceInfo->new($file);
+        $self->{$key} = TraceInfo->new($file);
     }
 
-    return $self->{$file};
+    return $self->{$key};
 }
 
 sub remove
 {
     my ($self, $filename) = @_;
+    $filename = lc($filename) if $lcovutil::case_insensitive;
     $self->file_exists($filename) or
         die("remove nonexistent file $filename");
     delete($self->{$filename});
@@ -3438,6 +3477,7 @@ sub remove
 sub insert
 {
     my ($self, $filename, $data) = @_;
+    $filename = lc($filename) if $lcovutil::case_insensitive;
     die("insert existing file $filename")
         if $self->file_exists($filename);
     die("expected TraceInfo got '" . ref($data) . "'")
@@ -3547,8 +3587,11 @@ sub applyFilters
     # have to look through each file in each testcase; they may be different
     # due to differences in #ifdefs when the corresponding tests were compiled.
 
-    foreach my $source_file ($self->files()) {
-
+    foreach my $name ($self->files()) {
+        my $traceInfo = $self->data($name);
+        die("expected TraceInfo, got '" . ref($traceInfo) . "'")
+            unless ('TraceInfo' eq ref($traceInfo));
+        my $source_file = $traceInfo->filename();
         if (lcovutil::is_external($source_file)) {
             delete($self->{$source_file});
             next;
@@ -3559,7 +3602,6 @@ sub applyFilters
             0 != scalar(@lcovutil::exclude_function_patterns)) {
 
             # filter excluded function line ranges
-            my $traceInfo = $self->data($source_file);
 
             my $funcData   = $traceInfo->testfnc();
             my $lineData   = $traceInfo->test();
@@ -3575,10 +3617,6 @@ sub applyFilters
 
         next unless (lcovutil::is_filter_enabled());
 
-        my $entry = $self->data($source_file);
-        die("expected TraceInfo, got '" . ref($entry) . "'")
-            unless ('TraceInfo' eq ref($entry));
-
         # munge the source file name, if requested
         $source_file = lcovutil::subst_file_name($source_file);
         next unless is_c_file($source_file);
@@ -3591,7 +3629,7 @@ sub applyFilters
         }
 
         my ($testdata, $sumcount, $funcdata, $checkdata,
-            $testfncdata, $testbrdata, $sumbrcount) = $entry->get_info();
+            $testfncdata, $testbrdata, $sumbrcount) = $traceInfo->get_info();
 
         foreach my $testname (sort($testdata->keylist())) {
             my $testcount    = $testdata->value($testname);
@@ -4276,10 +4314,11 @@ sub write_info($$$)
 
     my $srcReader = ReadCurrentSource->new()
         if ($verify_checksum);
-    foreach my $source_file (sort($self->files())) {
+    foreach my $filename (sort($self->files())) {
+        my $entry       = $self->data($filename);
+        my $source_file = $entry->filename();
         die("expected to have have filtered $source_file out")
             if lcovutil::is_external($source_file);
-        my $entry = $self->data($source_file);
         die("expected TraceInfo, got '" . ref($entry) . "'")
             unless ('TraceInfo' eq ref($entry));
 

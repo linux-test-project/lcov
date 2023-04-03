@@ -2761,6 +2761,8 @@ sub lookup
     my $vers = shift;
     my $line = shift;
 
+    $file = lc($file) if $lcovutil::case_insensitive;
+
     if (!defined($self->{linemap}->{$file})) {
         #mapping is identity when no diff was read
         return $line;
@@ -2784,6 +2786,8 @@ sub type
     my $file = shift;
     my $vers = shift;
     my $line = shift;
+
+    $file = lc($file) if $lcovutil::case_insensitive;
 
     if (!defined($self->{linemap}->{$file})) {
         #mapping is identity when no diff was read
@@ -2828,8 +2832,9 @@ sub baseline_file_name
     my $self         = shift;
     my $current_name = shift;
 
-    if (exists($self->{filemap}->{$current_name})) {
-        return $self->{filemap}->{$current_name};
+    my $key = $lcovutil::case_insensitive ? lc($current_name) : $current_name;
+    if (exists($self->{filemap}->{$key})) {
+        return $self->{filemap}->{$key};
     }
     return $current_name;
 }
@@ -3043,12 +3048,13 @@ sub _read_udiff
                 }
                 my $file = File::Spec->rel2abs($1, $main::cwd);
                 $file = lcovutil::strip_directories($file, $main::strip);
+                my $key = $lcovutil::case_insensitive ? lc($file) : $file;
                 die("$file already in linemap - marked unchangd")
-                    if (exists($self->{unchanged}->{$file}));
+                    if (exists($self->{unchanged}->{$key}));
                 warn("$file duplicate 'unchanged' entry found")
-                    if (exists($self->{linemap}->{$file}));
+                    if (exists($self->{linemap}->{$key}));
 
-                $self->{unchanged}->{$file} = 1;
+                $self->{unchanged}->{$key} = 1;
 
                 last;
             };
@@ -3057,12 +3063,15 @@ sub _read_udiff
             # --- <filename>
             /^--- (.+)$/ && do {
                 if ($filename) {
-                    push(@{$self->{linemap}->{$filename}}, $chunk);
+                    my $key =
+                        $lcovutil::case_insensitive ? lc($filename) : $filename;
+                    push(@{$self->{linemap}->{$key}}, $chunk);
                     undef $filename;
                 }
                 $file_old = File::Spec->rel2abs($1, $main::cwd);
                 $file_old =
                     lcovutil::strip_directories($file_old, $main::strip);
+                $file_old = lc($file_old) if $lcovutil::case_insensitive;
                 $self->{defLocation}->[0]->{$file_old} = $.;
                 #$in_block = 0;
                 last;
@@ -3074,14 +3083,17 @@ sub _read_udiff
                 $file_new = File::Spec->rel2abs($1, $main::cwd);
                 $file_new =
                     lcovutil::strip_directories($file_new, $main::strip);
-                $filename = ($file_new ne "/dev/null") ? $file_new : undef;
+                my $key =
+                    $lcovutil::case_insensitive ? lc($file_new) : $file_new;
+                $filename = ($file_new ne "/dev/null") ? $key : undef;
                 if ($filename) {
-                    $self->{linemap}->{$filename} = [];
+                    $self->{linemap}->{$key} = [];
                 }
                 if ($file_new ne "/dev/null") {
-                    $self->{filemap}->{$file_new} = $file_old;
+                    $self->{filemap}->{$key} = $file_old;
                     # keep track of location where this file was found
-                    $self->{defLocation}->[1]->{$file_new} = $.;
+                    $self->{defLocation}->[1]->{$key} =
+                        $.;    # record original name too.. $file_new
                 }
                 $chunk                 = {};
                 $chunk->{from}         = {};
@@ -4032,25 +4044,6 @@ sub _load
 
     my $path = ReadCurrentSource::resolve_path($self->path());
 
-    if (!-r $path) {
-        if ($main::synthesizeMissingFile ||
-            # don't complain if we weren't going to do anything with the file -
-            # not generating source view and not checking versions or annotating
-            ($main::no_sourceview                         &&
-             0 == scalar(@lcovutil::extractVersionScript) &&
-             0 == scalar(@SourceFile::annotateScript)     &&
-             !lcovutil::is_filter_enabled())
-        ) {
-            $self->_synthesize($countdata);
-            my $end = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{synth}{$self->path()} = $end - $start;
-            return $self;
-        }
-        die($self->path() .
-                " is not readble or doesn't exist. See --synthesize-missing option for workaround."
-        );
-    }
-
     # check for version mismatch...
     if (@lcovutil::extractVersionScript) {
         my $version = lcovutil::extractFileVersion($path);
@@ -4063,6 +4056,23 @@ sub _load
     #stat($annotateScript);
     if (0 == scalar(@annotateScript)) {
         # Check if file exists and is readable
+        if (!-r $path) {
+            if ($main::synthesizeMissingFile ||
+                # don't complain if we weren't going to do anything with the file -
+                # not generating source view and not checking versions or annotating
+                ($main::no_sourceview &&
+                 0 == scalar(@lcovutil::extractVersionScript) &&
+                 !lcovutil::is_filter_enabled())
+            ) {
+                $self->_synthesize($countdata);
+                my $end = Time::HiRes::gettimeofday();
+                $lcovutil::profileData{synth}{$self->path()} = $end - $start;
+                return $self;
+            }
+            die($self->path() .
+                    " is not readble or doesn't exist. See --synthesize-missing option for workaround."
+            );
+        }
         my $begin = Time::HiRes::gettimeofday();
         $self->_bare_load($path);
         my $end = Time::HiRes::gettimeofday();
@@ -4327,7 +4337,8 @@ sub new
     ];
 
     foreach my $f ($current_data->files()) {
-        my $filename = ReadCurrentSource::resolve_path($f);
+        my $traceInfo = $current_data->data($f);
+        my $filename  = ReadCurrentSource::resolve_path($traceInfo->filename());
         my ($vol, $parentDir, $file) = File::Spec->splitpath($filename);
         if (!File::Spec->file_name_is_absolute($filename)) {
             if ($parentDir) {
@@ -4953,6 +4964,7 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            'erase_functions' => \@rc_erase_patterns,
                            "version_script" => \@lcovutil::extractVersionScript,
                            "checksum"       => \$lcovutil::verify_checksum,
+                           "case_insensitive" => \$lcovutil::case_insensitive,
                            "suppress_function_aliases" =>
                                \$suppress_function_aliases,
                            "forget_testcase_names" =>

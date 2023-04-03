@@ -332,3 +332,7 @@ lcov_json_module = auto
 # Do not fork if estimated memory consumption exceeds this number.
 # default: 0 (no limit)
 #memory = 1024
+
+# use case insensitive compare to find matching files, for include/exclude
+#  directives, etc
+#case_insensitive = 0

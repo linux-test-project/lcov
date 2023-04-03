@@ -284,6 +284,7 @@ if (lcovutil::apply_rc_params(
        "geninfo_adjust_testname" => \$adjust_testname,
        "geninfo_checksum"        => \$lcovutil::verify_checksum,
        "checksum"                => \$lcovutil::verify_checksum,
+       "case_insensitive"        => \$lcovutil::case_insensitive,
        "geninfo_no_checksum"     => \$no_checksum,                  # deprecated
        "geninfo_compat_libtool"  => \$opt_compat_libtool,
        "geninfo_external"        => \$opt_external,
@@ -738,7 +739,7 @@ sequentially.
   -f, --follow                      Follow links when searching .da/.gcda files
   -b, --base-directory DIR          Use DIR as base directory for relative paths
       --build-directory DIR         Search DIR for .gcno files (if not found
-				    with .gcda)
+                                    with .gcda)
       --(no-)checksum               Enable (disable) line checksumming
       --(no-)compat-libtool         Enable (disable) libtool compatibility mode
       --gcov-tool TOOL              Specify gcov tool location

@@ -1,3 +1,3 @@
 include ../common.mak
 
-TESTS := simple filter function
+TESTS := simple filter function insensitive

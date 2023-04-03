@@ -487,6 +487,14 @@ lcov_json_module = auto
 #memory = 1
 .br
 
+.br
+# use case insensitive compare to find matching files, for include/exclude
+.br
+#  directives, etc
+.br
+#case_insensitive = 0
+.br
+
 .PP
 
 .SH OPTIONS
@@ -1674,6 +1682,18 @@ others (notably JSON::PP can be very slow compared to JSON::XS).
 .br
 
 Default is 'auto'.
+
+
+.BR case_insensitive " ="
+.IR [0|1]
+.IP
+Specify whether string comparison is case insenstive when finding matching
+filenames, checking include/exclude directives, etc.
+.br
+
+Note that mixed-case or lower-case pathnames may be passed to your \-\-version\-script and \-\-annotate\-script callbacks when case-insensitive matching is used.  Your callbacks must handle potential differences in case.
+
+Default is '0':  case sensitive matching.
 
 .PP
 
