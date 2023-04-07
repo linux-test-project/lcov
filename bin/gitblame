@@ -72,10 +72,8 @@ if (0 == system("git rev-parse --show-toplevel >/dev/null 2>&1")) {
                         $owner =~ s/\@$internal_domain//;
                         # replace everybody else with "External"
                         $owner =~ s/.*\@.*/External/;
-                    } else {
-                        # strip domain part from everyone
-                        $owner =~ s/\@.*$//;
                     }
+                    # else leave domain in place
 
                     # Convert Git date/time to diffcov canonical format
                     # replace space between date and time with 'T'

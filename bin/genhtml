@@ -8375,8 +8375,7 @@ sub write_source_line(*$$$$)
     my $fileCovInfo = $cbdata->lineData();
     my $source      = $srcline->text();
     my $src_owner   = $srcline->owner();
-    $src_owner =~ s/@.*// if defined($src_owner);
-    my $src_age = $srcline->age();
+    my $src_age     = $srcline->age();
     my $source_format;
     my $count_format;
     my $result;
@@ -8626,12 +8625,15 @@ sub write_source_line(*$$$$)
                     $SummaryInfo::tlaToLegacySrcLabel{$bucket} :
                     $bucket;
                 my $popup =
-                    " title=\"next $label in &ldquo;$src_owner&rdquo; bin\"";
+                    " title=\"next $label in &ldquo;" .
+                    escape_html($src_owner) . "&rdquo; bin\"";
                 # NOTE:  see note below about firefox nested span bug.
                 #  this code just arranges to wrap an explicit 'span' around
                 #  the space.
-                my $space = ' ' x ($ownerLen - length($src_owner));
-                my $href  = "<a href=\"#$next\"$popup$bgcolor>$src_owner</a>";
+                my $nspace = $ownerLen - length($src_owner);
+                my $space  = $nspace > 0 ? (' ' x $nspace) : '';
+                my $href   = "<a href=\"#$next\"$popup$bgcolor>" .
+                    escape_html(substr($src_owner, 0, $ownerLen)) . '</a>';
                 if ('' ne $bgcolor &&
                     '' ne $space) {
                     $html .= "$endspan$href$span";
@@ -9042,10 +9044,11 @@ sub buildOwnerSummaryTable($$$$$$$$$)
             $rate_name[classify_rate($found, $hit, $lim_med, $lim_high)];
         my $rate = rate($hit, $found, '&nbsp;%');
 
-        my $href = $name;
+        my $esc_name = escape_html($name);
+        my $href     = $esc_name;
         if (defined($detailLink)) {
             $href =
-                "<a href=\"$page#$name\" title=\"click to go to coverage summary for owner '$name'\">$name</a>";
+                "<a href=\"$page#$name\" title=\"click to go to coverage summary for owner '$esc_name'\">$esc_name</a>";
         }
         $hit -= $found    # negative number
             if ($main::opt_missed);
