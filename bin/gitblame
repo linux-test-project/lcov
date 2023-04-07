@@ -32,13 +32,14 @@ use DateTime::Format::W3CDTF;
 use POSIX qw(strftime);
 use File::Basename qw(dirname basename);
 
-my $pathname = shift @ARGV;
+die("usage: $0 [domain] file_path")
+    unless 0 < scalar(@ARGV) && scalar(@ARGV) < 3;
+my $pathname        = $ARGV[-1];
+my $internal_domain = $ARGV[0] if 2 == scalar(@ARGV);
+
 die("$0 expected readable file, found '" .
     (defined($pathname) ? $pathname : '<undef>') . "'")
-    unless defined($pathname) && -f $pathname && -r $pathname;
-
-my $internal_domain = $ARGV[0]
-    if (@ARGV);
+    unless defined($pathname) && (-f $pathname || -l $pathname) && -r $pathname;
 
 # set working directory to account for nested repos and submodules
 my $dirname  = dirname($pathname);

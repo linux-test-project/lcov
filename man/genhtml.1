@@ -528,7 +528,7 @@ callback to supply age and ownership data for each source line.
 The callback script is expected to filter data supplied by the revision management system, and
 represent it in the format expected by
 .BR genhtml .
-'source_annotation_string is treated as a (possibly space\-separated) string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the filename) when the script is executed.  Parameter order is
+'source_annotation_string is treated as a (possibly space\-separated) string; the first part is expected to be a script or executable and any following parts are passed as script arguments (before the filename) when the script is executed.  Parameter order is
 .I source_annotation_string 'file_name'.
 Spaces in the script name will be treated as argument delimeters by the shell - and may need additional quotation.  Note that the filename is quoted when
 passed to the shell (to handle filenames which contain spaces).
@@ -546,7 +546,7 @@ Note that the second and subsequent arguments are quoted when passed to
 the shell, in order to handle parameters which contain spaces.
 
 When a
-.I source_annotation_strring
+.I source_annotation_string
 is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
 Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support\-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.  Also, see the \-\-version\-script option - which is used to check that the file version found locally matches the version whose coverage data was captured.
 
