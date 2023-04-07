@@ -84,6 +84,12 @@ genhtml_line_field_width = 12
 # Width of branch coverage field in source code view
 genhtml_branch_field_width = 16
 
+# width of 'owner' field in source code veiw - default is 20
+#genhtml_owner_field_width = 20
+
+# width of 'age' field in source code veiw - default is 5
+#genhtml_age_field_width = 5
+
 # Width of overview image (used by --frames option of genhtml)
 genhtml_overview_width = 80
 

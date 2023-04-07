@@ -165,6 +165,12 @@ our $line_field_width = 12;
 # Width for branch coverage information in the source code view
 our $br_field_width = 16;
 
+# Width for owner name in the source code view
+our $owner_field_width = 20;
+
+# Width for block age in the source code view
+our $age_field_width = 5;
+
 # Internal Constants
 
 # Header types
@@ -4917,6 +4923,8 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "genhtml_branch_med_limit"   => \$br_med_limit,
                            "genhtml_branch_coverage"    => \$br_coverage,
                            "genhtml_branch_field_width" => \$br_field_width,
+                           "genhtml_owner_field_width"  => \$owner_field_width,
+                           "genhtml_age_field_width"    => \$age_field_width,
                            "genhtml_sort"               => \$sort,
                            "genhtml_charset"            => \$charset,
                            "genhtml_desc_html"          => \$rc_desc_html,
@@ -8483,8 +8491,8 @@ sub write_source_line(*$$$$)
         $cbdata->sourceDetail()->isProjectFile()) {
         DATE_SECTION: {
 
-            my $ageLen   = 5;
-            my $ownerLen = 20;
+            my $ageLen   = $main::age_field_width;
+            my $ownerLen = $main::owner_field_width;
 
             # need to space over on continuation lines
             $html_continuation_leader = ' ' x ($ageLen + $ownerLen + 2);

@@ -206,6 +206,15 @@ genhtml_line_field_width = 12
 genhtml_branch_field_width = 16
 .br
 
+# width of 'owner' field in source code veiw - default is 20
+.br
+genhtml_owner_field_width = 20
+.br
+# width of 'age' field in source code veiw - default is 5
+.br
+genhtml_age_field_width = 5
+.br
+
 # Width of overview image
 .br
 genhtml_overview_width = 80
@@ -746,6 +755,26 @@ branch coverage information.
 .br
 
 Default is 16.
+.PP
+
+.BR genhtml_owner_field_width " ="
+.I number_of_characters
+.IP
+Specify the width (in characters) of the source code view column containing
+owner information (as reported by your annotation script.  This option has an effect only if you are using a source annotation script:  see the \-\-annotation-script option in the genhtml man page.
+.br
+
+Default is 20.
+.PP
+
+.BR genhtml_age_field_width " ="
+.I number_of_characters
+.IP
+Specify the width (in characters) of the source code view column containing
+age of the corresponding block (as reported by your annotation script).   This option has an effect only if you are using a source annotation script:  see the \-\-annotation-script option in the genhtml man page.
+.br
+
+Default is 5.
 .PP
 
 .BR genhtml_overview_width " ="
