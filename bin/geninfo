@@ -224,7 +224,7 @@ our $data_file_extension;
 our @data_directory;
 # root of directory where .gcno files can be found -directory name,
 # if .gcda and .gcno not in same place
-our $build_directory;
+our @build_directory;
 our $test_name = "";
 our $help;
 our $output_filename;
@@ -361,7 +361,7 @@ if (!GetOptions("test-name|t=s"       => \$test_name,
                 "no-checksum"         => \$no_checksum,
                 "branch-coverage"     => \$br_coverage,
                 "base-directory|b=s"  => \$base_directory,
-                "build-directory|b=s" => \$build_directory,
+                "build-directory|b=s" => \@build_directory,
                 "version"             => \$version,
                 "verbose|v+"          => \$lcovutil::verbose,
                 "quiet|q+"            => \$quiet,
@@ -968,7 +968,7 @@ sub gen_info($)
         if (defined $output_filename) && $output_filename =~ /\.gz$/;
     my $total          = scalar(@file_list);
     my $processedFiles = 0;
-    foreach my $d (@file_list) {
+    DATA_FILE: foreach my $d (@file_list) {
         #  $filename will be .gcda or .gcno.
         #  expect gcno only if --initial
         my ($filename, $searchdir) = @$d;
@@ -988,35 +988,59 @@ sub gen_info($)
         } else {
             $gcda_file = $filename;
             $gcno_file = File::Spec->catfile($d, $name . ".gcno");
-            if ((!(-f $gcno_file || -l $gcno_file)) &&
-                $build_directory) {
-                # handle case that gcda and gcno are in different directories
-                #  - say, where is the gcda that we found, then see if gcno is
-                #    in the same directory. If not, then look in a gcno path and
-                #    link both gcda and gcno into this tempdir, run gcov, then
-                #    unlink
-                # from the directory where the gcda file is found:
-                #   strip off the directory where we start the search
-                #   then strip off the GCOV_PREFIX (if there is one)
-                #   then append the remaining path the the GCDA file, to the
-                #   'GCNO_PATH' that we were provided.
-                #     - if there is a file there:  use it.
-                $d =~ s#^$searchdir##g;
-                $gcno_file =
-                    File::Spec->catfile($build_directory, $d, $name . ".gcno");
-                lcovutil::info(1,
-                    "looking for GCNO corresponding to '$gcda_file' at '$gcno_file'\n"
-                );
-            }
+            GCNO: foreach ($gcno_file) {
+                last if (-f $gcno_file || -l $gcno_file);
 
-            # skip the .gcda file if there is no .gcno
-            if (!(-f $gcno_file || -l $gcno_file)) {
+                my $alt = lcovutil::subst_file_name($gcno_file);
+                if ($alt ne $gcno_file) {
+                    $gcno_file = $alt;
+                    lcovutil::info(1,
+                        "looking for GCNO corresponding to '$gcda_file' at '$gcno_file'\n"
+                    );
+                    last GCNO if (-f $gcno_file || -l $gcno_file);
+                }
+
+                foreach my $build_directory (@build_directory) {
+                    # handle case that gcda and gcno are in different directories
+                    #  - say, where is the gcda that we found, then see if gcno is
+                    #    in the same directory. If not, then look in a gcno path and
+                    #    link both gcda and gcno into this tempdir, run gcov, then
+                    #    unlink
+                    # from the directory where the gcda file is found:
+                    #   strip off the directory where we start the search
+                    #   then strip off the GCOV_PREFIX (if there is one)
+                    #   then append the remaining path the the GCDA file, to the
+                    #   'GCNO_PATH' that we were provided.
+                    #     - if there is a file there:  use it.
+                    $d =~ s#^$searchdir##g;
+                    $gcno_file =
+                        File::Spec->catfile($build_directory, $d,
+                                            $name . ".gcno");
+
+                    lcovutil::info(1,
+                        "looking for GCNO corresponding to '$gcda_file' at '$gcno_file'\n"
+                    );
+                    last GCNO if (-f $gcno_file || -l $gcno_file);
+
+                    $alt = lcovutil::subst_file_name($gcno_file);
+                    if ($alt ne $gcno_file) {
+                        $gcno_file = $alt;
+                        lcovutil::info(1,
+                            "looking for GCNO corresponding to '$gcda_file' at '$gcno_file'\n"
+                        );
+                        last GCNO if (-f $gcno_file || -l $gcno_file);
+                    }
+                }    # foreach build_directory
+
+                # skip the .gcda file if there is no .gcno
+
                 lcovutil::ignorable_error($ERROR_GCOV,
-                    "skipping .gcda file $gcda_file because corresponding .gcno file is missing (see the '--build-directory' entry in 'man geninfo' for suggestions)"
+                    "skipping .gcda file $gcda_file because corresponding .gcno file '$gcno_file' is missing (see the '--build-directory' entry in 'man geninfo' for suggestions)"
                 );
-                next;
-            }
+                next DATA_FILE;
+            }    # foreach
         }
+
         ++$processedFiles;
         if (1 < $lcovutil::maxParallelism &&
             scalar(@file_list) > 1) {

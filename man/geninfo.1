@@ -248,6 +248,8 @@ and/or search for
 and
 .I GCOV_PREFIX_STRIP.
 
+This option can be used several times to specify multiple alternate directories to look for .GCNO files.  This may be useful if your application uses code which is compiled in many separate locations - for example, common libraries that are shared between teams.
+
 .RE
 .B \-\-branch\-coverage
 .br
