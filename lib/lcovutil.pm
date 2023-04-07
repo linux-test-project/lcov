@@ -2643,8 +2643,8 @@ sub filename
 
 sub set_filename
 {
-  my ($self, $name) = @_;
-  $self->{_filename} = $name;
+    my ($self, $name) = @_;
+    $self->{_filename} = $name;
 }
 
 # return true if no line, branch, or function coverage data
@@ -3754,8 +3754,14 @@ sub applyFilters
                     $isBlank;
 
                 lcovutil::info(2,
-                               "filter DA '" . $srcReader->getLine($line) .
-                                   "' $source_file:$line\n");
+                               "filter DA "
+                                   .
+                                   (defined($srcReader->getLine($line)) ?
+                                        ("'" . $srcReader->getLine($line) . "'")
+                                    :
+                                        "") .
+                                   " $source_file:$line\n");
+
                 if (defined($isCloseBrace) && $isCloseBrace) {
                     # one location where this applied
                     ++$brace_histogram->[0];

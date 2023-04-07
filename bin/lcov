@@ -2742,13 +2742,15 @@ sub convert_paths($$)
 
     # Expand path conversion list
     while (my ($filename, $new_path) = each(%{$path_conversion_data})) {
-	# remove extra trainling slashes
-        while ($filename =~ s/^(.*)\/[^\/]+$/$1/ &&
-	       $new_path =~ s/^(.*)\/[^\/]+$/$1/ &&
-	       (($lcovutil::case_insensitive &&
-		 lc($filename) ne lc($new_path)) ||
-		(!$lcovutil::case_insensitive &&
-		 $filename ne $new_path))) {
+        # remove extra trailing slashes
+        while (
+             $filename =~ s/^(.*)\/[^\/]+$/$1/ &&
+             $new_path =~ s/^(.*)\/[^\/]+$/$1/ &&
+             (  ($lcovutil::case_insensitive && lc($filename) ne lc($new_path))
+                ||
+                (!$lcovutil::case_insensitive &&
+                    $filename ne $new_path))
+        ) {
             $path_conversion_data->{$filename} = $new_path;
         }
     }
@@ -2779,7 +2781,7 @@ sub convert_paths($$)
                 $trace_data->data($new_path)->merge($file_data, $filename);
             } else {
                 # Simply rename entry
-	        $file_data->set_filename($new_path);
+                $file_data->set_filename($new_path);
                 $trace_data->insert($new_path, $file_data);
             }
             (($lcovutil::case_insensitive && lc($filename) ne lc($new_path)) ||
