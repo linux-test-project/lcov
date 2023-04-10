@@ -5203,10 +5203,25 @@ if ($use_legacyLabels ||
 if ($dark_mode) {
     # if 'dark_mode' is set, then update the color maps
     # For the moment - just reverse the foreground and background
+    my %reverse;
+    while (my ($key, $value) = each(%lcovutil::normal_palette)) {
+        $reverse{lc($value)} = $key;
+    }
+
     foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
         # swap
         my $bg = $lcovutil::tlaColor{$tla};
-        $lcovutil::tlaColor{$tla}     = $lcovutil::tlaTextColor{$tla};
+
+        my $key = substr($bg, 1);
+        # if this color is in normal_palette, then swap to dark_palette
+        #   version.  Otherwise, just swap the 'tlaColor' and 'tlaTextColor'
+        #   (foreground and background)
+        if (exists($reverse{lc($key)})) {
+            my $k = $reverse{lc($key)};
+            $lcovutil::tlaColor{$tla} = '#' . uc($lcovutil::dark_palette{$k});
+        } else {
+            $lcovutil::tlaColor{$tla} = $lcovutil::tlaTextColor{$tla};
+        }
         $lcovutil::tlaTextColor{$tla} = $bg;
     }
 }
@@ -7230,9 +7245,18 @@ END_OF_CSS
           text-align: $align;
           background-color: $color
         }
+        $elem.tlaBg$tla {
+          background-color: $color
+        }
 END_OF_SPAN
                 ;
         }
+        # the href anchor tag background
+        $css_data .= ($_ = <<"END_OF_SPAN");
+        a.tlaBg$tla {
+          background-color: $color
+        }
+END_OF_SPAN
     }
 
     # 'span' tags for date bins...
@@ -7253,54 +7277,12 @@ END_OF_DATE_SPAN
     $css_data =~ s/^\t//gm;
     $css_data =~ s/^        //gm;    # and 8 spaces...
 
-    my %palette = $dark_mode ?
-        ('COLOR_00' => "e4e4e4",
-         'COLOR_01' => "58a6ff",
-         'COLOR_02' => "8b949e",
-         'COLOR_03' => "3b4c71",
-         'COLOR_04' => "006600",
-         'COLOR_05' => "4b6648",
-         'COLOR_06' => "495366",
-         'COLOR_07' => "143e4f",
-         'COLOR_08' => "1c1e23",
-         'COLOR_09' => "202020",
-         'COLOR_10' => "801b18",
-         'COLOR_11' => "66001a",
-         'COLOR_12' => "772d16",
-         'COLOR_13' => "796a25",
-         'COLOR_14' => "000000",
-         'COLOR_15' => "58a6ff",
-         'COLOR_16' => "eeeeee",
-         'COLOR_17' => "E5DBDB",    # colors below not differentiated, yet
-         'COLOR_18' => "82E0AA",
-         'COLOR_19' => 'F9E79F',
-         'COLOR_20' => 'EC7063',) :
-        ('COLOR_00' => "000000",
-         'COLOR_01' => "00cb40",
-         'COLOR_02' => "284fa8",
-         'COLOR_03' => "6688d4",
-         'COLOR_04' => "a7fc9d",
-         'COLOR_05' => "b5f7af",
-         'COLOR_06' => "b8d0ff",
-         'COLOR_07' => "cad7fe",
-         'COLOR_08' => "dae7fe",
-         'COLOR_09' => "efe383",
-         'COLOR_10' => "ff0000",
-         'COLOR_11' => "ff0040",
-         'COLOR_12' => "ff6230",
-         'COLOR_13' => "ffea20",
-         'COLOR_14' => "ffffff",
-         'COLOR_15' => "284fa8",
-         'COLOR_16' => "ffffff",
-         'COLOR_17' => "E5DBDB",    # very light pale grey/blue
-         'COLOR_18' => "82E0AA",    # light green
-         'COLOR_19' => 'F9E79F',    # light yellow
-         'COLOR_20' => 'EC7063',    # lighter red
-        );
-
     # Apply palette
-    for (keys %palette) {
-        $css_data =~ s/$_/$palette{$_}/gm;
+    my $palette =
+        $dark_mode ? \%lcovutil::dark_palette : \%lcovutil::normal_palette;
+
+    while (my ($key, $color) = each(%$palette)) {
+        $css_data =~ s/$key/$color/gm;
     }
 
     print(CSS_HANDLE $css_data);
@@ -7886,15 +7868,19 @@ END_OF_HTML
                             die("unexpected page detail type '$page_type'");
                         }
                         $title .= "in $filename\"";
-                        my $color =
-                            $class eq "tla$key" ?
-                            "style=\"background-color:$lcovutil::tlaColor{$key}\" "
-                            :
-                            "";
+                        if ($class eq "tla$key") {
+                            # add another CSS style to set the TLA-specific background
+                            #  color
+                            $class .= " tlaBg$key";
+                        }
                         if (defined($line)) {
                             my $href = $tableHref;
                             $href =~ s/__LINE__/$line/;
-                            $v = "<a $href ${color}title=$title>$v</a>";
+                            $v = "<a $href ";
+                            if ($class =~ /tlaBg/) {
+                                $v .= "class=\"tlaBg$key ";
+                            }
+                            $v .= "title=$title>$v</a>";
                         }
                     }
                 }
@@ -8320,9 +8306,9 @@ sub get_branch_html($$)
                 } else {
                     my $line = $differentialBranch->line();
                     my $next = $fileDetail->nextBranchTlaGroup($tla, $line);
-
+                    $class .= " tlaBg$tla";
                     $href = "<a href=\"#" . (defined($next) ? $next : 'top') .
-                        "\" style=\"background-color:$lcovutil::tlaColor{$tla}\" title=\"TITLE\">$char</a>";
+                        "\" title=\"TITLE\">$char</a>";
                     $tlaLinks{$tla} = $href;
                 }
                 $href =~ s#TITLE#$title#;
@@ -8423,25 +8409,26 @@ sub write_source_line(*$$$$)
         #   we just stick "TLA " (4 characters) into the fixed-with source
         #   line - right before the count.
         $tla = $cbdata->tla($bucket, $line);
+        my $class = "tla$bucket";
         if ($tla eq $bucket) {
             # maybe we want to link only the uncovered code categories?
             my $next = $cbdata->sourceDetail()->nextTlaGroup($bucket, $line);
             $tlaIsHref = 1;
             # if no next segment in this category - then go to top to page.
             $next = 'top' if (!defined($next));
-            my $color = (
-                  $tla ne 'UNK' ?
-                      " style=\"background-color:$lcovutil::tlaColor{$bucket}\""
-                  :
-                      '');
+            my $anchorClass = "";
+            if ($tla ne 'UNK') {
+                $class .= " tlaBg$bucket";
+                $anchorClass = "class=\"tlaBg$bucket\" ";
+            }
             my $label =
                 $main::use_legacyLabels ?
                 $SummaryInfo::tlaToLegacySrcLabel{$tla} :
                 $tla;
             my $popup = " title=\"Next $label group\"";
-            $tla = "<a href=\"#$next\"$color$popup>$label</a>";
+            $tla = "<a href=\"#$next\"$anchorClass$popup>$label</a>";
         }
-        $source_format = "<span class=\"tla$bucket\">";
+        $source_format = "<span class=\"$class\">";
 
         my $pchar;
         if (exists($lcovutil::pngChar{$bucket})) {
@@ -8512,13 +8499,12 @@ sub write_source_line(*$$$$)
 
             my $span    = "";
             my $endspan = "";
-            my $bgcolor = "";
+            my $bgclass = "";
             if (defined($count) && 0 == $count) {
                 # probably want to pick a color based on which
                 #   date bin it is in.
                 # right now, picking based on TLA.
-                $bgcolor =
-                    " style=\"background-color:$lcovutil::tlaColor{$bucket}\""
+                $bgclass = " class=\"tlaBg$bucket\""
                     if (defined($bucket) &&
                         $bucket ne "EUB" &&
                         $bucket ne "ECB");
@@ -8617,7 +8603,7 @@ sub write_source_line(*$$$$)
                 my $popup =
                     " title=\"next $label in &ldquo;$dateBin&rdquo; bin\"";
                 $html .= ((' ' x ($ageLen - length($src_age))) .
-                          "<a href=\"#$next\"$popup$bgcolor>$src_age</a> ");
+                          "<a href=\"#$next\"$popup$bgclass>$src_age</a> ");
             } else {
                 $html .= sprintf("%${ageLen}s ", $age);
             }
@@ -8640,9 +8626,9 @@ sub write_source_line(*$$$$)
                 #  the space.
                 my $nspace = $ownerLen - length($src_owner);
                 my $space  = $nspace > 0 ? (' ' x $nspace) : '';
-                my $href   = "<a href=\"#$next\"$popup$bgcolor>" .
+                my $href   = "<a href=\"#$next\"$popup$bgclass>" .
                     escape_html(substr($src_owner, 0, $ownerLen)) . '</a>';
-                if ('' ne $bgcolor &&
+                if ('' ne $bgclass &&
                     '' ne $space) {
                     $html .= "$endspan$href$span";
                 } else {
@@ -8972,7 +8958,7 @@ sub buildDateSummaryTable($$$$$$$$$)
                         $color = "";
                     } else {
                         $label = $tla;
-                        $color = " style=\"background-color:$class\"";
+                        $color = " class=\"tlaBg$tla\"";
                     }
                     my $popup = " title=\"goto first $label ";
                     $popup .= $covType . ' '
@@ -9092,7 +9078,7 @@ sub buildOwnerSummaryTable($$$$$$$$$)
                         $color = "";
                     } else {
                         $label = $tla;
-                        $color = " style=\"background-color:$class\"";
+                        $color = " class=\"tlaBg$tla\"";
                     }
                     my $popup = " title=\"goto first $label ";
                     $popup .= $covType . ' '

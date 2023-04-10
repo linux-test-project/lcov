@@ -65,6 +65,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      system_no_output
 
      %tlaColor %tlaTextColor use_vanilla_color %pngChar %pngMap
+     %dark_palette %normal_palette
 );
 
 our @ignore;
@@ -209,6 +210,50 @@ our $source_filter_lookahead = 10;
 # by default, don't treat expressions containing bitwise operators '|', '&', '~'
 #   as conditional in bogus branch filtering
 our $source_filter_bitwise_are_conditional = 0;
+
+our %dark_palette = ('COLOR_00' => "e4e4e4",
+                     'COLOR_01' => "58a6ff",
+                     'COLOR_02' => "8b949e",
+                     'COLOR_03' => "3b4c71",
+                     'COLOR_04' => "006600",
+                     'COLOR_05' => "4b6648",
+                     'COLOR_06' => "495366",
+                     'COLOR_07' => "143e4f",
+                     'COLOR_08' => "1c1e23",
+                     'COLOR_09' => "202020",
+                     'COLOR_10' => "801b18",
+                     'COLOR_11' => "66001a",
+                     'COLOR_12' => "772d16",
+                     'COLOR_13' => "796a25",
+                     'COLOR_14' => "000000",
+                     'COLOR_15' => "58a6ff",
+                     'COLOR_16' => "eeeeee",
+                     'COLOR_17' => "E5DBDB",
+                     'COLOR_18' => "82E0AA",
+                     'COLOR_19' => 'F9E79F',
+                     'COLOR_20' => 'EC7063',);
+our %normal_palette = ('COLOR_00' => "000000",
+                       'COLOR_01' => "00cb40",
+                       'COLOR_02' => "284fa8",
+                       'COLOR_03' => "6688d4",
+                       'COLOR_04' => "a7fc9d",
+                       'COLOR_05' => "b5f7af",
+                       'COLOR_06' => "b8d0ff",
+                       'COLOR_07' => "cad7fe",
+                       'COLOR_08' => "dae7fe",
+                       'COLOR_09' => "efe383",
+                       'COLOR_10' => "ff0000",
+                       'COLOR_11' => "ff0040",
+                       'COLOR_12' => "ff6230",
+                       'COLOR_13' => "ffea20",
+                       'COLOR_14' => "ffffff",
+                       'COLOR_15' => "284fa8",
+                       'COLOR_16' => "ffffff",
+                       'COLOR_17' => "E5DBDB",    # very light pale grey/blue
+                       'COLOR_18' => "82E0AA",    # light green
+                       'COLOR_19' => 'F9E79F',    # light yellow
+                       'COLOR_20' => 'EC7063',    # lighter red
+);
 
 our %tlaColor = ("UBC" => "#FDE007",
                  "GBC" => "#448844",
