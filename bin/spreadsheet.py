@@ -342,7 +342,7 @@ class GenerateSpreadsheet(object):
                                            sheetRef + parallel)
                 summaryCol += 1
                 col = 3;
-                sheet.write_string(row, col, 'cumuative')
+                sheet.write_string(row, col, 'cumulative')
                 col += 1
                 # now label this sheet's columns
                 #  and also insert reference to total time and average time

@@ -103,7 +103,7 @@ fi
 LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script `pwd`/version.sh $PARALLEL $PROFILE"
 DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script `pwd`/version.sh $PROFILE $PARALLEL"
 
-rm -f *.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt *.log *.err *.json dumper* *.annotated *.log
+rm -f *.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt *.log *.err *.json dumper* *.annotated *.log TEST.cpp TeSt.cpp
 rm -rf ./baseline ./current ./differential* ./cover_db
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
@@ -117,8 +117,8 @@ fi
 echo *
 
 # filename was all upper case
-ln -s ../simple/simple.cpp TEST.CPP
-${CXX} --coverage TEST.CPP
+ln -s ../simple/simple.cpp TEST.cpp
+${CXX} --coverage TEST.cpp
 ./a.out
 
 echo `which gcov`
@@ -139,7 +139,7 @@ gzip -c baseline.info > baseline.info.gz
 #   in '.' - whereas older versions have relative paths.
 # In case of relative paths, need some additional genhtml flags to make
 #   tests run the same way
-grep './TEST.CPP' baseline.info
+grep './TEST.cpp' baseline.info
 if [ 0 == $? ] ; then
     # found - need some flags
     GENHTML_PORT='--elide-path-mismatch'
@@ -147,7 +147,7 @@ if [ 0 == $? ] ; then
 fi
 
 # test merge with names that differ in case
-sed -e 's/TEST.CPP/test.cpp/g' < baseline.info > baseline2.info
+sed -e 's/TEST.cpp/test.cpp/g' < baseline.info > baseline2.info
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output merge.info -a baseline.info -a baseline2.info
 if [ 0 != $? ] ; then
     echo "ERROR: merge with mismatched case did not fail"
@@ -181,7 +181,7 @@ fi
 export PWD=`pwd`
 echo $PWD
 
-rm -f TEST.CPP TEST.gcno TEST.gcda a.out
+rm -f TEST.cpp TEST.gcno TEST.gcda a.out
 ln -s ../simple/simple2.cpp TeSt.cpp
 ${CXX} --coverage -DADD_CODE -DREMOVE_CODE TeSt.cpp
 ./a.out
@@ -199,7 +199,7 @@ fi
 ( cd ../simple ; diff -u simple.cpp simple2.cpp ) | sed -e "s|simple2*\.cpp|$ROOT/tEsT.cpp|g" > diff.txt
 
 # and put yet another different case in the annotate file name
-ln -s ../simple/simple2.cpp.annotated TEst.Cpp.annotated
+ln -s ../simple/simple2.cpp.annotated TEst.cpp.annotated
 
 # check that this works with test names
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 --ignore-annotate

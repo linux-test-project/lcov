@@ -550,6 +550,13 @@ When a
 is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
 Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support\-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.  Also, see the \-\-version\-script option - which is used to check that the file version found locally matches the version whose coverage data was captured.
 
+Note that the
+.I \-\-synthesize\-missing
+flag has no effect when
+.I \-\-annotate\-script
+is used.  The expectation is that the source files may not be present and may instead be checked out from some repo by your annotate script.
+If your annotate script must synthesize its own fake data, if it is required.
+
 .RE
 .BI "\-\-criteria\-script " coverage_criteria_script
 .RS
