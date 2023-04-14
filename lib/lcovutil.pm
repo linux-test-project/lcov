@@ -1926,22 +1926,33 @@ sub is_exception
 sub merge
 {
     # return 1 if something changed, 0 if nothing new covered or discovered
-    my ($self, $that) = @_;
+    my ($self, $that, $filename, $line) = @_;
     if ($self->exprString() ne $that->exprString()) {
+        my $loc = defined($filename) ? "\"$filename\":$line: " : '';
         lcovutil::ignorable_error($ERROR_MISMATCH,
-                                  "mismatched expressions for id " .
+                                  "${loc}mismatched expressions for id " .
                                       $self->id() . ", " . $that->id() .
                                       ": '" . $self->exprString() .
                                       "' -> '" . $that->exprString() . "'");
-        # else - ngore the issue and merge data even thought the expressions
+        # else - ignore the issue and merge data even though the expressions
         #  look different
+        # To enable a consistent result, keep the one which is alphabetically
+        # first
+        if ($that->exprString() le $self->exprString()) {
+            $self->[2] = $that->[2];
+        }
     }
     if ($self->is_exception() != $that->is_exception()) {
+        my $loc = defined($filename) ? "\"$filename\":$line: " : '';
         lcovutil::ignorable_error($ERROR_MISMATCH,
-                                  "mismatched exception tag for id " .
+                                  "${loc}mismatched exception tag for id " .
                                       $self->id() . ", " . $that->id() .
                                       ": '" . $self->is_exception() .
                                       "' -> '" . $that->is_exception() . "'");
+        # set 'self' to 'not related to exception' - to give a consistent
+        #  answer for the merge operation.  Otherwise, we pick whatever
+        #  was seen first - which is unprecitable during threaded execution.
+        $self->[3] = 0;
     }
     my $t = $that->[1];
     return 0 if $t eq '-';    # no new news
@@ -2516,7 +2527,7 @@ sub append
                 $self->[3] = 1;
                 $interesting = 1;
             }
-            if ($me->merge($br)) {
+            if ($me->merge($br, $filename, $line)) {
                 $interesting = 1;
             }
         }
@@ -2541,14 +2552,19 @@ sub removeExceptionBranches
     my ($self, $line) = @_;
 
     my $brdata = $self->value($line);
+    return unless defined($brdata);
     foreach my $block_id ($brdata->blocks()) {
         my $blockData = $brdata->getBlock($block_id);
         @$blockData = grep { !$_->is_exception() } (@$blockData);
         if (0 == scalar(@$blockData)) {
+            lcovutil::info(2, "$line: remove exception block $block_id\n");
             $blockData->removeBlock($block_id);
         }
     }
-    if (0 == scalar($brdata->blocks())) {
+    # If there is only one branch left - then this is not a conditional
+    if (2 > scalar($brdata->blocks())) {
+        lcovutil::info(2, "$line: lone block\n")
+            if 1 == scalar($brdata->blocks());
         $self->remove($line);
     } else {
         # just assume we changed something...

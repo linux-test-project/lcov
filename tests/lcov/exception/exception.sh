@@ -136,6 +136,8 @@ EXCEPTIONS=`grep -c ',e' all.info`
 
 if [ $EXCEPTIONS != '0' ] ; then
 
+    # when run without 'no markers", then we should remove exception
+    #  branches in the marked region
     $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o filter.info --include '*/exception.cpp'
 
     if [ 0 != $? ] ; then
@@ -146,13 +148,24 @@ if [ $EXCEPTIONS != '0' ] ; then
     fi
     FILTER_BRANCHES=`grep -c BRDA: filter.info`
     FILTER_EXCEPTIONS=`grep -c ',e' filter.info`
-    if [ $FILTER_BRANCHES == $BRANCHES ] ; then
+    # we expect the number of exception branches found in 'filter.info'
+    #  (when we applied 'exception branch markers') should be the less than
+    # the number of total branches (when we excluded nothing)
+    if [ $FILTER_BRANCHES -ge $BRANCHES ] ; then
         echo "Error:  did not filter exception branches: $BRANCHES -> $FILTER_BRANCHES"
         exit 1
     fi
     let DIFF=$BRANCHES-$FILTER_BRANCHES
     let DIFF2=$EXCEPTIONS-$FILTER_EXCEPTIONS
-    if [ $DIFF != $DIFF2 ] ; then
+    # 'DIFF' is the number of branches that got removed by 'marker' filtering
+    #   we expect that to be the same as the number of exception branches that
+    #   got removed
+    # however, this is slightly complicated because gcc might not have
+    #   all the exception branches - leaving a long "exception not taken"
+    #   branch on the line...but we explicitly remove such lone
+    #   branches - so the total difference in number of branches might
+    #   larger than the difference between the 'e' branches in the info files.
+    if [ $DIFF -lt $DIFF2 ] ; then
         echo "Error: we seem to have filtered non-exception branches: $DIFF -> $DIFF2"
         exit 1
     fi
