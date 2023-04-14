@@ -968,6 +968,7 @@ sub gen_info($)
         if (defined $output_filename) && $output_filename =~ /\.gz$/;
     my $total          = scalar(@file_list);
     my $processedFiles = 0;
+    my $start          = Time::HiRes::gettimeofday();
     DATA_FILE: foreach my $d (@file_list) {
         #  $filename will be .gcda or .gcno.
         #  expect gcno only if --initial
@@ -1065,6 +1066,18 @@ sub gen_info($)
                 _merge_one_child($child, \%children, $type, $tempFileExt,
                                  $childstatus);
                 --$currentParallel;
+            }
+            if (0 == ($processedFiles % 200)) {
+                my $now     = Time::HiRes::gettimeofday();
+                my $elapsed = $now - $start;
+                my $rate    = $processedFiles / $elapsed;
+                lcovutil::info(
+                    "files remaining: $total"
+                        .
+                        sprintf(
+                           " (%0.2f files/s - predict %0.2f minutes remaining)",
+                           $rate, ($total) / ($rate * 60)) .
+                        "\n");
             }
 
             my $now      = Time::HiRes::gettimeofday();
@@ -1519,8 +1532,9 @@ sub process_dafile($$$$)
                         next;
                     }
 
-                    # Normalize function name
-                    $fn = filter_fn_name($fn, defined($lcovutil::cpp_demangle));
+                    # Normalize function name - no need to demangle again
+                    #  because we already did it in 'read_gcov_file'
+                    $fn = filter_fn_name($fn, 0);
                     $functionData{$fn} =
                         $functionMap->define_function($fn, $source_filename,
                                                       $line);
