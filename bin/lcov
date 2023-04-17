@@ -268,6 +268,7 @@ lcovutil::apply_rc_params(
           "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
           "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
           "no_exception_branch"         => \$lcovutil::exclude_exception_branch,
+          'derive_function_end_line'    => \$lcovutil::derive_function_end_line,
           'filter'                      => \@rc_filter,
           'exclude'                     => \@rc_exclude_patterns,
           'include'                     => \@rc_include_patterns,

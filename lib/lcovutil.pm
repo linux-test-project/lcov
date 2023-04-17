@@ -50,11 +50,12 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      set_rtl_extensions set_c_extensions
      $source_filter_lookahead $source_filter_bitwise_are_conditional
      $exclude_exception_branch
+     $derive_function_end_line
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
-     $ERROR_UNSUPPORTED
+     $ERROR_UNSUPPORTED $ERROR_INCONSISTENT_DATA
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
@@ -86,36 +87,39 @@ our $debug   = 0;    # if set, emit debug messages
 our $verbose = 0;    # default level - higher to enable additional logging
 
 # geninfo errors are shared by 'lcov' - so we put them in a common location
-our $ERROR_GCOV        = 0;
-our $ERROR_SOURCE      = 1;
-our $ERROR_GRAPH       = 2;
-our $ERROR_FORMAT      = 3;     # bad record in .info file
-our $ERROR_EMPTY       = 4;     # no records found in info file
-our $ERROR_VERSION     = 5;
-our $ERROR_UNUSED      = 6;     # exclude/include/substitute pattern not used
-our $ERROR_MISMATCH    = 7;
-our $ERROR_BRANCH      = 8;     # branch numbering is not correct
-our $ERROR_PACKAGE     = 9;     # missing package
-our $ERROR_CORRUPT     = 10;    # corrupt file
-our $ERROR_NEGATIVE    = 11;    # unexpected negative count in coverage data
-our $ERROR_COUNT       = 13;    # too many messages of type
-our $ERROR_UNSUPPORTED = 14;    # some unsupported feature or usage
-our $ERROR_PARALLEL    = 15;    # error in fork/join
-our %geninfoErrs = ("gcov"        => $ERROR_GCOV,
-                    "source"      => $ERROR_SOURCE,
-                    "branch"      => $ERROR_BRANCH,
-                    "mismatch"    => $ERROR_MISMATCH,
-                    "graph"       => $ERROR_GRAPH,
-                    "format"      => $ERROR_FORMAT,
-                    "empty"       => $ERROR_EMPTY,
-                    "version"     => $ERROR_VERSION,
-                    "unused"      => $ERROR_UNUSED,
-                    "parallel"    => $ERROR_PARALLEL,      # error on wait
-                    "corrupt"     => $ERROR_CORRUPT,
-                    "negative"    => $ERROR_NEGATIVE,
-                    "count"       => $ERROR_COUNT,
-                    "unsupported" => $ERROR_UNSUPPORTED,
-                    "package"     => $ERROR_PACKAGE,);
+our $ERROR_GCOV              = 0;
+our $ERROR_SOURCE            = 1;
+our $ERROR_GRAPH             = 2;
+our $ERROR_FORMAT            = 3;  # bad record in .info file
+our $ERROR_EMPTY             = 4;  # no records found in info file
+our $ERROR_VERSION           = 5;
+our $ERROR_UNUSED            = 6;  # exclude/include/substitute pattern not used
+our $ERROR_MISMATCH          = 7;
+our $ERROR_BRANCH            = 8;  # branch numbering is not correct
+our $ERROR_PACKAGE           = 9;  # missing package
+our $ERROR_CORRUPT           = 10; # corrupt file
+our $ERROR_NEGATIVE          = 11; # unexpected negative count in coverage data
+our $ERROR_COUNT             = 12; # too many messages of type
+our $ERROR_UNSUPPORTED       = 13; # some unsupported feature or usage
+our $ERROR_PARALLEL          = 14; # error in fork/join
+our $ERROR_INCONSISTENT_DATA = 15; # somthing wrong with .info
+
+our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
+                    "source"       => $ERROR_SOURCE,
+                    "branch"       => $ERROR_BRANCH,
+                    "mismatch"     => $ERROR_MISMATCH,
+                    "graph"        => $ERROR_GRAPH,
+                    "format"       => $ERROR_FORMAT,
+                    "empty"        => $ERROR_EMPTY,
+                    "version"      => $ERROR_VERSION,
+                    "unused"       => $ERROR_UNUSED,
+                    "parallel"     => $ERROR_PARALLEL,           # error on wait
+                    "corrupt"      => $ERROR_CORRUPT,
+                    "negative"     => $ERROR_NEGATIVE,
+                    "count"        => $ERROR_COUNT,
+                    "unsupported"  => $ERROR_UNSUPPORTED,
+                    "inconsistent" => $ERROR_INCONSISTENT_DATA,
+                    "package"      => $ERROR_PACKAGE,);
 our $stop_on_error;    # attempt to keep going
 
 # for external file filtering
@@ -198,6 +202,7 @@ our @include_file_patterns;
 our %excluded_files;
 our $case_insensitive         = 0;
 our $exclude_exception_branch = 0;
+our $derive_function_end_line = 1;
 
 # list of regexps applied to line text - if exclude if matched
 our @omit_line_patterns;
@@ -2129,6 +2134,14 @@ sub end_line
     return $self->[5];
 }
 
+sub set_end_line
+{
+    my ($self, $line) = @_;
+    die("bad end line $line for " . $self->name() . " start: " . $self->line())
+        unless ($line >= $self->line());
+    $self->[5] = $line;
+}
+
 sub addAlias
 {
     my ($self, $name, $count) = @_;
@@ -2226,7 +2239,7 @@ package FunctionMap;
 sub new
 {
     my $class = shift;
-    my $self  = [{}, {}];
+    my $self  = [{}, {}];    # [locationMap, nameMap]
     bless $self, $class;
 }
 
@@ -2235,6 +2248,13 @@ sub keylist
     # return list of file:lineNo keys..
     my $self = shift;
     return keys(%{$self->[0]});
+}
+
+sub valuelist
+{
+    # return list of FunctionEntry elements we know about
+    my $self = shift;
+    return values(%{$self->[0]});
 }
 
 sub list_functions
@@ -3673,6 +3693,83 @@ sub applyFilters
         if (lcovutil::is_external($source_file)) {
             delete($self->{$source_file});
             next;
+        }
+        # derive function end line for C/C++ code if requested
+        # (not trying to handle python nested functions, etc)
+        if (defined($lcovutil::derive_function_end_line) &&
+            $lcovutil::derive_function_end_line != 0 &&
+            defined($main::func_coverage) &&
+            is_c_file($source_file)) {
+            my @lines = sort { $a <=> $b } $traceInfo->sum()->keylist();
+            # sort functions by start line number
+            my @functions = sort { $a->line() <=> $b->line() }
+                $traceInfo->func()->valuelist();
+            my $currentLine = shift(@lines);
+            my $funcData    = $traceInfo->testfnc();
+            while (@functions) {
+                my $func  = shift(@functions);
+                my $first = $func->line();
+                while ($first < $currentLine) {
+                    $currentLine = shift @lines;
+                }
+                if (!defined($func->end_line())) {
+                    # where is the next function?  Find the last 'line' coverpoint
+                    #   less than the start line of that function..
+                    if (@lines) {
+                        # if there are no more lines in this file - then everything
+                        # must be ending on the last line we saw
+                        if (@functions) {
+                            my $next_func = $functions[0];
+                            my $start     = $next_func->line();
+                            while (@lines &&
+                                   $lines[0] < $start) {
+                                $currentLine = shift @lines;
+                            }
+                        } else {
+                            # last line in the file must be the last line
+                            #  of this function
+                            $currentLine = $lines[-1];
+                        }
+                    } elsif ($currentLine < $first) {
+                        # we ran out of lines in the data...check for inconsistency
+                        lcovutil::ignorable_error(
+                            $lcovutil::ERROR_INCONSISTENT_DATA,
+                            "\"$name\":$first:  function " . $func->name() .
+                                " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
+                        );
+
+                        # last; # quit looking here - all the other functions after this one will have same issue
+                        next;    # warn about them all
+                    }
+                    lcovutil::info(1,
+                                   "\"$name\":$currentLine: assign end_line " .
+                                       $func->name() . "\n");
+                    $func->set_end_line($currentLine);
+                }
+                # now look for this function in each testcase -
+                #  set the same endline (if not already set)
+                my $key = $func->file() . ':' . $first;
+                foreach my $tn ($funcData->keylist()) {
+                    my $d = $funcData->value($tn);
+                    my $f = $d->findKey($key);
+                    if (defined($f)) {
+                        if (!defined($f->end_line())) {
+                            $f->set_end_line($func->end_line());
+                        } else {
+                            if ($f->end_line() != $func->end_line()) {
+                                lcovutil::ignorable_error(
+                                       $lcovutil::ERROR_INCONSISTENT,
+                                       '"' . $func->file() .
+                                           '":' . $first . ': function \'' .
+                                           $func->name() . ' last line is ' .
+                                           $func->end_line() . ' but is ' .
+                                           $f->end_line() . " in testcase '$tn'"
+                                );
+                            }
+                        }
+                    }
+                }    #foreach testcase
+            }    # for each function
         }
 
         if (defined($main::func_coverage) &&

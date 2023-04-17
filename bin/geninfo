@@ -306,6 +306,7 @@ if (lcovutil::apply_rc_params(
        "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
        "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
        "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
+       'derive_function_end_line'    => \$lcovutil::derive_function_end_line,
        "genhtml_demangle_cpp"        => \$lcovutil::cpp_demangle,
        "genhtml_demangle_cpp_tool"   => \$lcovutil::cpp_demangle_tool,
        "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,

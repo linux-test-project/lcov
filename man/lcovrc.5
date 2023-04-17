@@ -332,6 +332,11 @@ genhtml_desc_html=0
 #suppress_function_aliases = 1
 .br
 
+# If set, derive function end line from line coverpoint data - default ON
+.br
+#derive_function_end_line = 1
+.br
+
 # Demangle C++ symbols
 .br
 #genhtml_demangle_cpp=1
@@ -1156,6 +1161,21 @@ See the genhtml man page for more details.
 .br
 
 Default is 0.
+.PP
+
+.BR derive_function_end_line " ="
+.IR  0 | 1
+.IP
+If non-zero, use 'line' coverage data to deduce the end line of each function
+definition.  This is useful when excluding certain functions from your coverage report.  See the
+.I
+\-\-erase\-functions
+option.
+
+This option is not required if you are using gcc/9 or newer; these versions report function begin/end lines directly.
+.br
+
+Default is 1.
 .PP
 
 .
