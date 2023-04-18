@@ -4050,106 +4050,111 @@ sub _load
     my $start = Time::HiRes::gettimeofday();
 
     my $path = ReadCurrentSource::resolve_path($self->path());
+    # try to simplify path - 'realpath' will fail if the file does
+    #   not exist - but that might be fine if it exists in the repo
+    my $repo_path = Cwd::realpath($path);
+    if (!defined($repo_path)) {
+        if (0 == scalar(@annotateScript) &&
+            !$main::synthesizeMissingFile) {
+            lcovutil::ignorable_error($ERROR_SOURCE,
+                           "\"" . $self->path() . "\" does not exist: $!" .
+                               " (see --synthesize-missing option to work around)"
+            );
+        }
+        $repo_path = $self->path();
+    }
 
     # check for version mismatch...
     if (@lcovutil::extractVersionScript) {
-        my $version = lcovutil::extractFileVersion($path);
+        my $version = lcovutil::extractFileVersion($repo_path);
 
-        lcovutil::checkVersionMatch($self->path(), $version, $currentVersion);
+        lcovutil::checkVersionMatch($repo_path, $version, $currentVersion);
         my $end = Time::HiRes::gettimeofday();
         $lcovutil::profileData{check_version}{$self->path()} = $end - $start;
     }
 
     #stat($annotateScript);
-    if (0 == scalar(@annotateScript)) {
-        # Check if file exists and is readable
-        if (!-r $path) {
-            if ($main::synthesizeMissingFile ||
-                # don't complain if we weren't going to do anything with the file -
-                # not generating source view and not checking versions or annotating
-                ($main::no_sourceview &&
-                 0 == scalar(@lcovutil::extractVersionScript) &&
-                 !lcovutil::is_filter_enabled())
-            ) {
-                $self->_synthesize($countdata);
-                my $end = Time::HiRes::gettimeofday();
-                $lcovutil::profileData{synth}{$self->path()} = $end - $start;
-                return $self;
+    if (0 != scalar(@annotateScript)) {
+        my $begin   = Time::HiRes::gettimeofday();
+        my $lineNum = 0;
+        my $cmd     = join(' ', @annotateScript) . ' \'' . $repo_path . '\'';
+        lcovutil::info(1, "annotate: '$cmd'\n");
+        my $found;    # check that either all lines are annotated or none are
+        local *HANDLE;
+        if (open(HANDLE, "-|", $cmd)) {
+            while (my $line = <HANDLE>) {
+                chomp $line;
+                $line =~ s/\r//g;    # remove CR from line-end
+                ++$lineNum;
+
+                my ($commit, $owner, $when, $text) = split(/\|/, $line, 4);
+                my $age = _computeAge($when, $path);
+                if ($commit ne 'NONE') {
+                    die("inconsistent 'annotate' data for '$repo_path': both 'commit' and 'no commit' lines"
+                    ) if (defined($found) && !$found);
+                    $found = 1;
+                    $found = 1;
+
+                    defined($owner) or
+                        die("owner is undef for $repo_path:$lineNum");
+                    $self->{_owners}->{$owner} = {}
+                        unless exists($self->{_owners}->{$owner});
+                    my $dhash = $self->{_owners}->{$owner};
+                    $dhash->{lines} = []
+                        unless exists($dhash->{lines});
+                    push(@{$dhash->{lines}}, $lineNum);
+                } else {
+                    die("inconsistent 'annotate' data for '$repo_path': both 'no commit' and 'commit' lines"
+                    ) if (defined($found) && $found);
+                    $found = 0;
+                    $owner = "no.body";
+                }
+                push @{$self->{_lines}},
+                    SourceLine->new($owner, $age, $lineNum, $text);
             }
-            die($self->path() .
-                    " is not readble or doesn't exist. See --synthesize-missing option for workaround."
-            );
-        }
-        my $begin = Time::HiRes::gettimeofday();
-        $self->_bare_load($path);
-        my $end = Time::HiRes::gettimeofday();
-        $lcovutil::profileData{load}{$self->path()} = $end - $begin;
-        return $self;
-    }
+            close(HANDLE);
+            my $status = $? >> 8;
 
-    my $begin = Time::HiRes::gettimeofday();
-    # try to simplify path - 'realpath' will fail if the file does
-    #   not exist - but that might be fine if it exists in the repo
-    my $repo_path = Cwd::realpath($path);
-    if (!defined($repo_path)) {
-        lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
-                           "\"" . $self->path() . "\" does not exist: $!" .
-                               " (see --synthesize-missing option to work around)"
-        );
-        $repo_path = $self->path();
-    }
+            my $end = Time::HiRes::gettimeofday();
 
-    my $lineNum = 0;
-    my @cmd     = @annotateScript;
-    my $cmd     = join(' ', @cmd) . ' \'' . $repo_path . '\'';
-    lcovutil::info(1, "annotate: '$cmd'\n");
-    my $found;    # check that either all lines are annotated or none are
-    local *HANDLE;
-    if (open(HANDLE, "-|", $cmd)) {
-        while (my $line = <HANDLE>) {
-            chomp $line;
-            $line =~ s/\r//g;    # remove CR from line-end
-            ++$lineNum;
+            $lcovutil::profileData{annotate}{$self->path()} = $end - $begin;
+            return $self if 0 == $status;
 
-            my ($commit, $owner, $when, $text) = split(/\|/, $line, 4);
-            my $age = _computeAge($when, $path);
-            if ($commit ne 'NONE') {
-                die("inconsistent 'annotate' data for '$repo_path': both 'commit' and 'no commit' lines"
-                ) if (defined($found) && !$found);
-                $found = 1;
-                $found = 1;
-
-                defined($owner) or
-                    die("owner is undef for $repo_path:$lineNum");
-                $self->{_owners}->{$owner} = {}
-                    unless exists($self->{_owners}->{$owner});
-                my $dhash = $self->{_owners}->{$owner};
-                $dhash->{lines} = []
-                    unless exists($dhash->{lines});
-                push(@{$dhash->{lines}}, $lineNum);
-            } else {
-                die("inconsistent 'annotate' data for '$repo_path': both 'no commit' and 'commit' lines"
-                ) if (defined($found) && $found);
-                $found = 0;
-                $owner = "no.body";
-            }
-            push @{$self->{_lines}},
-                SourceLine->new($owner, $age, $lineNum, $text);
-        }
-        close(HANDLE);
-        my $status = $? >> 8;
-        0 == $status
-            or
+            # non-zero exit status:  something bad happened in annotation
+            # if we ignore the error - then fall through and just try to load the file
             lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
                               $! ? "annotate command '$cmd' pipe error: $!" :
                                   "non-zero exit status from annotate '$cmd' pipe"
             );
-    } else {
-        lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
-                                  "'open(-| $cmd)' failed: \"$!\"\n");
+        } else {
+            # open failed.
+            lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
+                                      "'open(-| $cmd)' failed: \"$!\"\n");
+        }
+    }    # end if annotate script exists
+
+    # Check if file exists and is readable
+    my $begin = Time::HiRes::gettimeofday();
+    if (!-r $path) {
+        if ($main::synthesizeMissingFile ||
+            # don't complain if we weren't going to do anything with the file -
+            # not generating source view and not checking versions or annotating
+            ($main::no_sourceview &&
+             0 == scalar(@lcovutil::extractVersionScript) &&
+             !lcovutil::is_filter_enabled())
+        ) {
+            $self->_synthesize($countdata);
+            my $end = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{synth}{$self->path()} = $end - $begin;
+            return $self;
+        }
+        die($self->path() .
+                " is not readable or doesn't exist. See the '--substitute' and '--synthesize-missing' $lcovutil::tool_name options for methods to fix the missing path or ignore the problem."
+        );
     }
+    $self->_bare_load($path);
     my $end = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{annotate}{$self->path()} = $end - $begin;
+    $lcovutil::profileData{load}{$self->path()} = $end - $begin;
     return $self;
 }
 
@@ -4961,17 +4966,15 @@ lcovutil::apply_rc_params(\@opt_config_file,
                            "lcov_branch_coverage"   => \$lcov_branch_coverage,
                            "lcov_excl_line"         => \$lcovutil::EXCL_LINE,
                            "lcov_excl_br_line"      => \$lcovutil::EXCL_BR_LINE,
-                           "lcov_excl_exception_br_line" =>
-                               \$lcovutil::EXCL_EXCEPTION_LINE,
+                           "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
                            "ignore_errors"       => \@rc_ignore,
                            "max_message_count"   => \$lcovutil::suppressAfter,
                            'stop_on_error'       => \$lcovutil::stop_on_error,
                            "rtl_file_extensions" => \$rtlExtensions,
                            "c_file_extensions"   => \$cExtensions,
-                           "filter_lookahead"    =>
-                               \$lcovutil::source_filter_lookahead,
+                           "filter_lookahead" => \$lcovutil::source_filter_lookahead,
                            "filter_bitwise_conditional" =>
-                               \$lcovutil::source_filter_bitwise_are_conditional,
+         \$lcovutil::source_filter_bitwise_are_conditional,
                            "profile"  => \$lcovutil::profile,
                            "parallel" => \$lcovutil::maxParallelism,
                            "memory"   => \$lcovutil::maxMemory,

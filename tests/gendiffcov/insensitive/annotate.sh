@@ -54,7 +54,9 @@ while (1 < scalar(@stack)) {
 }
 
 die("I can't handle that path munging: $file") unless (-d $path);
-$f = pop(@stack);
+die("I don't seem to have a filename")         unless 1 >= scalar(@stack);
+$f = pop(@stack)
+    if @stack;    # remaining element should be the filename we are looking for
 
 my $annotated = File::Spec->catfile($path, $f . ".annotated");
 opendir my $d, $path or die("cannot read $path");
