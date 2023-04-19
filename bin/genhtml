@@ -2113,7 +2113,7 @@ sub new
 
     $linemap->show_map($filename)
         if ((defined($verbose) && $verbose) ||
-            (defined($lcovutil::verbose) && $lcovutil::verbose));
+            (defined($lcovutil::verbose) && $lcovutil::verbose > 1));
 
     # line coverage categorization includes date- and owner- bins in
     #   the vanilla case when there is no baseline.

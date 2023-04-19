@@ -744,9 +744,7 @@ sub apply_rc_params($$)
     # have to set 'verbosity' flag from environment - otherwise, it isn't
     #  set (from GetOpt) when we parse the RC file
     Getopt::Long::Configure("pass_through", "no_auto_abbrev");
-    my $save_verbose = $verbose;
-    my $save_debug   = $debug;
-    my $quiet        = 0;
+    my $quiet = 0;
     Getopt::Long::GetOptions("config-file=s" => $opt_config_file,
                              "rc=s%"         => \@opt_rc,
                              "quiet|q+"      => \$quiet,
@@ -795,9 +793,6 @@ sub apply_rc_params($$)
         # Copy configuration file and --rc values to variables
         $set_value |= apply_config($rcHash, $config, \%new_opt_rc);
     }
-    # restore
-    $verbose = $save_verbose;
-    $debug   = $save_debug;
     return $set_value;
 }
 
