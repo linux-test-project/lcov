@@ -969,10 +969,10 @@ sub gen_info($)
     my $total          = scalar(@file_list);
     my $processedFiles = 0;
     my $start          = Time::HiRes::gettimeofday();
-    DATA_FILE: foreach my $d (@file_list) {
+    DATA_FILE: foreach my $fileData (@file_list) {
         #  $filename will be .gcda or .gcno.
         #  expect gcno only if --initial
-        my ($filename, $searchdir) = @$d;
+        my ($filename, $searchdir) = @$fileData;
         lcovutil::info(2, "process $filename\n");
         --$total;
         # find the corresponding gcno file...
@@ -1083,6 +1083,15 @@ sub gen_info($)
             my $now      = Time::HiRes::gettimeofday();
             my $pid      = fork();
             my $filename = defined($gcda_file) ? $gcda_file : $gcno_file;
+            if (!defined($pid)) {
+                # fork failed
+                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                     "fork() syscall failed while trying to process $filename");
+                --$processedFiles;
+                push(@file_list, $fileData);
+                sleep(10);
+                next DATA_FILE;
+            }
             if (0 == $pid) {
                 # I'm the child...
                 #   set my output file to temp location so my dump won't

@@ -1832,9 +1832,18 @@ sub add_traces()
         #   us rather than to a funny generated name
         my $tempDir = defined($tempdirname) ? $tempdirname : create_temp_dir();
         my %children;
-        foreach my $segment (@segments) {
+        my @pending;
+        while (my $segment = pop(@segments)) {
             my $now = Time::HiRes::gettimeofday();
             my $pid = fork();
+            if (!defined($pid)) {
+                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                       "fork() syscall failed while trying to process segment");
+                push(@segments, $segment);
+                sleep(10);
+                next;
+            }
+
             if (0 == $pid) {
                 # I'm the child
                 my $stdout_file = "$tempDir/lcov_$$.log";
@@ -1869,11 +1878,12 @@ sub add_traces()
                 exit(0);
             } else {
                 $children{$pid} = [$now, $idx];
+                push(@pending, $segment);
             }
             $idx++;
         }
         # now wait for all the children to finish...
-        foreach (@segments) {
+        foreach (@pending) {
             my $child       = wait();
             my $now         = Time::HiRes::gettimeofday();
             my $childstatus = $? >> 8;

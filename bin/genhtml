@@ -4559,6 +4559,15 @@ sub compute
 
         if (1 < $lcovutil::maxParallelism) {
             my $pid = fork();
+            if (!defined($pid)) {
+                # fork failed
+                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                         "fork() syscall failed while trying to process $name");
+                # put job back
+                push(@$worklist, $task);
+                sleep(10);
+                next;
+            }
             if (0 == $pid) {
                 # I'm the child
                 # clear the profile data - we want just my contribution
