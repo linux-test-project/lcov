@@ -4785,6 +4785,10 @@ package main;
 
 # Global variables & initialization
 
+$lcovutil::profileData{config}{cmdLine} =
+    $lcovutil::tool_name . join(' \'', @ARGV) . '\'';
+$lcovutil::profileData{config}{bin} = $FindBin::Bin;
+
 # Instance containing all data from the 'current' .info file
 our $current_data = TraceFile->new();
 # Instance containing all data from the baseline .info file (if any)
@@ -5372,6 +5376,12 @@ if ($output_directory &&
     info(1, "make_path $output_directory\n");
     File::Path::make_path($output_directory);
 }
+
+# save command line in output directory - useful for later debugging:
+my $f = File::Spec->catfile($output_directory, 'cmd_line');
+open(CMD, '>', $f) or die("unable to open $f: $!");
+print(CMD $lcovutil::profileData{config}{cmdLine} . "\n");
+close(CMD);
 
 # Do something
 my $now = Time::HiRes::gettimeofday();

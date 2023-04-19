@@ -226,6 +226,10 @@ $SIG{__DIE__}  = \&lcovutil::die_handler;
 $SIG{'INT'}    = \&lcovutil::abort_handler;
 $SIG{'QUIT'}   = \&lcovutil::abort_handler;
 
+$lcovutil::profileData{config}{cmdLine} =
+    $lcovutil::tool_name . join(' \'', @ARGV) . '\'';
+$lcovutil::profileData{config}{bin} = $FindBin::Bin;
+
 my $rtlExtensions;
 my $cExtensions;
 
