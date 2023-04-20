@@ -260,9 +260,7 @@ our $intermediate;
 our $cwd = `pwd`;
 chomp($cwd);
 
-$lcovutil::profileData{config}{cmdLine} =
-    $lcovutil::tool_name . join(' \'', @ARGV) . '\'';
-$lcovutil::profileData{config}{bin} = $FindBin::Bin;
+lcovutil::save_cmd_line(\@ARGV, $FindBin::Bin);
 
 #
 # Code entry point

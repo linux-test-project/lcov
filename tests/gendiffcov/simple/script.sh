@@ -195,7 +195,7 @@ gzip -c baseline_nobranch.info > baseline_nobranch.info.gz
 #genhtml baseline.info --output-directory ./baseline
 
 echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline
-$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline --save
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -275,7 +275,7 @@ diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > dif
 for opt in "" --dark-mode --flat ; do
   outDir=./noncode_differential$opt
   echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz
-  $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT
+  $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT --save
   if [ 0 != $? ] ; then
       echo "ERROR: genhtml $outdir failed"
       if [ 0 == $KEEP_GOING ] ; then

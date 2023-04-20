@@ -78,6 +78,7 @@ use strict;
 use warnings;
 
 use File::Basename;
+use File::Copy;
 use File::Path;
 use File::Spec;
 use File::Temp;
@@ -4785,9 +4786,7 @@ package main;
 
 # Global variables & initialization
 
-$lcovutil::profileData{config}{cmdLine} =
-    $lcovutil::tool_name . join(' \'', @ARGV) . '\'';
-$lcovutil::profileData{config}{bin} = $FindBin::Bin;
+lcovutil::save_cmd_line(\@ARGV, $FindBin::Bin);
 
 # Instance containing all data from the 'current' .info file
 our $current_data = TraceFile->new();
@@ -5010,6 +5009,7 @@ my %unsupported_rc;    # for error checking
 my @unsupported_config;
 my $keepGoing;
 my $quiet = 0;
+my $save;
 
 # Parse command line options
 if (!GetOptions(
@@ -5051,6 +5051,7 @@ if (!GetOptions(
               "highlight"            => \$highlight,
               "legend"               => \$legend,
               "quiet|q+"             => \$quiet,
+              'save'                 => \$save,
               "verbose|v+"           => \$lcovutil::verbose,
               "debug+"               => \$lcovutil::debug,
               "help|h|?"             => \$help,
@@ -5375,6 +5376,16 @@ if ($output_directory &&
     !-d $output_directory) {
     info(1, "make_path $output_directory\n");
     File::Path::make_path($output_directory);
+}
+
+if ($save && $output_directory) {
+    # save copy of .info and diff files: useful for debugging user cases later
+    foreach my $from ($base_filename, $diff_filename, @info_filenames) {
+        next unless defined($from);
+        my $to = File::Spec->catfile($output_directory,
+                                     File::Basename::basename($from));
+        File::Copy::copy($from, $to);
+    }
 }
 
 # save command line in output directory - useful for later debugging:

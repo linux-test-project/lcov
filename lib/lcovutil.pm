@@ -25,7 +25,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      die_handler warn_handler abort_handler
 
      $maxParallelism $maxMemory init_parallel_params current_process_size
-     save_profile merge_child_profile
+     save_profile merge_child_profile save_cmd_line
 
      @opt_rc apply_rc_params
      strip_directories
@@ -549,6 +549,22 @@ sub merge_child_profile($)
             $lcovutil::profileData{$key} = $d;
         }
     }
+}
+
+sub save_cmd_line($$)
+{
+  my ($argv, $bin) = @_;
+  my $cmd = $lcovutil::tool_name;
+  $lcovutil::profileData{config}{bin} = $FindBin::Bin;
+  foreach my $arg (@$argv) {
+    $cmd .= ' ';
+    if ($arg =~ /\s/) {
+      $cmd .= "'$arg'";
+    } else {
+      $cmd .= $arg;
+    }
+  }
+  $lcovutil::profileData{config}{cmdLine} = $cmd;
 }
 
 sub save_profile($)
