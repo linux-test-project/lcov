@@ -82,18 +82,19 @@ clean:
 install:
 	for b in $(EXES) ; do \
 		bin/install.sh bin/$$b $(DESTDIR)$(BIN_DIR)/$$b -m 755 ; \
-		bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/$$b $(VERSION) $(RELEASE) $(FULL) ; \
+		bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/$$b $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
 	for s in $(SCRIPTS) ; do \
 		bin/install.sh bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s -m 755 ; \
+		bin/updateversion.pl $(DESTDIR)$(SCRIPT_DIR)/$$s $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
 	for l in $(LIBS) ; do \
 		bin/install.sh lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm -m 755 ; \
-		bin/updateversion.pl $(DESTDIR)$(LIB_DIR)/$${l}.pm $(VERSION) $(RELEASE) $(FULL) ; \
+		bin/updateversion.pl $(DESTDIR)$(LIB_DIR)/$${l}.pm $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
 	for m in $(MANPAGES) ; do \
 		bin/install.sh man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m -m 644 ; \
-		bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/$$m $(VERSION) $(RELEASE) $(FULL) ; \
+		bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/$$m $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
 
 	bin/install.sh lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644

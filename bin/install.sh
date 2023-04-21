@@ -36,10 +36,6 @@ do_install()
 
   install -d $(dirname $TARGET)
   install -p $PARAMS $SOURCE $TARGET
-  if [ -n "$LCOV_PERL_PATH" ] ; then
-    # Replace Perl interpreter specification
-    sed -e "1 s%^#\!.*perl.*$%#\!$LCOV_PERL_PATH%" -i $TARGET
-  fi
 }
 
 

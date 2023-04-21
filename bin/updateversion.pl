@@ -9,6 +9,7 @@ sub update_man_page($);
 sub update_bin_tool($);
 sub update_txt_file($);
 sub update_spec_file($);
+sub update_perl_interpreter($);
 sub write_version_file($);
 sub get_file_info($);
 
@@ -16,6 +17,7 @@ our $directory = $ARGV[0];
 our $version   = $ARGV[1];
 our $release   = $ARGV[2];
 our $full      = $ARGV[3];
+our $interp    = $ARGV[4];
 
 our @man_pages = ("man/gendesc.1", "man/genhtml.1",
                   "man/geninfo.1", "man/genpng.1",
@@ -56,6 +58,7 @@ if (-f $directory) {
     } else {
         print("WARNING: Skipping unknown file $file\n");
     }
+    update_perl_interpreter($file);# if ($interp);
     print("Done.\n");
     exit(0);
 }
@@ -67,6 +70,7 @@ foreach (@man_pages) {
 foreach (@bin_tools) {
     print("Updating bin tool $_\n");
     update_bin_tool($directory . "/" . $_);
+    update_perl_interpreter($directory . "/" . $_) if ($interp);
 }
 foreach (@txt_files) {
     print("Updating text file $_\n");
@@ -184,6 +188,35 @@ sub update_spec_file($)
     }
     close(OUT);
     close(IN);
+    system("mv", "-f", "$filename.new", "$filename");
+    system("touch", "$filename", "-t", $date[1]);
+}
+
+sub update_perl_interpreter($)
+{
+    my ($filename) = @_;
+    my @date = get_file_info($filename);
+    my $path;
+    my $fd;
+    my $source;
+
+    $path = $ENV{"LCOV_PERL_PATH"};
+    return if (!defined($path) || $path eq "");
+
+    open($fd, "<", "$filename") || die("Error: cannot open $filename\n");
+    local($/);
+    $source = <$fd>;
+    close($fd);
+
+    # #!/usr/bin/env perl => #!$LCOV_PERL_PATH
+    $source =~ s/^#!.*perl.*\n/#!$path\n/;
+
+    open($fd, ">", "$filename.new") ||
+        die("Error: cannot create $filename.new\n");
+    print($fd $source);
+    close($fd);
+
+    chmod(oct($date[2]), "$filename.new");
     system("mv", "-f", "$filename.new", "$filename");
     system("touch", "$filename", "-t", $date[1]);
 }
