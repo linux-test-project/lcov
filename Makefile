@@ -57,6 +57,8 @@ MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 \
 # Program for checking coding style
 CHECKSTYLE = $(CURDIR)/bin/checkstyle.sh
 
+INSTALL = install
+RM = rm
 
 .PHONY: all info clean install uninstall rpms test
 
@@ -80,39 +82,44 @@ clean:
 	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
 
 install:
+	$(INSTALL) -d -m 755 $(DESTDIR)$(BIN_DIR)
 	for b in $(EXES) ; do \
-		bin/install.sh bin/$$b $(DESTDIR)$(BIN_DIR)/$$b -m 755 ; \
+		$(INSTALL) bin/$$b $(DESTDIR)$(BIN_DIR)/$$b -m 755 ; \
 		bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/$$b $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
+	$(INSTALL) -d -m 755 $(DESTDIR)$(SCRIPT_DIR)
 	for s in $(SCRIPTS) ; do \
-		bin/install.sh bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s -m 755 ; \
+		$(INSTALL) bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s -m 755 ; \
 		bin/updateversion.pl $(DESTDIR)$(SCRIPT_DIR)/$$s $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
+	$(INSTALL) -d -m 755 $(DESTDIR)$(LIB_DIR)
 	for l in $(LIBS) ; do \
-		bin/install.sh lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm -m 755 ; \
+		$(INSTALL) lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm -m 755 ; \
 		bin/updateversion.pl $(DESTDIR)$(LIB_DIR)/$${l}.pm $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
+	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man1
+	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man5
 	for m in $(MANPAGES) ; do \
-		bin/install.sh man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m -m 644 ; \
+		$(INSTALL) man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m -m 644 ; \
 		bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/$$m $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
-
-	bin/install.sh lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
+	$(INSTALL) -d -m 755 $(DESTDIR)$(CFG_DIR)
+	$(INSTALL) lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
 
 uninstall:
 	for b in $(EXES) ; do \
-		bin/install.sh --uninstall bin/$$b $(DESTDIR)$(BIN_DIR)/$$b ; \
+		$(RM) -f $(DESTDIR)$(BIN_DIR)/$$b ; \
 	done
 	for s in $(SCRIPTS) ; do \
-		bin/install.sh --uninstall bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
+		$(RM) -f $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
 	done
 	for l in $(LIBS) ; do \
-		bin/install.sh --uninstall lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm ; \
+		$(RM) -f $(DESTDIR)$(LIB_DIR)/$${l}.pm ; \
 	done
 	for m in $(MANPAGES) ; do \
-		bin/install.sh --uninstall man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m ; \
+		$(RM) -f $(DESTDIR)$(MAN_DIR)/$$m ; \
 	done
-	bin/install.sh --uninstall lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc
+	$(RM) -f $(DESTDIR)$(CFG_DIR)/lcovrc
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
