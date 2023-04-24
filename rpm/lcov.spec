@@ -1,4 +1,4 @@
-Summary: A graphical GCOV front-end
+Summary: A graphical code coverage front-end
 Name: lcov
 Version: 1.16
 Release: 1
@@ -13,10 +13,14 @@ Prefix: /usr
 Prefix: /etc
 
 %description
-LCOV is a graphical front-end for GCC's coverage testing tool gcov. It collects
-gcov data for multiple source files and creates HTML pages containing the
-source code annotated with coverage information. It also adds overview pages
-for easy navigation within the file structure.
+LCOV is a set of command line tools that can be used to collect, process, and
+visualize code coverage data in an easy-to-use way. It aims to be suitable for
+projects of a wide range of sizes, with particular focus on deployment in
+automated CI/CD systems and large projects implemented using multiple languages.
+
+LCOV works with existing environment-specific profiling mechanisms including,
+but not limited to, the gcov tool that is part of the GNU Compiler Collection
+(GCC).
 
 %prep
 %setup -q -n %{name}-%{version}
