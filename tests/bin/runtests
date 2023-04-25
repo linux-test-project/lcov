@@ -50,7 +50,7 @@ fi
 for TEST in ${TESTS} ; do
         if [[ -d "${TEST}" ]] ; then
                 # Enter sub-directory
-                ${MAKE} -C "${TEST}" $MAKE_OPTS check || exit 1
+                ${MAKE} -s -C "${TEST}" $MAKE_OPTS check || exit 1
         else
                 # Enter test
                 ABS_TEST="$PWD/$TEST"

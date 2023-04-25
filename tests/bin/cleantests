@@ -12,7 +12,7 @@ TESTS="$*"
 for TEST in ${TESTS} ; do
 	if [[ -d "${TEST}" ]] ; then
 		# Enter sub-directory
-		${MAKE} -C "${TEST}" clean
+		${MAKE} -s -C "${TEST}" clean
 	fi
 done
 

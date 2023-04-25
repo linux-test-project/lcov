@@ -77,9 +77,10 @@ info:
 	@echo "  test      : same as 'make check"
 
 clean:
+	echo "  CLEAN   lcov"
 	rm -f lcov-*.tar.gz
 	rm -f lcov-*.rpm
-	make -C example clean
+	make -C example -s clean
 	make -C tests -s clean
 	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
 
@@ -238,3 +239,5 @@ release:
 	@echo " - Review resulting commit and tag"
 	@echo " - Publish with: git push origin master v$(VERSION)"
 	@echo "**********************************************"
+
+.SILENT: clean

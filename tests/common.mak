@@ -75,7 +75,7 @@ endif
 clean: clean_echo clean_subdirs
 
 clean_echo:
-	echo "  CLEAN   $(patsubst %/,%,$(RELDIR))"
+	echo "  CLEAN   lcov/$(patsubst %/,%,$(RELDIR))"
 
 clean_subdirs:
 	cleantests "$(MAKE)" $(TESTS)

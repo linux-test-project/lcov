@@ -93,6 +93,9 @@ test_overflow:
 	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "test_overflow" --no-external
 
 clean:
+	echo "  CLEAN   lcov/example"
 	rm -rf *.o *.bb *.bbg *.da *.gcno *.gcda *.info output example \
 	descriptions
+
+.SILENT: clean
 
