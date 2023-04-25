@@ -40,7 +40,7 @@ PREFIX  := /usr/local
 
 CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/bin
-LIB_DIR := $(PREFIX)/lib
+LIB_DIR := $(PREFIX)/lib/lcov
 MAN_DIR := $(PREFIX)/share/man
 SCRIPT_DIR := $(PREFIX)/share/lcov/support-scripts
 TMP_DIR := $(shell mktemp -d)
