@@ -114,6 +114,11 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
+if ! type "${CXX}" >/dev/null 2>&1 ; then
+	echo "Missing tool: $CXX" >&2
+	exit 2
+fi
+
 echo *
 
 # filename was all upper case
@@ -181,7 +186,7 @@ fi
 export PWD=`pwd`
 echo $PWD
 
-rm -f TEST.cpp TEST.gcno TEST.gcda a.out
+rm -f TEST.cpp *.gcno *.gcda a.out
 ln -s ../simple/simple2.cpp TeSt.cpp
 ${CXX} --coverage -DADD_CODE -DREMOVE_CODE TeSt.cpp
 ./a.out

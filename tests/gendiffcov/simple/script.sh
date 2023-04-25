@@ -116,6 +116,16 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
+if ! type "${CXX}" >/dev/null 2>&1 ; then
+	echo "Missing tool: $CXX" >&2
+	exit 2
+fi
+
+if ! python3 -c "import xlsxwriter" >/dev/null 2>&1 ; then
+	echo "Missing python module: xlsxwriter" >&2
+	exit 2
+fi
+
 echo *
 
 ln -s simple.cpp test.cpp

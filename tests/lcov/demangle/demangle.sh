@@ -93,6 +93,11 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
+if ! type g++ >/dev/null 2>&1 ; then
+	echo "Missing tool: g++" >&2
+	exit 2
+fi
+
 g++ -std=c++1y --coverage demangle.cpp
 ./a.out 1
 

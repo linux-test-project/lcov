@@ -93,6 +93,11 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
+if ! type g++ >/dev/null 2>&1 ; then
+	echo "Missing tool: g++" >&2
+	exit 2
+fi
+
 g++ -std=c++1y --coverage exception.cpp
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error from gcc"
@@ -169,7 +174,6 @@ if [ $EXCEPTIONS != '0' ] ; then
         echo "Error: we seem to have filtered non-exception branches: $DIFF -> $DIFF2"
         exit 1
     fi
-    
 else
     echo "no exceptions identified - so nothing to do"
 fi
