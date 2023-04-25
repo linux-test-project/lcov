@@ -15,8 +15,9 @@ if [ -z "$GITVER" ] ; then
 	fi
 else
 	# Get version information from git
-	FULL=${GITVER}
+	FULL=${GITVER#v}
 	VERSION=${GITVER%%-*}
+	VERSION=${VERSION#v}
 	if [ "${GITVER#*-}" != "$GITVER" ] ; then
 		RELEASE=${GITVER#*-}
 		RELEASE=${RELEASE/-/.}
@@ -26,7 +27,7 @@ fi
 # Fallback
 [ -z "$VERSION" ] && VERSION="1.0"
 [ -z "$RELEASE" ] && RELEASE="1"
-[ -z "$FULL" ]    && FULL="$VERSION"
+[ -z "$FULL" ]    && FULL="$VERSION-$RELEASE"
 
 [ "$1" == "--version" ] && echo -n "$VERSION"
 [ "$1" == "--release" ] && echo -n "$RELEASE"
