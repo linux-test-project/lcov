@@ -19,7 +19,7 @@ indent_style = tab
 indent_size = 8
 tab_width = 8
 
-[Makefile]
+[{Makefile,*.mak}]
 indent_style = tab
 indent_size = 8
 tab_width = 8
