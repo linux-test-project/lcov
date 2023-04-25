@@ -59,7 +59,7 @@ MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 \
 CHECKSTYLE = $(CURDIR)/bin/checkstyle.sh
 
 INSTALL = install
-FIX = $(realpath bin/updateversion.pl)
+FIX = $(realpath bin/fix.pl)
 RM = rm
 
 .PHONY: all info clean install uninstall rpms test

@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-# Usage: updateversion.pl [FILE TYPE] [OPTIONS] FILE(s)
+# Usage: fix.pl [FILE TYPE] [OPTIONS] FILE(s)
 #
 # Apply file-type specific fixups to the specified list of FILES. If no
 # file type is specified, the type is automatically determined from file
