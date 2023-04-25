@@ -32,9 +32,10 @@ VERSION := $(shell bin/get_version.sh --version)
 RELEASE := $(shell bin/get_version.sh --release)
 FULL    := $(shell bin/get_version.sh --full)
 
-# Set this variable during 'make install' to specify the Perl interpreter used in
+# Set this variable during 'make install' to specify the interpreters used in
 # installed scripts, or leave empty to keep the current interpreter.
-export LCOV_PERL_PATH := /usr/bin/perl
+export LCOV_PERL_PATH   := /usr/bin/perl
+export LCOV_PYTHON_PATH := /usr/bin/python3
 
 PREFIX  := /usr/local
 
@@ -58,6 +59,7 @@ MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 \
 CHECKSTYLE = $(CURDIR)/bin/checkstyle.sh
 
 INSTALL = install
+FIX = $(realpath bin/updateversion.pl)
 RM = rm
 
 .PHONY: all info clean install uninstall rpms test
@@ -85,23 +87,33 @@ install:
 	$(INSTALL) -d -m 755 $(DESTDIR)$(BIN_DIR)
 	for b in $(EXES) ; do \
 		$(INSTALL) bin/$$b $(DESTDIR)$(BIN_DIR)/$$b -m 755 ; \
-		bin/updateversion.pl $(DESTDIR)$(BIN_DIR)/$$b $(VERSION) $(RELEASE) $(FULL) 1 ; \
+		$(FIX) --version $(VERSION) --release $(RELEASE) \
+		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
+		       --fixinterp --fixver --fixlibdir --fixbindir \
+		       --exec $(DESTDIR)$(BIN_DIR)/$$b ; \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(SCRIPT_DIR)
 	for s in $(SCRIPTS) ; do \
 		$(INSTALL) bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s -m 755 ; \
-		bin/updateversion.pl $(DESTDIR)$(SCRIPT_DIR)/$$s $(VERSION) $(RELEASE) $(FULL) 1 ; \
+		$(FIX) --version $(VERSION) --release $(RELEASE) \
+		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
+		       --fixinterp --fixver --fixlibdir --fixbindir \
+		       --exec $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(LIB_DIR)
 	for l in $(LIBS) ; do \
 		$(INSTALL) lib/$$l $(DESTDIR)$(LIB_DIR)/$$l -m 644 ; \
-		bin/updateversion.pl $(DESTDIR)$(LIB_DIR)/$$l $(VERSION) $(RELEASE) $(FULL) 1 ; \
+		$(FIX) --version $(VERSION) --release $(RELEASE) \
+		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
+		       --fixinterp --fixver --fixlibdir --fixbindir \
+		       --exec $(DESTDIR)$(LIB_DIR)/$$l ; \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man1
 	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man5
 	for m in $(MANPAGES) ; do \
 		$(INSTALL) man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m -m 644 ; \
-		bin/updateversion.pl $(DESTDIR)$(MAN_DIR)/$$m $(VERSION) $(RELEASE) $(FULL) 1 ; \
+		$(FIX) --version $(VERSION) --fixver --fixdate \
+		       --manpage $(DESTDIR)$(MAN_DIR)/$$m ; \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(CFG_DIR)
 	$(INSTALL) lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
@@ -130,7 +142,12 @@ lcov-$(VERSION).tar.gz: $(FILES)
 	rm -rf $(TMP_DIR)/lcov-$(VERSION)/.git
 	bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
 	make -C $(TMP_DIR)/lcov-$(VERSION) clean
-	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(RELEASE) $(FULL)
+	cd $(TMP_DIR)/lcov-$(VERSION) ; \
+	$(FIX) --version $(VERSION) --release $(RELEASE) \
+	       --verfile .version --fixver --fixdate \
+	       $(patsubst %,bin/%,$(EXES)) $(patsubst %,bin/%,$(SCRIPTS)) \
+	       $(patsubst %,lib/%,$(LIBS)) \
+	       $(patsubst %,man/%,$(notdir $(MANPAGES))) README rpm/lcov.spec
 	bin/get_changes.sh > $(TMP_DIR)/lcov-$(VERSION)/CHANGES
 	cd $(TMP_DIR) ; \
 	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION) \
@@ -210,9 +227,9 @@ release:
 	@echo "Preparing release tag for version $(VERSION)"
 	git checkout master
 	bin/copy_dates.sh . .
-	for FILE in README man/* rpm/* lib/* ; do \
-		bin/updateversion.pl "$$FILE" $(VERSION) 1 $(VERSION) ; \
-	done
+	$(FIX) --version $(VERSION) --release $(RELEASE) \
+	       --fixver --fixdate $(patsubst %,man/%,$(notdir $(MANPAGES))) \
+	       README rpm/lcov.spec
 	git commit -a -s -m "lcov: Finalize release $(VERSION)"
 	git tag v$(VERSION) -m "LCOV version $(VERSION)"
 	@echo "**********************************************"
