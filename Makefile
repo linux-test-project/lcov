@@ -50,7 +50,7 @@ FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 EXES = lcov genhtml geninfo genpng gendesc
 SCRIPTS = p4udiff p4annotate getp4version get_signature gitblame gitdiff \
 	criteria analyzeInfoFiles spreadsheet.py py2lcov
-LIBS = lcovutil
+LIBS = lcovutil.pm
 MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 \
 	man1/gendesc.1 man5/lcovrc.5
 
@@ -94,8 +94,8 @@ install:
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(LIB_DIR)
 	for l in $(LIBS) ; do \
-		$(INSTALL) lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm -m 644 ; \
-		bin/updateversion.pl $(DESTDIR)$(LIB_DIR)/$${l}.pm $(VERSION) $(RELEASE) $(FULL) 1 ; \
+		$(INSTALL) lib/$$l $(DESTDIR)$(LIB_DIR)/$$l -m 644 ; \
+		bin/updateversion.pl $(DESTDIR)$(LIB_DIR)/$$l $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man1
 	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man5
@@ -114,7 +114,7 @@ uninstall:
 		$(RM) -f $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
 	done
 	for l in $(LIBS) ; do \
-		$(RM) -f $(DESTDIR)$(LIB_DIR)/$${l}.pm ; \
+		$(RM) -f $(DESTDIR)$(LIB_DIR)/$$l ; \
 	done
 	for m in $(MANPAGES) ; do \
 		$(RM) -f $(DESTDIR)$(MAN_DIR)/$$m ; \
