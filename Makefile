@@ -94,7 +94,7 @@ install:
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(LIB_DIR)
 	for l in $(LIBS) ; do \
-		$(INSTALL) lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm -m 755 ; \
+		$(INSTALL) lib/$${l}.pm $(DESTDIR)$(LIB_DIR)/$${l}.pm -m 644 ; \
 		bin/updateversion.pl $(DESTDIR)$(LIB_DIR)/$${l}.pm $(VERSION) $(RELEASE) $(FULL) 1 ; \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man1
