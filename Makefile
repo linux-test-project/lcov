@@ -126,7 +126,8 @@ dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
 
 lcov-$(VERSION).tar.gz: $(FILES)
 	mkdir -p $(TMP_DIR)/lcov-$(VERSION)
-	cp -r * $(TMP_DIR)/lcov-$(VERSION)
+	cp -r . $(TMP_DIR)/lcov-$(VERSION)
+	rm -rf $(TMP_DIR)/lcov-$(VERSION)/.git
 	bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
 	make -C $(TMP_DIR)/lcov-$(VERSION) clean
 	bin/updateversion.pl $(TMP_DIR)/lcov-$(VERSION) $(VERSION) $(RELEASE) $(FULL)
