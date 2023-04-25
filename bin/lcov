@@ -75,7 +75,7 @@ use FindBin;
 use Storable;
 use Time::HiRes;    # for profiling
 
-use lib "$FindBin::Bin/../lib";
+use lib "$FindBin::RealBin/../lib";
 use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  define_errors parse_ignore_errors ignorable_error
                  info set_info_callback init_verbose_flag $verbose
@@ -226,7 +226,7 @@ $SIG{__DIE__}  = \&lcovutil::die_handler;
 $SIG{'INT'}    = \&lcovutil::abort_handler;
 $SIG{'QUIT'}   = \&lcovutil::abort_handler;
 
-lcovutil::save_cmd_line(\@ARGV, $FindBin::Bin);
+lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
 
 my $rtlExtensions;
 my $cExtensions;

@@ -97,7 +97,7 @@ use FindBin;
 use Time::HiRes;    # for profiling
 use Storable;
 
-use lib "$FindBin::Bin/../lib";
+use lib "$FindBin::RealBin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $tool_name $tool_dir $lcov_version $lcov_url
                  ignorable_error
@@ -4791,7 +4791,7 @@ package main;
 
 # Global variables & initialization
 
-lcovutil::save_cmd_line(\@ARGV, $FindBin::Bin);
+lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
 
 # Instance containing all data from the 'current' .info file
 our $current_data = TraceFile->new();

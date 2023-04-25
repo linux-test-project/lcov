@@ -12,8 +12,8 @@ use warnings;
 use Getopt::Long;
 use FindBin;
 
-use lib "$FindBin::Bin/../lib";
-use lib "$FindBin::Bin/../../../lib";    # path from 'support-scripts'
+use lib "$FindBin::RealBin/../lib";
+use lib "$FindBin::RealBin/../../../lib";    # path from 'support-scripts'
 
 use lcovutil;
 

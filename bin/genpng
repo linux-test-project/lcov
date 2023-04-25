@@ -36,7 +36,7 @@ use Getopt::Long;
 use Cwd qw/abs_path/;
 use FindBin;
 
-use lib "$FindBin::Bin/../lib";
+use lib "$FindBin::RealBin/../lib";
 use lcovutil qw (%tlaColor %tlaTextColor
                  $tool_name $tool_dir $lcov_version $lcov_url);
 

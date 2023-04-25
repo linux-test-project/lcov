@@ -69,7 +69,7 @@ use Module::Load;
 use FindBin;
 use Storable;
 
-use lib "$FindBin::Bin/../lib";
+use lib "$FindBin::RealBin/../lib";
 use lcovutil qw (define_errors parse_ignore_errors
                  $tool_name $tool_dir $lcov_version $lcov_url
                  ignorable_error ignorable_warning is_ignored
@@ -260,7 +260,7 @@ our $intermediate;
 our $cwd = `pwd`;
 chomp($cwd);
 
-lcovutil::save_cmd_line(\@ARGV, $FindBin::Bin);
+lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
 
 #
 # Code entry point

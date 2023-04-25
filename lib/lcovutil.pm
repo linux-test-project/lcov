@@ -14,6 +14,7 @@ use Capture::Tiny;
 use Module::Load::Conditional qw(check_install);
 use Storable;
 use Digest::MD5 qw(md5_base64);
+use FindBin;
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
@@ -73,7 +74,7 @@ our @message_count;
 our $suppressAfter = 100;    # stop warning after this number of messsages
 our %ERROR_ID;
 our %ERROR_NAME;
-our $tool_dir     = abs_path(dirname($0));
+our $tool_dir     = $FindBin::RealBin;
 our $tool_name    = basename($0);            # import from lcovutil module
 our $lcov_version = 'LCOV version ' . `"$tool_dir"/get_version.sh --full`;
 our $lcov_url     = "https://github.com//linux-test-project/lcov";
@@ -555,7 +556,7 @@ sub save_cmd_line($$)
 {
   my ($argv, $bin) = @_;
   my $cmd = $lcovutil::tool_name;
-  $lcovutil::profileData{config}{bin} = $FindBin::Bin;
+  $lcovutil::profileData{config}{bin} = $FindBin::RealBin;
   foreach my $arg (@$argv) {
     $cmd .= ' ';
     if ($arg =~ /\s/) {

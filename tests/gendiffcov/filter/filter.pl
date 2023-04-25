@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use FindBin;
 
-use lib "$FindBin::Bin/../../../lib";
+use lib "$FindBin::RealBin/../../../lib";
 use lcovutil;
 
 foreach my $example (glob('*.c')) {
