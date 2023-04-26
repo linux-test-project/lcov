@@ -62,6 +62,14 @@ INSTALL = install
 FIX = $(realpath bin/fix.pl)
 RM = rm
 
+export V
+ifeq ("${V}","1")
+	echocmd=
+else
+	echocmd=echo $1 ;
+.SILENT:
+endif
+
 .PHONY: all info clean install uninstall rpms test
 
 all: info
@@ -77,16 +85,17 @@ info:
 	@echo "  test      : same as 'make check"
 
 clean:
-	echo "  CLEAN   lcov"
+	$(call echocmd,"  CLEAN   lcov")
 	rm -f lcov-*.tar.gz
 	rm -f lcov-*.rpm
-	make -C example -s clean
-	make -C tests -s clean
+	$(MAKE) -C example -s clean
+	$(MAKE) -C tests -s clean
 	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
 
 install:
 	$(INSTALL) -d -m 755 $(DESTDIR)$(BIN_DIR)
 	for b in $(EXES) ; do \
+		$(call echocmd,"  INSTALL $(DESTDIR)$(BIN_DIR)/$$b") \
 		$(INSTALL) bin/$$b $(DESTDIR)$(BIN_DIR)/$$b -m 755 ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
@@ -95,6 +104,7 @@ install:
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(SCRIPT_DIR)
 	for s in $(SCRIPTS) ; do \
+		$(call echocmd,"  INSTALL $(DESTDIR)$(SCRIPT_DIR)/$$s") \
 		$(INSTALL) bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s -m 755 ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
@@ -103,6 +113,7 @@ install:
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(LIB_DIR)
 	for l in $(LIBS) ; do \
+		$(call echocmd,"  INSTALL $(DESTDIR)$(LIB_DIR)/$$l") \
 		$(INSTALL) lib/$$l $(DESTDIR)$(LIB_DIR)/$$l -m 644 ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
@@ -112,37 +123,45 @@ install:
 	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man1
 	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man5
 	for m in $(MANPAGES) ; do \
+		$(call echocmd,"  INSTALL $(DESTDIR)$(MAN_DIR)/$$m") \
 		$(INSTALL) man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m -m 644 ; \
 		$(FIX) --version $(VERSION) --fixver --fixdate \
 		       --manpage $(DESTDIR)$(MAN_DIR)/$$m ; \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(CFG_DIR)
+	$(call echocmd,"  INSTALL $(DESTDIR)$(CFG_DIR)/lcovrc")
 	$(INSTALL) lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
 
 uninstall:
 	for b in $(EXES) ; do \
+		$(call echocmd,"  UNINST  $(DESTDIR)$(BIN_DIR)/$$b") \
 		$(RM) -f $(DESTDIR)$(BIN_DIR)/$$b ; \
 	done
 	for s in $(SCRIPTS) ; do \
+		$(call echocmd,"  UNINST  $(DESTDIR)$(SCRIPT_DIR)/$$s")  \
 		$(RM) -f $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
 	done
 	for l in $(LIBS) ; do \
+		$(call echocmd,"  UNINST  $(DESTDIR)$(LIB_DIR)/$$l") \
 		$(RM) -f $(DESTDIR)$(LIB_DIR)/$$l ; \
 	done
 	for m in $(MANPAGES) ; do \
+		$(call echocmd,"  UNINST  $(DESTDIR)$(MAN_DIR)/$$m") \
 		$(RM) -f $(DESTDIR)$(MAN_DIR)/$$m ; \
 	done
+	$(call echocmd,"  UNINST  $(DESTDIR)$(CFG_DIR)/lcovrc")
 	$(RM) -f $(DESTDIR)$(CFG_DIR)/lcovrc
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
 
 lcov-$(VERSION).tar.gz: $(FILES)
+	$(call echocmd,"  DIST    lcov-$(VERSION).tar.gz")
 	mkdir -p $(TMP_DIR)/lcov-$(VERSION)
 	cp -r . $(TMP_DIR)/lcov-$(VERSION)
 	rm -rf $(TMP_DIR)/lcov-$(VERSION)/.git
 	bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
-	make -C $(TMP_DIR)/lcov-$(VERSION) clean
+	$(MAKE) -s -C $(TMP_DIR)/lcov-$(VERSION) clean >/dev/null
 	cd $(TMP_DIR)/lcov-$(VERSION) ; \
 	$(FIX) --version $(VERSION) --release $(RELEASE) \
 	       --verfile .version --fixver --fixdate \
@@ -160,6 +179,7 @@ lcov-$(VERSION)-$(RELEASE).noarch.rpm: rpms
 lcov-$(VERSION)-$(RELEASE).src.rpm: rpms
 
 rpms: lcov-$(VERSION).tar.gz
+	$(call echocmd,"  DIST    lcov-$(VERSION)-$(RELEASE).noarch.rpm")
 	mkdir -p $(TMP_DIR)
 	mkdir $(TMP_DIR)/BUILD
 	mkdir $(TMP_DIR)/RPMS
@@ -173,8 +193,9 @@ rpms: lcov-$(VERSION).tar.gz
 	)
 	rpmbuild --define '_topdir $(TMP_DIR)' --define '_buildhost localhost' \
 		 --undefine vendor --undefine packager \
-		 -ba $(TMP_DIR)/BUILD/lcov-$(VERSION)/rpm/lcov.spec
+		 -ba $(TMP_DIR)/BUILD/lcov-$(VERSION)/rpm/lcov.spec --quiet
 	mv $(TMP_DIR)/RPMS/noarch/lcov-$(VERSION)-$(RELEASE).noarch.rpm .
+	$(call echocmd,"  DIST    lcov-$(VERSION)-$(RELEASE).src.rpm")
 	mv $(TMP_DIR)/SRPMS/lcov-$(VERSION)-$(RELEASE).src.rpm .
 	rm -rf $(TMP_DIR)
 
@@ -240,4 +261,3 @@ release:
 	@echo " - Publish with: git push origin master v$(VERSION)"
 	@echo "**********************************************"
 
-.SILENT: clean

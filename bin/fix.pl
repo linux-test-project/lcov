@@ -39,6 +39,7 @@ my ($opt_man, $opt_exec, $opt_text, $opt_spec,
     $opt_verfile, $opt_version, $opt_release, $opt_libdir,
     $opt_bindir, $opt_fixinterp, $opt_fixdate, $opt_fixver,
     $opt_fixlibdir, $opt_fixbindir);
+my $verbose = $ENV{"V"};
 
 sub get_file_info($)
 {
@@ -225,7 +226,7 @@ sub main()
     }
 
     if (defined($opt_verfile)) {
-        print("Updating version file $opt_verfile\n");
+        print("Updating version file $opt_verfile\n") if ($verbose);
         write_version_file($opt_verfile, $opt_version, $opt_release);
     }
 
@@ -247,11 +248,11 @@ sub main()
         }
 
         if ($opt_man || $guess eq "manpage") {
-            print("Updating man page $filename\n");
+            print("Updating man page $filename\n") if ($verbose);
             $source = update_man_page($source, $date[0]);
         }
         if ($opt_exec || $guess eq "exec") {
-            print("Updating bin tool $filename\n");
+            print("Updating bin tool $filename\n") if ($verbose);
             if ($filename =~ /\.pm$/ || $source =~ /^[^\n]*perl[^\n]*\n/) {
                 $source = update_perl($source);
             } elsif ($filename =~ /\.py$/ ||
@@ -260,11 +261,11 @@ sub main()
             }
         }
         if ($opt_text || $guess eq "text") {
-            print("Updating text file $filename\n");
+            print("Updating text file $filename\n") if ($verbose);
             $source = update_txt_file($source, $date[0]);
         }
         if ($opt_spec || $guess eq "spec") {
-            print("Updating spec file $filename\n");
+            print("Updating spec file $filename\n") if ($verbose);
             $source = update_spec_file($source);
         }
 

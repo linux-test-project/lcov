@@ -35,7 +35,11 @@ export GENHTML := $(realpath $(TOPDIR)/../bin/genhtml) --config-file $(LCOVRC) $
 export LANG    := C
 
 # Suppress output in non-verbose mode
-ifneq ($(V),2)
+export V
+ifeq ("${V}","1")
+	echocmd=
+else
+	echocmd=echo $1 ;
 .SILENT:
 endif
 
@@ -75,7 +79,7 @@ endif
 clean: clean_echo clean_subdirs
 
 clean_echo:
-	echo "  CLEAN   lcov/$(patsubst %/,%,$(RELDIR))"
+	$(call echocmd,"  CLEAN   lcov/$(patsubst %/,%,$(RELDIR))")
 
 clean_subdirs:
 	cleantests "$(MAKE)" $(TESTS)

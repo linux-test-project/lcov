@@ -25,6 +25,14 @@ else
   FRAMES :=
 endif
 
+ifeq ("${V}","1")
+	echocmd=
+else
+	echocmd=echo $1 ;
+.SILENT: clean
+endif
+
+
 .PHONY: clean output test_noargs test_2_to_2000 test_overflow
 
 all: output
@@ -93,9 +101,6 @@ test_overflow:
 	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "test_overflow" --no-external
 
 clean:
-	echo "  CLEAN   lcov/example"
+	$(call echocmd,"  CLEAN   lcov/example")
 	rm -rf *.o *.bb *.bbg *.da *.gcno *.gcda *.info output example \
 	descriptions
-
-.SILENT: clean
-

@@ -36,6 +36,9 @@ while [ $# -gt 0 ] ; do
     esac
 done
 
+if [[ "${V:-0}" -lt 1 ]] ; then
+        MAKE_OPTS="$MAKE_OPTS -s"
+fi
 
 if [[ -z "${_TESTS_RUNNING}" ]] ; then
         # Do this only once at start of test run
@@ -50,7 +53,7 @@ fi
 for TEST in ${TESTS} ; do
         if [[ -d "${TEST}" ]] ; then
                 # Enter sub-directory
-                ${MAKE} -s -C "${TEST}" $MAKE_OPTS check || exit 1
+                ${MAKE} -C "${TEST}" $MAKE_OPTS check || exit 1
         else
                 # Enter test
                 ABS_TEST="$PWD/$TEST"
