@@ -215,6 +215,7 @@ sub compat_name($);
 sub parse_compat_modes($);
 sub is_compat($);
 sub is_compat_auto($);
+sub which($);
 
 # Global variables
 our $gcov_version;
@@ -2443,20 +2444,16 @@ sub intermediate_json_to_info($)
     return $traceFile;
 }
 
-our $gcov_tool_path;
-
-sub get_gcov_tool_path
+sub which($)
 {
-    if (!defined($gcov_tool_path)) {
-        open(GCOV_PIPE, "-|", "which \"$gcov_tool[0]\"") or
-            die("ERROR: cannot execute 'which \"$gcov_tool[0]\": $!\n");
-        local $/;
-        my $which = <GCOV_PIPE>;
-        $which =~ /^\s*(\S+)\s*$/;
-        close(GCOV_PIPE);
-        $gcov_tool_path = $1;
+    my ($filename) = @_;
+
+    return $filename if (file_name_is_absolute($filename));
+    foreach my $dir (File::Spec->path()) {
+        my $p = catfile($dir, $filename);
+        return $p if (-x $p);
     }
-    return $gcov_tool_path;
+    return $filename;
 }
 
 sub check_gcov_fail($$)
@@ -2477,7 +2474,7 @@ sub check_gcov_fail($$)
                 $$f = sprintf("%d.%d", $major, $2);
             }
         }
-        my $path = get_gcov_tool_path();
+        my $path = which($gcov_tool[0]);
         lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
             "Incompatible GCC/GCOV version found while processing $filename:\n\tYour test was built with '$have'.\n\tYou are trying to capture with gcov tool '$path' which is version '$want'."
         );
@@ -2733,7 +2730,7 @@ sub get_gcov_version()
     #       Host CPU: haswell
 
     if ($lcovutil::verbose) {
-        my $which = get_gcov_tool_path();
+        my $which = which($gcov_tool[0]);
         lcovutil::info("gcov is '$which'\n");
     }
 
