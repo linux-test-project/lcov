@@ -469,9 +469,23 @@ if ($version) {
 if (0 == scalar(@gcov_tool)) {
     # not specified - use gcov by default - expected to be in user's path
     push(@gcov_tool, 'gcov');
-} elsif (scalar(@gcov_tool) > 1) {
-    foreach my $e (@gcov_tool) {
-        $e = "'$e'" if ($e =~ /\s/);
+} else {
+    my $tool = $gcov_tool[0];
+    my (undef, $dir, $file) = splitpath($tool);
+
+    if ($dir eq "") {
+        $tool = which($tool);
+    } elsif (!file_name_is_absolute($tool)) {
+        $tool = abs_path($tool);
+    }
+    if (!-x $tool) {
+        die("Error: cannot access gcov tool '$gcov_tool[0]'");
+    }
+    $gcov_tool[0] = $tool;
+    if (scalar(@gcov_tool) > 1) {
+        foreach my $e (@gcov_tool) {
+            $e = "'$e'" if ($e =~ /\s/);
+        }
     }
 }
 if (scalar(@lcovutil::extractVersionScript) > 1) {
