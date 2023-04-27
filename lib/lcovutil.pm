@@ -892,7 +892,7 @@ sub munge_file_patterns
                         }
                     }
                     warn(
-                        "--substitute patter '$pat' does not seem to be case insensitive - but you asked for case insenstive matching\n"
+                        "--substitute pattern '$pat' does not seem to be case insensitive - but you asked for case insenstive matching\n"
                     );
                 }
             } else {
@@ -3068,8 +3068,7 @@ sub open
     $version = "" unless defined($version);
     my $path = resolve_path($filename);
     if (open(SRC, "<", $path)) {
-        lcovutil::info(1,
-                    "reading $version$filename (for bogus branch filtering)\n");
+        lcovutil::info(1, "read $version$filename\n");
         my @sourceLines = <SRC>;
         CORE::close(SRC);
         $self->[0] = $filename;

@@ -219,13 +219,12 @@ if (0 == system(
     my $mtime = get_modify_time($pathname);   # when was the file last modified?
     my $owner =
         getpwuid((stat($pathname))[4]); # who does the filesystem think owns it?
-    if (open(HANDLE, $pathname)) {
-        while (my $line = <HANDLE>) {
-            chomp $line;
-            # Also remove CR from line-end
-            s/\015$//;
+    open(HANDLE, $pathname) or die("unable to open '$pathname': $!");
+    while (my $line = <HANDLE>) {
+        chomp $line;
+        # Also remove CR from line-end
+        s/\015$//;
 
-            printf("%s|%s|%s|%s\n", "NONE", $owner, $mtime, $line);
-        }
+        printf("%s|%s|%s|%s\n", "NONE", $owner, $mtime, $line);
     }
 }

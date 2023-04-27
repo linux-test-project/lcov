@@ -99,12 +99,11 @@ my @stat = stat $basename;
 my $tz   = strftime("%z", localtime($stat[9]));
 $tz =~ s/([0-9][0-9])$/:\1/;
 my $mtime = strftime("%Y-%m-%dT%H:%M:%S", localtime($stat[9])) . $tz;
-if (open(HANDLE, $basename)) {
-    while (my $line = <HANDLE>) {
-        chomp $line;
-        # Also remove CR from line-end
-        s/\015$//;
+open(HANDLE, $basename) or die("unsable to open $basename: $!");
+while (my $line = <HANDLE>) {
+    chomp $line;
+    # Also remove CR from line-end
+    s/\015$//;
 
-        printf("%s|%s|%s|%s\n", "NONE", "NONE", $mtime, $line);
-    }
+    printf("%s|%s|%s|%s\n", "NONE", "NONE", $mtime, $line);
 }

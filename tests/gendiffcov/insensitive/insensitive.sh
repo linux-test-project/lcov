@@ -92,9 +92,17 @@ ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 if [ -f $LCOV_HOME/bin/getp4version ] ; then
     GET_VERSION=$LCOV_HOME/bin/getp4version
+    ANNOTATE=$LCOV_HOME/bin/p4annotate
 else
     GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
+    ANNOTATE=$LCOV_HOME/share/lcov/support-scripts/p4annotate
 fi
+
+if [ ! -f $ANNOTATE ] ; then
+    echo "annotate '$ANNOTATE' not found"
+    exit 1
+fi
+
 
 #PARALLEL=''
 #PROFILE="''
@@ -117,6 +125,11 @@ fi
 if ! type "${CXX}" >/dev/null 2>&1 ; then
 	echo "Missing tool: $CXX" >&2
 	exit 2
+fi
+
+if ! type "${CXX}" >/dev/null 2>&1 ; then
+        echo "Missing tool: $CXX" >&2
+        exit 2
 fi
 
 echo *
@@ -233,6 +246,56 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+rm -f TeSt.cpp
+
+# check annotateion failure message...
+# check that this works with test names
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore-source
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source 2>&1 | tee fail.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: expected annotation error but didn't find"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "Error: non-zero exit status from annotate" fail.log
+if [ 0 != $? ] ; then
+    echo "did not find expected annotate error message in fail.log"
+    exit 1
+fi
+
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore-source,annotate
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source,annotate 2>&1 | tee fail2.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: expected synthesize  error but didn't find"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "Warning: ('annotate') non-zero exit status from annotate" fail2.log
+if [ 0 != $? ] ; then
+    echo "did not find expected annotate warning message in fail2.log"
+    exit 1
+fi
+grep "is not readable or doesn't exist" fail2.log
+if [ 0 != $? ] ; then
+    echo "did not find expected existence error message in fail2.log"
+    exit 1
+fi
+
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore-source,annotate --synthesize
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source,annotate --synthesize 2>&1 | tee fail3.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: unexpected synthesize  error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "cannot read .+synthesizing fake content" fail3.log
+if [ 0 != $? ] ; then
+    echo "did not find expected annotate warning message in fail3.log"
+    exit 1
+fi
 
 echo "Tests passed"
 

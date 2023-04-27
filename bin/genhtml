@@ -4122,10 +4122,15 @@ sub _load
 
             # non-zero exit status:  something bad happened in annotation
             # if we ignore the error - then fall through and just try to load the file
-            lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
-                              $! ? "annotate command '$cmd' pipe error: $!" :
-                                  "non-zero exit status from annotate '$cmd' pipe"
-            );
+            my $text = ': ' . $self->{_lines}->[0]->text() . '...'
+                if @{$self->{_lines}};
+            # might be useful to provide more than one line of context - if there is more than one line?
+            lcovutil::ignorable_error(
+                           $ERROR_ANNOTATE_SCRIPT,
+                           ($! ? "annotate command '$cmd' pipe error: $!" :
+                                "non-zero exit status from annotate '$cmd' pipe"
+                               ) .
+                               ($text ? $text : ''));
         } else {
             # open failed.
             lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
