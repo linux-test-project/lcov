@@ -96,7 +96,7 @@ install:
 	$(INSTALL) -d -m 755 $(DESTDIR)$(BIN_DIR)
 	for b in $(EXES) ; do \
 		$(call echocmd,"  INSTALL $(DESTDIR)$(BIN_DIR)/$$b") \
-		$(INSTALL) bin/$$b $(DESTDIR)$(BIN_DIR)/$$b -m 755 ; \
+		$(INSTALL) -m 755 bin/$$b $(DESTDIR)$(BIN_DIR)/$$b ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
@@ -105,7 +105,7 @@ install:
 	$(INSTALL) -d -m 755 $(DESTDIR)$(SCRIPT_DIR)
 	for s in $(SCRIPTS) ; do \
 		$(call echocmd,"  INSTALL $(DESTDIR)$(SCRIPT_DIR)/$$s") \
-		$(INSTALL) bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s -m 755 ; \
+		$(INSTALL) -m 755 bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
@@ -114,7 +114,7 @@ install:
 	$(INSTALL) -d -m 755 $(DESTDIR)$(LIB_DIR)
 	for l in $(LIBS) ; do \
 		$(call echocmd,"  INSTALL $(DESTDIR)$(LIB_DIR)/$$l") \
-		$(INSTALL) lib/$$l $(DESTDIR)$(LIB_DIR)/$$l -m 644 ; \
+		$(INSTALL) -m 644 lib/$$l $(DESTDIR)$(LIB_DIR)/$$l ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
@@ -124,13 +124,13 @@ install:
 	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man5
 	for m in $(MANPAGES) ; do \
 		$(call echocmd,"  INSTALL $(DESTDIR)$(MAN_DIR)/$$m") \
-		$(INSTALL) man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m -m 644 ; \
+		$(INSTALL) -m 644 man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m ; \
 		$(FIX) --version $(VERSION) --fixver --fixdate \
 		       --manpage $(DESTDIR)$(MAN_DIR)/$$m ; \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(CFG_DIR)
 	$(call echocmd,"  INSTALL $(DESTDIR)$(CFG_DIR)/lcovrc")
-	$(INSTALL) lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc -m 644
+	$(INSTALL) -m 644 lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc
 
 uninstall:
 	for b in $(EXES) ; do \
