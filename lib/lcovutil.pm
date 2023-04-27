@@ -423,6 +423,9 @@ sub warn_handler($)
 {
     my ($msg) = @_;
 
+    if (!$debug) {
+        $msg =~ s/ at \S+ line \d+\.$//;
+    }
     warn("$tool_name: $msg");
 }
 
@@ -431,6 +434,9 @@ sub die_handler($)
     my ($msg) = @_;
 
     temp_cleanup();
+    if (!$debug) {
+        $msg =~ s/ at \S+ line \d+\.$//;
+    }
     die("$tool_name: $msg");
 }
 
