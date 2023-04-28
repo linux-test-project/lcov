@@ -7,7 +7,7 @@ use FindBin;
 use lib "$FindBin::RealBin/../../../lib";
 use lcovutil;
 
-foreach my $example (glob('*.c')) {
+foreach my $example (glob('expr*.c')) {
     print("checking conditional in $example\n");
     my $file = ReadCurrentSource->new($example);
 
@@ -32,5 +32,28 @@ print("checking conditional in expr1.c with lookahead " .
       $lcovutil::source_filter_bitwise_are_conditional . "\n");
 die("source_filter_lookahad had no effect")
     unless $length->containsConditional(1);
+
+# problematic brace filter example...
+$lcovutil::verbose                  = 2;
+$lcovutil::derive_function_end_line = 1;
+our $func_coverage = 1;
+foreach my $example (glob('*brace*.c')) {
+    print("checking brace filter for $example");
+    my $info = $example;
+    $info =~ s/c$/info/g;
+    lcovutil::parse_cov_filters();    # turn off filtering
+    my $vanilla = TraceFile->load($info);
+    my ($lines, $hit) = $vanilla->write_info_file($info . '.orig');
+    print("$lines lines $hit hit\n");
+
+    lcovutil::parse_cov_filters('brace');
+    my $reader = ReadCurrentSource->new($example);
+    my $trace  = TraceFile->load($info, $reader);
+    my ($filtered, $h2) = $trace->write_info_file($info . '.filtered');
+    print("$filtered filtered lines $h2 hit\n");
+    die("failed to filter $info")
+        unless ($lines > $filtered &&
+                $hit > $h2);
+}
 
 exit(0);
