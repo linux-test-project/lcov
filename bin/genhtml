@@ -4498,32 +4498,48 @@ sub compute
     my $worklist        = $self->[$WORKLIST_IDX];
     my $pending         = $self->[$PENDING_IDX];
     my $children        = $self->[$CHILDDATA_IDX];
-    while (@$worklist ||
-           %$pending) {
+    WORK: while (@$worklist ||
+                 %$pending) {
 
         if (1 < $lcovutil::maxParallelism) {
 
             my $currentSize = 0;
+            my $consumption = 0;
             if (0 != $lcovutil::maxMemory) {
                 $currentSize = lcovutil::current_process_size();
+                $consumption = ($currentParallel + 1) * $currentSize;
             }
 
-            while ($currentParallel >= $lcovutil::maxParallelism ||
-                   ($currentParallel > 1 &&
-                    (($currentParallel + 1) * $currentSize) >
-                    $lcovutil::maxMemory) ||
-                   (0 == @$worklist &&
-                    %$pending)
+            if ($currentParallel >= $lcovutil::maxParallelism ||
+                ($currentParallel > 1 && $consumption > $lcovutil::maxMemory)
+                ||
+                (0 == @$worklist && %$pending)
             ) {
+                # wait here for child:
+                #   - while we are oversubscribed
+                #       - too many parallel jobs or
+                #       - consuming too much memory), OR
+                #   - if the worklist is empty but there are pending jobs
+                #       - the pending jobs will be put onto the worklist when
+                #         their dependency finishes
+                # Should not be able to get here unless $currentParallel > 0:
+                # some tasks are running
                 lcovutil::info(1,
-                    "memory constraint ($currentParallel + 1) * $currentSize > $lcovutil::maxMemory violated: waiting."
+                    "memory constraint ($consumption > $lcovutil::maxMemory violated: waiting."
                         . (scalar(@$worklist) + scalar(keys(%$pending)))
                         . " remaining\n")
-                    if ((($currentParallel + 1) * $currentSize) >
-                        $lcovutil::maxMemory);
+                    if ($consumption > $lcovutil::maxMemory);
                 my $child       = wait();
                 my $childstatus = $?;
                 --$currentParallel;
+                if (!exists($children->{$child})) {
+                    # this should not happen..
+                    lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                        "lost track of children: currentSize:$currentSize wait:$child, currentParallel:$currentParallel children:("
+                            . join(', ', keys(%$children))
+                            . ")");
+                    next WORK;
+                }
                 my ($summary, $fullname, $parentData, $now) =
                     @{$children->{$child}};
                 my ($parentSummary, $parentPerTestData, $parentPath) =
@@ -4537,8 +4553,10 @@ sub compute
                     # remove current object from dependencies...
                     $self->completed_dependency($parentPath, $fullname);
                 }
+                next WORK;
             }
         }
+        die("unexpected empty worklist??") unless @$worklist;
         my $task = pop(@$worklist);
         my ($type, $data, $short_path, $path, $parentData) = @$task;
         my ($selfSummary, $perTestData, $name) = @$data;
@@ -4696,6 +4714,15 @@ sub compute
         my $child       = wait();
         my $childstatus = $?;
         --$currentParallel;
+        if (!exists($children->{$child})) {
+            # this should not happen..
+            lcovutil::ignorable_erro($lcovutil::ERROR_PARALLEL,
+                "lost track of children in tail: wait:$child, currentParallel:$currentParallel children:("
+                    . join(', ', keys(%$children))
+                    . ")");
+            next;
+        }
+
         my ($summary, $fullname, $parentSummary, $parentPath, $now) =
             @{$children->{$child}};
         $self->merge_child($child, $childstatus);
@@ -5387,8 +5414,8 @@ if ($output_directory &&
     File::Path::make_path($output_directory);
 }
 
-if ($save && $output_directory) {
-    # save copy of .info and diff files: useful for debugging user cases later
+if ($save && $output_directory)
+{    # save copy of .info and diff files: useful for debugging user cases later
     foreach my $from ($base_filename, $diff_filename, @info_filenames) {
         next unless defined($from);
         my $to = File::Spec->catfile($output_directory,
@@ -5403,17 +5430,24 @@ open(CMD, '>', $f) or die("unable to open $f: $!");
 print(CMD $lcovutil::profileData{config}{cmdLine} . "\n");
 close(CMD);
 
+my $exit_status = 0;
 # Do something
 my $now = Time::HiRes::gettimeofday();
+eval { gen_html(); };
+if ($@) {
+    $exit_status = 1;
+    print("Error: $@");
+}
 
-gen_html();
 my $then = Time::HiRes::gettimeofday();
 $lcovutil::profileData{overall} = $then - $now;
 
-my $exit_status = 0;
+lcovutil::warn_file_patterns()    # warn about unused include/exclude directives
+    if 0 == $exit_status;
 
 # now check the coverage criteria (if any)
-if (@SummaryInfo::coverageCriteriaScript) {
+if (0 == $exit_status &&
+    @SummaryInfo::coverageCriteriaScript) {
     # print the criteria summary to stdout:
     #   all criteria fails + any non-empty messages
     # In addtion:  print fails to stderr
@@ -5456,8 +5490,6 @@ if (@SummaryInfo::coverageCriteriaScript) {
     }
     $exit_status = $SummaryInfo::coverageCriteriaStatus;
 }
-
-lcovutil::warn_file_patterns();   # warn about unused include/exclude directives
 
 lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'));
 

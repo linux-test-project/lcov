@@ -489,105 +489,113 @@ if (!$from_package && !@directory && ($capture || $reset)) {
 
 our $exit_code = 0;
 
-# Check for requested functionality
-if ($reset) {
-    $data_stdout = 0;
-    # Differentiate between user space and kernel reset
-    if (@directory) {
-        userspace_reset();
-    } else {
-        kernel_reset();
-    }
-} elsif ($capture) {
-    # Capture source can be user space, kernel or package
-    if ($from_package) {
-        package_capture();
-    } elsif (@directory) {
-        userspace_capture();
-    } else {
-        if ($initial) {
-            die("ERROR: --initial cannot be used together with --to-package\n")
-                if (defined($to_package));
-            kernel_capture_initial();
+eval {
+    # Check for requested functionality
+    if ($reset) {
+        $data_stdout = 0;
+        # Differentiate between user space and kernel reset
+        if (@directory) {
+            userspace_reset();
         } else {
-            kernel_capture();
+            kernel_reset();
         }
-    }
-} elsif (@add_tracefile) {
-    if ($function_mapping) {
-        $function_mapping = {};
-        add_traces();
-
-        my $file = InOutFile->out($output_filename);
-        my $hdl  = $file->hdl();
-        while (my ($key, $data) = each(%$function_mapping)) {
-            print($hdl $data->[0] . ": " . $key . "\n");
-            foreach my $f (@{$data->[1]}) {
-                print($hdl "  $f\n");
+    } elsif ($capture) {
+        # Capture source can be user space, kernel or package
+        if ($from_package) {
+            package_capture();
+        } elsif (@directory) {
+            userspace_capture();
+        } else {
+            if ($initial) {
+                die("ERROR: --initial cannot be used together with --to-package\n"
+                ) if (defined($to_package));
+                kernel_capture_initial();
+            } else {
+                kernel_capture();
             }
         }
-    } elsif (defined($prune_testcases)) {
-        my ($pruned, $merged) = add_traces();
+    } elsif (@add_tracefile) {
+        if ($function_mapping) {
+            $function_mapping = {};
+            add_traces();
 
-        info("Pruned result: retained " .
-             scalar(@$pruned) . " of " .
-             scalar(@$merged) . " files\n");
-        my $file = InOutFile->out($output_filename);
-        my $hdl  = $file->hdl();
-        print($hdl join("\n", @$pruned) . "\n");
-    } else {
+            my $file = InOutFile->out($output_filename);
+            my $hdl  = $file->hdl();
+            while (my ($key, $data) = each(%$function_mapping)) {
+                print($hdl $data->[0] . ": " . $key . "\n");
+                foreach my $f (@{$data->[1]}) {
+                    print($hdl "  $f\n");
+                }
+            }
+        } elsif (defined($prune_testcases)) {
+            my ($pruned, $merged) = add_traces();
+
+            info("Pruned result: retained " .
+                 scalar(@$pruned) . " of " .
+                 scalar(@$merged) . " files\n");
+            my $file = InOutFile->out($output_filename);
+            my $hdl  = $file->hdl();
+            print($hdl join("\n", @$pruned) . "\n");
+        } else {
+            ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
+             $fn_overall_hit, $br_overall_found, $br_overall_hit
+            ) = add_traces();
+        }
+    } elsif ($remove) {
+
+        # remove files matching patterns
         ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-         $fn_overall_hit, $br_overall_found, $br_overall_hit) = add_traces();
+         $fn_overall_hit, $br_overall_found, $br_overall_hit
+        ) = remove_file_patterns($remove);
+    } elsif ($extract) {
+        # kep only the files matching patterns
+        ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
+         $fn_overall_hit, $br_overall_found, $br_overall_hit
+        ) = remove_file_patterns($extract);
+    } elsif ($list) {
+        $data_stdout = 0;
+        list();
+    } elsif ($diff) {
+        if (scalar(@ARGV) != 1) {
+            die("ERROR: option --diff requires one additional argument!\n" .
+                "Use $tool_name --help to get usage information\n");
+        }
+        ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
+         $fn_overall_hit, $br_overall_found, $br_overall_hit) = diff();
+    } elsif (@opt_summary) {
+        $data_stdout = 0;
+        ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
+         $fn_overall_hit, $br_overall_found, $br_overall_hit) = summary();
+        $exit_code = check_rates($ln_overall_found, $ln_overall_hit);
     }
-} elsif ($remove) {
-
-    # remove files matching patterns
-    ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-     $fn_overall_hit, $br_overall_found, $br_overall_hit
-    ) = remove_file_patterns($remove);
-} elsif ($extract) {
-    # kep only the files matching patterns
-    ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-     $fn_overall_hit, $br_overall_found, $br_overall_hit
-    ) = remove_file_patterns($extract);
-} elsif ($list) {
-    $data_stdout = 0;
-    list();
-} elsif ($diff) {
-    if (scalar(@ARGV) != 1) {
-        die("ERROR: option --diff requires one additional argument!\n" .
-            "Use $tool_name --help to get usage information\n");
-    }
-    ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-     $fn_overall_hit, $br_overall_found, $br_overall_hit) = diff();
-} elsif (@opt_summary) {
-    $data_stdout = 0;
-    ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-     $fn_overall_hit, $br_overall_found, $br_overall_hit) = summary();
-    $exit_code = check_rates($ln_overall_found, $ln_overall_hit);
+};
+if ($@) {
+    $exit_code = 1;
+    print("ErrorL $@");
 }
 
 temp_cleanup();
 chdir($cwd);
 
-if (defined($ln_overall_found)) {
-    # the numbers do not reflect coverpoints in 'erased' functions.
-    #  the issue is that we filter them out in the write operation - but
-    #  we don't bother to read it back
-    print_overall_rate(1, $ln_overall_found,
-                       $ln_overall_hit, 1,
-                       $fn_overall_found, $fn_overall_hit,
-                       1, $br_overall_found,
-                       $br_overall_hit);
-} else {
-    info("Done.\n") if (!$list && !$capture);
+if (0 == $exit_code) {
+    if (defined($ln_overall_found)) {
+        # the numbers do not reflect coverpoints in 'erased' functions.
+        #  the issue is that we filter them out in the write operation - but
+        #  we don't bother to read it back
+        print_overall_rate(1, $ln_overall_found,
+                           $ln_overall_hit, 1,
+                           $fn_overall_found, $fn_overall_hit,
+                           1, $br_overall_found,
+                           $br_overall_hit);
+    } else {
+        info("Done.\n") if (!$list && !$capture);
+    }
+    if (!defined($capture)) {
+        lcovutil::warn_file_patterns()
+            ;    # warn about unused include/exclude directives
+        summarize_cov_filters(1);
+    }
 }
-if (!defined($capture)) {
-    lcovutil::warn_file_patterns()
-        ;    # warn about unused include/exclude directives
-    summarize_cov_filters(1);
-}
-
 my $end = Time::HiRes::gettimeofday();
 $lcovutil::profileData{total} = $end - $begin;
 

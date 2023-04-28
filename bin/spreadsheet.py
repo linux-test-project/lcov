@@ -147,6 +147,7 @@ class GenerateSpreadsheet(object):
                     data = json.load(f)
             except Exception as err:
                 print("%s: unable to parse: %s" % (name, str(err)))
+                continue
 
             try:
                 tool = data['config']['tool']
@@ -471,7 +472,11 @@ class GenerateSpreadsheet(object):
                 row += 1
 
                 #print(" ".join(data.keys()))
-                fileData = data['file']
+                try:
+                    fileData = data['file']
+                except:
+                    print("%s:  incomplete data - skipping" % (name))
+                    continue
                 begin = row
                 sawData = {}
                 sawData['total'] = 0

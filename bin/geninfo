@@ -679,7 +679,7 @@ foreach my $entry (@data_directory, $base_directory) {
 
 # Function is_external() requires all internal_dirs to end with a slash
 foreach my $dir (@lcovutil::internal_dirs) {
-        $dir =~ s#/*$#/#;
+    $dir =~ s#/*$#/#;
 }
 
 if ($initial && $br_coverage && !$intermediate) {
@@ -696,33 +696,41 @@ my $tempFileDir =
 lcovutil::info("Writing temporary data to $tempFileDir\n");
 # Do something
 my $processedFiles = 0;
+my $exit_code      = 0;
 foreach my $entry (@data_directory) {
     my $now = Time::HiRes::gettimeofday();
-    $processedFiles += gen_info($entry);
+    eval { $processedFiles += gen_info($entry); };
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{gen_info}{$entry} = $then - $now;
+    if ($@) {
+        $exit_code = 1;
+        print("ErrorL $@");
+        last;
+    }
 }
 
-my $now = Time::HiRes::gettimeofday();
-# have to check the loaded input data for exclusion markers because the
-#  data was generated directly from the gcov files - did not go through
-#  TraceFile::load which explicitly checks
-if (defined($trace_data)) {
-    $trace_data->applyFilters();
-    $trace_data->write_info_file($output_filename, $lcovutil::verify_checksum);
-} else {
-    warn("WARNING:  no data generated\n");
+if (0 == $exit_code) {
+    my $now = Time::HiRes::gettimeofday();
+    # have to check the loaded input data for exclusion markers because the
+    #  data was generated directly from the gcov files - did not go through
+    #  TraceFile::load which explicitly checks
+    if (defined($trace_data)) {
+        $trace_data->applyFilters();
+        $trace_data->write_info_file($output_filename,
+                                     $lcovutil::verify_checksum);
+    } else {
+        warn("WARNING:  no data generated\n");
+    }
+    my $then = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{emit} = $then - $now;
+
+    lcovutil::info(1, "Processed $processedFiles GCDA files\n");
+    info("Finished .info-file creation\n");
+    summarize_cov_filters();
+
+    # print warnings
+    lcovutil::warn_file_patterns();
 }
-my $then = Time::HiRes::gettimeofday();
-$lcovutil::profileData{emit} = $then - $now;
-
-lcovutil::info(1, "Processed $processedFiles GCDA files\n");
-info("Finished .info-file creation\n");
-summarize_cov_filters();
-
-# print warnings
-lcovutil::warn_file_patterns();
-
 my $end = Time::HiRes::gettimeofday();
 $lcovutil::profileData{total} = $end - $start;
 
@@ -730,7 +738,7 @@ lcovutil::save_profile(
      (defined($output_filename) && '-' ne $output_filename) ? $output_filename :
          "geninfo");
 
-exit(0);
+exit($exit_code);
 
 #
 # print_usage(handle)
