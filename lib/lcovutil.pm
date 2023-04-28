@@ -75,7 +75,7 @@ our $suppressAfter = 100;    # stop warning after this number of messsages
 our %ERROR_ID;
 our %ERROR_NAME;
 our $tool_dir     = $FindBin::RealBin;
-our $tool_name    = basename($0);            # import from lcovutil module
+our $tool_name    = basename($0);        # import from lcovutil module
 our $lcov_version = 'LCOV version ' . `"$tool_dir"/get_version.sh --full`;
 our $lcov_url     = "https://github.com//linux-test-project/lcov";
 our @temp_dirs;
@@ -560,18 +560,18 @@ sub merge_child_profile($)
 
 sub save_cmd_line($$)
 {
-  my ($argv, $bin) = @_;
-  my $cmd = $lcovutil::tool_name;
-  $lcovutil::profileData{config}{bin} = $FindBin::RealBin;
-  foreach my $arg (@$argv) {
-    $cmd .= ' ';
-    if ($arg =~ /\s/) {
-      $cmd .= "'$arg'";
-    } else {
-      $cmd .= $arg;
+    my ($argv, $bin) = @_;
+    my $cmd = $lcovutil::tool_name;
+    $lcovutil::profileData{config}{bin} = $FindBin::RealBin;
+    foreach my $arg (@$argv) {
+        $cmd .= ' ';
+        if ($arg =~ /\s/) {
+            $cmd .= "'$arg'";
+        } else {
+            $cmd .= $arg;
+        }
     }
-  }
-  $lcovutil::profileData{config}{cmdLine} = $cmd;
+    $lcovutil::profileData{config}{cmdLine} = $cmd;
 }
 
 sub save_profile($)

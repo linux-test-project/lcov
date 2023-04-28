@@ -552,8 +552,8 @@ When a
 is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
 Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support\-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.  Also, see the \-\-version\-script option - which is used to check that the file version found locally matches the version whose coverage data was captured.
 
-If the annotate callback fails and annotation erors are ignored, then genhtml will 
-try to load the source file normally.  If the file is not present or not readable, 
+If the annotate callback fails and annotation erors are ignored, then genhtml will
+try to load the source file normally.  If the file is not present or not readable,
 and the
 .I \-\-synthesize\-missing
 flag is specified, then genhtml will synthesize fake data for the file.

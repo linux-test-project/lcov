@@ -123,11 +123,6 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 if ! type "${CXX}" >/dev/null 2>&1 ; then
-	echo "Missing tool: $CXX" >&2
-	exit 2
-fi
-
-if ! type "${CXX}" >/dev/null 2>&1 ; then
         echo "Missing tool: $CXX" >&2
         exit 2
 fi
