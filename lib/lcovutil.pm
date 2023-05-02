@@ -1332,8 +1332,8 @@ sub is_external($)
 
     foreach my $dir (@internal_dirs) {
         return 0
-            if (($lcovutil::case_insensitive && $filename =~ /^\Q$dir\/\E/i) ||
-                (!$lcovutil::case_insensitive && $filename =~ /^\Q$dir\/\E/));
+            if (($lcovutil::case_insensitive && $filename =~ /^\Q$dir\E/i) ||
+                (!$lcovutil::case_insensitive && $filename =~ /^\Q$dir\E/));
     }
     return 1;
 }

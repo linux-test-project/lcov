@@ -677,6 +677,11 @@ foreach my $entry (@data_directory, $base_directory) {
     }
 }
 
+# Function is_external() requires all internal_dirs to end with a slash
+foreach my $dir (@lcovutil::internal_dirs) {
+        $dir =~ s#/*$#/#;
+}
+
 if ($initial && $br_coverage && !$intermediate) {
     warn("Note: --initial does not generate branch coverage data\n");
 }
@@ -1705,7 +1710,7 @@ sub solve_relative_path($$)
     $result =~ s/\/\.$/\//g;
 
     # Remove trailing /
-    $result =~ s/\/$//g;
+    $result =~ s/\/$//g if ($result ne '/');
 
     # Solve ..
     while ($result =~ s/\/[^\/]+\/\.\.\//\//) {
