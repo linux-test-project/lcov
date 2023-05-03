@@ -3111,31 +3111,37 @@ sub parseLines
     my $exclude_br_region        = 0;
     my $exclude_exception_region = 0;
     my $line                     = 0;
+    my $excl_start = qr($lcovutil::EXCL_START);
+    my $excl_stop = qr($lcovutil::EXCL_STOP);
+    my $excl_line = qr($lcovutil::EXCL_LINE);
+    my $excl_br_start = qr($lcovutil::EXCL_BR_START);
+    my $excl_br_stop = qr($lcovutil::EXCL_BR_STOP);
+    my $excl_br_line = qr($lcovutil::EXCL_BR_LINE);
+    my $excl_ex_start = qr($lcovutil::EXCL_EXCEPTION_BR_START);
+    my $excl_ex_stop = qr($lcovutil::EXCL_EXCEPTION_BR_STOP);
+    my $excl_ex_line = qr($lcovutil::EXCL_EXCEPTION_LINE);
     LINES: foreach (@$sourceLines) {
         $line += 1;
         my $exclude_branch_line           = 0;
         my $exclude_exception_branch_line = 0;
         chomp($_);
-        foreach my $d ([$lcovutil::EXCL_START, $lcovutil::EXCL_STOP,
-                        \$exclude_region
+        foreach my $d ([ $excl_start, $excl_stop, \$exclude_region
                        ],
-                       [$lcovutil::EXCL_BR_START, $lcovutil::EXCL_BR_STOP,
-                        \$exclude_br_region
+                       [ $excl_br_start, $excl_br_stop, \$exclude_br_region
                        ],
-                       [$lcovutil::EXCL_EXCEPTION_BR_START,
-                        $lcovutil::EXCL_EXCEPTION_BR_STOP,
-                        \$exclude_exception_region
+                       [ $excl_ex_start, $excl_ex_stop,
+                         \$exclude_exception_region
                        ]
         ) {
             my ($start, $stop, $ref) = @$d;
-            if (/$start/) {
+            if ($_ =~ $start) {
                 lcovutil::ignorable_error($ERROR_MISMATCH,
                     "$filename: overlapping exclude directives. Found $start at line $line - but no matching $stop for $start at line "
                         . $$ref)
                     if $$ref;
                 $$ref = $line;
                 last;
-            } elsif (/$stop/) {
+            } elsif ($_ =~ $stop) {
                 lcovutil::ignorable_error($ERROR_MISMATCH,
                     "$filename: found $stop directive at line $line without matching $start directive"
                 ) unless $$ref;
@@ -3143,12 +3149,12 @@ sub parseLines
                 last;
             }
         }
-        if (/$lcovutil::EXCL_LINE/) {
+        if ($_ =~ $excl_line) {
             push(@excluded, 3);    #everything excluded
             next;
-        } elsif (/$lcovutil::EXCL_BR_LINE/) {
+        } elsif ($_ =~ $excl_br_line) {
             $exclude_branch_line = 2;
-        } elsif (/$lcovutil::EXCL_EXCEPTION_LINE/) {
+        } elsif ($_ =~ $excl_ex_line) {
             $exclude_branch_line = 4;
         } elsif (0 != scalar(@lcovutil::omit_line_patterns)) {
             foreach my $p (@lcovutil::omit_line_patterns) {
