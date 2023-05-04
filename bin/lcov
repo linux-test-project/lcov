@@ -571,7 +571,7 @@ eval {
 };
 if ($@) {
     $exit_code = 1;
-    print("ErrorL $@");
+    print("Error $@");
 }
 
 temp_cleanup();

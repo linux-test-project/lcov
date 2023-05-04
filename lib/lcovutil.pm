@@ -3124,6 +3124,8 @@ sub parseLines
     my $excl_ex_start            = qr($lcovutil::EXCL_EXCEPTION_BR_START);
     my $excl_ex_stop             = qr($lcovutil::EXCL_EXCEPTION_BR_STOP);
     my $excl_ex_line             = qr($lcovutil::EXCL_EXCEPTION_LINE);
+    # @todo:  if we had annotated data here, then we could whine at the
+    #   author fo the unmatched start, extra end, etc.
     LINES: foreach (@$sourceLines) {
         $line += 1;
         my $exclude_branch_line           = 0;
@@ -3163,7 +3165,7 @@ sub parseLines
                 my $pat = $p->[0];
                 if ($_ =~ $pat) {
                     push(@excluded, 3);    #everything excluded
-                     #lcovutil::info("'$pat' matched \"$_\", line \"$filename\":"$line\n");
+                     #lcovutil::info("'" . $p->[-2] . "' matched \"$_\", line \"$filename\":"$line\n");
                     ++$p->[-1];
                     next LINES;
                 }
@@ -3610,6 +3612,31 @@ sub append_tracefile
     return $interesting;
 }
 
+sub _eraseFunction
+{
+    my ($fcn, $name, $end_line, $source_file,
+        $functionMap, $lineData, $branchData, $checksum)
+        = @_;
+    if (defined($end_line)) {
+        for (my $line = $fcn->line(); $line <= $end_line; ++$line) {
+
+            if (defined($checksum)) {
+                $checksum->remove($line, 1);    # remove if present
+            }
+            if ($lineData->remove($line, 1)) {
+                lcovutil::info(2,
+                            "exclude DA in FN '$name' on $source_file:$line\n");
+            }
+            if ($branchData->remove($line, 1)) {
+                lcovutil::info(2,
+                          "exclude BRDA in FN '$name' on $source_file:$line\n");
+            }
+        }    # foreach line
+    }
+    # remove this function and all its aliases...
+    $functionMap->remove($fcn);
+}
+
 my $didUnsupportedWarning;
 
 sub _eraseFunctions
@@ -3645,30 +3672,13 @@ sub _eraseFunctions
                         # best we can do is to remove the matched function -
                         # and leave the lines and branches in place
                         lcovutil::info(1,
-                                  "exclude FN $name line range $source_file:[" .
-                                      $fcn->line() .
-                                      ":$end_line] due to '$pat'\n");
-                        for (my $line = $fcn->line();
-                             $line <= $end_line;
-                             ++$line) {
-
-                            if (defined($checksum)) {
-                                $checksum->remove($line, 1); # remove if present
-                            }
-                            if ($lineData->remove($line, 1)) {
-                                lcovutil::info(2,
-                                    "exclude DA in FN '$alias' on $source_file:$line\n"
-                                );
-                            }
-                            if ($branchData->remove($line, 1)) {
-                                lcovutil::info(2,
-                                    "exclude BRDA in FN '$alias' on $source_file:$line\n"
-                                );
-                            }
-                        }    # foreach line
-                    }
-                    # and remove this function and all its aliases...
-                    $functionMap->remove($fcn);
+                                 "exclude FN $name line range $source_file:[" .
+                                     $fcn->line() .
+                                     ":$end_line] due to '" . $p->[-2] . "'\n");
+		    }
+                    _eraseFunction($fcn, $alias, $end_line,
+                                   $source_file, $functionMap, $lineData,
+                                   $branchData, $checksum);
                     last PAT;
                 }    # if match
             }    # foreach alias
@@ -3778,7 +3788,17 @@ sub applyFilters
             }    # for each function
         }
 
-        if (defined($main::func_coverage) &&
+        # munge the source file name, if requested
+        $source_file = lcovutil::subst_file_name($source_file);
+        $srcReader->close();
+
+        if (is_c_file($source_file) &&
+            lcovutil::is_filter_enabled()) {
+            lcovutil::info(1, "reading $source_file for lcov filtering\n");
+            $srcReader->open($source_file);
+        }
+
+        if (defined($main::func_coverage)    &&
             !defined($didUnsupportedWarning) &&
             0 != scalar(@lcovutil::exclude_function_patterns)) {
 
@@ -3787,27 +3807,21 @@ sub applyFilters
             my $funcData   = $traceInfo->testfnc();
             my $lineData   = $traceInfo->test();
             my $branchData = $traceInfo->testbr();
+            my $checkData  = $traceInfo->check();
             foreach my $tn ($lineData->keylist()) {
                 _eraseFunctions($source_file, $funcData->value($tn),
-                                $lineData->value($tn), $branchData->value($tn));
+                                $lineData->value($tn), $branchData->value($tn),
+                                $checkData->value($tn));
             }
             _eraseFunctions($source_file, $traceInfo->func(),
                             $traceInfo->sum(), $traceInfo->sumbr(),
                             $traceInfo->check());
         }
 
-        next unless (lcovutil::is_filter_enabled());
-
-        # munge the source file name, if requested
-        $source_file = lcovutil::subst_file_name($source_file);
-        next unless is_c_file($source_file);
-        $srcReader->close();
-
-        lcovutil::info(1, "reading $source_file for lcov filtering\n");
-        if (!$srcReader->open($source_file)) {
-            # did not open file - and we ignored the error
-            next;
-        }
+        next
+            unless (is_c_file($source_file) &&
+                    $srcReader->notEmpty() &&
+                    lcovutil::is_filter_enabled());
 
         my ($testdata, $sumcount, $funcdata, $checkdata,
             $testfncdata, $testbrdata, $sumbrcount) = $traceInfo->get_info();
