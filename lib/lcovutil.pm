@@ -857,8 +857,10 @@ sub transform_pattern($)
 
     $pattern =~ s/\*/\(\.\*\)/g;
     $pattern =~ s/\?/\(\.\)/g;
-
-    return $pattern;
+    if ($lcovutil::case_insensitive) {
+        $pattern = "/$pattern/i";
+    }
+    return qr($pattern);
 }
 
 sub munge_file_patterns
@@ -874,46 +876,47 @@ sub munge_file_patterns
             map({ [transform_pattern($_), $_, 0]; } @include_file_patterns);
     }
 
-    # check for valid match patterns...
-    foreach my $p (['substitute', \@file_subst_patterns],
-                   ['omit-lines', \@omit_line_patterns],
-                   ['exclude-functions', \@exclude_function_patterns]
-    ) {
+    # precompile match patterns and check for validity
+    foreach my $p (['omit-lines', \@omit_line_patterns],
+                   ['exclude-functions', \@exclude_function_patterns]) {
         my ($flag, $list) = @$p;
-        foreach my $pat (@$list) {
-            my $text = "abc";
-            my $str  = '$text =~ ';
-            if ('substitute' eq $flag) {
-                $str .= $pat;
-                if ($lcovutil::case_insensitive) {
-                    my $found;
-                    for (my $i = length($pat) - 1; $i >= 0; --$i) {
-                        my $char = substr($pat, $i, 1);
-                        if ($char eq 'i') {
-                            $found = 1;
-                            last;
-                        } elsif ($char =~ /[\/#!@%]/) {
-                            last;
-                        }
-                    }
-                    warn(
-                        "--substitute pattern '$pat' does not seem to be case insensitive - but you asked for case insenstive matching\n"
-                    );
-                }
-            } else {
-                $str .= '/' . $pat . '/';
-            }
-            $str .= ';';
-            eval $str;    # apply pattern that user provided...
-            die("invalid regexp \"$flag $pat\":\n$@")
-                if ($@);
-        }
-
-        # keep track of number of times this was applied
-        if (0 != scalar(@$list)) {
-            @$list = map({ [$_, 0]; } @$list);
-        }
+        next unless (@$list);
+        # keep track of number of times pattern was applied
+        # regexp compile will die if pattern is invalid
+        eval {
+            @$list = map({ [qr($_), $_, 0]; } @$list);
+        };
+        die("Invalid $flag regexp in ('" . join('\' \'', @$list) . "'):\n$@")
+            if $@;
     }
+    # sadly, substitions aren't regexps and can't be precompiled
+    foreach my $p (['substitute', \@file_subst_patterns]) {
+        my ($flag, $list) = @$p;
+        next unless @$list;
+        PAT: foreach my $pat (@$list) {
+            my $text = 'abc';
+            my $str  = eval { '$test =~ ' . $pat . ';' };
+            die("Invalid regexp \"$flag $pat\":\n$@")
+                if $@;
+
+            if ($lcovutil::case_insensitive) {
+                for (my $i = length($pat) - 1; $i >= 0; --$i) {
+                    my $char = substr($pat, $i, 1);
+                    if ($char eq 'i') {
+                        next PAT;
+                    } elsif ($char =~ /[\/#!@%]/) {
+                        last;
+                    }
+                }
+                warn(
+                    "--$flag pattern '$pat' does not seem to be case insensitive - but you asked for case insenstive matching\n"
+                );
+            }
+        }
+        # keep track of number of times this was applied
+        @$list = map({ [$_, 0]; } @$list);
+    }
+
     # and check for valid region patterns
     for my $regexp (['lcov_excl_line', $lcovutil::EXCL_LINE],
                     ['lcov_excl_br_line', $lcovutil::EXCL_BR_LINE],
@@ -960,12 +963,13 @@ sub subst_file_name($)
     my $name = shift;
     foreach my $p (@file_subst_patterns) {
         my $old = $name;
+        # sadly, no support for pre-compiled patterns
         eval '$name =~ ' . $p->[0] . ';';  # apply pattern that user provided...
-           # $@ should never match:  we already checked all the patterns, above,
-           #   during initialization.  Still: belt and braces.
+            # $@ should never match:  we already checked pattern vaidity during
+            #   initialization - above.  Still: belt and braces.
         die("invalid 'subst' regexp '" . $p->[0] . "': $@")
             if ($@);
-        $p->[1] += 1
+        $p->[-1] += 1
             if $old ne $name;
     }
     return $name;
@@ -3111,26 +3115,24 @@ sub parseLines
     my $exclude_br_region        = 0;
     my $exclude_exception_region = 0;
     my $line                     = 0;
-    my $excl_start = qr($lcovutil::EXCL_START);
-    my $excl_stop = qr($lcovutil::EXCL_STOP);
-    my $excl_line = qr($lcovutil::EXCL_LINE);
-    my $excl_br_start = qr($lcovutil::EXCL_BR_START);
-    my $excl_br_stop = qr($lcovutil::EXCL_BR_STOP);
-    my $excl_br_line = qr($lcovutil::EXCL_BR_LINE);
-    my $excl_ex_start = qr($lcovutil::EXCL_EXCEPTION_BR_START);
-    my $excl_ex_stop = qr($lcovutil::EXCL_EXCEPTION_BR_STOP);
-    my $excl_ex_line = qr($lcovutil::EXCL_EXCEPTION_LINE);
+    my $excl_start               = qr($lcovutil::EXCL_START);
+    my $excl_stop                = qr($lcovutil::EXCL_STOP);
+    my $excl_line                = qr($lcovutil::EXCL_LINE);
+    my $excl_br_start            = qr($lcovutil::EXCL_BR_START);
+    my $excl_br_stop             = qr($lcovutil::EXCL_BR_STOP);
+    my $excl_br_line             = qr($lcovutil::EXCL_BR_LINE);
+    my $excl_ex_start            = qr($lcovutil::EXCL_EXCEPTION_BR_START);
+    my $excl_ex_stop             = qr($lcovutil::EXCL_EXCEPTION_BR_STOP);
+    my $excl_ex_line             = qr($lcovutil::EXCL_EXCEPTION_LINE);
     LINES: foreach (@$sourceLines) {
         $line += 1;
         my $exclude_branch_line           = 0;
         my $exclude_exception_branch_line = 0;
         chomp($_);
-        foreach my $d ([ $excl_start, $excl_stop, \$exclude_region
-                       ],
-                       [ $excl_br_start, $excl_br_stop, \$exclude_br_region
-                       ],
-                       [ $excl_ex_start, $excl_ex_stop,
-                         \$exclude_exception_region
+        foreach my $d ([$excl_start, $excl_stop, \$exclude_region],
+                       [$excl_br_start, $excl_br_stop, \$exclude_br_region],
+                       [$excl_ex_start, $excl_ex_stop,
+                        \$exclude_exception_region
                        ]
         ) {
             my ($start, $stop, $ref) = @$d;
@@ -3159,10 +3161,10 @@ sub parseLines
         } elsif (0 != scalar(@lcovutil::omit_line_patterns)) {
             foreach my $p (@lcovutil::omit_line_patterns) {
                 my $pat = $p->[0];
-                if (/$pat/) {
+                if ($_ =~ $pat) {
                     push(@excluded, 3);    #everything excluded
                      #lcovutil::info("'$pat' matched \"$_\", line \"$filename\":"$line\n");
-                    ++$p->[1];
+                    ++$p->[-1];
                     next LINES;
                 }
             }
@@ -3513,9 +3515,8 @@ sub skipCurrentFile
     if (@lcovutil::exclude_file_patterns) {
         foreach my $p (@lcovutil::exclude_file_patterns) {
             my $pattern = $p->[0];
-            if (($lcovutil::case_insensitive && $filename =~ /$pattern/i) ||
-                (!$lcovutil::case_insensitive && $filename =~ /$pattern/)) {
-                ++$p->[2];
+            if ($filename =~ $pattern) {
+                ++$p->[-1];
                 return 1;    # all done - explicitly excluded
             }
         }
@@ -3523,9 +3524,8 @@ sub skipCurrentFile
     if (@lcovutil::include_file_patterns) {
         foreach my $p (@lcovutil::include_file_patterns) {
             my $pattern = $p->[0];
-            if (($lcovutil::case_insensitive && $filename =~ /$pattern/i) ||
-                (!$lcovutil::case_insensitive && $filename =~ /$pattern/)) {
-                ++$p->[2];
+            if ($filename =~ $pattern) {
+                ++$p->[-1];
                 return 0;    # exlicitly included
             }
         }
@@ -3638,8 +3638,8 @@ sub _eraseFunctions
         PAT: foreach my $p (@lcovutil::exclude_function_patterns) {
             my $pat = $p->[0];
             while (my ($alias, $hit) = each(%{$fcn->aliases()})) {
-                if ($alias =~ /$pat/) {
-                    ++$p->[1];
+                if ($alias =~ $pat) {
+                    ++$p->[-1];
                     if (defined($end_line)) {
                         # if user ignored the unsupported message, then the
                         # best we can do is to remove the matched function -
