@@ -742,31 +742,17 @@ This option has an effect only with \-\-add\-tracefile.
 
 .RE
 .B \-\-version\-script
-.I script_file
+.I script
 .br
 .RS
-call script_file to find file ID from revision control when extracting data and to compare version IDs for the purpose of error checking when merging .info files
 
-The script will be called as:
+Use
+.I script
+to get a source file's version ID from revision control when
+extracting data and to compare version IDs for the purpose of error checking when merging .info files.
 .br
-.I script_file source_file_name
-;
-.br
-It should write the version ID to stdout and return a 0 exit status.
-If the file has is not versioned, it should write an empty string and return a 0 exit status. See the genhtml man page for more details.
 
-.B
-.I script_file source_file_name
-.br
-It should write the version ID to stdout and return a 0 exit status.
-If the file has is not versioned, it should write an empty string and return a 0 exit status, OR
-
-.B
-.I script_file \-\-compare source_file_name info_file1_id info_file2_id
-.br
-It should return non-zero if the IDs do not match.
-
-
+See the genhtml man page for more details on the version script.
 .RE
 
 .B \-e

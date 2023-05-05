@@ -632,28 +632,72 @@ For example:  some developers have used the data passed to their criteria callba
 .RE
 
 .B \-\-version\-script
-.I version_script_file
+.I script
 .br
 .RS
 Use
-.I version_script_file
-to find file ID from revision control when generating HTML or applying source filters (see \-\-filter option).
-The ID is used to check the version ID of the source file which is loaded against the version ID which was used to generate coverage data (i.e., the file version seen by lcov/geninfo).  It is important that source code versions match - otherwise inconsistent or confusing results may be produced.  Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - e.g., when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revisions.
+.I script
+to get a source file's version ID from revision control when
+generating HTML or applying source filters (see \-\-filter option).
 
-The script will be called as either:
+The ID is used to check the version of the source file which is loaded against the version which was used to generate coverage data (i.e., the file version seen by lcov/geninfo). It is important that source code versions match - otherwise inconsistent or confusing results may be produced.
 
-.B
-.I version_script_file 'source_file_name'
+Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - e.g., when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revisions.
+
+.I "script "
+is used both to generate and to compare the version ID to enable you to retain history between calls or to do more complex processing to determine equivalence.
+It will be called by genhtml with either of the following command lines:
 .br
-It should write the version ID to stdout and return a 0 exit status.
-If the file has is not versioned, it should write an empty string and return a 0 exit status, OR
 
-.B
-.I version_script_file \-\-compare 'source_file_name' 'source_file_id' 'info_file_id'
+1. Determine source file version ID
 .br
+
+.RS
+.BI script " source_file_name"
+.RE
+.br
+
+It should write the version ID of
+.I " source_file_name "
+to stdout and return a 0 exit status.
+If the file is not versioned, it should write an empty string and return a 0 exit status.
+.br
+
+2. Compare source file version IDs
+
+.RS
+.B script \-\-compare
+.I " source_file_name source_file_id"
+.br
+.I "                  info_file_id"
+.br
+
+.RE
+where
+.RS
+.br
+
+.B "source_file_name"
+.RS
+is the source code file name
+.RE
+.br
+
+.B "source_file_id "
+.RS
+is the version ID returned by calling "script source_file_name"
+.RE
+.br
+
+.B "info_file_id "
+.RS
+is the version ID found in the corresponding .info file
+.RE
+.RE
+.br
+
 It should return non\-zero if the IDs do not match.
-\'source_file_id\' is the ID returned by calling "version_script_file source_file_name", and \'info_file_id\' is the ID found in the corresponding .info file.
-\version_'script_file\' is used both to generate and to compare the signature to enable you to retain history between calls or to do more complex processing to determine equivalence.
+.br
 
 Note that you must use the same script/same mechanism to determine the file version when you extract, merge, and display coverage data - otherwise, you may see spurious mismatch reports.
 
@@ -665,10 +709,22 @@ description, above.
 
 
 Please see sample scripts
+.br
+
+.RS
 .I share/lcov/support-scripts/getp4version
+.RE
+.br
+
 and
+.br
+
+.RS
 .I share/lcov/support-scripts/get_signature
-which are shipped as part of this release.
+.RE
+.br
+
+which are shipped as part of this package.
 
 Note that multiple instances of your version script may execute simultaneously if you have used the
 .I \-\-parallel

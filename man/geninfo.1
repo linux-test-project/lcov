@@ -718,21 +718,19 @@ handling), use this option to specify the respective filename. By default,
 one tracefile will be created for each processed .da file.
 .RE
 
+.RE
 .B \-\-version\-script
-.I script_file
+.I script
 .br
 .RS
-call script_file to find file ID from revision control when extracting data.
-The ID is used for error checking when merging .info files.
 
-The script will be called as:
+Use
+.I script
+to get a source file's version ID from revision control when
+extracting data. The ID is used for error checking when merging .info files.
 .br
-.I script_file source_file_name
-;
-.br
-It should write the version ID to stdout and return a 0 exit status.
-If the file has is not versioned, it should write an empty string and return a 0 exit status.  See the genhtml man page for more details.
 
+See the genhtml man page for more details on the version script.
 .RE
 
 .B \-v
