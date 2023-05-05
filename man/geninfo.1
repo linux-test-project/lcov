@@ -220,21 +220,37 @@ directories are used. In that case use configuration file setting
 .I build_dir
 .br
 .RS
-.RI Search for .gcno data files from build_dir rather finding them only
-adjacent to the corresponding .o and/or .gcda file.
 
-By default, geninfo expects to find the '.gcno'
- and '.gcda' files (compile- and run-time data, respectively) in
-the same directory.
+Search for .gcno data files from
+.I build_dir
+rather finding them only adjacent to the corresponding .o and/or .gcda file.
+
+By default, geninfo expects to find the '.gcno' and '.gcda' files (compile-
+and run-time data, respectively) in the same directory.
 .br
+
 When this option is used:
+.br
+
 .RS
-geninfo path/to/prefix_root \-\-build\-directory other/path/to/build_dir ...
+geninfo path1 \-\-build\-directory path2 ...
 .RE
+.br
+
 then geninfo will look for .gcno file
-.RI other/path/to/build_dir/relative/path/to/da_base.gcno
+.br
+
+.RS
+path2/relative/path/to/da_base.gcno
+.RE
+.br
+
 when it finds .gcda file
-.RI path/to/prefix_root/relative/path/to/da_base.gcda.
+.br
+
+.RS
+path1/relative/path/to/da_base.gcda.
+.RE
 
 Use this option when you have used the
 .I GCOV_PREFIX
@@ -251,8 +267,10 @@ and
 This option can be used several times to specify multiple alternate directories to look for .GCNO files.  This may be useful if your application uses code which is compiled in many separate locations - for example, common libraries that are shared between teams.
 
 .RE
+
 .B \-\-branch\-coverage
 .br
+.RS
 Collect retain branch coverage data.
 
 This is equivalent to using the option "\-\-rc lcov_branch_coverage=1"; the option was added to better match the genhml interface.
@@ -446,10 +464,14 @@ the shell, in order to handle parameters which contain spaces.
 
 A common use for this option is to enable LLVM:
 .br
+
 .RS
-.I geninfo \-\-gcov-tool llvm-cov \-\-gcov-tool gcov -o lcov.info ...
+.I geninfo \-\-gcov-tool llvm-cov \-\-gcov-tool gcov ...
 .RE
-(Use "llvm-cov gcov da_file_name ..." to capture LLVM coverage data in gcov-comptible form.)
+.br
+
+Note: 'llvm-cov gcov da_file_name' will generate output in gcov-compatible
+format as required by lcov.
 
 If not specified, 'gcov' is used by default.
 
@@ -526,7 +548,7 @@ Note that this option requires that you use a gcc version which is new enough to
 .RS
 Apply Perl regexp
 .IR regexp_pattern
-to source file names found during processing.  This is useful when the path name reported by gcov does not match your source layout and the file is not found.See the lcov man page for more details.
+to source file names found during processing.  This is useful when the path name reported by gcov does not match your source layout and the file is not found. See the lcov man page for more details.
 
 .RE
 
@@ -566,7 +588,7 @@ branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected in
 corrupt/unreadable file found.
 
 .B count:
-An excessive number of messages of some class have been reported - subsequent messaages of that type will be suppressed.
+An excessive number of messages of some class have been reported - subsequent messages of that type will be suppressed.
 The limit can be controlled by the 'max_message_count' variable. See the lcovrc man page.
 
 .B empty:
@@ -589,7 +611,7 @@ Inconsistent entries found in trace file:
 .B negative:
 negative 'hit' count found.
 .br
- Note that negative counts may be caused by a knwon GCC bug - see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080, and try compiling with "-fprofile-update=atomic". (You will need to recompile and re-run your tests.)
+ Note that negative counts may be caused by a known GCC bug - see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080, and try compiling with "-fprofile-update=atomic". (You will need to recompile and re-run your tests.)
 
 .B package:
 a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
@@ -639,9 +661,10 @@ See the genhtml man page for details.
 .RE
 .BI "\-\-demangle\-cpp "
 .RS
-Demangle C++ mathod and function names in captured output.
+Demangle C++ method and function names in captured output.
 See the genhtml man page for details.
 
+.RE
 .B \-i
 .br
 .B \-\-initial
@@ -739,7 +762,7 @@ Specify parallelism to use during processing (maximum number of forked child pro
 .BI "\-\-memory "
 .I integer
 .RS
-Specify the maximum amount of memory to use during prallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
+Specify the maximum amount of memory to use during parallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
 
 This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
 
@@ -827,7 +850,7 @@ documentation and the sample usage in the lcov regression test examples.
 Following is a list of line numbers for each function name found in the
 source file:
 
-  FN:<line number of function start>,(<line nuber of function end>,)?<function name>
+  FN:<line number of function start>,(<line number of function end>,)?<function name>
 
 The 'end' line number is optional, and is generated only if the compiler/toolchain
 version is recent enough to generate the data (e.g., gcc 9 or newer).

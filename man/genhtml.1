@@ -167,7 +167,7 @@ genhtml \- Generate HTML differential coverage view from LCOV coverage data file
 .RB [ \-\-tempdir
 .IR dirname ]
 .br
-.RB [ \-\-preseve ]
+.RB [ \-\-preserve ]
 .br
 .RB [ \-\-save ]
 .br
@@ -461,8 +461,8 @@ The tracefile specified by
  is read and used as the baseline for classifying the change in coverage represented by the coverage counts in
 .IR tracefile .
 
-Note that you must specfiy
-.I \-\-diff\-file unfied\-diff\-file
+Note that you must specify
+.I \-\-diff\-file unified\-diff\-file
 when you specify
 .I \-\-baseline\-file .
 Both are needed for differential coverage categorization.
@@ -515,7 +515,7 @@ in the p4diff/gitdiff output) as this knowledge will help to suppress spurious '
 .I \-\-elide\-path\-mismatch
 option, below.
 
-Note that you must specfiy
+Note that you must specify
 .I \-\-baseline\-file baseline\-trace\-file
 when you specify
 .I \-\-diff\-file .
@@ -532,7 +532,7 @@ represent it in the format expected by
 .BR genhtml .
 'source_annotation_string is treated as a (possibly space\-separated) string; the first part is expected to be a script or executable and any following parts are passed as script arguments (before the filename) when the script is executed.  Parameter order is
 .I source_annotation_string 'file_name'.
-Spaces in the script name will be treated as argument delimeters by the shell - and may need additional quotation.  Note that the filename is quoted when
+Spaces in the script name will be treated as argument delimiters by the shell - and may need additional quotation.  Note that the filename is quoted when
 passed to the shell (to handle filenames which contain spaces).
 
 If the
@@ -552,7 +552,7 @@ When a
 is specified, the HTML header will contain a summary table, showing counts in the various coverage categories, associated with each date bin.
 Sample annotation scripts for Perforce ('p4annotate') and git ('gitblame') can be found in the share/lcov/support\-scripts directory which is shipped as part of this release.  Note that these scripts generate annotations from the file version checked in to the repo - not the locally modified file in the build directory.  If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.  Also, see the \-\-version\-script option - which is used to check that the file version found locally matches the version whose coverage data was captured.
 
-If the annotate callback fails and annotation erors are ignored, then genhtml will
+If the annotate callback fails and annotation errors are ignored, then genhtml will
 try to load the source file normally.  If the file is not present or not readable,
 and the
 .I \-\-synthesize\-missing
@@ -564,7 +564,7 @@ flag is specified, then genhtml will synthesize fake data for the file.
 Use the
 .I coverage_criteria_script
 to enable genhtml to determine whether your coverage criteria is satisfied or not.
-coverage_criteria_script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the 'name' and 'type' and JSON coverage data) when the script is executed.  The script callback is executed for every 'summary' coverage data element:  leaf level file, containig directory, and top\-level report if any).  The callback is passed to the shell as:
+coverage_criteria_script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the 'name' and 'type' and JSON coverage data) when the script is executed.  The script callback is executed for every 'summary' coverage data element:  leaf level file, containing directory, and top\-level report if any).  The callback is passed to the shell as:
 .I coverage_criteria_script 'name' type 'json-string'
 where "name" is the file or directory name (or "top" in the case of the top\-level report), "type" is the callback type:  "file", "directory", or "top", and "json-string" is a JSON representation of the corresponding line/function/branch coverage data.  The callback parameters are quoted in order to handle embedded spaces.
 
@@ -578,7 +578,7 @@ The script should return 0 (zero) if your criteria is met and non\-zero otherwis
 
 A sample coverage criteria script can be found in the share/lcov/support\-scripts/criteria, shipped as part of this release.  The sample script checks that top\-level line coverage meets the criteria "UNC + LBC + UIC == 0".
 
-It is not difficult to create another script which mimics the LOCV '\-\-fail\-\uner\-lines feature by instead checking that the ratio of exercised lines to total lines ("(GNC + GIC + CBC)/(GNC + GIC + CBC + UNC + UIC + UBC)") is greater than the threshold - either only at the top level, in every directory, or wherever desired.  Similarly, your criteria may include branch and function coverage metrics.
+It is not difficult to create another script which mimics the LCOV '\-\-fail\-\under\-lines feature by instead checking that the ratio of exercised lines to total lines ("(GNC + GIC + CBC)/(GNC + GIC + CBC + UNC + UIC + UBC)") is greater than the threshold - either only at the top level, in every directory, or wherever desired.  Similarly, your criteria may include branch and function coverage metrics.
 
 .RE
 
@@ -589,7 +589,7 @@ It is not difficult to create another script which mimics the LOCV '\-\-fail\-\u
 Use
 .I version_script_file
 to find file ID from revision control when generating HTML or applying source filters (see \-\-filter option).
-The ID is used to check the version ID of the source file which is loaded against the version ID which was used to generate coverage data (i.e., the file version seen by lcov/geninfo).  It is important that source code versions match - otherwise inconsistent or confusing results may be produced.  Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - e.g., when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revions.
+The ID is used to check the version ID of the source file which is loaded against the version ID which was used to generate coverage data (i.e., the file version seen by lcov/geninfo).  It is important that source code versions match - otherwise inconsistent or confusing results may be produced.  Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - e.g., when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revisions.
 
 The script will be called as either:
 
@@ -705,7 +705,7 @@ This argument has no effect if there is no
 .RS
 If the
 .I \-\-show\-owners
-option is used, each coverage report header report contain a summary table, showing counts in the various coverage categories for everyone who appears in the revision control annotation as the most recent editor of the corresponding line.  If the optional argument 'all' is not specified, the table will show only users who are responsible for un\-excercised code lines.  If the optional argument is specified, then users responsible for any code lines will appear.  In both cases, users who are responsible for non\-code lines (e.g, comments) are not shown.
+option is used, each coverage report header report contain a summary table, showing counts in the various coverage categories for everyone who appears in the revision control annotation as the most recent editor of the corresponding line.  If the optional argument 'all' is not specified, the table will show only users who are responsible for un\-exercised code lines.  If the optional argument is specified, then users responsible for any code lines will appear.  In both cases, users who are responsible for non\-code lines (e.g, comments) are not shown.
 This option does nothing if
 .I \-\-annotate\-script
 is not used; it needs revision control information provided by calling the script.
@@ -734,7 +734,7 @@ option is used, then those columns will be shown.
 When columns are retained, then all the tables have the same width/contain the same number of columns - which may be a benefit in some situations.
 
 When columns are removed, then the tables are more compact and easier to read.
-This is especially true in relatively mature development environments, when there are very few un-excercised coverpoints in the project.
+This is especially true in relatively mature development environments, when there are very few un-exercised coverpoints in the project.
 
 .RE
 .BI "\-\-show\-navigation "
@@ -798,6 +798,7 @@ Apply Perl regexp
 .IR regexp_pattern
 to source file names found during processing.  This is useful when some file paths in the baseline or current .info file do not match your source layout and so the source code is not found.
 See the lcov man page for more details.
+.RE
 
 .B \-\-omit\-lines
 .I regexp_pattern
@@ -822,7 +823,7 @@ Specify parallelism to use during processing (maximum number of forked child pro
 .BI "\-\-memory "
 .I integer
 .RS
-Specify the maximum amount of memory to use during prallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
+Specify the maximum amount of memory to use during parallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
 
 This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
 
@@ -850,12 +851,12 @@ and
 The most common use for branch filtering is to remove compiler-generated branches related to C++ exception handlers.  See the no_exception_branch' option in the lcovrc man page for a way to remove all identified exception branches.
 
 .B brace:
-ignore line coverage counts on the closing brace of C/C++ code block, if the line contai linesns only a closing brace and the preceeding line has the same count or if the close brace has a zero count and either the preceding line has a non\-zero count or the close brace is not the body of a conditional.
+ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceding line has the same count or if the close brace has a zero count and either the preceding line has a non\-zero count or the close brace is not the body of a conditional.
 
 These lines seem to appear and disappear in gcov output - and cause differential coverage to report bogus LBC and/or GIC and/or UIC counts.  Bogus LBC or UIC counts are a problem because an automated regression which uses pass criteria "LBC + UIC + UNC == 0" will fail.
 
 .B blank:
-ignore lines which contain only whitespace (or whitespace + commments) whose 'hit' count is zero.  These appeaer to be an 'gcov' artifact related to compiler-generated code - such as exception handlers and destructor calls at the end of scope - and can confuse differential coverage criteria.
+ignore lines which contain only whitespace (or whitespace + comments) whose 'hit' count is zero.  These appear to be an 'gcov' artifact related to compiler-generated code - such as exception handlers and destructor calls at the end of scope - and can confuse differential coverage criteria.
 
 .B range:
 Ignore line and branch coverpoints on lines which are out-of range/whose line number is beyond the end of the source file.  These appear to be gcov artifacts caused by a macro instantiation on the last line of the file.
@@ -1006,7 +1007,7 @@ For relative paths listed in
 genhtml will first look for the path from 'cwd' (where genhtml was
 invoked invoked) and
 then from each alternate directory name in the order specified.
-The first location mmatching location is used.
+The first location matching location is used.
 
 This option can be specified multiple times, to add more directories to the source search path.
 
@@ -1206,7 +1207,7 @@ respective call count for those functions.
 The function coverage page groups the data for every alias of each function, sorted by name or execution count.  The representative name of the group of functions is the shorted (i.e., containing the fewest characters).
 
 If using differential coverage and a sufficiently recent gcc version which report both begin and end line of functions (gcc/9 and newer), functions are considered 'new' if any of their source lines have changed.
-With older gcc versions, functiions are considered 'new' if the function signature has changed or if the entire function is new.
+With older gcc versions, functions are considered 'new' if the function signature has changed or if the entire function is new.
 
 .RE
 .B \-\-branch\-coverage
@@ -1280,7 +1281,7 @@ branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected in
 line number categorizations are incorrect in the .info file, so branch coverage line number turns out to not be an executable source line.
 
 .B count:
-An excessive number of messages of some class have been reported - subsequent messaages of that type will be suppressed.
+An excessive number of messages of some class have been reported - subsequent messages of that type will be suppressed.
 The limit can be controlled by the 'max_message_count' variable. See the lcovrc man page.
 
 .B corrupt:
@@ -1303,7 +1304,7 @@ Inconsistent entries found in trace file:
 .B negative:
 negative 'hit' count found.
 .br
- Note that negative counts may be caused by a knwon GCC bug - see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080, and try compiling with "-fprofile-update=atomic". (You will need to recompile, re-run your tests, and re-capture coverage data.)
+ Note that negative counts may be caused by a known GCC bug - see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080, and try compiling with "-fprofile-update=atomic". (You will need to recompile, re-run your tests, and re-capture coverage data.)
 
 .B package:
 a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.

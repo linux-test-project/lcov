@@ -227,7 +227,7 @@ lcov \- a graphical GCOV front\-end
 .RB [ \-\-exclude
 .IR glob_pattern ]
 .br
-.RB [ \-\-exrase\-functions
+.RB [ \-\-erase\-functions
 .IR regexp_pattern ]
 .br
 .RB [ \-\-substitute
@@ -290,7 +290,7 @@ tool.
 .br
 .RS
 Add contents of all files matching glob pattern
-.IR trcefile_pattern.
+.IR tracefile_pattern.
 
 Specify several tracefiles using the \-a switch to combine the coverage data
 contained in these files by adding up execution counts for matching test and
@@ -367,6 +367,7 @@ specified at a time.
 .RE
 
 .B \-\-branch\-coverage
+.RS
 .br
 Collect and/or retain branch coverage data.
 
@@ -856,8 +857,10 @@ escaped accordingly to prevent the shell from expanding them first).
 Note: The pattern must be specified to match the
 .B absolute
 path of each source file.
-.RE
+.br
+
 If you specify a pattern which does not seem to be correctly applied - files that you expected to be included in the output do not appear - lcov will generate an error message of type 'unused'.  See the \-\-ignore\-errors option for how to make lcov ignore the error or turn it into a warning.
+.RE
 
 .B \-\-ignore\-errors
 .I errors
@@ -883,7 +886,7 @@ branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected in
 corrupt/unreadable file found.
 
 .B count:
-An excessive number of messages of some class have been reported - subsequent messaages of that type will be suppressed.
+An excessive number of messages of some class have been reported - subsequent messages of that type will be suppressed.
 The limit can be controlled by the 'max_message_count' variable. See the lcovrc man page.
 
 .B empty:
@@ -906,7 +909,7 @@ Inconsistent entries found in trace file:
 .B negative:
 negative 'hit' count found.
 .br
- Note that negative counts may be caused by a knwon GCC bug - see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080, and try compiling with "-fprofile-update=atomic". (You will need to recompile and re-run your tests.)
+ Note that negative counts may be caused by a known GCC bug - see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080, and try compiling with "-fprofile-update=atomic". (You will need to recompile and re-run your tests.)
 
 .B package:
 a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
@@ -1128,7 +1131,7 @@ Currently - parallelism is used with the \-\-add\-tracefile and \-\-capture opti
 .BI "\-\-memory "
 .I integer
 .RS
-Specify the maximum amount of memory to use during prallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
+Specify the maximum amount of memory to use during parallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
 
 This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
 
