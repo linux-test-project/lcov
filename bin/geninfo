@@ -61,7 +61,6 @@ use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
 use File::Temp;
 use File::Copy qw(copy move);
 use File::Path;
-use Getopt::Long;
 use Cwd qw/abs_path/;
 use Time::HiRes;    # for profiling
 use Capture::Tiny;
@@ -75,6 +74,7 @@ use lcovutil qw (define_errors parse_ignore_errors
                  ignorable_error ignorable_warning is_ignored
                  set_info_callback info init_verbose_flag $verbose
                  debug $debug
+                 $br_coverage $func_coverage
                  system_no_output
                  die_handler warn_handler
                  parse_cov_filters summarize_cov_filters
@@ -83,14 +83,14 @@ use lcovutil qw (define_errors parse_ignore_errors
                  $EXCL_LINE $EXCL_BR_LINE $EXCL_EXCEPTION_LINE
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
-                 munge_file_patterns warn_file_patterns
+                 warn_file_patterns
                  @extractVersionScript
 
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_PACKAGE
                  $ERROR_EMPTY $ERROR_PARALLEL $ERROR_UNSUPPORTED
                  report_parallel_error
                  is_external @internal_dirs
-                 apply_rc_params
+                 parseOptions
                  $maxParallelism init_parallel_params $maxMemory
                 );
 
@@ -232,7 +232,6 @@ our $output_filename;
 our $base_directory;
 our $version;
 our $follow;
-our $no_checksum;
 our $opt_compat_libtool;
 our $opt_no_compat_libtool;
 our $rc_adjust_src_path;    # Regexp specifying parts to remove from source path
@@ -252,8 +251,6 @@ our $opt_adjust_unexecuted_blocks = 0;
 our $opt_compat;
 our %compat_value;
 our $gcno_split_crc;
-our $func_coverage   = 1;
-our $br_coverage     = 0;
 our $rc_auto_base    = 1;
 our $rc_intermediate = "auto";
 our $intermediate;
@@ -276,166 +273,76 @@ $SIG{__DIE__}  = \&die_handler;
 $ENV{"LC_ALL"} = "C";
 
 # retrieve settings from RC file - use these if not overridden on command line
-my (@rc_filter, @rc_ignore,
-    @rc_exclude_patterns, @rc_include_patterns, @rc_subst_patterns,
-    @rc_omit_patterns, @rc_erase_patterns);
 
-if (lcovutil::apply_rc_params(
-      \@opt_config_file,
-      {
-       "geninfo_gcov_tool"       => \@gcov_tool,
-       "geninfo_adjust_testname" => \$adjust_testname,
-       "geninfo_checksum"        => \$lcovutil::verify_checksum,
-       "checksum"                => \$lcovutil::verify_checksum,
-       "case_insensitive"        => \$lcovutil::case_insensitive,
-       "geninfo_no_checksum"     => \$no_checksum,                  # deprecated
-       "geninfo_compat_libtool"  => \$opt_compat_libtool,
-       "geninfo_external"        => \$opt_external,
-       "geninfo_gcov_all_blocks" => \$opt_gcov_all_blocks,
-       "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
-       "geninfo_compat"              => \$opt_compat,
-       "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
-       "geninfo_auto_base"           => \$rc_auto_base,
-       "geninfo_intermediate"        => \$rc_intermediate,
-       "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
-       "no_exception_branch"         => \$lcovutil::exclude_exception_branch,
-       "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
-       "lcov_json_module"            => \$JsonSupport::rc_json_module,
-       "lcov_function_coverage"      => \$func_coverage,
-       "lcov_branch_coverage"        => \$br_coverage,
-       "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
-       "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
-       "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
-       'derive_function_end_line'    => \$lcovutil::derive_function_end_line,
-       "genhtml_demangle_cpp"        => \$lcovutil::cpp_demangle,
-       "genhtml_demangle_cpp_tool"   => \$lcovutil::cpp_demangle_tool,
-       "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
-       'ignore_errors'               => \@rc_ignore,
-       "max_message_count"           => \$lcovutil::suppressAfter,
-       'stop_on_error'               => \$lcovutil::stop_on_error,
-       "profile"                     => \$lcovutil::profile,
-       "parallel"                    => \$lcovutil::maxParallelism,
-       "memory"                      => \$lcovutil::maxMemory,
-       'filter'                      => \@rc_filter,
-       'exclude'                     => \@rc_exclude_patterns,
-       'include'                     => \@rc_include_patterns,
-       'substitute'                  => \@rc_subst_patterns,
-       'omit_lines'                  => \@rc_omit_patterns,
-       'erase_functions'             => \@rc_erase_patterns,
-       "version_script"              => \@lcovutil::extractVersionScript,
-      }
-)) {
-    # we set some RC values...
-    # Merge options
-    if (defined($no_checksum)) {
-        $lcovutil::verify_checksum = ($no_checksum ? 0 : 1);
-        $no_checksum               = undef;
-    }
+my %geninfo_rc_opts = (
+          "geninfo_gcov_tool"           => \@gcov_tool,
+          "geninfo_adjust_testname"     => \$adjust_testname,
+          "geninfo_checksum"            => \$lcovutil::verify_checksum,
+          "geninfo_compat_libtool"      => \$opt_compat_libtool,
+          "geninfo_external"            => \$opt_external,
+          "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
+          "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
+          "geninfo_compat"              => \$opt_compat,
+          "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
+          "geninfo_auto_base"           => \$rc_auto_base,
+          "geninfo_intermediate"        => \$rc_intermediate,
+          "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
+);
 
-    # Check regexp
-    if (defined($rc_adjust_src_path)) {
-        my ($pattern, $replace) = split(/\s*=>\s*/, $rc_adjust_src_path);
-        local $SIG{__DIE__};
-        my $src_pattern;
-        eval '$src_pattern = qr>' . $pattern . '>;';
-        if (!defined($src_pattern)) {
-            my $msg = $@;
+my %geninfo_opts = ("test-name|t=s"       => \$test_name,
+                    "output-filename|o=s" => \$output_filename,
+                    "base-directory|b=s"  => \$base_directory,
+                    "build-directory|b=s" => \@build_directory,
+                    "follow|f"            => \$follow,
+                    "compat-libtool"      => \$opt_compat_libtool,
+                    "no-compat-libtool"   => \$opt_no_compat_libtool,
+                    "gcov-tool=s"         => \@gcov_tool,
+                    "initial|i"           => \$initial,
+                    "no-recursion"        => \$no_recursion,
+                    "no-markers"          => \$no_markers,
+                    "derive-func-data"    => \$opt_derive_func_data,
+                    "external|e"          => \$opt_external,
+                    "no-external"         => \$lcovutil::opt_no_external,
+                    "compat=s"            => \$opt_compat,);
 
-            chomp($msg);
-            $msg =~ s/at \(eval.*$//;
-            warn("WARNING: invalid pattern in geninfo_adjust_src_path: $msg\n");
-        } elsif (!defined($replace)) {
-            # If no replacement is specified, simply remove pattern
-            $replace = "";
-        }
-        push(@lcovutil::file_subst_patterns, 's#$pattern#$replace#g');
-    }
-}
-
-my %unsupported_rc;    # for error checking
-my @unsupported_config;
-my $keepGoing;
-my $quiet = 0;
-my $tempdirname;
 # Parse command line options
-if (!GetOptions("test-name|t=s"       => \$test_name,
-                "tempdir=s"           => \$tempdirname,
-                "output-filename|o=s" => \$output_filename,
-                "checksum"            => \$lcovutil::verify_checksum,
-                "no-checksum"         => \$no_checksum,
-                "branch-coverage"     => \$br_coverage,
-                "base-directory|b=s"  => \$base_directory,
-                "build-directory|b=s" => \@build_directory,
-                "version"             => \$version,
-                "verbose|v+"          => \$lcovutil::verbose,
-                "quiet|q+"            => \$quiet,
-                "help|h|?"            => \$help,
-                "follow|f"            => \$follow,
-                "compat-libtool"      => \$opt_compat_libtool,
-                "no-compat-libtool"   => \$opt_no_compat_libtool,
-                "gcov-tool=s"         => \@gcov_tool,
-                "ignore-errors=s"     => \@ignore_errors,
-                "keep-going"          => \$keepGoing,
-                "filter=s"            => \@opt_filter,
-                "initial|i"           => \$initial,
-                "include=s"           => \@lcovutil::include_file_patterns,
-                "exclude=s"           => \@lcovutil::exclude_file_patterns,
-                "substitute=s"        => \@lcovutil::file_subst_patterns,
-                "omit-lines=s"        => \@lcovutil::omit_line_patterns,
-                "erase-functions=s"   => \@lcovutil::exclude_function_patterns,
-                "no-recursion"        => \$no_recursion,
-                "no-markers"          => \$no_markers,
-                "derive-func-data"    => \$opt_derive_func_data,
-                "debug+"              => \$lcovutil::debug,
-                "external|e"          => \$opt_external,
-                "no-external"         => \$lcovutil::opt_no_external,
-                "demangle-cpp"        => \$lcovutil::cpp_demangle,
-                "compat=s"            => \$opt_compat,
-                "config-file=s"       => \@unsupported_config,
-                "rc=s%"               => \%unsupported_rc,
-                "version-script=s"    => \@lcovutil::extractVersionScript,
-                "profile:s"           => \$lcovutil::profile,
-                "parallel|j:i"        => \$lcovutil::maxParallelism,
-                "memory=i"            => \$lcovutil::maxMemory,
-                "preserve"            => \$lcovutil::preserve_intermediates,
-)) {
+if (!lcovutil::parseOptions(\%geninfo_rc_opts, \%geninfo_opts)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
-if (defined($tempdirname)) {
-    $lcovutil::tmp_dir = $tempdirname;
-    File::Path::make_path($tempdirname)
-        unless (-d $tempdirname);
-}
-init_verbose_flag($quiet);
 
-foreach my $d (['--config-file', scalar(@unsupported_config)],
-               ['--rc', scalar(%unsupported_rc)]) {
-    die("Error: '" . $d->[0] . "' option name cannot be abbreviated.\n")
-        if ($d->[1]);
-}
-@opt_filter                      = @rc_filter unless @opt_filter;
-@ignore_errors                   = @rc_ignore unless @ignore_errors;
-@lcovutil::exclude_file_patterns = @rc_exclude_patterns
-    unless @lcovutil::exclude_file_patterns;
-@lcovutil::include_file_patterns = @rc_include_patterns
-    unless @lcovutil::include_file_patterns;
-@lcovutil::subst_file_patterns = @rc_subst_patterns
-    unless @lcovutil::subst_file_patterns;
-@lcovutil::omit_line_patterns = @rc_omit_patterns
-    unless @lcovutil::omit_line_patterns;
-@lcovutil::exclude_function_patterns = @rc_erase_patterns
-    unless @lcovutil::exclude_function_patterns;
+# Check regexp
+if (defined($rc_adjust_src_path)) {
+    my ($pattern, $replace) = split(/\s*=>\s*/, $rc_adjust_src_path);
+    local $SIG{__DIE__};
+    my $src_pattern;
+    eval '$src_pattern = qr>' . $pattern . '>;';
+    if (!defined($src_pattern)) {
+        my $msg = $@;
 
-$lcovutil::stop_on_error = 0
-    if (defined $keepGoing);
+        chomp($msg);
+        $msg =~ s/at \(eval.*$//;
+        warn("WARNING: invalid pattern in geninfo_adjust_src_path: $msg\n");
+
+    } else {
+        if (!defined($replace)) {
+            # If no replacement is specified, simply remove pattern
+            $replace = "";
+        }
+        my $p = 's#$pattern#$replace#g';
+        push(@lcovutil::file_subst_patterns,
+             [lcovutil::transform_pattern($p), $p, 0]);
+    }
+}
+
+if (defined($lcovutil::tempdirname)) {
+    $lcovutil::tmp_dir = $lcovutil::tempdirname;
+    File::Path::make_path($lcovutil::tmp_dir) or
+        die("unable to mkdir $lcovutil::tmp_dir: $!")
+        unless (-d $lcovutil::tmp_dir);
+}
 
 # Merge options
-if (defined($no_checksum)) {
-    $lcovutil::verify_checksum = ($no_checksum ? 0 : 1);
-    $no_checksum               = undef;
-}
-
 if (defined($opt_no_compat_libtool)) {
     $opt_compat_libtool    = ($opt_no_compat_libtool ? 0 : 1);
     $opt_no_compat_libtool = undef;
@@ -447,25 +354,10 @@ if (defined($opt_external)) {
 }
 
 my $start = Time::HiRes::gettimeofday();
-lcovutil::munge_file_patterns();
-
-init_parallel_params();
 
 @data_directory = @ARGV;
 
 debug("$lcov_version\n");
-
-# Check for help option
-if ($help) {
-    print_usage(*STDOUT);
-    exit(0);
-}
-
-# Check for version option
-if ($version) {
-    print("$tool_name: $lcov_version\n");
-    exit(0);
-}
 
 if (0 == scalar(@gcov_tool)) {
     # not specified - use gcov by default - expected to be in user's path
@@ -550,13 +442,16 @@ if ($lcovutil::exclude_exception_branch &&
 # Determine gcov options
 push(@gcov_tool, "-b")
     if ($gcov_caps->{'branch-probabilities'} &&
-        ($br_coverage || $func_coverage || $opt_adjust_unexecuted_blocks));
-push(@gcov_tool, "-c") if ($gcov_caps->{'branch-counts'} &&
-                           $br_coverage);
+        ($lcovutil::br_coverage ||
+         $lcovutil::func_coverage ||
+         $opt_adjust_unexecuted_blocks));
+push(@gcov_tool, "-c")
+    if ($gcov_caps->{'branch-counts'} &&
+        $lcovutil::br_coverage);
 push(@gcov_tool, "-a")
     if ($gcov_caps->{'all-blocks'} &&
-        $opt_gcov_all_blocks &&
-        $br_coverage         &&
+        $opt_gcov_all_blocks   &&
+        $lcovutil::br_coverage &&
         !$intermediate);
 if ($gcov_caps->{'hash-filenames'}) {
     push(@gcov_tool, "-x");
@@ -568,10 +463,6 @@ push(@gcov_tool, '-i') if $intermediate;
 # Determine compatibility modes
 parse_compat_modes($opt_compat);
 
-# Determine which errors the user wants us to ignore
-parse_ignore_errors(@ignore_errors);
-# Determine what coverpoints the user wants to filter
-# backward compatibility:  filter exclusions unless user passes 'no markers' flag
 push(@opt_filter, "region", "branch_region") unless $no_markers;
 parse_cov_filters(@opt_filter);
 
@@ -664,7 +555,6 @@ if (defined($output_filename) && ($output_filename ne "-")) {
         $output_filename = $cwd . "/" . $output_filename;
     }
 }
-lcovutil::do_mangle_check();
 
 # Build list of directories to identify external files
 foreach my $entry (@data_directory, $base_directory) {
@@ -682,13 +572,13 @@ foreach my $dir (@lcovutil::internal_dirs) {
     $dir =~ s#/*$#/#;
 }
 
-if ($initial && $br_coverage && !$intermediate) {
+if ($initial && $lcovutil::br_coverage && !$intermediate) {
     warn("Note: --initial does not generate branch coverage data\n");
 }
 
 # where to write parallel child data
 my $tempFileDir =
-    defined($tempdirname) ? $tempdirname :
+    defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
     File::Temp->newdir("geninfo_datXXXX",
                        DIR     => $lcovutil::tmp_dir,
                        CLEANUP => !defined($lcovutil::preserve_intermediates));
@@ -1965,9 +1855,9 @@ sub read_gcov_file($$$)
             $last_block = $3;
         } elsif (/^branch\s+(\d+)\s+taken\s+(\d+)(?:\s+\(([^)]*)\))?/) {
             next
-                if (!$br_coverage   ||
-                    $exclude_line   ||
-                    $exclude_branch ||
+                if (!$lcovutil::br_coverage ||
+                    $exclude_line           ||
+                    $exclude_branch         ||
                     (($exclude_exception_branch ||
                       $lcovutil::exclude_exception_branch) &&
                      defined($3) &&
@@ -1987,15 +1877,16 @@ sub read_gcov_file($$$)
             $branchData->append($last_line, $last_block, $br, $filename);
             ++$branchId;
         } elsif (/^branch\s+(\d+)\s+never\s+executed/) {
-            next if (!$br_coverage ||
-                     $exclude_line ||
-                     $exclude_branch);
+            next
+                if (!$lcovutil::br_coverage ||
+                    $exclude_line ||
+                    $exclude_branch);
             # this branch not taken
             my $br = BranchBlock->new($branchId, '-');
             $branchData->append($last_line, $last_block, $br, $filename);
             ++$branchId;
         } elsif (/^function\s+(.+)\s+called\s+(\d+)\s+/) {
-            next if (!$func_coverage || $exclude_line);
+            next if (!$lcovutil::func_coverage || $exclude_line);
             my $name  = $1;
             my $count = $2;
             if ($count < 0) {
@@ -2269,7 +2160,7 @@ sub intermediate_text_to_info($)
                 # b) an instance starts with an lcount line
                 $branch_num = 0;
             } elsif ($line =~ /^function:((\d+)(,(\d+))?),(\d+),(.+)$/) {
-                next unless $func_coverage;
+                next unless $lcovutil::func_coverage;
 
                 # function:<line>,<endline,>?<count>,<name>
                 my ($lineNo, $endline, $hit, $name) = ($2, $4, $5, $6);
@@ -2288,7 +2179,7 @@ sub intermediate_text_to_info($)
             } elsif ($line =~ /^branch:(\d+),(taken|nottaken|notexec)/) {
                 my $lineNo = $1;
                 next
-                    unless $br_coverage;
+                    unless $lcovutil::br_coverage;
                 my $c;
                 # branch:<line>,taken|nottaken|notexec
                 if ($2 eq "taken") {
@@ -2352,7 +2243,7 @@ sub intermediate_json_to_info($)
         }
 
         # Function data
-        if ($func_coverage) {
+        if ($lcovutil::func_coverage) {
             for my $d (@{$file_data->{"functions"}}) {
                 my $start_line = $d->{"start_line"};
                 my $end_line   = $d->{"end_line"}
@@ -2411,7 +2302,7 @@ sub intermediate_json_to_info($)
             $lineMap->append($line, $count);
 
             # Branch data
-            if ($br_coverage) {
+            if ($lcovutil::br_coverage) {
 
                 # there may be compiler-generated branch data on
                 #  the closing brace of the function...
@@ -2900,7 +2791,7 @@ sub process_graphfile($$)
             $fileData->version($version)
                 if (defined($version) && $version ne "");
         }
-        if (defined($funcdata) && $func_coverage) {
+        if (defined($funcdata) && $lcovutil::func_coverage) {
             my @functions =
                 sort({ $funcdata->{$a}->[0] <=> $funcdata->{$b}->[0] }
                      keys(%{$funcdata}));

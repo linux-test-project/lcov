@@ -68,7 +68,6 @@ use File::Find;
 use File::Temp qw /tempdir/;
 use File::Spec::Functions qw /abs2rel canonpath catdir catfile catpath
                               file_name_is_absolute rootdir splitdir splitpath/;
-use Getopt::Long;
 use Cwd qw /abs_path getcwd/;
 use POSIX qw (floor);
 use FindBin;
@@ -79,16 +78,16 @@ use lib "$FindBin::RealBin/../lib";
 use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  define_errors parse_ignore_errors ignorable_error
                  info set_info_callback init_verbose_flag $verbose
-                 do_mangle_check
+                 $br_coverage $func_coverage
                  debug $debug
                  die_handler warn_handler abort_handler
                  append_tempdir temp_cleanup
-                 parse_cov_filters summarize_cov_filters
+                 summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  set_rtl_extensions set_c_extensions
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
-                 munge_file_patterns warn_file_patterns
+                 warn_file_patterns
                  %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
                  $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION
                  $ERROR_UNUSED $ERROR_PACKAGE $ERROR_CORRUPT
@@ -96,7 +95,7 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  system_no_output
                  rate get_overall_line
 
-                 apply_rc_params
+                 parseOptions
                  strip_directories transform_pattern
                  @extractVersionScript $verify_checksum
 
@@ -162,11 +161,8 @@ our $build_directory;
 our @kernel_directory;    # If set, captures only from specified kernel subdirs
 our @add_tracefile;       # If set, reads in and combines all files in list
 our $list;                # If set, list contents of tracefile
-our $extract;             # If set, extracts parts of tracefile
-our $remove;              # If set, removes parts of tracefile
 our $diff;                # If set, modifies tracefile according to diff
 our $reset;               # If set, reset all coverage data to zero
-our $capture;             # If set, capture data
 our $prune_testcases;     # If set, try to filter out useless tests that do not
                           # contribute new coverage or new coverpoints
 our $function_mapping
@@ -174,8 +170,6 @@ our $function_mapping
          #   files which hit that function at least once
 our $output_filename;     # Name for file to write coverage data to
 our $test_name = "";      # Test case name
-our $help;                # Help option flag
-our $version;             # Version option flag
 our $convert_filenames;   # If set, convert filenames when applying diff
 our $strip;               # If set, strip leading directories when applying diff
 our $cwd = `pwd`;         # Current working directory
@@ -184,13 +178,10 @@ our $follow;              # If set, indicates that find shall follow links
 our $diff_path            = ""; # Path removed from tracefile when applying diff
 our $opt_fail_under_lines = 0;
 our $base_directory;     # Base directory (cwd of gcc during compilation)
-our $no_checksum;        # If set, don't calculate a checksum for each line
 our $compat_libtool;     # If set, indicates that libtool mode is to be enabled
 our $no_compat_libtool;  # If set, indicates that libtool mode is to be disabled
 
 our @gcov_tool;
-our @opt_ignore_errors;
-our @opt_filter;
 our $initial;
 our $no_recursion = 0;
 our $to_package;
@@ -205,7 +196,6 @@ our $opt_no_list_full_path;
 our $opt_list_width        = 80;
 our $opt_list_truncate_max = 20;
 our $opt_external;
-our @opt_config_file;
 our @opt_summary;
 our $opt_compat;
 our $ln_overall_found;
@@ -214,8 +204,6 @@ our $fn_overall_found;
 our $fn_overall_hit;
 our $br_overall_found;
 our $br_overall_hit;
-our $func_coverage = 1;
-our $br_coverage   = 0;
 
 #
 # Code entry point
@@ -228,165 +216,55 @@ $SIG{'QUIT'}   = \&lcovutil::abort_handler;
 
 lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
 
-my $rtlExtensions;
-my $cExtensions;
-
-# retrieve settings from RC file - use these if not overridden on command line
-my (@rc_filter, @rc_ignore,
-    @rc_exclude_patterns, @rc_include_patterns, @rc_subst_patterns,
-    @rc_omit_patterns, @rc_erase_patterns);
-
-lcovutil::apply_rc_params(
-         \@opt_config_file,
-         {
-          "lcov_gcov_dir"               => \$gcov_dir,
-          "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
-          "lcov_list_full_path"         => \$opt_list_full_path,
-          "lcov_list_width"             => \$opt_list_width,
-          "lcov_list_truncate_max"      => \$opt_list_truncate_max,
-          "lcov_branch_coverage"        => \$br_coverage,
-          "lcov_function_coverage"      => \$func_coverage,
-          "lcov_fail_under_lines"       => \$opt_fail_under_lines,
-          "lcov_json_module"            => \$JsonSupport::rc_json_module,
-          "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
-          "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
-          "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
-          "branch-coverage"             => \$br_coverage,
-          'rtl_file_extensions'         => \$rtlExtensions,
-          'c_file_extensions'           => \$cExtensions,
-          "filter_lookahead"            => \$lcovutil::source_filter_lookahead,
-          "filter_bitwise_conditional"  =>
-              \$lcovutil::source_filter_bitwise_are_conditional,
-          'ignore_errors'               => \@rc_ignore,
-          "max_message_count"           => \$lcovutil::suppressAfter,
-          'stop_on_error'               => \$lcovutil::stop_on_error,
-          "profile"                     => \$lcovutil::profile,
-          "parallel"                    => \$lcovutil::maxParallelism,
-          "memory"                      => \$lcovutil::maxMemory,
-          "genhtml_demangle_cpp"        => \$lcovutil::cpp_demangle,
-          "genhtml_demangle_cpp_tool"   => \$lcovutil::cpp_demangle_tool,
-          "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
-          "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
-          "no_exception_branch"         => \$lcovutil::exclude_exception_branch,
-          'derive_function_end_line'    => \$lcovutil::derive_function_end_line,
-          'filter'                      => \@rc_filter,
-          'exclude'                     => \@rc_exclude_patterns,
-          'include'                     => \@rc_include_patterns,
-          'substitute'                  => \@rc_subst_patterns,
-          'omit_lines'                  => \@rc_omit_patterns,
-          'erase_functions'             => \@rc_erase_patterns,
-          "version_script"              => \@lcovutil::extractVersionScript,
-          "checksum"                    => \$lcovutil::verify_checksum,
-          "case_insensitive"            => \$lcovutil::case_insensitive,
-          "forget_testcase_names"       => \$TraceFile::ignore_testcase_name,
-         });
-
-set_rtl_extensions($rtlExtensions)
-    if $rtlExtensions;
-set_c_extensions($cExtensions)
-    if $cExtensions;
-
-my %unsupported_rc;    # for error checking
-my @unsupported_config;
-my $keepGoing;
 our @cmdArgs = @ARGV;
-my $quiet = 0;
-my $tempdirname;
+
+my %lcov_rc_params = ("lcov_gcov_dir"          => \$gcov_dir,
+                      "lcov_list_full_path"    => \$opt_list_full_path,
+                      "lcov_list_width"        => \$opt_list_width,
+                      "lcov_list_truncate_max" => \$opt_list_truncate_max,
+                      "lcov_fail_under_lines"  => \$opt_fail_under_lines,);
+
+my %lcov_options = ("directory|d|di=s"     => \@directory,
+                    "build-directory=s"    => \$build_directory,
+                    "add-tracefile|a=s"    => \@add_tracefile,
+                    "list|l=s"             => \$list,
+                    "kernel-directory|k=s" => \@kernel_directory,
+                    "extract|e=s"          => \$lcovutil::lcov_extract,
+                    "remove|r=s"           => \$lcovutil::lcov_remove,
+                    "diff=s"               => \$diff,
+                    "convert-filenames"    => \$convert_filenames,
+                    "strip=i"              => \$strip,
+                    "capture|c"            => \$lcovutil::lcov_capture,
+                    "output-file|o=s"      => \$output_filename,
+                    "test-name|t=s"        => \$test_name,
+                    "zerocounters|z"       => \$reset,
+                    "follow|f"             => \$follow,
+                    "path=s"               => \$diff_path,
+                    "base-directory|b=s"   => \$base_directory,
+                    "compat-libtool"       => \$compat_libtool,
+                    "no-compat-libtool"    => \$no_compat_libtool,
+                    "gcov-tool=s"          => \@gcov_tool,
+
+                    "initial|i"          => \$initial,
+                    "no-recursion"       => \$no_recursion,
+                    "to-package=s"       => \$to_package,
+                    "from-package=s"     => \$from_package,
+                    "no-markers"         => \$no_markers,
+                    "derive-func-data"   => \$opt_derive_func_data,
+                    "list-full-path"     => \$opt_list_full_path,
+                    "no-list-full-path"  => \$opt_no_list_full_path,
+                    "external"           => \$opt_external,
+                    "no-external"        => \$lcovutil::opt_no_external,
+                    "summary=s"          => \@opt_summary,
+                    "compat=s"           => \$opt_compat,
+                    "fail-under-lines=s" => \$opt_fail_under_lines,
+                    "prune-tests"        => \$prune_testcases,
+                    "map-functions"      => \$function_mapping,);
 
 # Parse command line options
-if (!GetOptions("directory|d|di=s"     => \@directory,
-                "tempdir=s"            => \$tempdirname,
-                "build-directory=s"    => \$build_directory,
-                "add-tracefile|a=s"    => \@add_tracefile,
-                "list|l=s"             => \$list,
-                "kernel-directory|k=s" => \@kernel_directory,
-                "extract|e=s"          => \$extract,
-                "remove|r=s"           => \$remove,
-                "diff=s"               => \$diff,
-                "convert-filenames"    => \$convert_filenames,
-                "strip=i"              => \$strip,
-                "capture|c"            => \$capture,
-                "output-file|o=s"      => \$output_filename,
-                "test-name|t=s"        => \$test_name,
-                "zerocounters|z"       => \$reset,
-                "quiet|q+"             => \$quiet,
-                "verbose|v+"           => \$lcovutil::verbose,
-                "help|h|?"             => \$help,
-                "version"              => \$version,
-                "follow|f"             => \$follow,
-                "path=s"               => \$diff_path,
-                "base-directory|b=s"   => \$base_directory,
-                "checksum"             => \$verify_checksum,
-                "no-checksum"          => \$no_checksum,
-                "compat-libtool"       => \$compat_libtool,
-                "no-compat-libtool"    => \$no_compat_libtool,
-                "gcov-tool=s"          => \@gcov_tool,
-                "demangle-cpp"         => \$lcovutil::cpp_demangle,
-                "branch-coverage"      => \$br_coverage,
-                "ignore-errors=s"      => \@opt_ignore_errors,
-                "keep-going"           => \$keepGoing,
-                "preserve"             => \$lcovutil::preserve_intermediates,
-                "filter=s"             => \@opt_filter,
-                "initial|i"            => \$initial,
-                "include=s"            => \@lcovutil::include_file_patterns,
-                "exclude=s"            => \@lcovutil::exclude_file_patterns,
-                "substitute=s"         => \@lcovutil::file_subst_patterns,
-                "omit-lines=s"         => \@lcovutil::omit_line_patterns,
-                "erase-functions=s"    => \@lcovutil::exclude_function_patterns,
-                "forget-test-names"    => \$TraceFile::ignore_testcase_name,
-                "no-recursion"         => \$no_recursion,
-                "to-package=s"         => \$to_package,
-                "from-package=s"       => \$from_package,
-                "no-markers"           => \$no_markers,
-                "derive-func-data"     => \$opt_derive_func_data,
-                "debug+"               => \$lcovutil::debug,
-                "list-full-path"       => \$opt_list_full_path,
-                "no-list-full-path"    => \$opt_no_list_full_path,
-                "external"             => \$opt_external,
-                "no-external"          => \$lcovutil::opt_no_external,
-                "summary=s"            => \@opt_summary,
-                "compat=s"             => \$opt_compat,
-                "config-file=s"        => \@unsupported_config,
-                "rc=s%"                => \%unsupported_rc,
-                "fail-under-lines=s"   => \$opt_fail_under_lines,
-                "profile:s"            => \$lcovutil::profile,
-                "version-script=s"     => \@lcovutil::extractVersionScript,
-                "checksum"             => \$lcovutil::verify_checksum,
-                "parallel|j:i"         => \$lcovutil::maxParallelism,
-                "memory=i"             => \$lcovutil::maxMemory,
-                "prune-tests"          => \$prune_testcases,
-                "map-functions"        => \$function_mapping,
-)) {
+if (!lcovutil::parseOptions(\%lcov_rc_params, \%lcov_options)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
-}
-lcovutil::init_verbose_flag($quiet);
-$lcovutil::tmp_dir = $tempdirname
-    if defined($tempdirname);
-foreach my $d (['--config-file', scalar(@unsupported_config)],
-               ['--rc', scalar(%unsupported_rc)]) {
-    die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
-        if ($d->[1]);
-}
-@opt_filter                      = @rc_filter unless @opt_filter;
-@opt_ignore_errors               = @rc_ignore unless @opt_ignore_errors;
-@lcovutil::exclude_file_patterns = @rc_exclude_patterns
-    unless @lcovutil::exclude_file_patterns;
-@lcovutil::include_file_patterns = @rc_include_patterns
-    unless @lcovutil::include_file_patterns;
-@lcovutil::subst_file_patterns = @rc_subst_patterns
-    unless @lcovutil::subst_file_patterns;
-@lcovutil::omit_line_patterns = @rc_omit_patterns
-    unless @lcovutil::omit_line_patterns;
-@lcovutil::exclude_function_patterns = @rc_erase_patterns
-    unless @lcovutil::exclude_function_patterns;
-$lcovutil::stop_on_error = 0
-    if (defined $keepGoing);
-
-# Merge options
-if (defined($no_checksum)) {
-    $verify_checksum = ($no_checksum ? 0 : 1);
-    $no_checksum     = undef;
 }
 
 if (defined($no_compat_libtool)) {
@@ -408,24 +286,9 @@ if (defined($opt_external)) {
     $opt_external              = undef;
 }
 
-# Check for help option
-if ($help) {
-    print_usage(*STDOUT);
-    exit(0);
-}
-
 my $begin = Time::HiRes::gettimeofday();
 
-# Check for version option
-if ($version) {
-    print("$tool_name: $lcov_version\n");
-    exit(0);
-}
-lcovutil::parse_ignore_errors(@opt_ignore_errors);
-# Determine what coverpoints the user wants to filter
-parse_cov_filters(@opt_filter);
-
-if (!$capture &&
+if (!$lcovutil::lcov_capture &&
     scalar(@lcovutil::extractVersionScript) > 1) {
     foreach my $e (@lcovutil::extractVersionScript) {
         $e = "'$e'" if ($e =~ /\s/);
@@ -439,11 +302,6 @@ if ($opt_list_width <= 40) {
         "larger than 40)\n");
 }
 
-# Ensure that the c++filt tool is available when using --demangle-cpp
-lcovutil::do_mangle_check();
-
-lcovutil::init_parallel_params();
-
 # Normalize --path text
 $diff_path =~ s/\/$//;
 
@@ -454,22 +312,19 @@ $maxdepth = $no_recursion ? '-maxdepth 1' : '';
 check_options();
 
 # Only --extract, --remove and --diff allow unnamed parameters
-if (@ARGV && !($extract || $remove || $diff || @opt_summary)) {
+if (@ARGV &&
+    !(  $lcovutil::lcov_extract ||
+        $lcovutil::lcov_remove  ||
+        $diff                   ||
+        @opt_summary)
+) {
     die("Extra parameter found: '" .
         join(" ", @ARGV) .
         "'\n" . "Use $tool_name --help to get usage information\n");
 }
 
-push(@lcovutil::exclude_file_patterns, @ARGV)
-    if $remove;
-push(@lcovutil::include_file_patterns, @ARGV)
-    if $extract;
-
-lcovutil::munge_file_patterns()    # for exclude/include directives
-    unless $capture;
-
 if (defined($lcovutil::opt_no_external) &&
-    !(defined($capture) && $capture != 0)) {
+    !(defined($lcovutil::lcov_capture) && $lcovutil::lcov_capture != 0)) {
     warn("'--no-external' is ignored except in 'lcov --capture|-c'\n");
     $lcovutil::opt_no_external = 0;
 }
@@ -477,13 +332,13 @@ if (defined($lcovutil::opt_no_external) &&
 # Check for output filename
 $data_stdout = !($output_filename && ($output_filename ne "-"));
 
-if ($capture && $data_stdout) {
+if ($lcovutil::lcov_capture && $data_stdout) {
     # Option that tells geninfo to write to stdout
     $output_filename = "-";
 }
 
 # Determine kernel directory for gcov data
-if (!$from_package && !@directory && ($capture || $reset)) {
+if (!$from_package && !@directory && ($lcovutil::lcov_capture || $reset)) {
     ($gcov_gkv, $gcov_dir) = setup_gkv();
 }
 
@@ -499,7 +354,7 @@ eval {
         } else {
             kernel_reset();
         }
-    } elsif ($capture) {
+    } elsif ($lcovutil::lcov_capture) {
         # Capture source can be user space, kernel or package
         if ($from_package) {
             package_capture();
@@ -541,17 +396,17 @@ eval {
              $fn_overall_hit, $br_overall_found, $br_overall_hit
             ) = add_traces();
         }
-    } elsif ($remove) {
+    } elsif ($lcovutil::lcov_remove) {
 
         # remove files matching patterns
         ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
          $fn_overall_hit, $br_overall_found, $br_overall_hit
-        ) = remove_file_patterns($remove);
-    } elsif ($extract) {
+        ) = remove_file_patterns($lcovutil::lcov_remove);
+    } elsif ($lcovutil::lcov_extract) {
         # kep only the files matching patterns
         ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
          $fn_overall_hit, $br_overall_found, $br_overall_hit
-        ) = remove_file_patterns($extract);
+        ) = remove_file_patterns($lcovutil::lcov_extract);
     } elsif ($list) {
         $data_stdout = 0;
         list();
@@ -588,9 +443,9 @@ if (0 == $exit_code) {
                            1, $br_overall_found,
                            $br_overall_hit);
     } else {
-        info("Done.\n") if (!$list && !$capture);
+        info("Done.\n") if (!$list && !$lcovutil::lcov_capture);
     }
-    if (!defined($capture)) {
+    if (!defined($lcovutil::lcov_capture)) {
         lcovutil::warn_file_patterns()
             ;    # warn about unused include/exclude directives
         summarize_cov_filters(1);
@@ -601,7 +456,7 @@ $lcovutil::profileData{total} = $end - $begin;
 
 # if we executed 'geninfo' - then we saved the profile data from that process
 lcovutil::save_profile($output_filename ? $output_filename : "lcov")
-    unless $capture;
+    unless $lcovutil::lcov_capture;
 
 exit($exit_code);
 
@@ -709,14 +564,14 @@ sub check_options()
     my $i = 0;
 
     # Count occurrence of mutually exclusive options
-    $reset         && $i++;
-    $capture       && $i++;
-    @add_tracefile && $i++;
-    $extract       && $i++;
-    $remove        && $i++;
-    $list          && $i++;
-    $diff          && $i++;
-    @opt_summary   && $i++;
+    $reset                  && $i++;
+    $lcovutil::lcov_capture && $i++;
+    @add_tracefile          && $i++;
+    $lcovutil::lcov_extract && $i++;
+    $lcovutil::lcov_remove  && $i++;
+    $list                   && $i++;
+    $diff                   && $i++;
+    @opt_summary            && $i++;
 
     if ($i == 0 ||
         $i > 1) {
@@ -1009,12 +864,12 @@ sub lcov_geninfo(@)
     }
     push(@param, "--base-directory", $base_directory)
         if $base_directory;
-    foreach (split(',', join(',', @opt_ignore_errors))) {
+    foreach (split(',', join(',', @lcovutil::opt_ignore_errors))) {
         # pass only the 'ignore' options that geninfo understands
         push(@param, "--ignore-errors", $_)
             if exists($lcovutil::geninfoErrs{$_});
     }
-    foreach (@opt_filter) {
+    foreach (@lcovutil::opt_filter) {
         push(@param, "--filter", $_);
     }
     if ($no_recursion) {
@@ -1044,7 +899,7 @@ sub lcov_geninfo(@)
     foreach my $key (@lcovutil::opt_rc) {
         push(@param, "--rc", $key);
     }
-    foreach my $f (@opt_config_file) {
+    foreach my $f (@lcovutil::opt_config_files) {
         push(@param, "--config-file", $f);
     }
     foreach (@lcovutil::include_file_patterns) {
@@ -1074,7 +929,7 @@ sub lcov_geninfo(@)
         push(@param, '--parallel', $lcovutil::maxParallelism);
     }
     push(@param, '--memory', $lcovutil::maxMemory / (1 << 20));
-    push(@param, "--branch-coverage") if $br_coverage;
+    push(@param, "--branch-coverage") if $lcovutil::br_coverage;
     info("geninfo cmd: '" . join(' ', @param) . "'\n");
     system(@param) and exit($? >> 8);
 }
@@ -1839,9 +1694,10 @@ sub add_traces()
         $lcovutil::profileData{config}{segments} = scalar(@segments);
 
         $idx = 0;
-        # kind of a hack...write to the named director that the user gave
+        # kind of a hack...write to the named directory that the user gave
         #   us rather than to a funny generated name
-        my $tempDir = defined($tempdirname) ? $tempdirname : create_temp_dir();
+        my $tempDir = defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
+            create_temp_dir();
         my %children;
         my @pending;
         while (my $segment = pop(@segments)) {
@@ -1999,10 +1855,10 @@ sub add_traces()
         # sequential
         @effective = _process_segment($total_trace, $readSourceFile, \@merge);
     }
-    if (defined($tempdirname) &&
+    if (defined($lcovutil::tempdirname) &&
         !$lcovutil::preserve_intermediates) {
         # won't remove if directory not empty...probably what I want, for debugging
-        rmdir($tempdirname);
+        rmdir($lcovutil::tempdirname);
     }
     #...and turn any enabled filters back on...
     lcovutil::reenable_cov_filters($save_filters);

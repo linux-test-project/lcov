@@ -297,16 +297,6 @@ genhtml_sort = 1
 #genhtml_flat_view = 1
 .br
 
-# Include function coverage data display
-.br
-#genhtml_function_coverage = 1
-.br
-
-# Include branch coverage data display
-.br
-#genhtml_branch_coverage = 1
-.br
-
 # Specify the character set of all generated HTML pages
 .br
 genhtml_charset=UTF\-8
@@ -365,11 +355,6 @@ genhtml_desc_html=0
 # Ignore testcase names in .info file
 forget_testcase_names = 0
 
-# Calculate a checksum for each line if non\-zero (this option is deprecated)
-.br
-#geninfo_checksum = 0
-.br
-
 # Calculate and/or compute checksum for each line if non\-zero
 .br
 checksum = 0
@@ -426,6 +411,11 @@ geninfo_auto_base = 1
 geninfo_intermediate = auto
 .br
 
+# Specify if exception branches should be excluded from branch coverage.
+.br
+no_exception_branch = 0
+.br
+
 # Directory containing gcov kernel files
 .br
 lcov_gcov_dir = /proc/gcov
@@ -456,18 +446,18 @@ lcov_list_width = 80
 .br
 lcov_list_truncate_max = 20
 
-# Specify if function coverage data should be collected and
+# Specify if function coverage data should be collected, processed, and
 .br
-# processed.
+# displayed.
 .br
-lcov_function_coverage = 1
+function_coverage = 1
 .br
 
-# Specify if branch coverage data should be collected and
+# Specify if branch coverage data should be collected, processed, and
 .br
-# processed.
+# displayed.
 .br
-lcov_branch_coverage = 0
+branch_coverage = 0
 .br
 
 # Ask LCOV to return non-zero exit code if line coverage is
@@ -1032,34 +1022,6 @@ This option is equivalent to using the \-\-show\-proportion command line option 
 Default is 0.
 .PP
 
-.BR genhtml_function_coverage " ="
-.IR 0 | 1
-.IP
-If non\-zero, include function coverage data when generating HTML output using
-.BR genhtml .
-.br
-
-This option can be set to 0 by using the \-\-no\-function\-coverage option of
-.BR genhtml .
-.br
-
-Default is 1.
-.PP
-
-.BR genhtml_branch_coverage " ="
-.IR 0 | 1
-.IP
-If non\-zero, include branch coverage data when generating HTML output using
-.BR genhtml .
-.br
-
-This option can be set to 0 by using the \-\-no\-branch\-coverage option of
-.BR genhtml .
-.br
-
-Default is 1.
-.PP
-
 .BR genhtml_charset " ="
 .I charset
 .IP
@@ -1227,15 +1189,21 @@ source code versions but checksum generation increases the size of coverage
 files and the time used to generate those files.
 .br
 
-This option corresponds to the \-\-checksum and \-\-no\-checksum command line
-option of
-.BR geninfo .
+The backward compatible
+.I geninfo_checksum
+option is deprecated.  Please use
+.I checksum
+instead.  The new option is preferred as it is more clear that the option is used by lcov and genhtml as well as geninfo,
+.br
+
+This option can be overridden by the \-\-checksum and \-\-no\-checksum command line
+options.
 .br
 
 Default is 0.
 
 Note that this options is somewhat subsumed by the
-.I verification_script
+.I version_script
 option - which does something similar, but at the 'whole file' level.
 
 .PP
@@ -1414,7 +1382,11 @@ Whether C++ exception branches are identified and removed is dependent on your c
 
 This option is used by lcov, geninfo, genhtml.
 
-Note that "no_exception_branch" is the preferred option to use as this makes it more clear that the option is used by lcov and genhtml as well as geninfo,
+The backward compatible
+.I geninfo_no_exception_branch
+option is deprecated.  Please use
+.I no_exception_branch
+instead.  The new option is preferred as it is more clear that the option is used by lcov and genhtml as well as geninfo,
 .br
 
 Default is 0.
@@ -1474,34 +1446,64 @@ lcov_list_full_path is non\-zero.
 Default is 20.
 .PP
 
-.BR lcov_function_coverage " ="
+.BR function_coverage " ="
 .IR 0 | 1
 .IP
-Specify whether lcov should handle function coverage data.
+Specify whether lcov/geninfo/genhtml should generate, process, and
+display function coverage data.
 .br
 
-Setting this option to 0 can reduce memory and CPU time consumption
+Turning off function coverage by setting this option to 0 can
+sligly reduce memory and CPU time consumption
 when lcov is collecting and processing coverage data, as well as
-reduce the size of the resulting data files. Note that setting
+reduce the size of the resulting data files.
+.br
+
+This option can be overriden by the
+.I \-\-function\-coverage
+and
+.I \-\-no\-function\-coverage
+command line options.
+.br
+
+
+Backward-compatible RC options
+.B lcov_function_coverage
+and
 .B genhtml_function_coverage
-will override this option for HTML generation.
+are supported but deprecated.  Please use the new option instead.
 .br
 
 Default is 1.
 .PP
 
-.BR lcov_branch_coverage " ="
+.BR branch_coverage " ="
 .IR 0 | 1
 .IP
-Specify whether lcov should handle branch coverage data.
+Specify whether lcov/geninfo should generate, process, and display branch
+coverage data.
 .br
 
-Setting this option to 0 can reduce memory and CPU time consumption
+Turning off branch coverage by setting this option to 0 can reduce
+memory and CPU time consumption
 when lcov is collecting and processing coverage data, as well as
-reduce the size of the resulting data files. Note that setting
-.B genhtml_branch_coverage
-will override this option for HTML generation.
+reduce the size of the resulting data files.
 .br
+
+This option can be overriden by the
+.I \-\-branch\-coverage
+and
+.I \-\-no\-branch\-coverage
+ command line options.
+.br
+
+Backward-compatible RC options
+.B lcov_branch_coverage
+and
+.B genhtml_branch_coverage
+are supported but deprecated.  Please use the new option instead.
+.br
+
 
 Default is 0.
 .PP

@@ -15,6 +15,7 @@ use Module::Load::Conditional qw(check_install);
 use Storable;
 use Digest::MD5 qw(md5_base64);
 use FindBin;
+use Getopt::Long;
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
@@ -28,10 +29,11 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $maxParallelism $maxMemory init_parallel_params current_process_size
      save_profile merge_child_profile save_cmd_line
 
-     @opt_rc apply_rc_params
+     @opt_rc apply_rc_params parseOptions
      strip_directories
      @file_subst_patterns subst_file_name
 
+     $br_coverage $func_coverage
      $cpp_demangle $cpp_demangle_tool $cpp_demangle_params do_mangle_check
 
      $FILTER_BRANCH_NO_COND $FILTER_FUNCTION_ALIAS
@@ -55,7 +57,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
-     $ERROR_UNSUPPORTED $ERROR_INCONSISTENT_DATA
+     $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
@@ -102,7 +104,8 @@ our $ERROR_NEGATIVE          = 11; # unexpected negative count in coverage data
 our $ERROR_COUNT             = 12; # too many messages of type
 our $ERROR_UNSUPPORTED       = 13; # some unsupported feature or usage
 our $ERROR_PARALLEL          = 14; # error in fork/join
-our $ERROR_INCONSISTENT_DATA = 15; # somthing wrong with .info
+our $ERROR_DEPRECATED        = 15; # deprecated feature
+our $ERROR_INCONSISTENT_DATA = 16; # somthing wrong with .info
 
 our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "source"       => $ERROR_SOURCE,
@@ -119,8 +122,14 @@ our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "count"        => $ERROR_COUNT,
                     "unsupported"  => $ERROR_UNSUPPORTED,
                     "inconsistent" => $ERROR_INCONSISTENT_DATA,
+                    "deprecated"   => $ERROR_DEPRECATED,
                     "package"      => $ERROR_PACKAGE,);
 our $stop_on_error;    # attempt to keep going
+
+our $br_coverage   = 0;    # If set, generate branch coverage statistics
+our $func_coverage = 1;    # If set, generate function coverage statistics
+our $rtlExtensions;
+our $cExtensions;
 
 # for external file filtering
 our @internal_dirs;
@@ -761,25 +770,132 @@ sub apply_config($$$)
     return $set_value;
 }
 
+# use these list values from the RC file unless the option is
+#   passed on teh command line
+my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
+    @rc_include_patterns, @rc_subst_patterns, @rc_omit_patterns,
+    @rc_erase_patterns, @rc_version_script, @unsupported_config,
+    %unsupported_rc, $keepGoing, $help,
+    $rc_no_branch_coverage, $rc_no_func_coverage, $rc_no_checksum,
+    $version);
+my $quiet = 0;
+my $tempdirname;
+
+# these options used only by lcov - but moved here so that we can
+#   share arg parsing
+our ($lcov_remove,     # If set, removes parts of tracefile
+     $lcov_capture,    # If set, capture data
+     $lcov_extract);    # If set, extracts parts of tracefile
+our @opt_config_files;
+our @opt_ignore_errors;
+our @opt_filter;
+
+my %deprecated_rc = ("geninfo_checksum"            => "checksum",
+                     "geninfo_no_exception_branch" => "no_exception_branch",
+                     "lcov_branch_coverage"        => "branch_coverage",
+                     "lcov_function_coverage"      => "function_coverage",
+                     "genhtml_function_coverage"   => "function_coverage",
+                     "genhtml_branch_coverage"     => "branch_coverage",);
+my @deprecated_uses;
+
+my %rc_common = (
+             'derive_function_end_line' => \$lcovutil::derive_function_end_line,
+             'trivial_function_threshold' => \$lcovutil::trivial_function_threshold,
+             "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
+             "lcov_json_module"            => \$JsonSupport::rc_json_module,
+             "branch_coverage"             => \$lcovutil::br_coverage,
+             "function_coverage"           => \$lcovutil::func_coverage,
+             "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
+             "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
+             "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
+             "lcov_function_coverage"      => \$lcovutil::func_coverage,
+             "lcov_branch_coverage"        => \$lcovutil::br_coverage,
+             "ignore_errors"               => \@rc_ignore,
+             "max_message_count"           => \$lcovutil::suppressAfter,
+             'stop_on_error'               => \$lcovutil::stop_on_error,
+             "rtl_file_extensions"         => \$rtlExtensions,
+             "c_file_extensions"           => \$cExtensions,
+             "filter_lookahead" => \$lcovutil::source_filter_lookahead,
+             "filter_bitwise_conditional" =>
+        \$lcovutil::source_filter_bitwise_are_conditional,
+             "profile"  => \$lcovutil::profile,
+             "parallel" => \$lcovutil::maxParallelism,
+             "memory"   => \$lcovutil::maxMemory,
+
+             "no_exception_branch"   => \$lcovutil::exclude_exception_branch,
+             'filter'                => \@rc_filter,
+             'exclude'               => \@rc_exclude_patterns,
+             'include'               => \@rc_include_patterns,
+             'substitute'            => \@rc_subst_patterns,
+             'omit_lines'            => \@rc_omit_patterns,
+             'erase_functions'       => \@rc_erase_patterns,
+             "version_script"        => \@rc_version_script,
+             "checksum"              => \$lcovutil::verify_checksum,
+             "case_insensitive"      => \$lcovutil::case_insensitive,
+             "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
+             "split_char"            => \$lcovutil::split_char,
+
+             "genhtml_demangle_cpp" => \$lcovutil::cpp_demangle,
+             "genhtml_demangle_cpp_tool" => \$lcovutil::cpp_demangle_tool,
+             "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
+
+);
+
+our %argCommon = ("tempdir=s"        => \$tempdirname,
+                  "version-script=s" => \@lcovutil::extractVersionScript,
+                  "checksum"         => \$lcovutil::verify_checksum,
+                  "no-checksum"      => \$rc_no_checksum,
+                  "quiet|q+"         => \$quiet,
+                  "verbose|v+"       => \$lcovutil::verbose,
+                  "debug+"           => \$lcovutil::debug,
+                  "help|h|?"         => \$help,
+                  "version"          => \$version,
+
+                  "function-coverage"    => \$lcovutil::func_coverage,
+                  "branch-coverage"      => \$lcovutil::br_coverage,
+                  "no-function-coverage" => \$rc_no_func_coverage,
+                  "no-branch-coverage"   => \$rc_no_branch_coverage,
+
+                  "filter=s"          => \@opt_filter,
+                  "demangle-cpp"      => \$lcovutil::cpp_demangle,
+                  "ignore-errors=s"   => \@opt_ignore_errors,
+                  "keep-going"        => \$keepGoing,
+                  "config-file=s"     => \@unsupported_config,
+                  "rc=s%"             => \%unsupported_rc,
+                  "profile:s"         => \$lcovutil::profile,
+                  "exclude=s"         => \@lcovutil::exclude_file_patterns,
+                  "include=s"         => \@lcovutil::include_file_patterns,
+                  "erase-functions=s" => \@lcovutil::exclude_function_patterns,
+                  "omit-lines=s"      => \@lcovutil::omit_line_patterns,
+                  "substitute=s"      => \@lcovutil::file_subst_patterns,
+                  "parallel|j:i"      => \$lcovutil::maxParallelism,
+                  "memory=i"          => \$lcovutil::maxMemory,
+                  "forget-test-names" => \$TraceFile::ignore_testcase_name,
+                  "preserve"          => \$lcovutil::preserve_intermediates,);
+
 # common utility used by genhtml, geninfo, lcov to clean up RC options,
 #  check for various possible system-wide RC files, and apply the result
 # return 1 if we set something
-sub apply_rc_params($$)
+sub apply_rc_params($)
 {
-    my ($opt_config_file, $rcHash) = @_;
+    my $rcHash = shift;
+
+    # merge common RC values with the ones passed in
+    my %rcHash = (%$rcHash, %rc_common);
 
     # Check command line for a configuration file name
     # have to set 'verbosity' flag from environment - otherwise, it isn't
     #  set (from GetOpt) when we parse the RC file
     Getopt::Long::Configure("pass_through", "no_auto_abbrev");
     my $quiet = 0;
-    Getopt::Long::GetOptions("config-file=s" => $opt_config_file,
+    Getopt::Long::GetOptions("config-file=s" => \@opt_config_files,
                              "rc=s%"         => \@opt_rc,
                              "quiet|q+"      => \$quiet,
                              "verbose|v+"    => \$lcovutil::verbose,
                              "debug+"        => \$lcovutil::debug,);
     init_verbose_flag($quiet);
     Getopt::Long::Configure("default");
+
     my $set_value = 0;
     my %new_opt_rc;
 
@@ -790,12 +906,17 @@ sub apply_rc_params($$)
         my $key   = substr($v, 0, $index);
         my $value = substr($v, $index + 1);
         $key =~ s/^\s+|\s+$//g;
-        next unless exists($rcHash->{$key});
+        next unless exists($rcHash{$key});
         info(1, "apply --rc overrides\n")
             unless $set_value;
+        # can't complain about deprecated uses here because the user
+        #  might have suppressed that message - but we haven't looked at
+        #  the suppressions in the parameter list yet.
+        push(@deprecated_uses, $key)
+            if (exists($deprecated_rc{$key}));
         # strip spaces
         $value =~ s/^\s+|\s+$//g;
-        _set_config($rcHash, $key, $value);
+        _set_config(\%rcHash, $key, $value);
         $set_value = 1;
         # record override of this one - so we skip the value from the
         #  config file
@@ -803,10 +924,10 @@ sub apply_rc_params($$)
     }
     my $config;    # did we see a config file or not?
                    # Read configuration file if available
-    if (0 != scalar(@$opt_config_file)) {
-        foreach my $f (@$opt_config_file) {
+    if (0 != scalar(@opt_config_files)) {
+        foreach my $f (@opt_config_files) {
             $config = read_config($f);
-            $set_value |= apply_config($rcHash, $config, \%new_opt_rc);
+            $set_value |= apply_config(\%rcHash, $config, \%new_opt_rc);
         }
         return $set_value;
     } elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"} . "/.lcovrc")) {
@@ -819,9 +940,96 @@ sub apply_rc_params($$)
 
     if ($config) {
         # Copy configuration file and --rc values to variables
-        $set_value |= apply_config($rcHash, $config, \%new_opt_rc);
+        $set_value |= apply_config(\%rcHash, $config, \%new_opt_rc);
     }
+    lcovutil::set_rtl_extensions($rtlExtensions)
+        if $rtlExtensions;
+    lcovutil::set_c_extensions($cExtensions)
+        if $cExtensions;
+
     return $set_value;
+}
+
+sub parseOptions
+{
+    my ($rcOptions, $cmdLineOpts) = @_;
+
+    apply_rc_params($rcOptions);
+
+    my %options = (%argCommon, %$cmdLineOpts);
+    if (!GetOptions(%options)) {
+        return 0;
+    }
+    foreach my $d (['--config-file', scalar(@unsupported_config)],
+                   ['--rc', scalar(%unsupported_rc)]) {
+        die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
+            if ($d->[1]);
+    }
+
+    if ($help) {
+        main::print_usage(*STDOUT);
+        exit(0);
+    }
+    # Check for version option
+    if ($version) {
+        print("$tool_name: $lcov_version\n");
+        exit(0);
+    }
+
+    lcovutil::init_verbose_flag($quiet);
+    @opt_filter                      = @rc_filter unless @opt_filter;
+    @opt_ignore_errors               = @rc_ignore unless @opt_ignore_errors;
+    @lcovutil::exclude_file_patterns = @rc_exclude_patterns
+        unless @lcovutil::exclude_file_patterns;
+    @lcovutil::include_file_patterns = @rc_include_patterns
+        unless @lcovutil::include_file_patterns;
+    @lcovutil::subst_file_patterns = @rc_subst_patterns
+        unless @lcovutil::subst_file_patterns;
+    @lcovutil::omit_line_patterns = @rc_omit_patterns
+        unless @lcovutil::omit_line_patterns;
+    @lcovutil::exclude_function_patterns = @rc_erase_patterns
+        unless @lcovutil::exclude_function_patterns;
+    @lcovutil::extractVersionScript = @rc_version_script
+        unless @lcovutil::extractVersionScript;
+
+    $lcovutil::stop_on_error = 0
+        if (defined $keepGoing);
+
+    push(@lcovutil::exclude_file_patterns, @ARGV)
+        if $lcov_remove;
+    push(@lcovutil::include_file_patterns, @ARGV)
+        if $lcov_extract;
+
+    # Merge options
+    $lcovutil::func_coverage = 0
+        if ($rc_no_func_coverage);
+    $lcovutil::br_coverage = 0
+        if ($rc_no_branch_coverage);
+    if (defined($rc_no_checksum)) {
+        $lcovutil::verify_checksum = ($rc_no_checksum ? 0 : 1);
+    }
+
+    if (!$lcov_capture) {
+        lcovutil::munge_file_patterns();
+        lcovutil::init_parallel_params();
+        # Determine which errors the user wants us to ignore
+        parse_ignore_errors(@opt_ignore_errors);
+        # Determine what coverpoints the user wants to filter
+        parse_cov_filters(@opt_filter);
+
+        # Ensure that the c++filt tool is available when using --demangle-cpp
+        lcovutil::do_mangle_check();
+
+        foreach my $key (@deprecated_uses) {
+            lcovutil::ignorable_warning($lcovutil::ERROR_DEPRECATED,
+                "RC option '$key' is deprecated.  Consider using '" .
+                    $deprecated_rc{$key} .
+                    ". instead.  (Backward-compatible support will be removed in the future"
+            );
+        }
+    }
+
+    return 1;
 }
 
 #
@@ -1019,7 +1227,8 @@ sub parse_ignore_errors(@)
     # first, mark that all known errors are not ignored
     foreach my $item (keys(%ERROR_ID)) {
         my $id = $ERROR_ID{$item};
-        $ignore[$id] = 0;
+        $ignore[$id] = 0
+            unless defined($ignore[$id]);
     }
 
     return if (!@ignore_errors);
@@ -1158,7 +1367,8 @@ sub parse_cov_filters(@)
     # first, mark that all known filters are disabled
     foreach my $item (keys(%COVERAGE_FILTERS)) {
         my $id = $COVERAGE_FILTERS{$item};
-        $cov_filter[$id] = undef;
+        $cov_filter[$id] = undef
+            unless defined($cov_filter[$id]);
     }
 
     return if (!@filters);
@@ -3657,7 +3867,7 @@ sub _eraseFunctions
             # we can skip out of processing if we don't know the end line
             # - there is no way for us to remove line and branch points in
             #   the function region
-            # Or we can keep going and at least removed the matched function
+            # Or we can keep going and at least remove the matched function
             #   coverpoint.
             #last; # at least for now:  keep going
         }
@@ -3714,7 +3924,7 @@ sub applyFilters
         # (not trying to handle python nested functions, etc)
         if (defined($lcovutil::derive_function_end_line) &&
             $lcovutil::derive_function_end_line != 0 &&
-            defined($main::func_coverage) &&
+            defined($lcovutil::func_coverage) &&
             is_c_file($source_file)) {
             my @lines = sort { $a <=> $b } $traceInfo->sum()->keylist();
             # sort functions by start line number
@@ -3798,8 +4008,8 @@ sub applyFilters
             $srcReader->open($source_file);
         }
 
-        if (defined($main::func_coverage)    &&
-            !defined($didUnsupportedWarning) &&
+        if (defined($lcovutil::func_coverage) &&
+            !defined($didUnsupportedWarning)  &&
             0 != scalar(@lcovutil::exclude_function_patterns)) {
 
             # filter excluded function line ranges
@@ -3832,7 +4042,7 @@ sub applyFilters
             my $testbrcount  = $testbrdata->value($testname);
 
             my $functionMap = $testfncdata->{$testname};
-            if ($main::func_coverage &&
+            if ($lcovutil::func_coverage &&
                 $functionMap &&
                 ($region || $range)) {
                 # Write function related data - sort  by line number
@@ -3868,7 +4078,7 @@ sub applyFilters
                 }    # foreach function
             }    # if func_coverage
                  # $testbrcount is undef if there are no branches in the scope
-            if ($main::br_coverage &&
+            if ($lcovutil::br_coverage &&
                 defined($testbrcount) &&
                 ($branch_histogram || $region || $range)) {
                 foreach my $line ($testbrcount->keylist()) {
@@ -4238,7 +4448,7 @@ sub _read_info
             };
 
             /^FN:(\d+),((\d+),)?(.+)$/ && do {
-                last if (!$main::func_coverage);
+                last if (!$lcovutil::func_coverage);
                 # Function data found, add to structure
                 my $lineNo   = $1;
                 my $fnName   = $4;
@@ -4253,7 +4463,7 @@ sub _read_info
             };
 
             /^FNDA:(\d+),(.+)$/ && do {
-                last if (!$main::func_coverage);
+                last if (!$lcovutil::func_coverage);
                 my $fnName = $2;
                 my $hit    = $1;
                 # we expect to find a function with ths name...
@@ -4270,7 +4480,7 @@ sub _read_info
             };
 
             /^BRDA:(\d+),(e?)(\d+),(.+)$/ && do {
-                last if (!$main::br_coverage);
+                last if (!$lcovutil::br_coverage);
 
                 # Branch coverage data found
                 # line data is "lineNo,blockId,(branchIdx|branchExpr),taken
@@ -4389,7 +4599,7 @@ sub _read_info
                             }
                         }
                     }    # end "if (! rtl)"
-                    if ($main::func_coverage) {
+                    if ($lcovutil::func_coverage) {
 
                         if ($funcdata != $functionMap) {
                             $funcdata->merge($functionMap);
@@ -4564,7 +4774,7 @@ sub write_info($$$)
             }
 
             my $functionMap = $testfncdata->{$testname};
-            if ($main::func_coverage &&
+            if ($lcovutil::func_coverage &&
                 $functionMap) {
                 # Write function related data - sort  by line number then
                 #  by name (compiler-generated functions may have same line)
@@ -4610,7 +4820,7 @@ sub write_info($$$)
                 print(INFO_HANDLE "FNH:$f_hit\n");
             }
             # $testbrcount is undef if there are no branches in the scope
-            if ($main::br_coverage &&
+            if ($lcovutil::br_coverage &&
                 defined($testbrcount)) {
                 # Write branch related data
                 $br_found = 0;

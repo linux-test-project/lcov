@@ -82,7 +82,6 @@ use File::Copy;
 use File::Path;
 use File::Spec;
 use File::Temp;
-use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path realpath cwd/;
 use DateTime;
@@ -104,11 +103,11 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED $ERROR_PACKAGE
                  $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_UNSUPPORTED
-                 $ERROR_INCONSISTENT_DATA
+                 $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
                  $ERROR_PARALLEL report_parallel_error
+                 $br_coverage $func_coverage
                  info $verbose init_verbose_flag debug $debug
-                 do_mangle_check
-                 apply_rc_params
+                 parseOptions
                  strip_directories
                  set_rtl_extensions set_c_extensions
                  parse_cov_filters summarize_cov_filters
@@ -224,6 +223,7 @@ $ERROR_CORRUPT     = 14;
 $ERROR_NEGATIVE    = 15;
 $ERROR_COUNT       = 16;
 $ERROR_UNSUPPORTED = 17;
+$ERROR_DEPRECATED  = 18;
 
 our %htmlErrs = ("source"       => $ERROR_SOURCE,
                  "unmapped"     => $ERROR_UNMAPPED_LINE,
@@ -242,6 +242,7 @@ our %htmlErrs = ("source"       => $ERROR_SOURCE,
                  "negative"     => $ERROR_NEGATIVE,
                  "count"        => $ERROR_COUNT,
                  "unsupported"  => $ERROR_UNSUPPORTED,
+                 "deprecated"   => $ERROR_DEPRECATED,
                  "corrupt"      => $ERROR_CORRUPT,);
 lcovutil::define_errors(\%htmlErrs);
 
@@ -784,11 +785,11 @@ sub findOwnerList
     foreach my $owner (keys(%{$self->{owners}})) {
         my $lineMissed = $self->owner_tlaCount($owner, 'missed');
         my $branchMissed =
-            $main::br_coverage ?
+            $lcovutil::br_coverage ?
             $self->owner_tlaCount($owner, 'missed', 'branch') :
             0;
         my $funcMissed =
-            $main::func_coverage ?
+            $lcovutil::func_coverage ?
             $self->owner_tlaCount($owner, 'missed', 'function') :
             0;
         # filter owners who have unexercised code, if requested
@@ -801,11 +802,11 @@ sub findOwnerList
                 OwnerDetailCallback->new($self, $owner, 'function');
             my $lineTotal = $self->owner_tlaCount($owner, 'found');
             my $branchTotal =
-                $main::br_coverage ?
+                $lcovutil::br_coverage ?
                 $self->owner_tlaCount($owner, 'found', 'branch') :
                 0;
             my $funcTotal =
-                $main::func_coverage ?
+                $lcovutil::func_coverage ?
                 $self->owner_tlaCount($owner, 'found', 'function') :
                 0;
             push(@owners,
@@ -1417,14 +1418,14 @@ sub findFileList
         my $brCb     = OwnerDetailCallback->new($source, $owner, 'branch');
         my $funcCb   = OwnerDetailCallback->new($source, $owner, 'function');
         my $total    = $lineCb->get('found');
-        my $br_total = $main::br_coverage ? $brCb->get('found') : 0;
-        my $fn_total = $main::func_coverage ? $funcCb->get('found') : 0;
+        my $br_total = $lcovutil::br_coverage ? $brCb->get('found') : 0;
+        my $fn_total = $lcovutil::func_coverage ? $funcCb->get('found') : 0;
         next if (0 == $total &&
                  0 == $br_total &&
                  0 == $fn_total);
         my $missed    = $lineCb->get('missed');
-        my $br_missed = $main::br_coverage ? $brCb->get('missed') : 0;
-        my $fn_missed = $main::func_coverage ? $funcCb->get('missed') : 0;
+        my $br_missed = $lcovutil::br_coverage ? $brCb->get('missed') : 0;
+        my $fn_missed = $lcovutil::func_coverage ? $funcCb->get('missed') : 0;
 
         if ($all ||
             0 != $missed    ||
@@ -1536,15 +1537,15 @@ sub findFileList
         my $brCb     = DateDetailCallback->new($source, $ageval, 'branch');
         my $funcCb   = DateDetailCallback->new($source, $ageval, 'function');
         my $total    = $lineCb->get('found');
-        my $br_total = $main::br_coverage ? $brCb->get('found') : 0;
-        my $fn_total = $main::func_coverage ? $funcCb->get('found') : 0;
+        my $br_total = $lcovutil::br_coverage ? $brCb->get('found') : 0;
+        my $fn_total = $lcovutil::func_coverage ? $funcCb->get('found') : 0;
         next if (0 == $total &&
                  0 == $br_total &&
                  0 == $fn_total);
 
         my $missed    = $lineCb->get('missed');
-        my $br_missed = $main::br_coverage ? $brCb->get('missed') : 0;
-        my $fn_missed = $main::func_coverage ? $funcCb->get('missed') : 0;
+        my $br_missed = $lcovutil::br_coverage ? $brCb->get('missed') : 0;
+        my $fn_missed = $lcovutil::func_coverage ? $funcCb->get('missed') : 0;
         if ($all ||
             0 != $missed    ||
             0 != $br_missed ||
@@ -2123,10 +2124,10 @@ sub new
                               $linemap, $verbose);
     $self->_categorizeBranchCov($filename, $base_data, $current_data,
                                 $linemap, $verbose)
-        if ($main::br_coverage);
+        if ($lcovutil::br_coverage);
     $self->_categorizeFunctionCov($filename, $base_data, $current_data,
                                   $linemap, $verbose)
-        if ($main::func_coverage);
+        if ($lcovutil::func_coverage);
     return $self;
 }
 
@@ -2182,7 +2183,7 @@ sub recategorizeTlaAsBaseline
         }
 
         # branch coverage...
-        if ($main::br_coverage && defined($data->differential_branch())) {
+        if ($lcovutil::br_coverage && defined($data->differential_branch())) {
             my $br = $data->differential_branch();
 
             foreach my $branchId ($br->blocks()) {
@@ -2197,7 +2198,8 @@ sub recategorizeTlaAsBaseline
         }    # if branch data
 
         # function coverage..
-        if ($main::func_coverage && defined($data->differential_function())) {
+        if ($lcovutil::func_coverage && defined($data->differential_function()))
+        {
             my $func = $data->differential_function();
             my $hit  = $func->hit();
             my $tla  = $hit->[1];
@@ -3397,10 +3399,11 @@ sub new
         $self->_countLineTlaData($line, $lne, $fileSummary);
 
         $self->_countBranchTlaData($line, $lne, $fileSummary)
-            if ($main::br_coverage && defined($lne->differential_branch()));
+            if ($lcovutil::br_coverage && defined($lne->differential_branch()));
 
         $self->_countFunctionTlaData($line, $lne, $fileSummary)
-            if ($main::func_coverage && defined($lne->differential_function()));
+            if ($lcovutil::func_coverage &&
+                defined($lne->differential_function()));
     }
     return $self;
 }
@@ -4850,14 +4853,8 @@ our $diff_filename;       # Optional name of file containing baseline data
 our $strip;               # If set, strip leading directories when applying diff
 our $desc_filename;       # Name of file containing test descriptions
 our $css_filename;        # Optional name of external stylesheet file to use
-our $help;                # Help option flag
-our $version;             # Version option flag
 our $show_details;        # If set, generate detailed directory view
 our $no_prefix;           # If set, do not remove filename prefix
-our $func_coverage;       # If set, generate function coverage statistics
-our $no_func_coverage;    # Disable func_coverage
-our $br_coverage;         # If set, generate branch coverage statistics
-our $no_br_coverage;      # Disable br_coverage
 our $show_tla;            # categorize coverage data (or not)
 our $show_functionProportions = 0
     ; # show proportion of lines/branches containted in the function whihc are hit
@@ -4904,24 +4901,18 @@ our $html_prolog;       # Actual HTML prolog
 our $html_epilog;       # Actual HTML epilog
 our $html_ext  = "html";    # Extension for generated HTML files
 our $html_gzip = 0;         # Compress with gzip
-our @opt_ignore_errors;     # Ignore certain error classes during processing
-our @opt_filter;            # Filter out requested coverpoints
-our @ignore;
-our @opt_config_file;             # User-specified configuration files (paths)
-our $opt_missed;                  # List/sort lines by missed counts
-our $dark_mode;                   # Use dark mode palette or normal
-our $charset = "UTF-8";           # Default charset for HTML pages
+our $opt_missed;            # List/sort lines by missed counts
+our $dark_mode;             # Use dark mode palette or normal
+our $charset = "UTF-8";     # Default charset for HTML pages
 our @fileview_sortlist;
 our @fileview_sortname = ("", "-sort-l", "-sort-f", "-sort-b");
 our @fileview_prefixes = ("");
 our @funcview_sortlist;
-our @rate_name            = ("Lo", "Med", "Hi");
-our @rate_png             = ("ruby.png", "amber.png", "emerald.png");
-our $lcov_func_coverage   = 1;
-our $lcov_branch_coverage = 0;
-our $rc_desc_html         = 0;    # lcovrc: genhtml_desc_html
+our @rate_name    = ("Lo", "Med", "Hi");
+our @rate_png     = ("ruby.png", "amber.png", "emerald.png");
+our $rc_desc_html = 0;      # lcovrc: genhtml_desc_html
 
-our $cwd = cwd();                 # Current working directory
+our $cwd = cwd();           # Current working directory
 
 #
 # Code entry point
@@ -4933,124 +4924,57 @@ $SIG{__DIE__}  = \&lcovutil::die_handler;
 STDERR->autoflush;
 STDOUT->autoflush;
 
-my $rtlExtensions;
-my $cExtensions;
 my @datebins;
+my (@rc_date_bins, @rc_annotate_script, @rc_criteria_script);
 
-# retrieve settings from RC file - use these if not overridden on command line
-my (@rc_datebins, @rc_filter, @rc_ignore,
-    @rc_exclude_patterns, @rc_include_patterns, @rc_subst_patterns,
-    @rc_omit_patterns, @rc_erase_patterns);
+my %genhtml_rc_opts = (
+               "genhtml_css_file"           => \$css_filename,
+               "genhtml_header"             => \$header_title,
+               "genhtml_footer"             => \$footer,
+               "genhtml_line_field_width"   => \$line_field_width,
+               "genhtml_overview_width"     => \$overview_width,
+               "genhtml_nav_resolution"     => \$nav_resolution,
+               "genhtml_nav_offset"         => \$nav_offset,
+               "genhtml_keep_descriptions"  => \$keep_descriptions,
+               "genhtml_no_prefix"          => \$no_prefix,
+               "genhtml_no_source"          => \$no_sourceview,
+               "genhtml_num_spaces"         => \$tab_size,
+               "genhtml_highlight"          => \$highlight,
+               "genhtml_legend"             => \$legend,
+               "genhtml_html_prolog"        => \$html_prolog_file,
+               "genhtml_html_epilog"        => \$html_epilog_file,
+               "genhtml_html_extension"     => \$html_ext,
+               "genhtml_html_gzip"          => \$html_gzip,
+               "genhtml_precision"          => \$lcovutil::default_precision,
+               "genhtml_function_coverage"  => \$lcovutil::func_coverage,
+               "genhtml_branch_coverage"    => \$lcovutil::br_coverage,
+               "genhtml_hi_limit"           => \$hi_limit,
+               "genhtml_med_limit"          => \$med_limit,
+               "genhtml_line_hi_limit"      => \$ln_hi_limit,
+               "genhtml_line_med_limit"     => \$ln_med_limit,
+               "genhtml_function_hi_limit"  => \$fn_hi_limit,
+               "genhtml_function_med_limit" => \$fn_med_limit,
+               "genhtml_branch_hi_limit"    => \$br_hi_limit,
+               "genhtml_branch_med_limit"   => \$br_med_limit,
+               "genhtml_branch_field_width" => \$br_field_width,
+               "genhtml_owner_field_width"  => \$owner_field_width,
+               "genhtml_age_field_width"    => \$age_field_width,
+               "genhtml_sort"               => \$sort,
+               "genhtml_charset"            => \$charset,
+               "genhtml_desc_html"          => \$rc_desc_html,
+               "genhtml_missed"             => \$opt_missed,
+               "genhtml_dark_mode"          => \$dark_mode,
+               "genhtml_hierarchical"       => \$hierarchical,
+               "genhtml_flat_view"          => \$flat,
+               "genhtml_show_havigation"    => \$show_tla,
+               "genhtml_show_function_proportion" => \$show_functionProportions,
+               'genhtml_annotate_script'     => \@rc_annotate_script,
+               'genhtml_criteria_script'     => \@rc_criteria_script,
+               'genhtml_date_bins'           => \@rc_date_bins,);
 
-lcovutil::apply_rc_params(\@opt_config_file,
-                          {
-                           "genhtml_css_file"          => \$css_filename,
-                           "genhtml_header"            => \$header_title,
-                           "genhtml_footer"            => \$footer,
-                           "genhtml_line_field_width"  => \$line_field_width,
-                           "genhtml_overview_width"    => \$overview_width,
-                           "genhtml_nav_resolution"    => \$nav_resolution,
-                           "genhtml_nav_offset"        => \$nav_offset,
-                           "genhtml_keep_descriptions" => \$keep_descriptions,
-                           "genhtml_no_prefix"         => \$no_prefix,
-                           "genhtml_no_source"         => \$no_sourceview,
-                           "genhtml_num_spaces"        => \$tab_size,
-                           "genhtml_highlight"         => \$highlight,
-                           "genhtml_legend"            => \$legend,
-                           "genhtml_html_prolog"       => \$html_prolog_file,
-                           "genhtml_html_epilog"       => \$html_epilog_file,
-                           "genhtml_html_extension"    => \$html_ext,
-                           "genhtml_html_gzip"         => \$html_gzip,
-                           "genhtml_precision" => \$lcovutil::default_precision,
-                           "genhtml_hi_limit"  => \$hi_limit,
-                           "genhtml_med_limit" => \$med_limit,
-                           "genhtml_line_hi_limit"      => \$ln_hi_limit,
-                           "genhtml_line_med_limit"     => \$ln_med_limit,
-                           "genhtml_function_hi_limit"  => \$fn_hi_limit,
-                           "genhtml_function_med_limit" => \$fn_med_limit,
-                           "genhtml_function_coverage"  => \$func_coverage,
-                           "genhtml_branch_hi_limit"    => \$br_hi_limit,
-                           "genhtml_branch_med_limit"   => \$br_med_limit,
-                           "genhtml_branch_coverage"    => \$br_coverage,
-                           "genhtml_branch_field_width" => \$br_field_width,
-                           "genhtml_owner_field_width"  => \$owner_field_width,
-                           "genhtml_age_field_width"    => \$age_field_width,
-                           "genhtml_sort"               => \$sort,
-                           "genhtml_charset"            => \$charset,
-                           "genhtml_desc_html"          => \$rc_desc_html,
-                           "genhtml_demangle_cpp" => \$lcovutil::cpp_demangle,
-                           "genhtml_demangle_cpp_tool" => \$lcovutil::cpp_demangle_tool,
-                           "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
-                           "genhtml_missed"          => \$opt_missed,
-                           "genhtml_dark_mode"       => \$dark_mode,
-                           "genhtml_hierarchical"    => \$hierarchical,
-                           "genhtml_flat_view"       => \$flat,
-                           "genhtml_show_havigation" => \$show_tla,
-                           "genhtml_show_function_proportion" => \$show_functionProportions,
-                           'genhtml_annotate_script' => \@SourceFile::annotateScript,
-                           'genhtml_criteria_script' => \@SummaryInfo::coverageCriteriaScript,
-                           'genhtml_date_bins' => \@rc_datebins,
-                           "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
-                           "no_exception_branch" => \$lcovutil::exclude_exception_branch,
-                           'derive_function_end_line' => \$lcovutil::derive_function_end_line,
-                           "lcov_tmp_dir"     => \$lcovutil::tmp_dir,
-                           "lcov_json_module" => \$JsonSupport::rc_json_module,
-                           "lcov_function_coverage" => \$lcov_func_coverage,
-                           "lcov_branch_coverage"   => \$lcov_branch_coverage,
-                           "lcov_excl_line"         => \$lcovutil::EXCL_LINE,
-                           "lcov_excl_br_line"      => \$lcovutil::EXCL_BR_LINE,
-                           "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
-                           "ignore_errors"       => \@rc_ignore,
-                           "max_message_count"   => \$lcovutil::suppressAfter,
-                           'stop_on_error'       => \$lcovutil::stop_on_error,
-                           "rtl_file_extensions" => \$rtlExtensions,
-                           "c_file_extensions"   => \$cExtensions,
-                           "filter_lookahead" => \$lcovutil::source_filter_lookahead,
-                           "filter_bitwise_conditional" =>
-         \$lcovutil::source_filter_bitwise_are_conditional,
-                           "profile"  => \$lcovutil::profile,
-                           "parallel" => \$lcovutil::maxParallelism,
-                           "memory"   => \$lcovutil::maxMemory,
-
-                           'filter'          => \@rc_filter,
-                           'exclude'         => \@rc_exclude_patterns,
-                           'include'         => \@rc_include_patterns,
-                           'substitute'      => \@rc_subst_patterns,
-                           'omit_lines'      => \@rc_omit_patterns,
-                           'erase_functions' => \@rc_erase_patterns,
-                           "version_script" => \@lcovutil::extractVersionScript,
-                           "checksum"       => \$lcovutil::verify_checksum,
-                           "case_insensitive" => \$lcovutil::case_insensitive,
-                           "suppress_function_aliases" =>
-                               \$suppress_function_aliases,
-                           "forget_testcase_names" =>
-                               \$TraceFile::ignore_testcase_name,
-                          });
-
-# Copy related values if not specified
-$ln_hi_limit   = $hi_limit if (!defined($ln_hi_limit));
-$ln_med_limit  = $med_limit if (!defined($ln_med_limit));
-$fn_hi_limit   = $hi_limit if (!defined($fn_hi_limit));
-$fn_med_limit  = $med_limit if (!defined($fn_med_limit));
-$br_hi_limit   = $hi_limit if (!defined($br_hi_limit));
-$br_med_limit  = $med_limit if (!defined($br_med_limit));
-$func_coverage = $lcov_func_coverage if (!defined($func_coverage));
-$br_coverage   = $lcov_branch_coverage if (!defined($br_coverage));
-lcovutil::set_rtl_extensions($rtlExtensions)
-    if $rtlExtensions;
-lcovutil::set_c_extensions($cExtensions)
-    if $cExtensions;
-
-my %unsupported_rc;    # for error checking
-my @unsupported_config;
-my $keepGoing;
-my $quiet = 0;
 my $save;
-
-# Parse command line options
-if (!GetOptions(
+my %genhtml_options = (
               "output-directory|o=s" => \$output_directory,
-              "tempdir=s"            => \$lcovutil::tmp_dir,
               "header-title=s"       => \$header_title,
               "footer=s"             => \$footer,
               "title|t=s"            => \$test_title,
@@ -5064,96 +4988,61 @@ if (!GetOptions(
               "diff-file=s"          => \$diff_filename,
               "annotate-script=s"    => \@SourceFile::annotateScript,
               "criteria-script=s"    => \@SummaryInfo::coverageCriteriaScript,
-              "version-script=s"     => \@lcovutil::extractVersionScript,
-              "checksum"             => \$lcovutil::verify_checksum,
               "new-file-as-baseline" => \$treatNewFileAsBaseline,
               'elide-path-mismatch'  => \$elide_path_mismatch,
               'synthesize-missing'   => \$synthesizeMissingFile,
               # if 'show-owners' is set: generate the owner table
               #    if it is passed a value: show all the owners,
               #    regardless of whether thay have uncovered code or not
-              'show-owners:s'        => \$show_ownerBins,
-              'show-noncode'         => \$show_nonCodeOwners,
-              'show-zero-columns'    => \$show_zeroTlaColumns,
-              'simplified-colors'    => \$show_simplifiedColors,
-              "date-bins=s"          => \@datebins,
-              "prefix|p=s"           => \@opt_dir_prefix,
-              'source-directory=s'   => \@ReadCurrentSource::source_directories,
-              "num-spaces=i"         => \$tab_size,
-              "no-prefix"            => \$no_prefix,
-              "no-sourceview"        => \$no_sourceview,
-              "show-details|s"       => \$show_details,
-              "frames|f"             => \$frames,
-              "highlight"            => \$highlight,
-              "legend"               => \$legend,
-              "quiet|q+"             => \$quiet,
-              'save'                 => \$save,
-              "verbose|v+"           => \$lcovutil::verbose,
-              "debug+"               => \$lcovutil::debug,
-              "help|h|?"             => \$help,
-              "version"              => \$version,
-              "html-prolog=s"        => \$html_prolog_file,
-              "html-epilog=s"        => \$html_epilog_file,
-              "html-extension=s"     => \$html_ext,
-              "html-gzip"            => \$html_gzip,
-              "function-coverage"    => \$func_coverage,
-              "no-function-coverage" => \$no_func_coverage,
-              "branch-coverage"      => \$br_coverage,
-              "no-branch-coverage"   => \$no_br_coverage,
-              "hierarchical"         => \$hierarchical,
-              "flat"                 => \$flat,
-              "sort"                 => \$sort,
-              "no-sort"              => \$no_sort,
-              "demangle-cpp"         => \$lcovutil::cpp_demangle,
-              "ignore-errors=s"      => \@opt_ignore_errors,
-              "keep-going"           => \$keepGoing,
-              "config-file=s"        => \@unsupported_config,
-              "rc=s%"                => \%unsupported_rc,
-              "precision=i"          => \$lcovutil::default_precision,
-              "missed"               => \$opt_missed,
-              "filter=s"             => \@opt_filter,
-              "dark-mode"            => \$dark_mode,
-              "profile:s"            => \$lcovutil::profile,
-              "exclude=s"            => \@lcovutil::exclude_file_patterns,
-              "include=s"            => \@lcovutil::include_file_patterns,
-              "erase-functions=s"    => \@lcovutil::exclude_function_patterns,
-              "omit-lines=s"         => \@lcovutil::omit_line_patterns,
-              "substitute=s"         => \@lcovutil::file_subst_patterns,
-              "parallel|j:i"         => \$lcovutil::maxParallelism,
-              "memory=i"             => \$lcovutil::maxMemory,
-              "show-navigation"      => \$show_tla,
-              "show-proportion"      => \$show_functionProportions,
-              "preserve"             => \$lcovutil::preserve_intermediates,
-              "suppress-aliases"     => \$suppress_function_aliases,
-              "forget-test-names"    => \$TraceFile::ignore_testcase_name,
-)) {
+              'show-owners:s'      => \$show_ownerBins,
+              'show-noncode'       => \$show_nonCodeOwners,
+              'show-zero-columns'  => \$show_zeroTlaColumns,
+              'simplified-colors'  => \$show_simplifiedColors,
+              "date-bins=s"        => \@datebins,
+              "prefix|p=s"         => \@opt_dir_prefix,
+              'source-directory=s' => \@ReadCurrentSource::source_directories,
+              "num-spaces=i"       => \$tab_size,
+              "no-prefix"          => \$no_prefix,
+              "no-sourceview"      => \$no_sourceview,
+              "show-details|s"     => \$show_details,
+              "frames|f"           => \$frames,
+              "highlight"          => \$highlight,
+              "legend"             => \$legend,
+              'save'               => \$save,
+              "html-prolog=s"      => \$html_prolog_file,
+              "html-epilog=s"      => \$html_epilog_file,
+              "html-extension=s"   => \$html_ext,
+              "html-gzip"          => \$html_gzip,
+              "hierarchical"       => \$hierarchical,
+              "flat"               => \$flat,
+              "sort"               => \$sort,
+              "no-sort"            => \$no_sort,
+              "precision=i"        => \$lcovutil::default_precision,
+              "missed"             => \$opt_missed,
+              "dark-mode"          => \$dark_mode,
+              "show-navigation"    => \$show_tla,
+              "show-proportion"    => \$show_functionProportions,
+              "suppress-aliases"   => \$suppress_function_aliases,);
+# Parse command line options
+if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
-lcovutil::init_verbose_flag($quiet);
-@opt_filter                      = @rc_filter unless @opt_filter;
-@opt_ignore_errors               = @rc_ignore unless @opt_ignore_errors;
-@lcovutil::exclude_file_patterns = @rc_exclude_patterns
-    unless @lcovutil::exclude_file_patterns;
-@lcovutil::include_file_patterns = @rc_include_patterns
-    unless @lcovutil::include_file_patterns;
-@lcovutil::subst_file_patterns = @rc_subst_patterns
-    unless @lcovutil::subst_file_patterns;
-@lcovutil::omit_line_patterns = @rc_omit_patterns
-    unless @lcovutil::omit_line_patterns;
-@lcovutil::exclude_function_patterns = @rc_erase_patterns
-    unless @lcovutil::exclude_function_patterns;
 
-$lcovutil::stop_on_error = 0
-    if (defined $keepGoing);
+# Copy related values if not specified
+$ln_hi_limit  = $hi_limit if (!defined($ln_hi_limit));
+$ln_med_limit = $med_limit if (!defined($ln_med_limit));
+$fn_hi_limit  = $hi_limit if (!defined($fn_hi_limit));
+$fn_med_limit = $med_limit if (!defined($fn_med_limit));
+$br_hi_limit  = $hi_limit if (!defined($br_hi_limit));
+$br_med_limit = $med_limit if (!defined($br_med_limit));
 
-@datebins = @rc_datebins unless @datebins;
+@datebins                   = @rc_date_bins unless @datebins;
+@SourceFile::annotateScript = @rc_annotate_script
+    unless @SourceFile::annotateScript;
+@SummaryInfo::coverageCriteriaScript = @rc_criteria_script
+    unless @SummaryInfo::coverageCriteriaScript;
 
-foreach my $d (['--config-file', scalar(@unsupported_config)],
-               ['--rc', scalar(%unsupported_rc)]) {
-    die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
-        if ($d->[1]);
-}
 foreach my $d (@ReadCurrentSource::source_directories) {
     if (!-d $d) {
         lcovutil::ignorable_error($ERROR_SOURCE,
@@ -5161,11 +5050,6 @@ foreach my $d (@ReadCurrentSource::source_directories) {
     }
 }
 
-# Merge options
-$func_coverage = 0
-    if ($no_func_coverage);
-$br_coverage = 0
-    if ($no_br_coverage);
 # Merge sort options
 $sort = 0
     if ($no_sort);
@@ -5226,8 +5110,6 @@ if (0 != (defined($diff_filename) ^ defined($base_filename))) {
     }
 }
 
-lcovutil::init_parallel_params();
-
 if (defined($header_title)) {
     $title = $header_title;
 } else {
@@ -5278,28 +5160,8 @@ if ($dark_mode) {
 
 @info_filenames = @ARGV;
 
-# Check for help option
-if ($help) {
-    print_usage(*STDOUT);
-    exit(0);
-}
-
-# Check for version option
-if ($version) {
-    print("$tool_name: $lcov_version\n");
-    exit(0);
-}
-
-# Determine which errors the user wants us to ignore
-parse_ignore_errors(@opt_ignore_errors);
-
-# Determine what coverpoints the user wants to filter
-parse_cov_filters(@opt_filter);
-
 # Split the list of prefixes if needed
 parse_dir_prefix(@opt_dir_prefix);
-
-lcovutil::munge_file_patterns();    # used for exclude/include
 
 # Check for info filename
 if (!@info_filenames) {
@@ -5387,12 +5249,13 @@ if ($no_prefix && @dir_prefix) {
 
 if ($sort) {
     push(@fileview_sortlist, $SORT_LINE);
-    push(@fileview_sortlist, $SORT_FUNC) if ($func_coverage);
-    push(@fileview_sortlist, $SORT_BRANCH) if ($br_coverage);
+    push(@fileview_sortlist, $SORT_FUNC) if ($lcovutil::func_coverage);
+    push(@fileview_sortlist, $SORT_BRANCH) if ($lcovutil::br_coverage);
     push(@funcview_sortlist, $SORT_LINE);
     if ($show_functionProportions) {
         push(@funcview_sortlist, $SORT_MISSING_LINE);
-        push(@funcview_sortlist, $SORT_MISSING_BRANCH) if ($br_coverage);
+        push(@funcview_sortlist, $SORT_MISSING_BRANCH)
+            if ($lcovutil::br_coverage);
     }
 }
 
@@ -5400,9 +5263,6 @@ if ($frames) {
     # Include genpng code needed for overview image generation
     do(File::Spec->catfile($tool_dir, 'genpng'));
 }
-
-# Ensure that the c++filt tool is available when using --demangle-cpp
-lcovutil::do_mangle_check();
 
 # Make sure precision is within valid range
 check_precision();
@@ -5798,7 +5658,8 @@ sub gen_html()
         write_description_file(\%test_description, $genhtml->top());
     }
 
-    print_overall_rate(1, $func_coverage, $br_coverage, $genhtml->top());
+    print_overall_rate(1, $lcovutil::func_coverage, $lcovutil::br_coverage,
+                       $genhtml->top());
 }
 
 #
@@ -5997,9 +5858,9 @@ sub process_file($$$$$)
 
     my $r = "  lines=$lines_found hit=$lines_hit";
     $r .= " functions=$fn_found hit=$fn_hit"
-        if $main::func_coverage && $fn_found != 0;
+        if $lcovutil::func_coverage && $fn_found != 0;
     $r .= " branches=$br_found hit=$br_hit"
-        if $main::br_coverage && $br_found != 0;
+        if $lcovutil::br_coverage && $br_found != 0;
     info($r . "\n");
 
     my $fileHasNoBaselineInfo =
@@ -6053,7 +5914,7 @@ sub process_file($$$$$)
         write_html_epilog(*HTML_HANDLE, $base_dir, 1);
         close(*HTML_HANDLE);
 
-        if ($func_coverage) {
+        if ($lcovutil::func_coverage) {
             # Create function tables
             my $lineCovMap = $fileCovInfo->lineMap();
             # simply map between function leader name and differential data
@@ -6074,7 +5935,7 @@ sub process_file($$$$$)
                         }
                         $lineCov{$name} = [$found, $hit];
                     }
-                    if ($main::br_coverage) {
+                    if ($lcovutil::br_coverage) {
                         my $branchData =
                             $funcEntry->findMyBranches($sumbrcount);
                         if (defined($branchData) &&
@@ -8145,7 +8006,7 @@ sub write_source_prolog(**)
     my $line_heading   = fmt_centered($line_field_width, "Line data");
     my $source_heading = " Source code";
 
-    if ($br_coverage) {
+    if ($lcovutil::br_coverage) {
         $branch_heading = fmt_centered($br_field_width, "Branch data") . " ";
     }
 
@@ -8459,7 +8320,7 @@ sub write_source_line(*$$$$)
                     $cbdata->current('age'));
 
     # Get branch HTML data for this line
-    @br_html = get_branch_html($brdata, $cbdata) if ($main::br_coverage);
+    @br_html = get_branch_html($brdata, $cbdata) if ($lcovutil::br_coverage);
 
     my $thisline = $fileCovInfo->lineMap()->{$line};
     my $tlaIsHref;
@@ -8716,7 +8577,7 @@ sub write_source_line(*$$$$)
     $html .= sprintf("<span class=\"lineNum\">%8d</span> ", $line);
     #printf("tla= " . $tla);
     #printf("html= " . $html);
-    $html .= shift(@br_html) . ":" if ($main::br_coverage);
+    $html .= shift(@br_html) . ":" if ($lcovutil::br_coverage);
 
     $tla = ""
         if (!defined($main::show_tla));
@@ -8743,7 +8604,7 @@ sub write_source_line(*$$$$)
 
     write_html($handle, $html);
 
-    if ($main::br_coverage) {
+    if ($lcovutil::br_coverage) {
         # Add lines for overlong branch information
         foreach (@br_html) {
             write_html($handle,
@@ -9354,7 +9215,7 @@ sub write_header(*$$$$$)
         }
 
         # Add function suffix
-        if ($func_coverage) {
+        if ($lcovutil::func_coverage) {
             $view .= "<span style=\"font-size: 80%;\">";
             if ($type == $HDR_SOURCE) {
                 if ($sort) {
@@ -9457,7 +9318,7 @@ sub write_header(*$$$$$)
             <span class="coverLegendCov">hit</span>
             <span class="coverLegendNoCov">not hit</span>
 END_OF_HTML
-        if ($main::br_coverage) {
+        if ($lcovutil::br_coverage) {
             $text .= <<END_OF_HTML;
             | Branches:
             <span class="coverLegendCov">+</span> taken
@@ -9488,9 +9349,9 @@ END_OF_HTML
         # compute which TLAs have non-zero entries for line/branch/function
         my @visit = ('line');
         push(@visit, 'branch')
-            if $main::br_coverage;
+            if $lcovutil::br_coverage;
         push(@visit, 'function')
-            if $main::func_coverage;
+            if $lcovutil::func_coverage;
 
         foreach my $covtype (@visit) {
             if ($main::show_zeroTlaColumns) {
@@ -9591,7 +9452,7 @@ END_OF_HTML
     push(@row_right, \@dataRow)
         if ($type != $HDR_TESTDESC);
     # Function coverage
-    if ($func_coverage) {
+    if ($lcovutil::func_coverage) {
         my $tot = $summary->f_found();
         my $hit = $summary->f_hit();
         $style =
@@ -9616,7 +9477,7 @@ END_OF_HTML
             if ($type != $HDR_TESTDESC);
     }
     # Branch coverage
-    if ($br_coverage) {
+    if ($lcovutil::br_coverage) {
         my $tot = $summary->b_found();
         my $hit = $summary->b_hit();
         $style =
@@ -9656,7 +9517,7 @@ END_OF_HTML
                         $tlaSummaryTypes);
         push(@row_right, @$table);
 
-        if ($func_coverage) {
+        if ($lcovutil::func_coverage) {
             my $fn_table =
                 buildDateSummaryTable($summary,
                                       "function",
@@ -9670,7 +9531,7 @@ END_OF_HTML
             push(@row_right, @$fn_table);
         }
 
-        if ($br_coverage) {
+        if ($lcovutil::br_coverage) {
             my $br_table =
                 buildDateSummaryTable($summary,
                                       "branch",
@@ -9707,7 +9568,7 @@ END_OF_HTML
                                        $tlaSummaryTypes);
             push(@row_right, @$table);
 
-            if ($br_coverage) {
+            if ($lcovutil::br_coverage) {
                 my $br_table =
                     buildOwnerSummaryTable($ownerList,
                                            $summary,
@@ -9956,9 +9817,9 @@ sub write_file_table(*$$$$$)
     if ($main::show_tla) {
         my @visit = (['line', \@lineCovCols]);
         push(@visit, ['branch', \@branchCovCols])
-            if $main::br_coverage;
+            if $lcovutil::br_coverage;
         push(@visit, ['function', \@functionCovCols])
-            if $main::func_coverage;
+            if $lcovutil::func_coverage;
         foreach my $d (@visit) {
             my ($covtype, $cols) = @$d;
             foreach my $tla (@{$activeTlaCols->{$covtype}}) {
@@ -9977,9 +9838,9 @@ sub write_file_table(*$$$$$)
     }
     push(@head_columns, [$line_code, $#lineCovCols + 2, \@lineCovCols]);
     push(@head_columns, [$br_code, $#branchCovCols + 1, \@branchCovCols])
-        if ($br_coverage);
+        if ($lcovutil::br_coverage);
     push(@head_columns, [$func_code, $#functionCovCols + 1, \@functionCovCols])
-        if ($func_coverage);
+        if ($lcovutil::func_coverage);
 
     my $showBinDetail = undef;
     if ($bin_type eq '-date' &&
@@ -10035,7 +9896,7 @@ sub write_file_table(*$$$$$)
                                [0, 0],    # no function owner
             ];
         }
-        if ($br_coverage) {
+        if ($lcovutil::br_coverage) {
             foreach my $owner ($dirSummary->owners($all, 'branch')) {
 
                 $owners{$owner} = [[0, 0], [0, 0], [0, 0]]
@@ -10081,10 +9942,10 @@ sub write_file_table(*$$$$$)
             my $ageval = $dirSummary->age_sample($bin);
             my $lines  = $dirSummary->lineCovCount('found', 'age', $ageval);
             if (0 != $lines ||
-                ($br_coverage &&
+                ($lcovutil::br_coverage &&
                     0 != $dirSummary->branchCovCount('found', 'age', $ageval))
                 ||
-                ($func_coverage &&
+                ($lcovutil::func_coverage &&
                     0 != $dirSummary->functionCovCount('found', 'age', $ageval))
             ) {
                 push(@tableRows,
@@ -10142,15 +10003,21 @@ sub write_file_table(*$$$$$)
                         my $branchCb =
                             $primaryCb->dateDetailCallback($ageval, 'branch');
                         my $branchTotal =
-                            $br_coverage ? $branchCb->get('found') : 0;
-                        $hit = $br_coverage ? $branchCb->get('hit') : 0;
+                            $lcovutil::br_coverage ? $branchCb->get('found') :
+                            0;
+                        $hit =
+                            $lcovutil::br_coverage ? $branchCb->get('hit') : 0;
                         my $branchMissed = $branchTotal - $hit;
 
                         my $functionCb =
                             $primaryCb->dateDetailCallback($ageval, 'function');
                         my $functionTotal =
-                            $func_coverage ? $functionCb->get('found') : 0;
-                        $hit = $func_coverage ? $functionCb->get('hit') : 0;
+                            $lcovutil::func_coverage ?
+                            $functionCb->get('found') :
+                            0;
+                        $hit =
+                            $lcovutil::func_coverage ? $functionCb->get('hit') :
+                            0;
                         my $functionMissed = $functionTotal - $hit;
 
                         next
@@ -10198,14 +10065,14 @@ sub write_file_table(*$$$$$)
               $primaryCb->totalCallback('line'), 'line'
              ]);
         # Branch coverage
-        if ($br_coverage) {
+        if ($lcovutil::br_coverage) {
             push(@columns,
                  [$br_found, $br_hit, $br_med_limit, $br_hi_limit, 0,
                   $primaryCb->totalCallback('branch'), 'branch'
                  ]);
         }
         # Function coverage
-        if ($func_coverage) {
+        if ($lcovutil::func_coverage) {
             # no 'owner' callbacks for function...
             my $cbStruct = $primaryCb->totalCallback('function')
                 if ('owner' ne $primary_key);
@@ -10269,7 +10136,7 @@ sub write_file_table(*$$$$$)
                  [$lineTotal, $lineHit, $med_limit, $hi_limit,
                   $showLineGraph, $lineCb, 'line'
                  ]);
-            if ($br_coverage) {
+            if ($lcovutil::br_coverage) {
                 my ($branchMissed, $branchTotal, $brCallback) = @$branch;
                 # need to compute the totals...
                 push(@ownerColData,
@@ -10279,7 +10146,7 @@ sub write_file_table(*$$$$$)
                       'branch'
                      ]);
             }
-            if ($func_coverage) {
+            if ($lcovutil::func_coverage) {
                 my ($funcMissed, $funcTotal, $funcCallback) = @$func;
                 # need to compute the totals...
                 push(@ownerColData,
@@ -10350,7 +10217,7 @@ sub write_file_table(*$$$$$)
                   TestcaseTlaCount->new(
                                     $testbrdata->value($testname), $fileDetails,
                                     'branch')
-                 ]) if ($br_coverage);
+                 ]) if ($lcovutil::br_coverage);
             push(@results,
                  [$fn_found,
                   $fn_hit,
@@ -10358,7 +10225,7 @@ sub write_file_table(*$$$$$)
                   TestcaseTlaCount->new(
                                    $testfncdata->value($testname), $fileDetails,
                                    'function')
-                 ]) if ($func_coverage);
+                 ]) if ($lcovutil::func_coverage);
 
             my $href = $testname;
             # Insert link to description of available
@@ -10585,7 +10452,7 @@ sub write_function_table(*$$$$$$$$$$)
         $lineProportionRow = "<td class=\"tableHead\">$line_code</td>"
             if (%$funcLineCovMap);
         $branchProportionRow = "<td class=\"tableHead\">$branch_code</td>"
-            if $main::br_coverage && %$funcBranchCovMap;
+            if $lcovutil::br_coverage && %$funcBranchCovMap;
     }
 
     write_html(*HTML_HANDLE, <<END_OF_HTML);
@@ -10645,7 +10512,7 @@ END_OF_HTML
                 $lineProportionRow = "<td class=\"coverFn\"></td>"
                     if %$funcLineCovMap;
             }
-            if ($main::br_coverage && %$funcBranchCovMap) {
+            if ($lcovutil::br_coverage && %$funcBranchCovMap) {
                 if (exists($funcBranchCovMap->{$func})) {
                     my ($found, $hit) = @{$funcBranchCovMap->{$func}};
                     # colorize based on hit proportion
@@ -10681,7 +10548,7 @@ END_OF_HTML
                 $lineProportionRow = "<td class=\"coverFn\"></td>"
                     if %$funcLineCovMap;
                 $branchProportionRow = $lineProportionRow
-                    if $main::br_coverage && %$funcBranchCovMap;
+                    if $lcovutil::br_coverage && %$funcBranchCovMap;
             }
             if (0 != $type) {
                 @aliasList =

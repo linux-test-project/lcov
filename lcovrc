@@ -164,14 +164,6 @@ genhtml_sort = 1
 # If nonzero, add column to "function coverage detail" table to show the proportion of lines and branches within the function which are exercised.
 #genhtml_show_function_proportion = 0
 
-# Include function coverage data display (can be disabled by the
-# --no-func-coverage option of genhtml)
-#genhtml_function_coverage = 1
-
-# Include branch coverage data display (can be disabled by the
-# --no-branch-coverage option of genhtml)
-#genhtml_branch_coverage = 1
-
 # Specify the character set of all generated HTML pages
 genhtml_charset=UTF-8
 
@@ -210,8 +202,6 @@ genhtml_desc_html=0
 
 # Calculate checksum for each source code line if non-zero (same as --checksum
 # option of geninfo if non-zero, same as --no-checksum if zero)
-# (the geninfo_checksum option is deprecated in favor of 'checksum = ...')
-#geninfo_checksum = 1
 #checksum = 1
 
 # Specify whether to capture coverage data for external source files (can
@@ -274,11 +264,11 @@ lcov_list_width = 80
 # lcov_list_full_path is non-zero.
 lcov_list_truncate_max = 20
 
-# Specify if function coverage data should be collected and processed.
-lcov_function_coverage = 1
+# Specify if function coverage data should be collected, processed, and displayed
+function_coverage = 1
 
-# Specify if branch coverage data should be collected and processed.
-lcov_branch_coverage = 0
+# Specify if branch coverage data should be collected, processed, and displayed
+branch_coverage = 0
 
 # Ask LCOV to return non-zero exit code if line coverage is below threshold
 # Default is 0.0 - i.e., do not check threshold.
