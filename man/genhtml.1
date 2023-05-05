@@ -1304,7 +1304,17 @@ Inconsistent entries found in trace file:
 .B negative:
 negative 'hit' count found.
 .br
- Note that negative counts may be caused by a known GCC bug - see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080, and try compiling with "-fprofile-update=atomic". (You will need to recompile, re-run your tests, and re-capture coverage data.)
+
+Note that negative counts may be caused by a known GCC bug - see
+.br
+
+.RS
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080
+.RE
+.br
+
+and try compiling with "-fprofile-update=atomic". You will need to recompile, re-run your tests, and re-capture coverage data.
+.br
 
 .B package:
 a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
