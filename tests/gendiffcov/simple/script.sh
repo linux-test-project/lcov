@@ -117,13 +117,13 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 if ! type "${CXX}" >/dev/null 2>&1 ; then
-	echo "Missing tool: $CXX" >&2
-	exit 2
+        echo "Missing tool: $CXX" >&2
+        exit 2
 fi
 
 if ! python3 -c "import xlsxwriter" >/dev/null 2>&1 ; then
-	echo "Missing python module: xlsxwriter" >&2
-	exit 2
+        echo "Missing python module: xlsxwriter" >&2
+        exit 2
 fi
 
 echo *
@@ -617,10 +617,31 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# test criteria-related RC override errors:
+for errs in 'criteria_callback_levels=dir,a' 'criteria_callback_data=foo' ; do
+    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o $outdir ./current.info --rc $errs
+    $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o criteria ./current.info $GENHTML_PORT --rc $errs > criteriaErr.log 2> criteriaErr.err
+    if [ 0 == $? ] ; then
+        echo "ERROR: genhtml criteria should have failed but didn't"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    grep -E "invalid '.+' value .+ expected" criteriaErr.err
+    if [ 0 != $? ] ;then
+        echo "ERROR: 'invalid criteria option message is missing"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+
 # test 'coverage criteria' callback
 #  we expect to fail - and to see error message - it coverage criteria not met
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o $outdir ./current.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o criteria ./current.info $GENHTML_PORT > criteria.log 2> criteria.err
+# ask for date and owner data - even though the callback doesn't use it
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o $outdir ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria ./current.info $GENHTML_PORT > criteria.log 2> criteria.err
 if [ 0 == $? ] ; then
     echo "ERROR: genhtml criteria should have failed but didn't"
     if [ 0 == $KEEP_GOING ] ; then

@@ -280,6 +280,13 @@ branch_coverage = 0
 # specify coverage criteria script for genhtml
 #genhtml_criteria_script = path_to_my_executable
 
+# specify whether you want date and/or owner information passed to your criteria
+# callback - in addition to summary information, which is always retuned
+#criteria_callback_data = date,owner
+
+# specify when the criteria callback will be executed
+#criteria_callback_levels = top,directory,file
+
 # specify age cutpoints for genhtml date bins
 # can call option multiple times or use comma-separted list (or both)
 #genhtml_date_bins = 7

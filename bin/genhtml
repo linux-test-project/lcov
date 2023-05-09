@@ -312,6 +312,8 @@ package SummaryInfo;
 our @coverageCriteriaScript;
 our %coverageCriteria;              # hash of name->(type, success 0/1, string)
 our $coverageCriteriaStatus = 0;    # set to non-zero if we see any errors
+our @criteriaCallbackTypes;         # include date, owner bin info
+our @criteriaCallbackLevels;        # call back at (top, directory, file) levels
 
 our @tlaPriorityOrder = ("UNC",
                          "LBC",
@@ -455,8 +457,8 @@ sub new
     _initCounts($self, 'function');
     _initCounts($self, 'branch');
 
-    for my $prefix ("", "branch_", "function_") {
-        my $g = $prefix . "age";
+    for my $type ("line", "branch", "function") {
+        my $g = $type . "_age";
         $self->{$g} = [];
         foreach my $i (0 .. $#cutpoints + 1) {
             $self->{$g}->[$i] = {
@@ -468,8 +470,8 @@ sub new
         }
     }
 
-    $self->{owners} = {};    # developer -> hash of TLA->count - lineCov data
-    $self->{owners_branch} = {};   # developer -> hash of TLA->count - branchCov
+    $self->{line_owners} = {};  # developer -> hash of TLA->count - lineCov data
+    $self->{branch_owners} = {};   # developer -> hash of TLA->count - branchCov
 
     return $self;
 }
@@ -675,7 +677,7 @@ sub get_missed
 sub contains_owner
 {
     my ($self, $owner) = @_;
-    return exists($self->{owners}->{$owner});
+    return exists($self->{line_owners}->{$owner});
 }
 
 sub owners
@@ -687,9 +689,9 @@ sub owners
     (!defined($covType) || $covType eq 'line' || $covType eq 'branch') or
         die("unsupported coverage type '$covType'");
 
-    my $hash = $self->{owners}
+    my $hash = $self->{line_owners}
         if (!defined($covType) || $covType eq 'line');
-    $hash = $self->{owners_branch}
+    $hash = $self->{branch_owners}
         if ($covType eq 'branch');
 
     return keys(%$hash)
@@ -715,15 +717,13 @@ sub owner_tlaCount
 {
     my ($self, $name, $tla, $covType) = @_;
     die("$name not found in owner data for $self->path()")
-        unless exists($self->{owners}->{$name});
+        unless exists($self->{line_owners}->{$name});
 
     return 0    # not supported, yet
-        if defined($covType) && $covType eq 'function';
+        if $covType eq 'function';
 
-    my $ownerKey = 'owners';
-    $ownerKey .= "_$covType"
-        if defined($covType) && $covType ne 'line';
-    my $hash = $self->{$ownerKey}->{$name};
+    my $ownerKey = $covType . "_owners";
+    my $hash     = $self->{$ownerKey}->{$name};
     return $hash->{$tla}
         if (exists($hash->{$tla}));
 
@@ -761,7 +761,7 @@ sub hasOwnerInfo
 {
     my $self = shift;
 
-    return %{$self->{owners}} ? 1 : 0;
+    return %{$self->{line_owners}} ? 1 : 0;
 }
 
 sub hasDateInfo
@@ -769,7 +769,7 @@ sub hasDateInfo
     my $self = shift;
     # we get date- and owner information at the same time from the
     #  annotation-script - so, if we have owner info, then we have date info too.
-    return scalar(%{$self->{owners}});
+    return scalar(%{$self->{line_owners}});
 }
 
 sub findOwnerList
@@ -782,8 +782,8 @@ sub findOwnerList
     my ($self, $all) = @_;
 
     my @owners;
-    foreach my $owner (keys(%{$self->{owners}})) {
-        my $lineMissed = $self->owner_tlaCount($owner, 'missed');
+    foreach my $owner (keys(%{$self->{line_owners}})) {
+        my $lineMissed = $self->owner_tlaCount($owner, 'missed', 'line');
         my $branchMissed =
             $lcovutil::br_coverage ?
             $self->owner_tlaCount($owner, 'missed', 'branch') :
@@ -800,7 +800,7 @@ sub findOwnerList
             my $branchCb = OwnerDetailCallback->new($self, $owner, 'branch');
             my $functionCb =
                 OwnerDetailCallback->new($self, $owner, 'function');
-            my $lineTotal = $self->owner_tlaCount($owner, 'found');
+            my $lineTotal = $self->owner_tlaCount($owner, 'found', 'line');
             my $branchTotal =
                 $lcovutil::br_coverage ?
                 $self->owner_tlaCount($owner, 'found', 'branch') :
@@ -850,7 +850,7 @@ sub append
     # there will be no date info if we didn't also collect owner data
     #   merge the date- and owner data, if if we aren't going to display it
     #   (In future, probably want to serialize the data for future processing)
-    if (%{$record->{owners}}) {
+    if (%{$record->{line_owners}}) {
         foreach my $covType ("line", "branch", "function") {
             for (my $bin = 0; $bin <= $#ageGroupHeader; ++$bin) {
                 foreach my $key (keys %{$self->{$covType}}) {
@@ -868,8 +868,7 @@ sub append
                     }
                 }
             }
-            my $ownerKey = "owners";
-            $ownerKey .= "_$covType" if ('line' ne $covType);
+            my $ownerKey = $covType . '_owners';
 
             foreach my $name (keys(%{$record->{$ownerKey}})) {
                 my $yours = $record->{$ownerKey}->{$name};
@@ -893,7 +892,7 @@ sub age_sample
 {
     my $self = shift;
     my $i    = shift;
-    my $bin  = $self->{age}->[$i];
+    my $bin  = $self->{line_age}->[$i];
     return ($i < $#ageGroupHeader) ? $bin->{_UB} : ($bin->{_LB} + 1);
 }
 
@@ -915,7 +914,7 @@ sub lineCovCount
 
     $key = 'found' if $key eq 'total';
     if ($group eq "age") {
-        my $a   = $self->{age};
+        my $a   = $self->{line_age};
         my $bin = SummaryInfo::findAgeBin($age);
         exists($a->[$bin]) && exists($a->[$bin]->{$key}) or
             die("unexpected key '$key' for bin '$bin'");
@@ -1063,7 +1062,11 @@ sub b_hit
 sub checkCoverageCriteria
 {
     my $self = shift;
-    return unless @coverageCriteriaScript;
+    my $type = $self->type();
+    return
+        unless (@coverageCriteriaScript &&
+                (0 == scalar(@criteriaCallbackLevels) ||
+                 grep(/$type/, @criteriaCallbackLevels)));
 
     my %data;
     foreach my $t ('line', 'function', 'branch') {
@@ -1076,6 +1079,55 @@ sub checkCoverageCriteria
                 $data{$t}->{$k} = $count;
             } else {
                 $data{$t} = {$k => $count};
+            }
+        }
+    }
+    if (grep(/^date$/, @criteriaCallbackTypes)) {
+        foreach my $t ('line', 'branch', 'function') {
+            my $key = $t . '_age';
+            next unless exists($self->{$key});
+            my $ageBins = $self->{$key};
+            foreach my $i (0 .. $#cutpoints + 1) {
+                my $bin = $ageBins->[$i];
+                foreach my $k (@tlaPriorityOrder, 'found', 'hit') {
+                    my $count = $bin->{$k};
+                    next if $count == 0;
+                    my $b;
+                    if (exists($data{$key})) {
+                        $b = $data{$key};
+                    } else {
+                        $data{$key} = {};
+                    }
+                    if (exists($b->{$i})) {
+                        $b->{$i}->{$k} = $count;
+                    } else {
+                        $b->{$i} = {$k => $count};
+                    }
+                }
+            }
+        }
+    }
+    if (grep(/^owner$/, @criteriaCallbackTypes)) {
+        foreach my $t ('line', 'branch') {
+            my $key = $t . '_owners';
+            next unless exists($self->{$key});
+            my $ownerBins = $self->{$key};
+            while (my ($owner, $bin) = each(%$ownerBins)) {
+                my $b;
+                if (exists($data{$key})) {
+                    $b = $data{$key};
+                } else {
+                    $b = {};
+                    $data{$key} = $b;
+                }
+                my $d = {};
+                $b->{$owner} = $d;
+                foreach my $k (@tlaPriorityOrder, 'found', 'hit') {
+                    next unless exists($bin->{$k});
+                    my $count = $bin->{$k};
+                    next if $count == 0;
+                    $d->{$k} = $count;
+                }
             }
         }
     }
@@ -1114,7 +1166,7 @@ package OwnerDetailCallback;
 sub new
 {
     my ($class, $summary, $owner, $covType) = @_;
-    $covType = 'line' unless defined($covType);
+    die("missing type") unless defined($covType);
 
     my $self = [$summary, $owner, $covType];
     bless $self, $class;
@@ -1140,7 +1192,7 @@ sub get
     my ($summary, $owner, $covType) = @$self;
 
     die("unexpected type $type")
-        unless (!defined($type) || ($type eq $covType));
+        unless !defined($type) || ($type eq $covType);
 
     return $summary->owner_tlaCount($owner, $key, $covType);
 }
@@ -3349,12 +3401,12 @@ sub new
     bless $self, $class;
 
     $fileSummary->fileDetails($self);
-    $self->{_path}       = $filepath;
-    $self->{_lines}      = [];          #line coverage data for line
-    $self->{_owners}     = {};          # owner -> hash of TLA->list of lines
-    $self->{_categories} = {};          # TLA -> list of lines
+    $self->{_path}        = $filepath;
+    $self->{_lines}       = [];          #line coverage data for line
+    $self->{_line_owners} = {};          # owner -> hash of TLA->list of lines
+    $self->{_categories}  = {};          # TLA -> list of lines
 
-    $self->{_owners_branch} = {};       # owner -> hash of TLA->list of lines
+    $self->{_branch_owners} = {};        # owner -> hash of TLA->list of lines
 
     # use the line coverage count to synthesize a fake file, if we can't
     #   find an actual file
@@ -3431,7 +3483,7 @@ sub _countBranchTlaData
             $srcLine->branchElem($differentialData);
 
             if (defined($developer)) {
-                my $shash = $self->{_owners_branch};
+                my $shash = $self->{_branch_owners};
                 if (!exists($shash->{$developer})) {
                     $shash->{$developer} = {};
                     $shash->{$developer}->{lines} = [];
@@ -3492,7 +3544,7 @@ sub _countBranchTlaData
             # add this line to those that belong to this owner..
 
             # first:  increment line count in 'file summary'
-            my $ohash = $fileSummary->{owners_branch};
+            my $ohash = $fileSummary->{branch_owners};
             if (!exists($ohash->{$developer})) {
                 my %data = ('hit'   => $hit ? 1 : 0,
                             'found' => 1,
@@ -3512,7 +3564,7 @@ sub _countBranchTlaData
             my $ownerKey = $developer . $tla;
             if (!exists($recorded{$ownerKey})) {
                 $recorded{$ownerKey} = 1;
-                my $dhash = $self->{_owners_branch}->{$developer};
+                my $dhash = $self->{_branch_owners}->{$developer};
                 $dhash->{$tla} = []
                     unless exists($dhash->{$tla});
                 push(@{$dhash->{$tla}}, $line);
@@ -3585,7 +3637,7 @@ sub _countLineTlaData
             my $developer = $l->owner();
 
             # first:  increment line count in 'file summary'
-            my $ohash = $fileSummary->{owners};
+            my $ohash = $fileSummary->{line_owners};
             $ohash->{$developer} = {}
                 unless exists($ohash->{$developer});
             my $d = $ohash->{$developer};
@@ -3595,9 +3647,9 @@ sub _countLineTlaData
 
             # now push this line onto the list of in this file, belonging
             #   to this owner
-            $self->{_owners}->{$developer} = {}
-                unless exists($self->{_owners}->{$developer});
-            my $dhash = $self->{_owners}->{$developer};
+            $self->{_line_owners}->{$developer} = {}
+                unless exists($self->{_line_owners}->{$developer});
+            my $dhash = $self->{_line_owners}->{$developer};
             $dhash->{lines} = []
                 unless exists($dhash->{lines});
             push(@{$dhash->{lines}}, $line);
@@ -3703,7 +3755,7 @@ sub isProjectFile
 {
     # return 'true' if no owner/date information for this file.
     my $self = shift;
-    return scalar(%{$self->{_owners}});
+    return scalar(%{$self->{_line_owners}});
 }
 
 sub line
@@ -3912,8 +3964,8 @@ sub nextInOwnerBin
                                   "unknown linecov TLA '$tla'");
         return undef;
     }
-    exists($self->{_owners}->{$owner}) &&
-        exists($self->{_owners}->{$owner}->{$tla}) or
+    exists($self->{_line_owners}->{$owner}) &&
+        exists($self->{_line_owners}->{$owner}->{$tla}) or
         die("$owner not responsible for any $tla lines in" . $self->path());
 
     # note the the "$self->line(...)" argument is 1-based (not zero-base)
@@ -3948,7 +4000,7 @@ sub nextInOwnerBin
         $line = 1;
     }
 
-    my $locations = $self->{_owners}->{$owner}->{$tla};
+    my $locations = $self->{_line_owners}->{$owner}->{$tla};
     my $idx       = binarySearchLine($locations, $line);
     return defined($idx) ? $locations->[$idx] : undef;
 }
@@ -4011,8 +4063,8 @@ sub nextBranchInOwnerBin
     # note the the "$self->line(...)" argument is 1-based (not zero-base)
     $after = defined($after) ? $after + 1 : 1;
 
-    if (exists($self->{_owners_branch}->{$owner})) {
-        my $od = $self->{_owners_branch}->{$owner};
+    if (exists($self->{_branch_owners}->{$owner})) {
+        my $od = $self->{_branch_owners}->{$owner};
         if (exists($od->{$tla})) {
             my $l   = $od->{$tla};
             my $idx = binarySearchLine($l, $after);
@@ -4101,9 +4153,9 @@ sub _load
 
                     defined($owner) or
                         die("owner is undef for $repo_path:$lineNum");
-                    $self->{_owners}->{$owner} = {}
-                        unless exists($self->{_owners}->{$owner});
-                    my $dhash = $self->{_owners}->{$owner};
+                    $self->{_line_owners}->{$owner} = {}
+                        unless exists($self->{_line_owners}->{$owner});
+                    my $dhash = $self->{_line_owners}->{$owner};
                     $dhash->{lines} = []
                         unless exists($dhash->{lines});
                     push(@{$dhash->{lines}}, $lineNum);
@@ -4970,6 +5022,8 @@ my %genhtml_rc_opts = (
                "genhtml_show_function_proportion" => \$show_functionProportions,
                'genhtml_annotate_script'     => \@rc_annotate_script,
                'genhtml_criteria_script'     => \@rc_criteria_script,
+               'criteria_callback_data'      => \@criteriaCallbackTypes,
+               'criteria_callback_levels'    => \@criteriaCallbackLevels,
                'genhtml_date_bins'           => \@rc_date_bins,);
 
 my $save;
@@ -5042,6 +5096,22 @@ $br_med_limit = $med_limit if (!defined($br_med_limit));
     unless @SourceFile::annotateScript;
 @SummaryInfo::coverageCriteriaScript = @rc_criteria_script
     unless @SummaryInfo::coverageCriteriaScript;
+
+foreach my $data (['criteria_callback_levels', \@criteriaCallbackLevels,
+                   ['top', 'directory', 'file']
+                  ],
+                  ['criteria_callback_data', \@criteriaCallbackTypes,
+                   ['date', 'owner']
+                  ]
+) {
+    my ($rc, $user, $valid) = @$data;
+    @$user = split(',', join(',', @$user));
+    foreach my $x (@$user) {
+        die("invalid '$rc' value \"$x\" - expected (" .
+            join(", ", @$valid) . ")")
+            unless grep(/^$x$/, @$valid);
+    }
+}
 
 foreach my $d (@ReadCurrentSource::source_directories) {
     if (!-d $d) {
@@ -9889,8 +9959,13 @@ sub write_file_table(*$$$$$)
         foreach my $owner ($dirSummary->owners($all, 'line')) {
 
             $owners{$owner} = [
-                               [$dirSummary->owner_tlaCount($owner, 'found'),
-                                $dirSummary->owner_tlaCount($owner, 'hit')
+                               [
+                                $dirSummary->owner_tlaCount(
+                                                         $owner, 'found', 'line'
+                                ),
+                                $dirSummary->owner_tlaCount(
+                                                           $owner, 'hit', 'line'
+                                )
                                ],
                                [0, 0],    # no branch owner data
                                [0, 0],    # no function owner

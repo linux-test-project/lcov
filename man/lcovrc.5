@@ -1627,6 +1627,35 @@ See the genhtml man page for details.
 
 .PP
 
+.BR criteria_callback_data " ="
+.IR comma_separated_list
+.IP
+This option is used to tell genhtml whether you want date and/or owner summary
+data passed back to your criteria callback.
+Note that summary data is always passed.
+
+This option can be used multiple times in the lcovrc file to specify both date and owner data should be returned, or you can specify both in a  comma-separated list.
+Date and/or owner data will be returned if and only if your genhtml command
+has enabled annotation.
+
+If this option is appears multiple times in the lcovrc file; the values are combined to form the list of binning types which are passed to your callback.
+
+See the genhtml man page for details.
+
+.PP
+
+.BR criteria_callback_levels " ="
+.IR comma_separated_list
+.IP
+This option is used to tell genhtml whether criteria callbacks should occur
+at the top, directory, or file level.
+
+If this option is appears multiple times in the lcovrc file; the values are combined to form the list of report levels when your callback will be executed.
+
+See the genhtml man page for details.
+
+.PP
+
 .BR version_script " ="
 .IR path_to_executable
 .IP

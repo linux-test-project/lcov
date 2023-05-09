@@ -558,6 +558,10 @@ and the
 .I \-\-synthesize\-missing
 flag is specified, then genhtml will synthesize fake data for the file.
 
+Note that multiple instances of your annotation script may execute simultaneously if you have used the
+.I \-\-parallel
+option.  Your callback should either be reentrant or should arragne for its own synchronization, if necessary.
+
 .RE
 .BI "\-\-criteria\-script " coverage_criteria_script
 .RS
@@ -567,6 +571,14 @@ to enable genhtml to determine whether your coverage criteria is satisfied or no
 coverage_criteria_script' is treated as a space\-separated string; the first part is expected to be a script or executable and any following parts are passed as callback data (after the 'name' and 'type' and JSON coverage data) when the script is executed.  The script callback is executed for every 'summary' coverage data element:  leaf level file, containing directory, and top\-level report if any).  The callback is passed to the shell as:
 .I coverage_criteria_script 'name' type 'json-string'
 where "name" is the file or directory name (or "top" in the case of the top\-level report), "type" is the callback type:  "file", "directory", or "top", and "json-string" is a JSON representation of the corresponding line/function/branch coverage data.  The callback parameters are quoted in order to handle embedded spaces.
+
+The
+.I criteria_callback_levels
+RC file option to limit which levels see callbacks.  By default, top, directory, and file leval callbacks are generated.  The option can be used to limit callbacks to any combination of 'top', 'directory', or 'file' levels.
+
+.RS
+genhtml --rc criteria_callback_levels=directory,top ...
+.RE
 
 If the
 .I \-\-criteria\-script
@@ -579,6 +591,43 @@ The script should return 0 (zero) if your criteria is met and non\-zero otherwis
 A sample coverage criteria script can be found in the share/lcov/support\-scripts/criteria, shipped as part of this release.  The sample script checks that top\-level line coverage meets the criteria "UNC + LBC + UIC == 0".
 
 It is not difficult to create another script which mimics the LCOV '\-\-fail\-\under\-lines feature by instead checking that the ratio of exercised lines to total lines ("(GNC + GIC + CBC)/(GNC + GIC + CBC + UNC + UIC + UBC)") is greater than the threshold - either only at the top level, in every directory, or wherever desired.  Similarly, your criteria may include branch and function coverage metrics.
+
+By default, only total counts of coverpoints in each bin (CBC, UNC,
+.I etc.
+) are passed to your callback.
+You can use the
+.I criteria_callback_data
+setting in your lcovrc file to request data and/or owner data to be returned as well:
+
+.RS
+   genhtml --rc criteria_callback_data=owner,date ...
+.RE
+
+The format of the JSON summary data is:
+.RS
+   {coverpoint_type:{category:count[...]}}
+.RE
+where 'coverpoint_type' is 'line', 'branch', or 'function' and 'category' is 'fount', 'hit', or one of the differential categories (see above).
+
+If you have requested 'date' bin information, the datea is returned as:
+.RS
+   {age_bin:{age:{category:count[...]}}}
+.RE
+where 'age_bin' is 'line_age', 'branch_age', or 'function_age' and 'age' is the integer index of the corresponding bin, and 'category' is as above.
+Only bins which are not empty will appear.
+
+If you have requested 'owner bin information, the datea is returned as:
+.RS
+   {owner_bin:{owner::{category:count[...]}}}
+.RE
+where 'owner_bin' is 'line_owner' or 'branch_owner' and  'owner is the developer name returned by your annotation callback and 'category' is as above.
+Only bins which are not empty will appear.
+
+
+Note that multiple instances of your criteria script may execute simultaneously if you have used the
+.I \-\-parallel
+option.  Your callback should either be reentrant or should arragne for its own synchronization, if necessary.
+For example:  some developers have used the data passed to their criteria callback to collect their own file- and diretory-level coverage summary information - which is post-processed into a project-level management report.
 
 .RE
 
@@ -620,6 +669,10 @@ Please see sample scripts
 and
 .I share/lcov/support-scripts/get_signature
 which are shipped as part of this release.
+
+Note that multiple instances of your version script may execute simultaneously if you have used the
+.I \-\-parallel
+option.  Your callback should either be reentrant or should arragne for its own synchronization, if necessary.
 
 .RE
 .BI "\-\-checksum "
