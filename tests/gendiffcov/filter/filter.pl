@@ -33,6 +33,24 @@ print("checking conditional in expr1.c with lookahead " .
 die("source_filter_lookahad had no effect")
     unless $length->containsConditional(1);
 
+# try some trivial functions
+foreach my $example (glob('*rivial*.c')) {
+    print("checking trivial function in $example\n");
+    my $lines = 0;
+    open(FILE, $example) or die("can't open $example: $!");
+    $lines++ while (<FILE>);
+    close(FILE);
+
+    my $file = ReadCurrentSource->new($example);
+    if ($file->containsTrivialFunction(1, $lines)) {
+        die("incorrectly found trivial function in $example")
+            if $example =~ /^no/;
+    } else {
+        die("failed to find trivial function in $example")
+            unless $example =~ /^no/;
+    }
+}
+
 # problematic brace filter example...
 $lcovutil::verbose                  = 2;
 $lcovutil::derive_function_end_line = 1;

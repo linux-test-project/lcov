@@ -1912,6 +1912,19 @@ sub containsConditional
     }
 }
 
+sub containsTrivialFunction
+{
+    my ($self, $line) = @_;
+    my ($map, $reader, $filename) = @$self;
+    my $type = $map->type($filename, "old", $line);
+    if ($type ne 'delete') {
+        my $currLine = $map->lookup($filename, "old", $line);
+        return $reader->containsTrivialFunction($currLine);
+    } else {
+        return 0;    # we don't know - assume not
+    }
+}
+
 sub suppressCloseBrace
 {
     my $self = shift;

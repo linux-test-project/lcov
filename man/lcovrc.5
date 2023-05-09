@@ -327,6 +327,11 @@ genhtml_desc_html=0
 #derive_function_end_line = 1
 .br
 
+# Maximum size of function (number lines) which will be checked by '--filter trivial'
+.br
+#trivial_function_threshold = 5
+.br
+
 # Demangle C++ symbols
 .br
 #genhtml_demangle_cpp=1
@@ -1132,12 +1137,25 @@ If non-zero, use 'line' coverage data to deduce the end line of each function
 definition.  This is useful when excluding certain functions from your coverage report.  See the
 .I
 \-\-erase\-functions
-option.
+and
+.I \-\-filter trivial
+options.
 
 This option is not required if you are using gcc/9 or newer; these versions report function begin/end lines directly.
 .br
 
 Default is 1.
+.PP
+
+.BR trivial_function_threshold " ="
+.IR  integer
+.IP
+Set the maxmimum size of function (in number of lines) which will be checked
+by
+.I \-\-filter trivial filter.
+.br
+
+Default is 5.
 .PP
 
 .

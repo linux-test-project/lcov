@@ -762,6 +762,28 @@ if [ $COUNT != '1' ] ; then
     fi
 fi
 
+echo lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov --capture trivial failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+BASELINE_COUNT=`grep -c FN: baseline.info`
+TRIVIAL_COUNT=`grep -c FN: trivial.info`
+# expect lower function count:  we should have removed 'static_initial...
+GENERATED=`grep -c _GLOBAL__ baseline.info`
+if [[ ( 0 != $GENERATED &&
+        $TRIVIAL_COUNT -ge $BASELINE_COUNT ) ||
+      ( 0 == $GENERATED &&
+        $TRIVIAL_COUNT != $BASELINE_COUNT) ]] ; then
+    echo "ERROR:  trivial filter failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 # some error checks...
 # use 'no_markers' flag so we won't see the filter message
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output err1.info -a baseline.info -a baseline.info --substitute "s#xyz#pwd#g" --exclude 'foo' --no-markers

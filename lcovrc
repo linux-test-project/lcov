@@ -182,6 +182,12 @@ genhtml_desc_html=0
 # If set, derive function end line from line coverpoint data - default ON
 #derive_function_end_line = 1
 
+# If set, derive function end line from line coverpoint data - default ON
+#derive_function_end_line = 1
+
+# Maximum size of function (number lines) which will be checked by '--filter trivial'
+#trivial_function_threshold = 5
+
 # Demangle C++ symbols
 #genhtml_demangle_cpp=1
 

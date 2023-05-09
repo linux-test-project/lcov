@@ -160,8 +160,10 @@ if [ 0 == $? ] ; then
 fi
 
 # test merge with names that differ in case
+#  ignore 'source' error when we try to open the file (for filtering) - because
+#  our filesystem is not actually case insensitive.
 sed -e 's/TEST.cpp/test.cpp/g' < baseline.info > baseline2.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output merge.info -a baseline.info -a baseline2.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output merge.info -a baseline.info -a baseline2.info --ignore source
 if [ 0 != $? ] ; then
     echo "ERROR: merge with mismatched case did not fail"
     if [ 0 == $KEEP_GOING ] ; then
@@ -177,7 +179,7 @@ if [ $COUNT != '2' ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --rc case_insensitive=1 --output merge2.info -a baseline.info -a baseline2.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --rc case_insensitive=1 --output merge2.info -a baseline.info -a baseline2.info --ignore source
 if [ 0 != $? ] ; then
     echo "ERROR: ignore error case insensitive merge failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -215,8 +217,8 @@ fi
 ln -s ../simple/simple2.cpp.annotated TEst.cpp.annotated
 
 # check that this works with test names
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 --ignore-annotate
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 $GENHTML_PORT --ignore annotate
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 --ignore-annotate,source
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 $GENHTML_PORT --ignore annotate,source
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -226,7 +228,7 @@ fi
 
 # check warning
 echo lcov $LCOV_OPTS --capture --directory . --output-file current.info --substitute 's/test/TEST/g'
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current.info --substitute 's/test\b/TEST/' --rc case_insensitive=1 --ignore unused 2>&1 | tee warn.log
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current.info --substitute 's/test\b/TEST/' --rc case_insensitive=1 --ignore unused,source 2>&1 | tee warn.log
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture TeSt failed"
     if [ 0 == $KEEP_GOING ] ; then

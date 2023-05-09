@@ -1519,7 +1519,21 @@ combine data for every "unique" function which is defined at the same file/line.
 seem to have a bug such that they create multiple entries for the same function.
 This feature also merges all instances of the same template function/template method.
 
+.B trivial:
+remove trivial functions and associated coverpoints.  'Trivial' functions are
+whose body is empty/do not contain any statements.  Commonly, these include compiler-generated methods (e.g., default constructors and assignment operators) as well as static initialization wrappers, etc.
 
+Note that this filter requires function end line information - and so requires that you use a gcc veraion which is new enough to support begin/end line reports:  gcc/9 or newer, or that you enable lcov/genhtml/geninfo to derive the information:
+
+In the
+.B lcovrc
+man page, see the
+.I derive_function_end_line
+setting as well as the
+.I trivial_function_threshold
+setting.  The former is used to turn end line calculation on or off,
+and the latter to change the lookahead used to determine whether the
+function body is empty.
 
 .RE
 .BI "\-o " output\-directory

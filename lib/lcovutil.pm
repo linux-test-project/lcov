@@ -39,6 +39,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $FILTER_BRANCH_NO_COND $FILTER_FUNCTION_ALIAS
      $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH $FILTER_LINE
      $FILTER_LINE_CLOSE_BRACE $FILTER_BLANK_LINE $FILTER_LINE_RANGE
+     $FILTER_TRIVIAL_FUNCTION
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
      $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
@@ -52,7 +53,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      set_rtl_extensions set_c_extensions
      $source_filter_lookahead $source_filter_bitwise_are_conditional
      $exclude_exception_branch
-     $derive_function_end_line
+     $derive_function_end_line $trivial_function_threshold
 
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
@@ -180,6 +181,9 @@ our $FILTER_BLANK_LINE = 5;
 our $FILTER_LINE_RANGE = 6;
 # backward compatibility: empty line, close brace
 our $FILTER_LINE = 7;
+# remove functions which have only a single line
+our $FILTER_TRIVIAL_FUNCTION = 8;
+
 our %COVERAGE_FILTERS = ("branch"        => $FILTER_BRANCH_NO_COND,
                          'brace'         => $FILTER_LINE_CLOSE_BRACE,
                          'blank'         => $FILTER_BLANK_LINE,
@@ -187,7 +191,8 @@ our %COVERAGE_FILTERS = ("branch"        => $FILTER_BRANCH_NO_COND,
                          'line'          => $FILTER_LINE,
                          'function'      => $FILTER_FUNCTION_ALIAS,
                          'region'        => $FILTER_EXCLUDE_REGION,
-                         'branch_region' => $FILTER_EXCLUDE_BRANCH,);
+                         'branch_region' => $FILTER_EXCLUDE_BRANCH,
+                         "trivial"       => $FILTER_TRIVIAL_FUNCTION,);
 our @cov_filter;    # 'undef' if filter is not enabled,
                     # [line_count, coverpoint_count] histogram if
                     #   filter is enabled: nubmer of applications
@@ -209,9 +214,10 @@ our $EXCL_EXCEPTION_LINE = 'LCOV_EXCL_EXCEPTION_BR_LINE';
 our @exclude_file_patterns;
 our @include_file_patterns;
 our %excluded_files;
-our $case_insensitive         = 0;
-our $exclude_exception_branch = 0;
-our $derive_function_end_line = 1;
+our $case_insensitive           = 0;
+our $exclude_exception_branch   = 0;
+our $derive_function_end_line   = 1;
+our $trivial_function_threshold = 5;
 
 # list of regexps applied to line text - if exclude if matched
 our @omit_line_patterns;
@@ -1354,12 +1360,14 @@ sub is_filter_enabled
 {
     # return true of there is an opportunity for filtering
     return (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
-            defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE])
-            || defined($lcovutil::cov_filter[$lcovutil::FILTER_BLANK_LINE])
-            || defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE])
-            || defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION])
-            || defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])
-            || 0 != scalar(@lcovutil::omit_line_patterns));
+             defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE])
+             || defined($lcovutil::cov_filter[$lcovutil::FILTER_BLANK_LINE])
+             || defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE])
+             || defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION])
+             || defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])
+             || defined(
+                   $lcovutil::cov_filter[$lcovutil::FILTER_TRIVIAL_FUNCTION]) ||
+             0 != scalar(@lcovutil::omit_line_patterns));
 }
 
 sub parse_cov_filters(@)
@@ -3587,6 +3595,37 @@ sub containsConditional
     return $foundCond;
 }
 
+sub containsTrivialFunction
+{
+    my ($self, $start, $end) = @_;
+    return 0
+        if (1 + $end - $start >= $lcovutil::trivial_function_threshold);
+    my $text = '';
+    for (my $line = $start; $line <= $end; ++$line) {
+        my $src = $self->getLine($line);
+        chomp($src);
+        # remove end-of-line comments
+        $src =~ s#//.*$##;
+        $text .= $src;
+    }
+    # remove any multiline comments that were present:
+    $text =~ s#/\*.*\*/##g;
+    # remove whitespace
+    $text =~ s/\s//g;
+    # remove :: C++ separator
+    $text =~ s/:://g;
+    if ($text =~ /:/) {
+        return 0;
+    }
+
+    # does code end with '{}', '{;}' or '{};'?
+    # Or: is this just a close brace?
+    if ($text =~ /(\{;?|^)\};?$/) {
+        return 1;
+    }
+    return 0;
+}
+
 # check if this line is a close brace with zero hit count that should be
 # suppressed.  We want to ignore spurious zero on close brace;  depending
 # on what gcov did the last time (zero count, no count, nonzero count) -
@@ -3853,9 +3892,11 @@ my $didUnsupportedWarning;
 
 sub _eraseFunctions
 {
-    my ($source_file, $functionMap, $lineData, $branchData, $checksum) = @_;
+    my ($source_file, $srcReader, $functionMap, $lineData,
+        $branchData, $checksum, $isMasterList) = @_;
 
-    foreach my $key ($functionMap->keylist()) {
+    my $removeTrivial = $lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION];
+    FUNC: foreach my $key ($functionMap->keylist()) {
         my $fcn      = $functionMap->findKey($key);
         my $end_line = $fcn->end_line();
         my $name     = $fcn->name();
@@ -3872,13 +3913,31 @@ sub _eraseFunctions
             # Or we can keep going and at least remove the matched function
             #   coverpoint.
             #last; # at least for now:  keep going
+        } elsif (
+               defined($removeTrivial) &&
+               is_c_file($source_file) &&
+               (defined($srcReader) &&
+                $srcReader->containsTrivialFunction($fcn->line(), $end_line))
+        ) {
+            # remove single-line functions which has no body
+            # Only count what we removed from the top leve/master list -
+            #   - otherwise, we double count for every testcase.
+            $removeTrivial->[0]++ if $isMasterList;
+            foreach my $alias (keys %{$fcn->aliases()}) {
+                lcovutil::info(1,
+                      "\"$source_file\":$end_line: filter trivial FN $alias\n");
+                _eraseFunction($fcn, $alias, $end_line,
+                               $source_file, $functionMap, $lineData,
+                               $branchData, $checksum);
+                $removeTrivial->[1]++ if $isMasterList;
+            }
+            next FUNC;
         }
-
-        PAT: foreach my $p (@lcovutil::exclude_function_patterns) {
+        foreach my $p (@lcovutil::exclude_function_patterns) {
             my $pat = $p->[0];
             while (my ($alias, $hit) = each(%{$fcn->aliases()})) {
                 if ($alias =~ $pat) {
-                    ++$p->[-1];
+                    ++$p->[-1] if $isMasterList;
                     if (defined($end_line)) {
                         # if user ignored the unsupported message, then the
                         # best we can do is to remove the matched function -
@@ -3887,11 +3946,11 @@ sub _eraseFunctions
                                  "exclude FN $name line range $source_file:[" .
                                      $fcn->line() .
                                      ":$end_line] due to '" . $p->[-2] . "'\n");
-		    }
+                    }
                     _eraseFunction($fcn, $alias, $end_line,
                                    $source_file, $functionMap, $lineData,
                                    $branchData, $checksum);
-                    last PAT;
+                    next FUNC;
                 }    # if match
             }    # foreach alias
         }    # foreach pattern
@@ -3909,6 +3968,7 @@ sub applyFilters
     my $brace_histogram          = $cov_filter[$FILTER_LINE_CLOSE_BRACE];
     my $blank_histogram          = $cov_filter[$FILTER_BLANK_LINE];
     my $function_alias_histogram = $cov_filter[$FILTER_FUNCTION_ALIAS];
+    my $trivial_histogram        = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
 
     # have to look through each file in each testcase; they may be different
     # due to differences in #ifdefs when the corresponding tests were compiled.
@@ -4012,7 +4072,9 @@ sub applyFilters
 
         if (defined($lcovutil::func_coverage) &&
             !defined($didUnsupportedWarning)  &&
-            0 != scalar(@lcovutil::exclude_function_patterns)) {
+            (0 != scalar(@lcovutil::exclude_function_patterns) ||
+                defined($lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION]))
+        ) {
 
             # filter excluded function line ranges
 
@@ -4020,14 +4082,19 @@ sub applyFilters
             my $lineData   = $traceInfo->test();
             my $branchData = $traceInfo->testbr();
             my $checkData  = $traceInfo->check();
+            my $reader     = defined($trivial_histogram) &&
+                $srcReader->notEmpty() ? $srcReader : undef;
+
             foreach my $tn ($lineData->keylist()) {
-                _eraseFunctions($source_file, $funcData->value($tn),
-                                $lineData->value($tn), $branchData->value($tn),
-                                $checkData->value($tn));
+                _eraseFunctions($source_file, $reader,
+                                $funcData->value($tn), $lineData->value($tn),
+                                $branchData->value($tn), $checkData->value($tn),
+                                0);
             }
-            _eraseFunctions($source_file, $traceInfo->func(),
-                            $traceInfo->sum(), $traceInfo->sumbr(),
-                            $traceInfo->check());
+            _eraseFunctions($source_file, $reader,
+                            $traceInfo->func(), $traceInfo->sum(),
+                            $traceInfo->sumbr(), $traceInfo->check(),
+                            1);
         }
 
         next
