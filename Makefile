@@ -126,6 +126,7 @@ install:
 		$(call echocmd,"  INSTALL $(DESTDIR)$(MAN_DIR)/$$m") \
 		$(INSTALL) -m 644 man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m ; \
 		$(FIX) --version $(VERSION) --fixver --fixdate \
+		       --fixscriptdir --scriptdir $(SCRIPT_DIR) \
 		       --manpage $(DESTDIR)$(MAN_DIR)/$$m ; \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(CFG_DIR)

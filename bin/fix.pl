@@ -19,6 +19,7 @@
 #   --release RELEASE   Use RELEASE as release
 #   --libdir PATH       Use PATH as library path
 #   --bindir PATH       Use PATH as executable path
+#   --scriptdir PATH    Use PATH as script path
 #   --fixinterp         Replace /usr/bin/env interpreter references with values
 #                       specified by LCOV_PERL_PATH and LCOV_PYTHON_PATH
 #   --fixdate           Replace dates references with the value specified by
@@ -29,6 +30,8 @@
 #                       by --libdir
 #   --fixbindir         Replace executable path references with value specified
 #                       by --bindir
+#   --fixscriptdir      Replace script path references with value specified by
+#                       --scriptdir
 
 use strict;
 use warnings;
@@ -37,8 +40,8 @@ use Getopt::Long;
 
 my ($opt_man, $opt_exec, $opt_text, $opt_spec,
     $opt_verfile, $opt_version, $opt_release, $opt_libdir,
-    $opt_bindir, $opt_fixinterp, $opt_fixdate, $opt_fixver,
-    $opt_fixlibdir, $opt_fixbindir);
+    $opt_bindir, $opt_scriptdir, $opt_fixinterp, $opt_fixdate, $opt_fixver,
+    $opt_fixlibdir, $opt_fixbindir, $opt_fixscriptdir);
 my $verbose = $ENV{"V"};
 
 sub get_file_info($)
@@ -73,6 +76,11 @@ sub update_man_page($$)
     if ($opt_fixdate) {
         $date_string =~ s/-/\\-/g;
         $source      =~ s/\d\d\d\d\\\-\d\d\\\-\d\d/$date_string/mg;
+    }
+
+    if ($opt_fixscriptdir) {
+        die("$0: Missing option --scriptdir\n") if (!defined($opt_scriptdir));
+        $source =~ s/^(.ds\s+scriptdir\s).*$/$1$opt_scriptdir/mg;
     }
 
     return $source;
@@ -210,11 +218,13 @@ sub main()
                     "release=s" => \$opt_release,
                     "libdir=s"  => \$opt_libdir,
                     "bindir=s"  => \$opt_bindir,
+                    "scriptdir=s"  => \$opt_scriptdir,
                     "fixinterp" => \$opt_fixinterp,
                     "fixdate"   => \$opt_fixdate,
                     "fixver"    => \$opt_fixver,
                     "fixlibdir" => \$opt_fixlibdir,
                     "fixbindir" => \$opt_fixbindir,
+                    "fixscriptdir" => \$opt_fixscriptdir,
     )) {
         print(STDERR "Use $0 --help to get usage information.\n");
         exit(1);
