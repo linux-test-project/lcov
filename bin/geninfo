@@ -594,7 +594,7 @@ foreach my $entry (@data_directory) {
     $lcovutil::profileData{gen_info}{$entry} = $then - $now;
     if ($@) {
         $exit_code = 1;
-        print("Error $@");
+        print(STDERR $@);
         last;
     }
 }

@@ -38,7 +38,8 @@ use FindBin;
 
 use lib "$FindBin::RealBin/../lib";
 use lcovutil qw (%tlaColor %tlaTextColor
-                 $tool_name $tool_dir $lcov_version $lcov_url);
+                 $tool_name $tool_dir $lcov_version $lcov_url
+                 die_handler warn_handler);
 
 # Constants
 # (now imported from lcovutil.pm)
@@ -48,8 +49,6 @@ sub gen_png($$$$$@);
 sub check_and_load_module($);
 sub genpng_print_usage(*);
 sub genpng_process_file($$$$$);
-sub genpng_warn_handler($);
-sub genpng_die_handler($);
 
 #
 # Code entry point
@@ -76,8 +75,8 @@ if (!caller) {
     my $help;
     my $version;
 
-    $SIG{__WARN__} = \&genpng_warn_handler;
-    $SIG{__DIE__}  = \&genpng_die_handler;
+    $SIG{__WARN__} = \&warn_handler;
+    $SIG{__DIE__}  = \&die_handler;
 
     # Parse command line options
     if (!GetOptions("tab-size=i"        => \$tab_size,
@@ -395,18 +394,4 @@ sub gen_png($$$$$@)
     binmode(*PNG_HANDLE);
     print(PNG_HANDLE $overview->png());
     close(PNG_HANDLE);
-}
-
-sub genpng_warn_handler($)
-{
-    my ($msg) = @_;
-
-    warn("$tool_name: $msg");
-}
-
-sub genpng_die_handler($)
-{
-    my ($msg) = @_;
-
-    die("$tool_name: $msg");
 }

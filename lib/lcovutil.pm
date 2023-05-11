@@ -451,7 +451,9 @@ sub die_handler($)
     if (!$debug) {
         $msg =~ s/ at \S+ line \d+\.$//;
     }
-    die("$tool_name: $msg");
+    # Enforce consistent "ERROR:" message prefix
+    $msg =~ s/^error:\s+//i;
+    die("$tool_name: ERROR: $msg");
 }
 
 sub abort_handler($)

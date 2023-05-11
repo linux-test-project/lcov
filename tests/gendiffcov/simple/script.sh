@@ -570,7 +570,7 @@ if [ 0 == $? ] ; then
     fi
 fi
 
-grep "Error: possible path inconsistency" err.log
+grep -i "Error: possible path inconsistency" err.log
 if [ 0 != $? ] ; then
     echo "ERROR:  can't find expected error message"
     if [ 0 == $KEEP_GOING ] ; then

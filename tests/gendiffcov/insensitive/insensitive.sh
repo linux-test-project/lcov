@@ -253,7 +253,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep "Error: non-zero exit status from annotate" fail.log
+grep -i "Error: non-zero exit status from annotate" fail.log
 if [ 0 != $? ] ; then
     echo "did not find expected annotate error message in fail.log"
     exit 1

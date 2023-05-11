@@ -5366,7 +5366,7 @@ my $now = Time::HiRes::gettimeofday();
 eval { gen_html(); };
 if ($@) {
     $exit_status = 1;
-    print("Error: $@");
+    print(STDERR $@);
 }
 
 my $then = Time::HiRes::gettimeofday();

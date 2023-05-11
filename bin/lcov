@@ -426,7 +426,7 @@ eval {
 };
 if ($@) {
     $exit_code = 1;
-    print("Error $@");
+    print(STDERR $@);
 }
 
 temp_cleanup();

@@ -43,7 +43,8 @@ use Cwd qw/abs_path/;
 use FindBin;
 
 use lib "$FindBin::RealBin/../lib";
-use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url);
+use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
+                 die_handler warn_handler);
 
 # Constants
 # (now imported from lcovutil.pm)
@@ -51,8 +52,6 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url);
 # Prototypes
 sub print_usage(*);
 sub gen_desc();
-sub warn_handler($);
-sub die_handler($);
 
 # Global variables
 our $help;
@@ -187,18 +186,4 @@ sub gen_desc()
     }
 
     close(INPUT_HANDLE);
-}
-
-sub warn_handler($)
-{
-    my ($msg) = @_;
-
-    warn("$tool_name: $msg");
-}
-
-sub die_handler($)
-{
-    my ($msg) = @_;
-
-    die("$tool_name: $msg");
 }
