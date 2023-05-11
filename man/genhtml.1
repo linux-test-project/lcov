@@ -554,12 +554,10 @@ Increment 'debug messages' verbosity.  This is useful primarily to developers wh
 .br
 .B \-\-hierarchical
 .RS
-Use the specified HTML report hierarchy depth.
+Use the specified HTML report hierarchy layout.
 .br
 
-Option
-.B \-\-hierarchical
-produces a three-level HTML report (the default):
+The default HTML report is 3 levels:
 
 .RS
 .B 1. top\-level:
@@ -573,6 +571,11 @@ table of source files in a directory, and
 annotated source code.
 .br
 .RE
+
+Option
+.B \-\-hierarchical
+produces a multilevel report which follows the directory structure of the
+source code (similar to the file tool in Microsoft Windows).
 
 Option
 .B \-\-flat
@@ -657,11 +660,14 @@ The coverage data file specified by
 is read and used as the baseline for classifying the change in coverage represented by the coverage counts in
 .IR tracefile .
 
-Note that you must specify a diff file in unified diff format via
+In general, you should specify a diff file in unified diff format via
 .B \-\-diff\-file
 when you specify a
 .IR \-\-baseline\-file .
-Both are needed for differential coverage categorization.
+Without a diff file, genhtml will assume that there are no source differences
+between 'baseline' and 'current'.  (For example:  this might be used to find
+incremental changes caused by the addition of more testcases, or to compare
+coverage results between gcc versions, or between gcc and llvm.)
 
 .RE
 .BI "\-\-baseline\-title " title
@@ -746,6 +752,14 @@ Note that you must specify
 when you specify
 .BR \-\-diff\-file .
 Both are needed for differential coverage categorization.
+
+Conversely, if you specify a
+.B \-\-baseline\-file
+without a
+.BR \-\-diff\-file ,
+then genhtml will assume that there are no source code changes:  source text is
+identical between 'baseline' and 'current'.
+
 
 .RE
 .BI "\-\-annotate\-script " script
@@ -1453,7 +1467,7 @@ Specify parallelism to use during processing (maximum number of forked child pro
 .RS
 Specify the maximum amount of memory to use during parallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
 
-This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
+This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does not know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
 
 
 .RE
@@ -2237,7 +2251,8 @@ Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
 
 Henry Cox <henry.cox@mediatek.com>
 .RS
-Differential coverage and date/owner binning sections
+Differential coverage and date/owner binning, filtering, error management,
+parallel execution sections,
 .RE
 .br
 
