@@ -727,7 +727,7 @@ Determine list of unique tracefiles.
 
 Use this option to determine a list of unique tracefiles from the list
 specified by
-.BR \-\-add\-tracefiles .
+.BR \-\-add\-tracefile .
 A tracefile is considered to be unique if it is the only tracefile that:
 
 .RS
@@ -759,11 +759,19 @@ will emit the list of unique files rather than combined tracefile data.
 .B \-\-map\-functions
 .br
 .RS
-Keep track of testcases (trace files) which hit each unique function.
+List tracefiles with non-zero coverage for each function.
+.br
 
-lcov will emit the list of tests for each function, along with the file/line location f the function.
+Use this option to determine the list of tracefiles that contain non-zero
+coverage data for each function from the list of tracefiles specified by
+.BR \-\-add\-tracefile .
 
-This option has an effect only with \-\-add\-tracefile.
+This option must be specified together with
+.BR \-\-add\-tracefile .
+When specified,
+.B lcov
+will emit the list of functions and associated tracefiles rather than combined tracefile data.
+.br
 
 .RE
 .B \-\-version\-script
