@@ -723,11 +723,36 @@ option
 .B \-\-prune\-tests
 .br
 .RS
-Specify whether to keep track of testcases which increase code coverage (i.e., by changing at least one 'hit' count from zero to non-zero) or which add at least one coverpoint which has not been seen before.
+Determine list of unique tracefiles.
 
-lcov will emit the list of retained files rather than the test report.
+Use this option to determine a list of unique tracefiles from the list
+specified by
+.BR \-\-add\-tracefiles .
+A tracefile is considered to be unique if it is the only tracefile that:
 
-This option has an effect only with \-\-add\-tracefile.
+.RS
+
+.IP 1. 3
+contains data for a specific source file
+.br
+.PP
+.IP 2. 3
+contains data for a specific test case name
+.br
+.PP
+.IP 3. 3
+contains non-zero coverage data for a specific line, function or branch
+.br
+.PP
+
+.RE
+
+This option must be specified together with
+.BR \-\-add\-tracefile .
+When specified,
+.B lcov
+will emit the list of unique files rather than combined tracefile data.
+.br
 
 .RE
 
