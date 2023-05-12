@@ -670,7 +670,8 @@ OPTIONS
   -b, --base-directory DIR          Use DIR as base directory for relative paths
       --build-directory DIR         Search DIR for .gcno files (if not found
                                     with .gcda)
-      --branch-coverage             Enable branch coverage collection
+      --(no-)function-coverage      Enable (disable) function coverage
+      --(no)-branch-coverage        Enable (disable) branch coverage
       --(no-)checksum               Enable (disable) line checksumming
       --(no-)compat-libtool         Enable (disable) libtool compatibility mode
       --gcov-tool TOOL              Specify gcov tool location
@@ -687,6 +688,7 @@ OPTIONS
       --substitute REGEXP           Change source file names according to REGEXP
       --erase-functions REGEXP      Exclude data for functions matching REGEXP
       --omit-lines REGEXP           Ignore data in lines matching REGEXP
+      --forget-test-names           Merge data for all tests names
       --version-script SCRIPTNAME   Call script to find revison control version
                                     ID of source file
   -j, --parallel [N]                Use parallel processing with at most N jobs

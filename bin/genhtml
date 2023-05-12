@@ -5478,7 +5478,7 @@ OPERATION
       --criteria-script SCRIPT      Use SCRIPT to check for acceptance criteria
       --version-script SCRIPT       Use SCRIPT to check for compatibility of
                                     source code and coverage data
-      --checksum                    Compare source line checksum
+      --(no-)checksum               Compare (ignore) source line checksum
       --diff-file UDIFF             Unified diff file UDIFF describes source
                                     code changes between baseline and current
       --elide-path-mismatch         Identify matching files if their basename
@@ -5493,13 +5493,17 @@ OPERATION
                                     for full list of filters and their effects)
       --include PATTERN             Only show output for files matching PATTERN
       --exclude PATTERN             Skip output for files matching PATTERN
+      --source-directory DIR        Search DIR for source files
       --substitute REGEXP           Change source file names according to REGEXP
       --erase-functions REGEXP      Exclude data for functions matching REGEXP
       --omit-lines REGEXP           Ignore data in lines matching REGEXP
+      --forget-test-names           Merge data for all tests names
+      --synthesize-missing          Generate fake source for missing files
   -j, --parallel [N]                Use parallel processing with at most N jobs
       --memory MB                   Use at most MB memory in parallel processing
       --profile [FILENAME]          Write performance statistics to FILENAME
                                     (default: OUTDIR/genhtml.json)
+      --save                        Write copy of input files to OUTDIR
 
 HTML OUTPUT
   -f, --frames                      Use HTML frames for source code view
@@ -5510,7 +5514,7 @@ HTML OUTPUT
   -c, --css-file CSSFILE            Use external style sheet file CSSFILE
       --header-title BANNER         Banner at top of each HTML page
       --footer FOOTER               Footer at bottom of each HTML page
-      --no-source                   Do not create source code view
+      --no-sourceview               Do not create source code view
       --num-spaces NUM              Replace tabs with NUM spaces in source view
       --highlight                   Highlight lines with converted-only data
       --legend                      Include color legend in HTML output
@@ -5523,6 +5527,7 @@ HTML OUTPUT
       --precision NUM               Set precision of coverage rate
       --missed                      Show miss counts as negative numbers
       --dark-mode                   Use the dark-mode CSS
+      --simplified-colors           Use reduced color scheme for categories
       --hierarchical                Generate multilevel HTML report,
                                     matching source code directory structure
       --flat                        Generate flat HTML report, with all files
@@ -5539,6 +5544,8 @@ HTML OUTPUT
       --show-navigation             Include 'goto first hit/not hit' and
                                     'goto next hit/not hit' hyperlinks in
                                     non-differential source code detail page
+      --show-proportion             Show function coverage rates
+      --suppress-aliases            Merge data for function aliases
 
 For more information see the genhtml man page.
 END_OF_USAGE

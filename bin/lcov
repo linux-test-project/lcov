@@ -490,6 +490,7 @@ COMMON OPTIONS
                                   full list of errors and their meaning)
       --keep-going                Do not stop if an error occurs
       --tempdir DIRNAME           Write temporary and intermediate data here
+      --preserve                  Keep intermediate files for debugging
 
 OPERATION
   -z, --zerocounters              Reset all execution counts to zero
@@ -517,7 +518,8 @@ OPTIONS
       --convert-filenames         Convert filenames when applying diff
       --strip DEPTH               Strip initial DEPTH directory levels in diff
       --path PATH                 Strip PATH from tracefile when applying diff
-      --branch-coverage           Enable branch coverage collection
+      --(no-)function-coverage    Enable (disable) function coverage collection
+      --(no-)branch-coverage      Enable (disable) branch coverage collection
       --(no-)checksum             Enable (disable) line checksumming
       --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
@@ -537,6 +539,7 @@ OPTIONS
       --substitute REGEXP         Change source file names according to REGEXP
       --erase-functions REGEXP    Exclude data for functions matching REGEXP
       --omit-lines REGEXP         Ignore data in lines matching REGEXP
+      --forget-test-names         Merge data for all tests names
       --fail-under-lines MIN      Exit with a status of 1 if the total line
                                   coverage is less than MIN (summary option)
       --version-script SCRIPTNAME Call script to find revison control version
