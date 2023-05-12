@@ -504,6 +504,59 @@ lcov_json_module = auto
 #case_insensitive = 0
 .br
 
+.br
+# override line default line exclusion regexp
+.br
+#lcov_excl_line = LCOV_EXCL_LINE
+.br
+
+.br
+# overide branch exclusion regexp
+.br
+#lcov_excl_br_line = LCOV_EXCL_BR_LINE
+.br
+
+.br
+# override exception branch exclusion regexp
+.br
+#lcov_excl_exception_br_line = LCOV_EXCL_EXCEPTION_BR_LINE
+.br
+
+.br
+# override start of exclude region regexp
+.br
+#lcov_excl_start = LCOV_EXCL_START
+.br
+
+.br
+# override end of exclude region regexp
+.br
+#lcov_excl_stop = LCOV_EXCL_STOP
+.br
+
+.br
+# override start of branch exclude region regexp
+.br
+#lcov_excl_br_start = LCOV_EXCL_BR_START
+.br
+
+.br
+# override start of exclude region regexp
+.br
+#lcov_excl_br_stop = LCOV_EXCL_BR_STOP
+.br
+
+.br
+# override start of exclude region regexp
+.br
+#lcov_excl_exception_br_start = LCOV_EXCL_EXCEPTION_BR_START
+.br
+
+.br
+# override start of exclude region regexp
+.br
+#lcov_excl_exception_br_stop = LCOV_EXCL_EXCEPTION_BR_STOP
+
 .PP
 
 .SH OPTIONS
@@ -1533,6 +1586,12 @@ Specify the regular expression of lines to exclude.
 Line, branch, and function coverpoints are associated with lines where this regexp is found are dropped.
 .br
 
+There are at least 2 (moderately) common use cases for custom exclusion markers:
+.br
+- You are using multiple tools for coverage analysis, each of which has its own directives, and you don't want to complicate your source code with directives for each of them.
+.br
+- You want to exclude different regions/different types of code in different contexts - for example, to ignore or not ignore debug/trace code depending on your team.
+
 Default is 'LCOV_EXCL_LINE'.
 .PP
 
@@ -1559,6 +1618,74 @@ Note that this feature requires support from your compiler - and thus may not ig
 .br
 
 Default is 'LCOV_EXCL_EXCEPTION_BR_LINE'.
+.PP
+
+.BR lcov_excl_start " ="
+.IR expression
+.IP
+Specify the regexp mark the start of an exception region
+All coverpoints within exeption regions are dropped.
+.br
+
+Default is 'LCOV_EXCL_START'.
+
+.PP
+
+.BR lcov_excl_stop " ="
+.IR expression
+.IP
+Specify the regexp mark the end of an exception region
+.br
+
+Default is 'LCOV_EXCL_STOP'.
+
+.PP
+
+.BR lcov_excl_br_start " ="
+.IR expression
+.IP
+Specify the regexp used to mark the start of a region where branch coverpoints are excluded.
+Line and function coverpoints within the region are not excluded.
+.br
+
+Default is 'LCOV_EXCL_BR_START'.
+
+.PP
+
+.BR lcov_excl_br_stop " ="
+.IR expression
+.IP
+Specify the regexp used to mark the end of a region where branch coverpoints are excluded.
+.br
+
+Default is 'LCOV_EXCL_BR_STOP'.
+
+
+.PP
+
+.BR lcov_excl_exception_br_start " ="
+.IR expression
+.IP
+Specify the regexp used to mark the start of a region where branch coverpoints associated with exceptions are excluded.
+Line, function, and non-exception branch coverpoints within the region are not excluded.
+
+Also see 'geninfo_no_exception_branch'; if nonzero, then all identified exception branches will be removed.
+
+Note that exception branch coverpoint identification requires support from your compiler - and thus may not ignore all exception-related coverpoints.
+.br
+
+Default is 'LCOV_EXCL_EXCEPTION_BR_START'.
+
+.PP
+
+.BR lcov_excl_exception_br_stop " ="
+.IR expression
+.IP
+Specify the regexp used to mark the end of a region where exception-related branch coverpoints are excluded.
+.br
+
+Default is 'LCOV_EXCL_EXECEPTION_BR_STOP'.
+
 .PP
 
 .BR lcov_fail_under_lines " ="

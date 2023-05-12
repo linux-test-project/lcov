@@ -816,14 +816,20 @@ my %rc_common = (
              "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
              "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
              "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
-             "lcov_function_coverage"      => \$lcovutil::func_coverage,
-             "lcov_branch_coverage"        => \$lcovutil::br_coverage,
-             "ignore_errors"               => \@rc_ignore,
-             "max_message_count"           => \$lcovutil::suppressAfter,
-             'stop_on_error'               => \$lcovutil::stop_on_error,
-             "rtl_file_extensions"         => \$rtlExtensions,
-             "c_file_extensions"           => \$cExtensions,
-             "filter_lookahead" => \$lcovutil::source_filter_lookahead,
+             "lcov_excl_start"             => \$lcovutil::EXCL_START,
+             "lcov_excl_stop"              => \$lcovutil::EXCL_STOP,
+             "lcov_excl_br_start"          => \$lcovutil::EXCL_BR_START,
+             "lcov_excl_br_stop"           => \$lcovutil::EXCL_BR_STOP,
+             "lcov_excl_exception_br_start" => \$lcovutil::EXCL_EXCEPTION_BR_START,
+             "lcov_excl_exception_br_stop" => \$lcovutil::EXCL_EXCEPTION_BR_STOP,
+             "lcov_function_coverage" => \$lcovutil::func_coverage,
+             "lcov_branch_coverage"   => \$lcovutil::br_coverage,
+             "ignore_errors"          => \@rc_ignore,
+             "max_message_count"      => \$lcovutil::suppressAfter,
+             'stop_on_error'          => \$lcovutil::stop_on_error,
+             "rtl_file_extensions"    => \$rtlExtensions,
+             "c_file_extensions"      => \$cExtensions,
+             "filter_lookahead"       => \$lcovutil::source_filter_lookahead,
              "filter_bitwise_conditional" =>
         \$lcovutil::source_filter_bitwise_are_conditional,
              "profile"  => \$lcovutil::profile,
@@ -1138,6 +1144,16 @@ sub munge_file_patterns
                     ['lcov_excl_br_line', $lcovutil::EXCL_BR_LINE],
                     ['lcov_excl_exception_br_line',
                      $lcovutil::EXCL_EXCEPTION_LINE
+                    ],
+                    ["lcov_excl_start", \$lcovutil::EXCL_START],
+                    ["lcov_excl_stop", \$lcovutil::EXCL_STOP],
+                    ["lcov_excl_br_start", \$lcovutil::EXCL_BR_START],
+                    ["lcov_excl_br_stop", \$lcovutil::EXCL_BR_STOP],
+                    ["lcov_excl_exception_br_start",
+                     \$lcovutil::EXCL_EXCEPTION_BR_START
+                    ],
+                    ["lcov_excl_exception_br_stop",
+                     \$lcovutil::EXCL_EXCEPTION_BR_STOP
                     ]
     ) {
         eval 'qr/' . $regexp->[1] . '/';

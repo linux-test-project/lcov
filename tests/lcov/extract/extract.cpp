@@ -10,7 +10,9 @@ int main(int argc, const char *argv[])
     b = true;
 
   char *a = nullptr;
-  if (b)
+  // TEST_BRANCH_START
+  if (b) // TEST_BRANCH_LINE
+    // TEST_BRANCH_STOP
     printf("Hai\n");
   delete[] a;
 

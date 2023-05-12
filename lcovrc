@@ -348,3 +348,30 @@ lcov_json_module = auto
 # use case insensitive compare to find matching files, for include/exclude
 #  directives, etc
 #case_insensitive = 0
+
+# override line default line exclusion regexp
+#lcov_excl_line = LCOV_EXCL_LINE
+
+# overide branch exclusion regexp
+#lcov_excl_br_line = LCOV_EXCL_BR_LINE
+
+# override exception branch exclusion regexp
+#lcov_excl_exception_br_line = LCOV_EXCL_EXCEPTION_BR_LINE
+
+# override start of exclude region regexp
+#lcov_excl_start = LCOV_EXCL_START
+
+# override end of exclude region regexp
+#lcov_excl_stop = LCOV_EXCL_STOP
+
+# override start of branch exclude region regexp
+#lcov_excl_br_start = LCOV_EXCL_BR_START
+
+# override start of exclude region regexp
+#lcov_excl_br_stop = LCOV_EXCL_BR_STOP
+
+# override start of exclude region regexp
+#lcov_excl_exception_br_start = LCOV_EXCL_EXCEPTION_BR_START
+
+# override start of exclude region regexp
+#lcov_excl_exception_br_stop = LCOV_EXCL_EXCEPTION_BR_STOP

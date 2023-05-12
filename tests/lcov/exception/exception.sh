@@ -81,7 +81,7 @@ export MANPATH=${MANPATH}:${LCOV_HOME}/man
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
-LCOV_OPTS="--rc lcov_branch_coverage=1 $PARALLEL $PROFILE"
+LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.*
 
@@ -94,8 +94,8 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 if ! type g++ >/dev/null 2>&1 ; then
-	echo "Missing tool: g++" >&2
-	exit 2
+        echo "Missing tool: g++" >&2
+        exit 2
 fi
 
 g++ -std=c++1y --coverage exception.cpp
@@ -174,6 +174,25 @@ if [ $EXCEPTIONS != '0' ] ; then
         echo "Error: we seem to have filtered non-exception branches: $DIFF -> $DIFF2"
         exit 1
     fi
+
+    # override the exclusion markers and check that we didn't remove
+    #  exception branches..
+    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o override.info --include '*/exception.cpp' --rc lcov_excl_exception_br_start=nomatch_start --rc lcov_excl_exception_br_stop=nomatch_stop --rc lcov_excl_exception_br_line=notThere
+
+    if [ 0 != $? ] ; then
+        echo "Error:  unexpected error code from lcov exclusion override filter"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    OVERRIDE_BRANCHES=`grep -c BRDA: override.info`
+    if [ $OVERRIDE_BRANCHES != $BRANCHES ] ; then
+        echo "did not honor exception overrides.  Expected $BRANCHES found $OVERRIDE_BRANCHES"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+
 else
     echo "no exceptions identified - so nothing to do"
 fi

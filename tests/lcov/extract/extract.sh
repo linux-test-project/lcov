@@ -98,8 +98,8 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 if ! type g++ >/dev/null 2>&1 ; then
-	echo "Missing tool: g++" >&2
-	exit 2
+        echo "Missing tool: g++" >&2
+        exit 2
 fi
 
 g++ -std=c++1y --coverage extract.cpp
@@ -142,6 +142,77 @@ if [ $COUNT != '1' ] ; then
     exit 1
 fi
 
+MARKER_LINES=`grep -c "^DA:" internal.info`
+
+# check 'no-markers':  is the excluded line back?
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o nomarkers.info --no-markers
+if [ $? != 0 ] ; then
+    echo "error return from extract no-markers"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+NOMARKER_LINES=`grep -c "^DA:" nomarkers.info`
+NOMARKER_BRANCHES=`grep -c "^BRDA:" nomarkers.info`
+if [ $NOMARKER_LINES != '13' ] ; then
+    echo "did not honor --no-markers expected 13 found $NOMARKER_LINES"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# override excl_line start/stop - and make sure we didn't match
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o excl.info --rc lcov_excl_start=nomatch_start --rc lcov_excl_stop=nomatch_end
+if [ $? != 0 ] ; then
+    echo "error return from marker override"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+EXCL_LINES=`grep -c "^DA:" excl.info`
+if [ $EXCL_LINES != $NOMARKER_LINES ] ; then
+    echo "did not honor marker override: expected $NOMARKER_LINES found $EXCL_LINES"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# override excl_br line start/stop - and make sure we match match
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o exclbr.info --rc lcov_excl_br_start=TEST_BRANCH_START --rc lcov_excl_br_stop=TEST_BRANCH_STOP
+if [ $? != 0 ] ; then
+    echo "error return from branch marker override"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+EXCL_BRANCHES=`grep -c "^BRDA:" exclbr.info`
+
+if [ $EXCL_BRANCHES -ge $NOMARKER_BRANCHES ] ; then
+    echo "did not honor br marker override: expected $NOMARKER_BRANCHES to be larger than $EXCL_BRANCHES"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# override excl_br line start/stop - and make sure we match match
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o exclbrline.info --rc lcov_excl_br_line=TEST_BRANCH_LINE
+if [ $? != 0 ] ; then
+    echo "error return from branch line marker override"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+EXCL_LINE_BRANCHES=`grep -c "^BRDA:" exclbrline.info`
+
+if [ $EXCL_LINE_BRANCHES != $EXCL_BRANCHES ] ; then
+    echo "did not honor br line marker override: expected $EXCL_BRANCHES foune $EXCL_LINE_BRANCHES"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+
+
 # check to see if "--omit-lines" works properly...
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines '\s+std::string str.+' --directory . -o omit.info
 
@@ -152,7 +223,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-BRACE_LINE="DA:26"
+BRACE_LINE="DA:28"
 # a bit of a hack:  gcc/10 doesn't put a DA entry on the closing brace
 COUNT=`grep -v $BRACE_LINE omit.info | grep -c ^DA:`
 if [ $COUNT != '11' ] ; then
