@@ -61,7 +61,7 @@ use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
 use File::Temp;
 use File::Copy qw(copy move);
 use File::Path;
-use Cwd qw/abs_path/;
+use Cwd qw/abs_path getcwd/;
 use Time::HiRes;    # for profiling
 use Capture::Tiny;
 use Module::Load;
@@ -75,7 +75,7 @@ use lcovutil qw (define_errors parse_ignore_errors
                  set_info_callback info init_verbose_flag $verbose
                  debug $debug
                  $br_coverage $func_coverage
-                 system_no_output
+                 system_no_output $devnull $dirseparator
                  die_handler warn_handler
                  parse_cov_filters summarize_cov_filters
                  $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
@@ -149,14 +149,6 @@ sub compat_hammer_autodetect();
 our %COMPAT_MODE_AUTO = ($COMPAT_MODE_HAMMER    => \&compat_hammer_autodetect,
                          $COMPAT_MODE_SPLIT_CRC => 1,    # will be done later
 );
-
-our $BR_LINE        = 0;
-our $BR_BLOCK       = 1;
-our $BR_BRANCH      = 2;
-our $BR_TAKEN       = 3;
-our $BR_VEC_ENTRIES = 4;
-our $BR_VEC_WIDTH   = 32;
-our $BR_VEC_MAX     = vec(pack('b*', 1 x $BR_VEC_WIDTH), 0, $BR_VEC_WIDTH);
 
 our $UNNAMED_BLOCK = -1;
 
@@ -255,7 +247,7 @@ our $rc_auto_base    = 1;
 our $rc_intermediate = "auto";
 our $intermediate;
 
-our $cwd = `pwd`;
+our $cwd = getcwd();
 chomp($cwd);
 
 lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
@@ -551,8 +543,8 @@ if (defined($output_filename) && ($output_filename ne "-")) {
 
     # Make $output_filename an absolute path because we're going
     # to change directories while processing files
-    if (!($output_filename =~ /^\/(.*)$/)) {
-        $output_filename = $cwd . "/" . $output_filename;
+    if (!file_name_is_absolute($output_filename)) {
+        $output_filename = catfile($cwd, $output_filename);
     }
 }
 
@@ -860,7 +852,7 @@ sub gen_info($)
 
         my $now = Time::HiRes::gettimeofday();
         @file_list =
-            `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>/dev/null`;
+            `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>$lcovutil::devnull`;
         die("Error return code from 'find \"$directory\" ...': $!")
             if ($?);
         my $then = Time::HiRes::gettimeofday();
@@ -1608,7 +1600,7 @@ sub solve_relative_path($$)
     $result =~ s/\/\.$/\//g;
 
     # Remove trailing /
-    $result =~ s/\/$//g if ($result ne '/');
+    $result =~ s/\/$//g if ($result ne $lcovutil::dirseparator);
 
     # Solve ..
     while ($result =~ s/\/[^\/]+\/\.\.\//\//) {
@@ -1729,12 +1721,12 @@ sub solve_ambiguous_match($$$)
 
 sub split_filename($)
 {
-    my @path_components = split('/', $_[0]);
-    my @file_components = split('\.', pop(@path_components));
+    my ($vol, $dir, $name) = File::Spec->splitpath($_[0]);
+
+    my @file_components = split('\.', $name);
     my $extension       = pop(@file_components);
 
-    return (join("/", @path_components),
-            join(".", @file_components), $extension);
+    return ($vol . $dir, join(".", @file_components), $extension);
 }
 
 #

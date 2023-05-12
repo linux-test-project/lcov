@@ -8,7 +8,8 @@ package lcovutil;
 
 use File::Path qw(rmtree);
 use File::Basename qw(basename dirname);
-use Cwd qw/abs_path/;
+use File::Spec;
+use Cwd qw/abs_path getcwd/;
 use Storable qw(dclone);
 use Capture::Tiny;
 use Module::Load::Conditional qw(check_install);
@@ -67,7 +68,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      is_external @internal_dirs $opt_no_external
      rate get_overall_line $default_precision check_precision
 
-     system_no_output
+     system_no_output $devnull $dirseparator
 
      %tlaColor %tlaTextColor use_vanilla_color %pngChar %pngMap
      %dark_palette %normal_palette
@@ -85,6 +86,9 @@ our $lcov_url     = "https://github.com//linux-test-project/lcov";
 our @temp_dirs;
 our $tmp_dir = '/tmp';          # where to put temporary/intermediate files
 our $preserve_intermediates;    # this is useful only for debugging
+our $devnull      = File::Spec->devnull();    # portable way to do it
+our $dirseparator = ($^O =~ /Win/) ? '\\' : '/';
+our $interp       = ($^O =~ /Win/) ? $^X : undef;
 
 our $debug   = 0;    # if set, emit debug messages
 our $verbose = 0;    # default level - higher to enable additional logging
@@ -423,8 +427,8 @@ sub temp_cleanup()
 {
     if (@temp_dirs) {
         # Ensure temp directory is not in use by current process
-        my $cwd = `pwd`;
-        chdir("/");
+        my $cwd = Cwd::getcwd();
+        chdir(File::Spec->rootdir());
         info("Removing temporary directories.\n");
         foreach (@temp_dirs) {
             rmtree($_);
@@ -507,7 +511,7 @@ sub init_parallel_params()
         0 != $lcovutil::maxMemory
     ) {
         # need Memory::Process to enable the maxMemory feature
-        my $cwd = `pwd`;
+        my $cwd = Cwd::getcwd();
         #debug("init: CWD is $cwd\n");
         eval {
             require Memory::Process;

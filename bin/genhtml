@@ -106,7 +106,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
                  $ERROR_PARALLEL report_parallel_error
                  $br_coverage $func_coverage
-                 info $verbose init_verbose_flag debug $debug
+                 info $verbose init_verbose_flag debug $debug $devnull
                  parseOptions
                  strip_directories
                  set_rtl_extensions set_c_extensions
@@ -1308,8 +1308,8 @@ sub page_link
         $page_link .= ".frameset"
             if ($main::frames);
     } else {
-        $page_link =~ s/^\///;
-        $page_link .= "/index";
+        $page_link =~ s/^$lcovutil::dirseparator//;
+        $page_link .= $lcovutil::dirseparator . "index";
     }
     return $page_link . '.' . $main::html_ext;
 }
@@ -3160,11 +3160,12 @@ sub _read_udiff
                     lcovutil::strip_directories($file_new, $main::strip);
                 my $key =
                     $lcovutil::case_insensitive ? lc($file_new) : $file_new;
-                $filename = ($file_new ne "/dev/null") ? $key : undef;
+                my $notNull = $file_new ne $lcovutil::devnull;
+                $filename = $notNull ? $key : undef;
                 if ($filename) {
                     $self->{linemap}->{$key} = [];
                 }
-                if ($file_new ne "/dev/null") {
+                if ($notNull) {
                     $self->{filemap}->{$key} = $file_old;
                     # keep track of location where this file was found
                     $self->{defLocation}->[1]->{$key} =
@@ -4437,8 +4438,8 @@ sub new
         my $short_name =
             $main::no_prefix ? $filename :
             main::apply_prefix($filename, @main::dir_prefix);
-        my $is_absolute = $short_name =~ /^\//;
-        $short_name =~ s|^/||;
+        my $is_absolute = File::Spec->file_name_is_absolute($short_name);
+        $short_name =~ s|^$lcovutil::dirseparator||;
         my @short_path = File::Spec->splitdir($short_name);
         my @path       = File::Spec->splitdir($parentDir);
 
@@ -4454,11 +4455,12 @@ sub new
             $pendingParent =
                 $pending->{""};    # this is the top-level object dependency
             my @sp;
-            my @p = split('/', substr($base, 0, -1));    # remove trailing '/'
+            my @p = split($lcovutil::dirseparator, substr($base, 0, -1))
+                ;                  # remove trailing '/'
             while (scalar(@rel_dir_stack)) {
                 my $element = shift(@rel_dir_stack);
                 $relative_path .= $element;
-                $path          .= '/' . $element;
+                $path          .= $lcovutil::dirseparator . $element;
                 push(@p, $element);
                 push(@sp, $element);
                 if (exists($pending->{$path})) {
@@ -4484,7 +4486,7 @@ sub new
                         if exists($pending->{$dirData[2]});
                     $pending->{$dirData[2]} = $pendingParent;
                 }
-                $relative_path .= '/';
+                $relative_path .= $lcovutil::dirseparator;
             }
         } elsif (!$main::flat) {
             # not hierarchical
@@ -5298,7 +5300,7 @@ if ($base_filename) {
 # Make sure css_filename is an absolute path (in case we're changing
 # directories)
 if ($css_filename) {
-    if (!($css_filename =~ /^\/(.*)$/)) {
+    if (!File::Spec->file_name_is_absolute($css_filename)) {
         $css_filename = File::Spec->catfile($cwd, $css_filename);
     }
 }
@@ -5679,7 +5681,7 @@ sub gen_html()
     } else {
         my $msg = "Using user-specified filename prefix ";
         for my $i (0 .. $#dir_prefix) {
-            $dir_prefix[$i] =~ s/\/+$//;
+            $dir_prefix[$i] =~ s/$lcovutil::dirseparator+$//;
             $msg .= ", " unless 0 == $i;
             $msg .= "\"" . $dir_prefix[$i] . "\"";
         }
@@ -6105,8 +6107,6 @@ sub get_prefix($@)
         }
         push(@munged, $current);
         while ($current = shorten_prefix($current)) {
-            $current .= "/";
-
             # Skip rest if the remaining prefix has already been
             # added to hash
             if (exists($prefix{$current})) { last; }
@@ -6123,7 +6123,7 @@ sub get_prefix($@)
         my $dir = dirname($filename);
 
         for (my $i = 0; $i < $min_dir; $i++) {
-            delete($prefix{$dir . "/"});
+            delete($prefix{$dir});
             $dir = shorten_prefix($dir);
         }
     }
@@ -6153,9 +6153,6 @@ sub get_prefix($@)
             $current = $_;
         }
     }
-
-    $current =~ s/\/$//;
-
     return ($current);
 }
 
@@ -6167,10 +6164,9 @@ sub get_prefix($@)
 
 sub shorten_prefix($)
 {
-    my @list = split("/", $_[0]);
+    my ($vol, $dir, $name) = File::Spec->splitpath($_[0]);
 
-    pop(@list);
-    return join("/", @list);
+    return File::Spec->catdir($vol, $dir);
 }
 
 #
@@ -6184,20 +6180,17 @@ sub shorten_prefix($)
 
 sub get_relative_base_path($)
 {
-    my $result = "";
-    my $index;
-
     # Make an empty directory path a special case
     if (!$_[0]) { return (""); }
 
     # Count number of /s in path
-    $index = ($_[0] =~ s/\//\//g);
+    my $index = ($_[0] =~ s/$lcovutil::dirseparator/$lcovutil::dirseparator/g);
 
     # Add a ../ to $result for each / in the directory path + 1
+    my $result = "";
     for (; $index >= 0; $index--) {
-        $result .= "../";
+        $result .= "..$lcovutil::dirseparator";
     }
-
     return $result;
 }
 
@@ -7734,7 +7727,7 @@ sub write_file_table_entry(*$$@)
             my $bin = "";
             if ($fileview == 0 &&
                 $primary_key ne 'name') {
-                $namecode .= $filename . '/';
+                $namecode .= $filename . $lcovutil::dirseparator;
                 $bin = $cbData if defined($cbData);
             }
             $namecode .= "index";
@@ -9158,12 +9151,12 @@ sub build_html_path($$$$$)
         my $len = scalar(@path) - $isFile;
         foreach my $elem (@path) {
             my $base = "../" x $len;
-            $elem       = '/' . $elem if $isAbsolute;
+            $elem       = $lcovutil::dirseparator . $elem if $isAbsolute;
             $isAbsolute = 0;
             my $e = escape_html($elem);
             $html_path .=
                 "$sep<a href=\"${base}index$key$bin_type.$html_ext\">$e</a>";
-            $sep = '/';
+            $sep = $lcovutil::dirseparator;
             --$len;
         }
     }
@@ -9236,10 +9229,10 @@ sub write_header(*$$$$$)
             my $base = escape_html(File::Basename::basename($rel_filename));
             if ($base eq $rel_filename &&
                 $isAbsolutePath) {
-                $base = '/' . $base;
+                $base = $lcovutil::dirseparator . $base;
             }
             $self_link = $html_path;
-            $self_link .= '/' if ('' ne $html_path);
+            $self_link .= $lcovutil::dirseparator if ('' ne $html_path);
             if ('name' ne $primary_key ||
                 '' ne $bin_type) {
                 $self_link .=
@@ -9248,7 +9241,7 @@ sub write_header(*$$$$$)
                 $self_link .= $base;
             }
         } else {
-            $esc_trunc_name = '/' . $esc_trunc_name
+            $esc_trunc_name = $lcovutil::dirseparator . $esc_trunc_name
                 if $isAbsolutePath;
             $self_link = $esc_trunc_name;
             if ('name' ne $primary_key ||
@@ -9266,7 +9259,7 @@ sub write_header(*$$$$$)
 
         my $esc_base_name = escape_html($base_name);
         my $esc_dir_name  = escape_html($dir_name);
-        $esc_dir_name = '/' . $esc_dir_name
+        $esc_dir_name = $lcovutil::dirseparator . $esc_dir_name
             if $isAbsolutePath;
 
         $base_dir = get_relative_base_path($dir_name);
@@ -9941,7 +9934,7 @@ sub write_file_table(*$$$$$)
                 if ('directory' eq $dirSummary->type()) {
                     $name = File::Basename::basename($name);
                 } elsif ($entrySummary->is_directory(1)) {
-                    $name = '/' . $name;
+                    $name = $lcovutil::dirseparator . $name;
                 }
             } else {
                 die("unexpected summary type")
@@ -10727,7 +10720,8 @@ sub apply_prefix($@)
             if ($prefix eq $filename) {
                 return "root";
             }
-            if ($prefix ne "" && $filename =~ /^\Q$prefix\E\/(.*)$/) {
+            if ($prefix ne "" &&
+                $filename =~ /^\Q$prefix\E$lcovutil::dirseparator(.*)$/) {
                 return substr($filename, length($prefix) + 1);
             }
         }

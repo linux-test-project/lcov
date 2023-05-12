@@ -26,6 +26,7 @@
 use DateTime::Format::W3CDTF;
 use POSIX qw(strftime);
 use File::Basename;
+use File::Spec;
 use Getopt::Long;
 
 sub get_modify_time($)
@@ -69,7 +70,8 @@ if ($logfile) {
 my $pathname = shift @ARGV;
 
 if (-e $pathname && -l $pathname) {
-    $pathname = File::Basename::dirname($pathname) . '/' . readlink($pathname);
+    $pathname = File::Spec->catfile(File::Basename::dirname($pathname),
+                                    readlink($pathname));
     my @c;
     foreach my $component (split(m@/@, $pathname)) {
         next unless length($component);
@@ -77,12 +79,12 @@ if (-e $pathname && -l $pathname) {
         if ($component eq "..") { pop @c; next }
         push @c, $component;
     }
-    $pathname = join("/", @c);
+    $pathname = File::Spec->catfile(@c);
 }
 
-if (0 == system(
-       "p4 files $pathname 2>/dev/null|grep -qv -- '- no such file' >/dev/null")
-) {
+my $null = File::Spec->devnull();    # more portable
+if (0 ==
+    system("p4 files $pathname 2>$null|grep -qv -- '- no such file' >$null")) {
     my $version;
     my $have = `p4 have $pathname`;
     if ($have =~ /#([0-9]+) - /) {
@@ -96,7 +98,7 @@ if (0 == system(
     my @annotated;
     # check if this file is open in the current sandbox...
     #  redirect stderr because p4 print "$path not opened on this client" if file not opened
-    my $opened = `p4 opened $pathname 2>/dev/null`;
+    my $opened = `p4 opened $pathname 2>$null`;
     my %localAdd;
     my %localDelete;
     my ($localChangelist, $owner, $now);

@@ -79,7 +79,7 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  define_errors parse_ignore_errors ignorable_error
                  info set_info_callback init_verbose_flag $verbose
                  $br_coverage $func_coverage
-                 debug $debug
+                 debug $debug $devnull $dirseparator
                  die_handler warn_handler abort_handler
                  append_tempdir temp_cleanup
                  summarize_cov_filters
@@ -172,7 +172,7 @@ our $output_filename;     # Name for file to write coverage data to
 our $test_name = "";      # Test case name
 our $convert_filenames;   # If set, convert filenames when applying diff
 our $strip;               # If set, strip leading directories when applying diff
-our $cwd = `pwd`;         # Current working directory
+our $cwd = Cwd::getcwd(); # Current working directory
 our $data_stdout;         # If set, indicates that data is written to stdout
 our $follow;              # If set, indicates that find shall follow links
 our $diff_path            = ""; # Path removed from tracefile when applying diff
@@ -613,7 +613,7 @@ sub userspace_reset()
             info("Deleting all .da files in $current_dir" .
                  ($no_recursion ? "\n" : " and subdirectories\n"));
             @file_list =
-                `find "$current_dir" $maxdepth $follow -name \\*\\.da -type f -o -name \\*\\.gcda -type f 2>/dev/null`;
+                `find "$current_dir" $maxdepth $follow -name \\*\\.da -type f -o -name \\*\\.gcda -type f 2>$lcovutil::devnull`;
             die("Error return code from 'find \"$current_dir\" ...': $!")
                 if ($?);
             chomp(@file_list);
@@ -931,6 +931,12 @@ sub lcov_geninfo(@)
     }
     push(@param, '--memory', $lcovutil::maxMemory / (1 << 20));
     push(@param, "--branch-coverage") if $lcovutil::br_coverage;
+    # windows
+    #  Kind of hacky to fork another script here.
+    #  Probably better/cleaner to move the 'geninfo' functionality into
+    #  a perl module - then use it here and in the geninfo script.
+    #  Maybe someday.
+    unshift(@param, $lcovutil::interp) if defined($lcovutil::interp);
     info("geninfo cmd: '" . join(' ', @param) . "'\n");
     system(@param) and exit($? >> 8);
 }
@@ -976,7 +982,7 @@ sub get_package($)
     info("Reading package $file:\n");
     $file = abs_path($file);
     chdir($dir);
-    open(HANDLE, "-|", "tar xvfz '$file' 2>/dev/null") or
+    open(HANDLE, "-|", "tar xvfz '$file' 2>$lcovutil::devnull") or
         die("ERROR: could not process package $file: $!\n");
     $count = 0;
     while (<HANDLE>) {
@@ -1062,7 +1068,7 @@ sub create_package($$$;$)
     my $cwd = getcwd();
 
     # Check for availability of tar tool first
-    system("tar --help > /dev/null") and
+    system("tar --help > $lcovutil::devnull") and
         die("ERROR: tar command not available\n");
 
     # Print information about the package
@@ -2263,19 +2269,30 @@ sub list()
 
 sub get_common_filename($$)
 {
-    my @list1 = split("/", $_[0]);
-    my @list2 = split("/", $_[1]);
+    my ($vol1, $dir1, $file1) = File::Spec->splitpath($_[0]);
+    my ($vol2, $dir2, $file2) = File::Spec->splitpath($_[1]);
+    my @list1 = ($vol1, File::Spec->splitdir($dir1), $file1);
+    my @list2 = ($vol2, File::Spec->splitdir($dir2), $file2);
     my @result;
 
     # Work in reverse order, i.e. beginning with the filename itself
-    while (@list1 && @list2 && ($list1[$#list1] eq $list2[$#list2])) {
+    while (
+        @list1 &&
+        @list2 &&
+        (   (!$lcovutil::case_insensitive && $list1[$#list1] eq $list2[$#list2])
+            ||
+            ($lcovutil::case_insensitive &&
+                lc($list1[$#list1]) eq lc($list2[$#list2])))
+    ) {
         unshift(@result, pop(@list1));
         pop(@list2);
     }
 
     # Did we find any similarities?
     if (scalar(@result) > 0) {
-        return (join("/", @result), join("/", @list1), join("/", @list2));
+        return (File::Spec->catfile(@result),
+                File::Spec->catfile(@list1),
+                File::Spec->catfile(@list2));
     } else {
         return undef;
     }
@@ -2564,7 +2581,7 @@ sub get_line_hash($$$)
     foreach (keys(%{$diff_data})) {
         my $sep = "";
 
-        $sep = '/' if (!/^\//);
+        $sep = $lcovutil::dirseparator if (!$_ =~ /^$lcovutil::dirseparator/);
 
         # Try to match diff filename with filename
         if (($lcovutil::case_insensitive &&

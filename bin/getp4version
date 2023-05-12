@@ -28,6 +28,7 @@
 
 use POSIX qw(strftime);
 use Getopt::Long;
+use File::Spec;
 use Cwd qw(abs_path);
 
 sub get_modify_time($)
@@ -71,9 +72,9 @@ die("Error: $filename does not exist")
 $pathname = abs_path($filename);
 
 my $version;
-if (0 == system(
-       "p4 files $pathname 2>/dev/null|grep -qv -- '- no such file' >/dev/null")
-) {
+my $null = File::Spec->devnull();    # more portable way to do it
+if (0 ==
+    system("p4 files $pathname 2>$null|grep -qv -- '- no such file' >$null")) {
     my $have = `p4 have $pathname`;
     if ($have =~ /#([0-9]+) - /) {
         $version = "#$1";
@@ -81,7 +82,7 @@ if (0 == system(
         $version = '@head';
     }
 
-    my $opened = `p4 opened $pathname 2>/dev/null`;
+    my $opened = `p4 opened $pathname 2>$null`;
     if ($opened =~ /edit (default change|change (\S+)) /) {
         # file is locally edited...append modify time to the version ID
         $version .= ' edited ' . get_modify_time($pathname);
