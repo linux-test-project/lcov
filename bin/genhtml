@@ -5481,6 +5481,7 @@ OPERATION
       --(no-)checksum               Compare (ignore) source line checksum
       --diff-file UDIFF             Unified diff file UDIFF describes source
                                     code changes between baseline and current
+      --new-file-as-baseline        Classify new files as baseline data
       --elide-path-mismatch         Identify matching files if their basename
                                     matches even though dirname does not
       --date-bins day[,day,...]     Use DAY number of days as upper age limit
