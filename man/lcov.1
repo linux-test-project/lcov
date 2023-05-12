@@ -750,7 +750,16 @@ contains non-zero coverage data for a specific line, function or branch
 
 .RE
 
-This option must be specified together with
+Note that the list of retained files may depend on the order they are processed.  For example, if
+.I A
+and
+.I B
+contain identical coverage data, then the first one we see will be retained and the second will be pruned.
+The file processing order is nondeterministic when the
+.BR \-\-parallel
+option is used - implying that the pruned result may differ from one execution to the next in this case.
+
+.BR \-\-prune\-tests must be specified together with
 .BR \-\-add\-tracefile .
 When specified,
 .B lcov
