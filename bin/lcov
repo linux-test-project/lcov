@@ -477,15 +477,21 @@ Use lcov to collect coverage data from either the currently running Linux
 kernel or from a user space application. Specify the --directory option to
 get coverage data for a user space program.
 
-Misc:
+COMMON OPTIONS
   -h, --help                      Print this help, then exit
   --version                       Print version number, then exit
   -v, --verbose                   Increment verbosity (mainly for debug)
   -q, --quiet                     Decrement verbosity (e.g., to turn off
                                   progress messages)
   --debug                         Increment debug flag (for debugging)
+      --config-file FILENAME      Specify configuration file location
+      --rc SETTING=VALUE          Override configuration file setting
+      --ignore-errors ERRORS      Continue after ERRORS (gcov, source, graph)
+      --keep-going                Do not stop if error occurs.  Try to
+                                  produce a result
+      --tempdir dirname           Write temporary and intermediate data here
 
-Operation:
+OPERATION
   -z, --zerocounters              Reset all execution counts to zero
   -c, --capture                   Capture coverage data
   -a, --add-tracefile FILE        Add contents of tracefiles
@@ -497,7 +503,7 @@ Operation:
       --prune-tests               Show lists of files which affect coverage statistics
       --map-functions             Show lists of files which hit each unique function
 
-Options:
+OPTIONS
   -i, --initial                   Capture initial zero coverage data
   -t, --test-name NAME            Specify test name to be stored with data
   -o, --output-file FILENAME      Write data to FILENAME instead of stdout
@@ -513,9 +519,6 @@ Options:
       --(no-)checksum             Enable (disable) line checksumming
       --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
-      --ignore-errors ERRORS      Continue after ERRORS (gcov, source, graph)
-      --keep-going                Do not stop if error occurs.  Try to
-                                  produce a result
       --filter TYPE               Ignore coverpoints of TYPE (branch, line)
       --demangle-cpp              Demangle C++ function names
       --no-recursion              Exclude subdirectories from processing
@@ -525,8 +528,6 @@ Options:
       --derive-func-data          Generate function data from line data
       --list-full-path            Print full path during a list operation
       --(no-)external             Include (ignore) data for external files
-      --config-file FILENAME      Specify configuration file location
-      --rc SETTING=VALUE          Override configuration file setting
       --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN           Include files matching PATTERN
       --exclude PATTERN           Exclude files matching PATTERN
@@ -546,7 +547,6 @@ Options:
       --profile [filename]        Write performance performance statistics
                                   to filename (default is
                                   'OUTPUT_FILENAME.json').
-      --tempdir dirname           Write temporary and intermediate data here
 
 For more information see: $lcov_url and\/or the lcov man page.
 END_OF_USAGE

@@ -647,13 +647,23 @@ Traverse DIRECTORY and create a .info file for each data file found. Note
 that you may specify more than one directory, all of which are then processed
 sequentially.
 
+COMMON OPTIONS
   -h, --help                        Print this help, then exit
   --version                         Print version number, then exit
   -v, --verbose                     Increment verbosity (mainly for debug)
   -q, --quiet                       Decrement verbosity (e.g., to turn off
                                     progress messages)
       --debug                       Increment debug flag (for debugging)
-      --branch-coverage             Enable branch coverage collection
+      --config-file FILENAME        Specify configuration file location
+      --rc SETTING=VALUE            Override configuration file setting
+      --ignore-errors ERROR         Continue after ERROR (gcov, source, graph)
+      --keep-going                  Do not stop if error occurs.  Try to
+                                    produce a result
+      --tempdir dirname             Write temporary and intermediate data here
+      --preserve                    Keep intermediate files (such as gcov data).
+                                    By default, intermediates are removed.
+
+OPTIONS
   -i, --initial                     Capture initial zero coverage data
   -t, --test-name NAME              Use test case name NAME for resulting data
   -o, --output-filename OUTFILE     Write data only to OUTFILE
@@ -661,20 +671,16 @@ sequentially.
   -b, --base-directory DIR          Use DIR as base directory for relative paths
       --build-directory DIR         Search DIR for .gcno files (if not found
                                     with .gcda)
+      --branch-coverage             Enable branch coverage collection
       --(no-)checksum               Enable (disable) line checksumming
       --(no-)compat-libtool         Enable (disable) libtool compatibility mode
       --gcov-tool TOOL              Specify gcov tool location
-      --ignore-errors ERROR         Continue after ERROR (gcov, source, graph)
-      --keep-going                  Do not stop if error occurs.  Try to
-                                    produce a result
       --filter TYPE                 Ignore coverpoints of TYPE (branch, line)
       --demangle-cpp                Demangle C++ function names
       --no-recursion                Exclude subdirectories from processing
       --no-markers                  Ignore exclusion markers in source code
       --derive-func-data            Generate function data from line data
       --(no-)external               Include (ignore) data for external files
-      --config-file FILENAME        Specify configuration file location
-      --rc SETTING=VALUE            Override configuration file setting
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN             Include files matching PATTERN
       --exclude PATTERN             Exclude files matching PATTERN
@@ -686,15 +692,12 @@ sequentially.
                                     Perl regexps (applied in order)
       --version-script SCRIPTNAME   Call script to find revison control version
                                     ID of source file
-      --preserve                    Keep intermediate files (such as gcov data).
-                                    By default, intermediates are removed.
   -j, --parallel [INTEGER]          Use at most INTEGER number of parallel
                                     slaves during processing.
       --memory [int_Mb]             Maximum parallel memory consumption - in Mb
       --profile [filename]          Write performance performance statistics
                                     to filename (default is
                                     'OUTPUT_FILENAME.json').
-      --tempdir dirname             Write temporary and intermediate data here
 
 For more information see: $lcov_url
 END_OF_USAGE

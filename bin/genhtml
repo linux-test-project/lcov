@@ -5454,7 +5454,7 @@ Usage: $tool_name [OPTIONS] INFOFILE(S)
 Create HTML output for coverage data found in INFOFILE. Note that INFOFILE
 may also be a list of filenames.
 
-Misc:
+COMMON OPTIONS
   -h, --help                        Print this help, then exit
   --version                         Print version number, then exit
   -v, --verbose                     Increment verbosity (for debugging)
@@ -5471,15 +5471,11 @@ Misc:
       --tempdir dirname             Write temporary and intermediate data here
       --preserve                    Preserve intermediate files (for debugging)
 
-Operation:
+OPERATION
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
-  -s, --show-details                Generate detailed directory view
   -d, --description-file DESCFILE   Read test case descriptions from DESCFILE
   -k, --keep-descriptions           Do not remove unused test descriptions
   -b, --baseline-file BASEFILE      Use BASEFILE as baseline file
-      --baseline-title STRING       Use STRING a baseline data label in report
-      --baseline-date DATE          Use DATE in baseline data label in report
-      --current-date DATE           Use DATE in current data label in report
       --annotate-script SCRIPT      Execute SCRIPT to get revision control
                                     history (wraps "git blame" or "p4 annotate")
       --criteria-script SCRIPT      Execute SCRIPT to check coverage criteria
@@ -5492,15 +5488,6 @@ Operation:
                                     code changes between baseline and current
       --elide-path-mismatch         identify matching files if their basename
                                     matches even though dirname does not.
-      --show-owners [all]           Show owner summary table. If optional
-                                    value provided, show all the owners,
-                                    regardless of whether they have uncovered
-                                    code or not.
-      --show-noncode                Show author in summary table even if none
-                                    of their lines are recognized as code.
-      --show-zero-columns           Keep summary columns whose entires are all
-                                    zero - default is to improve readability
-                                    by removing these columns.
       --date-bins day[,day,...]     'day' interpreted as integer number of
                                     days, used as upper bound of corresponding
                                     date bin
@@ -5530,9 +5517,12 @@ Operation:
                                     to filename (default is
                                     'output_directory/genhtml.json').
 
-HTML output:
+HTML OUTPUT
   -f, --frames                      Use HTML frames for source code view
   -t, --title TITLE                 Display TITLE in table header of all pages
+      --baseline-title STRING       Use STRING a baseline data label in report
+      --current-date DATE           Use DATE in current data label in report
+      --baseline-date DATE          Use DATE in baseline data label in report
   -c, --css-file CSSFILE            Use external style sheet file CSSFILE
       --header-title BANNER         Banner at top of each HTML page
       --footer FOOTER               Footer at bottom of each HTML page
@@ -5553,6 +5543,16 @@ HTML output:
                                     matching source code directory structure.
       --flat                        Generate flat HTML report, with all files
                                     listed on top-level page.
+  -s, --show-details                Generate detailed directory view
+      --show-owners [all]           Show owner summary table. If optional
+                                    value provided, show all the owners,
+                                    regardless of whether they have uncovered
+                                    code or not.
+      --show-noncode                Show author in summary table even if none
+                                    of their lines are recognized as code.
+      --show-zero-columns           Keep summary columns whose entires are all
+                                    zero - default is to improve readability
+                                    by removing these columns.
       --show-navigation             Include 'goto first hit/not hit' and
                                     'goto next hit/not hit' hyperlinks in
                                     non-differential source code detail page
