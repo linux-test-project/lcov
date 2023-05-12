@@ -524,7 +524,7 @@ class GenerateSpreadsheet(object):
                     start = row
 
                     for f in sorted(fileData.keys()):
-                      visitScope(f, dirnamt)
+                      visitScope(f, dirname)
 
                 insertStats(genhtmlKeys, sawData, sumRow, avgRow, devRow, begin,
                            row-1, 3)
