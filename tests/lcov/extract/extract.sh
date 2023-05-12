@@ -142,7 +142,10 @@ if [ $COUNT != '1' ] ; then
     exit 1
 fi
 
-MARKER_LINES=`grep -c "^DA:" internal.info`
+# workaround:  depending on compiler verision, we see a coverpoint on the
+#  close brace line (gcc/6 for example) or we don't (gcc/10 for example)
+BRACE_LINE='^DA:28'
+MARKER_LINES=`grep -v $BRACE_LINE internal.info | grep -c "^DA:"`
 
 # check 'no-markers':  is the excluded line back?
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o nomarkers.info --no-markers
@@ -152,7 +155,7 @@ if [ $? != 0 ] ; then
         exit 1
     fi
 fi
-NOMARKER_LINES=`grep -c "^DA:" nomarkers.info`
+NOMARKER_LINES=`grep -v $BRACE_LINE nomarkers.info | grep -c "^DA:"`
 NOMARKER_BRANCHES=`grep -c "^BRDA:" nomarkers.info`
 if [ $NOMARKER_LINES != '13' ] ; then
     echo "did not honor --no-markers expected 13 found $NOMARKER_LINES"
@@ -169,7 +172,7 @@ if [ $? != 0 ] ; then
         exit 1
     fi
 fi
-EXCL_LINES=`grep -c "^DA:" excl.info`
+EXCL_LINES=`grep -v $BRACE_LINE excl.info | grep -c "^DA:"`
 if [ $EXCL_LINES != $NOMARKER_LINES ] ; then
     echo "did not honor marker override: expected $NOMARKER_LINES found $EXCL_LINES"
     if [ $KEEP_GOING == 0 ] ; then
