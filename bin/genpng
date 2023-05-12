@@ -136,7 +136,7 @@ or .gcov file format.
 
 OPTIONS
   -h, --help                        Print this help, then exit
-  -v, --version                     Print version number, then exit
+      --version                     Print version number, then exit
   -t, --tab-size TABSIZE            Use TABSIZE spaces in place of tab
   -w, --width WIDTH                 Set width of output image to WIDTH pixel
   -d, --dark-mode                   Use a light-on-dark color scheme

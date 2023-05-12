@@ -5449,80 +5449,64 @@ sub print_usage(*)
     local *HANDLE = $_[0];
 
     print(HANDLE <<END_OF_USAGE);
-Usage: $tool_name [OPTIONS] INFOFILE(S)
+Usage: $tool_name [OPTIONS] TRACEFILE(S)
 
-Create HTML output for coverage data found in INFOFILE. Note that INFOFILE
+Create HTML output for coverage data found in TRACEFILE. Note that TRACEFILE
 may also be a list of filenames.
 
 COMMON OPTIONS
   -h, --help                        Print this help, then exit
-  --version                         Print version number, then exit
-  -v, --verbose                     Increment verbosity (for debugging)
-  -q, --quiet                       Decrement verbosity (e.g. to not print
+      --version                     Print version number, then exit
+  -v, --verbose                     Increase verbosity level
+  -q, --quiet                       Decrease verbosity level (e.g. to turn off
                                     progress messages)
-      --debug                       Increment debug flag (for debugging)
+      --debug                       Increase debug verbosity level
       --config-file FILENAME        Specify configuration file location
       --rc SETTING=VALUE            Override configuration file setting
-      --ignore-errors ERRORS        Continue after ERRORS (source,unmapped,
-                                    empty,category,path,inconsistent,
-                                    mismatch,branch,format)
-      --keep-going                  Do not stop if error occurs.  Try to
-                                    produce a result
-      --tempdir dirname             Write temporary and intermediate data here
-      --preserve                    Preserve intermediate files (for debugging)
+      --ignore-errors ERRORS        Continue after ERRORS (see man page for
+                                    full list of errors and their meaning)
+      --keep-going                  Do not stop if an error occurs
+      --tempdir DIRNAME             Write temporary and intermediate data here
+      --preserve                    Keep intermediate files for debugging
 
 OPERATION
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
   -d, --description-file DESCFILE   Read test case descriptions from DESCFILE
   -k, --keep-descriptions           Do not remove unused test descriptions
   -b, --baseline-file BASEFILE      Use BASEFILE as baseline file
-      --annotate-script SCRIPT      Execute SCRIPT to get revision control
-                                    history (wraps "git blame" or "p4 annotate")
-      --criteria-script SCRIPT      Execute SCRIPT to check coverage criteria
-                                    to decide success or failure
-      --version-script SCRIPT       Execute SCRIPT to check that source code
-                                    version used to generate coverage data matches
-                                    version used in display
+      --annotate-script SCRIPT      Use SCRIPT to get revision control data
+      --criteria-script SCRIPT      Use SCRIPT to check for acceptance criteria
+      --version-script SCRIPT       Use SCRIPT to check for compatibility of
+                                    source code and coverage data
       --checksum                    Compare source line checksum
-      --diff-file UDIFF             unified diff file UDIFF desribes source
+      --diff-file UDIFF             Unified diff file UDIFF describes source
                                     code changes between baseline and current
-      --elide-path-mismatch         identify matching files if their basename
-                                    matches even though dirname does not.
-      --date-bins day[,day,...]     'day' interpreted as integer number of
-                                    days, used as upper bound of corresponding
-                                    date bin
+      --elide-path-mismatch         Identify matching files if their basename
+                                    matches even though dirname does not
+      --date-bins day[,day,...]     Use DAY number of days as upper age limit
+                                    for the corresponding date bin
   -p, --prefix PREFIX               Remove PREFIX from all directory names
       --no-prefix                   Do not remove prefix from directory names
       --(no-)function-coverage      Enable (disable) function coverage display
       --(no-)branch-coverage        Enable (disable) branch coverage display
-      --filter FILTERS              FILTERS (branch,line,brace,range,blank,function):
-                                    ignore branchcov counts on lines which seem
-                                    to have no conditionals
-                                    Ignore linecov counts on closing brace
-                                    of block, blank, or out-of-range lines
-      --include PATTERNS            Display data only for files matching
-                                    PATTERNS.
-      --exclude PATTERNS            Do not display for files matching PATTERNS.
-      --substitute PATTERNS         Munge source file names according to these
-                                    Perl regexps (applied in order)
-      --erase-functions PATTERN     Exclude coverpoints contained in matching
-                                    function name
-      --omit-lines REGEXP           Ignore coverage data associated with lines
-                                    whose content matches regexp.
-                                    Perl regexps (applied in order)
-  -j, --parallel [INTEGER]          Use at most INTEGER number of parallel
-                                    slaves during processing.
-      --memory [int_Mb]             Maximum parallel memory consumption - in Mb
-      --profile [filename]          Write performance performance statistics
-                                    to filename (default is
-                                    'output_directory/genhtml.json').
+      --filter FILTERS              Apply FILTERS to input data (see man page
+                                    for full list of filters and their effects)
+      --include PATTERN             Only show output for files matching PATTERN
+      --exclude PATTERN             Skip output for files matching PATTERN
+      --substitute REGEXP           Change source file names according to REGEXP
+      --erase-functions REGEXP      Exclude data for functions matching REGEXP
+      --omit-lines REGEXP           Ignore data in lines matching REGEXP
+  -j, --parallel [N]                Use parallel processing with at most N jobs
+      --memory MB                   Use at most MB memory in parallel processing
+      --profile [FILENAME]          Write performance statistics to FILENAME
+                                    (default: OUTDIR/genhtml.json)
 
 HTML OUTPUT
   -f, --frames                      Use HTML frames for source code view
-  -t, --title TITLE                 Display TITLE in table header of all pages
-      --baseline-title STRING       Use STRING a baseline data label in report
-      --current-date DATE           Use DATE in current data label in report
-      --baseline-date DATE          Use DATE in baseline data label in report
+  -t, --title TITLE                 Use TITLE as label for current data
+      --baseline-title TITLE        Use TITLE as label for baseline data
+      --current-date DATE           Use DATE as date label for current data
+      --baseline-date DATE          Use DATE as date label for baseline data
   -c, --css-file CSSFILE            Use external style sheet file CSSFILE
       --header-title BANNER         Banner at top of each HTML page
       --footer FOOTER               Footer at bottom of each HTML page
@@ -5540,19 +5524,18 @@ HTML OUTPUT
       --missed                      Show miss counts as negative numbers
       --dark-mode                   Use the dark-mode CSS
       --hierarchical                Generate multilevel HTML report,
-                                    matching source code directory structure.
+                                    matching source code directory structure
       --flat                        Generate flat HTML report, with all files
-                                    listed on top-level page.
+                                    listed on top-level page
   -s, --show-details                Generate detailed directory view
       --show-owners [all]           Show owner summary table. If optional
                                     value provided, show all the owners,
                                     regardless of whether they have uncovered
-                                    code or not.
+                                    code or not
       --show-noncode                Show author in summary table even if none
-                                    of their lines are recognized as code.
-      --show-zero-columns           Keep summary columns whose entires are all
-                                    zero - default is to improve readability
-                                    by removing these columns.
+                                    of their lines are recognized as code
+      --show-zero-columns           Keep summary columns for categories with
+                                    no entries (default: remove)
       --show-navigation             Include 'goto first hit/not hit' and
                                     'goto next hit/not hit' hyperlinks in
                                     non-differential source code detail page

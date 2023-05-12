@@ -479,17 +479,17 @@ get coverage data for a user space program.
 
 COMMON OPTIONS
   -h, --help                      Print this help, then exit
-  --version                       Print version number, then exit
-  -v, --verbose                   Increment verbosity (mainly for debug)
-  -q, --quiet                     Decrement verbosity (e.g., to turn off
+      --version                   Print version number, then exit
+  -v, --verbose                   Increase verbosity level
+  -q, --quiet                     Decrease verbosity level (e.g. to turn off
                                   progress messages)
-  --debug                         Increment debug flag (for debugging)
+      --debug                     Increase debug verbosity level
       --config-file FILENAME      Specify configuration file location
       --rc SETTING=VALUE          Override configuration file setting
-      --ignore-errors ERRORS      Continue after ERRORS (gcov, source, graph)
-      --keep-going                Do not stop if error occurs.  Try to
-                                  produce a result
-      --tempdir dirname           Write temporary and intermediate data here
+      --ignore-errors ERRORS      Continue after ERRORS (see man page for
+                                  full list of errors and their meaning)
+      --keep-going                Do not stop if an error occurs
+      --tempdir DIRNAME           Write temporary and intermediate data here
 
 OPERATION
   -z, --zerocounters              Reset all execution counts to zero
@@ -500,8 +500,10 @@ OPERATION
   -l, --list FILE                 List contents of tracefile FILE
       --diff FILE DIFF            Transform tracefile FILE according to DIFF
       --summary FILE              Show summary coverage data for tracefiles
-      --prune-tests               Show lists of files which affect coverage statistics
-      --map-functions             Show lists of files which hit each unique function
+      --prune-tests               List tracefiles contributing unique coverage
+                                  data (requires --add-tracefile)
+      --map-functions             List tracefiles with non-zero coverage for
+                                  each function (requires --add-tracefile)
 
 OPTIONS
   -i, --initial                   Capture initial zero coverage data
@@ -519,7 +521,8 @@ OPTIONS
       --(no-)checksum             Enable (disable) line checksumming
       --(no-)compat-libtool       Enable (disable) libtool compatibility mode
       --gcov-tool TOOL            Specify gcov tool location
-      --filter TYPE               Ignore coverpoints of TYPE (branch, line)
+      --filter TYPE               Apply FILTERS to input data (see man page
+                                  for full list of filters and their effects)
       --demangle-cpp              Demangle C++ function names
       --no-recursion              Exclude subdirectories from processing
       --to-package FILENAME       Store unprocessed coverage data in FILENAME
@@ -531,22 +534,17 @@ OPTIONS
       --compat MODE=on|off|auto   Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN           Include files matching PATTERN
       --exclude PATTERN           Exclude files matching PATTERN
-      --erase-functions PATTERN   Exclude coverpoints contained in matching
-                                  function name
-      --omit-lines REGEXP         Ignore coverage data associated with lines
-                                  whose content matches REGEXP
-      --substitute PATTERNS       Munge source file names according to these
-                                  Perl regexps (applied in order)
+      --substitute REGEXP         Change source file names according to REGEXP
+      --erase-functions REGEXP    Exclude data for functions matching REGEXP
+      --omit-lines REGEXP         Ignore data in lines matching REGEXP
       --fail-under-lines MIN      Exit with a status of 1 if the total line
-                                  coverage is less than MIN (summary option).
+                                  coverage is less than MIN (summary option)
       --version-script SCRIPTNAME Call script to find revison control version
                                   ID of source file
-  -j, --parallel [INTEGER]        Use at most INTEGER number of parallel
-                                  slaves during processing.
-      --memory [int_Mb]           Maximum parallel memory consumption - in Mb
-      --profile [filename]        Write performance performance statistics
-                                  to filename (default is
-                                  'OUTPUT_FILENAME.json').
+  -j, --parallel [NUM]            Use parallel processing with at most NUM jobs
+      --memory MB                 Use at most MB memory in parallel processing
+      --profile [FILENAME]        Write performance statistics to FILENAME
+                                  (default: OUTPUT_FILENAME.json)
 
 For more information see the lcov man page.
 END_OF_USAGE

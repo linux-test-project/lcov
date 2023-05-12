@@ -115,7 +115,7 @@ Convert a test case description file into a format as understood by genhtml.
 
 OPTIONS
   -h, --help                        Print this help, then exit
-  -v, --version                     Print version number, then exit
+      --version                     Print version number, then exit
   -o, --output-filename FILENAME    Write description to FILENAME
 
 For more information see the gendesc man page.
