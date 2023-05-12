@@ -548,7 +548,7 @@ OPTIONS
                                   to filename (default is
                                   'OUTPUT_FILENAME.json').
 
-For more information see: $lcov_url and\/or the lcov man page.
+For more information see the lcov man page.
 END_OF_USAGE
 
 }

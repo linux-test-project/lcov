@@ -5557,7 +5557,7 @@ HTML OUTPUT
                                     'goto next hit/not hit' hyperlinks in
                                     non-differential source code detail page
 
-For more information see: $lcov_url and\/or the genhtml man page.
+For more information see the genhtml man page.
 END_OF_USAGE
 
 }

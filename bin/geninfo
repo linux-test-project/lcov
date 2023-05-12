@@ -699,7 +699,7 @@ OPTIONS
                                     to filename (default is
                                     'OUTPUT_FILENAME.json').
 
-For more information see: $lcov_url
+For more information see the geninfo man page.
 END_OF_USAGE
 
 }

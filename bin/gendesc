@@ -118,7 +118,7 @@ OPTIONS
   -v, --version                     Print version number, then exit
   -o, --output-filename FILENAME    Write description to FILENAME
 
-For more information see: $lcov_url
+For more information see the gendesc man page.
 END_OF_USAGE
         ;
 }

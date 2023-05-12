@@ -142,7 +142,7 @@ OPTIONS
   -d, --dark-mode                   Use a light-on-dark color scheme
   -o, --output-filename FILENAME    Write image to FILENAME
 
-For more information see: $lcov_url
+For more information see the genpng man page.
 END_OF_USAGE
         ;
 }
