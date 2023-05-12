@@ -40,8 +40,8 @@ use Getopt::Long;
 
 my ($opt_man, $opt_exec, $opt_text, $opt_spec,
     $opt_verfile, $opt_version, $opt_release, $opt_libdir,
-    $opt_bindir, $opt_scriptdir, $opt_fixinterp, $opt_fixdate, $opt_fixver,
-    $opt_fixlibdir, $opt_fixbindir, $opt_fixscriptdir);
+    $opt_bindir, $opt_scriptdir, $opt_fixinterp, $opt_fixdate,
+    $opt_fixver, $opt_fixlibdir, $opt_fixbindir, $opt_fixscriptdir);
 my $verbose = $ENV{"V"};
 
 sub get_file_info($)
@@ -208,22 +208,22 @@ sub main()
 {
     my $opt_help;
 
-    if (!GetOptions("help"      => \$opt_help,
-                    "manpage"   => \$opt_man,
-                    "exec"      => \$opt_exec,
-                    "text"      => \$opt_text,
-                    "spec"      => \$opt_spec,
-                    "verfile=s" => \$opt_verfile,
-                    "version=s" => \$opt_version,
-                    "release=s" => \$opt_release,
-                    "libdir=s"  => \$opt_libdir,
-                    "bindir=s"  => \$opt_bindir,
+    if (!GetOptions("help"         => \$opt_help,
+                    "manpage"      => \$opt_man,
+                    "exec"         => \$opt_exec,
+                    "text"         => \$opt_text,
+                    "spec"         => \$opt_spec,
+                    "verfile=s"    => \$opt_verfile,
+                    "version=s"    => \$opt_version,
+                    "release=s"    => \$opt_release,
+                    "libdir=s"     => \$opt_libdir,
+                    "bindir=s"     => \$opt_bindir,
                     "scriptdir=s"  => \$opt_scriptdir,
-                    "fixinterp" => \$opt_fixinterp,
-                    "fixdate"   => \$opt_fixdate,
-                    "fixver"    => \$opt_fixver,
-                    "fixlibdir" => \$opt_fixlibdir,
-                    "fixbindir" => \$opt_fixbindir,
+                    "fixinterp"    => \$opt_fixinterp,
+                    "fixdate"      => \$opt_fixdate,
+                    "fixver"       => \$opt_fixver,
+                    "fixlibdir"    => \$opt_fixlibdir,
+                    "fixbindir"    => \$opt_fixbindir,
                     "fixscriptdir" => \$opt_fixscriptdir,
     )) {
         print(STDERR "Use $0 --help to get usage information.\n");
