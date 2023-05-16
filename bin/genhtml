@@ -6690,7 +6690,6 @@ sub write_css_file()
           padding-left: 6px;
           padding-bottom: 0px;
           font-family: sans-serif;
-          font-size: 80%;
           white-space: nowrap;
         }
 
@@ -7266,6 +7265,16 @@ END_OF_SPAN
         $css_data .= ($_ = <<"END_OF_SPAN");
         a.tlaBg$tla {
           background-color: $color
+        }
+
+        td.headerCovTableHead$tla {
+          text-align: center;
+          padding-right: 6px;
+          padding-left: 6px;
+          padding-bottom: 0px;
+          font-family: sans-serif;
+          white-space: nowrap;
+          background-color: $color;
         }
 END_OF_SPAN
     }
@@ -9495,15 +9504,16 @@ END_OF_HTML
             # only types which have non-zero entries
             for my $tla (@$tlaSummaryTypes) {
 
-                my ($title, $label);
+                my ($title, $label, $class);
                 if ($main::use_legacyLabels) {
                     $label = $SummaryInfo::tlaToLegacy{$tla};
+                    $class = "headerCovTableHead";
                 } else {
-                    $label = "<span class=\"tla$tla\">$tla</span>";
+                    $label = $tla;
                     $title = $SummaryInfo::tlaToTitle{$tla};
+                    $class = "headerCovTableHead$tla";
                 }
-                push(@headerRow,
-                     ["5%", "headerCovTableHead", $label, undef, $title]);
+                push(@headerRow, ["5%", $class, $label, undef, $title]);
             }
         }
         push(@row_right, \@headerRow);
