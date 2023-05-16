@@ -60,6 +60,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
+     $ERROR_CALLBACK
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
@@ -110,7 +111,8 @@ our $ERROR_COUNT             = 12; # too many messages of type
 our $ERROR_UNSUPPORTED       = 13; # some unsupported feature or usage
 our $ERROR_PARALLEL          = 14; # error in fork/join
 our $ERROR_DEPRECATED        = 15; # deprecated feature
-our $ERROR_INCONSISTENT_DATA = 16; # somthing wrong with .info
+our $ERROR_CALLBACK          = 16; # callback produced an error
+our $ERROR_INCONSISTENT_DATA = 17; # somthing wrong with .info
 
 our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "source"       => $ERROR_SOURCE,
@@ -128,6 +130,7 @@ our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "unsupported"  => $ERROR_UNSUPPORTED,
                     "inconsistent" => $ERROR_INCONSISTENT_DATA,
                     "deprecated"   => $ERROR_DEPRECATED,
+                    "callback"     => $ERROR_CALLBACK,
                     "package"      => $ERROR_PACKAGE,);
 our $stop_on_error;    # attempt to keep going
 
@@ -1679,7 +1682,8 @@ sub extractFileVersion
         0 == $status or
             die("version-script '$cmd' returned non-zero exit code: '$!'");
     } else {
-        die("unable to call open(| $cmd): $!");
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                  "'open(-| $cmd)' failed: \"$!\"");
     }
     return $version;
 }

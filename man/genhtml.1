@@ -1506,7 +1506,7 @@ ignore lines which contain only whitespace (or whitespace + comments) whose 'hit
 Ignore line and branch coverpoints on lines which are out-of range/whose line number is beyond the end of the source file.  These appear to be gcov artifacts caused by a macro instantiation on the last line of the file.
 
 .B line:
-alias for "\-\-ignore brace,blank".
+alias for "\-\-filter brace,blank".
 
 .B region:
 apply LCOV_EXCL_START/LCOV_EXCL_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
@@ -1946,6 +1946,10 @@ returned non\-zero exit status - likely a file path or related error.  HTML sour
 
 .B branch:
 Branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+.br
+
+.B callback:
+Annotate, version, or criteria script error.
 .br
 
 .B category:

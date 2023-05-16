@@ -103,7 +103,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_MISMATCH $ERROR_SOURCE $ERROR_BRANCH $ERROR_FORMAT
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED $ERROR_PACKAGE
                  $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_UNSUPPORTED
-                 $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
+                 $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA $ERROR_CALLBACK
                  $ERROR_PARALLEL report_parallel_error
                  $br_coverage $func_coverage
                  info $verbose init_verbose_flag debug $debug $devnull
@@ -223,7 +223,8 @@ $ERROR_CORRUPT     = 14;
 $ERROR_NEGATIVE    = 15;
 $ERROR_COUNT       = 16;
 $ERROR_UNSUPPORTED = 17;
-$ERROR_DEPRECATED  = 18;
+$ERROR_CALLBACK    = 18;
+$ERROR_DEPRECATED  = 19;
 
 our %htmlErrs = ("source"       => $ERROR_SOURCE,
                  "unmapped"     => $ERROR_UNMAPPED_LINE,
@@ -243,6 +244,7 @@ our %htmlErrs = ("source"       => $ERROR_SOURCE,
                  "count"        => $ERROR_COUNT,
                  "unsupported"  => $ERROR_UNSUPPORTED,
                  "deprecated"   => $ERROR_DEPRECATED,
+                 "callback"     => $ERROR_CALLBACK,
                  "corrupt"      => $ERROR_CORRUPT,);
 lcovutil::define_errors(\%htmlErrs);
 
@@ -345,32 +347,32 @@ our %tlaLocation = ("UNC" => 1,
                     "DUB" => 2,
                     "DCB" => 2,);
 
-our %tlaToTitle = ("UNC" => "Uncovered New Code (+ => 0):\n".
-                            "Newly added code is not tested",
-                   "LBC" => "Lost Baseline Coverage (1 => 0):\n".
-                            "Unchanged code is no longer tested",
-                   "UIC" => "Uncovered Included Code (# => 0):\n".
-                            "Previously unused code is untested",
-                   "UBC" => "Uncovered Baseline Code (0 => 0):\n".
-                            "Unchanged code was untested before, is untested now",
+our %tlaToTitle = ("UNC" => "Uncovered New Code (+ => 0):\n" .
+                       "Newly added code is not tested",
+                   "LBC" => "Lost Baseline Coverage (1 => 0):\n" .
+                       "Unchanged code is no longer tested",
+                   "UIC" => "Uncovered Included Code (# => 0):\n" .
+                       "Previously unused code is untested",
+                   "UBC" => "Uncovered Baseline Code (0 => 0):\n" .
+                       "Unchanged code was untested before, is untested now",
 
-                   "GBC" => "Gained Baseline Coverage (0 => 1):\n".
-                            "Unchanged code is tested now",
-                   "GIC" => "Gained Included Coverage (# => 1):\n".
-                            "Previously unused code is tested now",
-                   "GNC" => "Gained New Coverage (+ => 1):\n".
-                            "Newly added code is tested",
-                   "CBC" => "Covered Baseline Code (1 => 1):\n".
-                            "Unchanged code was tested before and is still tested",
+                   "GBC" => "Gained Baseline Coverage (0 => 1):\n" .
+                       "Unchanged code is tested now",
+                   "GIC" => "Gained Included Coverage (# => 1):\n" .
+                       "Previously unused code is tested now",
+                   "GNC" => "Gained New Coverage (+ => 1):\n" .
+                       "Newly added code is tested",
+                   "CBC" => "Covered Baseline Code (1 => 1):\n" .
+                       "Unchanged code was tested before and is still tested",
 
-                   "EUB" => "Excluded Uncovered Baseline (0 => #):\n".
-                            "Previously untested code is unused now",
-                   "ECB" => "Excluded Covered Baseline (1 => #):\n".
-                            "Previously tested code is unused now",
-                   "DUB" => "Deleted Uncovered Baseline (0 => -):\n".
-                            "Previously untested code has been deleted",
-                   "DCB" => "Deleted Covered Baseline (1 => -):\n".
-                            "Previously tested code has been deleted",);
+                   "EUB" => "Excluded Uncovered Baseline (0 => #):\n" .
+                       "Previously untested code is unused now",
+                   "ECB" => "Excluded Covered Baseline (1 => #):\n" .
+                       "Previously tested code is unused now",
+                   "DUB" => "Deleted Uncovered Baseline (0 => -):\n" .
+                       "Previously untested code has been deleted",
+                   "DCB" => "Deleted Covered Baseline (1 => -):\n" .
+                       "Previously tested code has been deleted",);
 
 our %tlaToLegacy = ("UNC" => "Missed",
                     "GNC" => "Hit",);
@@ -1167,7 +1169,8 @@ sub checkCoverageCriteria
         $coverageCriteriaStatus = $status
             if $status != 0;
     } else {
-        print("Error: 'open(-| $cmd)' failed: \"$!\"\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                  "'open(-| $cmd)' failed: \"$!\"");
     }
 }
 
