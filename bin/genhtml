@@ -6806,7 +6806,7 @@ sub write_css_file()
         td.overallOwner
         {
           text-align: center;
-          font-style: bold;
+          font-weight: bold;
           font-family: sans-serif;
           background-color: #COLOR_08;
           padding-right: 10px;
@@ -7110,7 +7110,7 @@ sub write_css_file()
           color: #COLOR_15;
           /* make this a slightly different color than the leader - otherwise,
              otherwise the alias is hard to distinguish in the table */
-          background-color: "#COLOR_17"; # very light pale grey/blue
+          background-color: #COLOR_17; /* very light pale grey/blue */
           font-family: monospace;
         }
 
@@ -7120,7 +7120,7 @@ sub write_css_file()
           text-align: right;
           padding-left: 10px;
           padding-right: 10px;
-          background-color: $ownerCovLo; # lighter red
+          background-color: $ownerCovLo; /* lighter red */
           font-family: sans-serif;
         }
 
