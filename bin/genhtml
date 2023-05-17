@@ -7243,6 +7243,15 @@ sub write_css_file()
           background-color: #COLOR_04;
         }
 
+        a.branchTla:link
+        {
+          color: #COLOR_00;
+        }
+
+        a.branchTla:visited
+        {
+          color: #COLOR_00;
+        }
 END_OF_CSS
         ;
 
@@ -7257,10 +7266,10 @@ END_OF_CSS
         $elem.tla$tla
         {
           text-align: $align;
-          background-color: $color
+          background-color: $color;
         }
         $elem.tlaBg$tla {
-          background-color: $color
+          background-color: $color;
         }
 END_OF_SPAN
                 ;
@@ -7268,7 +7277,8 @@ END_OF_SPAN
         # the href anchor tag background
         $css_data .= ($_ = <<"END_OF_SPAN");
         a.tlaBg$tla {
-          background-color: $color
+          background-color: $color;
+          color: #COLOR_00;
         }
 
         td.headerCovTableHead$tla {
@@ -8335,15 +8345,13 @@ sub get_branch_html($$)
                 } else {
                     my $line = $differentialBranch->line();
                     my $next = $fileDetail->nextBranchTlaGroup($tla, $line);
-                    $class .= " tlaBg$tla";
                     $href =
                         "<a href=\"#" . (defined($next) ? "L$next" : 'top') .
-                        "\" title=\"TITLE\">$char</a>";
+                        "\" title=\"TITLE\" class=\"branchTla\">$char</a>";
                     $tlaLinks{$tla} = $href;
                 }
                 $href =~ s#TITLE#$title#;
-                my $space = "<span class=\"$class\"> </span>";
-                $current .= $space . $href . $space;
+                $current .= "<span class=\"$class\"> $href </span>";
             } else {
                 $current .=
                     "<span class=\"$class\" title=\"$title\"> $char </span>";
@@ -8496,8 +8504,8 @@ sub write_source_line(*$$$$)
 
     # Write out a line number navigation anchor every $nav_resolution
     # lines if necessary
-    $anchor_start = "<a id=\"L$line\">";
-    $anchor_end   = "</a>";
+    $anchor_start = "<span id=\"L$line\">";
+    $anchor_end   = "</span>";
 
     # *************************************************************
 
