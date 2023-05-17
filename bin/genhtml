@@ -270,6 +270,7 @@ sub parse_dir_prefix(@);
 
 # HTML related prototypes
 sub escape_html($);
+sub escape_id($);
 sub get_bar_graph_code($$$);
 
 sub write_png_files();
@@ -7635,6 +7636,16 @@ END_OF_HTML
 END_OF_HTML
 }
 
+sub escape_id($)
+{
+    my ($name) = @_;
+
+    # Name/ID attribute requirements according to HTML 4.01 Transitional
+    $name =~ s/[^A-Za-z0-9-_:.]/_/g;
+
+    return $name;
+}
+
 # write_file_table_entry(handle, base_dir,
 #                        [ name, [filename, fileDetails, fileHref, cbdata],
 #                          activeTlaCols,
@@ -7702,10 +7713,10 @@ sub write_file_table_entry(*$$@)
         #   visible (you have to scroll up to see it).
         # the fix is to put the anchor in the next column
         if ($primary_key eq 'owner') {
-            $anchor = "<a id=$name>NAME</a>";
+            $anchor = '<a id="N' . escape_id($name) . '">NAME</a>';
         } elsif ($primary_key eq 'date') {
             my $bin = $SummaryInfo::ageHeaderToBin{$name};
-            $anchor = "<a id=$bin>NAME</a>";
+            $anchor = "<a id=\"B$bin\">NAME</a>";
         }
     }
 
@@ -7714,10 +7725,10 @@ sub write_file_table_entry(*$$@)
         if ($main::frames) {
             # href to anchor in frame doesn't seem to work in either firefox
             #   or chrome.  However, this seems like the right syntax.
-            $tableHref .= "href=\"$file_link#__LINE__\" target=\"source\""
+            $tableHref .= "href=\"$file_link#L__LINE__\" target=\"source\""
                 if 0;
         } else {
-            $tableHref = "href=\"$file_link#__LINE__\"";
+            $tableHref = "href=\"$file_link#L__LINE__\"";
         }
     }
     # First column: name
@@ -7759,12 +7770,12 @@ sub write_file_table_entry(*$$@)
             if ($page_type eq 'owner') {
                 $bin = $esc_name
                     if ($primary_key eq 'name');
-                $namecode .= "-bin_owner." . $html_ext . "#" . $bin;
+                $namecode .= "-bin_owner." . $html_ext . "#N" . escape_id($bin);
                 $help = "owner $bin";
             } elsif ($page_type eq 'date') {
                 $bin = $SummaryInfo::ageHeaderToBin{$name}
                     if ($primary_key eq 'name');
-                $namecode .= "-bin_date." . $html_ext . "#$bin";
+                $namecode .= "-bin_date." . $html_ext . "#B$bin";
                 $help =
                     "the period '" . $SummaryInfo::ageGroupHeader[$bin] . "'";
             } else {
@@ -8029,9 +8040,10 @@ END_OF_HTML
 sub write_test_table_entry(*$$)
 {
     # *************************************************************
+    my $name = escape_id($_[1]);
 
     write_html($_[0], <<END_OF_HTML);
-          <dt>$_[1]<a id="$_[1]">&nbsp;</a></dt>
+          <dt>$_[1]<a id="T$name">&nbsp;</a></dt>
           <dd>$_[2]<br><br></dd>
 END_OF_HTML
 
@@ -8330,7 +8342,8 @@ sub get_branch_html($$)
                     my $line = $differentialBranch->line();
                     my $next = $fileDetail->nextBranchTlaGroup($tla, $line);
                     $class .= " tlaBg$tla";
-                    $href = "<a href=\"#" . (defined($next) ? $next : 'top') .
+                    $href =
+                        "<a href=\"#" . (defined($next) ? "L$next" : 'top') .
                         "\" title=\"TITLE\">$char</a>";
                     $tlaLinks{$tla} = $href;
                 }
@@ -8438,7 +8451,7 @@ sub write_source_line(*$$$$)
             my $next = $cbdata->sourceDetail()->nextTlaGroup($bucket, $line);
             $tlaIsHref = 1;
             # if no next segment in this category - then go to top to page.
-            $next = 'top' if (!defined($next));
+            $next = defined($next) ? "L$next" : "top";
             my $anchorClass = "";
             if ($tla ne 'UNK') {
                 $class .= " tlaBg$bucket";
@@ -8489,7 +8502,7 @@ sub write_source_line(*$$$$)
 
     # Write out a line number navigation anchor every $nav_resolution
     # lines if necessary
-    $anchor_start = "<a id=\"$line\">";
+    $anchor_start = "<a id=\"L$line\">";
     $anchor_end   = "</a>";
 
     # *************************************************************
@@ -8617,7 +8630,7 @@ sub write_source_line(*$$$$)
                     ->nextInDateBin($newBin, $bucket, $line);
                 $cbdata->nextDate($newBin, $bucket, $next);
 
-                $next = "top" if (!defined($next));
+                $next = defined($next) ? "L$next" : "top";
                 my $dateBin = $SummaryInfo::ageGroupHeader[$newBin];
                 my $label =
                     $main::use_legacyLabels ?
@@ -8636,7 +8649,7 @@ sub write_source_line(*$$$$)
                 my $next = $cbdata->sourceDetail()
                     ->nextInOwnerBin($src_owner, $bucket, $line);
                 $cbdata->nextOwner($src_owner, $bucket, $next);
-                $next = "top" if (!defined($next));
+                $next = defined($next) ? "L$next" : "top";
                 my $label =
                     $main::use_legacyLabels ?
                     $SummaryInfo::tlaToLegacySrcLabel{$bucket} :
@@ -8817,7 +8830,7 @@ sub write_overview_line(*$$$)
     # *************************************************************
 
     write_html($_[0], <<END_OF_HTML);
-            <area shape="rect" coords="0,$y1,$x2,$y2" href="$_[1].gcov.$html_ext#$_[3]" target="source" alt="overview">
+            <area shape="rect" coords="0,$y1,$x2,$y2" href="$_[1].gcov.$html_ext#L$_[3]" target="source" alt="overview">
 END_OF_HTML
 
     # *************************************************************
@@ -8941,7 +8954,7 @@ sub buildDateSummaryTable($$$$$$$$$)
         my $href = $SummaryInfo::ageGroupHeader[$bin];
         if (defined($detailLink)) {
             $href =
-                "<a href=\"$page#$bin\" title=\"click to go to coverage summary for the period '$href'\">$href</a>";
+                "<a href=\"$page#B$bin\" title=\"click to go to coverage summary for the period '$href'\">$href</a>";
         }
         $hit -= $found    # negative number
             if ($main::opt_missed);
@@ -8988,7 +9001,7 @@ sub buildDateSummaryTable($$$$$$$$$)
                         if ($covType ne 'line');
                     $popup .= "in &ldquo;$dateBin&rdquo; bin\"";
                     $value =
-                        "<a href=\"#$firstAppearance\"$popup$color>$value</a>";
+                        "<a href=\"#L$firstAppearance\"$popup$color>$value</a>";
                 }
                 push(@dataRow, [undef, $class, $value]);
             }
@@ -9065,7 +9078,8 @@ sub buildOwnerSummaryTable($$$$$$$$$)
         my $href     = $esc_name;
         if (defined($detailLink)) {
             $href =
-                "<a href=\"$page#$name\" title=\"click to go to coverage summary for owner '$esc_name'\">$esc_name</a>";
+                "<a href=\"$page#N" . escape_id($name) .
+                "\" title=\"click to go to coverage summary for owner '$esc_name'\">$esc_name</a>";
         }
         $hit -= $found    # negative number
             if ($main::opt_missed);
@@ -9108,7 +9122,7 @@ sub buildOwnerSummaryTable($$$$$$$$$)
                         if ($covType ne 'line');
                     $popup .= "in &ldquo;$name&rdquo; bin\"";
                     $value =
-                        "<a href=\"#$firstAppearance\"$popup$color>$value</a>";
+                        "<a href=\"#L$firstAppearance\"$popup$color>$value</a>";
                 }
                 push(@dataRow, [undef, $class, $value]);
             }
@@ -9147,7 +9161,7 @@ sub buildHeaderSummaryTableRow
                 $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} :
                 $tla;
             $popup .= "$label\"";
-            $value = "<a href=\"#$firstAppearance\"$popup>$value</a>";
+            $value = "<a href=\"#L$firstAppearance\"$popup>$value</a>";
         }
         push(@row, [undef, "headerCovTableEntry", $value]);
     }
@@ -10327,8 +10341,8 @@ sub write_file_table(*$$$$$)
             my $href = $testname;
             # Insert link to description of available
             if ($test_description{$testname}) {
-                $href = "<a href=\"$base_dir" .
-                    "descriptions.$html_ext#$testname\">" . "$testname</a>";
+                $href = "<a href=\"$base_dir" . "descriptions.$html_ext#T" .
+                    escape_id($testname) . "\">" . "$testname</a>";
             }
             write_file_table_detail_entry(*HTML_HANDLE, $base_dir,
                                $href, $showBinDetail, $activeTlaCols, @results);
@@ -10627,7 +10641,7 @@ END_OF_HTML
 
         write_html(*HTML_HANDLE, <<END_OF_HTML);
             <tr>
-              <td class="coverFn"><a href="$source#$startline">$name</a></td>
+              <td class="coverFn"><a href="$source#L$startline">$name</a></td>
               $tlaRow
               <td class="$countstyle">$count</td>
               $lineProportionRow
@@ -10673,7 +10687,7 @@ END_OF_HTML
                 }
                 write_html(*HTML_HANDLE, <<END_OF_HTML);
             <tr>
-              <td class="coverFnAlias"><a href="$source#$startline">$alias</a></td>
+              <td class="coverFnAlias"><a href="$source#L$startline">$alias</a></td>
               $tlaRow
               <td class="$style">$hit</td>
               $lineProportionRow
