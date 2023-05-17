@@ -7511,23 +7511,17 @@ sub write_file_table_prolog(*$$$@)
 {
     my ($handle, $file_heading, $bin_heading, $primary_key, @columns) = @_;
     my $num_columns = 0;
-    my $file_width;
+    my $file_width  = 40;
     my $col;
     my $width;
 
-    $width = 20 if (scalar(@columns) == 1);
-    $width = 10 if (scalar(@columns) == 2);
-    $width = 8 if (scalar(@columns) > 2);
-
     foreach $col (@columns) {
         my ($heading, $cols, $titles) = @{$col};
-        if ($titles) {
-            $num_columns += scalar(@$titles);
-        } else {
-            $num_columns += $cols;
-        }
+
+        $num_columns += $cols;
     }
-    $file_width = 100 - $num_columns * $width;
+    $num_columns++ if (defined($bin_heading));
+    $width = int((100 - $file_width) / $num_columns);
 
     # Table definition
     write_html($handle, <<END_OF_HTML);
@@ -7540,7 +7534,7 @@ END_OF_HTML
     if (defined($bin_heading)) {
         # owner or date column
         write_html($handle, <<END_OF_HTML);
-              <td width=15</td>
+              <td width="$width%"></td>
 END_OF_HTML
     }
     # Empty first row
@@ -8455,7 +8449,7 @@ sub write_source_line(*$$$$)
             my $anchorClass = "";
             if ($tla ne 'UNK') {
                 $class .= " tlaBg$bucket";
-                $anchorClass = "class=\"tlaBg$bucket\" ";
+                $anchorClass = " class=\"tlaBg$bucket\" ";
             }
             my $label =
                 $main::use_legacyLabels ?
@@ -9730,7 +9724,7 @@ sub get_sort_code($$$)
     }
     my $help = " title=\"Click to sort table by $alt\"";
     $alt = "Sort by $alt";
-    return ' <span $help class="tableHeadSort">' .
+    return " <span $help class=\"tableHeadSort\">" .
         $link_start . '<img src="' . $base . $png . '" width=10 height=14 ' .
         'alt="' . $alt . '"' . $help . ' border=0>' . $link_end . '</span>';
 }
