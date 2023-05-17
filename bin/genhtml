@@ -9623,7 +9623,8 @@ END_OF_HTML
                         \&SourceFile::nextInDateBin, "Line coverage date bins:",
                         $dateBinDetailPage, scalar(@dataRow),
                         $tlaSummaryTypes);
-        push(@row_right, @$table);
+        push(@row_right, @$table)
+            if ($type != $HDR_TESTDESC);
 
         if ($lcovutil::func_coverage) {
             my $fn_table =
@@ -9636,7 +9637,8 @@ END_OF_HTML
                                       $dateBinDetailPage,
                                       scalar(@dataRow),
                                       $tlaSummaryTypes);
-            push(@row_right, @$fn_table);
+            push(@row_right, @$fn_table)
+                if ($type != $HDR_TESTDESC);
         }
 
         if ($lcovutil::br_coverage) {
@@ -9650,7 +9652,8 @@ END_OF_HTML
                                       $dateBinDetailPage,
                                       scalar(@dataRow),
                                       $tlaSummaryTypes);
-            push(@row_right, @$br_table);
+            push(@row_right, @$br_table)
+                if ($type != $HDR_TESTDESC);
         }
     }
     # owner bins..
@@ -9674,7 +9677,8 @@ END_OF_HTML
                                        $ownerBinDetailPage,
                                        scalar(@dataRow),
                                        $tlaSummaryTypes);
-            push(@row_right, @$table);
+            push(@row_right, @$table)
+                if ($type != $HDR_TESTDESC);
 
             if ($lcovutil::br_coverage) {
                 my $br_table =
@@ -9687,7 +9691,8 @@ END_OF_HTML
                                            $ownerBinDetailPage,
                                            scalar(@dataRow),
                                            $tlaSummaryTypes);
-                push(@row_right, @$br_table);
+                push(@row_right, @$br_table)
+                    if ($type != $HDR_TESTDESC);
             }
         }
     }
