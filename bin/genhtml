@@ -7473,16 +7473,18 @@ sub write_header_line(*@)
     my ($handle, @content) = @_;
 
     write_html($handle, "          <tr>\n");
+    # label order has to match data that is passed
+    my @labels = qw/width class colspan title/;
     foreach my $entry (@content) {
-        my ($width, $class, $text, $colspan, $title) = @{$entry};
-        my %tags = ("width"   => $width,
-                    "class"   => $class,
-                    "colspan" => $colspan,
-                    "title"   => $title);
+        my @d    = @$entry;
+        my $text = splice(@d, 2, 1);
+        # entry may not contain some data - e.g., does not have colspan or title
+        die("unexpected entry format") unless scalar(@labels) >= scalar(@d);
         my $str = "            <td";
-        while (my ($t, $v) = each(%tags)) {
-            $str .= " $t=\"$v\""
-                if defined($v);
+        for (my $i = 0; $i <= $#d; ++$i) {
+            my $e = $d[$i];
+            $str .= ' ' . $labels[$i] . "=\"$e\""
+                if defined($e);
         }
         $str .= '>';
         $str .= $text
