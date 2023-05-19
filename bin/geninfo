@@ -2444,7 +2444,7 @@ sub process_intermediate($$$$)
 
     my $filename = defined($file) ? $file : $gcno_file;
     $file = solve_relative_path($cwd, $filename);
-    ($fdir, $fbase, $fext) = split_filename($filename);
+    ($fdir, $fbase, $fext) = split_filename($file);
 
     my $is_graph = (".$fext" eq $graph_file_extension);
 
