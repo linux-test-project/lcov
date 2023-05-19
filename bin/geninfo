@@ -893,6 +893,9 @@ sub gen_info($)
         --$total;
         # find the corresponding gcno file...
         my ($name, $d, $e) = fileparse($filename, qr/\.[^.]*/);
+        die("unexpected extension '$e': should be $ext" .
+            ($initial ? " for initial capture" : ""))
+            unless ($e eq $ext);
         die("unexpected extention '$ext': should be "
                 .
                 ($initial ? "$graph_file_extension for initial capture" :
