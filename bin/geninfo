@@ -896,12 +896,6 @@ sub gen_info($)
         die("unexpected extension '$e': should be $ext" .
             ($initial ? " for initial capture" : ""))
             unless ($e eq $ext);
-        die("unexpected extention '$ext': should be "
-                .
-                ($initial ? "$graph_file_extension for initial capture" :
-                     $data_file_extension))
-            unless (($e eq $data_file_extension && !$initial) ||
-                    ($e eq $graph_file_extension && $initial));
         my ($gcda_file, $gcno_file);
         if ($initial) {
             $gcno_file = $filename;
