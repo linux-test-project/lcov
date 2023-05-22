@@ -221,7 +221,7 @@ our @build_directory;
 our $test_name = "";
 our $help;
 our $output_filename;
-our $single_file;
+our $single_file;    # write result into signle merged file or not
 our $base_directory;
 our $version;
 our $follow;
@@ -769,7 +769,7 @@ sub _process_one_file($$$$)
     if (!$single_file && defined($trace)) {
         # Create one .info file per input file
         $trace->applyFilters();
-        $trace->write_info_file(solve_relative_path($cwd, $name.".info"),
+        $trace->write_info_file(solve_relative_path($cwd, $name . ".info"),
                                 $lcovutil::verify_checksum);
     }
 
@@ -1063,7 +1063,7 @@ sub gen_info($)
                 $lcovutil::profileData{child}{$searchdir}{$filename} =
                     $done - $childStart;
                 # dump parsed data - then read back and merge
-                Storable::store([$childInfo,
+                Storable::store([$single_file ? $childInfo : undef,
                                  \@excluded,
                                  \@lcovutil::file_subst_patterns,
                                  \%lcovutil::profileData
@@ -1083,7 +1083,7 @@ sub gen_info($)
             my $then = Time::HiRes::gettimeofday();
             $lcovutil::profileData{process}{$searchdir}{$filename} =
                 $then - $now;
-            if (defined($fileData)) {
+            if ($single_file && defined($fileData)) {
                 if (defined($trace_data)) {
                     $trace_data->append_tracefile($fileData);
                     my $end = Time::HiRes::gettimeofday();
