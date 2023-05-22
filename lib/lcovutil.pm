@@ -1739,10 +1739,30 @@ sub checkVersionMatch
 #
 # Parse date string in W3CDTF format into DateTime object.
 #
+my $have_w3cdtf;
 
 sub parse_w3cdtf($)
 {
-    my ($str) = @_;
+    if (!defined($have_w3cdtf)) {
+        # check to see if the package is here for us to use..
+        $have_w3cdtf = 1;
+        eval {
+            require DateTime::Format::W3CDTF;
+            DateTime::Format::W3CDTF->import();
+        };
+        if ($@) {
+            # package not there - fall back
+            lcovutil::ignorable_warning($lcovutil::ERROR_PACKAGE,
+                'package DateTime::Format::W3CDTF is not available - falling back to local implementation'
+            );
+            $have_w3cdtf = 0;
+        }
+    }
+    my $str = shift;
+    if ($have_w3cdtf) {
+        return DateTime::Format::W3CDTF->parse_datetime($str);
+    }
+
     my ($year, $month, $day, $hour, $min, $sec, $ns, $tz) =
         (0, 1, 1, 0, 0, 0, 0, "Z");
 
