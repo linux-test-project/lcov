@@ -221,6 +221,7 @@ our @build_directory;
 our $test_name = "";
 our $help;
 our $output_filename;
+our $single_file;
 our $base_directory;
 our $version;
 our $follow;
@@ -533,6 +534,7 @@ if ($gcov_version < $GCOV_VERSION_3_4_0) {
 }
 
 # Check output filename
+$single_file = defined($output_filename);
 if (defined($output_filename) && ($output_filename ne "-")) {
     # Initially create output filename, data is appended
     # for each data file processed
@@ -596,12 +598,12 @@ if (0 == $exit_code) {
     # have to check the loaded input data for exclusion markers because the
     #  data was generated directly from the gcov files - did not go through
     #  TraceFile::load which explicitly checks
-    if (defined($trace_data)) {
+    if (!defined($trace_data)) {
+        warn("WARNING: no data generated\n");
+    } elsif ($single_file) {
         $trace_data->applyFilters();
         $trace_data->write_info_file($output_filename,
                                      $lcovutil::verify_checksum);
-    } else {
-        warn("WARNING:  no data generated\n");
     }
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{emit} = $then - $now;
@@ -763,6 +765,14 @@ sub _process_one_file($$$$)
     }
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{parse}{$searchdir}{$name} = $then - $now;
+
+    if (!$single_file) {
+        # Create one .info file per input file
+        $trace->applyFilters();
+        $trace->write_info_file(solve_relative_path($cwd, $name.".info"),
+                                $lcovutil::verify_checksum);
+    }
+
     return $trace;
 }
 
