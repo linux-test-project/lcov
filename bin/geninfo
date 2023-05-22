@@ -874,7 +874,7 @@ sub gen_info($)
         if (!@file_list) {
             lcovutil::ignorable_error($ERROR_EMPTY,
                                       "no $ext files found in $directory");
-            return;
+            return 0;
         }
         info("Found %d %s files in %s\n", $#file_list + 1, $type, $directory);
         # keep track of directory where we found the file
