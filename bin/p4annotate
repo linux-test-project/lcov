@@ -23,7 +23,6 @@
 #   to match the diffcov(1) age/ownership annotation specification.
 
 #use strict;
-use DateTime::Format::W3CDTF;
 use POSIX qw(strftime);
 use File::Basename;
 use File::Spec;

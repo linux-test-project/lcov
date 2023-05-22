@@ -28,7 +28,6 @@
 # as "External".
 
 #use strict;
-use DateTime::Format::W3CDTF;
 use POSIX qw(strftime);
 use File::Basename qw(dirname basename);
 use File::Spec;

@@ -85,8 +85,6 @@ use File::Temp;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path realpath cwd/;
 use DateTime;
-# using W3CDTF only if annotations are enabled
-#use DateTime::Format::W3CDTF;
 #use Regexp::Common qw(time);  # damn - not installed
 use Date::Parse;
 use FileHandle;
@@ -113,7 +111,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  rate get_overall_line $default_precision check_precision
-                 die_handler warn_handler);
+                 die_handler warn_handler parse_w3cdtf);
 
 # Global constants
 our $title = "LCOV - differential code coverage report";
@@ -4116,7 +4114,7 @@ sub _computeAge
         exists($ENV{SOURCE_DATE_EPOCH}) ?
         DateTime->from_epoch(epoch => $ENV{SOURCE_DATE_EPOCH}) :
         DateTime->now();
-    my $then = DateTime::Format::W3CDTF->parse_datetime($when);
+    my $then = lcovutil::parse_w3cdtf($when);
     if ($then > $now) {
         my $data =
             exists($ENV{SOURCE_DATE_EPOCH}) ?
@@ -5169,20 +5167,6 @@ if ($show_tla && !defined($base_filename)) {
     # no baseline - so not a differentialreport.
     #  modify some settings to gnerate corresponding RTL code.
     SummaryInfo::noBaseline();
-}
-
-if (@SourceFile::annotateScript) {
-    eval {
-        require DateTime::Format::W3CDTF;
-        DateTime::Format::W3CDTF->import();
-    };
-    if ($@) {
-        lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
-            "package DateTime::Format::W3CDTF is required to compute code agae when annotations are enabled: $@"
-        );
-        # OK..user ignored the error - so turn off annotations.
-        @SourceFile::annotateScript = ();
-    }
 }
 
 if (@SourceFile::annotateScript) {

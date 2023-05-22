@@ -17,6 +17,7 @@ use Storable;
 use Digest::MD5 qw(md5_base64);
 use FindBin;
 use Getopt::Long;
+use DateTime;
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
@@ -73,7 +74,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      system_no_output $devnull $dirseparator
 
      %tlaColor %tlaTextColor use_vanilla_color %pngChar %pngMap
-     %dark_palette %normal_palette
+     %dark_palette %normal_palette parse_w3cdtf
 );
 
 our @ignore;
@@ -1731,6 +1732,76 @@ sub checkVersionMatch
     lcovutil::ignorable_error($ERROR_VERSION,
                     "$filename: revision control version mismatch: $me <- $you")
         unless $match;
+}
+
+#
+# parse_w3cdtf(date_string)
+#
+# Parse date string in W3CDTF format into DateTime object.
+#
+
+sub parse_w3cdtf($)
+{
+    my ($str) = @_;
+    my ($year, $month, $day, $hour, $min, $sec, $ns, $tz) =
+        (0, 1, 1, 0, 0, 0, 0, "Z");
+
+    if ($str =~ /^(\d\d\d\d)$/) {
+        # YYYY
+        $year = $1;
+    } elsif ($str =~ /^(\d\d\d\d)-(\d\d)$/) {
+        # YYYY-MM
+        $year  = $1;
+        $month = $2;
+    } elsif ($str =~ /^(\d\d\d\d)-(\d\d)-(\d\d)$/) {
+        # YYYY-MM-DD
+        $year  = $1;
+        $month = $2;
+        $day   = $3;
+    } elsif (
+         $str =~ /^(\d\d\d\d)-(\d\d)-(\d\d)T(\d\d):(\d\d)(Z|[+-]\d\d:\d\d)?$/) {
+        # YYYY-MM-DDThh:mmTZD
+        $year  = $1;
+        $month = $2;
+        $day   = $3;
+        $hour  = $4;
+        $min   = $5;
+        $tz    = $6 if defined($6);
+    } elsif ($str =~
+          /^(\d\d\d\d)-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(Z|[+-]\d\d:\d\d)?$/) {
+        # YYYY-MM-DDThh:mm:ssTZD
+        $year  = $1;
+        $month = $2;
+        $day   = $3;
+        $hour  = $4;
+        $min   = $5;
+        $sec   = $6;
+        $tz    = $7 if (defined($7));
+    } elsif ($str =~
+        /^(\d\d\d\d)-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)\.(\d+)(Z|[+-]\d\d:\d\d)?$/
+    ) {
+        # YYYY-MM-DDThh:mm:ss.sTZD
+        $year  = $1;
+        $month = $2;
+        $day   = $3;
+        $hour  = $4;
+        $min   = $5;
+        $sec   = $6;
+        $ns    = substr($7 . "00000000", 0, 9);
+        $tz    = $8 if (defined($8));
+    } else {
+        die("Invalid W3CDTF date format: $str\n");
+    }
+
+    return
+        DateTime->new(year       => $year,
+                      month      => $month,
+                      day        => $day,
+                      hour       => $hour,
+                      minute     => $min,
+                      second     => $sec,
+                      nanosecond => $ns,
+                      time_zone  => $tz,);
 }
 
 package JsonSupport;

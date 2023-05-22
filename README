@@ -93,7 +93,6 @@ These perl packages include:
 
   - Capture::Tiny
   - DateTime
-  - DateTime::Format::W3CDTF
   - Devel::Cover
   - Digest::MD5
   - File::Spec
