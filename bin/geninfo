@@ -766,7 +766,7 @@ sub _process_one_file($$$$)
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{parse}{$searchdir}{$name} = $then - $now;
 
-    if (!$single_file) {
+    if (!$single_file && defined($trace)) {
         # Create one .info file per input file
         $trace->applyFilters();
         $trace->write_info_file(solve_relative_path($cwd, $name.".info"),
@@ -804,10 +804,8 @@ sub _merge_one_child($$$$$)
     print(STDOUT $childLog)
         if ($childstatus != 0 ||
             $lcovutil::verbose > 1);
-    print(STDERR $childErr)
-        if ($childstatus != 0 ||
-            $lcovutil::verbose);
-    if (0 == $childstatus) {
+    print(STDERR $childErr);
+    if (0 == $childstatus && -f $dumped) {
         my $data = Storable::retrieve($dumped);
         if (defined($data)) {
             my ($childInfo, $excluded, $subst_patterns, $profile) = @$data;
@@ -831,7 +829,7 @@ sub _merge_one_child($$$$$)
         } else {
             report_parallel_error('geninfo', "unable to deserialize $dumped");
         }
-    } else {
+    } elsif ($childstatus > 0) {
         report_parallel_error('geninfo',
             "child $child returned non-zero code $childstatus: ignoring data in $filename"
         );
@@ -1051,9 +1049,6 @@ sub gen_info($)
                 }
                 my $then  = Time::HiRes::gettimeofday();
                 my $dumpf = "$tmp/dumper_$$";
-                die("can't find child struct")
-                    unless (defined($childInfo) &&
-                            ref($childInfo) eq "TraceFile");
                 foreach my $f ($output_filename) {
                     unlink $f if -f $f && !$lcovutil::preserve_intermediates;
                 }
@@ -1073,7 +1068,7 @@ sub gen_info($)
                                  \@lcovutil::file_subst_patterns,
                                  \%lcovutil::profileData
                                 ],
-                                $dumpf);
+                                $dumpf) if defined($childInfo);
                 exit(0);
             } else {
                 # I'm the parent
