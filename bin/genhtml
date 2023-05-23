@@ -9910,9 +9910,9 @@ sub write_file_table(*$$$$$)
 
     my @head_columns;
 
-    my @lineCovCols     = (["coverage", 2], "Total");
-    my @branchCovCols   = ("coverage", "Total");
-    my @functionCovCols = ("coverage", "Total");
+    my @lineCovCols     = (["Rate", 2], "Total");
+    my @branchCovCols   = ("Rate", "Total");
+    my @functionCovCols = ("Rate", "Total");
     if ($main::show_hitTotalCol) {
         my $t = $main::opt_missed ? "Missed" : "Hit";
         push(@lineCovCols, $t);
