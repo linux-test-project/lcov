@@ -12,6 +12,10 @@ Requires: perl >= 5.8.8
 Prefix: /usr
 Prefix: /etc
 
+# lcov Perl modules are not intended for use by other packages
+%define __requires_exclude ^perl\\(lcovutil\\)$
+%define __provides_exclude ^perl.*$
+
 %description
 LCOV is a set of command line tools that can be used to collect, process, and
 visualize code coverage data in an easy-to-use way. It aims to be suitable for
