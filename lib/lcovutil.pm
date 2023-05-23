@@ -971,6 +971,8 @@ sub apply_rc_params($)
         # record override of this one - so we skip the value from the
         #  config file
         $new_opt_rc{$key} = $value;
+        $new_opt_rc{$deprecated_rc{$key}} = $value
+            if (exists($deprecated_rc{$key}));
     }
     my $config;    # did we see a config file or not?
                    # Read configuration file if available
