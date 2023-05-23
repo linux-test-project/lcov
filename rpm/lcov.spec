@@ -12,6 +12,10 @@ Requires: perl >= 5.8.8
 Prefix: /usr
 Prefix: /etc
 
+# Force older/more compatible payload compression and digest versions
+%define _binary_filedigest 1
+%define _binary_payload w9.gzdio
+
 # lcov Perl modules are not intended for use by other packages
 %define __requires_exclude ^perl\\(lcovutil\\)$
 %define __provides_exclude ^perl.*$
