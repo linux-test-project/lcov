@@ -460,7 +460,9 @@ sub warn_handler($)
     if (!$debug) {
         $msg =~ s/ at \S+ line \d+\.$//;
     }
-    warn("$tool_name: $msg");
+    # Enforce consistent "WARNING:" message prefix
+    $msg =~ s/^warning:\s+//i;
+    warn("$tool_name: WARNING: $msg");
 }
 
 sub die_handler($)
