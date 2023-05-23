@@ -221,7 +221,8 @@ our @build_directory;
 our $test_name = "";
 our $help;
 our $output_filename;
-our $single_file;    # write result into signle merged file or not
+our $single_file;          # Write result into single merged file or not
+our $files_created = 0;    # Number of output files created
 our $base_directory;
 our $version;
 our $follow;
@@ -598,12 +599,14 @@ if (0 == $exit_code) {
     # have to check the loaded input data for exclusion markers because the
     #  data was generated directly from the gcov files - did not go through
     #  TraceFile::load which explicitly checks
-    if (!defined($trace_data)) {
-        warn("WARNING: no data generated\n");
-    } elsif ($single_file) {
+    if ($single_file && defined($trace_data)) {
         $trace_data->applyFilters();
         $trace_data->write_info_file($output_filename,
                                      $lcovutil::verify_checksum);
+        $files_created++;
+    }
+    if ($files_created == 0) {
+        warn("WARNING: no data generated\n");
     }
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{emit} = $then - $now;
@@ -771,6 +774,7 @@ sub _process_one_file($$$$)
         $trace->applyFilters();
         $trace->write_info_file(solve_relative_path($cwd, $name . ".info"),
                                 $lcovutil::verify_checksum);
+        $files_created++;
     }
 
     return $trace;
@@ -808,10 +812,13 @@ sub _merge_one_child($$$$$)
     if (0 == $childstatus && -f $dumped) {
         my $data = Storable::retrieve($dumped);
         if (defined($data)) {
-            my ($childInfo, $excluded, $subst_patterns, $profile) = @$data;
+            my ($childInfo, $excluded, $subst_patterns, $profile, $num_files) =
+                @$data;
             # HGC:  need to pass back substitutions, etc.
             lcovutil::merge_child_pattern_counts($excluded, $subst_patterns);
             lcovutil::merge_child_profile($profile);
+
+            $files_created += $num_files;
 
             my $now = Time::HiRes::gettimeofday();
             $lcovutil::profileData{undump}{$directory}{$filename} =
@@ -1066,7 +1073,8 @@ sub gen_info($)
                 Storable::store([$single_file ? $childInfo : undef,
                                  \@excluded,
                                  \@lcovutil::file_subst_patterns,
-                                 \%lcovutil::profileData
+                                 \%lcovutil::profileData,
+                                 $files_created,
                                 ],
                                 $dumpf) if defined($childInfo);
                 exit(0);
