@@ -590,7 +590,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-grep 'Warning: .* possible path inconsistency' warn.log
+grep -i 'Warning: .* possible path inconsistency' warn.log
 if [ 0 != $? ] ; then
     echo "ERROR:  can't find expected warning message"
     if [ 0 == $KEEP_GOING ] ; then
