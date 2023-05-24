@@ -7461,7 +7461,7 @@ sub write_header_line(*@)
     my @labels = qw/width class colspan title/;
     foreach my $entry (@content) {
         my @d    = @$entry;
-        my $text = splice(@d, 2, 1);
+        my $text = splice(@d, 2, 1) if (scalar(@d) > 1);
         # entry may not contain some data - e.g., does not have colspan or title
         die("unexpected entry format") unless scalar(@labels) >= scalar(@d);
         my $str = "            <td";
