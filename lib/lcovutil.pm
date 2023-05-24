@@ -2506,7 +2506,8 @@ sub end_line
 sub set_end_line
 {
     my ($self, $line) = @_;
-    die("bad end line $line for " . $self->name() . " start: " . $self->line())
+    die('bad end line ' . $self->file() .
+        ":$line for " . $self->name() . " start: " . $self->line())
         unless ($line >= $self->line());
     $self->[5] = $line;
 }
@@ -2519,7 +2520,8 @@ sub addAlias
         my $alias =
             $name ne $self->name() ? " (alias of '" . $self->name() . "'" : "";
         lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-               "Unexpected negative count '$count' for function '$name'$alias");
+             "Unexpected negative count '$count' for function '$name'$alias in "
+                 . $self->file());
     }
 
     my $interesting;
