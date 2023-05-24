@@ -82,6 +82,13 @@ ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--rc lcov_branch_coverage=1 $PARALLEL $PROFILE"
+# gcc/4.8.5 (and possibly other old versions) generate inconsistent line/function data
+IFS='.' read -r -a VER <<< `gcc -dumpversion`
+if [ "${VER[0]}" -lt 5 ] ; then
+    IGNORE="--ignore inconsistent"
+    # and filter exception branches to avoid spurious differences for old compiler
+    FILTER='--filter branch'
+fi
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.*
 if [ -d separate ] ; then
@@ -121,9 +128,21 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o external.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o external.info $FILTER $IGNORE
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from lcov --capture"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list external.info
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list external.info $FILTER $IGNORE
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from lcov --list"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
 
 # how many files reported?
 COUNT=`grep -c SF: external.info`
@@ -355,14 +374,14 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 chmod ugo-w separate/run
-$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/build -d separate/run/my/test -o separate.info
+$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/build -d separate/run/my/test -o separate.info $FILTER $IGNORE
 if [ 0 != $? ] ; then
     echo "Error:  extract failed"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
 fi
-$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o copy.info
+$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o copy.info $FILTER $IGNORE
 if [ 0 != $? ] ; then
     echo "Error:  extract from copy failed"
     if [ $KEEP_GOING == 0 ] ; then

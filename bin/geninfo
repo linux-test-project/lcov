@@ -1461,15 +1461,14 @@ sub process_dafile($$$$)
                 my $fn_data = $graph->{$source_filename};
 
                 while (my ($fn, $ln_data) = each(%$fn_data)) {
+                    next if ($fn eq "");
                     my $line = $ln_data->[0];
 
-                    if ($fn eq "") {
-                        next;
-                    }
-
-                    # Normalize function name - no need to demangle again
-                    #  because we already did it in 'read_gcov_file'
-                    $fn = filter_fn_name($fn, 0);
+                    # Normalize function name - need to demangle here because
+                    # the graph data came from reading the gcno file and isn't
+                    # demangled already
+                    $fn = filter_fn_name($fn,
+                                         defined($lcovutil::demangle_cpp_cmd));
                     $functionData{$fn} =
                         $functionMap->define_function($fn, $source_filename,
                                                       $line);
@@ -1480,6 +1479,8 @@ sub process_dafile($$$$)
                 my $count = shift(@gcov_functions);
                 my $fn    = shift(@gcov_functions);
 
+                # don't need to demangle here because this came from reading
+                #  the gcov result - and we demangled that.
                 $fn = filter_fn_name($fn, 0);
                 next unless exists($functionData{$fn});
                 $functionData{$fn}->addAlias($fn, $count);

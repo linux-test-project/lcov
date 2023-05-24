@@ -1472,7 +1472,7 @@ sub summarize_cov_filters
     if ($patternCount) {
         my $omitCount = 0;
         foreach my $p (@omit_line_patterns) {
-            $omitCount += $p->[1];
+            $omitCount += $p->[-1];
         }
         info(-1,
              "Omitted %d total line%s matching %d '--omit-lines' pattern%s\n",
@@ -4139,13 +4139,24 @@ sub applyFilters
             # sort functions by start line number
             my @functions = sort { $a->line() <=> $b->line() }
                 $traceInfo->func()->valuelist();
+            die("unexpectedly empty list of lines for $name")
+                unless (@lines);
             my $currentLine = shift(@lines);
             my $funcData    = $traceInfo->testfnc();
-            while (@functions) {
+            FUNC: while (@functions) {
                 my $func  = shift(@functions);
                 my $first = $func->line();
                 while ($first < $currentLine) {
-                    $currentLine = shift @lines;
+                    if (@lines) {
+                        $currentLine = shift @lines;
+                    } else {
+                        lcovutil::ignorable_error(
+                            $lcovutil::ERROR_INCONSISTENT_DATA,
+                            "\"$name\":$first:  function " . $func->name() .
+                                " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
+                        );
+                        next FUNC;
+                    }
                 }
                 if (!defined($func->end_line())) {
                     # where is the next function?  Find the last 'line' coverpoint
@@ -4163,7 +4174,17 @@ sub applyFilters
                         } else {
                             # last line in the file must be the last line
                             #  of this function
-                            $currentLine = $lines[-1];
+                            if (@lines) {
+                                $currentLine = $lines[-1];
+                            } else {
+                                lcovutil::ignorable_error(
+                                    $lcovutil::ERROR_INCONSISTENT_DATA,
+                                    "\"$name\":$first:  function " .
+                                        $func->name() .
+                                        ": last line in file is not last line of function"
+                                );
+                                next FUNC;
+                            }
                         }
                     } elsif ($currentLine < $first) {
                         # we ran out of lines in the data...check for inconsistency
@@ -4173,8 +4194,8 @@ sub applyFilters
                                 " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
                         );
 
-                        # last; # quit looking here - all the other functions after this one will have same issue
-                        next;    # warn about them all
+                        # last FUNC; # quit looking here - all the other functions after this one will have same issue
+                        next FUNC;    # warn about them all
                     }
                     lcovutil::info(1,
                                    "\"$name\":$currentLine: assign end_line " .
