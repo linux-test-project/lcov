@@ -4131,6 +4131,7 @@ sub applyFilters
         }
         # derive function end line for C/C++ code if requested
         # (not trying to handle python nested functions, etc)
+        DERIVE:
         if (defined($lcovutil::derive_function_end_line) &&
             $lcovutil::derive_function_end_line != 0 &&
             defined($lcovutil::func_coverage) &&
@@ -4139,26 +4140,28 @@ sub applyFilters
             # sort functions by start line number
             my @functions = sort { $a->line() <=> $b->line() }
                 $traceInfo->func()->valuelist();
-            die("unexpectedly empty list of lines for $name")
-                unless (@lines);
-            my $currentLine = shift(@lines);
+
+            my $currentLine = @lines ? shift(@lines) : 0;
             my $funcData    = $traceInfo->testfnc();
             FUNC: while (@functions) {
                 my $func  = shift(@functions);
                 my $first = $func->line();
+                my $end   = $func->end_line();
                 while ($first < $currentLine) {
                     if (@lines) {
                         $currentLine = shift @lines;
                     } else {
-                        lcovutil::ignorable_error(
-                            $lcovutil::ERROR_INCONSISTENT_DATA,
-                            "\"$name\":$first:  function " . $func->name() .
-                                " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
-                        );
+                        if (!defined($end)) {
+                            lcovutil::ignorable_error(
+                                $lcovutil::ERROR_INCONSISTENT_DATA,
+                                "\"$name\":$first:  function " . $func->name() .
+                                    " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
+                            );
+                        }
                         next FUNC;
                     }
                 }
-                if (!defined($func->end_line())) {
+                if (!defined($end)) {
                     # where is the next function?  Find the last 'line' coverpoint
                     #   less than the start line of that function..
                     if (@lines) {
