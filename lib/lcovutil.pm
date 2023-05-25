@@ -2506,9 +2506,13 @@ sub end_line
 sub set_end_line
 {
     my ($self, $line) = @_;
-    die('bad end line ' . $self->file() .
-        ":$line for " . $self->name() . " start: " . $self->line())
-        unless ($line >= $self->line());
+    if ($line < $self->line()) {
+        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                  '"' . $self->file() . '":' . $self->line() .
+                                      ': function ' . $self->name() .
+                                      " end line $line less than start line");
+        return;
+    }
     $self->[5] = $line;
 }
 
