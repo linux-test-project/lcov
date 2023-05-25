@@ -303,7 +303,7 @@ if ($opt_list_width <= 40) {
 }
 
 # Normalize --path text
-$diff_path =~ s/\/$//;
+$diff_path =~ s/$lcovutil::dirseparator$//;
 
 $follow   = $follow ? '-follow' : '';
 $maxdepth = $no_recursion ? '-maxdepth 1' : '';
@@ -998,11 +998,11 @@ sub get_package($)
         die("ERROR: no data file found in package $file\n");
     }
     info("  data directory .......: $dir\n");
-    $build = read_file("$dir/$pkg_build_file");
+    $build = read_file(File::Spec->catfile($dir, $pkg_build_file));
     if (defined($build)) {
         info("  build directory ......: $build\n");
     }
-    $gkv = read_file("$dir/$pkg_gkv_file");
+    $gkv = read_file(File::Spec->catfile($dir, $pkg_gkv_file));
     if (defined($gkv)) {
         $gkv = int($gkv);
         if ($gkv != $GKV_PROC && $gkv != $GKV_SYS) {
@@ -1081,7 +1081,7 @@ sub create_package($$$;$)
     # Handle build directory
     if (defined($build)) {
         info("  build directory ......: $build\n");
-        write_file("$dir/$pkg_build_file", $build) or
+        write_file(File::Spec->catfile($dir, $pkg_build_file), $build) or
             die("ERROR: could not write to $dir/$pkg_build_file\n");
     }
 
@@ -1089,7 +1089,7 @@ sub create_package($$$;$)
     if (defined($gkv)) {
         info("  content type .........: kernel data\n");
         info("  gcov kernel version ..: %s\n", $GKV_NAME[$gkv]);
-        write_file("$dir/$pkg_gkv_file", $gkv) or
+        write_file(File::Spec->catfile($dir, $pkg_gkv_file), $gkv) or
             die("ERROR: could not write to $dir/$pkg_gkv_file\n");
     } else {
         info("  content type .........: application data\n");
@@ -1103,8 +1103,8 @@ sub create_package($$$;$)
     chdir($cwd);
 
     # Remove temporary files
-    unlink("$dir/$pkg_build_file");
-    unlink("$dir/$pkg_gkv_file");
+    unlink(File::Spec->catfile($dir, $pkg_build_file));
+    unlink(File::Spec->catfile($dir, $pkg_gkv_file));
 
     # Show number of data files
     if ($lcovutil::verbose >= 0) {
@@ -1266,7 +1266,7 @@ sub kernel_capture_initial()
     $base_directory = $build;
     if (@kernel_directory) {
         foreach my $dir (@kernel_directory) {
-            push(@params, "$build/$dir");
+            push(@params, File::Scpec->catdir($build, $dir));
         }
     } else {
         push(@params, $build);
@@ -2067,7 +2067,7 @@ sub list()
                             $max_long, keys(%{$data}));
     my $root_prefix = ($prefix eq rootdir());
     my $got_prefix  = (length($prefix) > 0);
-    $prefix =~ s/\/$//;
+    $prefix =~ s/$lcovutil::dirseparator$//;
     # Get longest filename length
     foreach my $filename ($data->files()) {
         if (!$opt_list_full_path) {
@@ -2176,7 +2176,7 @@ sub list()
                 my ($v, $d, $f) = splitpath($filename);
 
                 $p = catpath($v, $d, "");
-                $p =~ s/\/$//;
+                $p =~ s/$lcovutil::dirseparator$//;
                 $print_filename = $f;
             } else {
                 $p = $prefix;
@@ -2590,7 +2590,7 @@ sub get_line_hash($$$)
     my $new_depth;
 
     # Remove trailing slash from diff path
-    $diff_path =~ s/\/$//;
+    $diff_path =~ s/$lcovutil::dirseparator$//;
     foreach (keys(%{$diff_data})) {
         my $sep = "";
 
@@ -2649,11 +2649,12 @@ sub convert_paths($$)
     }
 
     # Expand path conversion list
+    my $d = $lcovutil::dirseparator;
     while (my ($filename, $new_path) = each(%{$path_conversion_data})) {
         # remove extra trailing slashes
         while (
-             $filename =~ s/^(.*)\/[^\/]+$/$1/ &&
-             $new_path =~ s/^(.*)\/[^\/]+$/$1/ &&
+             $filename =~ s/^(.*)$d[^$d]+$/$1/ &&
+             $new_path =~ s/^(.*)$d[^$d]+$/$1/ &&
              (  ($lcovutil::case_insensitive && lc($filename) ne lc($new_path))
                 ||
                 (!$lcovutil::case_insensitive &&

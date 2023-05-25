@@ -1564,18 +1564,13 @@ sub process_dafile($$$$)
 
 sub solve_relative_path($$)
 {
-    my $path = $_[0];
-    my $dir  = $_[1];
-    my $volume;
-    my $directories;
-    my $filename;
-    my @dirs;    # holds path elements
-    my $result;
+    my ($path, $dir) = @_;
 
     # Convert from Windows path to msys path
     if ($^O eq "msys") {
         # search for a windows drive letter at the beginning
-        ($volume, $directories, $filename) = File::Spec::Win32->splitpath($dir);
+        my ($volume, $directories, $filename) =
+            File::Spec::Win32->splitpath($dir);
         if ($volume ne '') {
             my $uppercase_volume;
             # transform c/d\../e/f\g to Windows style c\d\..\e\f\g
@@ -1584,7 +1579,7 @@ sub solve_relative_path($$)
             # $uppercase_volume is not used any further
             ($uppercase_volume, $directories, $filename) =
                 File::Spec::Win32->splitpath($dir);
-            @dirs = File::Spec::Win32->splitdir($directories);
+            my @dirs = File::Spec::Win32->splitdir($directories);
 
             # prepend volume, since in msys C: is always mounted to /c
             $volume =~ s|^([a-zA-Z]+):|/\L$1\E|;
@@ -1599,34 +1594,36 @@ sub solve_relative_path($$)
         }
     }
 
-    $result = $dir;
+    my $result = $dir;
     # Prepend path if not absolute
-    if ($dir =~ /^[^\/]/) {
-        $result = "$path/$result";
+    if (!File::Spec->file_name_is_absolute($dir)) {
+        $result = File::Spec->catfile($path, $result);
     }
+    # can't just use Cwd::abs_path on the pathname because it understands
+    #  soft links and resolves them - so we end up pointing to the actual file
+    #  and not to the carefully constructed linked-build paths that the user
+    #  wanted. Have to do it the hard way
+    # return Cwd::abs_path($result);
 
-    # Remove //
-    $result =~ s/\/\//\//g;
+    # Remove // in favor of /
+    my $d = $lcovutil::dirseparator;
+    $result =~ s#$d$d#$d#g;
 
-    # Remove .
-    while ($result =~ s/\/\.\//\//g) {
+    # Remove . in middle or at end of path
+    while ($result =~ s#$d\.($d|$)#$d#) {
     }
-    $result =~ s/\/\.$/\//g;
 
     # Remove trailing /
-    $result =~ s/\/$//g if ($result ne $lcovutil::dirseparator);
+    $result =~ s#$d$##g if ($result ne $d);
 
-    # Solve ..
-    while ($result =~ s/\/[^\/]+\/\.\.\//\//) {
-    }
     # change "X/dirname/../Y" into "X/Y"
-    while ($result =~ s#\/[^\/.][^\/]+\/\.\.\/#\/#) {
+    while ($result =~ s#$d[^$d]+$d\.\.($d|$)#$d#) {
     }
     # change "dirname/../Y" into "./Y" (i.e,, at head of path)
-    $result =~ s#^[^\/.][^\/]+\/\.\.\/#.\/#;
+    $result =~ s#^[^$d]+\/\.\.$d#.$d#;
 
     # Remove preceding ..
-    $result =~ s/^\/\.\.\//\//g;
+    $result =~ s#^$d\.\.$d#$d#g;
 
     return $result;
 }

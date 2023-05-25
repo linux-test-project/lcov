@@ -1260,11 +1260,12 @@ sub strip_directories($$)
     if (!defined($depth) || ($depth < 1)) {
         return $filename;
     }
+    my $d = $lcovutil::dirseparator;
     for ($i = 0; $i < $depth; $i++) {
         if ($lcovutil::case_insensitive) {
-            $filename =~ s/^[^\/]*\/+(.*)$/$1/i;
+            $filename =~ s/^[^$d]*$d+(.*)$/$1/i;
         } else {
-            $filename =~ s/^[^\/]*\/+(.*)$/$1/;
+            $filename =~ s/^[^$d]*$d+(.*)$/$1/;
         }
     }
     return $filename;
