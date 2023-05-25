@@ -1,6 +1,6 @@
 Summary: A graphical code coverage front-end
 Name: lcov
-Version: 1.16
+Version: 2.0
 Release: 1
 License: GPLv2+
 Group: Development/Tools
