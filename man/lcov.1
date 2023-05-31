@@ -5,12 +5,14 @@
 .SH NAME
 lcov \- a graphical GCOV front\-end
 .SH SYNOPSIS
-.B Capture coverage data tracefile (from compiler-generated data):
+
+Capture coverage data tracefile (from compiler-generated data):
 .br
+
 .RS 3
 .B lcov
 .BR \-c | \-\-capture
-.RS 3
+.RS 4
 .br
 .RB [ \-d | \-\-directory
 .IR directory ]
@@ -34,6 +36,9 @@ lcov \- a graphical GCOV front\-end
 .IR tool ]
 .br
 .RB [ \-\-branch\-coverage ]
+.br
+.RB [ \-\-demangle\-cpp
+.IR [ param ] ]
 .br
 .RB [ \-\-checksum ]
 .RB [ \-\-no\-checksum ]
@@ -64,12 +69,13 @@ lcov \- a graphical GCOV front\-end
 .RE
 .RE
 
-.B Generate tracefile (from compiler-generated data) with all counter values set to zero:
+Generate tracefile (from compiler-generated data) with all counter values set to zero:
 .br
+
 .RS 3
 .B lcov
 .BR \-z | \-\-zerocounters
-.RS 3
+.RS 4
 .br
 .RB [ \-d | \-\-directory
 .IR directory ]
@@ -79,13 +85,14 @@ lcov \- a graphical GCOV front\-end
 .RE
 .RE
 
-.B Show coverage counts recorded in previously generated tracefile:
+Show coverage counts recorded in previously generated tracefile:
 .br
+
 .RS 3
 .B lcov
 .BR \-l | \-\-list
 .I tracefile
-.RS 3
+.RS 4
 .br
 .RB [ \-\-list\-full\-path ]
 .RB [ \-\-no\-list\-full\-path ]
@@ -93,22 +100,23 @@ lcov \- a graphical GCOV front\-end
 .RE
 .RE
 
-.B Aggregate multiple coverage tracefiles into one
-.RS 3
+Aggregate multiple coverage tracefiles into one:
 .br
+
+.RS 3
 .B lcov
 .BR \-a | \-\-add\-tracefile
 .I tracefile_pattern
-.RS 3
+.RS 4
 .br
 .RB [ \-o | \-\-output\-file
 .IR tracefile ]
 .br
-.RB [\-\-prune\-tests]
+.RB [ \-\-prune\-tests ]
 .br
-.RB [\-\-forget\-test\-names]
+.RB [ \-\-forget\-test\-names ]
 .br
-.RB [\-\-map\-functions]
+.RB [ \-\-map\-functions ]
 .br
 .RB [ \-\-branch\-coverage ]
 .br
@@ -118,13 +126,14 @@ lcov \- a graphical GCOV front\-end
 .RE
 .RE
 
-.B Generate new tracefile from existing tracefile, keeping only data from files matching pattern
+Generate new tracefile from existing tracefile, keeping only data from files matching pattern:
 .br
+
 .RS 3
 .B lcov
 .BR \-e | \-\-extract
 .I tracefile pattern
-.RS 3
+.RS 4
 .br
 .RB [ \-o | \-\-output\-file
 .IR tracefile ]
@@ -134,13 +143,14 @@ lcov \- a graphical GCOV front\-end
 .RE
 .RE
 
-.B Generate new tracefile from existing tracefile, removing data from files matching pattern
+Generate new tracefile from existing tracefile, removing data from files matching pattern:
 .br
+
 .RS 3
 .B lcov
 .BR \-r | \-\-remove
 .I tracefile pattern
-.RS 3
+.RS 4
 .br
 .RB [ \-o | \-\-output\-file
 .IR tracefile ]
@@ -150,13 +160,14 @@ lcov \- a graphical GCOV front\-end
 .RE
 .RE
 
-.B Generate new tracefile from existing tracefile, modifying line numbers as indicated in diff file
+Generate new tracefile from existing tracefile, modifying line numbers as indicated in diff file:
 .br
+
 .RS 3
 .B lcov
 .BR \-\-diff
 .IR "tracefile diff"
-.RS 3
+.RS 4
 .br
 .RB [ \-o | \-\-output\-file
 .IR tracefile ]
@@ -172,13 +183,14 @@ lcov \- a graphical GCOV front\-end
 .RE
 .RE
 
-.B Summarize tracefile content:
+Summarize tracefile content:
 .br
+
 .RS 3
 .B lcov
 .BR \-\-summary
 .I tracefile
-.RS 3
+.RS 4
 .br
 .RB [ \-\-fail-under-lines
 .IR percentage ]
@@ -186,21 +198,23 @@ lcov \- a graphical GCOV front\-end
 .RE
 .RE
 
-.B Print help message and exit
+Print version or help message and exit:
 .br
+
 .RS 3
 .B lcov
-.BR \-\-summary
+.RB [ \-h | \-\-help ]
+.RB [ \-\-version ]
 .RE
 
-.B Common lcov options - supported by all the above use cases:
+Common lcov options - supported by all the above use cases:
 .br
+
 .RS 3
-.B lcov ...
-.br
-.br
+.B lcov 
 .RB [ \-\-keep\-going ]
 .br
+.RS 5
 .RB [ \-\-filter
 .IR type  ]
 .br
@@ -211,11 +225,14 @@ lcov \- a graphical GCOV front\-end
 .br
 .RB [ \-\-debug ]
 .br
-.RB [ (\-\-parallel | -j)
+.RB [ \-\-parallel | -j
 .IR [integer] ]
 .br
 .RB [ \-\-memory
 .IR integer_num_Mb ]
+.br
+.RB [ \-\-tempdir
+.IR dirname ]
 .br
 .RB [ \-\-branch\-coverage ]
 .br
@@ -1006,8 +1023,7 @@ See the genhtml man page for details.
 
 
 .RE
-.BI "\-\-demangle\-cpp [param]"
-.I
+.BI "\-\-demangle\-cpp " [param]
 .RS
 Demangle C++ function names.  See the genhtml man page for details.
 

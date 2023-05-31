@@ -21,8 +21,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .br
 .RB [ \-f | \-\-frames ]
 .br
-.RB [ \-b | \-\-baseline\-file ]
-.IR baseline\-file
+.RB [ \-b | \-\-baseline\-file
+.IR baseline\-file ]
 .br
 .RB [ \-o | \-\-output\-directory
 .IR output\-directory ]
@@ -96,9 +96,6 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .br
 .RB [ \-\-dark\-mode ]
 .br
-.RB [ \-\-baseline\-file
-.IR baseline\-file ]
-.br
 .RB [ \-\-baseline\-title
 .IR title ]
 .br
@@ -122,11 +119,11 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .br
 .RB [ \-\-checksum ]
 .br
-.RB [ \-\-new\-files\-as\-baseline]
+.RB [ \-\-new\-file\-as\-baseline ]
 .br
-.RB [ \-\-elide\-path\-mismatch]
+.RB [ \-\-elide\-path\-mismatch ]
 .br
-.RB [ \-\-synthesize\-missing]
+.RB [ \-\-synthesize\-missing ]
 .br
 .RB [ \-\-date\-bins
 .IR day[,day,...]]
@@ -1915,7 +1912,7 @@ option
 .IR genhtml_branch_coverage .
 
 .RE
-.B \-\-demangle\-cpp [param]
+.BI "\-\-demangle\-cpp " [param]
 .RS
 Specify whether to demangle C++ function names.
 
