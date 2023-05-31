@@ -698,12 +698,25 @@ Exclude coverage data from lines whose content matches
 
 Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (e.g., some complicated macro).  Multiple patterns can be
 specified by using multiple
-.B --omit-lines
+.B --omit\-lines
 command line switches. The
 .I regexp
 will be interpreted as perl regular expressions (note that they may need to be
 escaped accordingly to prevent the shell from expanding them first).
 If you want the pattern to explicitly match from the start or end of the line, your regexp should start and/or end with "^" and/or "$".
+
+Note that the
+.B lcovrc
+config file setting
+.B lcov_excl_line = regexp
+is similar to
+.B \-\-omit\-lines.
+.B \-\-omit\-lines
+is useful if there are multiple teams each of which want to exclude certain patterns.
+.B \-\-omit\-lines
+is additive and can be specified across multiple config files whereas each call to
+.B lcov_excl_line
+overrides the previous value - and thus teams must coordinate.
 
 .RE
 
