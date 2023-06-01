@@ -2851,9 +2851,7 @@ sub diff()
             # Store converted entry
             $entry->set_info($testdata, $sumcount, $funcdata,
                              $checkdata, $testfncdata, $testbrdata,
-                             $sumbrcount, $found, $hit,
-                             $f_found, $f_hit, $br_found,
-                             $br_hit);
+                             $sumbrcount);
         } else {
             # Remove empty data set
             $trace_data->remove($filename);

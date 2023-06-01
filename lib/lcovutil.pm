@@ -2344,7 +2344,7 @@ sub merge
                                       "' -> '" . $that->is_exception() . "'");
         # set 'self' to 'not related to exception' - to give a consistent
         #  answer for the merge operation.  Otherwise, we pick whatever
-        #  was seen first - which is unprecitable during threaded execution.
+        #  was seen first - which is unpredictable during threaded execution.
         $self->[3] = 0;
     }
     my $t = $that->[1];
@@ -2915,6 +2915,7 @@ sub append
         push(@$l,
              BranchBlock->new($branch, $br->data(),
                               $br->expr(), $br->is_exception()));
+        $self->[3] = 1;
         $interesting = 1;    # something new..
     } else {
         $block = $branchElem->getBlock($block);
@@ -3093,13 +3094,6 @@ sub new
     # _sumbrcount  : line number  -> branch coverage - for all tests
     $self->{_sumbrcount} = BranchData->new();
 
-    $self->{_found}   = 0;
-    $self->{_hit}     = 0;
-    $self->{_f_found} = 0;
-    $self->{_f_hit}   = 0;
-    $self->{_b_found} = 0;
-    $self->{_b_hit}   = 0;
-
     # _testdata    : test name  -> CountData ( line number -> execution count )
     $self->{_testdata} = MapData->new();
     # _testfncdata : test name  -> FunctionMap ( function name -> FunctionEntry )
@@ -3276,13 +3270,12 @@ sub sumbr
 #
 # set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref,
 #                checkdata_ref, testfncdata_ref,
-#                testbrdata_ref, sumbrcount_ref[,lines_found,
-#                lines_hit, f_found, f_hit, $b_found, $b_hit])
+#                testbrdata_ref, sumbrcount_ref)
 #
 # Update the hash referenced by HASH_REF with the provided data references.
 #
 
-sub set_info($$$$$$$$;$$$$$$)
+sub set_info($$$$$$$$)
 {
     my $self = shift;
 
@@ -3293,13 +3286,6 @@ sub set_info($$$$$$$$;$$$$$$)
     $self->{_testfncdata} = shift;
     $self->{_testbrdata}  = shift;
     $self->{_sumbrcount}  = shift;
-
-    if (defined($_[0])) { $self->{_found}   = shift; }
-    if (defined($_[0])) { $self->{_hit}     = shift; }
-    if (defined($_[0])) { $self->{_f_found} = shift; }
-    if (defined($_[0])) { $self->{_f_hit}   = shift; }
-    if (defined($_[0])) { $self->{_b_found} = shift; }
-    if (defined($_[0])) { $self->{_b_hit}   = shift; }
 }
 
 #
@@ -4900,30 +4886,6 @@ sub _read_info
                 $filedata->test()->remove($testname);
                 $filedata->testfnc()->remove($testname);
             }
-        }
-
-        next;
-
-        $filedata->{_found} = scalar(keys(%{$filedata->{_sumcount}}));
-        my $hitcount = 0;
-
-        foreach (keys(%{$filedata->{_sumcount}})) {
-            if ($filedata->{_sumcount}->{$_} > 0) { $hitcount++; }
-        }
-
-        $filedata->{_hit} = $hitcount;
-
-        # Get found/hit values for function call data
-        my $funcData = $filedata->func();
-        $fileData->{_f_found} = $filedata->f_found();
-        $hitcount             = $filedata->f_hit();
-        $filedata->{_f_hit}   = $hitcount;
-
-        # Combine branch data for the same branches
-        (undef, $filedata->{_b_found}, $filedata->{_b_hit}) =
-            compress_brcount($filedata->{_sumbrcount});
-        foreach $testname (keys(%{$filedata->{_testbrdata}})) {
-            compress_brcount($filedata->{_testbrdata}->{$testname});
         }
     }
 
