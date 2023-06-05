@@ -200,8 +200,6 @@ sub determine_gcno_split_crc($$$$);
 sub read_gcno_function_record(*$$$$$);
 sub read_gcno($);
 sub get_gcov_capabilities();
-sub get_overall_line($$$$);
-sub print_overall_rate($$$$$$$$$);
 sub int_handler();
 sub compat_name($);
 sub parse_compat_modes($);

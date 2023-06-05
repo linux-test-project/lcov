@@ -16,18 +16,23 @@ Description
 
     * Support for large projects: overview pages allow quick browsing of
       coverage data by providing a hierarchical directory structure
-      view, a flat list of all source files in the project,  or a three-level detail view: directory, file and source code view.
+      view, a flat list of all source files in the project,  or a three-level
+      detail view: directory, file and source code view.
 
   LCOV was initially designed to support Linux kernel coverage measurements,
   but works as well for coverage measurements on standard user space
   applications.
 
   LCOV has recently been enhanced to support differential coverage, as well
-  as date- and owner-binning.  See https://arxiv.org/abs/2008.07947 or https://ieeexplore.ieee.org/document/9438597 for
+  as date- and owner-binning.  See https://arxiv.org/abs/2008.07947 or
+  https://ieeexplore.ieee.org/document/9438597 for
   a detailed explanation of the concepts and several possible use models.
-  A video presentation of the basic ideas can be found at http://doi.org/10.5281/zenodo.4653252
+  A video presentation of the basic ideas can be found at
+  http://doi.org/10.5281/zenodo.4653252
 
-  In addition, several other features and capabilities have been added.  See section 5, below, for a brief description - and also see the man pages and the test cases.
+  In addition, several other features and capabilities have been added.  See
+  section 6, below, for a brief description - and also see the man pages and
+  the test cases.
 
 
 Further README contents
@@ -37,7 +42,7 @@ Further README contents
   3. Dependencies
   4. An example of how to access kernel coverage data
   5. An example of how to access coverage data for a user space program
-  6. New features (compared to lcov 1.16).
+  6. New features in lcov 2.0
   7. Questions and Comments
 
 
@@ -157,8 +162,8 @@ Point the web browser of your choice to the resulting index.html file.
 5. An example of how to access coverage data for a user space program
 ---------------------------------------------------------------------
 Requirements: compile the program in question using GCC with the options
-'-fprofile-arcs -ftest-coverage' or '--coverage'. During linking, make sure to specify
-'-lgcov' or '--coverage'.
+'-fprofile-arcs -ftest-coverage' or '--coverage'. During linking, make sure
+to specify '-lgcov' or '--coverage'.
 
 Assuming the compile directory is called "appdir", do the following:
 
@@ -196,8 +201,8 @@ For further information on the gcc profiling mechanism, please also
 consult the gcov man page.
 
 
-6. New features (compared to lcov 1.16):
-----------------------------------------
+6. New features in lcov 2.0:
+----------------------------
 
 New features and capabilities fall into 7 major categories:
 
@@ -251,7 +256,8 @@ New features and capabilities fall into 7 major categories:
      'gendiffcov/simple' testcases for some examples.
 
       Related options:
-          --baseline-title, --baseline-date, --current-date, --flat, --hierarchical,
+          --baseline-title, --baseline-date, --current-date,
+          --flat, --hierarchical,
           --show-owners, --show-noncode, --show-navigation, --show-proportion,
           --suppress-aliases
 
@@ -306,7 +312,7 @@ New features and capabilities fall into 7 major categories:
      of cores.
      There is also an option to throttle parallelism to not exceed peak
      memory consumption contraints, as well as options to enable simple
-     profile data collection - so you can see where time in going and
+     profile data collection - so you can see where time is going and
      thus to hint at potential optimizations.  The 'spreadsheet.py'
      script can be used to view generated profile data..
 
