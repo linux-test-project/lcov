@@ -438,9 +438,9 @@ if (0 == $exit_code) {
         #  the issue is that we filter them out in the write operation - but
         #  we don't bother to read it back
         print_overall_rate(1, $ln_overall_found,
-                           $ln_overall_hit, 1,
+                           $ln_overall_hit, $lcovutil::func_coverage,
                            $fn_overall_found, $fn_overall_hit,
-                           1, $br_overall_found,
+                           $lcovutil::br_coverage, $br_overall_found,
                            $br_overall_hit);
     } else {
         info("Done.\n") if (!$list && !$lcovutil::lcov_capture);
