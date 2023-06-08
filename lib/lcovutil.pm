@@ -1512,7 +1512,7 @@ sub reenable_cov_filters
 
 sub merge_child_pattern_counts
 {
-    # merge back counts of successful application of substituion and exclusion
+    # merge back counts of successful application of substitution and exclusion
     #  patterns (else the parent won't know that the child uses some pattern -
     #  and will complain about it later
     my ($excluded, $subst_patterns) = @_;
@@ -3025,18 +3025,103 @@ sub hit
     return $self->_summary()->[2];
 }
 
+sub compatible($$)
+{
+    my ($myBr, $yourBr) = @_;
+
+    # same number of branches
+    return 0 unless ($#$myBr == $#$yourBr);
+    for (my $i = 0; $i <= $#$myBr; ++$i) {
+        my $me  = $myBr->[$i];
+        my $you = $yourBr->[$i];
+        if ($me->exprString() ne $you->exprString()) {
+            # this one doesn't match
+            return 0;
+        }
+    }
+    return 1;
+}
+
 sub merge
 {
     my ($self, $info, $filename) = @_;
     my $interesting = 0;
 
-    my $idata = $info->[0];
-    foreach my $line ($info->keylist()) {
-        my $branch = $idata->{$line};
-        foreach my $blockId ($branch->blocks()) {
-            my $bdata = $branch->getBlock($blockId);
-            foreach my $br (@$bdata) {
-                if ($self->append($line, $blockId, $br, $filename)) {
+    my $mydata = $self->[0];
+    while (my ($line, $yourBranch) = each(%{$info->[0]})) {
+        # check if self has corresponding line:
+        #  no: just copy all the data for this line, from 'info'
+        #  yes: check for matching blocks
+        my $myBranch = $self->value($line);
+        if (!defined($myBranch)) {
+            $self->[0]->{$line} = Storable::dclone($yourBranch);
+            $interesting = 1;
+            next;
+        }
+        # keep track of which 'myBranch' blocks have already been merged in
+        #  this pass.  We don't want to merge multiple distinct blocks from $info
+        #  into the same $self block (even if it appears compatible) - because
+        #  those blocks were distinct in the input data
+        my %merged;
+
+        # we don't expect there to be a huge number of distinct blocks
+        #  in each branch:  most often, just one -
+        # Thus, we simply walk the list to find a matching block, if one exists
+        # The matching block will have the same number of branches, and the
+        #  branch expressions will be the same.
+        #    - expression only used in Verilog code at the moment -
+        #      other languages will just have a (matching) integer
+        #      branch index
+
+        # first:  merge your blocks which seem to exist in me:
+        my @yourBlocks = sort($yourBranch->blocks());
+        foreach my $yourId (@yourBlocks) {
+            my $yourBr = $yourBranch->getBlock($yourId);
+
+            # Do I have a block with matching name, which is compatible?
+            my $myBr = $myBranch->getBlock($yourId)
+                if $myBranch->hasBlock($yourId);
+            if (defined($myBr) &&    # I have this one
+                compatible($myBr, $yourBr)
+            ) {
+                foreach my $br (@$yourBr) {
+                    if ($self->append($line, $yourId, $br, $filename)) {
+                        $interesting = 1;
+                    }
+                }
+                $merged{$yourId} = 1;
+                $yourId = undef;
+            }
+        }
+        # now look for compatible blocks that aren't identical
+        BLOCK: foreach my $yourId (@yourBlocks) {
+            next unless defined($yourId);
+            my $yourBr = $yourBranch->getBlock($yourId);
+
+            # See if we can find a compatible block in $self
+            #   if found: merge.
+            #   no match:  this is a different block - assign new ID
+
+            foreach my $myId ($myBranch->blocks()) {
+                next if exists($merged{$myId});
+
+                my $myBr = $myBranch->getBlock($myId);
+                if (compatible($myBr, $yourBr)) {
+                    # we match - so merge our data
+                    $merged{$myId} = 1;    # used this one
+                    foreach my $br (@$yourBr) {
+                        if ($self->append($line, $myId, $br, $filename)) {
+                            $interesting = 1;
+                        }
+                    }
+                    next BLOCK;            # merged this one - go to next
+                }
+            }    # end search for your block in my blocklist
+                 # we didn't find a match - so this needs to be a new block
+            my $newID = scalar($myBranch->blocks());
+            $merged{$newID} = 1;    # used this one
+            foreach my $br (@$yourBr) {
+                if ($self->append($line, $newID, $br, $filename)) {
                     $interesting = 1;
                 }
             }
@@ -5039,7 +5124,7 @@ sub write_info($$$)
                     # want the block_id to be treated as 32-bit unsigned integer
                     #  (need masking to match regression tests)
                     my $mask = (1 << 32) - 1;
-                    foreach my $block_id ($brdata->blocks()) {
+                    foreach my $block_id (sort(($brdata->blocks()))) {
                         my $blockData = $brdata->getBlock($block_id);
                         $block_id &= $mask;
                         foreach my $br (@$blockData) {

@@ -1004,7 +1004,8 @@ Branch coverage information is stored which one line per branch:
 Block number and branch number are gcc internal IDs for the branch. Taken is
 either '-' if the basic block containing the branch was never executed or
 a number indicating how often that branch was taken.
-\[aq]exception tag' is 'e' if this is a branch related to exception handling - and is not present if the branch is not related to exceptions.
+'exception tag' is 'e' if this is a branch related to exception handling - and is not present if the branch is not related to exceptions.
+Exception branch identification requires compiler support. Note that gcc versions older than 9 do not differentiate exception branches;  geninfo will be able to identify exception branches only if your toolchain version is new enough to support the feature.
 
 Branch coverage summaries are stored in two lines:
 
