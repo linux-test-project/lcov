@@ -2494,7 +2494,7 @@ sub apply_diff($$)
         $result->append($_ + $delta, $count_data->value($_));
     }
 
-    return $result->_summary();    # set counts, etc
+    return $result;    # set counts, etc
 }
 
 #
