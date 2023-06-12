@@ -500,7 +500,15 @@ if (!@data_directory) {
 } else {
     my @dirs;
     foreach my $pattern (@data_directory) {
-        my @glob  = glob($pattern);
+        if (-d $pattern) {
+            push(@dirs, $pattern);
+            next;
+        }
+        $pattern =~ s/([^\\]) /$1\\ /g          # explicitly escape spaces
+            unless $^O =~ /Win/;
+
+        my @glob = glob($pattern);
+
         my $count = 0;
         foreach (@glob) {
 

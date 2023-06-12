@@ -602,7 +602,14 @@ sub userspace_reset()
     my @file_list;
 
     foreach my $pattern (@directory) {
-        my @dirs  = glob($pattern);
+        my @dirs;
+        if (-d $pattern) {
+            push(@dirs, $pattern);
+        } else {
+            $pattern =~ s/([^\\]) /$1\\ /g          # explicitly escape spaces
+                unless $^O =~ /Win/;
+            @dirs = glob($pattern);
+        }
         my $count = 0;
         foreach my $current_dir (@dirs) {
             if (!-d $current_dir) {
@@ -1623,13 +1630,18 @@ sub add_traces()
     $lcovutil::profileData{append} = {};
     my @merge;
     foreach my $tracefile (@add_tracefile) {
-        # this is a glob match...
+        if (-f $tracefile) {
+            # this is a glob match...
+            push(@merge, $tracefile);
+            next;
+        }
+        $tracefile =~ s/([^\\]) /$1\\ /g        # explicitly escape spaces
+            unless $^O =~ /Win/;
+
         my @files = glob($tracefile); # perl returns files in ASCII sorted order
         die "no files matching $tracefile"
             unless scalar(@files);
-        foreach my $f (@files) {
-            push(@merge, $f);
-        }
+        push(@merge, @files);
     }
     info(".. found " . scalar(@merge) . " files to aggregate.\n");
     my @effective;
