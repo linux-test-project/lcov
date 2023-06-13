@@ -92,8 +92,10 @@ ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 if [ -f $LCOV_HOME/bin/getp4version ] ; then
     GET_VERSION=$LCOV_HOME/bin/getp4version
+    P4ANNOTATE=$LCOV_HOME/bin/p4annotate
 else
     GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
+    P4ANNOTATE=$LCOV_HOME/share/lcov/support-scripts/p4annotate
 fi
 
 #PARALLEL=''
@@ -105,8 +107,8 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
-rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx
-rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion
+rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe}
+rm -rf ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -291,7 +293,7 @@ for opt in "" --dark-mode --flat ; do
   echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $IGNORE
   $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT --save $IGNORE
   if [ 0 != $? ] ; then
-      echo "ERROR: genhtml $outdir failed"
+      echo "ERROR: genhtml $outdir failed (1)"
       if [ 0 == $KEEP_GOING ] ; then
           exit 1
       fi
@@ -351,7 +353,7 @@ for opt in "" "--show-details" "--hier"; do
         echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $IGNROE
         $COVER ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $GENHTML_PORT $IGNORE
         if [ 0 != $? ] ; then
-            echo "ERROR: genhtml $outdir failed"
+            echo "ERROR: genhtml $outdir failed (2)"
             if [ 0 == $KEEP_GOING ] ; then
                 exit 1
             fi
@@ -872,6 +874,47 @@ for test in proportion differential_prop ; do
         fi
     done
 done
+
+# check error message if nothing annotated
+cp simple.cpp annotate.cpp
+${CXX} -o annotate.exe --coverage annotate.cpp
+if [ 0 != $? ] ; then
+    echo "annotate compile failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+./annotate.exe
+if [ 0 != $? ] ; then
+    echo "./annotate.exe compile failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+echo lcov $LCOV_OPTS --capture --directory . --output-file annotate.info $IGNORE --include "annotate.cpp"
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file annotate.info $IGNORE --include "annotate.cpp"
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov --capture annotate failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+echo genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE annotate.info 
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE annotate.info 
+if [ 0 == $? ] ; then
+    echo "ERROR: p4annotate with no annotation"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+echo genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE --ignore annotate annotate.info
+if [ 0 != $? ] ; then
+    echo "ERROR: p4annotate with no annotation ignore did not pass"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 
 
 # and generate a spreadsheet..check that we don't crash

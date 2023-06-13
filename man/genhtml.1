@@ -798,6 +798,16 @@ flag is specified, then
 will synthesize fake data for the file.
 .br
 
+.B genhtml
+will emit an error if you have specified an annotation script but no files are
+successfully annotated (see below).
+This can happen, for example, if your P4USER, P4CLIENT,
+or P4PORT environment variables are not set correctly -
+.I e.g. if the
+Jenkins user who generates coverage reports is not the same and the user
+who checked out the code and owns the sandbox.
+.br
+
 Sample annotation scripts for Perforce ("p4annotate") and git ("gitblame")
 are provided as part of this package in the following locations:
 .br
@@ -878,7 +888,15 @@ where
 .B commit_id
 .br
 .RS
-is an ID identifying the last change to the line
+is an ID identifying the last change to the line or NONE if this file is not
+checked in to your revision control system.
+.br
+.B genhtml
+counts the file as not 'successfully annotated' if
+.B commit_id
+is
+.I NONE
+and as 'successfully annotated' otherwise.
 .br
 .RE
 .br

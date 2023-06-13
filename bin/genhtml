@@ -3413,6 +3413,8 @@ sub text
 
 package SourceFile;
 our @annotateScript;
+our $annotatedFiles = 0;
+our $totalFiles     = 0;
 
 sub new
 {
@@ -4132,6 +4134,7 @@ sub _load
     my ($self, $countdata, $currentVersion) = @_;
 
     my $start = Time::HiRes::gettimeofday();
+    ++$totalFiles;
 
     my $path = ReadCurrentSource::resolve_path($self->path());
     # try to simplify path - 'realpath' will fail if the file does
@@ -4177,7 +4180,6 @@ sub _load
                     die("inconsistent 'annotate' data for '$repo_path': both 'commit' and 'no commit' lines"
                     ) if (defined($found) && !$found);
                     $found = 1;
-                    $found = 1;
 
                     defined($owner) or
                         die("owner is undef for $repo_path:$lineNum");
@@ -4202,7 +4204,10 @@ sub _load
             my $end = Time::HiRes::gettimeofday();
 
             $lcovutil::profileData{annotate}{$self->path()} = $end - $begin;
-            return $self if 0 == $status;
+            if (0 == $status) {
+                ++$annotatedFiles if $found;
+                return $self;
+            }
 
             # non-zero exit status:  something bad happened in annotation
             # if we ignore the error - then fall through and just try to load the file
@@ -4672,7 +4677,9 @@ sub compute
         my $trunc_dir = ($rel_dir eq '') ? 'root' : $rel_dir;
 
         if (1 < $lcovutil::maxParallelism) {
-            my $pid = fork();
+            my $annotateCount = $SourceFile::annotatedFiles;
+            my $totalCount    = $SourceFile::totalFiles;
+            my $pid           = fork();
             if (!defined($pid)) {
                 # fork failed
                 lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
@@ -4740,8 +4747,13 @@ sub compute
 
                 my $childEnd = Time::HiRes::gettimeofday();
                 $lcovutil::profileData{child}{$name} = $childEnd - $childStart;
-                Storable::store([$perTestData, $selfSummary,
-                                 $criteria, \%lcovutil::profileData
+                Storable::store([$perTestData,
+                                 $selfSummary,
+                                 $criteria,
+                                 \%lcovutil::profileData,
+                                 [$SourceFile::annotatedFiles - $annotateCount,
+                                  $SourceFile::totalFiles - $totalCount
+                                 ]
                                 ],
                                 $file);
                 close(STDOUT1);
@@ -4857,8 +4869,14 @@ sub merge_child($$$)
         # now undump the data ...
         my $data = Storable::retrieve($dumpfile);
         if (defined($data)) {
-            my ($perTest, $summary, $criteria, $profile) = @$data;
+            my ($perTest, $summary, $criteria, $profile, $countData) = @$data;
+            die("unexpected restored count data")
+                if (($type eq 'file' && $countData->[1] != 1) ||
+                    ($type ne 'file' &&
+                     $countData->[1] != 0));
 
+            $SourceFile::annotatedFiles += $countData->[0];
+            $SourceFile::totalFiles     += $countData->[1];
             $childSummary->copyGuts($summary);
             if ('file' eq $type) {
                 my $base_name = File::Basename::basename($fullname);
@@ -5733,6 +5751,15 @@ sub gen_html()
     info("Generating output.\n");
 
     my $genhtml = GenHtml->new($current_data);
+
+    if (@SourceFile::annotateScript &&
+        0 == $SourceFile::annotatedFiles) {
+        lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
+              "\"--annotate-script '" .
+                  join(' ', @SourceFile::annotateScript) .
+                  "'\" did not find any revision-controlled files in your sandbox"
+        );
+    }
 
     # Check if there are any test case descriptions to write out
     if (%test_description) {

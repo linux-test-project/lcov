@@ -27,6 +27,8 @@ use POSIX qw(strftime);
 use File::Basename;
 use File::Spec;
 use Getopt::Long;
+use Fcntl qw(:flock);
+my $logfile;
 
 sub get_modify_time($)
 {
@@ -37,14 +39,21 @@ sub get_modify_time($)
     return strftime("%Y-%m-%dT%H:%M:%S", localtime($stat[9])) . $tz;
 }
 
-my $logfile;
+sub printlog
+{
+    my ($fh, $msg) = @_;
+    flock($fh, LOCK_EX) or die("cannot lock $logfile: $!");
+    print($fh $msg);
+    flock($fh, LOCK_UN) or die("cannot unlock $logfile: $!");
+}
+
 if (exists($ENV{LOG_P4ANNOTATE})) {
     $logfile = $ENV{LOG_P4ANNOTATE};
 }
 my @args   = @ARGV;
 my $verify = 0;       # if set, check that we merged local changes correctly
 if (!GetOptions("verify" => \$verify,
-                "log=s"  => \$logfile)) {
+                "log=s"  => \$logfile,)) {
     print(STDERR "usage: $0 [--log logfile] [--verify] filename\n");
     exit(1);
 }
@@ -62,8 +71,9 @@ if (@notset) {
 if ($logfile) {
     open(LOGFILE, ">>", $logfile) or
         die("unable to open $logfile");
-    print(LOGFILE "$0 " . join(" ", @args) . "\n");
+
     $logfile = \*LOGFILE;
+    printlog($logfile, "$0 " . join(" ", @args) . "\n");
 }
 
 my $pathname = shift @ARGV;
@@ -92,7 +102,7 @@ if (0 ==
         $version = '@head';
     }
     if ($logfile) {
-        print($logfile "  have $version\n");
+        print($logfile "  have $pathname:$version\n");
     }
     my @annotated;
     # check if this file is open in the current sandbox...
@@ -104,7 +114,7 @@ if (0 ==
     if ($opened =~ /edit (default change|change (\S+)) /) {
         $localChangelist = $2 ? $2 : 'default';
         if ($logfile) {
-            print($logfile "  local edit in CL $localChangelist\n");
+            printlog($logfile, "  local edit in CL $localChangelist\n");
         }
 
         $owner = $ENV{P4USER};    # current user is responsible for changes
@@ -215,7 +225,7 @@ if (0 ==
     }
 } else {
     if ($logfile) {
-        print($logfile "  not in P4\n");
+        printlog($logfile, "  $pathname not in P4\n");
     }
     my $mtime = get_modify_time($pathname);   # when was the file last modified?
     my $owner =
