@@ -1750,15 +1750,13 @@ sub add_traces()
 
                 my @interesting =
                     _process_segment($total_trace, $readSourceFile, $segment);
-                my $then = Time::HiRes::gettimeofday();
+
+                my $patterns = lcovutil::save_child_pattern_counts();
+                my $then     = Time::HiRes::gettimeofday();
                 $lcovutil::profileData{$idx}{total} = $then - $now;
-                my $file     = "$tempDir/dumper_$$";
-                my @excluded = keys %lcovutil::excluded_files;
-                Storable::store([$total_trace,
-                                 \@interesting,
-                                 $function_mapping,
-                                 \@excluded,
-                                 \@lcovutil::file_subst_patterns,
+                my $file = "$tempDir/dumper_$$";
+                Storable::store([$total_trace, \@interesting,
+                                 $function_mapping, $patterns,
                                  \%lcovutil::profileData
                                 ],
                                 $file);
@@ -1813,16 +1811,14 @@ sub add_traces()
                 # undump the data
                 my $data = Storable::retrieve($dumpfile);
                 if (defined($data)) {
-                    my ($current, $interesting, $func_map, $excluded,
-                        $subst_patterns, $profile)
+                    my ($current, $interesting, $func_map, $patterns, $profile)
                         = @$data;
                     my $then = Time::HiRes::gettimeofday();
                     $lcovutil::profileData{$idx}{undump} = $then - $now;
                     $lcovutil::profileData{$idx}{total} =
                         $profile->{$idx}{total};
                     # and pass back substitutions, etc.
-                    lcovutil::merge_child_pattern_counts($excluded,
-                                                         $subst_patterns);
+                    lcovutil::merge_child_pattern_counts($patterns);
                     if ($function_mapping) {
                         if (!defined($func_map)) {
                             report_parallel_error('lcov',

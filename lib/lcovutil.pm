@@ -1510,21 +1510,30 @@ sub reenable_cov_filters
     @lcovutil::exclude_function_patterns = @{$data->[2]};
 }
 
+sub save_child_pattern_counts
+{
+    my @excluded = map { $_->[-1] } @lcovutil::exclude_file_patterns;
+    my @included = map { $_->[-1] } @lcovutil::include_file_patterns;
+    my @subst    = map { $_->[-1] } @lcovutil::file_subst_patterns;
+    return [\@excluded, \@included, \@subst];
+
+}
+
 sub merge_child_pattern_counts
 {
     # merge back counts of successful application of substitution and exclusion
     #  patterns (else the parent won't know that the child uses some pattern -
     #  and will complain about it later
-    my ($excluded, $subst_patterns) = @_;
-    foreach my $ex (@$excluded) {
-        if (!exists($lcovutil::excluded_files{$ex})) {
-            # call routine so pattern use count is incremented
-            TraceFile::skipCurrentFile($ex);
-            $lcovutil::excluded_files{$ex} = 1;
+    my $patterns = shift;
+    my ($excluded, $included, $subst) = @$patterns;
+    foreach my $d ([$excluded, \@lcovutil::exclude_file_patterns],
+                   [$included, \@lcovutil::include_file_patterns],
+                   [$subst, \@lcovutil::file_subst_patterns]
+    ) {
+        my ($r, $x) = @$d;
+        for (my $i = 0; $i <= $#$r; ++$i) {
+            $x->[$i]->[-1] += $r->[$i];    # add back this count
         }
-    }
-    for (my $i = 0; $i <= $#$subst_patterns; ++$i) {
-        $lcovutil::file_subst_patterns[$i]->[1] += $subst_patterns->[$i]->[1];
     }
 }
 
@@ -1735,7 +1744,9 @@ sub checkVersionMatch
         $match = $me eq $you;    # simple string compare
     }
     lcovutil::ignorable_error($ERROR_VERSION,
-                    "$filename: revision control version mismatch: $me <- $you")
+                              "$filename: revision control version mismatch: " .
+                                  (defined($me) ? $me : 'undef') .
+                                  ' <- ' . (defined($you) ? $you : 'undef'))
         unless $match;
 }
 
@@ -4018,7 +4029,7 @@ sub skipCurrentFile
             my $pattern = $p->[0];
             if ($filename =~ $pattern) {
                 ++$p->[-1];
-                return 0;    # exlicitly included
+                return 0;    # explicitly included
             }
         }
         return 1;            # not explicitly included - so exclude

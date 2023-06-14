@@ -818,10 +818,9 @@ sub _merge_one_child($$$$$)
     if (0 == $childstatus && -f $dumped) {
         my $data = Storable::retrieve($dumped);
         if (defined($data)) {
-            my ($childInfo, $excluded, $subst_patterns, $profile, $num_files) =
-                @$data;
+            my ($childInfo, $patterns, $profile, $num_files) = @$data;
             # HGC:  need to pass back substitutions, etc.
-            lcovutil::merge_child_pattern_counts($excluded, $subst_patterns);
+            lcovutil::merge_child_pattern_counts($patterns);
             lcovutil::merge_child_profile($profile);
 
             $files_created += $num_files;
@@ -1065,7 +1064,7 @@ sub gen_info($)
                 foreach my $f ($output_filename) {
                     unlink $f if -f $f && !$lcovutil::preserve_intermediates;
                 }
-                my @excluded = keys %lcovutil::excluded_files;
+                my $patterns = lcovutil::save_child_pattern_counts();
                 my $done     = Time::HiRes::gettimeofday();
 
                 # keep separate timestamp for when this child block was entered
@@ -1077,8 +1076,7 @@ sub gen_info($)
                     $done - $childStart;
                 # dump parsed data - then read back and merge
                 Storable::store([$single_file ? $childInfo : undef,
-                                 \@excluded,
-                                 \@lcovutil::file_subst_patterns,
+                                 $patterns,
                                  \%lcovutil::profileData,
                                  $files_created,
                                 ],
