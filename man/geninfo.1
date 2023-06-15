@@ -999,13 +999,41 @@ and hit:
 
 Branch coverage information is stored which one line per branch:
 
-  BRDA:<exception tag><line number>,<block number>,<branch number>,<taken>
+  BRDA:<line_no>,[<exception>]<block>,<branch>[,<expr>],<taken>
 
-Block number and branch number are gcc internal IDs for the branch. Taken is
-either '-' if the basic block containing the branch was never executed or
+.I <line>
+is the line number where the branch is found - and is expected to to be a non-zero integer.
+.br
+.I <block>
+and
+.I <branch>
+are integer identifiers;
+All branches with the same
+.I <block>
+are associated with each other.
+.br
+.I <block>
+IDs within a particular line are expected to numbered from zero with no gaps; for some languages and some coding styles, there will only be one block on any particular line.
+.br
+Within a
+.I <block>,
+.I <branch>
+values are expected to be unique, and numbered from zero with no gaps; the order is very likely to be related to expression tree traversal (e.g., in gcc).
+.br
+.I <taken>
+is either '-' if the basic block containing the branch was never executed or
 a number indicating how often that branch was taken.
-'exception tag' is 'e' if this is a branch related to exception handling - and is not present if the branch is not related to exceptions.
-Exception branch identification requires compiler support. Note that gcc versions older than 9 do not differentiate exception branches;  geninfo will be able to identify exception branches only if your toolchain version is new enough to support the feature.
+.br
+.I <exception>
+is 'e' (single character) if this is a branch related to exception handling - and is not present if the branch is not related to exceptions.
+Exception branch identification requires compiler support; note that gcc versions older than 9 do not differentiate exception branches.  Geninfo will be able to identify exception branches only if your toolchain version is new enough to support the feature.
+.br
+.I <expr>
+is optional and can contain any non-newline characters.  If present,
+.I <expr>
+is typically a string intended to help the user to understand which edge in the expression tree is represented by this BRDA entry; if present,
+.I <expr>
+is presented in the genhtml 'tooltip' popup,
 
 Branch coverage summaries are stored in two lines:
 
