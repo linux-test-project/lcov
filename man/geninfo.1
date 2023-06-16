@@ -955,17 +955,23 @@ divided into sections. If available, a tracefile begins with the
 .I testname
 which is stored in the following format:
 
-  TN:<test name>
+.RS
+TN:<test name>
+.RE
 
 For each source file referenced in the .gcda file, there is a section containing
 filename and coverage data:
 
-  SF:<absolute path to the source file>
+.RS
+SF:<path to the source file>
+.RE
 
 An optional source code version ID follows:
 .br
 
-  VER:<version ID>
+.RS
+VER:<version ID>
+.RE
 
 If present, the version ID is compared before file entries are merged (see
 .B "lcov \-\-add\-tracefile"
@@ -977,7 +983,9 @@ documentation and the sample usage in the lcov regression test examples.
 Following is a list of line numbers for each function name found in the
 source file:
 
-  FN:<line number of function start>,(<line number of function end>,)?<function name>
+.RS
+FN:<line number of function start>,[<line number of function end>,]<function name>
+.RE
 
 The 'end' line number is optional, and is generated only if the compiler/toolchain
 version is recent enough to generate the data (e.g., gcc 9 or newer).
@@ -989,61 +997,92 @@ options.  If the function end line data is not available, then these features wi
 
 Next, there is a list of execution counts for each instrumented function:
 
-  FNDA:<execution count>,<function name>
+.RS
+FNDA:<execution count>,<function name>
+.RE
 
 This list is followed by two lines containing the number of functions found
 and hit:
 
-  FNF:<number of functions found>
-  FNH:<number of function hit>
+.RS
+FNF:<number of functions found>
+.br
+FNH:<number of function hit>
+.RE
 
 Branch coverage information is stored which one line per branch:
 
-  BRDA:<line_no>,[<exception>]<block>,<branch>[,<expr>],<taken>
+.RS
+BRDA:<line_number>,[<exception>]<block>,<branch>,<taken>
+.RE
 
-.I <line>
+.I <line_number>
 is the line number where the branch is found - and is expected to to be a non-zero integer.
 .br
 .I <block>
 and
 .I <branch>
-are integer identifiers;
-All branches with the same
-.I <block>
-are associated with each other.
+serve to uniquely define a particular edge in the expression tree of a particular conditional found on the associated line.
 .br
+Within a particular line,
 .I <block>
-IDs within a particular line are expected to numbered from zero with no gaps; for some languages and some coding styles, there will only be one block on any particular line.
+is an integer numbered from zero with no gaps. For some languages and some coding styles, there will only be one block (index value zero) on any particular line.
 .br
-Within a
-.I <block>,
 .I <branch>
-values are expected to be unique, and numbered from zero with no gaps; the order is very likely to be related to expression tree traversal (e.g., in gcc).
+is a string which serves to uniquely identify a particular edge.  For some languages and tools - e.g., C/C++ code compiled with gcc or llvm -
+.I <branch>
+is an ordered integer index related to expression tree traversal order of the associated conditional.  For others, it may be a meaningful string - see below.
+.I <branch>
+appears in the 'tooltip' popup of the asognciated branch in the
+.B genhtml
+output - so human-readable values are helpful to users who are trying to understand coveage results.
 .br
 .I <taken>
-is either '-' if the basic block containing the branch was never executed or
+is either '-' if the corresponding expression was never evaluated (e.g., the basic block containing the branch was never executed) or
 a number indicating how often that branch was taken.
 .br
 .I <exception>
 is 'e' (single character) if this is a branch related to exception handling - and is not present if the branch is not related to exceptions.
 Exception branch identification requires compiler support; note that gcc versions older than 9 do not differentiate exception branches.  Geninfo will be able to identify exception branches only if your toolchain version is new enough to support the feature.
+
+The following is an example branch records whose
+.I <branch>
+expression values are human-readable strings.
+
+.RS
+  BRDA:10,0,enable:1
 .br
-.I <expr>
-is optional and can contain any non-newline characters.  If present,
-.I <expr>
-is typically a string intended to help the user to understand which edge in the expression tree is represented by this BRDA entry; if present,
-.I <expr>
-is presented in the genhtml 'tooltip' popup,
+  BRDA:10,0,!enable:0
+.RE
+In this case, the corresponding code from line 10 is very likely similar to:
+.br
+.RS
+   if (enable) {
+.br
+     ...
+.br
+   }
+.br
+.RE
+such that associated testcase entered the block ('enable' evaulated to 'true').
+
+Arbitrarily complicated branch expressions are supported.
+
 
 Branch coverage summaries are stored in two lines:
 
-  BRF:<number of branches found>
-  BRH:<number of branches hit>
+.RS
+BRF:<number of branches found>
+.br
+BRH:<number of branches hit>
+.RE
 
 Then there is a list of execution counts for each instrumented line
 (i.e. a line which resulted in executable code):
 
-  DA:<line number>,<execution count>[,<checksum>]
+.RS
+DA:<line number>,<execution count>[,<checksum>]
+.RE
 
 Note that there may be an optional checksum present for each instrumented
 line. The current
@@ -1053,12 +1092,17 @@ implementation uses an MD5 hash as checksumming algorithm.
 At the end of a section, there is a summary about how many lines
 were found and how many were actually instrumented:
 
-  LH:<number of lines with a non\-zero execution count>
-  LF:<number of instrumented lines>
+.RS
+LH:<number of lines with a non\-zero execution count>
+.br
+LF:<number of instrumented lines>
+.RE
 
 Each sections ends with:
 
-  end_of_record
+.RS
+end_of_record
+.RE
 
 In addition to the main source code file there are sections for all
 #included files which also contain executable code.
