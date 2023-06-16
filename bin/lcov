@@ -826,7 +826,7 @@ sub lcov_geninfo(@)
 
     # Capture data
     info("Capturing coverage data from " . join(" ", @dir) . "\n");
-    @param = ("$tool_dir/geninfo", @dir);
+    @param = (File::Spec->catfile($tool_dir, 'geninfo'), @dir);
     if ($output_filename) {
         push(@param, "--output-filename", $output_filename);
     }
@@ -1735,8 +1735,8 @@ sub add_traces()
 
             if (0 == $pid) {
                 # I'm the child
-                my $stdout_file = "$tempDir/lcov_$$.log";
-                my $stderr_file = "$tempDir/lcov_$$.err";
+                my $stdout_file = File::Spec->catfile($tempDir, "lcov_$$.log");
+                my $stderr_file = File::Spec->catfile($tempDir, "lcov_$$.err");
                 local (*STDERR);
                 local (*STDOUT);
                 open(STDOUT1, '>' . $stdout_file) or
@@ -1754,7 +1754,7 @@ sub add_traces()
                 my $patterns = lcovutil::save_child_pattern_counts();
                 my $then     = Time::HiRes::gettimeofday();
                 $lcovutil::profileData{$idx}{total} = $then - $now;
-                my $file = "$tempDir/dumper_$$";
+                my $file = File::Spec->catfile($tempDir, "dumper_$$");
                 Storable::store([$total_trace, \@interesting,
                                  $function_mapping, $patterns,
                                  \%lcovutil::profileData
@@ -1784,9 +1784,9 @@ sub add_traces()
                                   (' mem:' . lcovutil::current_process_size()) :
                                   '') .
                               "\n");
-            my $dumpfile = "$tempDir/dumper_$child";
-            my $childLog = "$tempDir/lcov_$child.log";
-            my $childErr = "$tempDir/lcov_$child.err";
+            my $dumpfile = File::Spec->catfile($tempDir, "dumper_$child");
+            my $childLog = File::Spec->catfile($tempDir, "lcov_$child.log");
+            my $childErr = File::Spec->catfile($tempDir, "lcov_$child.err");
 
             foreach my $f ($childLog, $childErr) {
                 if (open(RESTORE, "<", $f)) {
