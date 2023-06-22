@@ -1798,6 +1798,37 @@ See the genhtml man page for details.
 
 .PP
 
+.BR genhtml_annotate_tooltip " ="
+.IR tooltip_string
+.IP
+
+This option sets the 'tooltip' popup which appears if user hovers mouse over
+the associated source code.
+Note that the tooltop is generated only if the annotation-script callback
+is successful and returns a commit ID other than "NONE".
+Set
+.I tooltip_string
+to "" (empty string) to force genhtml to not produce the tooltip.
+
+Substitutions are performed on
+.I tooltip_string:
+
+.IP "       %C:"
+commit ID (from annotate callback - see --anotate-script entry in genhtml documentation
+.IP "       %U:"
+commit author name
+.IP "       %D:"
+commit date (as returned by annotate callback)
+.IP "       %d:"
+commit date with time of day removed (i.e., date part only)
+.IP "       %A:"
+commit age.
+.IP "       %l"
+source line number.
+
+.PP
+
+
 .BR genhtml_criteria_script " ="
 .IR path_to_executable
 .IP

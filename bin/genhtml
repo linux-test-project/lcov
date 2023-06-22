@@ -3347,74 +3347,94 @@ sub _read_udiff
 
 package SourceLine;
 
+use constant {
+              LINE         => 0,
+              TEXT         => 1,
+              OWNER        => 2,
+              DATE         => 3,
+              AGE          => 4,
+              COMMIT       => 5,
+              LINE_TLA     => 6,
+              BRANCH_TLA   => 7,
+              FUNCTION_TLA => 8,
+};
+
 sub new
 {
     my $class = shift;
-    my @data  = @_;               #[owner, age, line, text, lineCovTla]
-    my $self  = \@data;
+    my @data  = @_;      #[lineNo, text, owner, date, age, commitID, lineCovTla]
+        # [line, text, owner, date, age, commit, lineTLA, branchTLA, functionTLA
+    my $self = \@data;
     bless $self, $class;
-    $self->[4] = undef
-        if scalar(@$self) < 5;    # set TLA
-    $self->[5] = undef
-        if scalar(@$self) < 6;    # set branch data
-    $self->[6] = undef
-        if scalar(@$self) < 7;    # set function data
     return $self;
 }
 
 sub owner
 {
     my $self = shift;
-    return $self->[0];
+    return $#$self >= OWNER ? $self->[OWNER] : undef;
 }
 
 # line coverage TLA
 sub tla
 {
     my ($self, $tla) = @_;
-    $self->[4] = $tla
+    $self->[LINE_TLA] = $tla
         if (defined($tla));
-    return $self->[4];
+    return $#$self >= LINE_TLA ? $self->[LINE_TLA] : undef;
 }
 
 sub branchElem
 {
     my ($self, $branchElem) = @_;
-    $self->[5] = $branchElem
+    $self->[BRANCH_TLA] = $branchElem
         if defined($branchElem);
-    return $self->[5];
+    return $#$self >= BRANCH_TLA ? $self->[BRANCH_TLA] : undef;
 }
 
 sub functionElem
 {
     my ($self, $funcElem) = @_;
-    $self->[6] = $funcElem
+    $self->[FUNCTION_TLA] = $funcElem
         if defined($funcElem);
-    return $self->[6];
+    return $#$self >= FUNCTION_TLA ? $self->[FUNCTION_TLA] : undef;
+}
+
+sub commit
+{
+    my $self = shift;
+    return $#$self >= COMMIT ? $self->[COMMIT] : undef;
+}
+
+sub date
+{
+    my $self = shift;
+    return $#$self >= DATE ? $self->[DATE] : undef;
 }
 
 sub age
 {
     my $self = shift;
-    return $self->[1];
+    return $#$self >= AGE ? $self->[AGE] : undef;
 }
 
 sub line
 {
     my $self = shift;
-    return $self->[2];
+    return $self->[LINE];
 }
 
 sub text
 {
     my $self = shift;
-    return $self->[3];
+    return $self->[TEXT];
 }
 
 package SourceFile;
 our @annotateScript;
-our $annotatedFiles = 0;
-our $totalFiles     = 0;
+our $annotateTooltip = 'Line %l: commit %C on %d';
+our $annotatedFiles  = 0;
+our $totalFiles      = 0;
 
 sub new
 {
@@ -4196,7 +4216,8 @@ sub _load
                     $owner = "no.body";
                 }
                 push @{$self->{_lines}},
-                    SourceLine->new($owner, $age, $lineNum, $text);
+                    SourceLine->new($lineNum, $text, $owner, $when, $age,
+                                    $commit);
             }
             close(HANDLE);
             my $status = $? >> 8;
@@ -4278,7 +4299,7 @@ sub _synthesize
         my $l = (($mod == 1) ? $notFound :
                      ($mod == 2) ? $synth :
                      "/* ... */");
-        push @{$self->{_lines}}, SourceLine->new(undef, undef, $line, $l);
+        push @{$self->{_lines}}, SourceLine->new($line, $l);
     }
     return $self;
 }
@@ -4297,7 +4318,7 @@ sub _bare_load
         $line =~ s/\r//g;    # Also remove CR from line-end
 
         $lineno++;
-        push @{$self->{_lines}}, SourceLine->new(undef, undef, $lineno, $line);
+        push @{$self->{_lines}}, SourceLine->new($lineno, $line);
     }
     close(HANDLE);
     return $self;
@@ -5071,6 +5092,7 @@ my %genhtml_rc_opts = (
                "genhtml_demangle_cpp_tool"   => \$lcovutil::cpp_demangle_tool,
                "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
                'genhtml_annotate_script'     => \@rc_annotate_script,
+               'genhtml_annotate_tooltip'    => \$SourceFile::annotateTooltip,
                'genhtml_criteria_script'     => \@rc_criteria_script,
                'criteria_callback_data'      => \@criteriaCallbackTypes,
                'criteria_callback_levels'    => \@criteriaCallbackLevels,
@@ -8422,11 +8444,12 @@ sub format_count($$)
 sub write_source_line(*$$$$)
 {
     my ($handle, $srcline, $count, $brdata, $cbdata) = @_;
-    my $line        = $cbdata->lineNo();
-    my $fileCovInfo = $cbdata->lineData();
-    my $source      = $srcline->text();
-    my $src_owner   = $srcline->owner();
-    my $src_age     = $srcline->age();
+    my $line         = $cbdata->lineNo();
+    my $fileCovInfo  = $cbdata->lineData();
+    my $sourceDetail = $cbdata->sourceDetail();
+    my $source       = $srcline->text();
+    my $src_owner    = $srcline->owner();
+    my $src_age      = $srcline->age();
     my $source_format;
     my $count_format;
     my $result;
@@ -8469,7 +8492,7 @@ sub write_source_line(*$$$$)
         my $class = "tla$bucket";
         if ($tla eq $bucket) {
             # maybe we want to link only the uncovered code categories?
-            my $next = $cbdata->sourceDetail()->nextTlaGroup($bucket, $line);
+            my $next = $sourceDetail->nextTlaGroup($bucket, $line);
             $tlaIsHref = 1;
             # if no next segment in this category - then go to top to page.
             $next = defined($next) ? "L$next" : "top";
@@ -8521,9 +8544,30 @@ sub write_source_line(*$$$$)
     }
     $result .= ":" . $source;
 
+    my $tooltip  = $SourceFile::annotateTooltip;
+    my $lineData = $sourceDetail->line($line);
+    my $commitId = $lineData->commit();
+    if ($tooltip ne '' &&
+        defined($commitId) &&
+        $commitId ne 'NONE') {
+        my $date = $lineData->date();
+        $date =~ s/(T.+)$//;    # just the year/month/day part
+        foreach my $p (['%U', $lineData->owner()],
+                       ['%D', $lineData->date()],
+                       ['%d', $date],
+                       ['%A', $lineData->age()],
+                       ['%C', $commitId],
+                       ['%l', $line],
+        ) {
+            $tooltip =~ s/$p->[0]/$p->[1]/g;
+        }
+	$tooltip=" title=\"$tooltip\"";
+    } else {
+        $tooltip = '';
+    }
     # Write out a line number navigation anchor every $nav_resolution
     # lines if necessary
-    $anchor_start = "<span id=\"L$line\">";
+    $anchor_start = "<span id=\"L$line\"$tooltip>";
     $anchor_end   = "</span>";
 
     # *************************************************************
@@ -8532,7 +8576,7 @@ sub write_source_line(*$$$$)
     # we want to colorize the date/owner part of un-hit lines only
     my $html_continuation_leader = "";    # for continued lines
     if (defined($main::show_dateBins) &&
-        $cbdata->sourceDetail()->isProjectFile()) {
+        $sourceDetail->isProjectFile()) {
         DATE_SECTION: {
 
             my $ageLen   = $main::age_field_width;
@@ -8573,7 +8617,7 @@ sub write_source_line(*$$$$)
                             # maybe this should be a different error type?
                             main::ignorable_eror($ERROR_UNMAPPED_LINE,
                                       "undefined owner/age for $bucket $line " .
-                                          $cbdata->sourceDetail()->path());
+                                          $sourceDetail->path());
                             last OWNER;
                         }
                         # add a 'title="tooltip"' popup - to give owner, date, etc
@@ -8647,8 +8691,8 @@ sub write_source_line(*$$$$)
             # then 5 characters of 'age' (might be empty)
             if ($needDateHref) {
                 # next line with this TLA, in this date bin
-                my $next = $cbdata->sourceDetail()
-                    ->nextInDateBin($newBin, $bucket, $line);
+                my $next =
+                    $sourceDetail->nextInDateBin($newBin, $bucket, $line);
                 $cbdata->nextDate($newBin, $bucket, $next);
 
                 $next = defined($next) ? "L$next" : "top";
@@ -8667,8 +8711,8 @@ sub write_source_line(*$$$$)
 
             if ($needOwnerHref) {
                 # next line with this TLA, by this owner..
-                my $next = $cbdata->sourceDetail()
-                    ->nextInOwnerBin($src_owner, $bucket, $line);
+                my $next =
+                    $sourceDetail->nextInOwnerBin($src_owner, $bucket, $line);
                 $cbdata->nextOwner($src_owner, $bucket, $next);
                 $next = defined($next) ? "L$next" : "top";
                 my $label =

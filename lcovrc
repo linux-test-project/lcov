@@ -75,7 +75,7 @@ max_message_count = 100
 # maxmimum number of lines to look at, when filtering bogus branch expressions
 #filter_lookahead = 5
 
-# if nonzero, bitwise operators '|', '&', '~' indicate conditiional expressions
+# if nonzero, bitwise operators '|', '&', '~' indicate conditional expressions
 #filter_bitwise_conditional = 1
 
 # Width of line coverage field in source code view
@@ -285,6 +285,19 @@ branch_coverage = 0
 
 # specify revision control annotation script for genhtml
 #genhtml_annotate_script = path_to_my_executable
+
+# specify the annotation popup that will appear if user hovers over source code
+# set to empy to elide tooltip
+# Substitutions:
+#  %d:  line number
+#  %C:  commit ID (from annotate callback - see --anotate-script entry in
+#       genhtml documentation)
+#  %U:  commit author name
+#  %D:  commit date (as returned by annotate callback)
+#  %d:  simplified commit date - yyyy-mm-dd part only (remove time of day)
+#  %A:  commit age
+#  %l:  line number
+#genhtml_annotate_tooltip = Commit ID: %C by %U on %D
 
 # specify coverage criteria script for genhtml
 #genhtml_criteria_script = path_to_my_executable

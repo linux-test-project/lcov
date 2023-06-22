@@ -17,22 +17,33 @@
 #   <http://www.gnu.org/licenses/>.
 #
 #
-# gitblame [domain]
+# gitblame [--p4] [domain] pathname
 #
 #   This script runs "git blame" for the specified file and formats the result
 #   to match the diffcov(1) age/ownership annotation specification.
 #
-# By default, it strips the domain from each author's email address.
-# If passed a domain name (or domain regexp) - then it strips that domain
-# from the author's address, and treats all users outside the matching domain
-# as "External".
+#   If the '--p4' flag is used:
+#     we assume that the GIT repo is cloned from Perforce - and look for
+#     the line in the generated commit log message which tells us the perforce
+#     changelist ID that we actually want.
+#
+#   If passed a domain name (or domain regexp):
+#     strip that domain from the author's address, and treat all users outside
+#     the matching domain as "External".
 
 #use strict;
 use POSIX qw(strftime);
 use File::Basename qw(dirname basename);
 use File::Spec;
+use Getopt::Long;
 
-die("usage: $0 [domain] file_path")
+my $mapP4;
+
+if (!GetOptions("p4" => \$mapP4,)) {
+    print(STDERR "usage: $0 [--p4] [domain] pathname\n");
+    exit(1);
+}
+die("usage: $0 --p4 [domain] file_path")
     unless 0 < scalar(@ARGV) && scalar(@ARGV) < 3;
 my $pathname        = $ARGV[-1];
 my $internal_domain = $ARGV[0] if 2 == scalar(@ARGV);
@@ -46,11 +57,14 @@ my $dirname  = dirname($pathname);
 my $basename = basename($pathname);
 chdir($dirname) or die("unable to 'cd $dirname': $!");
 
+my %changelists;
+
 my $null = File::Spec->devnull();
 if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
     # in a git repo
     if (0 == system("git ls-files --error-unmatch $basename >$null 2>&1")) {
         # matched a tracked pathname
+        my $matched;
         if (open(HANDLE, "-|", "git blame -e $basename")) {
             while (my $line = <HANDLE>) {
                 chomp $line;
@@ -58,12 +72,34 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
                 s/\015$//;
 
                 if ($line =~
-                    m/(\S+)\s+\(<([^>]+)>\s+([-0-9]+\s+[0-9:]+\s+[-+0-9]+)\s+([0-9]+)\) (.*)/
+                    m/^(\S+)[^(]+\(<([^>]+)>\s+([-0-9]+\s+[0-9:]+\s+[-+0-9]+)\s+([0-9]+)\) (.*)$/
                 ) {
                     my $commit = $1;
                     my $owner  = $2;
                     my $when   = $3;
                     my $text   = $5;
+
+                    if ($mapP4) {
+                        if (!exists($changelists{$commit})) {
+                            if (open(GITLOG, '-|', "git show -s $commit")) {
+                                while (my $l = <GITLOG>) {
+                                    # p4sync puts special comment in commit log.
+                                    #  pull the CL out of that.
+                                    if ($l =~ /git-p4:.+change = ([0-9]+)/) {
+                                        $changelists{$commit} = $1;
+                                        $commit = $1;
+                                        last;
+                                    }
+                                }
+                            } else {
+                                die(
+                                 "unable to execute 'git show -s $commit': $!");
+                            }
+                            close(GITLOG) or die("unable to close");
+                        } else {
+                            $commit = $changelists{$commit};
+                        }
+                    }
 
                     # line owner filtering to canonical form
                     $owner =~ s/ dot /./g;
@@ -85,8 +121,12 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
                     # insert ':' between hour and minute digits of zone offset
                     $when =~ s/([0-9][0-9])$/:$1/;
                     printf("%s|%s|%s|%s\n", $commit, $owner, $when, $text);
+                    die("no uniform match") if defined($matched) && !$matched;
+                    $matched = 1;
                 } else {
                     printf("%s|%s|%s|%s\n", "NONE", "NONE", "NONE", $line);
+                    die("no uniform match") if defined($matched) && $matched;
+                    $matched = 0;
                 }
             }
             exit(0);
