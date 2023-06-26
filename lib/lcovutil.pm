@@ -2120,6 +2120,13 @@ package CountData;
 our $UNSORTED = 0;
 our $SORTED   = 1;
 
+use constant {
+              HASH     => 0,
+              SORTABLE => 1,
+              FOUND    => 2,
+              HIT      => 3,
+};
+
 sub new
 {
     my $class    = shift;
@@ -2144,17 +2151,17 @@ sub append
         lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
                           "Unexpected negative count '$count' for line '$key'");
     }
-    my $data = $self->[0];
+    my $data = $self->[HASH];
     if (!defined($data->{$key})) {
         $interesting = 1;         # something new - whether we hit it or not
         $data->{$key} = $count;
-        ++$self->[2];                    # found
-        ++$self->[3] if ($count > 0);    # hit
+        ++$self->[FOUND];                  # found
+        ++$self->[HIT] if ($count > 0);    # hit
     } else {
         my $current = $data->{$key};
         if ($count > 0 &&
             $current == 0) {
-            ++$self->[3];
+            ++$self->[HIT];
             $interesting = 1;
         }
         $data->{$key} = $count + $current;
@@ -2167,7 +2174,7 @@ sub value
     my $self = shift;
     my $key  = shift;
 
-    my $data = $self->[0];
+    my $data = $self->[HASH];
     if (!exists($data->{$key})) {
         return undef;
     }
@@ -2178,14 +2185,14 @@ sub remove
 {
     my ($self, $key, $check_if_present) = @_;
 
-    my $data = $self->[0];
+    my $data = $self->[HASH];
     if (!defined($check_if_present) ||
         exists($data->{$key})) {
 
         die("$key not found")
             unless exists($data->{$key});
-        --$self->[2];    # found;
-        --$self->[3]     # hit
+        --$self->[FOUND];    # found;
+        --$self->[HIT]       # hit
             if ($data->{$key} > 0);
 
         delete $data->{$key};
@@ -2199,26 +2206,26 @@ sub found
 {
     my $self = shift;
 
-    return $self->[2];
+    return $self->[FOUND];
 }
 
 sub hit
 {
     my $self = shift;
 
-    return $self->[3];
+    return $self->[HIT];
 }
 
 sub keylist
 {
     my $self = shift;
-    return keys(%{$self->[0]});
+    return keys(%{$self->[HASH]});
 }
 
 sub entries
 {
     my $self = shift;
-    return scalar(keys(%{$self->[0]}));
+    return scalar(keys(%{$self->[HASH]}));
 }
 
 sub merge
@@ -2245,13 +2252,20 @@ sub merge
 sub get_found_and_hit
 {
     my $self = shift;
-    return ($self->[2], $self->[3]);
+    return ($self->[FOUND], $self->[HIT]);
 }
 
 package BranchBlock;
 # branch element:  index, taken/not-taken count, optional expression
 # for baseline or current data, 'taken' is just a number (or '-')
 # for differential data: 'taken' is an array [$taken, tla]
+
+use constant {
+              ID        => 0,
+              TAKEN     => 1,
+              EXPR      => 2,
+              EXCEPTION => 3,
+};
 
 sub new
 {
@@ -2272,44 +2286,44 @@ sub new
 sub isTaken
 {
     my $self = shift;
-    return $self->[1] ne '-';
+    return $self->[TAKEN] ne '-';
 }
 
 sub id
 {
     my $self = shift;
-    return $self->[0];
+    return $self->[ID];
 }
 
 sub data
 {
     my $self = shift;
-    return $self->[1];
+    return $self->[TAKEN];
 }
 
 sub count
 {
     my $self = shift;
-    return $self->[1] eq '-' ? 0 : $self->[1];
+    return $self->[TAKEN] eq '-' ? 0 : $self->[TAKEN];
 }
 
 sub expr
 {
     my $self = shift;
-    return $self->[2];
+    return $self->[EXPR];
 }
 
 sub exprString
 {
     my $self = shift;
-    my $e    = $self->[2];
+    my $e    = $self->[EXPR];
     return defined($e) ? $e : 'undef';
 }
 
 sub is_exception
 {
     my $self = shift;
-    return $self->[3];
+    return $self->[EXCEPTION];
 }
 
 sub merge
@@ -2328,7 +2342,7 @@ sub merge
         # To enable a consistent result, keep the one which is alphabetically
         # first
         if ($that->exprString() le $self->exprString()) {
-            $self->[2] = $that->[2];
+            $self->[EXPR] = $that->[EXPR];
         }
     }
     if ($self->is_exception() != $that->is_exception()) {
@@ -2341,12 +2355,12 @@ sub merge
         # set 'self' to 'not related to exception' - to give a consistent
         #  answer for the merge operation.  Otherwise, we pick whatever
         #  was seen first - which is unpredictable during threaded execution.
-        $self->[3] = 0;
+        $self->[EXCEPTION] = 0;
     }
-    my $t = $that->[1];
+    my $t = $that->[TAKEN];
     return 0 if $t eq '-';    # no new news
 
-    my $count = $self->[1];
+    my $count = $self->[TAKEN];
     my $interesting;
     if ($count ne '-') {
         $count += $t;
@@ -2355,7 +2369,7 @@ sub merge
         $count       = $t;
         $interesting = $t != 0;
     }
-    $self->[1] = $count;
+    $self->[TAKEN] = $count;
     return $interesting;
 }
 
@@ -2435,6 +2449,15 @@ package FunctionEntry;
 #  at a particular line in the file.  THey must all be the
 #  same function - perhaps just templatized differently.
 
+use constant {
+              NAME    => 0,
+              ALIASES => 1,
+              FILE    => 2,
+              FIRST   => 3,    # start line
+              COUNT   => 4,
+              LAST    => 5,
+};
+
 sub new
 {
     my ($class, $name, $filename, $startLine, $endLine) = @_;
@@ -2448,13 +2471,13 @@ sub new
 sub name
 {
     my $self = shift;
-    return $self->[0];
+    return $self->[NAME];
 }
 
 sub hit
 {
     my $self = shift;
-    return $self->[4];
+    return $self->[COUNT];
 }
 
 sub count
@@ -2464,7 +2487,7 @@ sub count
     exists($self->aliases()->{$alias}) or
         die("$alias is not an alias of " . $self->name());
 
-    return $self->[4]
+    return $self->[COUNT]
         if (defined($merged) && $merged);
 
     return $self->aliases()->{$alias};
@@ -2473,31 +2496,31 @@ sub count
 sub aliases
 {
     my $self = shift;
-    return $self->[1];
+    return $self->[ALIASES];
 }
 
 sub numAliases
 {
     my $self = shift;
-    return scalar(keys %{$self->[1]});
+    return scalar(keys %{$self->[ALIASES]});
 }
 
 sub file
 {
     my $self = shift;
-    return $self->[2];
+    return $self->[FILE];
 }
 
 sub line
 {
     my $self = shift;
-    return $self->[3];
+    return $self->[FIRST];
 }
 
 sub end_line
 {
     my $self = shift;
-    return $self->[5];
+    return $self->[LAST];
 }
 
 sub set_end_line
@@ -2510,7 +2533,7 @@ sub set_end_line
                                       " end line $line less than start line");
         return;
     }
-    $self->[5] = $line;
+    $self->[LAST] = $line;
 }
 
 sub addAlias
@@ -2526,21 +2549,22 @@ sub addAlias
     }
 
     my $interesting;
-    if (exists($self->[1]->{$name})) {
-        $interesting = 0 == $self->[1]->{$name} && 0 != $count;
-        $self->[1]->{$name} += $count;
+    my $aliases = $self->[ALIASES];
+    if (exists($aliases->{$name})) {
+        $interesting = 0 == $aliases->{$name} && 0 != $count;
+        $aliases->{$name} += $count;
     } else {
-        $self->[1]->{$name} = $count;
+        $aliases->{$name} = $count;
         $interesting = 0 != $count;
         # keep track of the shortest name as the function represntative
-        my $curlen = length($self->[0]);
+        my $curlen = length($self->[NAME]);
         my $len    = length($name);
-        $self->[0] = $name
+        $self->[NAME] = $name
             if ($len < $curlen ||    # alias is shorter
                 ($len == $curlen &&   # alias is same length but lexically first
-                 $name lt $self->[0]));
+                 $name lt $self->[NAME]));
     }
-    $self->[4] += $count;
+    $self->[COUNT] += $count;
     return $interesting;
 }
 
@@ -2548,8 +2572,8 @@ sub merge
 {
     my ($self, $that) = @_;
     my $interesting = 0;
-    foreach my $name (keys(%{$that->[1]})) {
-        if ($self->addAlias($name, $that->[1]->{$name})) {
+    foreach my $name (keys(%{$that->[ALIASES]})) {
+        if ($self->addAlias($name, $that->[ALIASES]->{$name})) {
             $interesting = 1;
         }
     }
@@ -2560,10 +2584,10 @@ sub addAliasDifferential
 {
     my ($self, $name, $data) = @_;
     die("alias $name exists")
-        if exists($self->[1]->{$name}) && $name ne $self->name();
+        if exists($self->[ALIASES]->{$name}) && $name ne $self->name();
     die("expected array")
         unless ref($data) eq "ARRAY" && 2 == scalar(@$data);
-    $self->[1]->{$name} = $data;
+    $self->[ALIASES]->{$name} = $data;
 }
 
 sub setCountDifferential
@@ -2571,7 +2595,7 @@ sub setCountDifferential
     my ($self, $data) = @_;
     die("expected array")
         unless ref($data) eq "ARRAY" && 2 == scalar(@$data);
-    $self->[4] = $data;
+    $self->[COUNT] = $data;
 }
 
 sub findMyLines
@@ -2748,17 +2772,18 @@ sub merge
     my ($self, $that) = @_;
 
     my $interesting = 0;
-    foreach my $key (keys(%{$that->[0]})) {
-        my $thatData = $that->[0]->{$key};
+    my $myData      = $self->[0];
+    my $yourData    = $that->[0];
+    while (my ($key, $thatData) = each(%$yourData)) {
         my $thisData;
-        if (!exists($self->[0]->{$key})) {
+        if (!exists($myData->{$key})) {
             $thisData =
                 $self->define_function($thatData->name(), $thatData->file(),
                                        $thatData->line(), $thatData->end_line()
                 );
             $interesting = 1;    # something new...
         } else {
-            $thisData = $self->[0]->{$key};
+            $thisData = $myData->{$key};
             if ($thisData->line() != $thatData->line() ||
                 $thisData->file() ne $thatData->file()) {
                 warn("ERROR: function data mismatch at " .
@@ -2846,6 +2871,12 @@ sub remove
 
 package BranchData;
 
+use constant {
+              DATA  => 0,
+              FOUND => 1,
+              HIT   => 2,
+};
+
 sub new
 {
     my $class = shift;
@@ -2867,7 +2898,7 @@ sub append
     #   error message if the data is inconsistent.
     # OTOH:  unclear what a normal user could do about it anyway.
     #   Maybe exclude that file?
-    my $data = $self->[0];
+    my $data = $self->[DATA];
     $filename = '<stdin>' if (defined($filename) && $filename eq '-');
     if (!defined($br)) {
         lcovutil::ignorable_error($ERROR_BRANCH,
@@ -2882,8 +2913,8 @@ sub append
         # have to fix up the branch entry.
         $block->[0] = $line;
         my ($f, $h) = $block->totals();
-        $self->[1] += $f;
-        $self->[2] += $h;
+        $self->[FOUND] += $f;
+        $self->[HIT]   += $h;
         $data->{$line} = $block;
         return 1;    # we added something
     }
@@ -2917,9 +2948,9 @@ sub append
         push(@$l,
              BranchBlock->new($branch, $br->data(),
                               $br->expr(), $br->is_exception()));
-        ++$self->[1];                         # found one
-        ++$self->[2] if 0 != $br->count();    # hit one
-        $interesting = 1;                     # something new..
+        ++$self->[FOUND];                       # found one
+        ++$self->[HIT] if 0 != $br->count();    # hit one
+        $interesting = 1;                       # something new..
     } else {
         $block = $branchElem->getBlock($block);
 
@@ -2937,14 +2968,14 @@ sub append
             $block->[$branch] =
                 BranchBlock->new($branch, $br->data(), $br->expr(),
                                  $br->is_exception());
-            ++$self->[1];                         # found one
-            ++$self->[2] if 0 != $br->count();    # hit one
+            ++$self->[FOUND];                       # found one
+            ++$self->[HIT] if 0 != $br->count();    # hit one
 
             $interesting = 1;
         } else {
             my $me = $block->[$branch];
             if (0 == $me->count() && 0 != $br->count()) {
-                ++$self->[2];                     # hit one
+                ++$self->[HIT];                     # hit one
                 $interesting = 1;
             }
             if ($me->merge($br, $filename, $line)) {
@@ -2958,14 +2989,14 @@ sub append
 sub remove
 {
     my ($self, $line, $check_if_present) = @_;
-    my $data = $self->[0];
+    my $data = $self->[DATA];
 
     return 0 if ($check_if_present && !exists($data->{$line}));
 
     my $branch = $data->{$line};
     my ($f, $h) = $branch->totals();
-    $self->[1] -= $f;
-    $self->[2] -= $h;
+    $self->[FOUND] -= $f;
+    $self->[HIT]   -= $h;
 
     delete($data->{$line});
     return 1;
@@ -2982,8 +3013,8 @@ sub removeExceptionBranches
         my @replace;
         foreach my $br (@$blockData) {
             if ($br->is_exception()) {
-                --$self->[1];
-                --$self->[2] if 0 != $br->count();
+                --$self->[FOUND];
+                --$self->[HIT] if 0 != $br->count();
             } else {
                 push(@replace, $br);
             }
@@ -3009,7 +3040,7 @@ sub _checkCounts
     # some consistenc checking
     my $self = shift;
 
-    my $data  = $self->[0];
+    my $data  = $self->[DATA];
     my $found = 0;
     my $hit   = 0;
 
@@ -3020,23 +3051,23 @@ sub _checkCounts
         $hit   += $h;
     }
     die("invalid counts: found:" .
-        $self->[1] . "->$found, hit:" . $self->[2] . "->$hit")
-        unless ($self->[1] == $found &&
-                $self->[2] == $hit);
+        $self->[FOUND] . "->$found, hit:" . $self->[HIT] . "->$hit")
+        unless ($self->[FOUND] == $found &&
+                $self->[HIT] == $hit);
 }
 
 sub found
 {
     my $self = shift;
 
-    return $self->[1];
+    return $self->[FOUND];
 }
 
 sub hit
 {
     my $self = shift;
 
-    return $self->[2];
+    return $self->[HIT];
 }
 
 sub compatible($$)
@@ -3061,17 +3092,17 @@ sub merge
     my ($self, $info, $filename) = @_;
     my $interesting = 0;
 
-    my $mydata = $self->[0];
-    while (my ($line, $yourBranch) = each(%{$info->[0]})) {
+    my $mydata = $self->[DATA];
+    while (my ($line, $yourBranch) = each(%{$info->[DATA]})) {
         # check if self has corresponding line:
         #  no: just copy all the data for this line, from 'info'
         #  yes: check for matching blocks
         my $myBranch = $self->value($line);
         if (!defined($myBranch)) {
-            $self->[0]->{$line} = Storable::dclone($yourBranch);
+            $mydata->{$line} = Storable::dclone($yourBranch);
             my ($f, $h) = $yourBranch->totals();
-            $self->[1] += $f;
-            $self->[2] += $h;
+            $self->[FOUND] += $f;
+            $self->[HIT]   += $h;
             $interesting = 1;
             next;
         }
@@ -3155,7 +3186,7 @@ sub value
 {
     my ($self, $lineNo) = @_;
 
-    my $map = $self->[0];
+    my $map = $self->[DATA];
     return exists($map->{$lineNo}) ? $map->{$lineNo} : undef;
 }
 
@@ -3163,47 +3194,56 @@ sub value
 sub keylist
 {
     my $self = shift;
-    return keys(%{$self->[0]});
+    return keys(%{$self->[DATA]});
 }
 
 sub get_found_and_hit
 {
     my $self = shift;
 
-    return ($self->[1], $self->[2]);
+    return ($self->[FOUND], $self->[HIT]);
 }
 
 package TraceInfo;
 #  coveage data for a particular source file
+use constant {
+              VERSION       => 0,
+              LOCATION      => 1,
+              FILENAME      => 2,
+              CHECKSUM      => 3,
+              LINE_DATA     => 4,    # per-testcase data
+              BRANCH_DATA   => 5,
+              FUNCTION_DATA => 6,
+};
 
 sub new
 {
     my ($class, $filename) = @_;
-    my $self = {};
+    my $self = [];
     bless $self, $class;
 
-    $self->{_version} = undef;    # version ID from revision control (if any)
+    $self->[VERSION] = undef;        # version ID from revision control (if any)
 
     # keep track of location in .info file that this file data was found
     #  - useful in error messages
-    $self->{_location} = [];    # will fill with file/line
+    $self->[LOCATION] = [];    # will fill with file/line
 
-    $self->{_filename} = $filename;
+    $self->[FILENAME] = $filename;
     # _checkdata   : line number  -> source line checksum
-    $self->{_checkdata} = MapData->new();
-    # _sumcount    : line number  -> execution count - merged over all testcases
-    $self->{_sumcount} = CountData->new($CountData::SORTED);
-    # _funcdata    : function name or function location  -> FunctionEntry for all tests
-    $self->{_funcdata} = FunctionMap->new();
-    # _sumbrcount  : line number  -> branch coverage - for all tests
-    $self->{_sumbrcount} = BranchData->new();
+    $self->[CHECKSUM] = MapData->new();
+    # each line/branch/function element is a list of [summaryData, perTestcaseData]
 
-    # _testdata    : test name  -> CountData ( line number -> execution count )
-    $self->{_testdata} = MapData->new();
-    # _testfncdata : test name  -> FunctionMap ( function name -> FunctionEntry )
-    $self->{_testfncdata} = MapData->new();
-    # _testbrdata  : test name  -> BranchData ( line number -> branch coverage )
-    $self->{_testbrdata} = MapData->new();
+    # line: [ line number  -> execution count - merged over all testcases,
+    #         testcase_name -> CountData -> line_number -> execution_count ]
+    $self->[LINE_DATA] = [CountData->new($CountData::SORTED), MapData->new()];
+
+    # branch: [ BranchData:  line number  -> branch coverage - for all tests
+    #           testcase_name -> BranchData]
+    $self->[BRANCH_DATA] = [BranchData->new(), MapData->new()];
+
+    # function: [FunctionMap:  function_name->FunctionEntry,
+    #            tescase_name -> FucntionMap ]
+    $self->[FUNCTION_DATA] = [FunctionMap->new(), MapData->new()];
 
     return $self;
 }
@@ -3211,13 +3251,13 @@ sub new
 sub filename
 {
     my $self = shift;
-    return $self->{_filename};
+    return $self->[FILENAME];
 }
 
 sub set_filename
 {
     my ($self, $name) = @_;
-    $self->{_filename} = $name;
+    $self->[FILENAME] = $name;
 }
 
 # return true if no line, branch, or function coverage data
@@ -3231,7 +3271,7 @@ sub is_empty
 sub location
 {
     my ($self, $filename, $lineNo) = @_;
-    my $l = $self->{_location};
+    my $l = $self->[LOCATION];
     if (defined($filename)) {
         $l->[0] = $filename;
         $l->[1] = $lineNo;
@@ -3243,30 +3283,30 @@ sub version
 {
     # return the version ID that we found
     my ($self, $version) = @_;
-    (!defined($version) || !defined($self->{_version})) or
+    (!defined($version) || !defined($self->[VERSION])) or
         die("expected to set version ID at most once: " .
             (defined($version) ? $version : "undef") . " " .
-            (defined($self->{_version}) ? $self->{_version} : "undef"));
-    $self->{_version} = $version
+            (defined($self->[VERSION]) ? $self->[VERSION] : "undef"));
+    $self->[VERSION] = $version
         if defined($version);
-    return $self->{_version};
+    return $self->[VERSION];
 }
 
 # line coverage data
 sub test
 {
-    my $self = shift;
-    my $name = defined($_[0]) ? shift : undef;
+    my ($self, $testname) = @_;
 
-    if (!defined($name)) {
-        return $self->{_testdata};
+    my $data = $self->[LINE_DATA]->[1];
+    if (!defined($testname)) {
+        return $data;
     }
 
-    if (!$self->{_testdata}->mapped($name)) {
-        $self->{_testdata}->append_if_unset($name, CountData->new(1));
+    if (!$data->mapped($testname)) {
+        $data->append_if_unset($testname, CountData->new(1));
     }
 
-    return $self->{_testdata}->value($name);
+    return $data->value($testname);
 }
 
 sub sum
@@ -3274,7 +3314,7 @@ sub sum
     # return MapData of line -> hit count
     #   data merged over all testcases
     my $self = shift;
-    return $self->{_sumcount};
+    return $self->[LINE_DATA]->[0];
 }
 
 sub func
@@ -3282,7 +3322,7 @@ sub func
     # return FunctionMap of function name or location -> FunctionEntry
     #   data is merged over all testcases
     my $self = shift;
-    return $self->{_funcdata};
+    return $self->[FUNCTION_DATA]->[0];
 }
 
 sub found
@@ -3328,39 +3368,41 @@ sub b_hit
 sub check
 {
     my $self = shift;
-    return $self->{_checkdata};
+    return $self->[CHECKSUM];
 }
 
 # function coverage
 sub testfnc
 {
-    my ($self, $name) = @_;
+    my ($self, $testname) = @_;
 
-    if (!defined($name)) {
-        return $self->{_testfncdata};
+    my $data = $self->[FUNCTION_DATA]->[1];
+    if (!defined($testname)) {
+        return $data;
     }
 
-    if (!$self->{_testfncdata}->mapped($name)) {
-        $self->{_testfncdata}->append_if_unset($name, FunctionMap->new());
+    if (!$data->mapped($testname)) {
+        $data->append_if_unset($testname, FunctionMap->new());
     }
 
-    return $self->{_testfncdata}->value($name);
+    return $data->value($testname);
 }
 
 # branch coverage
 sub testbr
 {
-    my ($self, $name) = @_;
+    my ($self, $testname) = @_;
 
-    if (!defined($name)) {
-        return $self->{_testbrdata};
+    my $data = $self->[BRANCH_DATA]->[1];
+    if (!defined($testname)) {
+        return $data;
     }
 
-    if (!$self->{_testbrdata}->mapped($name)) {
-        $self->{_testbrdata}->append_if_unset($name, BranchData->new());
+    if (!$data->mapped($testname)) {
+        $data->append_if_unset($testname, BranchData->new());
     }
 
-    return $self->{_testbrdata}->value($name);
+    return $data->value($testname);
 }
 
 sub sumbr
@@ -3368,7 +3410,7 @@ sub sumbr
     # return BranchData map of line number -> BranchEntry
     #   data is merged over all testcases
     my $self = shift;
-    return $self->{_sumbrcount};
+    return $self->[BRANCH_DATA]->[0];
 }
 
 #
@@ -3381,21 +3423,21 @@ sub sumbr
 
 sub set_info($$$$$$$$)
 {
-    my $self = shift;
+    my ($self, $linePerTest, $lineSum, $funcSum, $checksum, $funcPerTest,
+        $branchPerTest, $branchSum)
+        = @_;
 
-    $self->{_testdata}    = shift;
-    $self->{_sumcount}    = shift;
-    $self->{_funcdata}    = shift;
-    $self->{_checkdata}   = shift;
-    $self->{_testfncdata} = shift;
-    $self->{_testbrdata}  = shift;
-    $self->{_sumbrcount}  = shift;
+    $self->[LINE_DATA]     = [$lineSum, $linePerTest];
+    $self->[FUNCTION_DATA] = [$funcSum, $funcPerTest];
+    $self->[BRANCH_DATA]   = [$branchSum, $branchPerTest];
+    $self->[CHECKSUM]      = $checksum;
 
     # some paranoia checking...
     if (1 || $lcovutil::debug) {
-        $self->{_sumbrcount}->_checkCounts();
-        foreach my $t ($self->{_testbrdata}->keylist()) {
-            $self->{_testbrdata}->value($t)->_checkCounts();
+        my ($brSum, $brTest) = @{$self->[BRANCH_DATA]};
+        $brSum->_checkCounts();
+        foreach my $t ($brTest->keylist()) {
+            $brTest->value($t)->_checkCounts();
         }
     }
 }
@@ -3412,20 +3454,18 @@ sub set_info($$$$$$$$)
 
 sub get_info($)
 {
-    my $self          = shift;
-    my $testdata_ref  = $self->{_testdata};
-    my $sumcount_ref  = $self->{_sumcount};
-    my $funcdata_ref  = $self->{_funcdata};
-    my $checkdata_ref = $self->{_checkdata};
-    my $testfncdata   = $self->{_testfncdata};
-    my $testbrdata    = $self->{_testbrdata};
-    my $sumbrcount    = $self->{_sumbrcount};
-    my $lines_found   = $self->found();
-    my $lines_hit     = $self->hit();
-    my $fn_found      = $self->f_found();
-    my $fn_hit        = $self->f_hit();
-    my $br_found      = $self->b_found();
-    my $br_hit        = $self->b_hit();
+    my $self = shift;
+    my ($sumcount_ref, $testdata_ref) = @{$self->[LINE_DATA]};
+    my ($funcdata_ref, $testfncdata)  = @{$self->[FUNCTION_DATA]};
+    my ($sumbrcount, $testbrdata)     = @{$self->[BRANCH_DATA]};
+    my $checkdata_ref = $self->[CHECKSUM];
+
+    my $lines_found = $self->found();
+    my $lines_hit   = $self->hit();
+    my $fn_found    = $self->f_found();
+    my $fn_hit      = $self->f_hit();
+    my $br_found    = $self->b_found();
+    my $br_hit      = $self->b_hit();
 
     return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
             $testfncdata, $testbrdata, $sumbrcount, $lines_found,
@@ -3446,7 +3486,7 @@ sub rename_functions($$)
     my ($self, $conv, $filename) = @_;
 
     my $newData = $self->func()->cloneWithRename($conv);
-    $self->{_funcdata} = $newData;
+    $self->[FUNCTION_DATA]->[0] = $newData;
 
     # testfncdata: test name -> testfnccount
     # testfnccount: function name -> execution count
@@ -3521,6 +3561,11 @@ sub merge
 package ReadCurrentSource;
 
 our @source_directories;
+use constant {
+              FILENAME => 0,
+              SOURCE   => 1,
+              EXCLUDE  => 2,
+};
 
 sub new
 {
@@ -3565,7 +3610,7 @@ sub open
         lcovutil::info(1, "read $version$filename\n");
         my @sourceLines = <SRC>;
         CORE::close(SRC);
-        $self->[0] = $filename;
+        $self->[FILENAME] = $filename;
         $self->parseLines($filename, \@sourceLines);
     } else {
         lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
@@ -3656,9 +3701,9 @@ sub parseLines
         "$filename: unmatched $lcovutil::EXCL_EXCEPTION_BR_START at line $exclude_exception_region - saw EOF while looking for matching $lcovutil::EXCL_EXCEPTION_BR_STOP"
     ) if $exclude_exception_region;
 
-    $self->[0] = $filename;
-    $self->[1] = $sourceLines;
-    $self->[2] = \@excluded;
+    $self->[FILENAME] = $filename;
+    $self->[SOURCE]   = $sourceLines;
+    $self->[EXCLUDE]  = \@excluded;
 }
 
 sub setData
@@ -3666,7 +3711,7 @@ sub setData
     my ($self, $filename, $data) = @_;
     die("expected array")
         if (defined($data) && ref($data) ne 'ARRAY');
-    $self->[0] = $filename;
+    $self->[FILENAME] = $filename;
     if (defined($data) &&
         0 != scalar(@$data)) {
         $self->parseLines($filename, $data);
@@ -3683,21 +3728,21 @@ sub notEmpty
 
 sub filename
 {
-    return $_[0]->[0];
+    return $_[0]->[FILENAME];
 }
 
 sub getLine
 {
     my ($self, $line) = @_;
 
-    return $self->[1]->[$line - 1];
+    return $self->[SOURCE]->[$line - 1];
 }
 
 sub isOutOfRange
 {
     my ($self, $lineNo, $context) = @_;
-    if (defined($self->[2]) &&
-        scalar(@{$self->[2]}) < $lineNo) {
+    if (defined($self->[EXCLUDE]) &&
+        scalar(@{$self->[EXCLUDE]}) < $lineNo) {
 
         # Can happen due to version mismatches:  data extracted with
         #   version N of the file, then generating HTML with version M
@@ -3712,7 +3757,8 @@ sub isOutOfRange
             lcovutil::info(2,
                            "filter out-of-range $c $lineNo in " .
                                $self->filename() . " (" .
-                               scalar(@{$self->[2]}) . " lines in file)\n");
+                               scalar(@{$self->[EXCLUDE]}) .
+                               " lines in file)\n");
             ++$filt->[0];    # applied in 1 location
             ++$filt->[1];    # one coverpoint suppressed
             return 1;
@@ -3723,7 +3769,7 @@ sub isOutOfRange
             my $msg =
                 "unknown $c '$lineNo' in " .
                 $self->filename() . ": there are only " .
-                scalar(@{$self->[2]}) . " lines in file." .
+                scalar(@{$self->[EXCLUDE]}) . " lines in file." .
                 "\n  Use '$lcovutil::tool_name --filter range' to remove out-of-range lines.";
             if ($lcovutil::tool_name eq 'geninfo') {
                 # some versions of gcov seem to make up lines that do not exist -
@@ -3746,8 +3792,8 @@ sub isOutOfRange
 sub isExcluded
 {
     my ($self, $lineNo, $branch) = @_;
-    if (!defined($self->[2]) ||
-        scalar(@{$self->[2]}) < $lineNo) {
+    if (!defined($self->[EXCLUDE]) ||
+        scalar(@{$self->[EXCLUDE]}) < $lineNo) {
         # this can happen due to version mismatches:  data extracted with verion N
         # of the file, then generating HTML with version M
         # "--version-script callback" option can be used to detect this
@@ -3756,9 +3802,9 @@ sub isExcluded
             $lcovutil::ERROR_SOURCE,
             "unknown line '$lineNo' in " . $self->filename()
                 .
-                (defined($self->[2]) ?
+                (defined($self->[EXCLUDE]) ?
                      (" there are only " .
-                      scalar(@{$self->[2]}) . " lines in file") :
+                      scalar(@{$self->[EXCLUDE]}) . " lines in file") :
                      "") .
                 ".\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page."
         ) if lcovutil::warn_once($key);
@@ -3766,8 +3812,8 @@ sub isExcluded
     }
     return 1
         if ($branch &&
-            0 != ($self->[2]->[$lineNo - 1] & $branch));
-    return 0 != ($self->[2]->[$lineNo - 1] & 1);
+            0 != ($self->[EXCLUDE]->[$lineNo - 1] & $branch));
+    return 0 != ($self->[EXCLUDE]->[$lineNo - 1] & 1);
 }
 
 sub removeComments
@@ -3944,8 +3990,6 @@ sub suppressCloseBrace
 
 package TraceFile;
 
-# Block value used for unnamed blocks
-our $UNNAMED_BLOCK = vec(pack('b*', 1 x 32), 0, 32);
 our $ignore_testcase_name;    # use default name, if set
 
 sub load
@@ -4850,7 +4894,10 @@ sub _read_info
                 #   - there may be other branches on the same line (..the next
                 #     contiguous BRDA entry).
                 #     There should always be at least 2.
-                #   - not sure what the $block is used for.
+                #   - $block is generally '0' - but is used to distinguish cases
+                #     where different branch constructs appear on the same line -
+                #     e.g., due to template instantiation or funky macro usage -
+                #     see .../tests/lcov/branch
                 #   - $taken can be a number or '-'
                 #     '-' means that the first clause of the branch short-circuited -
                 #     so this branch was not evaluated at all.
@@ -4861,8 +4908,6 @@ sub _read_info
                 #     'branchId' as an arbitrary string (e.g., ModelSim will
                 #     generate an CNF or truth-table like entry corresponding
                 #     to the branch.
-
-                $block = -1 if ($block == $UNNAMED_BLOCK);
 
                 if (!is_c_file($filename)) {
                     # At least at present, Verilog/SystemVerilog/VHDL,
@@ -4880,7 +4925,6 @@ sub _read_info
 
                     # Add test-specific counts
                     if (defined($testname)) {
-                        #$testbrcount->{$line} .=  "$block,$branch,$taken:";
                         $fileData->testbr($testname)
                             ->append($line, $block, $br, $filename);
                     }
@@ -4912,10 +4956,9 @@ sub _read_info
                     if (is_c_file($filename)) {
                         # RTL code was added directly - no issue with
                         #  duplicate data entries in geninfo result
-                        foreach my $line (sort { $a <=> $b }
-                                          keys(%branchRenumber)
-                        ) {
-                            my $l_data = $branchRenumber{$line};
+                        my $testcaseBranchData = $fileData->testbr($testname)
+                            if defined($testname);
+                        while (my ($line, $l_data) = each(%branchRenumber)) {
                             foreach my $block (sort { $a <=> $b }
                                                keys(%$l_data)
                             ) {
@@ -4931,11 +4974,9 @@ sub _read_info
                                     $fileData->sumbr()
                                         ->append($line, $block, $b, $filename);
 
-                                    if (defined($testname)) {
-                                        #$testbrcount->{$line} .=  "$block,$branch,$taken:";
-                                        $fileData->testbr($testname)
-                                            ->append($line, $block, $b,
-                                                     $filename);
+                                    if (defined($testcaseBranchData)) {
+                                        $testcaseBranchData->append($line,
+                                                         $block, $b, $filename);
                                     }
                                     ++$branchId;
                                 }
@@ -4997,6 +5038,7 @@ sub _read_info
                 scalar($filedata->test($testname)->keylist()) == 0) {
                 $filedata->test()->remove($testname);
                 $filedata->testfnc()->remove($testname);
+                $filedata->testbr()->remove($testname);
             }
         }
     }
