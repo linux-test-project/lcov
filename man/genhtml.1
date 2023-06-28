@@ -516,6 +516,17 @@ non\-boundary value. This behavior is in accordance with that of the
 .BR gcov (1)
 tool.
 
+By default,
+.B genhtml
+reports will include both line and function coverage data.
+Branch data is not displayed by default; you can use the
+.B --branch-coverage
+option to enable branch coverage - or you can permanently enable branch coverage by adding the appropriate
+settings to your personal, group, or site lcov configuration file.  See the
+.B lcovrc
+man page for details.
+
+
 .SH OPTIONS
 .B \-h
 .br

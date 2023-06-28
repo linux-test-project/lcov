@@ -299,6 +299,16 @@ non-boundary value. This behavior is in accordance with that of the
 .BR gcov (1)
 tool.
 
+By default,
+.B lcov
+and related tools generate and collect line and function coverage data.
+Branch data is not collected or displayed by default; all tools support the
+.B --branch-coverage
+option to enable branch coverage - or you can permanently enable branch coverage by adding the appropriate
+settings to your personal, group, or site lcov configuration file.  See the
+.B lcovrc
+man page for details.
+
 .SH OPTIONS
 
 
@@ -391,7 +401,7 @@ specified at a time.
 .br
 Collect and/or retain branch coverage data.
 
-This is equivalent to using the option "\-\-rc lcov_branch_coverage=1"; the option was added to better match the genhml interface.
+This is equivalent to using the option "\-\-rc branch_coverage=1"; the option was added to better match the genhml interface.
 
 .RE
 

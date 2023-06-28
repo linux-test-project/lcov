@@ -130,6 +130,17 @@ Note also that the current user needs write access to both
 as well as to the original source code location. This is necessary because some temporary files have to be created there during the conversion process.
 .br
 
+By default,
+.B geninfo
+collects line and function coverage data.
+Branch data is not collected; you can use the
+.B --branch-coverage
+option to enable branch coverage - or you can permanently enable branch coverage by adding the appropriate
+settings to your personal, group, or site lcov configuration file.  See the
+.B lcovrc
+man page for details.
+
+
 .SS "File types"
 
 A
@@ -351,7 +362,7 @@ This option can be used several times to specify multiple alternate directories 
 .RS
 Collect retain branch coverage data.
 
-This is equivalent to using the option "\-\-rc lcov_branch_coverage=1"; the option was added to better match the genhml interface.
+This is equivalent to using the option "\-\-rc branch_coverage=1"; the option was added to better match the genhml interface.
 
 .RE
 
