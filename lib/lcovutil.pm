@@ -8,6 +8,7 @@ package lcovutil;
 
 use File::Path qw(rmtree);
 use File::Basename qw(basename dirname);
+use File::Temp qw /tempdir/;
 use File::Spec;
 use Cwd qw/abs_path getcwd/;
 use Storable qw(dclone);
@@ -24,7 +25,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      @temp_dirs set_tool_name
      info warn_once set_info_callback init_verbose_flag $verbose
      debug $debug
-     append_tempdir temp_cleanup folder_is_empty $tmp_dir $preserve_intermediates
+     append_tempdir create_temp_dir temp_cleanup folder_is_empty $tmp_dir $preserve_intermediates
      define_errors parse_ignore_errors ignorable_error ignorable_warning is_ignored
      die_handler warn_handler abort_handler
 
@@ -446,6 +447,25 @@ sub temp_cleanup()
         @temp_dirs = ();
         chdir($cwd);
     }
+}
+
+#
+# create_temp_dir()
+#
+# Create a temporary directory and return its path.
+#
+# Die on error.
+#
+
+sub create_temp_dir()
+{
+    my $dir = tempdir(DIR     => $lcovutil::tmp_dir,
+                      CLEANUP => !defined($lcovutil::preserve_intermediates));
+    if (!defined($dir)) {
+        die("ERROR: cannot create temporary directory\n");
+    }
+    append_tempdir($dir);
+    return $dir;
 }
 
 sub append_tempdir($)
@@ -5275,6 +5295,360 @@ sub rename_functions($$)
     foreach my $filename ($self->files()) {
         my $data = $self->data($filename)->rename_functions($conv, $filename);
     }
+}
+
+package AggregateTraces;
+# parse sna merge TraceFiles - possibly in parallel
+#  - common utility, used by lcov 'add_trace' and genhtml multi-file read
+
+# If set, create map of unique function to list of testcase/info
+#   files which hit that function at least once
+our $function_mapping;
+
+sub find_from_glob
+{
+    my @merge;
+    foreach my $pattern (@_) {
+
+        if (-f $pattern) {
+            # this is a glob match...
+            push(@merge, $pattern);
+            next;
+        }
+        $pattern =~ s/([^\\]) /$1\\ /g          # explicitly escape spaces
+            unless $^O =~ /Win/;
+
+        my @files = glob($pattern);   # perl returns files in ASCII sorted order
+        lcovutil::ingorable_error($lcovutil::ERROR_EMPTY,
+                                  "no files matching pattern $pattern")
+            unless scalar(@files);
+        foreach my $f (@files) {
+            die("'$f' found from pattern '$pattern' is not a readable file")
+                unless (-r $f &&
+                        -f $f);
+            push(@merge, $f);
+        }
+    }
+    return @merge;
+}
+
+sub _process_segment($$$)
+{
+    my ($total_trace, $readSourceFile, $segment) = @_;
+
+    my @interesting;
+    my $total = scalar(@$segment);
+    foreach my $tracefile (@$segment) {
+        my $now = Time::HiRes::gettimeofday();
+        --$total;
+        lcovutil::info("Merging $tracefile..$total remaining"
+                           .
+                           ($lcovutil::debug ?
+                                (' mem:' . lcovutil::current_process_size()) :
+                                '') .
+                           "\n");    # ...in segment $segId
+        if (!-f $tracefile ||
+            -z $tracefile) {
+            lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                      "trace file '$tracefile' "
+                                          .
+                                          (-z $tracefile ? 'is empty' :
+                                               'does not exist'));
+            next;
+        }
+        my $current;
+        eval {
+            $current = TraceFile->load($tracefile, $readSourceFile,
+                                       $lcovutil::verify_checksum, 1);
+            print("after load $tracefile: memory: " .
+                  lcovutil::current_process_size() . "\n")
+                if $lcovutil::debug;    # predicate to avoid function call...
+        };
+        my $then = Time::HiRes::gettimeofday();
+        $lcovutil::profileData{parse}{$tracefile} = $then - $now;
+        if ($@) {
+            lcovutil::ignorable_error($ERROR_CORRUPT,
+                                  "unable to read trace file '$tracefile': $@");
+            next;
+        }
+        if ($function_mapping) {
+            foreach my $srcFileName ($current->files()) {
+                my $traceInfo = $current->data($srcFileName);
+                my $funcData  = $traceInfo->func();
+                foreach my $funcKey ($funcData->keylist()) {
+                    my $funcEntry = $funcData->findKey($funcKey);
+                    if (0 != $funcEntry->hit()) {
+                        # function is hit in this file
+                        $function_mapping->{$funcKey} = [$funcEntry->name(), []]
+                            unless exists($function_mapping->{$funcKey});
+                        die("mismatched function name for " .
+                            $funcEntry->name() .
+                            " at $funcKey in $tracefile")
+                            unless $funcEntry->name() eq
+                            $function_mapping->{$funcKey}->[0];
+                        push(@{$function_mapping->{$funcKey}->[1]}, $tracefile);
+                    }
+                }
+            }
+        } else {
+            if ($total_trace->append_tracefile($current)) {
+                push(@interesting, $tracefile);
+            }
+        }
+        my $end = Time::HiRes::gettimeofday();
+        $lcovutil::profileData{append}{$tracefile} = $end - $then;
+    }
+    return @interesting;
+}
+
+sub merge
+{
+    lcovutil::info("Combining tracefiles.\n");
+    $lcovutil::profileData{parse} = {}
+        unless exists($lcovutil::profileData{parse});
+    $lcovutil::profileData{append} = {}
+        unless exists($lcovutil::profileData{append});
+
+    my @effective;
+    # source-based filters are somewhat expensive - so we turn them
+    #   off for file read and only re-enable when we write the data back out
+    my $save_filters = lcovutil::disable_cov_filters();
+
+    my $total_trace    = TraceFile->new();
+    my $readSourceFile = ReadCurrentSource->new();
+    if (0 != $lcovutil::maxMemory &&
+        1 != $lcovutil::maxParallelism) {
+        # estimate the number of processes we think we can run..
+        my $currentSize = lcovutil::current_process_size();
+        # guess that the data size is no smaller than one of the files we will be reading
+        # which one is largest?
+        my $fileSize = 0;
+        foreach my $n (@_) {
+            my $s = (stat($n))[7];
+            $fileSize = $s if $s > $fileSize;
+        }
+        my $size = $currentSize + $fileSize;
+        my $num  = floor($lcovutil::maxMemory / $size);
+        lcovutil::debug(
+            "Sizes: self:$currentSize file:$fileSize total:$size num:$num paralled:$lcovutil::maxParallelism\n"
+        );
+        if ($num < $lcovutil::maxParallelism) {
+            $num = $num > 1 ? $num : 1;
+            lcovutil::info(
+                  "Throttling to '--parallel $num' due to memory constraint\n");
+            $lcovutil::maxParallelism = $num;
+        }
+    }
+
+    if (1 != $lcovutil::maxParallelism) {
+        # parallel implementation is to segment the file list into N
+        #  segments, then parse-and-merge scalar(@merge)/N files in each slave,
+        #  then merge the slave result.
+        # The reasoning is that one of our examples appears to take 1.3s to
+        #   load the trace file, and 0.8s to merge it into the master list.
+        # We thus want to parallelize both the load and the merge, as much as
+        #   possible.
+        # Note that we try to keep the files in the order they were specified
+        #   in the segments (i.e., so adjacent files go in order, into the same
+        #   segment).  This plays more nicely with the "--prune-tests" option
+        #   because we expect that files with similar names (e.g., as returned
+        #   by 'glob' have similar coverage profiles and are thus not likely to
+        #   all be 'effective'.  If we had put them into different segments,
+        #   then each segment might think that their variant is 'effective' -
+        #   whereas we will notice that only one is effective if they are all
+        #   in the same segment.
+
+        my @segments;
+        my $nTests = scalar(@_);
+        my $testsPerSegment =
+            ($nTests > $lcovutil::maxParallelism) ?
+            floor(($nTests + $lcovutil::maxParallelism - 1) /
+                  $lcovutil::maxParallelism) :
+            1;
+        my $idx = 0;
+        foreach my $tracefile (@_) {
+            my $seg = $idx / $testsPerSegment;
+            $seg -= 1 if $seg == $lcovutil::maxParallelism;
+            push(@segments, [])
+                if ($seg >= scalar(@segments));
+            push(@{$segments[$seg]}, $tracefile);
+            ++$idx;
+        }
+        lcovutil::info("Using " .
+                   scalar(@segments) . " segments of $testsPerSegment tests\n");
+        $lcovutil::profileData{config} = {}
+            unless exists($lcovutil::profileData{config});
+        $lcovutil::profileData{config}{segments} = scalar(@segments);
+
+        $idx = 0;
+        # kind of a hack...write to the named directory that the user gave
+        #   us rather than to a funny generated name
+        my $tempDir = defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
+            lcovutil::create_temp_dir();
+        my %children;
+        my @pending;
+        while (my $segment = pop(@segments)) {
+            my $now = Time::HiRes::gettimeofday();
+            my $pid = fork();
+            if (!defined($pid)) {
+                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                       "fork() syscall failed while trying to process segment");
+                push(@segments, $segment);
+                sleep(10);
+                next;
+            }
+
+            if (0 == $pid) {
+                # I'm the child
+                my $stdout_file = File::Spec->catfile($tempDir, "lcov_$$.log");
+                my $stderr_file = File::Spec->catfile($tempDir, "lcov_$$.err");
+                local (*STDERR);
+                local (*STDOUT);
+                open(STDOUT1, '>' . $stdout_file) or
+                    die($stdout_file . ': ' . $!);
+                open(STDERR1, '>' . $stderr_file) or
+                    die($stderr_file . ': ' . $!);
+                open(STDOUT, ">&STDOUT1") or
+                    die("cound not redirect stdout: $!");
+                open(STDERR, ">&STDERR1") or
+                    die("cound not redirect stderr: $!");
+
+                my @interesting =
+                    _process_segment($total_trace, $readSourceFile, $segment);
+
+                my $patterns = lcovutil::save_child_pattern_counts();
+                my $then     = Time::HiRes::gettimeofday();
+                $lcovutil::profileData{$idx}{total} = $then - $now;
+                my $file = File::Spec->catfile($tempDir, "dumper_$$");
+                Storable::store([$total_trace, \@interesting,
+                                 $function_mapping, $patterns,
+                                 \%lcovutil::profileData
+                                ],
+                                $file);
+                close(STDOUT1);
+                close(STDERR1);
+                exit(0);
+            } else {
+                $children{$pid} = [$now, $idx];
+                push(@pending, $segment);
+            }
+            $idx++;
+        }
+        # now wait for all the children to finish...
+        foreach (@pending) {
+            my $child       = wait();
+            my $now         = Time::HiRes::gettimeofday();
+            my $childstatus = $? >> 8;
+            my ($start, $idx) = @{$children{$child}};
+            lcovutil::info(
+                          1,
+                          "Merging segment $idx, status $childstatus"
+                              .
+                              (
+                              $lcovutil::debug ?
+                                  (' mem:' . lcovutil::current_process_size()) :
+                                  '') .
+                              "\n");
+            my $dumpfile = File::Spec->catfile($tempDir, "dumper_$child");
+            my $childLog = File::Spec->catfile($tempDir, "lcov_$child.log");
+            my $childErr = File::Spec->catfile($tempDir, "lcov_$child.err");
+
+            foreach my $f ($childLog, $childErr) {
+                if (open(RESTORE, "<", $f)) {
+                    # slurp into a string and eval..
+                    my $str = do { local $/; <RESTORE> };    # slurp whole thing
+                    close(RESTORE);
+                    unlink $f
+                        unless ($str && $lcovutil::preserve_intermediates);
+                    $f = $str;
+                } else {
+                    my $msg = "unable to open $f: $!";
+                    report_parallel_error('lcov', $msg);
+                    $f = $msg;
+                }
+            }
+            print(STDOUT $childLog)
+                if ($childstatus != 0 ||
+                    $lcovutil::verbose);
+            print(STDERR $childErr);
+
+            if (0 == $childstatus) {
+                # undump the data
+                my $data = Storable::retrieve($dumpfile);
+                if (defined($data)) {
+                    my ($current, $interesting, $func_map, $patterns, $profile)
+                        = @$data;
+                    my $then = Time::HiRes::gettimeofday();
+                    $lcovutil::profileData{$idx}{undump} = $then - $now;
+                    $lcovutil::profileData{$idx}{total} =
+                        $profile->{$idx}{total};
+                    # and pass back substitutions, etc.
+                    lcovutil::merge_child_pattern_counts($patterns);
+                    if ($function_mapping) {
+                        if (!defined($func_map)) {
+                            report_parallel_error('lcov',
+                                   "segment $idx returned empty function data");
+                            next;
+                        }
+                        while (my ($key, $data) = each(%$func_map)) {
+                            $function_mapping->{$key} = [$data->[0], []]
+                                unless exists($function_mapping->{$key});
+                            die("mimatched function name '" .
+                                $data->[0] . "' at $key")
+                                unless (
+                                  $data->[0] eq $function_mapping->{$key}->[0]);
+                            push(@{$function_mapping->{$key}->[1]},
+                                 @{$data->[1]});
+                        }
+                    } else {
+                        if (!defined($current)) {
+                            report_parallel_error('lcov',
+                                      "segment $idx returned empty trace data");
+                            next;
+                        }
+                        if ($total_trace->append_tracefile($current)) {
+                            # something in this segment improved coverage...so save
+                            #   the effective input files from this one
+                            push(@effective, @$interesting);
+                        }
+                    }
+                    foreach my $k ('parse', 'append') {
+                        $lcovutil::profileData{$idx}{$k} = {};
+                        while (my ($key, $val) = each(%{$profile->{$k}})) {
+                            # could keep track of the segment this ran in - so
+                            #   we see the execution time of each file in the segment
+                            #   as well as the segment overall time
+                            $lcovutil::profileData{$idx}{$k}{$key} = $val;
+                        }
+                    }
+                } else {
+                    report_parallel_error('lcov',
+                                "unable to deserialize segment $idx $dumpfile");
+                }
+            } else {
+                report_parallel_error('lcov',
+                            "child $child returned non-zero code $childstatus");
+            }
+            my $end = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{$idx}{merge} = $end - $start;
+            unlink $dumpfile
+                if -f $dumpfile;
+        }
+    } else {
+        # sequential
+        @effective = _process_segment($total_trace, $readSourceFile, \@_);
+    }
+    if (defined($lcovutil::tempdirname) &&
+        !$lcovutil::preserve_intermediates) {
+        # won't remove if directory not empty...probably what I want, for debugging
+        rmdir($lcovutil::tempdirname);
+    }
+    #...and turn any enabled filters back on...
+    lcovutil::reenable_cov_filters($save_filters);
+    # filters had been disabled - need to explicitly exclude function bodies
+    $total_trace->applyFilters();
+
+    return ($total_trace, \@effective);
 }
 
 1;

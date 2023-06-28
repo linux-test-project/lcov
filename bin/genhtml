@@ -2279,7 +2279,12 @@ sub new
     my ($class, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
 
     # [hash of lineNumber -> LineData struct, optional FunctionMap]
-    my $self = [[$base_data->version(), $current_data->version()], {}];
+    my $self = [
+                [defined($base_data) ? $base_data->version() : undef,
+                 $current_data->version()
+                ],
+                {}
+    ];
     bless $self, $class;
 
     $linemap->show_map($filename)
@@ -2407,7 +2412,7 @@ sub _categorizeLineCov
     my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
     my $lineDataMap = $self->lineMap();
 
-    my $lineCovBase    = $base_data->sum();
+    my $lineCovBase    = $base_data->sum() if defined($base_data);
     my $lineCovCurrent = $current_data->sum();
 
     # it is sufficient to just walk the 'global' (merged) line
@@ -2432,27 +2437,29 @@ sub _categorizeLineCov
         $linedata->curr_count($val);
     }
 
-    foreach my $bline ($lineCovBase->keylist()) {
-        my $cline = $linemap->lookup($filename, $linemap->OLD, $bline);
-        my $type  = $linemap->type($filename, $linemap->OLD, $bline);
-        my $linedata;
-        if ($type ne "delete") {
-            if (!defined($lineDataMap->{$cline})) {
-                $lineDataMap->{$cline} = LineData->new($type);
+    if (defined($lineCovBase)) {
+        foreach my $bline ($lineCovBase->keylist()) {
+            my $cline = $linemap->lookup($filename, $linemap->OLD, $bline);
+            my $type  = $linemap->type($filename, $linemap->OLD, $bline);
+            my $linedata;
+            if ($type ne "delete") {
+                if (!defined($lineDataMap->{$cline})) {
+                    $lineDataMap->{$cline} = LineData->new($type);
+                }
+                $linedata = $lineDataMap->{$cline};
+            } else {
+                # nothing walks the keylist so a prefix is sufficient to distiguish
+                # records that should be summarized but not displayed
+                my $dline = "<<<" . $bline;
+                if (!defined($lineDataMap->{$dline})) {
+                    $lineDataMap->{$dline} = LineData->new($type);
+                }
+                $linedata = $lineDataMap->{$dline};
             }
-            $linedata = $lineDataMap->{$cline};
-        } else {
-            # nothing walks the keylist so a prefix is sufficient to distiguish
-            # records that should be summarized but not displayed
-            my $dline = "<<<" . $bline;
-            if (!defined($lineDataMap->{$dline})) {
-                $lineDataMap->{$dline} = LineData->new($type);
-            }
-            $linedata = $lineDataMap->{$dline};
+            my $val = $lineCovBase->value($bline);
+            $linedata->lineNo("base", $bline);
+            $linedata->base_count($val);
         }
-        my $val = $lineCovBase->value($bline);
-        $linedata->lineNo("base", $bline);
-        $linedata->base_count($val);
     }
 
     foreach my $line (keys %$lineDataMap) {
@@ -2492,7 +2499,7 @@ sub _categorizeBranchCov
     my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
     my $lineDataMap = $self->lineMap();
 
-    my $branchBaseline = $base_data->sumbr();
+    my $branchBaseline = $base_data->sumbr() if defined($base_data);
     my $branchCurrent  = $current_data->sumbr();
 
     my %branchCovLines;
@@ -2524,34 +2531,36 @@ sub _categorizeBranchCov
     }    # foreach line in 'current' branch data
 
     # now look through the baseline to find matching data
-    foreach my $base_line ($branchBaseline->keylist()) {
-        my $curr_line = $linemap->lookup($filename, $linemap->OLD, $base_line);
-        my $type      = $linemap->type($filename, $linemap->OLD, $base_line);
-        my $data;
-        if ($type ne 'delete') {
-            $branchCovLines{$curr_line} = 1;
-            if (!exists($lineDataMap->{$curr_line})) {
-                $data = LineData->new($type);
-                $lineDataMap->{$curr_line} = $data;
+    if (defined($branchBaseline)) {
+        foreach my $base_line ($branchBaseline->keylist()) {
+            my $curr_line =
+                $linemap->lookup($filename, $linemap->OLD, $base_line);
+            my $type = $linemap->type($filename, $linemap->OLD, $base_line);
+            my $data;
+            if ($type ne 'delete') {
+                $branchCovLines{$curr_line} = 1;
+                if (!exists($lineDataMap->{$curr_line})) {
+                    $data = LineData->new($type);
+                    $lineDataMap->{$curr_line} = $data;
+                } else {
+                    $data = $lineDataMap->{$curr_line};
+                }
             } else {
-                $data = $lineDataMap->{$curr_line};
+                # the line has been deleted...just record the data
+                my $deleteKey = "<<<" . $base_line;
+                $branchCovLines{$deleteKey} = 1;
+                if (!exists($lineDataMap->{$deleteKey})) {
+                    $data = LineData->new($type);
+                    $lineDataMap->{$deleteKey} = $data;
+                } else {
+                    $data = $lineDataMap->{$deleteKey};
+                }
             }
-        } else {
-            # the line has been deleted...just record the data
-            my $deleteKey = "<<<" . $base_line;
-            $branchCovLines{$deleteKey} = 1;
-            if (!exists($lineDataMap->{$deleteKey})) {
-                $data = LineData->new($type);
-                $lineDataMap->{$deleteKey} = $data;
-            } else {
-                $data = $lineDataMap->{$deleteKey};
-            }
-        }
-        $data->lineNo("base", $base_line);
-        my $baseBranchData = $branchBaseline->value($base_line);
-        $data->baseline_branch($baseBranchData, $filename);
-    }    # foreach line in baseline data
-
+            $data->lineNo("base", $base_line);
+            my $baseBranchData = $branchBaseline->value($base_line);
+            $data->baseline_branch($baseBranchData, $filename);
+        }    # foreach line in baseline data
+    }
     # now go through all the branch data for each line, and categorize everything
     foreach my $line (keys(%branchCovLines)) {
         my $data        = $self->lineMap()->{$line};
@@ -2656,13 +2665,13 @@ sub _categorizeFunctionCov
     push(@$self, $differentialMap);
     my $lineDataMap = $self->lineMap();
 
-    my $funcBase    = $base_data->func();
+    my $funcBase    = $base_data->func() if defined($base_data);
     my $funcCurrent = $current_data->func();
     # use merged line coverage to categorize function by checking for
     #   edits in function range
     # $lineCovBase and $lineCovCurrent are 'CountData' objects
     #  - of lineNo->hit count
-    my $lineCovBase    = $base_data->sum();
+    my $lineCovBase    = $base_data->sum() if defined($base_data);
     my $lineCovCurrent = $current_data->sum();
 
     my %funcCovLines;
@@ -2691,40 +2700,41 @@ sub _categorizeFunctionCov
         # function data for the line
         $data->current_function($func);
     }    # foreach function in current data
-         # now look through the baseline to find matching data
-    foreach my $key ($funcBase->keylist()) {
-        my $func      = $funcBase->findKey($key);
-        my $line      = $func->line();
-        my $type      = $linemap->type($filename, $linemap->OLD, $line);
-        my $curr_line = $linemap->lookup($filename, $linemap->OLD, $line);
-        my $data;
-        if ($type ne 'delete') {
-            $funcCovLines{$curr_line} = 1;
+    if (defined($funcBase)) {
+        # now look through the baseline to find matching data
+        foreach my $key ($funcBase->keylist()) {
+            my $func      = $funcBase->findKey($key);
+            my $line      = $func->line();
+            my $type      = $linemap->type($filename, $linemap->OLD, $line);
+            my $curr_line = $linemap->lookup($filename, $linemap->OLD, $line);
+            my $data;
+            if ($type ne 'delete') {
+                $funcCovLines{$curr_line} = 1;
 
-            if (!exists($lineDataMap->{$curr_line})) {
-                $data = LineData->new($type);
-                $lineDataMap->{$curr_line} = $data;
+                if (!exists($lineDataMap->{$curr_line})) {
+                    $data = LineData->new($type);
+                    $lineDataMap->{$curr_line} = $data;
+                } else {
+                    $data = $lineDataMap->{$curr_line};
+                }
             } else {
-                $data = $lineDataMap->{$curr_line};
+                # the line has been deleted...just record the data
+                my $deleteKey = "<<<" . $line;
+                $funcCovLines{$deleteKey} = 1;
+                if (!exists($lineDataMap->{$deleteKey})) {
+                    $data = LineData->new($type);
+                    $lineDataMap->{$deleteKey} = $data;
+                } else {
+                    $data = $lineDataMap->{$deleteKey};
+                }
             }
-        } else {
-            # the line has been deleted...just record the data
-            my $deleteKey = "<<<" . $line;
-            $funcCovLines{$deleteKey} = 1;
-            if (!exists($lineDataMap->{$deleteKey})) {
-                $data = LineData->new($type);
-                $lineDataMap->{$deleteKey} = $data;
-            } else {
-                $data = $lineDataMap->{$deleteKey};
-            }
-        }
-        die("inconsistent 'base' line number")
-            if (defined($data->lineNo("base")) &&
-                $data->lineNo("base") != $line);
-        $data->lineNo("base", $line);
-        $data->baseline_function($func);
-    }    # foreach function in baseline data
-
+            die("inconsistent 'base' line number")
+                if (defined($data->lineNo("base")) &&
+                    $data->lineNo("base") != $line);
+            $data->lineNo("base", $line);
+            $data->baseline_function($func);
+        }    # foreach function in baseline data
+    }
     # now go through function data for each line and categorize...
     foreach my $line (keys %funcCovLines) {
         my $data = $lineDataMap->{$line};
@@ -2979,7 +2989,7 @@ sub type
 
     if (!defined($self->[LINEMAP]->{$file})) {
         #mapping is identity when no diff was read
-        if (defined($main::base_filename) &&
+        if (@main::base_filenames &&
             defined($main::show_tla)) {
             return "equal";    # categories will be "GIC", "UIC"
         } else {
@@ -5055,10 +5065,12 @@ package main;
 
 lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
 
-# Instance containing all data from the 'current' .info file
-our $current_data = TraceFile->new();
-# Instance containing all data from the baseline .info file (if any)
-our $base_data = TraceFile->new();
+# TraceFile Instance containing all data from the 'current' .info file
+#  - constructed at start of GenHtml
+our $current_data;
+# TraceFile Instance containing all data from the baseline .info file (if any)
+#   - constructed in GenHtml (if needed)
+our $base_data;
 # Instance containing all data from diff file
 our $diff_data = LineMap->new();
 our @opt_dir_prefix;    # Array of prefixes to remove from all sub directories
@@ -5071,7 +5083,7 @@ our $header_title;        # Title at top of HTML report page (above table)
 our $footer;              # String at bootom of HTML report page
 our $test_title;          # Title for output as written to each page header
 our $output_directory;    # Name of directory in which to store output
-our $base_filename;       # Optional name of file containing baseline data
+our @base_filenames;      # Optional: names of files containing baseline data
 our $age_basefile;        # how old is the baseline data file?
 our $baseline_title;      # Optional name of baseline - written to page headers
 our $baseline_date;       # Optional date that baseline was created
@@ -5213,7 +5225,7 @@ my %genhtml_options = (
               "description-file|d=s" => \$desc_filename,
               "keep-descriptions|k"  => \$keep_descriptions,
               "css-file|c=s"         => \$css_filename,
-              "baseline-file|b=s"    => \$base_filename,
+              "baseline-file|b=s"    => \@base_filenames,
               "baseline-title=s"     => \$baseline_title,
               "baseline-date=s"      => \$baseline_date,
               "current-date=s"       => \$current_date,
@@ -5306,10 +5318,10 @@ die(
     if ($flat && $hierarchical);
 
 $show_tla = 1
-    if defined($base_filename);
-$show_hitTotalCol = !$show_tla || defined($base_filename);
-$use_legacyLabels = !defined($base_filename) && $show_tla;
-if ($show_tla && !defined($base_filename)) {
+    if (@base_filenames);
+$show_hitTotalCol = !$show_tla || @base_filenames;
+$use_legacyLabels = 0 == scalar(@base_filenames) && $show_tla;
+if ($show_tla && 0 == scalar(@base_filenames)) {
     # no baseline - so not a differentialreport.
     #  modify some settings to gnerate corresponding RTL code.
     SummaryInfo::noBaseline();
@@ -5335,8 +5347,8 @@ if (@SourceFile::annotateScript) {
     die("\"--date-bins\" option requires \"--annotate-script\" for revision control integraion"
     ) if (0 != scalar(@datebins));
 }
-if (0 != (defined($diff_filename) ^ defined($base_filename))) {
-    if (defined($base_filename)) {
+if (0 != (defined($diff_filename) ^ scalar(@base_filenames))) {
+    if (@base_filenames) {
         warn(
             "specified --baseline-file without --diff-file: assuming no source differences.  Hope that is OK."
         );
@@ -5352,7 +5364,7 @@ if (defined($header_title)) {
 } else {
     # use the default title bar.
     $title =~ s/ differential//   # not a differential report, if no baseline...
-        unless defined($base_filename);
+        unless @base_filenames;
 }
 push(@fileview_prefixes, "-date")
     if ($show_dateBins);
@@ -5395,7 +5407,7 @@ if ($dark_mode) {
     }
 }
 
-@info_filenames = @ARGV;
+@info_filenames = AggregateTraces::find_from_glob(@ARGV);
 
 # Split the list of prefixes if needed
 parse_dir_prefix(@opt_dir_prefix);
@@ -5417,12 +5429,12 @@ if (!$test_title) {
     }
 }
 
-if ($base_filename) {
-    die("baseline data file '$base_filename' not found")
-        unless -e $base_filename;
+if (@base_filenames) {
+    @base_filenames = AggregateTraces::find_from_glob(@base_filenames);
 
     if (!$baseline_title) {
-        $baseline_title = basename($base_filename);
+        # use name of first file
+        $baseline_title = basename($base_filenames[0]);
     }
     my $baseline_create;
 
@@ -5439,8 +5451,8 @@ if ($base_filename) {
         }
     }
     if (!defined($baseline_create)) {
-        # if not specified, use 'last modified' of baseline trace file
-        my $create = (stat($base_filename))[9];
+        # if not specified, use 'last modified' of first baseline trace file
+        my $create = (stat($base_filenames[0]))[9];
         $baseline_create = DateTime->from_epoch(epoch => $create);
         $baseline_date   = get_date_string($create)
             unless defined($baseline_date);
@@ -5513,7 +5525,7 @@ if ($output_directory &&
 
 if ($save && $output_directory)
 {    # save copy of .info and diff files: useful for debugging user cases later
-    foreach my $from ($base_filename, $diff_filename, @info_filenames) {
+    foreach my $from (@base_filenames, $diff_filename, @info_filenames) {
         next unless defined($from);
         my $to = File::Spec->catfile($output_directory,
                                      File::Basename::basename($from));
@@ -5603,7 +5615,7 @@ sub print_usage(*)
     local *HANDLE = $_[0];
 
     print(HANDLE <<END_OF_USAGE);
-Usage: $tool_name [OPTIONS] TRACEFILE(S)
+Usage: $tool_name [OPTIONS] TRACEFILE_PATTERN(S)
 
 Create HTML output for coverage data found in TRACEFILE. Note that TRACEFILE
 may also be a list of filenames.
@@ -5627,7 +5639,7 @@ OPERATION
   -o, --output-directory OUTDIR     Write HTML output to OUTDIR
   -d, --description-file DESCFILE   Read test case descriptions from DESCFILE
   -k, --keep-descriptions           Do not remove unused test descriptions
-  -b, --baseline-file BASEFILE      Use BASEFILE as baseline file
+  -b, --baseline-file BASEFILE      Use BASEFILE as baseline file glob match pattern
       --annotate-script SCRIPT      Use SCRIPT to get revision control data
       --criteria-script SCRIPT      Use SCRIPT to check for acceptance criteria
       --version-script SCRIPT       Use SCRIPT to check for compatibility of
@@ -5761,19 +5773,12 @@ sub print_overall_rate($$$$)
 
 sub gen_html()
 {
-    my $new_info;
     # "Read
     my $readSourceFile = ReadCurrentSource->new();
 
     # Read in all specified .info files
     my $now = Time::HiRes::gettimeofday();
-    foreach (@info_filenames) {
-        $new_info =
-            TraceFile->load($_, $readSourceFile, $lcovutil::verify_checksum);
-
-        # Combine %new_info with %current_data
-        $current_data->append_tracefile($new_info);
-    }
+    ($current_data) = AggregateTraces::merge(@info_filenames);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{parse_current} = $then - $now;
 
@@ -5790,7 +5795,7 @@ sub gen_html()
     }
 
     # Read and apply baseline data if specified
-    if ($base_filename) {
+    if (@base_filenames) {
         $now = Time::HiRes::gettimeofday();
         my $readBaseSource = ReadBaselineSource->new($diff_data);
         $then = Time::HiRes::gettimeofday();
@@ -5798,10 +5803,7 @@ sub gen_html()
         # Read baseline file
 
         $now = Time::HiRes::gettimeofday();
-        info("Reading baseline file $base_filename\n");
-        $new_info = TraceFile->load($base_filename, $readBaseSource,
-                                    $lcovutil::verify_checksum);
-        $base_data->append_tracefile($new_info);
+        ($base_data) = AggregateTraces::merge(@base_filenames);
         info("Found %d baseline entries.\n", scalar($base_data->files()));
         $then = Time::HiRes::gettimeofday();
         $lcovutil::profileData{parse_baseline} = $then - $now;
@@ -6083,7 +6085,8 @@ sub process_file($$$$$)
     my $baseline_filename = $diff_data->baseline_file_name($filename);
     # when looking up the baseline file, handle the case that the
     #  pathname does not match exactly - see comment in TraceFile::data
-    my $fileBase    = $base_data->data($baseline_filename, 1);
+    my $fileBase = $base_data->data($baseline_filename, 1)
+        if defined($base_data);
     my $fileCurrent = $current_data->data($filename);
     # build coverage differential categories
     my $now = Time::HiRes::gettimeofday();
@@ -6101,10 +6104,10 @@ sub process_file($$$$$)
         if $lcovutil::br_coverage && $br_found != 0;
     info($r . "\n");
 
-    my $fileHasNoBaselineInfo =
-        ($fileBase->is_empty() &&
-         $main::treatNewFileAsBaseline &&
-         defined($main::base_filename));
+    my $fileHasNoBaselineInfo = (
+                                !defined($fileBase) || ($fileBase->is_empty() &&
+                                                $main::treatNewFileAsBaseline &&
+                                                @main::base_filenames));
     # if this file is older than the baseline and there is no associated
     #   baseline data - then it appears to have been added to the build
     #   recently
@@ -9667,7 +9670,7 @@ END_OF_HTML
     } else {
         my $totalTitle = "Covered + Uncovered code";
         my $hitTitle   = "Exercised code only";
-        if (defined($main::base_filename)) {
+        if (@main::base_filenames) {
             $totalTitle .= " (not including EUB, ECB, DUB, DCB categories)";
             $hitTitle   .= " (CBC + GBC + GNC + GIC)";
         }

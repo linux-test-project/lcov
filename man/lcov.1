@@ -124,6 +124,15 @@ Aggregate multiple coverage tracefiles into one:
 .RB [ \-\-no\-checksum ]
 .br
 .RE
+
+Depending on your use model, it may not be necessary to create aggregate coverage data files.
+For example, if your regression tests are split into multiple suites, you may want to keep separate suite data and to compare both per-suite and aggregate results over time.
+.B genhtml
+allows you specify tracefiles via one or more glob patterns - which enables you
+generate aggregate reports without explicitly generating aggregated trace files.
+See the
+.B genhtml
+man page.
 .RE
 
 Generate new tracefile from existing tracefile, keeping only data from files matching pattern:
