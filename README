@@ -292,6 +292,7 @@ New features and capabilities fall into 7 major categories:
              - Git: see 'gitdiff' and 'gitblame'
         ii) verify that source code versions are compatible, and
             Sample scripts: see 'get_signature', 'getp4version'
+            and 'gitversion'
         iii) enforce a desired code coverage criteria
              Sample script: criteria
 

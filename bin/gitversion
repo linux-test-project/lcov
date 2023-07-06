@@ -16,10 +16,16 @@
 #   <http://www.gnu.org/licenses/>.
 #
 #
-# getp4version
+# gitversion --p4 --md5 pathname OR
+# gitversion --compare old_version new_version pathname
 #
-#   This is a sample script which uses perforce commands to determine
-#   the version of the filename passed in.
+#   If the '--p4' flag is used:
+#     we assume that the GIT repo is cloned from Perforce - and look for
+#     the line in the generated commit log message which tells us the perforce
+#     changelist ID that we actually want.
+
+#   This is a sample script which uses git commands to determine
+#   the version of the filename parameter.
 #   Version information (if present) is used during ".info" file merging
 #   to verify that the data the user is attempting to merge is for the same
 #   source code/same version.
@@ -30,6 +36,7 @@ use POSIX qw(strftime);
 use Getopt::Long;
 use File::Spec;
 use Cwd qw(abs_path);
+use strict;
 
 sub get_modify_time($)
 {
@@ -43,15 +50,18 @@ sub get_modify_time($)
 sub usage
 {
     print(STDERR "usage: $0 --compare old_version new_version filename OR\n" .
-          "       $0 [--md5] filename\n");
+          "       $0 [--md5] [--p4] filename\n");
 }
 
 my $compare;
 my $use_md5;    # if set, append md5 checksum to the P4 version string
+my $mapp4;
 if (!GetOptions("--compare" => \$compare,
-                "--md5"     => \$use_md5) ||
+                "--md5"     => \$use_md5,
+                "--p4"      => \$mapp4) ||
     ($compare && scalar(@ARGV) != 3)
 ) {
+
     usage();
     exit(1);
 }
@@ -65,8 +75,8 @@ if ($compare) {
 
 die("Error: $filename does not exist")
     unless (-e $filename);
-$pathname = abs_path($filename);
-my $null = File::Spec->devnull();    # more portable way to do it
+my $pathname = abs_path($filename);
+my $null     = File::Spec->devnull();
 if ($use_md5) {
     $use_md5 = `md5sum $pathname 2>$null`;
     $use_md5 =~ /^(\S+)/;
@@ -74,23 +84,38 @@ if ($use_md5) {
 }
 
 my $version;
-if (0 ==
-    system("p4 files $pathname 2>$null|grep -qv -- '- no such file' >$null")) {
-    my $have = `p4 have $pathname`;
-    if ($have =~ /#([0-9]+) - /) {
-        $version = "#$1";
-    } else {
-        $version = '@head';
+if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
+    # in a git repo
+    my $log = `git log --oneline -1 $pathname 2>$null`;
+    if (0 == $? &&
+        $log =~ /^(\S+) /) {
+        $version = $1;
+        if ($mapp4) {
+            if (open(GITLOG, '-|', "git show -s $version")) {
+                while (my $l = <GITLOG>) {
+                    # p4sync puts special comment in commit log.
+                    #  pull the CL out of that.
+                    if ($l =~ /git-p4:.+change = ([0-9]+)/) {
+                        $version = "CL $1";
+                        last;
+                    }
+                }
+            } else {
+                die("unable to execute 'git show -s $version': $!");
+            }
+            close(GITLOG) or die("unable to close");
+        } else {
+            $version = "SHA $version";
+        }
+        my $diff = `git diff $pathname 2>$null`;
+        if ('' ne $diff) {
+            $version .= ' edited ' . get_modify_time($pathname);
+            $version .= " md5:$use_md5"
+                if $use_md5;
+        }
     }
-
-    my $opened = `p4 opened $pathname 2>$null`;
-    if ($opened =~ /edit (default change|change (\S+)) /) {
-        # file is locally edited...append modify time to the version ID
-        $version .= ' edited ' . get_modify_time($pathname);
-    }
-    $version .= " md5:$use_md5"
-        if $use_md5;
-} else {
+}
+if (!$version) {
     # not in P4 - just print the modify time, so we have a prayer of
     #  noticing file differences
     $version = get_modify_time($pathname);
@@ -98,4 +123,3 @@ if (0 ==
         if ($use_md5);
 }
 print($version . "\n");
-

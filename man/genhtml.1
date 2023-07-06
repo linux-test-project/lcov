@@ -1200,11 +1200,16 @@ A version ID can be a file hash or commit ID from revision control. It is used t
 Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - e.g., when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revisions.
 .br
 
-Sample scripts for Perforce ("getp4version") and using an md5 hash ("get_signature") are provided as part of this package in the following locations:
+Sample scripts for Perforce ("getp4version"), git ("gitversion") and using an md5 hash ("get_signature") are provided as part of this package in the following locations:
 .br
 
 .RS
 .I \*[scriptdir]/getp4version
+.RE
+.br
+
+.RS
+.I \*[scriptdir]/gitversion
 .RE
 .br
 

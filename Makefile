@@ -50,7 +50,7 @@ FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 
 EXES = lcov genhtml geninfo genpng gendesc
 SCRIPTS = p4udiff p4annotate getp4version get_signature gitblame gitdiff \
-	criteria analyzeInfoFiles spreadsheet.py py2lcov
+	criteria analyzeInfoFiles spreadsheet.py py2lcov gitversion
 LIBS = lcovutil.pm
 MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 \
 	man1/gendesc.1 man5/lcovrc.5
