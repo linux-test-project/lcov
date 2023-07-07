@@ -3576,7 +3576,9 @@ sub new
     if ($hasNoBaselineData) {
         my $fileAge = $self->age();
         if (defined($fileAge) &&
-            $fileAge > $main::age_basefile) {
+            (!defined($main::age_basefile) ||
+                $fileAge > $main::age_basefile)
+        ) {
             # go through the fileCov data and change UIC->UBC, GIC->CBC
             #  - pretend that we already saw this file data - this is the first
             #    coverage report which contains this data.
