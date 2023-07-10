@@ -644,7 +644,12 @@ exclude pattern, the exclude pattern will take precedence.
 .RS
 Exclude coverage data from lines which fall within a function whose name matches the supplied regexp.  Note that this is a mangled or demangled name, depending on whether the \-\-demangle\-cpp option is used or not.
 
-Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports.
+Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports or that you configure the tool to derive the required dta - see the
+.BI derive_function_end_line
+discussion in the
+.B lcovrc
+man page.
+
 
 .RE
 .B \-\-substitute

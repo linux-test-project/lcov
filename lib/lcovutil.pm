@@ -4218,7 +4218,7 @@ sub _eraseFunctions
             if (!defined($didUnsupportedWarning)) {
                 $didUnsupportedWarning = 1;
                 lcovutil::ignorable_error($ERROR_UNSUPPORTED,
-                    "Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer"
+                    "Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer.   See lcovrc man entry for 'derive_function_end_line'."
                 );
             }
             # we can skip out of processing if we don't know the end line
@@ -4322,7 +4322,7 @@ sub applyFilters
                             lcovutil::ignorable_error(
                                 $lcovutil::ERROR_INCONSISTENT_DATA,
                                 "\"$name\":$first:  function " . $func->name() .
-                                    " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
+                                    " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line.  See lcovrc man entry for 'derive_function_end_line'."
                             );
                         }
                         next FUNC;
@@ -4351,7 +4351,7 @@ sub applyFilters
                                     $lcovutil::ERROR_INCONSISTENT_DATA,
                                     "\"$name\":$first:  function " .
                                         $func->name() .
-                                        ": last line in file is not last line of function"
+                                        ": last line in file is not last line of function.  See lcovrc man entry for 'derive_function_end_line'."
                                 );
                                 next FUNC;
                             }
@@ -4361,7 +4361,7 @@ sub applyFilters
                         lcovutil::ignorable_error(
                             $lcovutil::ERROR_INCONSISTENT_DATA,
                             "\"$name\":$first:  function " . $func->name() .
-                                " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
+                                " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line.  See lcovrc man entry for 'derive_function_end_line'."
                         );
 
                         # last FUNC; # quit looking here - all the other functions after this one will have same issue
@@ -5346,7 +5346,8 @@ sub _process_segment($$$)
                            ($lcovutil::debug ?
                                 (' mem:' . lcovutil::current_process_size()) :
                                 '') .
-                           "\n");    # ...in segment $segId
+                           "\n"
+        ) if (1 != scalar(@$segment));    # ...in segment $segId
         if (!-f $tracefile ||
             -z $tracefile) {
             lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
@@ -5403,7 +5404,13 @@ sub _process_segment($$$)
 
 sub merge
 {
-    lcovutil::info("Combining tracefiles.\n");
+    my $nTests = scalar(@_);
+    if (1 < $nTests) {
+        lcovutil::info("Combining tracefiles.\n");
+    } else {
+        lcovutil::info("Reading tracefile $_[0].\n");
+    }
+
     $lcovutil::profileData{parse} = {}
         unless exists($lcovutil::profileData{parse});
     $lcovutil::profileData{append} = {}
@@ -5440,7 +5447,8 @@ sub merge
         }
     }
 
-    if (1 != $lcovutil::maxParallelism) {
+    if (1 != $lcovutil::maxParallelism &&
+        1 < $nTests) {
         # parallel implementation is to segment the file list into N
         #  segments, then parse-and-merge scalar(@merge)/N files in each slave,
         #  then merge the slave result.
@@ -5459,7 +5467,6 @@ sub merge
         #   in the same segment.
 
         my @segments;
-        my $nTests = scalar(@_);
         my $testsPerSegment =
             ($nTests > $lcovutil::maxParallelism) ?
             floor(($nTests + $lcovutil::maxParallelism - 1) /
