@@ -30,7 +30,7 @@
 #   to verify that the data the user is attempting to merge is for the same
 #   source code/same version.
 #   If the version is not the same - then line numbers, etc. may be different
-#   and soem very strange errors may occur.
+#   and some very strange errors may occur.
 
 use POSIX qw(strftime);
 use Getopt::Long;
@@ -85,8 +85,8 @@ if ($use_md5) {
 
 my $version;
 if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
-    # in a git repo
-    my $log = `git log --oneline -1 $pathname 2>$null`;
+    # in a git repo - use full SHA.
+    my $log = `git log --no-abbrev --oneline -1 $pathname 2>$null`;
     if (0 == $? &&
         $log =~ /^(\S+) /) {
         $version = $1;
