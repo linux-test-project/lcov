@@ -142,8 +142,8 @@ if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent"
 fi
 
-echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE
+echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --memory 20
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --memory 20
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then

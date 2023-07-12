@@ -98,7 +98,7 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  strip_directories transform_pattern
                  @extractVersionScript $verify_checksum
 
-                 $maxParallelism init_parallel_params $maxMemory
+                 $maxParallelism $maxMemory
   );
 
 # Directory containing gcov kernel files
@@ -937,7 +937,8 @@ sub lcov_geninfo(@)
     if (defined($lcovutil::maxParallelism)) {
         push(@param, '--parallel', $lcovutil::maxParallelism);
     }
-    push(@param, '--memory', $lcovutil::maxMemory / (1 << 20));
+    # memory has not been multiplied by Mb yet - so just pass the integer value
+    push(@param, '--memory', $lcovutil::maxMemory);
     push(@param, "--branch-coverage") if $lcovutil::br_coverage;
     # windows
     #  Kind of hacky to fork another script here.
