@@ -24,7 +24,7 @@ class GenerateSpreadsheet(object):
         # keep a list of sheets so we can insert a summary..
         geninfoSheets = []
         summarySheet = s.add_worksheet("geninfo_summary")
-        geninfoKeys = ('process', 'child', 'parse', 'append', 'exec', 'merge', 'undump')
+        geninfoKeys = ('order', 'process', 'child', 'parse', 'append', 'exec', 'read', 'translate', 'merge', 'undump')
 
         self.formats = {
             'twoDecimal': s.add_format({'num_format': '0.00'}),
@@ -115,6 +115,8 @@ class GenerateSpreadsheet(object):
             col -= 1
             for key in keys:
                 col += 1
+                if key in ('order',):
+                    continue
                 f = xl_rowcol_to_cell(beginRow, col)
                 t = xl_rowcol_to_cell(endRow, col)
 
@@ -290,6 +292,8 @@ class GenerateSpreadsheet(object):
                     summarySheet.write_string(titleRow, 0, "case", title)
                     col = 1
                     for k in ('total', *geninfoKeys):
+                        if k in ('order',):
+                            continue
                         summarySheet.write_string(titleRow, col, k, title)
                         col += 1
                         if k == 'total':
@@ -336,11 +340,11 @@ class GenerateSpreadsheet(object):
                 # geninfo call
                 sum = xl_rowcol_to_cell(totalRow, 1)
                 summarySheet.write_formula(summaryRow, summaryCol,
-                                           sheetRef + sum)
+                                           sheetRef + sum, twoDecimal)
                 summaryCol += 1
                 parallel = xl_rowcol_to_cell(totalRow, 2)
                 summarySheet.write_formula(summaryRow, summaryCol,
-                                           sheetRef + parallel)
+                                           sheetRef + parallel, twoDecimal)
                 summaryCol += 1
                 col = 3;
                 sheet.write_string(row, col, 'cumulative')
@@ -350,14 +354,15 @@ class GenerateSpreadsheet(object):
                 #  for each step into the summary sheet.
                 for k in geninfoKeys:
                     sheet.write_string(row, col, k)
-                    sum = xl_rowcol_to_cell(row+1, col)
-                    summarySheet.write_formula(summaryRow, summaryCol,
-                                               sheetRef + sum)
-                    summaryCol +=1
-                    avg = xl_rowcol_to_cell(row+2, col)
-                    summarySheet.write_formula(summaryRow, summaryCol,
-                                               sheetRef + avg)
-                    summaryCol +=1
+                    if k not in ('order'):
+                        sum = xl_rowcol_to_cell(row+1, col)
+                        summarySheet.write_formula(summaryRow, summaryCol,
+                                                   sheetRef + sum, twoDecimal)
+                        summaryCol +=1
+                        avg = xl_rowcol_to_cell(row+2, col)
+                        summarySheet.write_formula(summaryRow, summaryCol,
+                                                   sheetRef + avg, twoDecimal)
+                        summaryCol +=1
                     col += 1
                 row += 1
                 sumRow = row
@@ -411,11 +416,14 @@ class GenerateSpreadsheet(object):
                             # undump: dumper 'eval' call + stdout/stderr recovery
                             # parse: time to read child tracefile.info
                             # append: time to merge that into parent master report
-
                             for key in geninfoKeys:
                                 try:
-                                    val = float(data[key][dirname][f])
-                                    sheet.write_number(row, col, val, twoDecimal)
+                                    if key in ('order',):
+                                        val = data[key][dirname][f]
+                                        sheet.write_number(row, col, val, intFormat)
+                                    else:
+                                        val = float(data[key][dirname][f])
+                                        sheet.write_number(row, col, val, twoDecimal)
                                     if key in sawData:
                                         sawData[key] += 1
                                     else:
@@ -426,7 +434,7 @@ class GenerateSpreadsheet(object):
                             row += 1
 
                 effectiveParallelism = "+%(sum)s/%(total)s" % {
-                    'sum': xl_rowcol_to_cell(sumRow, 4),
+                    'sum': xl_rowcol_to_cell(sumRow, 3),
                     'total': total,
                 }
                 sheet.write_formula(totalRow, 2, effectiveParallelism, twoDecimal)

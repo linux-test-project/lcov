@@ -246,6 +246,8 @@ our $gcno_split_crc;
 our $rc_auto_base    = 1;
 our $rc_intermediate = "auto";
 our $intermediate;
+our $totalChildCpuTime    = 0;
+our $intervalChildCpuTime = 0;    # since last updata
 
 our $cwd = getcwd();
 chomp($cwd);
@@ -780,6 +782,8 @@ sub _process_one_file($$$$)
         $trace->applyFilters();
         $trace->write_info_file(solve_relative_path($cwd, $name . ".info"),
                                 $lcovutil::verify_checksum);
+        my $then = Time::HiRes::gettimeofday();
+        $lcovutil::profileData{filter}{$searchdir}{$name} = $then - $now;
         $files_created++;
     }
 
@@ -822,6 +826,9 @@ sub _merge_one_child($$$$$)
             # HGC:  need to pass back substitutions, etc.
             lcovutil::merge_child_pattern_counts($patterns);
             lcovutil::merge_child_profile($profile);
+            my $childCpuTime = $profile->{child}{$directory}{$filename};
+            $totalChildCpuTime    += $childCpuTime;
+            $intervalChildCpuTime += $childCpuTime;
 
             $files_created += $num_files;
 
@@ -905,6 +912,16 @@ sub gen_info($)
     my $total          = scalar(@file_list);
     my $processedFiles = 0;
     my $start          = Time::HiRes::gettimeofday();
+    my $intervalStart  = $start;
+    # process at least 10 files per core before printing stats
+    my $intervalLength = $maxParallelism * 10;
+    $intervalLength = 200 if $intervalLength < 200;
+    # keep track of new source files and new coverpoints found in each interval
+    my @intervalData = (0,    # files
+                        0,    # lines
+                        0,    # branches
+                        0     # functions
+    );
     DATA_FILE: foreach my $fileData (@file_list) {
         #  $filename will be .gcda or .gcno.
         #  expect gcno only if --initial
@@ -1000,17 +1017,47 @@ sub gen_info($)
                                  $childstatus);
                 --$currentParallel;
             }
-            if (0 == ($processedFiles % 200)) {
-                my $now     = Time::HiRes::gettimeofday();
-                my $elapsed = $now - $start;
-                my $rate    = $processedFiles / $elapsed;
+            if (0 == ($processedFiles % $intervalLength)) {
+                my $now          = Time::HiRes::gettimeofday();
+                my $elapsed      = $now - $start;
+                my $intervalTime = $now - $intervalStart;
+                my $rate         = $processedFiles / $elapsed;
+                my $average      = $totalChildCpuTime / $processedFiles;
+                my $interval     = $intervalChildCpuTime / $intervalLength;
+                $intervalChildCpuTime = 0;
+                $intervalStart        = $now;
+                # compute average wall clock files/s and individual s/file (actual CPU)
+                #  for overall processing of all files and for files during this
+                #  interval.  Might be useful to observe performance issues during
+                #  execution.
                 lcovutil::info(
-                    "files remaining: $total"
-                        .
-                        sprintf(
-                           " (%0.2f files/s - predict %0.2f minutes remaining)",
-                           $rate, ($total) / ($rate * 60)) .
-                        "\n");
+                    "elapsed:%0.1fm: remaining:%d files %0.1fm: %0.2f files/s %0.2f s/file (interval:%0.2f f/s %0.2f s/f)\n",
+                    $elapsed / 60,
+                    $total,
+                    ($total) / ($rate * 60),
+                    $rate,
+                    $average,
+                    $intervalLength / $intervalTime,
+                    $interval);
+                # how many new source files and new coverpoints have been found
+                #   in this interval?
+                my @counts = $trace_data->count_totals();
+                if ($counts[0] != $intervalData[0]      || # number source files
+                    $counts[1]->[0] != $intervalData[1] || # line coverpoints
+                    $counts[2]->[0] != $intervalData[2] || # branch coverpoints
+                    $counts[3]->[0] != $intervalData[3]
+                    )    # function coverpoints
+                {
+                    lcovutil::info(1,
+                                   "  added files:%d ln:%d br:%d fn:%d\n",
+                                   $counts[0] - $intervalData[0],
+                                   $counts[1]->[0] - $intervalData[1],
+                                   $counts[2]->[0] - $intervalData[2],
+                                   $counts[3]->[0] - $intervalData[3]);
+                    @intervalData = ($counts[0], $counts[1]->[0],
+                                     $counts[2]->[0], $counts[3]->[0]);
+                }
+
             }
 
             my $now      = Time::HiRes::gettimeofday();
@@ -1043,12 +1090,11 @@ sub gen_info($)
                 # using 'capture' here so that we can both capture/redirect geninfo
                 #   messages from a child process during parallel execution AND
                 #   redirect stdout/stderr from gcov calls.
-                # It does not work directly open/reopne the STDOUT and STDERR
+                # It does not work to directly open/reopen the STDOUT and STDERR
                 #   descriptors due to interactions between the child and parent
                 #   processes (see the Capture::Tiny doc for some details)
                 my $childInfo;
                 my ($stdout, $stderr, $code) = Capture::Tiny::capture {
-                    $trace_data = undef;
                     $childInfo =
                         _process_one_file($searchdir, $gcda_file, $gcno_file,
                                           $$);
@@ -1065,7 +1111,12 @@ sub gen_info($)
                     unlink $f if -f $f && !$lcovutil::preserve_intermediates;
                 }
                 my $patterns = lcovutil::save_child_pattern_counts();
-                my $done     = Time::HiRes::gettimeofday();
+
+                # keep track of order - so we can estimate which files were processed
+                # at same time
+                $lcovutil::profileData{order}{$searchdir}{$filename} =
+                    $processedFiles - 1;
+                my $done = Time::HiRes::gettimeofday();
 
                 # keep separate timestamp for when this child block was entered
                 # vs when fork() was called - lest this job waited in queue for
@@ -1074,6 +1125,11 @@ sub gen_info($)
                     $done - $now;
                 $lcovutil::profileData{child}{$searchdir}{$filename} =
                     $done - $childStart;
+                # keep track of order - so we can estimate which files was processed
+                # at same time
+                $lcovutil::profileData{order}{$searchdir}{$filename} =
+                    $processedFiles - 1;
+
                 # dump parsed data - then read back and merge
                 Storable::store([$single_file ? $childInfo : undef,
                                  $patterns,
@@ -2544,6 +2600,7 @@ sub process_intermediate($$$$)
     # Parse resulting file(s)
     # 'meson' build system likes to use "." as leading character in generated
     # files.  Seems an unfortunate decision.
+    my $start = Time::HiRes::gettimeofday();
     for my $gcov_filename (
         glob(
             "$tempdir/*.gcov $tempdir/.*.gcov $tempdir/*.gcov.json.gz $tempdir/.*gcov.json.gz"
@@ -2562,6 +2619,8 @@ sub process_intermediate($$$$)
             unlink($gcov_filename);
         }
     }
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{read}{$searchdir}{$filename} = $end - $start;
 
     if (!%data) {
         ignorable_warning($ERROR_GCOV,
@@ -2598,6 +2657,8 @@ sub process_intermediate($$$$)
     my $trace =
         $json_format ? intermediate_json_to_info(\%data) :
         intermediate_text_to_info(\%data);
+    my $done = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{translate}{$searchdir}{$filename} = $done - $end;
 
     return $trace;
 

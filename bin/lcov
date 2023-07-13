@@ -2564,29 +2564,15 @@ sub summary()
         $total->append_tracefile($current);
     }
     # Calculate coverage data
-    foreach my $filename ($total->files()) {
-        my $entry = $total->data($filename);
-        my $ln_found;
-        my $ln_hit;
-        my $fn_found;
-        my $fn_hit;
-        my $br_found;
-        my $br_hit;
-        (undef, undef, undef, undef, undef,
-         undef, undef, $ln_found, $ln_hit, $fn_found,
-         $fn_hit, $br_found, $br_hit) = $entry->get_info();
+    my @counts = $total->count_totals();
 
-        # Add to totals
-        $ln_total_found += $ln_found;
-        $ln_total_hit   += $ln_hit;
-        $fn_total_found += $fn_found;
-        $fn_total_hit   += $fn_hit;
-        $br_total_found += $br_found;
-        $br_total_hit   += $br_hit;
-    }
-
-    return ($ln_total_found, $ln_total_hit, $fn_total_found,
-            $fn_total_hit, $br_total_found, $br_total_hit);
+    #return ($ln_total_found, $ln_total_hit, $fn_total_found,
+    #        $fn_total_hit, $br_total_found, $br_total_hit);
+    my @return;
+    push(@return, @{$counts[1]});    # lines: total, hit
+    push(@return, @{$counts[3]});    # functions: total, hit
+    push(@return, @{$counts[2]});    # branches: total, hit
+    return @return;
 }
 
 sub setup_gkv_sys()

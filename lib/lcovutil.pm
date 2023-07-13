@@ -4074,6 +4074,28 @@ sub file_exists
     return exists($self->{$name});
 }
 
+sub count_totals
+{
+    my $self = shift;
+    # return list of (number files, [#lines, #hit], [#branches, #hit], [#functions,#hit])
+    my @data = (0, [0, 0], [0, 0], [0, 0]);
+    foreach my $filename ($self->files()) {
+        my $entry = $self->data($filename);
+        my ($ln_found, $ln_hit, $fn_found, $fn_hit, $br_found, $br_hit);
+        (undef, undef, undef, undef, undef,
+         undef, undef, $ln_found, $ln_hit, $fn_found,
+         $fn_hit, $br_found, $br_hit) = $entry->get_info();
+        ++$data[0];
+        $data[1]->[0] += $ln_found;
+        $data[1]->[1] += $ln_hit;
+        $data[2]->[0] += $br_found;
+        $data[2]->[1] += $br_hit;
+        $data[3]->[0] += $fn_found;
+        $data[3]->[1] += $fn_hit;
+    }
+    return @data;
+}
+
 sub skipCurrentFile
 {
     my $filename = shift;
