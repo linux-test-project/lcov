@@ -1095,6 +1095,8 @@ sub gen_info($)
             my $then = Time::HiRes::gettimeofday();
             $lcovutil::profileData{process}{$searchdir}{$filename} =
                 $then - $now;
+            $lcovutil::profileData{order}{$searchdir}{$filename} =
+                $processedFiles - 1;
             if ($single_file && defined($fileData)) {
                 if (defined($trace_data)) {
                     $trace_data->append_tracefile($fileData);
@@ -1427,7 +1429,7 @@ sub process_dafile($$$$)
             }
             $source_filename = lcovutil::subst_file_name($source_filename);
             if (TraceFile::skipCurrentFile($source_filename)) {
-                $lcovutil::excluded_files{$source_filename} = ();
+                $lcovutil::excluded_files{$source_filename} = 1;
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next GCOV_FILE_LOOP;
             }
@@ -2095,9 +2097,6 @@ sub read_intermediate_json($$$)
         utf8::encode($file->{"file"});
 
         my $filename = $file->{"file"};
-        # substitute filename here
-        $filename = lcovutil::subst_file_name($filename);
-
         $data->{$filename} = $file;
     }
 }
@@ -2125,7 +2124,10 @@ sub intermediate_text_to_info($)
     my $traceFile = TraceFile->new();
 
     my ($warnedLine, $warnedBranch, $warnedFunction);    # once only
-    for my $filename (keys(%{$data})) {
+    while (my ($filename, $fileStr) = each(%$data)) {
+        # note that we already substituted the source file name and handled
+        # include/exclude directives - so no need to check here
+        # see 'adjust_source_filenames() and 'filter_source_files()
 
         lcovutil::info(1, "emit data for $filename\n");
 
@@ -2141,7 +2143,7 @@ sub intermediate_text_to_info($)
             $fileData->version($version)
                 if (defined($version) && $version ne "");
         }
-        for my $line (split(/\n/, $data->{$filename})) {
+        for my $line (split(/\n/, $fileStr)) {
             if ($line =~ /^lcount:(\d+),(\d+),?/) {
                 # lcount:<line>,<count>
                 # lcount:<line>,<count>,<has_unexecuted_blocks>
@@ -2236,6 +2238,9 @@ sub intermediate_json_to_info($)
     my ($warnedLine, $warnedBranch, $warnedFunction, $warnedUnexecuted)
         ;    # once only
     while (my ($filename, $file_data) = each(%$data)) {
+        # note that we already substituted the source file name and handled
+        # include/exclude directives - so no need to check here
+        # see 'adjust_source_filenames() and 'filter_source_files()
         # there is no meaningful parse location for this data
         my $fileData    = $traceFile->data($filename);
         my $functionMap = $fileData->testfnc($test_name);
@@ -2560,7 +2565,7 @@ sub process_intermediate($$$$)
 
     if (!%data) {
         ignorable_warning($ERROR_GCOV,
-                          "WARNING: GCOV did not produce any data for $file");
+                          "GCOV did not produce any data for $file");
         return;
     }
 

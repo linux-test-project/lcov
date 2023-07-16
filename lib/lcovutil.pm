@@ -1417,7 +1417,7 @@ sub ignorable_warning($$;$)
         !$ignore[$code]) {
         # only tell the user how to suppress this on the first occurrence
         my $ignoreOpt =
-            ($message_count[$code] == 1) ? "" :
+            ($message_count[$code] != 1) ? "" :
             "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
         warn_handler("Warning: $msg\n$ignoreOpt");
     }
@@ -4079,13 +4079,11 @@ sub skipCurrentFile
     my $filename = shift;
 
     # check whether this file should be excluded or not...
-    if (@lcovutil::exclude_file_patterns) {
-        foreach my $p (@lcovutil::exclude_file_patterns) {
-            my $pattern = $p->[0];
-            if ($filename =~ $pattern) {
-                ++$p->[-1];
-                return 1;    # all done - explicitly excluded
-            }
+    foreach my $p (@lcovutil::exclude_file_patterns) {
+        my $pattern = $p->[0];
+        if ($filename =~ $pattern) {
+            ++$p->[-1];
+            return 1;    # all done - explicitly excluded
         }
     }
     if (@lcovutil::include_file_patterns) {
@@ -4119,12 +4117,12 @@ sub data
             $base = lc($base) if $lcovutil::case_insensitive;
             my $count = 0;
             my $found;
-            foreach my $f (keys %$self) {
+            foreach my $f (keys %$files) {
                 my $b = File::Basename::basename($f);
                 $b = lc($b) if $lcovutil::case_insensitive;
                 if ($b eq $base) {
                     $count++;
-                    $found = $self->{$f};
+                    $found = $files->{$f};
                 }
             }
             return $found

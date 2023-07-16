@@ -1732,7 +1732,7 @@ sub list()
     }
     # Get common file path prefix
     my $prefix = get_prefix($max_width - $fwidth_narrow_length,
-                            $max_long, keys(%{$data}));
+                            $max_long, $data->files());
     my $root_prefix = ($prefix eq rootdir());
     my $got_prefix  = (length($prefix) > 0);
     $prefix =~ s/$lcovutil::dirseparator$//;
