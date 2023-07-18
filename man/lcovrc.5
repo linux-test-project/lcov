@@ -1500,6 +1500,42 @@ instead.  The new option is preferred as it is more clear that the option is use
 Default is 0.
 .PP
 
+.BR geninfo_chunk_size " ="
+.IR integer [%]
+.IP
+Specify the number of GCDA files which should be processed per-call in each child process.
+This parameter affects the balance of CPU time spent in the child and thus the number of completed child processes which are queued to be merged into the parent - which then affects the queuing delay.  Higher queuing delay lowers the effective parallelism.
+
+The default is 80% of
+.I total_number_of_gcda_files / maximum_number_of_parallel_children,
+the average number of files expected to be processed by each child.
+See the
+.I \-\-parallel
+entry in the
+.B geninfo
+man page.
+
+The argument may be either an integer value to be used as the chunk size or
+a percentage of the average number files processed per child.
+
+This option has no effect unless the
+.I \-\-parallel
+option has been specified.
+
+.PP
+.BR geninfo_interval_update " ="
+.IR integer
+.IP
+Seet the percentage of GCDA files which should be processed between console/progress
+updates.  This setting may be useful for parameter tuning and debugging apparent performance issues.
+
+The default is 5%.
+
+This option has no effect unless the
+.I \-\-parallel
+option has been specified.
+
+.PP
 .BR lcov_gcov_dir " ="
 .I path_to_kernel_coverage_data
 .IP
