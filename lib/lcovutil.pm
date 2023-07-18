@@ -4011,6 +4011,9 @@ sub suppressCloseBrace
 package TraceFile;
 
 our $ignore_testcase_name;    # use default name, if set
+use constant {
+              FILES    => 0,
+};
 
 sub load
 {
@@ -4028,7 +4031,7 @@ sub load
 sub new
 {
     my $class = shift;
-    my $self  = {};
+    my $self  = [{}, []];
     bless $self, $class;
 
     return $self;
@@ -4053,7 +4056,7 @@ sub empty
 {
     my $self = shift;
 
-    return !keys(%$self);
+    return !keys(%{$self->[FILES]});
 }
 
 sub files
@@ -4064,14 +4067,14 @@ sub files
     #  lower case (so they can be found) - but return the actual
     #  names of the files (mixed case)
 
-    return keys %$self;
+    return keys %{$self->[FILES]};
 }
 
 sub file_exists
 {
     my ($self, $name) = @_;
     $name = lc($name) if $lcovutil::case_insensitive;
-    return exists($self->{$name});
+    return exists($self->[FILES]->{$name});
 }
 
 sub count_totals
@@ -4127,9 +4130,9 @@ sub data
     my $file                  = shift;
     my $checkMatchingBasename = shift;
 
-    my $key = $lcovutil::case_insensitive ? lc($file) : $file;
-
-    if (!defined($self->{$key})) {
+    my $key   = $lcovutil::case_insensitive ? lc($file) : $file;
+    my $files = $self->[FILES];
+    if (!defined($files->{$key})) {
         if (defined $checkMatchingBasename) {
             # check if there is a file in the map that has the same basename
             #  as the lone we are looking for.
@@ -4150,10 +4153,10 @@ sub data
             return $found
                 if $count == 1;
         }
-        $self->{$key} = TraceInfo->new($file);
+        $files->{$key} = TraceInfo->new($file);
     }
 
-    return $self->{$key};
+    return $files->{$key};
 }
 
 sub remove
@@ -4162,7 +4165,7 @@ sub remove
     $filename = lc($filename) if $lcovutil::case_insensitive;
     $self->file_exists($filename) or
         die("remove nonexistent file $filename");
-    delete($self->{$filename});
+    delete($self->[FILES]->{$filename});
 }
 
 sub insert
@@ -4173,7 +4176,7 @@ sub insert
         if $self->file_exists($filename);
     die("expected TraceInfo got '" . ref($data) . "'")
         unless (ref($data) eq 'TraceInfo');
-    $self->{$filename} = $data;
+    $self->[FILES]->{$filename} = $data;
 }
 
 sub append_tracefile
@@ -4183,14 +4186,15 @@ sub append_tracefile
         unless (defined($trace) && 'TraceFile' eq ref($trace));
 
     my $interesting = 0;
+    my $files       = $self->[FILES];
     foreach my $filename ($trace->files()) {
-        if (defined($self->{$filename})) {
+        if (defined($files->{$filename})) {
             if ($self->data($filename)
                 ->merge($trace->data($filename), $filename)) {
                 $interesting = 1;
             }
         } else {
-            $self->{$filename} = $trace->data($filename);
+            $files->{$filename} = $trace->data($filename);
             $interesting = 1;
         }
     }
@@ -4313,7 +4317,7 @@ sub applyFilters
             unless ('TraceInfo' eq ref($traceInfo));
         my $source_file = $traceInfo->filename();
         if (lcovutil::is_external($source_file)) {
-            delete($self->{$source_file});
+            delete($self->[FILES]->{$source_file});
             next;
         }
         # derive function end line for C/C++ code if requested
@@ -5068,7 +5072,7 @@ sub _read_info
 
         # Filter out empty files
         if ($self->data($filename)->sum()->entries() == 0) {
-            delete($self->{$filename});
+            delete($self->[FILES]->{$filename});
             next;
         }
         my $filedata = $self->data($filename);
@@ -5083,7 +5087,7 @@ sub _read_info
         }
     }
 
-    if (scalar(keys(%$self)) == 0) {
+    if (scalar($self->files()) == 0) {
         lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
                               "no valid records found in tracefile $tracefile");
     }
