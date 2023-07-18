@@ -477,7 +477,7 @@ sub warn_handler($)
 {
     my ($msg) = @_;
 
-    if (!$debug) {
+    if (!($debug || exists($ENV{LCOV_SHOW_LOCATION}))) {
         $msg =~ s/ at \S+ line \d+\.$//;
     }
     # Enforce consistent "WARNING:" message prefix
@@ -490,7 +490,7 @@ sub die_handler($)
     my ($msg) = @_;
 
     temp_cleanup();
-    if (!$debug) {
+    if (!($debug || exists($ENV{LCOV_SHOW_LOCATION}))) {
         $msg =~ s/ at \S+ line \d+\.$//;
     }
     # Enforce consistent "ERROR:" message prefix
