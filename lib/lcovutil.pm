@@ -1393,8 +1393,10 @@ sub ignorable_error($$;$)
     }
     # only tell the user how to suppress this on the first occurrence
     my $ignoreOpt =
-        ($message_count[$code] == 1) ? "" :
-        "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
+        ($message_count[$code] == 1) ?
+        "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n"
+        :
+        '';
     warn_handler("Warning: ('$errName') $msg\n$ignoreOpt")
         unless $ignore[$code] > 1 || (defined($quiet) && $quiet);
 }
