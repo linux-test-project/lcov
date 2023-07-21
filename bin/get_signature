@@ -35,10 +35,15 @@ sub usage
 }
 
 my $compare;
-if (!GetOptions("--compare" => \$compare) ||
-    ($compare && scalar(@ARGV) != 3)) {
+my $help;
+if (!GetOptions("--compare" => \$compare,
+                '--help'    => \$help) ||
+    $help ||
+    ($compare && scalar(@ARGV) != 3) ||
+    (!$compare && scalar(@ARGV) != 1)
+) {
     usage();
-    exit(1);
+    exit(defined($help) ? 0 : 1);
 }
 
 my $filename = $ARGV[$compare ? 2 : 0];

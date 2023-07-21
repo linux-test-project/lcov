@@ -36,6 +36,7 @@ use POSIX qw(strftime);
 use Getopt::Long;
 use File::Spec;
 use Cwd qw(abs_path);
+use File::Basename qw(dirname basename);
 use strict;
 
 sub get_modify_time($)
@@ -56,14 +57,18 @@ sub usage
 my $compare;
 my $use_md5;    # if set, append md5 checksum to the P4 version string
 my $mapp4;
+my $help;
 if (!GetOptions("--compare" => \$compare,
                 "--md5"     => \$use_md5,
-                "--p4"      => \$mapp4) ||
-    ($compare && scalar(@ARGV) != 3)
+                "--p4"      => \$mapp4,
+                '--help'    => \$help) ||
+    $help ||
+    ($compare && scalar(@ARGV) != 3) ||
+    (!$compare && scalar(@ARGV) != 1)
 ) {
 
     usage();
-    exit(1);
+    exit(defined($help) ? 0 : 1);
 }
 
 my $filename = $ARGV[$compare ? 2 : 0];
@@ -83,10 +88,14 @@ if ($use_md5) {
     $use_md5 = $1;
 }
 
+my $dirname = dirname($pathname);
+my $file    = basename($pathname);
+chdir($dirname) or die("unable to 'cd $dirname': $!");
+
 my $version;
 if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
     # in a git repo - use full SHA.
-    my $log = `git log --no-abbrev --oneline -1 $pathname 2>$null`;
+    my $log = `git log --no-abbrev --oneline -1 $file 2>$null`;
     if (0 == $? &&
         $log =~ /^(\S+) /) {
         $version = $1;
@@ -107,9 +116,9 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
         } else {
             $version = "SHA $version";
         }
-        my $diff = `git diff $pathname 2>$null`;
+        my $diff = `git diff $file 2>$null`;
         if ('' ne $diff) {
-            $version .= ' edited ' . get_modify_time($pathname);
+            $version .= ' edited ' . get_modify_time($file);
             $version .= " md5:$use_md5"
                 if $use_md5;
         }
@@ -118,7 +127,7 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
 if (!$version) {
     # not in P4 - just print the modify time, so we have a prayer of
     #  noticing file differences
-    $version = get_modify_time($pathname);
+    $version = get_modify_time($file);
     $version .= " md5:$use_md5"
         if ($use_md5);
 }

@@ -48,12 +48,16 @@ sub usage
 
 my $compare;
 my $use_md5;    # if set, append md5 checksum to the P4 version string
+my $help;
 if (!GetOptions("--compare" => \$compare,
-                "--md5"     => \$use_md5) ||
-    ($compare && scalar(@ARGV) != 3)
+                "--md5"     => \$use_md5,
+                '--help'    => \$help) ||
+    $help ||
+    ($compare && scalar(@ARGV) != 3) ||
+    (!$compare && scalar(@ARGV) != 1)
 ) {
     usage();
-    exit(1);
+    exit(defined($help) ? 0 : 1);
 }
 
 my $filename = $ARGV[$compare ? 2 : 0];
