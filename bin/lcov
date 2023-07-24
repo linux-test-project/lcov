@@ -97,6 +97,7 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  parseOptions
                  strip_directories transform_pattern
                  @extractVersionScript $verify_checksum
+                 @comments
 
                  $maxParallelism $maxMemory
   );
@@ -929,6 +930,9 @@ sub lcov_geninfo(@)
     foreach (@lcovutil::exclude_function_patterns) {
         push(@param, "--erase-functions", $_);
     }
+    foreach (@lcovutil::comments) {
+        push(@param, "--comment", $_);
+    }
     if (defined($lcovutil::profile)) {
         push(@param, '--profile');
         push(@param, $lcovutil::profile)
@@ -1526,6 +1530,7 @@ sub emit
             if $info_msg;
         info("Writing data to $output_filename\n");
     }
+    $trace->add_comments(@lcovutil::comments);
     return $trace->write_info_file($to, $lcovutil::verify_checksum);
 }
 
@@ -2536,6 +2541,7 @@ sub diff()
          ($unchanged != 1 ? "ies" : "y") . " left unchanged.\n");
 
     # Write data
+    $trace_data->add_comments(@lcovutil::comments);
     my @result =
         $trace_data->write_info_file($output_filename,
                                      $lcovutil::verify_checksum);

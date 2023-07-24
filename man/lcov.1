@@ -66,6 +66,9 @@ Capture coverage data tracefile (from compiler-generated data):
 .RB [ \-\-version\-script
 .IR script_file  ]
 .br
+.RB [ \-\-comment
+.IR comment_strin  ]
+.br
 .RE
 .RE
 
@@ -220,7 +223,7 @@ Common lcov options - supported by all the above use cases:
 .br
 
 .RS 3
-.B lcov 
+.B lcov
 .RB [ \-\-keep\-going ]
 .br
 .RS 5
@@ -231,6 +234,9 @@ Common lcov options - supported by all the above use cases:
 .RB [ \-q | \-\-quiet ]
 .br
 .RB [ \-v | \-\-verbose ]
+.br
+.RB [ \-\-comment
+.IR comment_string ]
 .br
 .RB [ \-\-debug ]
 .br
@@ -857,6 +863,37 @@ extracting data and to compare version IDs for the purpose of error checking whe
 .br
 
 See the genhtml man page for more details on the version script.
+
+.br
+
+.RE
+.B \-\-comment
+.I comment_string
+.br
+.RS
+
+Append
+.I comment_string
+to list of comments emitted into output result file.
+This option may be specified multiple times.
+Comments are printed at the top of the file, in the order they were specified.
+
+Comments may be useful to document the conditions under which the trace file was
+generated:  host, date, environment,
+.I etc.
+
+Note that this option has no effect for lcov overations which do not write an
+output result file:
+.I \-\-list
+.I \-\-summary,
+.I \-\-prune\-tests,
+and
+.I \-\-map\-functions.
+
+See the
+.B geninfo
+man page for a description of the comment format in the result file.
+
 .RE
 
 .B \-e

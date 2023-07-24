@@ -91,6 +91,7 @@ use lcovutil qw (define_errors parse_ignore_errors
                  report_parallel_error
                  is_external @internal_dirs
                  parseOptions
+                 @comments
                  $maxParallelism init_parallel_params $maxMemory
                 );
 

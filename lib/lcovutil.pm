@@ -35,6 +35,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      @opt_rc apply_rc_params $split_char parseOptions
      strip_directories
      @file_subst_patterns subst_file_name
+     @comments
 
      $br_coverage $func_coverage
      @cpp_demangle do_mangle_check $demangle_cpp_cmd
@@ -852,6 +853,7 @@ our ($lcov_remove,     # If set, removes parts of tracefile
 our @opt_config_files;
 our @opt_ignore_errors;
 our @opt_filter;
+our @comments;
 
 my %deprecated_rc = ("genhtml_demangle_cpp"        => "demangle_cpp",
                      "genhtml_demangle_cpp_tool"   => "demangle_cpp",
@@ -920,6 +922,7 @@ our %argCommon = ("tempdir=s"        => \$tempdirname,
                   "debug+"           => \$lcovutil::debug,
                   "help|h|?"         => \$help,
                   "version"          => \$version,
+                  'comment=s'        => \@comments,
 
                   "function-coverage"    => \$lcovutil::func_coverage,
                   "branch-coverage"      => \$lcovutil::br_coverage,
@@ -4015,6 +4018,7 @@ package TraceFile;
 our $ignore_testcase_name;    # use default name, if set
 use constant {
               FILES    => 0,
+              COMMENTS => 1,
 };
 
 sub load
@@ -4126,6 +4130,20 @@ sub skipCurrentFile
     return 0;
 }
 
+sub comments
+{
+    my $self = shift;
+    return @{$self->[COMMENTS]};
+}
+
+sub add_comments
+{
+    my $self = shift;
+    foreach (@_) {
+        push(@{$self->[COMMENTS]}, $_);
+    }
+}
+
 sub data
 {
     my $self                  = shift;
@@ -4200,6 +4218,7 @@ sub append_tracefile
             $interesting = 1;
         }
     }
+    $self->add_comments($trace->comments());
     return $interesting;
 }
 
@@ -4747,6 +4766,8 @@ sub _read_info
         chomp($_);
         my $line = $_;
 
+        next if $line =~ /^#/;    # skip comment
+
         if ($line =~ /^[SK]F:(.*)/) {
             # Filename information found
             $filename = lcovutil::subst_file_name($1);
@@ -4798,6 +4819,8 @@ sub _read_info
         #   then please make corresponding changes to the 'write_info' method, below
         #   and update the format description found in .../man/geninfo.1.
         foreach ($line) {
+            next if $line =~ /^#/;    # skip comment
+
             /^VER:(.+)$/ && do {
                 # revision control version string found
                 $fileData->version($1);
@@ -5132,6 +5155,9 @@ sub write_info($$$)
 
     my $srcReader = ReadCurrentSource->new()
         if ($verify_checksum);
+    foreach my $comment ($self->comments()) {
+        print(INFO_HANDLE '#', $comment, "\n");
+    }
     foreach my $filename (sort($self->files())) {
         my $entry       = $self->data($filename);
         my $source_file = $entry->filename();

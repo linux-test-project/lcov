@@ -143,7 +143,7 @@ if [ "${VER[0]}" -lt 5 ] ; then
 fi
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --memory 20
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --memory 20
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --comment "this is the baseline" --memory 20
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -151,6 +151,16 @@ if [ 0 != $? ] ; then
     fi
 fi
 gzip -c baseline.info > baseline.info.gz
+
+# check that we wrote the comment that was expected...
+head -1 baseline.info | grep -E '^#.+ the baseline$'
+if [ 0 != $? ] ; then
+    echo "ERROR: didn't write comment into capture"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 # newer versions of gcc generate coverage data with full paths to sources
 #   in '.' - whereas older versions have relative paths.

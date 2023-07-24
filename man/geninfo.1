@@ -16,6 +16,9 @@ geninfo \- Generate tracefiles from GCOV coverage data files
 .RB [ \-\-debug ]
 .br
 .RS 8
+.RB [ \-\-comment
+.IR comment-string ]
+.br
 .RB [ \-i | \-\-initial ]
 .RB [ \-t | \-\-test\-name
 .IR test\-name ]
@@ -899,6 +902,20 @@ Decreased verbosity will suppress 'progress' messages for example - while error 
 Increment 'debug messages' verbosity.  This is useful primarily to developers who want to enhance the lcov tool suite.
 
 .RE
+.B \-\-comment comment_string
+.RS
+Append
+.I comment_string
+to list of comments emitted into output result file.
+This option may be specified multiple times.
+Comments are printed at the top of the file, in the order they were specified.
+
+Comments can be useful to document the conditions under which the trace file was
+generated:  host, date, environment,
+.I etc.
+
+
+.RE
 
 .BI "\-\-parallel "
 .I [ integer ]
@@ -975,7 +992,19 @@ Following is a quick description of the tracefile format as used by
 .BR genhtml ", " geninfo " and " lcov .
 
 A tracefile is made up of several human\-readable lines of text,
-divided into sections. If available, a tracefile begins with the
+divided into sections.  If the
+.BI "--\-comment\ comment_string"
+option is supplied, then
+
+.RS
+ #comment_string
+.RE
+will appeaare at the top of the tracefile.  There is no space before or after the
+.I #
+character.
+
+
+If available, a tracefile begins with the
 .I testname
 which is stored in the following format:
 
