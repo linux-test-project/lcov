@@ -5519,6 +5519,8 @@ if ($frames) {
 check_precision();
 
 # Make sure output_directory exists, create it if necessary
+$output_directory = '.'
+    if !defined($output_directory);
 if ($output_directory &&
     !-d $output_directory) {
     info(1, "make_path $output_directory\n");
@@ -5868,9 +5870,6 @@ sub gen_html()
             $e = "'$e'" if ($e =~ /\s/);
         }
     }
-
-    $output_directory = '.'
-        if !defined($output_directory);
 
     info(1, "Writing .css and .png files.\n");
     write_css_file();
@@ -8013,7 +8012,8 @@ END_OF_HTML
                 $class = $page_type ne "owner" ? "coverNumDflt" : "ownerTla";
                 my $v = "";
                 if (defined($count) && 0 != $count) {
-                    $v = $key eq 'missed' ? -$count : $count;
+                    $count = -$count if $key eq 'missed';
+                    $v     = $count;
                     # want to colorize the UNC, LBC, UIC rows if not zero
                     $class = "tla$key"
                         if (!$main::use_legacyLabels &&
@@ -8070,9 +8070,9 @@ END_OF_HTML
                             $href =~ s/__LINE__/$line/;
                             $v = "<a $href ";
                             if ($class =~ /tlaBg/) {
-                                $v .= "class=\"tlaBg$key ";
+                                $v .= "class=\"tlaBg$key\" ";
                             }
-                            $v .= "title=$title>$v</a>";
+                            $v .= "title=$title>$count</a>";
                         }
                     }
                 }    # if count nonzero
