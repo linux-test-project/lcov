@@ -9322,8 +9322,19 @@ sub buildHeaderSummaryTableRow
     my @row;
     for my $tla (@$activeTlaList) {
         my $value = $summary->get($tla, $covType);
-        # suppress zeros - make table less busy/easier to read
+        # for the moment, no background colorization for non-zero counts
+        # in "concerning" categories.  The table header is immediately
+        # above - so no need to colorize to draw emphasis - just makes the
+        # table busier
+        my $showConcerningTla = 0;
+        my $class =
+            $showConcerningTla       &&
+            !$main::use_legacyLabels &&
+            0 != $value              &&
+            grep(/^$tla$/, ("UNC", "LBC", "UIC")) ? "tla$tla" :
+            "headerCovTableEntry";
         if ("0" eq $value) {
+            # suppress zeros - make table less busy/easier to read
             $value = "";
         } elsif (!$main::no_sourceview &&
                  defined($fileDetail) &&
@@ -9340,7 +9351,7 @@ sub buildHeaderSummaryTableRow
                 SummaryInfo::type2str($covType) . "\"";
             $value = "<a href=\"#L$firstAppearance\"$popup>$value</a>";
         }
-        push(@row, [undef, "headerCovTableEntry", $value]);
+        push(@row, [undef, $class, $value]);
     }
     return @row;
 }
