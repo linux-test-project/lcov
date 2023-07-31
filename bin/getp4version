@@ -64,6 +64,15 @@ my $filename = $ARGV[$compare ? 2 : 0];
 
 if ($compare) {
     my ($old, $new) = @ARGV;
+    if ($use_md5 &&
+        $old !~ /^(@head|#[0-9]+)/ &&
+        $old =~ / md5:(.+)$/) {
+        my $o = $1;
+        if ($new =~ / md5:(.+)$/) {
+            exit($o ne $1);
+        }
+        # otherwise:  'new' was not an MD5 signature - so fall through to exact match
+    }
     exit($old ne $new);    # for the moment, just look for exact match
 }
 

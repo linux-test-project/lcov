@@ -17,7 +17,7 @@
 #   <http://www.gnu.org/licenses/>.
 #
 #
-# gitblame [--p4] [domain] pathname
+# gitblame [--p4] [--prefix path] [domain] pathname
 #
 #   This script runs "git blame" for the specified file and formats the result
 #   to match the diffcov(1) age/ownership annotation specification.
@@ -26,6 +26,9 @@
 #     we assume that the GIT repo is cloned from Perforce - and look for
 #     the line in the generated commit log message which tells us the perforce
 #     changelist ID that we actually want.
+#
+#   If specified, 'path' is prependied to 'pathname' (as 'path/pathname')
+#     before processing.
 #
 #   If passed a domain name (or domain regexp):
 #     strip that domain from the author's address, and treat all users outside
@@ -38,14 +41,20 @@ use File::Spec;
 use Getopt::Long;
 
 my $mapP4;
+my $prefix;
 
-if (!GetOptions("p4" => \$mapP4,)) {
+if (!GetOptions("p4"       => \$mapP4,
+                "prefix:s" => \$prefix)) {
     print(STDERR "usage: $0 [--p4] [domain] pathname\n");
     exit(1);
 }
-die("usage: $0 --p4 [domain] file_path")
+die("usage: $0 --p4 [--prefix prefix] [domain] file_path")
     unless 0 < scalar(@ARGV) && scalar(@ARGV) < 3;
-my $pathname        = $ARGV[-1];
+my $pathname = $ARGV[-1];
+if (!File::Spec->file_name_is_absolute($filename) &&
+    defined($prefix)) {
+    $filename = File::Spec->catfile($prefix, $filename);
+}
 my $internal_domain = $ARGV[0] if 2 == scalar(@ARGV);
 
 die("$0 expected readable file, found '" .

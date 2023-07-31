@@ -16,13 +16,15 @@
 #   <http://www.gnu.org/licenses/>.
 #
 #
-# gitversion --p4 --md5 pathname OR
-# gitversion --compare old_version new_version pathname
+# gitversion [--p4] [--md5] [--prefix path] pathname OR
+# gitversion [--p4] [--md5] [--prefix path] --compare old_version new_version pathname
 #
 #   If the '--p4' flag is used:
 #     we assume that the GIT repo is cloned from Perforce - and look for
 #     the line in the generated commit log message which tells us the perforce
 #     changelist ID that we actually want.
+#   If specified, 'path' is prependied to 'pathname' (as 'path/pathname')
+#     before processing.
 
 #   This is a sample script which uses git commands to determine
 #   the version of the filename parameter.
@@ -51,17 +53,19 @@ sub get_modify_time($)
 sub usage
 {
     print(STDERR "usage: $0 --compare old_version new_version filename OR\n" .
-          "       $0 [--md5] [--p4] filename\n");
+          "       $0 [--md5] [--p4] [--prefix path] filename\n");
 }
 
 my $compare;
 my $use_md5;    # if set, append md5 checksum to the P4 version string
 my $mapp4;
+my $prefix;
 my $help;
-if (!GetOptions("--compare" => \$compare,
-                "--md5"     => \$use_md5,
-                "--p4"      => \$mapp4,
-                '--help'    => \$help) ||
+if (!GetOptions("--compare"  => \$compare,
+                "--md5"      => \$use_md5,
+                "--p4"       => \$mapp4,
+                '--prefix:s' => \$prefix,
+                '--help'     => \$help) ||
     $help ||
     ($compare && scalar(@ARGV) != 3) ||
     (!$compare && scalar(@ARGV) != 1)
@@ -72,10 +76,26 @@ if (!GetOptions("--compare" => \$compare,
 }
 
 my $filename = $ARGV[$compare ? 2 : 0];
+if (!File::Spec->file_name_is_absolute($filename) &&
+    defined($prefix)) {
+    $filename = File::Spec->catfile($prefix, $filename);
+}
 
 if ($compare) {
     my ($old, $new) = @ARGV;
-    exit($old ne $new);    # for the moment, just look for exact match
+    if ($use_md5 &&
+        (   $old !~ /^SHA/ ||
+            ($mapp4 &&
+                $old !~ /^CL/)) &&
+        $old =~ / md5:(.+)$/
+    ) {
+        my $o = $1;
+        if ($new =~ / md5:(.+)$/) {
+            exit($o ne $1);
+        }
+        # otherwise:  'new' was not an MD5 signature - so fall through to exact match
+    }
+    exit($old ne $new);    # just look for exact match
 }
 
 die("Error: $filename does not exist")
