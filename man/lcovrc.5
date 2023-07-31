@@ -729,9 +729,14 @@ Specify a comma-separated list of file extensions which should be assumed to be 
 .br
 
 If not specified, the default set is 'c,h,i,C,H,I,icc,cpp,cc,cxx,hh,hpp,hxx'.
-There is no command line option equivalent.
+If you want all files to be treated as C/C++ code, you can use:
+.I c_file_extensions = .*
+
+This parameter must be set from the lcovrc file or via the
+.I \-\-rc name=value
+command line option; note that you may need to protect the value from shell expansion in the latter case.
 .br
-This option is used by genhtml and lcov.
+
 
 .PP
 
@@ -1232,6 +1237,10 @@ and
 options.
 
 This option is not required if you are using gcc/9 or newer; these versions report function begin/end lines directly.
+
+Note that end lines are derived only for C/C++ files; see the
+.I c_file_extensions
+setting, above, for the list of extensions used to identify these files.
 .br
 
 Default is 1.
@@ -1534,6 +1543,42 @@ The default is 5%.
 This option has no effect unless the
 .I \-\-parallel
 option has been specified.
+
+.PP
+
+.BR lcov_filter_chunk_size " ="
+.IR integer [%]
+.IP
+Specify the number of source files which should be processed per-call in each child process when applying coverpoint filters - see the
+.BR filter = ...
+parameter, below.
+This parameter affects the balance of CPU time spent in the child and thus the number of completed child processes which are queued to be merged into the parent - which then affects the queuing delay.  Higher queuing delay lowers the effective parallelism.
+
+The default is 80% of
+.I total_number_of_source_files / maximum_number_of_parallel_children.
+
+The argument may be either an integer value to be used as the chunk size or
+a percentage of the average number files processed per child.
+
+This option has no effect unless the
+.I \-\-parallel
+option has been specified and
+.BR lcov_filter_parallel
+is not zero.
+
+.PP
+
+.BR lcov_filter_parallel " = 0 | 1"
+.IP
+
+This option specifies whether coverpoint filtering should be done serially or in parallel.  If the number of files to process is very large, then parallelization may improve performance.
+
+This option has no effect unless the
+.I \-\-parallel
+option has been specified.
+
+The default is 1 (enabled).
+
 
 .PP
 .BR lcov_gcov_dir " ="

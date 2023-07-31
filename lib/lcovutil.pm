@@ -60,6 +60,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $exclude_exception_branch
      $derive_function_end_line $trivial_function_threshold
 
+     $lcov_filter_parallel $lcov_filter_chunk_size
+
      %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
@@ -169,8 +171,10 @@ our $default_precision = 1;
 # undef indicates not set by command line or RC option - so default to
 # sequential processing
 our $maxParallelism;
-
 our $maxMemory = 0;    # zero indicates no memory limit to parallelism
+
+our $lcov_filter_parallel = 1;    # enable by default
+our $lcov_filter_chunk_size;
 
 sub default_info_impl(@);
 
@@ -911,7 +915,8 @@ my %rc_common = (
 
              "demangle_cpp" => \@lcovutil::cpp_demangle,
 
-);
+             'lcov_filter_parallel'   => \$lcovutil::lcov_filter_parallel,
+             'lcov_filter_chunk_size' => \$lcovutil::lcov_filter_chunk_size,);
 
 our %argCommon = ("tempdir=s"        => \$tempdirname,
                   "version-script=s" => \@lcovutil::extractVersionScript,
@@ -3031,7 +3036,8 @@ sub removeExceptionBranches
 {
     my ($self, $line) = @_;
 
-    my $brdata = $self->value($line);
+    my $modified = 0;
+    my $brdata   = $self->value($line);
     return unless defined($brdata);
     foreach my $block_id ($brdata->blocks()) {
         my $blockData = $brdata->getBlock($block_id);
@@ -3040,6 +3046,7 @@ sub removeExceptionBranches
             if ($br->is_exception()) {
                 --$self->[FOUND];
                 --$self->[HIT] if 0 != $br->count();
+                $modified = 1;
             } else {
                 push(@replace, $br);
             }
@@ -3057,7 +3064,9 @@ sub removeExceptionBranches
         lcovutil::info(2, "$line: lone block\n")
             if 1 == scalar($brdata->blocks());
         $self->remove($line);
+        $modified = 1;
     }
+    return $modified;
 }
 
 sub _checkCounts
@@ -4247,31 +4256,27 @@ sub _eraseFunction
     $functionMap->remove($fcn);
 }
 
-my $didUnsupportedWarning;
-
 sub _eraseFunctions
 {
     my ($source_file, $srcReader, $functionMap, $lineData,
-        $branchData, $checksum, $isMasterList) = @_;
+        $branchData, $checksum, $state, $isMasterList)
+        = @_;
 
-    my $removeTrivial = $lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION];
+    my $modified      = 0;
+    my $removeTrivial = $cov_filter[$FILTER_FUNCTION_ALIAS];
     FUNC: foreach my $key ($functionMap->keylist()) {
         my $fcn      = $functionMap->findKey($key);
         my $end_line = $fcn->end_line();
         my $name     = $fcn->name();
         if (!defined($end_line)) {
-            if (!defined($didUnsupportedWarning)) {
-                $didUnsupportedWarning = 1;
-                lcovutil::ignorable_error($ERROR_UNSUPPORTED,
-                    "Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer.   See lcovrc man entry for 'derive_function_end_line'."
-                );
-            }
-            # we can skip out of processing if we don't know the end line
-            # - there is no way for us to remove line and branch points in
-            #   the function region
-            # Or we can keep going and at least remove the matched function
-            #   coverpoint.
-            #last; # at least for now:  keep going
+            ++$state->[0]->[1];    # mark that we don't have an end line
+                # we can skip out of processing if we don't know the end line
+                # - there is no way for us to remove line and branch points in
+                #   the function region
+                # Or we can keep going and at least remove the matched function
+                #   coverpoint.
+                #last; # at least for now:  keep going
+            lcovutil::info(1, "no end line for '$name' at $key\n");
         } elsif (
                defined($removeTrivial) &&
                is_c_file($source_file) &&
@@ -4279,17 +4284,18 @@ sub _eraseFunctions
                 $srcReader->containsTrivialFunction($fcn->line(), $end_line))
         ) {
             # remove single-line functions which has no body
-            # Only count what we removed from the top leve/master list -
+            # Only count what we removed from the top level/master list -
             #   - otherwise, we double count for every testcase.
-            $removeTrivial->[0]++ if $isMasterList;
+            ++$removeTrivial->[0] if $isMasterList;
             foreach my $alias (keys %{$fcn->aliases()}) {
                 lcovutil::info(1,
                       "\"$source_file\":$end_line: filter trivial FN $alias\n");
                 _eraseFunction($fcn, $alias, $end_line,
                                $source_file, $functionMap, $lineData,
                                $branchData, $checksum);
-                $removeTrivial->[1]++ if $isMasterList;
+                ++$removeTrivial->[1] if $isMasterList;
             }
+            $modified = 1;
             next FUNC;
         }
         foreach my $p (@lcovutil::exclude_function_patterns) {
@@ -4301,36 +4307,561 @@ sub _eraseFunctions
                         # if user ignored the unsupported message, then the
                         # best we can do is to remove the matched function -
                         # and leave the lines and branches in place
-                        lcovutil::info(1,
-                                 "exclude FN $name line range $source_file:[" .
-                                     $fcn->line() .
-                                     ":$end_line] due to '" . $p->[-2] . "'\n");
+                        lcovutil::info(
+                                  1 + (0 == $isMasterList),
+                                  "exclude FN $name line range $source_file:[" .
+                                      $fcn->line() .
+                                      ":$end_line] due to '" . $p->[-2] . "'\n"
+                        );
                     }
                     _eraseFunction($fcn, $alias, $end_line,
                                    $source_file, $functionMap, $lineData,
                                    $branchData, $checksum);
+                    $modified = 1;
                     next FUNC;
                 }    # if match
             }    # foreach alias
         }    # foreach pattern
     }    # foreach function
+    return $modified;
 }
 
-sub applyFilters
+sub _filterFile
 {
-    my $self = shift;
-
-    my $srcReader = ReadCurrentSource->new();
-    my $region    = $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION];
-    my $range     = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE];
+    my ($traceInfo, $source_file, $srcReader, $state) = @_;
+    my $region                   = $cov_filter[$FILTER_EXCLUDE_REGION];
+    my $range                    = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
     my $branch_histogram         = $cov_filter[$FILTER_BRANCH_NO_COND];
     my $brace_histogram          = $cov_filter[$FILTER_LINE_CLOSE_BRACE];
     my $blank_histogram          = $cov_filter[$FILTER_BLANK_LINE];
     my $function_alias_histogram = $cov_filter[$FILTER_FUNCTION_ALIAS];
     my $trivial_histogram        = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
 
+    if (is_c_file($source_file) &&
+        lcovutil::is_filter_enabled()) {
+        lcovutil::info(1, "reading $source_file for lcov filtering\n");
+        $srcReader->open($source_file);
+    } else {
+        $srcReader->close();
+    }
+
+    my $modified = 0;
+    if (defined($lcovutil::func_coverage) &&
+        !$state->[0]->[1] &&
+        (0 != scalar(@lcovutil::exclude_function_patterns) ||
+            defined($trivial_histogram))
+    ) {
+        # filter excluded function line ranges
+        my $funcData   = $traceInfo->testfnc();
+        my $lineData   = $traceInfo->test();
+        my $branchData = $traceInfo->testbr();
+        my $checkData  = $traceInfo->check();
+        my $reader     = defined($trivial_histogram) &&
+            $srcReader->notEmpty() ? $srcReader : undef;
+
+        foreach my $tn ($lineData->keylist()) {
+            $modified =
+                _eraseFunctions($source_file, $reader,
+                                $funcData->value($tn), $lineData->value($tn),
+                                $branchData->value($tn), $checkData->value($tn),
+                                $state, 0) ||
+                $modified;
+        }
+        $modified =
+            _eraseFunctions($source_file, $reader,
+                            $traceInfo->func(), $traceInfo->sum(),
+                            $traceInfo->sumbr(), $traceInfo->check(),
+                            $state, 1) ||
+            $modified;
+    }
+
+    return
+        unless (is_c_file($source_file) &&
+                $srcReader->notEmpty() &&
+                lcovutil::is_filter_enabled());
+
+    my ($testdata, $sumcount, $funcdata, $checkdata,
+        $testfncdata, $testbrdata, $sumbrcount) = $traceInfo->get_info();
+
+    foreach my $testname (sort($testdata->keylist())) {
+        my $testcount    = $testdata->value($testname);
+        my $testfnccount = $testfncdata->value($testname);
+        my $testbrcount  = $testbrdata->value($testname);
+
+        my $functionMap = $testfncdata->{$testname};
+        if ($lcovutil::func_coverage &&
+            $functionMap &&
+            ($region || $range)) {
+            # Write function related data - sort  by line number
+
+            foreach my $key ($functionMap->keylist()) {
+                my $data = $functionMap->findKey($key);
+                my $line = $data->line();
+
+                my $remove;
+                if ($srcReader->isOutOfRange($line, 'line')) {
+                    $remove = 1;
+                    lcovutil::info(1,
+                                   "filter FN " . $data->name() .
+                                       ' ' . $data->file() . ":$line\n");
+                    ++$range->[0];    # one location where this applied
+                } elsif ($region && $srcReader->isExcluded($line)) {
+                    $remove = 1;
+                    $region->[0] += scalar(keys %{$data->aliases()});
+                }
+                if ($remove) {
+                    #remove this function from everywhere
+                    foreach my $tn ($testfncdata->keylist()) {
+                        my $d = $testfncdata->value($tn);
+                        my $f = $d->findKey($key);
+                        next unless $f;
+                        $d->remove($f);
+                    }
+                    # and remove from the master table
+                    $funcdata->remove($funcdata->findKey($key));
+                    $modified = 1;
+                    next;
+                }    # if excluded
+            }    # foreach function
+        }    # if func_coverage
+             # $testbrcount is undef if there are no branches in the scope
+        if ($lcovutil::br_coverage &&
+            defined($testbrcount) &&
+            ($branch_histogram || $region || $range)) {
+            foreach my $line ($testbrcount->keylist()) {
+                my $remove;
+                # omit if line excluded or branches excluded on this line
+                if ($srcReader->isOutOfRange($line, 'branch')) {
+                    # only counting line coverpoints that got excluded
+                    $remove = 1;
+                } elsif ($region &&
+                         $srcReader->isExcluded($line, 2)) {
+                    # all branches here
+                    $remove = 1;
+                } elsif ($branch_histogram &&
+                         !$srcReader->containsConditional($line)) {
+                    $remove = 1;
+                    my $brdata = $testbrcount->value($line);
+                    ++$branch_histogram->[0];    # one line where we skip
+                    $branch_histogram->[1] += scalar($brdata->blocks());
+                    lcovutil::info(2,
+                                   "filter BRDA '" .
+                                       $srcReader->getLine($line) .
+                                       "' $source_file:$line\n");
+                }
+                if ($remove) {
+                    # now remove this branch everywhere...
+                    foreach my $tn ($testbrdata->keylist()) {
+                        my $d = $testbrdata->value($tn);
+                        $d->remove($line, 1);    # remove if present
+                    }
+                    # remove at top
+                    $sumbrcount->remove($line);
+                    $modified = 1;
+                } else {
+                    # exclude exception branches here
+                    if ($lcovutil::exclude_exception_branch ||
+                        ($region && $srcReader->isExcluded($line, 4))) {
+                        # skip exception branches in this region..
+                        $modified =
+                            $testbrcount->removeExceptionBranches($line) ||
+                            $modified;
+
+                        # now remove this branch everywhere...
+                        foreach my $tn ($testbrdata->keylist()) {
+                            $modified =
+                                $testbrdata->value($tn)
+                                ->removeExceptionBranches($line) || $modified;
+                        }
+                    }
+                }
+            }    # foreach line
+        }    # if branch_coverage
+             # Line related data
+        next
+            unless $region   ||
+            $range           ||
+            $brace_histogram ||
+            $branch_histogram;
+
+        foreach my $line ($testcount->keylist()) {
+            # don't suppresss if this line has associated branch data
+            next if (defined($sumbrcount->value($line)));
+
+            my $outOfRange = $srcReader->isOutOfRange($line, 'line');
+            my $excluded   = $srcReader->isExcluded($line)
+                unless $outOfRange;
+            my $l_hit = $testcount->value($line);
+            my $isCloseBrace =
+                ($brace_histogram &&
+                 $srcReader->suppressCloseBrace($line, $l_hit, $testcount))
+                unless $outOfRange ||
+                $excluded;
+            my $isBlank =
+                ($blank_histogram && $l_hit == 0 && $srcReader->isBlank($line))
+                unless $outOfRange ||
+                $excluded;
+            next
+                unless $outOfRange ||
+                $excluded          ||
+                $isCloseBrace      ||
+                $isBlank;
+
+            $modified = 1;
+            lcovutil::info(2,
+                           "filter DA "
+                               .
+                               (defined($srcReader->getLine($line)) ?
+                                    ("'" . $srcReader->getLine($line) . "'") :
+                                    "") .
+                               " $source_file:$line\n");
+
+            if (defined($isCloseBrace) && $isCloseBrace) {
+                # one location where this applied
+                ++$brace_histogram->[0];
+                ++$brace_histogram->[1];    # one coverpoint suppressed
+            } elsif (defined($isBlank) && $isBlank) {
+                # one location where this applied
+                ++$blank_histogram->[0];
+                ++$blank_histogram->[1];    # one coverpoint suppressed
+            }
+
+            # now remove everywhere
+            foreach my $tn ($testdata->keylist()) {
+                my $d = $testdata->value($tn);
+                $d->remove($line, 1);       # remove if present
+            }
+            $sumcount->remove($line);
+            if (exists($checkdata->{$line})) {
+                delete($checkdata->{$line});
+            }
+        }    # foreach line
+    }    #foreach test
+         # count the number of function aliases..
+    if ($function_alias_histogram) {
+        $function_alias_histogram->[0] += $funcdata->numFunc(1);
+        $function_alias_histogram->[1] += $funcdata->numFunc(0);
+    }
+    return ($traceInfo, $modified);
+}
+
+sub _mergeParallelChunk
+{
+    # called from parent
+    my ($self, $tmp, $child, $children, $childstatus, $store) = @_;
+
+    my ($chunk, $forkAt, $chunkId) = @{$children->{$child}};
+    my $dumped   = File::Spec->catfile($tmp, "dumper_$child");
+    my $childLog = File::Spec->catfile($tmp, "filter_$child.log");
+    my $childErr = File::Spec->catfile($tmp, "filter_$child.err");
+
+    my $start = Time::HiRes::gettimeofday();
+    foreach my $f ($childLog, $childErr) {
+        if (open(RESTORE, "<", $f)) {
+            # slurp into a string and eval..
+            my $str = do { local $/; <RESTORE> };    # slurp whole thing
+            close(RESTORE);
+            unlink $f;
+            $f = $str;
+        } else {
+            report_parallel_error($lcovutil::tool_name,
+                                  "unable to open $f: $!");
+        }
+    }
+    print(STDOUT $childLog)
+        if ($childstatus != 0 ||
+            $lcovutil::verbose > 1);
+    print(STDERR $childErr);
+    if (0 == $childstatus && -f $dumped) {
+        my $data = Storable::retrieve($dumped);
+        if (defined($data)) {
+            my ($updates, $save, $state, $childFinish, $profile) = @$data;
+
+            lcovutil::merge_child_profile($profile);
+            #my $childCpuTime = $profile->{filt_child}{$chunkId};
+            #$totalFilterCpuTime    += $childCpuTime;
+            #$intervalFilterCpuTime += $childCpuTime;
+
+            my $now = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{filt_undump}{$chunkId} = $now - $start;
+
+            for (my $i = scalar(@{$store->[0]}) - 1; $i >= 0; --$i) {
+                $store->[0]->[$i]->[-1] += $save->[0]->[$i];
+            }
+            for (my $i = scalar(@{$store->[1]}) - 1; $i >= 0; --$i) {
+                $store->[1]->[$i]->[-2] += $save->[1]->[$i]->[0];
+                $store->[1]->[$i]->[-1] += $save->[1]->[$i]->[1];
+            }
+            foreach my $d (@$updates) {
+                $self->_updateModifiedFile(@$d, $state);
+            }
+
+            my $final = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{filt_merge}{$chunkId} = $final - $now;
+            $lcovutil::profileData{filt_queue}{$chunkId} =
+                $start - $childFinish;
+
+            #$intervalMonitor->checkUpdate($processedFiles);
+
+        } else {
+            report_parallel_error('geninfo', "unable to deserialize $dumped");
+        }
+    } elsif ($childstatus > 0) {
+        report_parallel_error($lcovutil::tool_name,
+            "child $child returned non-zero code $childstatus: ignoring data in chunk $chunkId"
+        );
+    }
+    foreach my $f ($dumped) {
+        unlink $f
+            if -f $f;
+    }
+    my $to = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{filt_chunk}{$chunkId} = $to - $forkAt;
+}
+
+my $didUnsupportedBeginEndLineWarning;
+
+sub _updateModifiedFile
+{
+    my ($self, $name, $traceFile, $state) = @_;
+    $self->[FILES]->{$name} = $traceFile;
+
+    if ($state->[0]->[1] != 0 &&
+        !defined($didUnsupportedBeginEndLineWarning)) {
+        lcovutil::ignorable_error($ERROR_UNSUPPORTED,
+            "Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer.   See lcovrc man entry for 'derive_function_end_line'."
+        );
+        $didUnsupportedBeginEndLineWarning = 1;
+    }
+}
+
+sub _processParallelChunk
+{
+    # called from child
+    my $childStart = Time::HiRes::gettimeofday();
+    my ($tmp, $chunk, $srcReader, $save, $state, $forkAt, $chunkId) = @_;
+    # clear profile - want only my contribution
+    %lcovutil::profileData = ();
+    my $stdout_file = File::Spec->catfile($tmp, "filter_$$.log");
+    my $stderr_file = File::Spec->catfile($tmp, "filter_$$.err");
+    my $childInfo;
+    # set count to zero so we know how many got created in
+    # the child process
+    my $now = Time::HiRes::gettimeofday();
+
+    # clear current status so we see updates from this child
+    # pattern counts
+    foreach my $l (@{$save->[0]}) {
+        foreach my $p (@$l) {
+            $p->[-1] = 0;
+        }
+    }
+    # filter counts
+    foreach my $f (@{$save->[1]}) {
+        $f->[-1] = 0;
+        $f->[-2] = 0;
+    }
+    # using 'capture' here so that we can both capture/redirect geninfo
+    #   messages from a child process during parallel execution AND
+    #   redirect stdout/stderr from gcov calls.
+    # It does not work to directly open/reopen the STDOUT and STDERR
+    #   descriptors due to interactions between the child and parent
+    #   processes (see the Capture::Tiny doc for some details)
+    my $start = Time::HiRes::gettimeofday();
+    my @updates;
+    my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+
+        foreach my $d (@$chunk) {
+            # could keep track of individual file time if we wanted to
+            my ($data, $modified) = _filterFile(@$d, $srcReader, $state);
+
+            lcovutil::info(1,
+                   $d->[1] . ' is ' . ($modified ? '' : 'NOT ') . "modified\n");
+            if ($modified) {
+                push(@updates, [$d->[1], $data]);
+            }
+        }
+    };
+    my $end = Time::HiRes::gettimeofday();
+    # collect pattern counts
+    foreach my $l (@{$save->[0]}) {
+        foreach my $p (@$l) {
+            $p = $p->[-1];
+        }
+    }
+    # filter counts
+    foreach my $f (@{$save->[1]}) {
+        $f = [$f->[-2], $f->[-1]];
+    }
+
+    # print stdout and stderr ...
+    foreach my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
+        my $f = InOutFile->out($d->[0]);
+        my $h = $f->hdl();
+        print($h $d->[1]);
+    }
+    my @counts;
+    my $dumpf = File::Spec->catfile($tmp, "dumper_$$");
+    my $then  = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{filt_proc}{$chunkId}  = $then - $forkAt;
+    $lcovutil::profileData{filt_child}{$chunkId} = $end - $start;
+
+    Storable::store([\@updates, $save, $state, $then, \%lcovutil::profileData],
+                    $dumpf);
+}
+
+sub _processFilterWorklist
+{
+    my ($self, $fileList) = @_;
+
+    my $chunkSize;
+    my $parallel = $lcovutil::lcov_filter_parallel;
+    # not much point in parallel calculation if the number of files is small
+    my $workList = $fileList;
+    PARALLEL:
+    if (scalar(@$fileList) > 50 &&
+        $parallel &&
+        1 < $lcovutil::maxParallelism) {
+
+        $parallel = $lcovutil::maxParallelism;
+
+        if (defined($lcovutil::lcov_filter_chunk_size)) {
+            if ($lcovutil::lcov_filter_chunk_size =~ /^(\d+)\s*(%?)$/) {
+                if (defined($2) && $2) {
+                    # a percentage
+                    $chunkSize = int(scalar(@$fileList) * $1 / 100);
+                } else {
+                    # an absolute value
+                    $chunkSize = $1;
+                }
+            } else {
+                warn(
+                    "lcov_filter_chunk_size '$lcovutil::lcov_filter_chunk_size not recognized - ignoring\n"
+                );
+            }
+        }
+
+        if (!defined($chunkSize)) {
+            $chunkSize =
+                int(0.8 * scalar(@$fileList) / $lcovutil::maxParallelism);
+            if ($chunkSize > 100) {
+                $chunkSize = 100;
+            } elsif ($chunkSize < 2) {
+                $chunkSize = 1;
+            }
+        }
+        last PARALLEL if $chunkSize == 1;
+        $workList = [];
+        my $idx     = 0;
+        my $current = [];
+        # maybe sort files by number of lines, then distribute larger ones
+        #   across chunks?  Or sort so total number of lines is balanced
+        foreach my $f (@$fileList) {
+            push(@$current, $f);
+            if (++$idx == $chunkSize) {
+                $idx = 0;
+                push(@$workList, $current);
+                $current = [];
+            }
+        }
+        push(@$workList, $current) if (@$current);
+        lcovutil::info("Filter: chunkSize $chunkSize nChunks " .
+                       scalar(@$workList) . "\n");
+    }
+
+    my $srcReader = ReadCurrentSource->new();
+    my @state     = (['saw_unsupported_end_line', 0],);
+    # keep track of patterns application counts before we fork children
+    my @pats = grep { @$_ }
+        (\@lcovutil::exclude_function_patterns, \@lcovutil::omit_line_patterns);
+    # and also filter application counts
+    my @filters = grep { defined($_) } @lcovutil::cov_filter;
+    my @save    = (\@pats, \@filters);
+
+    my $processedChunks = 0;
+    my $currentParallel = 0;
+    my %children;
+    my $tmp = File::Temp->newdir(
+                          "filter_datXXXX",
+                          DIR     => $lcovutil::tmp_dir,
+                          CLEANUP => !defined($lcovutil::preserve_intermediates)
+    ) if $parallel > 1;
+
+    CHUNK: foreach my $d (@$workList) {
+        ++$processedChunks;
+        # save current counts...
+        $state[0]->[1] = 0;
+        if (ref($d->[0]) eq 'TraceInfo') {
+            # serial processing...
+            my ($data, $modified) = _filterFile(@$d, $srcReader, \@state);
+            $self->_updateModifiedFile($d->[1], $data, \@state)
+                if $modified;
+        } else {
+
+            my $currentSize = 0;
+            if (0 != $lcovutil::maxMemory) {
+                $currentSize = lcovutil::current_process_size();
+            }
+            while ($currentParallel >= $lcovutil::maxParallelism ||
+                   ($currentParallel > 1 &&
+                    (($currentParallel + 1) * $currentSize) >
+                    $lcovutil::maxMemory)
+            ) {
+                lcovutil::info(1,
+                    "memory constraint ($currentParallel + 1) * $currentSize > $lcovutil::maxMemory violated: waiting.  "
+                        . (scalar(@$workList) - $processedChunks + 1)
+                        . " remaining\n")
+                    if ((($currentParallel + 1) * $currentSize) >
+                        $lcovutil::maxMemory);
+                my $child       = wait();
+                my $childstatus = $?;
+                $self->_mergeParallelChunk($tmp, $child, \%children,
+                                           $childstatus, \@save);
+                --$currentParallel;
+            }
+
+            # parallel processing...
+            my $now = Time::HiRes::gettimeofday();
+            my $pid = fork();
+            if (!defined($pid)) {
+                # fork failed
+                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                         "fork() syscall failed while trying to process chunk");
+                --$processedChunks;
+                push(@$workList, $d);
+                sleep(10);
+                next CHUNK;
+            }
+            if (0 == $pid) {
+                # I'm the child
+                _processParallelChunk($tmp, $d, $srcReader, \@save, \@state,
+                                      $now, $processedChunks);
+                exit(0);
+            } else {
+                # parent
+                $children{$pid} = [$d, $now, $processedChunks];
+                ++$currentParallel;
+            }
+
+        }
+    }    # foreach
+    while ($currentParallel != 0) {
+        my $child       = wait();
+        my $childstatus = $?;
+        --$currentParallel;
+        $self->_mergeParallelChunk($tmp, $child, \%children, $childstatus,
+                                   \@save);
+    }
+    lcovutil::info("Finished filter file processing\n");
+}
+
+sub applyFilters
+{
+    my $self = shift;
+
     # have to look through each file in each testcase; they may be different
     # due to differences in #ifdefs when the corresponding tests were compiled.
+    my @filter_workList;
 
     foreach my $name ($self->files()) {
         my $traceInfo = $self->data($name);
@@ -4444,208 +4975,22 @@ sub applyFilters
         }
 
         # munge the source file name, if requested
-        $source_file = lcovutil::subst_file_name($source_file);
-        $srcReader->close();
-
-        if (is_c_file($source_file) &&
-            lcovutil::is_filter_enabled()) {
-            lcovutil::info(1, "reading $source_file for lcov filtering\n");
-            $srcReader->open($source_file);
-        }
-
-        if (defined($lcovutil::func_coverage) &&
-            !defined($didUnsupportedWarning)  &&
-            (0 != scalar(@lcovutil::exclude_function_patterns) ||
-                defined($lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION]))
-        ) {
-
-            # filter excluded function line ranges
-
-            my $funcData   = $traceInfo->testfnc();
-            my $lineData   = $traceInfo->test();
-            my $branchData = $traceInfo->testbr();
-            my $checkData  = $traceInfo->check();
-            my $reader     = defined($trivial_histogram) &&
-                $srcReader->notEmpty() ? $srcReader : undef;
-
-            foreach my $tn ($lineData->keylist()) {
-                _eraseFunctions($source_file, $reader,
-                                $funcData->value($tn), $lineData->value($tn),
-                                $branchData->value($tn), $checkData->value($tn),
-                                0);
-            }
-            _eraseFunctions($source_file, $reader,
-                            $traceInfo->func(), $traceInfo->sum(),
-                            $traceInfo->sumbr(), $traceInfo->check(),
-                            1);
-        }
+        #die("unexpected path substitution for '$source_file': '" .
+        #    lcovutil::subst_file_name($source_file) . "'")
+        #  unless ($source_file eq lcovutil::subst_file_name($source_file));
 
         next
-            unless (is_c_file($source_file) &&
-                    $srcReader->notEmpty() &&
-                    lcovutil::is_filter_enabled());
-
-        my ($testdata, $sumcount, $funcdata, $checkdata,
-            $testfncdata, $testbrdata, $sumbrcount) = $traceInfo->get_info();
-
-        foreach my $testname (sort($testdata->keylist())) {
-            my $testcount    = $testdata->value($testname);
-            my $testfnccount = $testfncdata->value($testname);
-            my $testbrcount  = $testbrdata->value($testname);
-
-            my $functionMap = $testfncdata->{$testname};
-            if ($lcovutil::func_coverage &&
-                $functionMap &&
-                ($region || $range)) {
-                # Write function related data - sort  by line number
-
-                foreach my $key ($functionMap->keylist()) {
-                    my $data = $functionMap->findKey($key);
-                    my $line = $data->line();
-
-                    my $remove;
-                    if ($srcReader->isOutOfRange($line, 'line')) {
-                        $remove = 1;
-                        lcovutil::info(1,
-                                       "filter FN " . $data->name() .
-                                           " '" . $srcReader->getLine($line) .
-                                           "' " . $data->file() . ":$line\n");
-                        ++$region->[0];    # one location where this applied
-                    } elsif ($region && $srcReader->isExcluded($line)) {
-                        $remove = 1;
-                        $region->[2] += scalar(keys %{$data->aliases()});
-                    }
-                    if ($remove) {
-                        #remove this function from everywhere
-                        foreach my $tn ($testfncdata->keylist()) {
-                            my $d = $testfncdata->value($tn);
-                            my $f = $d->findKey($key);
-                            next unless $f;
-                            $d->remove($f);
-                        }
-                        # and remove from the master table
-                        $funcdata->remove($funcdata->findKey($key));
-                        next;
-                    }    # if excluded
-                }    # foreach function
-            }    # if func_coverage
-                 # $testbrcount is undef if there are no branches in the scope
-            if ($lcovutil::br_coverage &&
-                defined($testbrcount) &&
-                ($branch_histogram || $region || $range)) {
-                foreach my $line ($testbrcount->keylist()) {
-                    my $remove;
-                    # omit if line excluded or branches excluded on this line
-                    if ($srcReader->isOutOfRange($line, 'branch')) {
-                        $remove = 1;
-                    } elsif ($region &&
-                             $srcReader->isExcluded($line, 2)) {
-                        # all branches here
-                        $remove = 1;
-                    } elsif ($branch_histogram &&
-                             !$srcReader->containsConditional($line)) {
-                        $remove = 1;
-                        my $brdata = $testbrcount->value($line);
-                        ++$branch_histogram->[0];    # one line where we skip
-                        $branch_histogram->[1] += scalar($brdata->blocks());
-                        lcovutil::info(2,
-                                       "filter BRDA '" .
-                                           $srcReader->getLine($line) .
-                                           "' $source_file:$line\n");
-                    }
-                    if ($remove) {
-                        # now remove this branch everywhere...
-                        foreach my $tn ($testbrdata->keylist()) {
-                            my $d = $testbrdata->value($tn);
-                            $d->remove($line, 1);    # remove if present
-                        }
-                        # remove at top
-                        $sumbrcount->remove($line);
-                    } else {
-                        # exclude exception branches here
-                        if ($lcovutil::exclude_exception_branch ||
-                            ($region && $srcReader->isExcluded($line, 4))) {
-                            # skip exception branches in this region..
-                            $testbrcount->removeExceptionBranches($line);
-
-                            # now remove this branch everywhere...
-                            foreach my $tn ($testbrdata->keylist()) {
-                                $testbrdata->value($tn)
-                                    ->removeExceptionBranches($line);
-                            }
-                        }
-                    }
-                }    # foreach line
-            }    # if branch_coverage
-                 # Line related data
-            next
-                unless $region   ||
-                $range           ||
-                $brace_histogram ||
-                $branch_histogram;
-            foreach my $line ($testcount->keylist()) {
-
-                # don't suppresss if this line has associated branch data
-                next if (defined($sumbrcount->value($line)));
-
-                my $outOfRange = $srcReader->isOutOfRange($line, 'line');
-                my $excluded   = $srcReader->isExcluded($line)
-                    unless $outOfRange;
-                my $l_hit = $testcount->value($line);
-                my $isCloseBrace = (
-                             $brace_histogram && $srcReader->suppressCloseBrace(
-                                                       $line, $l_hit, $testcount
-                             ))
-                    unless $outOfRange ||
-                    $excluded;
-                my $isBlank =
-                    ($blank_histogram &&
-                     $l_hit == 0 &&
-                     $srcReader->isBlank($line))
-                    unless $outOfRange ||
-                    $excluded;
-                next
-                    unless $outOfRange ||
-                    $excluded          ||
-                    $isCloseBrace      ||
-                    $isBlank;
-
-                lcovutil::info(2,
-                               "filter DA "
-                                   .
-                                   (defined($srcReader->getLine($line)) ?
-                                        ("'" . $srcReader->getLine($line) . "'")
-                                    :
-                                        "") .
-                                   " $source_file:$line\n");
-
-                if (defined($isCloseBrace) && $isCloseBrace) {
-                    # one location where this applied
-                    ++$brace_histogram->[0];
-                    ++$brace_histogram->[1];    # one coverpoint suppressed
-                } elsif (defined($isBlank) && $isBlank) {
-                    # one location where this applied
-                    ++$blank_histogram->[0];
-                    ++$blank_histogram->[1];    # one coverpoint suppressed
-                }
-
-                # now remove everywhere
-                foreach my $tn ($testdata->keylist()) {
-                    my $d = $testdata->value($tn);
-                    $d->remove($line, 1);       # remove if present
-                }
-                $sumcount->remove($line);
-                if (exists($checkdata->{$line})) {
-                    delete($checkdata->{$line});
-                }
-            }    # foreach line
-        }    #foreach test
-             # count the number of function aliases..
-        if ($function_alias_histogram) {
-            $function_alias_histogram->[0] += $funcdata->numFunc(1);
-            $function_alias_histogram->[1] += $funcdata->numFunc(0);
-        }
+            unless (
+                  (defined($lcovutil::func_coverage) &&
+                   (0 != scalar(@lcovutil::exclude_function_patterns) ||
+                    defined($lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION]))
+                  ) ||
+                  (is_c_file($source_file) &&
+                   lcovutil::is_filter_enabled()));
+        push(@filter_workList, [$traceInfo, $name]);
     }    # foreach file
+
+    $self->_processFilterWorklist(\@filter_workList);
 }
 
 sub is_rtl_file

@@ -222,7 +222,7 @@ a patch file in unified format specified using
 
 Both
 .I tracefile_pattern
-and 
+and
 .I baseline\-file
 are treated as glob patterns which match one or more files.
 .br
@@ -1576,7 +1576,9 @@ This feature also merges all instances of the same template function/template me
 remove trivial functions and associated coverpoints.  'Trivial' functions are
 whose body is empty/do not contain any statements.  Commonly, these include compiler-generated methods (e.g., default constructors and assignment operators) as well as static initialization wrappers, etc.
 
-Note that this filter requires function end line information - and so requires that you use a gcc veraion which is new enough to support begin/end line reports:  gcc/9 or newer, or that you enable lcov/genhtml/geninfo to derive the information:
+Note that the
+.I trivial
+filter requires function end line information - and so requires that you use a gcc veraion which is new enough to support begin/end line reports:  gcc/9 or newer, or that you enable lcov/genhtml/geninfo to derive the information:
 
 In the
 .B lcovrc
@@ -1587,6 +1589,11 @@ setting as well as the
 setting.  The former is used to turn end line calculation on or off,
 and the latter to change the lookahead used to determine whether the
 function body is empty.
+Also see the
+.I lcov_filter_parallel
+and
+.I lcov_filter_chunk_size
+settings, which may improve CPU performance if the number of files to process is very large.
 
 .RE
 .BI "\-o " output\-directory

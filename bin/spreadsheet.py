@@ -18,7 +18,7 @@ thresholdPercent = 0.15
 
 class GenerateSpreadsheet(object):
 
-    def __init__(self, excelFile, files, verbose):
+    def __init__(self, excelFile, files, args):
 
         s = xlsxwriter.Workbook(excelFile)
 
@@ -42,7 +42,10 @@ class GenerateSpreadsheet(object):
         # merge: time to merge returned chunk info
         geninfoChunkKeys = ('work', 'chunk', 'queue', 'child', 'process', 'undump', 'merge')
         geninfoSpecialKeys = ('total', 'parallel', 'filter', 'write')
-        if verbose:
+
+        # keys related to filtering
+        filterKeys = ('filt_chunk', 'filt_queue',  'filt_child', 'filt_proc', 'filt_undump', 'filt_merge')
+        if args.verbose:
             geninfoKeys.extend(['read', 'translate'])
 
         self.formats = {
@@ -311,17 +314,20 @@ class GenerateSpreadsheet(object):
 
             elif tool == 'geninfo':
 
+                summaryKeys = (*geninfoSpecialKeys, *geninfoChunkKeys, *geninfoKeys)
+                if args.show_filter:
+                    summaryKeys = (*geninfoSpecialKeys, *geninfoChunkKeys, *geninfoKeys, *filterKeys)
                 if summarySheet:
                     # first one - add titles, etc
                     title = self.formats['title']
-                    
+
                     if len(geninfoSheets) == 0:
                         summarySheet.write_string(1, 0, "average", title)
                         summarySheet.write_string(2, 0, "stddev", title)
                         titleRow = 0
                         summarySheet.write_string(titleRow, 0, "case", title)
                         col = 1
-                        for k in (*geninfoSpecialKeys, *geninfoChunkKeys, *geninfoKeys):
+                        for k in summaryKeys:
                             if k in ('order',):
                                 continue
                             summarySheet.write_string(titleRow, col, k, title)
@@ -417,11 +423,21 @@ class GenerateSpreadsheet(object):
                     sheet.write_string(row, 1, 'total')
                     sheet.write_string(row+1, 1, 'avg')
                     sheet.write_string(row+2, 1, 'stddev')
-                    
                     insertStats(keylist, sawData, statsRow + 1, statsRow + 2,
-                                statsRow+3, dataStart, dataEnd, 2)                    
+                                statsRow+3, dataStart, dataEnd, 2)
                     return dataEnd + 1
 
+                chunkStatsRow = row
+                fileStatsRow = chunkStatsRow + 4
+                filterStatsRow = fileStatsRow + 4;
+
+                if args.show_filter:
+                    chunkDataRow = filterStatsRow + 4
+                else:
+                    chunkDataRow = fileStatsRow + 4
+                    fileStatsRow = row
+                parallelSumRow = row+1
+                parallelSumCol = 3
 
                 # first the chunk data...
                 # process: time from immediately before fork in parent
@@ -436,25 +452,20 @@ class GenerateSpreadsheet(object):
                 # undump: dumper 'eval' call + stdout/stderr recovery
                 # parse: time to read child tracefile.info
                 # append: time to merge that into parent master report
-                fileStatsRow = row
-                fileDataRow = row + 4
-                parallelSumRow = row+1
-                parallelSumCol = 3
                 try:
-                    chunkStatsRow = row
-                    chunkDataRow = row + 8
-
                     chunks = sorted(data['child'].keys(), key=int, reverse=True)
-                    row = dataSection('chunks', chunks, geninfoChunkKeys, 
+                    row = dataSection('chunks', chunks, geninfoChunkKeys,
                                       chunkDataRow, chunkStatsRow)
                     row += 1
-                    fileStatsRow = chunkStatsRow + 4
                     fileDataRow = row + 1
                     parallelSumCol = 2
                 except:
+                    # no chunk data - so just insert file data
+                    fileStatsRow = chunkStatsRow
+                    fileDataRow = fileStatsRow + 4
                     pass
 
-                # now the file data
+
                 def cmpFile(a, b):
                     idA = int(data['order'][a])
                     idB = int(data['order'][b])
@@ -466,11 +477,24 @@ class GenerateSpreadsheet(object):
                 row = dataSection('files', sorted(data['file'].keys(), key=cmp_to_key(cmpFile)),
                                   geninfoKeys, fileDataRow, fileStatsRow)
 
+                # now the fiter data - if any
+                if args.show_filter:
+                    filterDataRow = row + 1;
+                    try:
+                        chunks = sorted(data['filt_child'].keys(), key=int, reverse=True)
+                        row = dataSection('filter', chunks, filterKeys,
+                                          filterDataRow, filterStatsRow)
+                        row += 1
+
+                    except:
+                        pass
+
+
                 effectiveParallelism = "+%(sum)s/%(total)s" % {
                     'sum': xl_rowcol_to_cell(parallelSumRow, parallelSumCol),
                     'total': total,
                 }
-                sheet.write_formula(specialsStart + geninfoSpecialKeys.index('parallel'), 
+                sheet.write_formula(specialsStart + geninfoSpecialKeys.index('parallel'),
                                     1, effectiveParallelism, twoDecimal)
 
                 if summarySheet:
@@ -496,9 +520,13 @@ class GenerateSpreadsheet(object):
                     #  and also insert reference to total time and average time
                     #  for each step into the summary sheet.
                     statsTotalRow = chunkStatsRow + 1
-                    statsAvgRow = chunkStatsRow + 2 
-                    for d in ((geninfoChunkKeys, chunkStatsRow + 1, chunkStatsRow + 2),
-                              (geninfoKeys, fileStatsRow + 1, fileStatsRow + 2),):
+                    statsAvgRow = chunkStatsRow + 2
+                    sections = [(geninfoChunkKeys, chunkStatsRow + 1, chunkStatsRow + 2),
+                              (geninfoKeys, fileStatsRow + 1, fileStatsRow + 2),]
+                    if args.show_filter:
+                        sections.append((filterKeys, filterStatsRow +1,
+                                         filterStatsRow+2))
+                    for d in (sections):
                         totRow = d[1]
                         avgRow = d[2]
                         col = 2
@@ -513,7 +541,6 @@ class GenerateSpreadsheet(object):
                                                            sheetRef + avg, twoDecimal)
                                 summaryCol +=1
                             col += 1
-                
                 continue
 
             elif tool == 'genhtml':
@@ -667,7 +694,7 @@ class GenerateSpreadsheet(object):
                     }
                     summarySheet.write_formula(devRow, col, dev, twoDecimal)
                     col += 1
-                
+
             insertConditional(summarySheet, avgRow, devRow,
                               firstSummaryRow, firstCol, lastSummaryRow, col -1)
         s.close()
@@ -693,6 +720,8 @@ Example usage:
                         help="difference from average larger than this * stddev colored red.  Default: %0.2f" %(devMaxThreshold))
     parser.add_argument('-v', '--verbose', dest='verbose', default=0,
                         action='count', help='verbosity of report: more data');
+    parser.add_argument('--show-filter', dest='show_filter', default=False,
+                        action='store_true', help='include filter keys in table');
 
     parser.add_argument('files', nargs=argparse.REMAINDER)
 
@@ -702,5 +731,4 @@ Example usage:
         print(str(err))
         sys.exit(2)
 
-
-    GenerateSpreadsheet(args.out, args.files, args.verbose)
+    GenerateSpreadsheet(args.out, args.files, args)
