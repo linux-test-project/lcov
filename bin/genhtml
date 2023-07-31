@@ -4834,8 +4834,8 @@ sub compute
                 my $childStart = Time::HiRes::gettimeofday();
                 %lcovutil::profileData = ();
                 my $tmp         = '' . $self->[4];
-                my $stdout_file = "$tmp/genhtml_$$.log";
-                my $stderr_file = "$tmp/genhtml_$$.err";
+                my $stdout_file = File::Spec->catfile($tmp, "genhtml_$$.log");
+                my $stderr_file = File::Spec->catfile($tmp, "genhtml_$$.err");
                 local (*STDERR);
                 local (*STDOUT);
                 open(STDOUT1, '>' . $stdout_file) or
@@ -4882,7 +4882,7 @@ sub compute
                     $selfSummary->type() eq 'top' ? "" : $selfSummary->name();
                 my $criteria = $SummaryInfo::coverageCriteria{$name}
                     if exists($SummaryInfo::coverageCriteria{$name});
-                my $file = "$tmp/dumper_$$";
+                my $file = File::Spec->catfile($tmp, "dumper_$$");
 
                 my $childEnd = Time::HiRes::gettimeofday();
                 $lcovutil::profileData{child}{$name} = $childEnd - $childStart;
@@ -4985,9 +4985,9 @@ sub merge_child($$$)
         unless $type eq 'top';
 
     my $tmp      = '' . $self->[4];
-    my $dumpfile = "$tmp/dumper_$childPid";
-    my $childLog = "$tmp/genhtml_$childPid.log";
-    my $childErr = "$tmp/genhtml_$childPid.err";
+    my $dumpfile = File::Spec->catfile($tmp, "dumper_$childPid");
+    my $childLog = File::Spec->catfile($tmp, "genhtml_$childPid.log");
+    my $childErr = File::Spec->catfile($tmp, "genhtml_$childPid.err");
     foreach my $f ($childLog, $childErr) {
         if (open(RESTORE, "<", $f)) {
             # slurp into a string and eval..

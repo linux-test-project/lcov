@@ -553,20 +553,12 @@ if ($gcov_version < $GCOV_VERSION_3_4_0) {
 
 # Check output filename
 $single_file = defined($output_filename);
-if (defined($output_filename) && ($output_filename ne "-")) {
-    # Initially create output filename, data is appended
-    # for each data file processed
-    local *DUMMY_HANDLE;
-    open(DUMMY_HANDLE, ">", $output_filename) or
-        die("ERROR: cannot create $output_filename: $!\n");
-    close(DUMMY_HANDLE);
 
-    # Make $output_filename an absolute path because we're going
-    # to change directories while processing files
-    if (!file_name_is_absolute($output_filename)) {
-        $output_filename = catfile($cwd, $output_filename);
-    }
-}
+# use absolute path: we change directories while processing files
+$output_filename = catfile($cwd, $output_filename)
+    if (defined($output_filename) &&
+        ($output_filename ne "-") &&
+        !file_name_is_absolute($output_filename));
 
 # Build list of directories to identify external files
 foreach my $entry (@data_directory, $base_directory) {
@@ -581,7 +573,7 @@ foreach my $entry (@data_directory, $base_directory) {
 
 # Function is_external() requires all internal_dirs to end with a slash
 foreach my $dir (@lcovutil::internal_dirs) {
-    $dir =~ s#/*$#/#;
+    $dir =~ s#$lcovutil::dirseparator*$#$lcovutil::dirseparator#;
 }
 
 if ($initial && $lcovutil::br_coverage && !$intermediate) {
@@ -931,14 +923,13 @@ sub _merge_one_child($$$$$)
     my ($child, $children, $type, $tempFileExt, $childstatus) = @_;
     my $start = Time::HiRes::gettimeofday();
 
-    my $tmp = '' . $tempFileDir;
     debug(
-        "_merge_one_child: $child $type (parent $$) status $childstatus from $tmp\n"
+        "_merge_one_child: $child $type (parent $$) status $childstatus from $tempFileDir\n"
     );
     my ($chunk, $forkAt, $chunkId) = @{$children->{$child}};
-    my $dumped   = "$tmp/dumper_$child";
-    my $childLog = "$tmp/geninfo_$child.log";
-    my $childErr = "$tmp/geninfo_$child.err";
+    my $dumped   = File::Spec->catfile($tempFileDir, "dumper_$child");
+    my $childLog = File::Spec->catfile($tempFileDir, "geninfo_$child.log");
+    my $childErr = File::Spec->catfile($tempFileDir, "geninfo_$child.err");
 
     foreach my $f ($childLog, $childErr) {
         if (open(RESTORE, "<", $f)) {
@@ -1249,10 +1240,13 @@ sub gen_info(@)
                 my $childStart = Time::HiRes::gettimeofday();
                 # clear profile - want only my contribution
                 %lcovutil::profileData = ();
-                my $tmp = '' . $tempFileDir;
-                $output_filename = "$tmp/geninfo_$$.info" . $tempFileExt;
-                my $stdout_file = "$tmp/geninfo_$$.log";
-                my $stderr_file = "$tmp/geninfo_$$.err";
+                $output_filename =
+                    File::Spec->catfile($tempFileDir,
+                                        "geninfo_$$.info" . $tempFileExt);
+                my $stdout_file =
+                    File::Spec->catfile($tempFileDir, "geninfo_$$.log");
+                my $stderr_file =
+                    File::Spec->catfile($tempFileDir, "geninfo_$$.err");
                 my $childInfo;
                 # set count to zero so we know how many got created in
                 # the child process
@@ -1270,12 +1264,13 @@ sub gen_info(@)
                                            $childInfo, $$);
                 };
                 # print stdout and stderr ...
-                foreach my $d (['log', $stdout], ['err', $stderr]) {
-                    my $f = InOutFile->out("$tmp/geninfo_$$." . $d->[0]);
+                foreach
+                    my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
+                    my $f = InOutFile->out($d->[0]);
                     my $h = $f->hdl();
                     print($h $d->[1]);
                 }
-                my $dumpf = "$tmp/dumper_$$";
+                my $dumpf = File::Spec->catfile($tempFileDir, "dumper_$$");
                 foreach my $f ($output_filename) {
                     unlink $f if -f $f && !$lcovutil::preserve_intermediates;
                 }
@@ -1875,7 +1870,7 @@ sub match_filename($@)
                 next entry;
             }
         }
-        push(@result, $entry),;
+        push(@result, $entry);
     }
 
     return @result;
