@@ -4604,7 +4604,7 @@ sub new
             } else {
                 $parentDir = $main::cwd;
             }
-            $filename = File::Spec->catfile($parentDir, $filename);
+            $filename = File::Spec->catfile($parentDir, $file);
         }
         my $short_name =
             $main::no_prefix ? $filename :
