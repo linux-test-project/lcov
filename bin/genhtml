@@ -2504,7 +2504,13 @@ sub _categorizeBranchCov
 
     my %branchCovLines;
     # look through the 'current' data, to find all the branch data
-
+    # keep track of hit count in baseline, current - in element 2 of the
+    #  retained branch data.  These counts are useful - for example, to report
+    #  the hit count in the baseline for LBC branches:
+    #   - e.g., in random testing: is this branch lost because it was a
+    #     low probablilty event (..baselinecount is a small number)>
+    #     Or because we did something bad and no longer reach what had been
+    #     a high probability event?
     foreach my $line ($branchCurrent->keylist()) {
         my $type = $linemap->type($filename, $linemap->NEW, $line);
         lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
@@ -2582,7 +2588,7 @@ sub _categorizeBranchCov
                 foreach my $br (@{$curr->getBlock($branchId)}) {
                     my $count = $br->count();
                     my $tla   = (0 == $count) ? 'UNC' : 'GNC';
-                    push(@$block, [$br, $tla]);
+                    push(@$block, [$br, $tla, [undef, $count]]);
                 }
             }
         } elsif ($type eq 'delete') {
@@ -2594,7 +2600,7 @@ sub _categorizeBranchCov
                 foreach my $br (@{$base->getBlock($branchId)}) {
                     my $count = $br->count();
                     my $tla   = (0 == $count) ? 'DUB' : 'DCB';
-                    push(@$block, [$br, $tla]);
+                    push(@$block, [$br, $tla, [$count, undef]]);
                 }
             }
         } else {
@@ -2622,22 +2628,28 @@ sub _categorizeBranchCov
                             $tla =
                                 _categorize($base_br->count(),
                                             $curr_br->count());
-                            push(@$branchData, [$curr_br, $tla]);
+                            push(@$branchData,
+                                 [$curr_br, $tla,
+                                  [$base_br->count(), $curr_br->count()]
+                                 ]);
                         } elsif ($i < $num_base) {
                             my $base_br = $b->[$i];
                             $tla = (0 == $base_br->count()) ? 'EUB' : 'ECB';
-                            push(@$branchData, [$base_br, $tla]);
+                            push(@$branchData,
+                                 [$base_br, $tla, [$base_br->count(), undef]]);
                         } else {
                             my $curr_br = $c->[$i];
                             $tla = (0 == $curr_br->count()) ? 'UIC' : 'GIC';
-                            push(@$branchData, [$curr_br, $tla]);
+                            push(@$branchData,
+                                 [$curr_br, $tla, [undef, $curr_br->count()]]);
                         }
                     }
                 } else {
                     # branch not found in current...
                     foreach my $base_br (@$b) {
                         my $tla = (0 == $base_br->count()) ? 'EUB' : 'ECB';
-                        push(@$branchData, [$base_br, $tla]);
+                        push(@$branchData,
+                             [$base_br, $tla, [$base_br->count(), undef]]);
                     }
                 }
             }
@@ -2650,7 +2662,8 @@ sub _categorizeBranchCov
                 my $branchData = $categorized->addBlock($branchId);
                 foreach my $curr_br (@$c) {
                     my $tla = (0 == $curr_br->count()) ? 'UIC' : 'GIC';
-                    push(@$branchData, [$curr_br, $tla]);
+                    push(@$branchData,
+                         [$curr_br, $tla, [undef, $curr_br->count()]]);
                 }
             }    # foreach branchId in current that isn't in base
         }
@@ -8448,6 +8461,7 @@ sub get_branch_html($$)
             my $class;
             my $prefix;
             my $tla;
+            my $base_count;
             if ('ARRAY' ne ref($br)) {
                 # vanilla case - no differential coverage info
                 die("differential branch coverage but no TLA")
@@ -8463,9 +8477,10 @@ sub get_branch_html($$)
             } else {
                 die("differential branch coverage but no TLA")
                     unless defined($differentialBranch);
-                $tla   = $br->[1];
-                $br    = $br->[0];
-                $class = "tla$tla";
+                $tla        = $br->[1];
+                $base_count = $br->[2]->[0];
+                $br         = $br->[0];
+                $class      = "tla$tla";
                 my $label =
                     $main::use_legacyLabels ?
                     $SummaryInfo::tlaToLegacySrcLabel{$tla} :
@@ -8480,9 +8495,19 @@ sub get_branch_html($$)
             if ($taken eq '-') {
                 $char  = "#";
                 $title = "${prefix}Branch $br_name was not executed";
+                $title .=
+                    " (previously taken $base_count time" .
+                    (1 == $base_count ? '' : 's') . ')'
+                    if (defined($tla) &&
+                        ($tla eq 'LBC' || $tla eq 'ECB'));
             } elsif ($taken == 0) {
                 $char  = "-";
                 $title = "${prefix}Branch $br_name was not taken";
+                $title .=
+                    " (previously taken $base_count time" .
+                    (1 == $base_count ? '' : 's') . ')'
+                    if (defined($tla) &&
+                        ($tla eq 'LBC' || $tla eq 'ECB'));
             } else {
                 $char  = "+";
                 $title = "${prefix}Branch $br_name was taken $taken time" .
@@ -8535,6 +8560,11 @@ sub format_count($$)
     my ($count, $width) = @_;
     my $result;
     my $exp;
+    my $negative = 0 > $count;
+    if ($negative) {
+        $width -= 2;
+        $count = -$count;
+    }
 
     $result = sprintf("%*.0f", $width, $count);
     while (length($result) > $width) {
@@ -8542,6 +8572,10 @@ sub format_count($$)
         $exp++;
         $count  = int($count / 10);
         $result = sprintf("%*s", $width, ">$count*10^$exp");
+    }
+    if ($negative) {
+        # surround number with parens
+        $result =~ s/^( *)(\S+)$/$1\($2\)/;
     }
     return $result;
 }
@@ -8637,9 +8671,13 @@ sub write_source_line(*$$$$)
             $bucket eq "EUB") {
             !defined($count) or
                 die("excluded code should have undefined count");
-            # don't show count for excluded code
-            $count_format = " " x $count_field_width;
-            $result       = $pchar . $base_count;
+            # show previous count for excluded code that had been hit
+            if ($bucket eq "ECB") {
+                $count_format = format_count(-$base_count, $count_field_width);
+            } else {
+                $count_format = " " x $count_field_width;
+            }
+            $result = $pchar . $base_count;
         } else {
             if (!defined($count)) {
                 # this is manufactured data...make something up
@@ -8647,8 +8685,12 @@ sub write_source_line(*$$$$)
             }
             defined($count) && "" ne $count or
                 die("code should have defined count");
-            $count_format = format_count($count, $count_field_width);
-            $result       = $pchar . $count;
+            if ($bucket eq 'LBC') {
+                $count_format = format_count(-$base_count, $count_field_width);
+            } else {
+                $count_format = format_count($count, $count_field_width);
+            }
+            $result = $pchar . $count;
         }
         # '$result' is used to generate the PNG frame
         info(2,
