@@ -61,13 +61,17 @@ foreach my $example (glob('*brace*.c')) {
     $info =~ s/c$/info/g;
     lcovutil::parse_cov_filters();    # turn off filtering
     my $vanilla = TraceFile->load($info);
-    my ($lines, $hit) = $vanilla->write_info_file($info . '.orig');
+    $vanilla->write_info_file($info . '.orig');
+    my @v = $vanilla->count_totals();
+    my ($lines, $hit) = @{$v[1]};
     print("$lines lines $hit hit\n");
 
     lcovutil::parse_cov_filters('brace');
     my $reader = ReadCurrentSource->new($example);
     my $trace  = TraceFile->load($info, $reader);
-    my ($filtered, $h2) = $trace->write_info_file($info . '.filtered');
+    $trace->write_info_file($info . '.filtered');
+    my @counts = $trace->count_totals();
+    my ($filtered, $h2) = @{$counts[1]};
     print("$filtered filtered lines $h2 hit\n");
     die("failed to filter $info")
         unless ($lines > $filtered &&

@@ -5483,16 +5483,15 @@ sub _read_info
     }
 }
 
-#  write data to filename (stdout if '-')
-# returns array of (lines found, lines hit, functions found, functions hit,
-#                   branches found, branches_hit)
+# write data to filename (stdout if '-')
+# returns nothing
 sub write_info_file($$$)
 {
     my ($self, $filename, $do_checksum) = @_;
 
     my $file = InOutFile->out($filename);
     my $hdl  = $file->hdl();
-    return $self->write_info($hdl, $do_checksum);
+    $self->write_info($hdl, $do_checksum);
 }
 
 #
@@ -5507,12 +5506,6 @@ sub write_info($$$)
     my $verify_checksum = defined($_[2]) ? $_[2] : 0;
     my $br_found;
     my $br_hit;
-    my $ln_total_found = 0;
-    my $ln_total_hit   = 0;
-    my $fn_total_found = 0;
-    my $fn_total_hit   = 0;
-    my $br_total_found = 0;
-    my $br_total_hit   = 0;
 
     my $srcReader = ReadCurrentSource->new()
         if ($verify_checksum);
@@ -5534,13 +5527,6 @@ sub write_info($$$)
 
         # munge the source file name, if requested
         $source_file = lcovutil::subst_file_name($source_file);
-        # Add to totals
-        $ln_total_found += $found;
-        $ln_total_hit   += $hit;
-        $fn_total_found += $f_found;
-        $fn_total_hit   += $f_hit;
-        $br_total_found += $br_found;
-        $br_total_hit   += $br_hit;
 
         # Please note:  if you add or change something here (lcov info file format) -
         #   then please make corresponding changes to the '_read_info' method, above
@@ -5688,9 +5674,6 @@ sub write_info($$$)
             print(INFO_HANDLE "end_of_record\n");
         }
     }
-
-    return ($ln_total_found, $ln_total_hit, $fn_total_found,
-            $fn_total_hit, $br_total_found, $br_total_hit);
 }
 
 #

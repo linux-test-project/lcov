@@ -146,7 +146,7 @@ sub my_info(@);
 set_info_callback(\&my_info);
 sub create_temp_dir();
 sub setup_gkv();
-sub print_overall_rate($$$$$$$$$);
+sub print_overall_rate($$$$);
 sub check_rates($$);
 sub lcov_geninfo(@);
 sub create_package($$$;$);
@@ -195,12 +195,6 @@ our $opt_list_truncate_max = 20;
 our $opt_external;
 our @opt_summary;
 our $opt_compat;
-our $ln_overall_found;
-our $ln_overall_hit;
-our $fn_overall_found;
-our $fn_overall_hit;
-our $br_overall_found;
-our $br_overall_hit;
 
 #
 # Code entry point
@@ -342,6 +336,8 @@ if (!$from_package && !@directory && ($lcovutil::lcov_capture || $reset)) {
 
 our $exit_code = 0;
 
+my $trace;
+
 eval {
     # Check for requested functionality
     if ($reset) {
@@ -391,21 +387,14 @@ eval {
             my $hdl  = $file->hdl();
             print($hdl join("\n", @$pruned) . "\n");
         } else {
-            ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-             $fn_overall_hit, $br_overall_found, $br_overall_hit
-            ) = add_traces();
+            $trace = add_traces();
         }
     } elsif ($lcovutil::lcov_remove) {
-
         # remove files matching patterns
-        ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-         $fn_overall_hit, $br_overall_found, $br_overall_hit
-        ) = remove_file_patterns($lcovutil::lcov_remove);
+        $trace = remove_file_patterns($lcovutil::lcov_remove);
     } elsif ($lcovutil::lcov_extract) {
         # kep only the files matching patterns
-        ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-         $fn_overall_hit, $br_overall_found, $br_overall_hit
-        ) = remove_file_patterns($lcovutil::lcov_extract);
+        $trace = remove_file_patterns($lcovutil::lcov_extract);
     } elsif ($list) {
         $data_stdout = 0;
         list();
@@ -414,13 +403,10 @@ eval {
             die("ERROR: option --diff requires one additional argument!\n" .
                 "Use $tool_name --help to get usage information\n");
         }
-        ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-         $fn_overall_hit, $br_overall_found, $br_overall_hit) = diff();
+        $trace = diff();
     } elsif (@opt_summary) {
         $data_stdout = 0;
-        ($ln_overall_found, $ln_overall_hit, $fn_overall_found,
-         $fn_overall_hit, $br_overall_found, $br_overall_hit) = summary();
-        $exit_code = check_rates($ln_overall_found, $ln_overall_hit);
+        $trace       = summary();
     }
 };
 if ($@) {
@@ -432,15 +418,16 @@ temp_cleanup();
 chdir($cwd);
 
 if (0 == $exit_code) {
-    if (defined($ln_overall_found)) {
+    if (defined($trace)) {
         # the numbers do not reflect coverpoints in 'erased' functions.
         #  the issue is that we filter them out in the write operation - but
         #  we don't bother to read it back
-        print_overall_rate(1, $ln_overall_found,
-                           $ln_overall_hit, $lcovutil::func_coverage,
-                           $fn_overall_found, $fn_overall_hit,
-                           $lcovutil::br_coverage, $br_overall_found,
-                           $br_overall_hit);
+        my @counts = $trace->count_totals();
+        print_overall_rate(\@counts, 1, $lcovutil::func_coverage,
+                           $lcovutil::br_coverage);
+        # check for failed coverage criteria
+        $exit_code = check_rates($counts[1]->[0],    # lines foune
+                                 $counts[1]->[1]);    # lines hit
     } else {
         info("Done.\n") if (!$list && !$lcovutil::lcov_capture);
     }
@@ -1523,7 +1510,6 @@ sub my_info(@)
 sub emit
 {
     my ($trace, $info_msg) = @_;
-    my @result;
     my $to = $data_stdout ? '-' : $output_filename;
     if (!$data_stdout) {
         info($info_msg)
@@ -1531,7 +1517,7 @@ sub emit
         info("Writing data to $output_filename\n");
     }
     $trace->add_comments(@lcovutil::comments);
-    return $trace->write_info_file($to, $lcovutil::verify_checksum);
+    $trace->write_info_file($to, $lcovutil::verify_checksum);
 }
 
 #
@@ -1547,17 +1533,15 @@ sub add_traces()
 
     my ($total_trace, $effective) = AggregateTraces::merge(@merge);
 
-    my @result;
-
     if ($AggregateTraces::function_mapping) {
-        return @result;
+        return;
     } elsif ($prune_testcases) {
-        push(@result, $effective, \@merge);
+        return ($effective, \@merge);
     } else {
         # write the result
-        @result = emit($total_trace);
+        emit($total_trace);
+        return $total_trace;
     }
-    return @result;
 }
 
 sub remove_file_patterns($)
@@ -1573,7 +1557,7 @@ sub remove_file_patterns($)
 
     # Write extracted data
     my $removed = scalar(keys(%lcovutil::excluded_files));
-    return emit($data, "Removed $removed files\n");
+    emit($data, "Removed $removed files\n");
 }
 
 # get_prefix(max_width, max_percentage_too_long, path_list)
@@ -2542,10 +2526,8 @@ sub diff()
 
     # Write data
     $trace_data->add_comments(@lcovutil::comments);
-    my @result =
-        $trace_data->write_info_file($output_filename,
-                                     $lcovutil::verify_checksum);
-    return @result;
+    $trace_data->write_info_file($output_filename, $lcovutil::verify_checksum);
+    return $trace_data;
 }
 
 #
@@ -2556,12 +2538,6 @@ sub summary()
 {
     my $total          = TraceFile->new();
     my $readSourceFile = ReadCurrentSource->new();
-    my $ln_total_found = 0;
-    my $ln_total_hit   = 0;
-    my $fn_total_found = 0;
-    my $fn_total_hit   = 0;
-    my $br_total_found = 0;
-    my $br_total_hit   = 0;
 
     # Read and combine trace files
     foreach my $filename (@opt_summary) {
@@ -2569,16 +2545,7 @@ sub summary()
                                       $lcovutil::verify_checksum);
         $total->append_tracefile($current);
     }
-    # Calculate coverage data
-    my @counts = $total->count_totals();
-
-    #return ($ln_total_found, $ln_total_hit, $fn_total_found,
-    #        $fn_total_hit, $br_total_found, $br_total_hit);
-    my @return;
-    push(@return, @{$counts[1]});    # lines: total, hit
-    push(@return, @{$counts[3]});    # functions: total, hit
-    push(@return, @{$counts[2]});    # branches: total, hit
-    return @return;
+    return $total;
 }
 
 sub setup_gkv_sys()
@@ -2663,24 +2630,25 @@ sub setup_gkv()
 }
 
 #
-# print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
-#                   br_found, br_hit)
+# print_overall_rate($countDat, ln_do, fn<do, br_do)
 #
 # Print overall coverage rates for the specified coverage types.
 #
 
-sub print_overall_rate($$$$$$$$$)
+sub print_overall_rate($$$$)
 {
-    my ($ln_do, $ln_found, $ln_hit, $fn_do, $fn_found,
-        $fn_hit, $br_do, $br_found, $br_hit) = @_;
+    my ($counts, $ln_do, $fn_do, $br_do) = @_;
 
     info("Summary coverage rate:\n");
-    info("  lines......: %s\n", get_overall_line($ln_found, $ln_hit, "line"))
+    info("  source files: %d\n", $counts->[0]);
+    info("  lines.......: %s\n",
+         get_overall_line($counts->[1]->[0], $counts->[1]->[1], "line"))
         if ($ln_do);
-    info("  functions..: %s\n",
-         get_overall_line($fn_found, $fn_hit, "function"))
+    info("  functions...: %s\n",
+         get_overall_line($counts->[3]->[0], $counts->[3]->[1], "function"))
         if ($fn_do);
-    info("  branches...: %s\n", get_overall_line($br_found, $br_hit, "branch"))
+    info("  branches....: %s\n",
+         get_overall_line($counts->[2]->[0], $counts->[2]->[1], "branch"))
         if ($br_do);
 }
 
@@ -2699,6 +2667,7 @@ sub check_rates($$)
     }
 
     if ($ln_found == 0) {
+        lcovutil: info(1, "No lines found\n");
         return 1;
     }
 
@@ -2707,6 +2676,8 @@ sub check_rates($$)
     if ($actual_rate >= $expected_rate) {
         return 0;
     } else {
+        lcovutil: info(1, "Failed coverage criteria: %0.2f < %0.2f\n",
+                       $actual_rate, $expected_rate);
         return 1;
     }
 }

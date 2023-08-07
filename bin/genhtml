@@ -5737,15 +5737,14 @@ END_OF_USAGE
 }
 
 #
-# print_overall_rate(ln_do, ln_found, ln_hit, fn_do, fn_found, fn_hit, br_do
-#                    br_found, br_hit)
+# print_overall_rate(trace, ln_do, fn_do, br_do, summary)
 #
 # Print overall coverage rates for the specified coverage types.
 #
 
-sub print_overall_rate($$$$)
+sub print_overall_rate($$$$$)
 {
-    my ($ln_do, $fn_do, $br_do, $summary) = @_;
+    my ($currentTrace, $ln_do, $fn_do, $br_do, $summary) = @_;
 
     # use verbosity level -1:  so print unless user says "-q -q"...really quiet
     info(-1, "Overall coverage rate:\n");
@@ -5754,11 +5753,17 @@ sub print_overall_rate($$$$)
     push(@types, SummaryInfo::FUNCTION_DATA) if $fn_do;
     push(@types, SummaryInfo::BRANCH_DATA) if $br_do;
 
+    # use source file count from current - we don;t care about files
+    #  that were deleted and are in baseline
+    info(-1, "  source files: %d\n", scalar($currentTrace->files()));
+    my $width = length("source files");
     for my $type (@types) {
         my $name   = SummaryInfo::type2str($type);
         my $plural = "ch" eq substr($name, -2, 2) ? "es" : "s";
+        my $label  = "$name$plural";
+        my $fill   = '.' x ($width - length($label));
         info(-1,
-             "  $name$plural......: %s\n",
+             "  $name$plural$fill: %s\n",
              get_overall_line($summary->get("found", $type),
                               $summary->get("hit", $type),
                               $name));
@@ -5912,8 +5917,8 @@ sub gen_html()
         write_description_file(\%test_description, $genhtml->top());
     }
 
-    print_overall_rate(1, $lcovutil::func_coverage, $lcovutil::br_coverage,
-                       $genhtml->top());
+    print_overall_rate($current_data, 1, $lcovutil::func_coverage,
+                       $lcovutil::br_coverage, $genhtml->top());
 }
 
 #
