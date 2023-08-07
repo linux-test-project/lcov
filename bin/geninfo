@@ -949,7 +949,8 @@ sub _merge_one_child($$$$$)
     if (0 == $childstatus && -f $dumped) {
         my $data = Storable::retrieve($dumped);
         if (defined($data)) {
-            my ($childInfo, $patterns, $profile, $counts) = @$data;
+            my ($childInfo, $patterns, $profile, $counts, $updates) = @$data;
+            lcovutil::update_state($updates);
             $files_created  += $counts->[0];
             $processedFiles += $counts->[1];
             my $childFinish = $counts->[2];
@@ -1240,6 +1241,7 @@ sub gen_info(@)
                 my $childStart = Time::HiRes::gettimeofday();
                 # clear profile - want only my contribution
                 %lcovutil::profileData = ();
+                my $currentState = lcovutil::initial_state();
                 $output_filename =
                     File::Spec->catfile($tempFileDir,
                                         "geninfo_$$.info" . $tempFileExt);
@@ -1289,7 +1291,8 @@ sub gen_info(@)
                 Storable::store([$single_file ? $childInfo : undef,
                                  $patterns,
                                  \%lcovutil::profileData,
-                                 [$files_created, scalar(@$chunk), $then]
+                                 [$files_created, scalar(@$chunk), $then],
+                                 lcovutil::compute_update($currentState)
                                 ],
                                 $dumpf) if defined($childInfo);
                 exit(0);

@@ -1351,6 +1351,46 @@ sub warn_once
     return 1;
 }
 
+sub initial_state
+{
+    # keep track of number of warnings, etc. generated in child -
+    #  so we can merge back into parent.  This may prevent us from
+    #  complaining about the same thing in multiple children - but only
+    #  if those children don't execute in parallel.
+    return Storable::dclone([\%warnOnlyOnce, \@message_count]);
+}
+
+sub compute_update
+{
+    my $state = shift;
+    my @new_warn;
+    while (my ($key, $val) = each(%warnOnlyOnce)) {
+        push(@new_warn, $key)
+            unless exists($state->[0]->{$key});
+    }
+    my @new_count;
+    foreach my $msg (@message_count) {
+        my $v =
+            defined($message_count[$msg]) ?
+            ($message_count[$msg] - $state->[1]->[$msg]) :
+            0;
+        push(@new_count, $v);
+    }
+    return [\@new_warn, \@new_count];
+}
+
+sub update_state
+{
+    my $update = shift;
+    foreach my $key (@{$update->[0]}) {
+        $warnOnlyOnce{$key} = 1;
+    }
+    foreach my $msg (@{$update->[1]}) {
+        next unless defined($message_count[$msg]);
+        $message_count[$msg] += $update->[1]->[$msg];
+    }
+}
+
 sub warnSuppress($$)
 {
     my ($code, $errName) = @_;
@@ -4579,9 +4619,11 @@ sub _mergeParallelChunk
     if (0 == $childstatus && -f $dumped) {
         my $data = Storable::retrieve($dumped);
         if (defined($data)) {
-            my ($updates, $save, $state, $childFinish, $profile) = @$data;
+            my ($updates, $save, $state, $childFinish, $profile, $update) =
+                @$data;
 
             lcovutil::merge_child_profile($profile);
+            lcovutil::update_state($update);
             #my $childCpuTime = $profile->{filt_child}{$chunkId};
             #$totalFilterCpuTime    += $childCpuTime;
             #$intervalFilterCpuTime += $childCpuTime;
@@ -4646,8 +4688,9 @@ sub _processParallelChunk
     my ($tmp, $chunk, $srcReader, $save, $state, $forkAt, $chunkId) = @_;
     # clear profile - want only my contribution
     %lcovutil::profileData = ();
-    my $stdout_file = File::Spec->catfile($tmp, "filter_$$.log");
-    my $stderr_file = File::Spec->catfile($tmp, "filter_$$.err");
+    my $currentState = lcovutil::initial_state();
+    my $stdout_file  = File::Spec->catfile($tmp, "filter_$$.log");
+    my $stderr_file  = File::Spec->catfile($tmp, "filter_$$.err");
     my $childInfo;
     # set count to zero so we know how many got created in
     # the child process
@@ -4710,7 +4753,9 @@ sub _processParallelChunk
     $lcovutil::profileData{filt_proc}{$chunkId}  = $then - $forkAt;
     $lcovutil::profileData{filt_child}{$chunkId} = $end - $start;
 
-    Storable::store([\@updates, $save, $state, $then, \%lcovutil::profileData],
+    Storable::store([\@updates, $save, $state, $then, \%lcovutil::profileData,
+                     lcovutil::compute_update($currentState)
+                    ],
                     $dumpf);
 }
 
@@ -5915,7 +5960,7 @@ sub merge
                     die("cound not redirect stdout: $!");
                 open(STDERR, ">&STDERR1") or
                     die("cound not redirect stderr: $!");
-
+                my $currentState = lcovutil::initial_state();
                 my @interesting =
                     _process_segment($total_trace, $readSourceFile, $segment);
 
@@ -5923,9 +5968,12 @@ sub merge
                 my $then     = Time::HiRes::gettimeofday();
                 $lcovutil::profileData{$idx}{total} = $then - $now;
                 my $file = File::Spec->catfile($tempDir, "dumper_$$");
-                Storable::store([$total_trace, \@interesting,
-                                 $function_mapping, $patterns,
-                                 \%lcovutil::profileData
+                Storable::store([$total_trace,
+                                 \@interesting,
+                                 $function_mapping,
+                                 $patterns,
+                                 \%lcovutil::profileData,
+                                 lcovutil::compute_update($currentState)
                                 ],
                                 $file);
                 close(STDOUT1);
@@ -5979,14 +6027,15 @@ sub merge
                 # undump the data
                 my $data = Storable::retrieve($dumpfile);
                 if (defined($data)) {
-                    my ($current, $interesting, $func_map, $patterns, $profile)
-                        = @$data;
+                    my ($current, $interesting, $func_map,
+                        $patterns, $profile, $update) = @$data;
                     my $then = Time::HiRes::gettimeofday();
                     $lcovutil::profileData{$idx}{undump} = $then - $now;
                     $lcovutil::profileData{$idx}{total} =
                         $profile->{$idx}{total};
                     # and pass back substitutions, etc.
                     lcovutil::merge_child_pattern_counts($patterns);
+                    lcovutil::update_state($update);
                     if ($function_mapping) {
                         if (!defined($func_map)) {
                             report_parallel_error('lcov',

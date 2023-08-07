@@ -4846,9 +4846,10 @@ sub compute
                 # clear the profile data - we want just my contribution
                 my $childStart = Time::HiRes::gettimeofday();
                 %lcovutil::profileData = ();
-                my $tmp         = '' . $self->[4];
-                my $stdout_file = File::Spec->catfile($tmp, "genhtml_$$.log");
-                my $stderr_file = File::Spec->catfile($tmp, "genhtml_$$.err");
+                my $tmp          = '' . $self->[4];
+                my $stdout_file  = File::Spec->catfile($tmp, "genhtml_$$.log");
+                my $stderr_file  = File::Spec->catfile($tmp, "genhtml_$$.err");
+                my $currentState = lcovutil::initial_state();
                 local (*STDERR);
                 local (*STDOUT);
                 open(STDOUT1, '>' . $stdout_file) or
@@ -4905,7 +4906,8 @@ sub compute
                                  \%lcovutil::profileData,
                                  [$SourceFile::annotatedFiles - $annotateCount,
                                   $SourceFile::totalFiles - $totalCount
-                                 ]
+                                 ],
+                                 lcovutil::compute_update($currentState)
                                 ],
                                 $file);
                 close(STDOUT1);
@@ -5021,7 +5023,8 @@ sub merge_child($$$)
         # now undump the data ...
         my $data = Storable::retrieve($dumpfile);
         if (defined($data)) {
-            my ($perTest, $summary, $criteria, $profile, $countData) = @$data;
+            my ($perTest, $summary, $criteria, $profile, $countData, $update) =
+                @$data;
             die("unexpected restored count data")
                 if (($type eq 'file' && $countData->[1] != 1) ||
                     ($type ne 'file' &&
@@ -5029,6 +5032,7 @@ sub merge_child($$$)
 
             $SourceFile::annotatedFiles += $countData->[0];
             $SourceFile::totalFiles     += $countData->[1];
+            lcovutil::update_state($update);
             $childSummary->copyGuts($summary);
             if ('file' eq $type) {
                 my $base_name = File::Basename::basename($fullname);
