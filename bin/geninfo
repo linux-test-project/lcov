@@ -935,7 +935,7 @@ sub _merge_one_child($$$$$)
         if (open(RESTORE, "<", $f)) {
             # slurp into a string and eval..
             my $str = do { local $/; <RESTORE> };    # slurp whole thing
-            close(RESTORE);
+            close(RESTORE) or die("unable to close $f: $!\n");
             unlink $f;
             $f = $str;
         } else {
@@ -1288,13 +1288,19 @@ sub gen_info(@)
                 $lcovutil::profileData{child}{$processedChunks} =
                     $then - $childStart;
                 # dump parsed data - then read back and merge
-                Storable::store([$single_file ? $childInfo : undef,
-                                 $patterns,
-                                 \%lcovutil::profileData,
-                                 [$files_created, scalar(@$chunk), $then],
-                                 lcovutil::compute_update($currentState)
-                                ],
-                                $dumpf) if defined($childInfo);
+                eval {
+                    Storable::store([$single_file ? $childInfo : undef,
+                                     $patterns,
+                                     \%lcovutil::profileData,
+                                     [$files_created, scalar(@$chunk), $then],
+                                     lcovutil::compute_update($currentState)
+                                    ],
+                                    $dumpf) if defined($childInfo);
+                };
+                if ($@) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                                              "Child $$ serialize failed: $!");
+                }
                 exit(0);
             } else {
                 # I'm the parent
@@ -1920,7 +1926,7 @@ sub solve_ambiguous_match($$$)
             }
         }
 
-        close(SOURCE);
+        close(SOURCE) or die("unable to close $filename: $!\n");
 
         if (!$no_match) {
             info("Solved source file ambiguity for $rel_name\n");
@@ -1991,7 +1997,7 @@ sub read_gcov_header($)
         }
     }
 
-    close(INPUT);
+    close(INPUT) or die("unable to close $_[0]: $!\n");
 
     return ($source, $object);
 }
@@ -2875,7 +2881,7 @@ sub get_gcov_version()
         die("ERROR: cannot retrieve gcov version: $!\n");
     local $/;
     $version_string = <GCOV_PIPE>;
-    close(GCOV_PIPE);
+    close(GCOV_PIPE) or die("unable to close gcov pipe: $!\n");
 
     # Remove all bracketed information
     $version_string =~ s/\([^\)]*\)//g;
@@ -3611,7 +3617,7 @@ sub read_bb($)
             graph_add_order($fileorder, $function, $filename);
         }
     }
-    close(HANDLE);
+    close(HANDLE) or die("unable to close $bb_filename: $!\n");
 
     ($instr, $graph) = graph_from_bb($bb, $fileorder, $bb_filename, 0);
     graph_cleanup($graph);
@@ -3799,7 +3805,7 @@ sub read_bbg($)
                 goto incomplete;
         }
     }
-    close(HANDLE);
+    close(HANDLE) or die("unable to close $bbg_filename: $!\n");
     ($instr, $graph) = graph_from_bb($bb, $fileorder, $bbg_filename, 0);
 
     graph_cleanup($graph);
@@ -4176,7 +4182,7 @@ sub read_gcno($)
             or
             goto incomplete;
     }
-    close(HANDLE);
+    close(HANDLE) or die("unable to close $gcno_filename: $!\n");
 
     # Remove artificial functions from result data
     remove_fn_from_hash($bb, \@artificial_fns);

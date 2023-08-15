@@ -148,6 +148,11 @@ if (0 ==
                         unless $line =~ m/^---$/;
                 }
             }
+            close(PIPE) or die("unable to close p4 diff pipe: $!\n");
+            if (0 != $?) {
+                $? & 0x7F & die("p4 pipe died from signal ", ($? & 0x7F), "\n");
+                die("p4 pipe exited with error ", ($? >> 8), "\n");
+            }
         } else {
             die("unable to open pipe to p4 diff $filename");
         }
@@ -222,6 +227,11 @@ if (0 ==
                 }
             }
         }
+        close(HANDLE) or die("unable to close p4 annotate pipe: $!\n");
+        if (0 != $?) {
+            $? & 0x7F & die("p4 annotate died from signal ", ($? & 0x7F), "\n");
+            die("p4 annotate exited with error ", ($? >> 8), "\n");
+        }
     }
 } else {
     if ($logfile) {
@@ -238,4 +248,6 @@ if (0 ==
 
         printf("%s|%s|%s|%s\n", "NONE", $owner, $mtime, $line);
     }
+    close(HANDLE) or die("unable to close '$pathname': $!");
 }
+exit 0;

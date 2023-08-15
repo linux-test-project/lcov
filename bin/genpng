@@ -197,7 +197,7 @@ sub genpng_process_file($$$$$)
         # Plain text file
         while (<HANDLE>) { push(@source, ":$_"); }
     }
-    close(HANDLE);
+    close(HANDLE) or die("unable to close $filename: $!\n");
 
     my $show_tla = 1;
     gen_png($out_filename, $show_tla, $dark, $width, $tab_size, @source);
@@ -394,5 +394,5 @@ sub gen_png($$$$$@)
         die("ERROR: cannot write png file $filename!\n");
     binmode(*PNG_HANDLE);
     print(PNG_HANDLE $overview->png());
-    close(PNG_HANDLE);
+    close(PNG_HANDLE) or die("unable to close $filename: $!\n");
 }

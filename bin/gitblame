@@ -138,6 +138,12 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
                     $matched = 0;
                 }
             }
+            close(HANDLE) or die("unable to close git blame pipe: $!\n");
+            if (0 != $?) {
+                $? & 0x7F &
+                    die("git blame died from signal ", ($? & 0x7F), "\n");
+                die("git blame exited with error ", ($? >> 8), "\n");
+            }
             exit(0);
         }
     }
@@ -157,3 +163,5 @@ while (my $line = <HANDLE>) {
 
     printf("%s|%s|%s|%s\n", "NONE", "NONE", $mtime, $line);
 }
+close(HANDLE) or die("unable to close $basename: $!\n");
+exit 0;

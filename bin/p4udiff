@@ -205,7 +205,12 @@ if (open(HANDLE, "-|", "p4 files ${p4_path}\@$base_changelist")) {
 
         $base_files->append(P4File->new($line));
     }
-    close(HANDLE);
+    close(HANDLE) or die("unable to close p4 files (baseline) pipe: $!\n");
+    if (0 != $?) {
+        $? & 0x7F &
+            die("p4 files (baseline) died from signal ", ($? & 0x7F), "\n");
+        die("p4 files (baseline) exited with error ", ($? >> 8), "\n");
+    }
 }
 
 my $curr = $curr_changelist eq "sandbox" ? "" : "\@$curr_changelist";
@@ -216,7 +221,12 @@ if (open(HANDLE, "-|", "p4 files ${p4_path}$curr")) {
         s/\015$//;
         $curr_files->append(P4File->new($line));
     }
-    close(HANDLE);
+    close(HANDLE) or die("unable to close p4 files (current) pipe: $!\n");
+    if (0 != $?) {
+        $? & 0x7F &
+            die("p4 files (current) died from signal ", ($? & 0x7F), "\n");
+        die("p4 files (current) exited with error ", ($? >> 8), "\n");
+    }
 }
 
 my @unchanged;
@@ -306,13 +316,19 @@ foreach my $f (sort keys %union) {
         printf("+++ /dev/null\n");
         # p4 print -q $b->path() . '#' . $b->rev() |sed -e 's/^/-/'
         my @lines;
-        open(HANDLE, "-|", "p4", "print", "-q", $b->path() . '#' . $b->rev());
+        open(HANDLE, "-|", "p4", "print", "-q", $b->path() . '#' . $b->rev())
+            or
+            die("p4 print failed: $!\n");
         while (my $line = <HANDLE>) {
             chomp $line;
             $line =~ s/^/-/;
             push @lines, $line;
         }
-        close(HANDLE);
+        close(HANDLE) or die("unable to close p4 print pipe: $!\n");
+        if (0 != $?) {
+            $? & 0x7F & die("p4 print died from signal ", ($? & 0x7F), "\n");
+            die("p4 print exited with error ", ($? >> 8), "\n");
+        }
         printf("@@ 1,%d 0,0 @@\n", scalar(@lines));
         printf("%s\n", join("\n", @lines));
     } elsif (!defined($b) && defined($c)) {
@@ -324,14 +340,20 @@ foreach my $f (sort keys %union) {
         printf("--- /dev/null\n");
         printf("+++ %s\n", reloc($f));
         my @lines;
-        open(HANDLE, "-|", "p4", "print", "-q", $c->path() . '#' . $c->rev());
+        open(HANDLE, "-|", "p4", "print", "-q", $c->path() . '#' . $c->rev())
+            or
+            die("p4 print failed: $!\n");
 
         while (my $line = <HANDLE>) {
             chomp $line;
             $line =~ s/^/+/;
             push @lines, $line;
         }
-        close(HANDLE);
+        close(HANDLE) or die("unable to close p4 print pipe: $!\n");
+        if (0 != $?) {
+            $? & 0x7F & die("p4 print died from signal ", ($? & 0x7F), "\n");
+            die("p4 print exited with error ", ($? >> 8), "\n");
+        }
         printf("@@ 0,0 1,%d @@\n", scalar(@lines));
         printf("%s\n", join("\n", @lines));
     } elsif (defined($b) && defined($c)) {
@@ -343,7 +365,8 @@ foreach my $f (sort keys %union) {
         my @lines;
         open(HANDLE, "-|", "p4", "diff", "-du",
              $b->path() . '#' . $b->rev(),
-             $c->path() . '#' . $c->rev());
+             $c->path() . '#' . $c->rev()) or
+            die("p4 diff failed: $!\n");
         while (my $line = <HANDLE>) {
             chomp $line;
             if ($line =~ m/^(---|\+\+\+)/) {
@@ -353,7 +376,11 @@ foreach my $f (sort keys %union) {
             }
             printf("%s\n", $line);
         }
-        close(HANDLE);
+        close(HANDLE) or die("unable to close p4 diff pipe: $!\n");
+        if (0 != $?) {
+            $? & 0x7F & die("p4 diff died from signal ", ($? & 0x7F), "\n");
+            die("p4 diff exited with error ", ($? >> 8), "\n");
+        }
     } else {
         warn("WARNING: not in base or current for $f\n");
     }

@@ -516,7 +516,7 @@ sub count_cores()
     #linux solution...
     if (open my $handle, '/proc/cpuinfo') {
         $maxParallelism = scalar(map /^processor/, <$handle>);
-        close($handle);
+        close($handle) or die("unable to close /proc/cpuinfo: $!\n");
     }
 }
 
@@ -526,7 +526,7 @@ sub read_proc_vmsize
 {
     if (open(PROC, "<", '/proc/self/stat')) {
         my $str = do { local $/; <PROC> };    # slurp whole thing
-        close(PROC);
+        close(PROC) or die("unable to close /proc/self/stat: $!\n");
         my @data = split(' ', $str);
         return $data[23 - 1];                 # man proc - vmsize is at index 22
     } else {
@@ -666,7 +666,7 @@ sub save_profile($)
         }
         if (open(JSON, ">", "$dest")) {
             print(JSON $json);
-            close(JSON);
+            close(JSON) or die("unable to close $dest: $!\n");
         } else {
             print("Error:  unable to open profile output $dest: '$!'\n");
         }
@@ -781,7 +781,7 @@ sub read_config($)
                  "of configuration file $filename\n");
         }
     }
-    close(HANDLE);
+    close(HANDLE) or die("unable to close $filename: $!\n");
     return \%result;
 }
 
@@ -1477,7 +1477,7 @@ sub report_parallel_error
 {
     my ($operation, $msg) = @_;
     ignorable_error($ERROR_PARALLEL,
-        "$operation: error '$msg' waiting for child (try removing the '--parallel' option"
+        "$operation: error '$msg' during child processing (try removing the '--parallel' option)"
     );
 }
 
@@ -1790,8 +1790,10 @@ sub extractFileVersion
         chomp($version);
         close(VERS);
         my $status = $? >> 8;
-        0 == $status or
-            die("version-script '$cmd' returned non-zero exit code: '$!'");
+        0 == $status
+            or
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                     "version-script '$cmd' returned non-zero exit code: '$!'");
     } else {
         lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
                                   "'open(-| $cmd)' failed: \"$!\"");
@@ -3915,7 +3917,7 @@ sub open
     if (open(SRC, "<", $path)) {
         lcovutil::info(1, "read $version$filename\n");
         my @sourceLines = <SRC>;
-        CORE::close(SRC);
+        CORE::close(SRC) or die("unable to close $filename: $!\n");
         $self->[FILENAME] = $filename;
         $self->parseLines($filename, \@sourceLines);
     } else {
@@ -4851,7 +4853,7 @@ sub _mergeParallelChunk
         if (open(RESTORE, "<", $f)) {
             # slurp into a string and eval..
             my $str = do { local $/; <RESTORE> };    # slurp whole thing
-            close(RESTORE);
+            close(RESTORE) or die("unable to close $f: $!\n");
             unlink $f;
             $f = $str;
         } else {
@@ -5000,10 +5002,17 @@ sub _processParallelChunk
     $lcovutil::profileData{filt_proc}{$chunkId}  = $then - $forkAt;
     $lcovutil::profileData{filt_child}{$chunkId} = $end - $start;
 
-    Storable::store([\@updates, $save, $state, $then, \%lcovutil::profileData,
-                     lcovutil::compute_update($currentState)
-                    ],
-                    $dumpf);
+    eval {
+        Storable::store([\@updates, $save, $state, $then,
+                         \%lcovutil::profileData,
+                         lcovutil::compute_update($currentState)
+                        ],
+                        $dumpf);
+    };
+    if ($@) {
+        lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                                  "Child $$ serialize failed: $!");
+    }
 }
 
 sub _processFilterWorklist
@@ -6215,16 +6224,22 @@ sub merge
                 my $then     = Time::HiRes::gettimeofday();
                 $lcovutil::profileData{$idx}{total} = $then - $now;
                 my $file = File::Spec->catfile($tempDir, "dumper_$$");
-                Storable::store([$total_trace,
-                                 \@interesting,
-                                 $function_mapping,
-                                 $patterns,
-                                 \%lcovutil::profileData,
-                                 lcovutil::compute_update($currentState)
-                                ],
-                                $file);
-                close(STDOUT1);
-                close(STDERR1);
+                eval {
+                    Storable::store([$total_trace,
+                                     \@interesting,
+                                     $function_mapping,
+                                     $patterns,
+                                     \%lcovutil::profileData,
+                                     lcovutil::compute_update($currentState)
+                                    ],
+                                    $file);
+                };
+                if ($@) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                                              "Child $$ serialize failed: $!");
+                }
+                close(STDOUT1) or die("unable to close stdout: $!\n");
+                close(STDERR1) or die("unable to close stderr: $!\n");
                 exit(0);
             } else {
                 $children{$pid} = [$now, $idx];
@@ -6255,7 +6270,7 @@ sub merge
                 if (open(RESTORE, "<", $f)) {
                     # slurp into a string and eval..
                     my $str = do { local $/; <RESTORE> };    # slurp whole thing
-                    close(RESTORE);
+                    close(RESTORE) or die("unable to close $f: $!\n");
                     unlink $f
                         unless ($str && $lcovutil::preserve_intermediates);
                     $f = $str;

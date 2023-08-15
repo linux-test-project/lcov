@@ -74,7 +74,7 @@ my $current_sha = shift @ARGV;
 
 $cmd = "git diff $base_sha $current_sha";
 
-die("failed to exec git diff")
+die("failed to exec git diff: $!")
     unless (open(HANDLE, "-|", "git diff $base_sha $current_sha"));
 
 my $includeCurrentFile;
@@ -98,7 +98,11 @@ while (<HANDLE>) {
     printf("%s\n", $line)
         if $includeCurrentFile;
 }
-close(HANDLE);
+close(HANDLE) or die("failed to close git diff pipe: $!");
+if (0 != $?) {
+    $? & 0x7F & die("git diff died from signal ", ($? & 0x7F), "\n");
+    die("git diff exited with error ", ($? >> 8), "\n");
+}
 
 exit 0 if defined($suppress_unchanged);
 
@@ -121,4 +125,9 @@ while (<HANDLE>) {
         printf("=== $filename\n");
     }
 }
-close(HANDLE);
+close(HANDLE) or die("failed to close git ls-tree pipe: $!");
+if (0 != $?) {
+    $? & 0x7F & die("git ls-tree died from signal ", ($? & 0x7F), "\n");
+    die("git ls-tree exited with error ", ($? >> 8), "\n");
+}
+exit 0;

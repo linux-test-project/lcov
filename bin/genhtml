@@ -479,7 +479,7 @@ sub new
                 undef,              # relative dir,
                 [undef, [], {}],    # line data
                 [undef, [], {}],    # branch data
-                [undef, []]         # fucntion data
+                [undef, []]         # function data
     ];
     if ($type eq 'file') {
         $self->[FILE_DETAILS] = undef;    # will be SourceFile object
@@ -4304,8 +4304,22 @@ sub _load
     # check for version mismatch...
     if (@lcovutil::extractVersionScript) {
         my $version = lcovutil::extractFileVersion($repo_path);
-
-        lcovutil::checkVersionMatch($repo_path, $version, $currentVersion);
+        if (defined($version) &&
+            '' ne $version) {
+            if (defined($currentVersion)) {
+                lcovutil::checkVersionMatch($repo_path, $version,
+                                            $currentVersion);
+            } else {
+                lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
+                    "'$repo_path': computed '$version' but version not defined in 'current' data file "
+                        . $main::info_filenames[0]);
+            }
+        } elsif (defined($currentVersion)) {
+            lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
+                "'$repo_path': version mismatch: your '--version-script' returned empty but 'current' data in "
+                    . $main::info_filenames[0]
+                    . " defines '$currentVersion'");
+        }
         my $end = Time::HiRes::gettimeofday();
         $lcovutil::profileData{check_version}{$self->path()} = $end - $start;
     }
@@ -4371,6 +4385,10 @@ sub _load
                                 "non-zero exit status from annotate '$cmd' pipe"
                                ) .
                                ($text ? $text : ''));
+            # if falling through, clear the LINES array that might have been
+            # populated in the annotate loop.  Needs to be empty for bare load
+            # or synthesize operation
+            $self->[LINES] = [];
         } else {
             # open failed.
             lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
@@ -4450,7 +4468,7 @@ sub _bare_load
         $lineno++;
         push @{$self->[LINES]}, SourceLine->new($lineno, $line);
     }
-    close(HANDLE);
+    close(HANDLE) or die("unable to close $path: $!\n");
     return $self;
 }
 
@@ -4900,18 +4918,25 @@ sub compute
 
                 my $childEnd = Time::HiRes::gettimeofday();
                 $lcovutil::profileData{child}{$name} = $childEnd - $childStart;
-                Storable::store([$perTestData,
-                                 $selfSummary,
-                                 $criteria,
-                                 \%lcovutil::profileData,
-                                 [$SourceFile::annotatedFiles - $annotateCount,
-                                  $SourceFile::totalFiles - $totalCount
+                eval {
+                    Storable::store(
+                                 [$perTestData,
+                                  $selfSummary,
+                                  $criteria,
+                                  \%lcovutil::profileData,
+                                  [$SourceFile::annotatedFiles - $annotateCount,
+                                   $SourceFile::totalFiles - $totalCount
+                                  ],
+                                  lcovutil::compute_update($currentState)
                                  ],
-                                 lcovutil::compute_update($currentState)
-                                ],
-                                $file);
-                close(STDOUT1);
-                close(STDERR1);
+                                 $file);
+                };
+                if ($@) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                                              "Child $$ serialize failed: $!");
+                }
+                close(STDOUT1) or die("unable to close stdout: $!\n");
+                close(STDERR1) or die("unable to close stderr: $!\n");
                 exit(0);
             } else {
                 $children->{$pid} = [$selfSummary, $name, $parentData, $start];
@@ -5007,7 +5032,7 @@ sub merge_child($$$)
         if (open(RESTORE, "<", $f)) {
             # slurp into a string and eval..
             my $str = do { local $/; <RESTORE> };    # slurp whole thing
-            close(RESTORE);
+            close(RESTORE) or die("unable to close $f: $!\n");
             unlink $f;
             $f = $str;
         } else {
@@ -5366,7 +5391,7 @@ if (@SourceFile::annotateScript) {
     die("\"--date-bins\" option requires \"--annotate-script\" for revision control integraion"
     ) if (0 != scalar(@datebins));
 }
-if (0 != (defined($diff_filename) ^ scalar(@base_filenames))) {
+if (0 != (defined($diff_filename) ^ (0 != scalar(@base_filenames)))) {
     if (@base_filenames) {
         warn(
             "specified --baseline-file without --diff-file: assuming no source differences.  Hope that is OK."
@@ -5558,12 +5583,13 @@ if ($save && $output_directory)
 my $f = File::Spec->catfile($output_directory, 'cmd_line');
 open(CMD, '>', $f) or die("unable to open $f: $!");
 print(CMD $lcovutil::profileData{config}{cmdLine} . "\n");
-close(CMD);
+close(CMD) or die("unable to close $f: $!\n");
 
 my $exit_status = 0;
 # Do something
 my $now = Time::HiRes::gettimeofday();
-eval { gen_html(); };
+my $top;
+eval { $top = gen_html(); };
 if ($@) {
     $exit_status = 1;
     print(STDERR $@);
@@ -5923,6 +5949,8 @@ sub gen_html()
 
     print_overall_rate($current_data, 1, $lcovutil::func_coverage,
                        $lcovutil::br_coverage, $genhtml->top());
+
+    return $genhtml->top();
 }
 
 #
@@ -5969,7 +5997,7 @@ sub write_dir_page
     write_file_table(*HTML_HANDLE, $base_dir, $perTestcaseResult,
                      $summary, $ctrls, $activeTlaColsForType);
     write_html_epilog(*HTML_HANDLE, $base_dir);
-    close(*HTML_HANDLE);
+    close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
 }
 
 sub write_summary_pages($$$$$$$$)
@@ -6070,7 +6098,7 @@ sub write_function_page($$$$$$$$$$$$$)
                          $base_name, $base_dir,
                          $sort_type);
     write_html_epilog(*HTML_HANDLE, $base_dir, 1);
-    close(*HTML_HANDLE);
+    close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
 }
 
 #
@@ -6176,7 +6204,7 @@ sub process_file($$$$$)
                                $sumbrcount);
 
         write_html_epilog(*HTML_HANDLE, $base_dir, 1);
-        close(*HTML_HANDLE);
+        close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
 
         if ($lcovutil::func_coverage) {
             # Create function tables
@@ -6246,7 +6274,7 @@ sub process_file($$$$$)
                                   $rel_dir, "$base_name.gcov.frameset.$html_ext"
                         ));
             write_frameset(*HTML_HANDLE, $base_dir, $base_name, $pagetitle);
-            close(*HTML_HANDLE);
+            close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
 
             # Write overview frame
             html_create(*HTML_HANDLE,
@@ -6255,7 +6283,7 @@ sub process_file($$$$$)
                         ));
             write_overview(*HTML_HANDLE, $base_dir, $base_name,
                            $pagetitle, scalar(@source));
-            close(*HTML_HANDLE);
+            close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
         }
     }
     my $to = Time::HiRes::gettimeofday();
@@ -6436,7 +6464,7 @@ sub read_testfile($)
         }
     }
 
-    close(TEST_HANDLE);
+    close(TEST_HANDLE) or die("unable to close HTML file: $!\n");
 
     if ($changed_testname) {
         warn("WARNING: invalid characters removed from testname in " .
@@ -6540,7 +6568,7 @@ sub write_description_file($$)
     write_test_table_epilog(*HTML_HANDLE);
     write_html_epilog(*HTML_HANDLE, "");
 
-    close(*HTML_HANDLE);
+    close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
 }
 
 #
@@ -6732,7 +6760,7 @@ sub write_png_files()
             die("ERROR: cannot create $f: $!\n");
         binmode(PNG_HANDLE);
         print(PNG_HANDLE map(chr, @{$data{$_}}));
-        close(PNG_HANDLE);
+        close(PNG_HANDLE) or die("unable to close PNG handle: $!\n");
     }
 }
 
@@ -6755,7 +6783,7 @@ END_OF_HTACCESS
         ;
 
     print(HTACCESS_HANDLE $htaccess_data);
-    close(*HTACCESS_HANDLE);
+    close(*HTACCESS_HANDLE) or die("unable to close .htaccess: $!\n");
 }
 
 #
@@ -7493,7 +7521,7 @@ END_OF_DATE_SPAN
 
     print(CSS_HANDLE $css_data);
 
-    close(CSS_HANDLE);
+    close(CSS_HANDLE) or die("unable to close CSS handel: $!\n");
 }
 
 #
@@ -11051,7 +11079,7 @@ sub get_html_prolog($)
         while (<HANDLE>) {
             $result .= $_;
         }
-        close(HANDLE);
+        close(HANDLE) or die("unable to close HTML handle: $!\n");
     } else {
         $result = <<END_OF_HTML;
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
@@ -11090,7 +11118,7 @@ sub get_html_epilog($)
         while (<HANDLE>) {
             $result .= $_;
         }
-        close(HANDLE);
+        close(HANDLE) or die("unable to close HTML handle: $!\n");
     } else {
         $result = <<END_OF_HTML;
 

@@ -133,6 +133,12 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
                 die("unable to execute 'git show -s $version': $!");
             }
             close(GITLOG) or die("unable to close");
+            if (0 != $?) {
+                $? & 0x7F &
+                    die("git show died from signal ", ($? & 0x7F), "\n");
+                die("git show exited with error ", ($? >> 8), "\n");
+            }
+
         } else {
             $version = "SHA $version";
         }
