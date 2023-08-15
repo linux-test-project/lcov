@@ -74,7 +74,7 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
     if (0 == system("git ls-files --error-unmatch $basename >$null 2>&1")) {
         # matched a tracked pathname
         my $matched;
-        if (open(HANDLE, "-|", "git blame -e $basename")) {
+        if (open(HANDLE, "-|", "git blame -e $basename 2> /dev/null")) {
             while (my $line = <HANDLE>) {
                 chomp $line;
                 # Also remove CR from line-end
