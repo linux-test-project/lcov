@@ -6132,7 +6132,7 @@ sub merge
             $fileSize = $s if $s > $fileSize;
         }
         my $size = $currentSize + $fileSize;
-        my $num  = floor($lcovutil::maxMemory / $size);
+        my $num  = int($lcovutil::maxMemory / $size);
         lcovutil::debug(
             "Sizes: self:$currentSize file:$fileSize total:$size num:$num paralled:$lcovutil::maxParallelism\n"
         );
@@ -6166,8 +6166,8 @@ sub merge
         my @segments;
         my $testsPerSegment =
             ($nTests > $lcovutil::maxParallelism) ?
-            floor(($nTests + $lcovutil::maxParallelism - 1) /
-                  $lcovutil::maxParallelism) :
+            int(($nTests + $lcovutil::maxParallelism - 1) /
+                $lcovutil::maxParallelism) :
             1;
         my $idx = 0;
         foreach my $tracefile (@_) {
