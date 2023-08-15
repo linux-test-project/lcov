@@ -136,6 +136,7 @@ sub kernel_capture();
 sub kernel_capture_initial();
 sub package_capture();
 sub add_traces();
+sub merge_traces($$);
 sub remove_file_patterns($);
 sub list();
 sub get_common_filename($$);
@@ -160,6 +161,8 @@ our @directory;                 # Specifies where to get coverage data from
 our $build_directory;
 our @kernel_directory;    # If set, captures only from specified kernel subdirs
 our @add_tracefile;       # If set, reads in and combines all files in list
+our @intersect;           # glob patterns for intersect RHS
+our @difference;          # glob patterns for difference RHS
 our $list;                # If set, list contents of tracefile
 our $diff;                # If set, modifies tracefile according to diff
 our $reset;               # If set, reset all coverage data to zero
@@ -251,7 +254,9 @@ my %lcov_options = ("directory|d|di=s"     => \@directory,
                     "fail-under-lines=s" => \$opt_fail_under_lines,
                     "prune-tests"        => \$prune_testcases,
                     "map-functions"      => \$AggregateTraces::function_mapping,
-);
+
+                    'intersect=s' => \@intersect,
+                    'subtract=s'  => \@difference,);
 
 # Parse command line options
 if (!lcovutil::parseOptions(\%lcov_rc_params, \%lcov_options)) {
@@ -303,11 +308,13 @@ $maxdepth = $no_recursion ? '-maxdepth 1' : '';
 # Check for valid options
 check_options();
 
-# Only --extract, --remove and --diff allow unnamed parameters
+# Only --extract, --remove and --diff, --intersect, --subtract allow unnamed parameters
 if (@ARGV &&
     !(  $lcovutil::lcov_extract ||
         $lcovutil::lcov_remove  ||
         $diff                   ||
+        @intersect              ||
+        @difference             ||
         @opt_summary)
 ) {
     die("Extra parameter found: '" .
@@ -407,6 +414,10 @@ eval {
     } elsif (@opt_summary) {
         $data_stdout = 0;
         $trace       = summary();
+    } elsif (@intersect) {
+        $trace = merge_traces(\@intersect, TraceInfo::INTERSECT);
+    } elsif (@difference) {
+        $trace = merge_traces(\@difference, TraceInfo::DIFFERENCE);
     }
 };
 if ($@) {
@@ -481,7 +492,7 @@ COMMON OPTIONS
 OPERATION
   -z, --zerocounters              Reset all execution counts to zero
   -c, --capture                   Capture coverage data
-  -a, --add-tracefile FILE        Add contents of tracefiles
+  -a, --add-tracefile PATTERN     Add contents of tracefiles matching glob PATTERN
   -e, --extract FILE PATTERN      Extract files matching PATTERN from FILE
   -r, --remove FILE PATTERN       Remove files matching PATTERN from FILE
   -l, --list FILE                 List contents of tracefile FILE
@@ -491,6 +502,10 @@ OPERATION
                                   data (requires --add-tracefile)
       --map-functions             List tracefiles with non-zero coverage for
                                   each function (requires --add-tracefile)
+     --intersect PATTERN          Set interection with tracefiles matching
+                                  glob PATTERN
+     --subtract PATTERN           Set difference with tracefiles matching
+                                  glob PATTERN
 
 OPTIONS
   -i, --initial                   Capture initial zero coverage data
@@ -559,14 +574,16 @@ sub check_options()
     $list                   && $i++;
     $diff                   && $i++;
     @opt_summary            && $i++;
+    @intersect              && $i++;
+    @difference             && $i++;
 
     if ($i == 0 ||
         $i > 1) {
         die("Error: invalid command line:\n  $0 " .
-            join(' ', @main::cmdArgs) .
-            "\nNeed " . ($i > 1 ? 'only ' : '') .
-            "one of options -z, -c, -a, -e, -r, -l, --diff or --summary\n"
-            . "Use $tool_name --help to get usage information\n");
+                join(' ', @main::cmdArgs) .
+                "\nNeed " . ($i > 1 ? 'only ' : '') .
+                "one of options -z, -c, -a, -e, -r, -l, --diff, --intersect, --subtract, or --summary\n"
+                . "Use $tool_name --help to get usage information\n");
     }
 
     if ($prune_testcases && 0 == scalar(@add_tracefile)) {
@@ -1542,6 +1559,38 @@ sub add_traces()
         emit($total_trace);
         return $total_trace;
     }
+}
+
+#
+#
+# merge_traces()
+#
+
+sub merge_traces($$)
+{
+    my ($list, $op) = @_;
+    info(($op == TraceInfo::INTERSECT ? 'Intersect' : 'Subtract') .
+         " tracefiles.\n");
+
+    my @data = AggregateTraces::find_from_glob(@ARGV);
+    info('.. found: ' .
+         scalar(@data) . " 'base' trace file" .
+         (1 == scalar(@data) ? '' : 's') . ".\n");
+    die("must specify at lease one 'base' tracefile")
+        unless @data;
+    my @merge = AggregateTraces::find_from_glob(@$list);
+    info('          ' .
+         scalar(@merge) .
+         ' file' . (1 == scalar(@merge) ? '' : 's') . ' to ' .
+         ($op == TraceInfo::INTERSECT ? 'intersect' : 'subtract') . ".\n");
+
+    my ($base)  = AggregateTraces::merge(@data);
+    my ($merge) = AggregateTraces::merge(@merge);
+
+    my $interesting = $base->merge_tracefile($merge, $op);
+    # write the result
+    emit($base);
+    return $base;
 }
 
 sub remove_file_patterns($)
@@ -2536,15 +2585,10 @@ sub diff()
 
 sub summary()
 {
-    my $total          = TraceFile->new();
-    my $readSourceFile = ReadCurrentSource->new();
+    my @merge = AggregateTraces::find_from_glob(@opt_summary);
+    info(1, "Summarize " . scalar(@merge) . " files...\n");
 
-    # Read and combine trace files
-    foreach my $filename (@opt_summary) {
-        my $current = TraceFile->load($filename, $readSourceFile,
-                                      $lcovutil::verify_checksum);
-        $total->append_tracefile($current);
-    }
+    my ($total, $effective) = AggregateTraces::merge(@merge);
     return $total;
 }
 

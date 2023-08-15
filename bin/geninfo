@@ -900,7 +900,7 @@ sub _process_one_chunk($$$$)
                 $files_created++;
             } else {
                 if (defined($combined)) {
-                    $combined->append_tracefile($trace);
+                    $combined->merge_tracefile($trace, TraceInfo::UNION);
                 } else {
                     $combined = $trace;
                 }
@@ -965,7 +965,7 @@ sub _merge_one_child($$$$$)
             $lcovutil::profileData{undump}{$chunkId} = $now - $start;
             if (defined($childInfo)) {
                 if (defined($trace_data)) {
-                    $trace_data->append_tracefile($childInfo);
+                    $trace_data->merge_tracefile($childInfo, TraceInfo::UNION);
                     my $final = Time::HiRes::gettimeofday();
                     $lcovutil::profileData{append}{$chunkId} = $final - $now;
                 } else {
@@ -1751,9 +1751,9 @@ sub process_dafile($$$$)
                 splice(@gcov_content, 0, 3);
             }
             # now go through lines, functions, branches - append to test_name data
-            $fileData->sum()->merge($lineMap);
-            $fileData->sumbr()->merge($branchMap);
-            $fileData->func()->merge($functionMap);
+            $fileData->sum()->union($lineMap);
+            $fileData->sumbr()->union($branchMap);
+            $fileData->func()->union($functionMap);
 
             # Remove .gcov file after processing
             unlink($gcov_file) unless $lcovutil::preserve_intermediates;
@@ -2406,9 +2406,9 @@ sub intermediate_text_to_info($)
             }
         }
         # now go through lines, functions, branches - append to test_name data
-        $fileData->sum()->merge($lineMap);
-        $fileData->sumbr()->merge($branchMap);
-        $fileData->func()->merge($functionMap);
+        $fileData->sum()->union($lineMap);
+        $fileData->sumbr()->union($branchMap);
+        $fileData->func()->union($functionMap);
     }
     return $traceFile;
 }
@@ -2569,9 +2569,9 @@ sub intermediate_json_to_info($)
             }
         }
         # now go through lines, functions, branches - append to test_name data
-        $fileData->sum()->merge($lineMap);
-        $fileData->sumbr()->merge($branchMap);
-        $fileData->func()->merge($functionMap);
+        $fileData->sum()->union($lineMap);
+        $fileData->sumbr()->union($branchMap);
+        $fileData->func()->union($functionMap);
     }
     return $traceFile;
 }
@@ -3029,8 +3029,8 @@ sub process_graphfile($$)
             $lineMap->append($line, 0);
         }
         # now go through lines, functions, branches - append to test_name data
-        $fileData->sum()->merge($lineMap);
-        $fileData->func()->merge($functionMap);
+        $fileData->sum()->union($lineMap);
+        $fileData->func()->union($functionMap);
     }
     return $traceFile;
 }

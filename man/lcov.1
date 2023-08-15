@@ -138,6 +138,7 @@ See the
 man page.
 .RE
 
+
 Generate new tracefile from existing tracefile, keeping only data from files matching pattern:
 .br
 
@@ -172,6 +173,56 @@ Generate new tracefile from existing tracefile, removing data from files matchin
 .RE
 .RE
 
+Generate new tracefile from exisiting tracefiles by performing set operations on coverage data:
+.br
+
+.RS 3
+.B lcov
+.BR \-\-intersect
+.I rh_glob_pattern
+.RS 4
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.br
+lh_glob_pattern
+
+
+The output will reflect
+.RS 2
+.I (union of files matching lh_glob_patterns)
+.I intersect
+.I (union of files matching rh_glob_patterns)
+.RE
+such that coverpoints found in both sets are merged (summed) whereas coverpoints found in only one set are dropped.
+Note that branch blocks are defined to be the same if and only if thier block ID and the associated branch expressions list are identical.
+Functions are defined to be the same if their name and location are identical.
+.RE
+.RE
+
+.RS 3
+.B lcov
+.BR \-\-subtract
+.I rh_glob_pattern
+.RS 4
+.br
+.RB [ \-o | \-\-output\-file
+.IR tracefile ]
+.br
+lh_glob_pattern
+
+The output will reflect
+.RS 2
+.I (union of files matching lh_glob_patterns)
+.I subtract
+.I (union of files matching rh_glob_patterns)
+.RE
+such that coverpoints found only in the set on the left will be retained and all others are dropped.
+.RE
+
+.RE
+
+
 Generate new tracefile from existing tracefile, modifying line numbers as indicated in diff file:
 .br
 
@@ -194,6 +245,7 @@ Generate new tracefile from existing tracefile, modifying line numbers as indica
 .br
 .RE
 .RE
+
 
 Summarize tracefile content:
 .br

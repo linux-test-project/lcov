@@ -2215,15 +2215,15 @@ sub append
 {
     # return 1 if we hit something new, 0 if not (count was already non-zero)
     my ($self, $key, $count) = @_;
-    my $interesting = 0;    # hit something new or not
+    my $changed = 0;    # hit something new or not
 
     if ($count < 0) {
         lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
                           "Unexpected negative count '$count' for line '$key'");
     }
     my $data = $self->[HASH];
-    if (!defined($data->{$key})) {
-        $interesting = 1;         # something new - whether we hit it or not
+    if (!exists($data->{$key})) {
+        $changed = 1;             # something new - whether we hit it or not
         $data->{$key} = $count;
         ++$self->[FOUND];                  # found
         ++$self->[HIT] if ($count > 0);    # hit
@@ -2232,11 +2232,11 @@ sub append
         if ($count > 0 &&
             $current == 0) {
             ++$self->[HIT];
-            $interesting = 1;
+            $changed = 1;
         }
         $data->{$key} = $count + $current;
     }
-    return $interesting;
+    return $changed;
 }
 
 sub value
@@ -2298,18 +2298,54 @@ sub entries
     return scalar(keys(%{$self->[HASH]}));
 }
 
-sub merge
+sub union
 {
     my $self = shift;
     my $info = shift;
 
-    my $interesting = 0;
+    my $changed = 0;
     foreach my $key ($info->keylist()) {
         if ($self->append($key, $info->value($key))) {
-            $interesting = 1;
+            $changed = 1;
         }
     }
-    return $interesting;
+    return $changed;
+}
+
+sub intersect
+{
+    my $self     = shift;
+    my $you      = shift;
+    my $changed  = 0;
+    my $yourData = $you->[HASH];
+    foreach my $key ($self->keylist()) {
+        if (exists($yourData->{$key})) {
+            # append your count to mine
+            if ($self->append($key, $you->value($key))) {
+                # returns true if appended count was not zero
+                $changed = 1;
+            }
+        } else {
+            $self->remove($key);
+            $changed = 1;
+        }
+    }
+    return $changed;
+}
+
+sub difference
+{
+    my $self     = shift;
+    my $you      = shift;
+    my $changed  = 0;
+    my $yourData = $you->[HASH];
+    foreach my $key ($self->keylist()) {
+        if (exists($yourData->{$key})) {
+            $self->remove($key);
+            $changed = 1;
+        }
+    }
+    return $changed;
 }
 
 #
@@ -2431,16 +2467,16 @@ sub merge
     return 0 if $t eq '-';    # no new news
 
     my $count = $self->[TAKEN];
-    my $interesting;
+    my $changed;
     if ($count ne '-') {
         $count += $t;
-        $interesting = $count == 0 && $t != 0;
+        $changed = $count == 0 && $t != 0;
     } else {
-        $count       = $t;
-        $interesting = $t != 0;
+        $count   = $t;
+        $changed = $t != 0;
     }
     $self->[TAKEN] = $count;
-    return $interesting;
+    return $changed;
 }
 
 package BranchEntry;
@@ -2468,8 +2504,11 @@ sub hasBlock
 
 sub removeBlock
 {
-    my ($self, $id) = @_;
+    my ($self, $id, $branchData) = @_;
     $self->hasBlock($id) or die("unknown block $id");
+
+    # remove list of branches and adjust counts
+    $branchData->removeBranches($self->[1]->{$id});
     delete($self->[1]->{$id});
 }
 
@@ -2490,7 +2529,7 @@ sub addBlock
 {
     my ($self, $blockId) = @_;
 
-    !exists($self->[1]->{$blockId}) or die "duplicate blockID";
+    !exists($self->[1]->{$blockId}) or die "duplicate block $blockId";
     my $blockData = [];
     $self->[1]->{$blockId} = $blockData;
     return $blockData;
@@ -2618,14 +2657,14 @@ sub addAlias
                  . $self->file());
     }
 
-    my $interesting;
+    my $changed;
     my $aliases = $self->[ALIASES];
     if (exists($aliases->{$name})) {
-        $interesting = 0 == $aliases->{$name} && 0 != $count;
+        $changed = 0 == $aliases->{$name} && 0 != $count;
         $aliases->{$name} += $count;
     } else {
         $aliases->{$name} = $count;
-        $interesting = 0 != $count;
+        $changed = 1;
         # keep track of the shortest name as the function represntative
         my $curlen = length($self->[NAME]);
         my $len    = length($name);
@@ -2635,19 +2674,33 @@ sub addAlias
                  $name lt $self->[NAME]));
     }
     $self->[COUNT] += $count;
-    return $interesting;
+    return $changed;
 }
 
-sub merge
+sub removeAliases
 {
-    my ($self, $that) = @_;
-    my $interesting = 0;
-    foreach my $name (keys(%{$that->[ALIASES]})) {
-        if ($self->addAlias($name, $that->[ALIASES]->{$name})) {
-            $interesting = 1;
+    my $self    = shift;
+    my $aliases = $self->[ALIASES];
+    my $rename  = 0;
+    foreach my $name (@_) {
+        exists($aliases->{$name}) or die("remoing non-existent alias $name");
+
+        my $count = $aliases->{$name};
+        delete($aliases->{$name});
+        $self->[COUNT] -= $count;
+        if ($self->[NAME] eq $name) {
+            $rename = 1;
         }
     }
-    return $interesting;
+    if ($rename &&
+        %$aliases) {
+        my $name;
+        foreach my $alias (keys %$aliases) {
+            $name = $alias if !defined($name) || length($alias) < length($name);
+        }
+        $self->[NAME] = $name;
+    }
+    return %$aliases;    # true if this function still exists
 }
 
 sub addAliasDifferential
@@ -2837,13 +2890,13 @@ sub add_count
     }
 }
 
-sub merge
+sub union
 {
     my ($self, $that) = @_;
 
-    my $interesting = 0;
-    my $myData      = $self->[0];
-    my $yourData    = $that->[0];
+    my $changed  = 0;
+    my $myData   = $self->[0];
+    my $yourData = $that->[0];
     while (my ($key, $thatData) = each(%$yourData)) {
         my $thisData;
         if (!exists($myData->{$key})) {
@@ -2851,7 +2904,7 @@ sub merge
                 $self->define_function($thatData->name(), $thatData->file(),
                                        $thatData->line(), $thatData->end_line()
                 );
-            $interesting = 1;    # something new...
+            $changed = 1;    # something new...
         } else {
             $thisData = $myData->{$key};
             if ($thisData->line() != $thatData->line() ||
@@ -2861,18 +2914,85 @@ sub merge
                 next;
             }
         }
-        my $aliases = $thatData->aliases();
-        foreach my $alias (keys %$aliases) {
-            my $count = $aliases->{$alias};
+        # merge in all the new aliases
+        while (my ($alias, $count) = each(%{$thatData->aliases()})) {
             $self->define_function($alias, $thisData->file(), $thisData->line(),
                                    $thisData->end_line())
-                unless defined($self->findName($alias));
+                unless ($self->findName($alias));
             if ($thisData->addAlias($alias, $count)) {
-                $interesting = 1;
+                $changed = 1;
             }
         }
     }
-    return $interesting;
+    return $changed;
+}
+
+sub intersect
+{
+    my ($self, $that) = @_;
+
+    my $changed   = 0;
+    my $myData    = $self->[0];
+    my $myNames   = $self->[1];
+    my $yourData  = $that->[0];
+    my $yourNames = $that->[1];
+    foreach my $key (keys %$myData) {
+        my $me = $myData->{$key};
+        if (exists($yourData->{$key})) {
+            my $yourFn = $yourData->{$key};
+            # intersect operation:  keep only the common aliases
+            my @remove;
+            my $yourAliases = $yourFn->aliases();
+            while (my ($alias, $count) = each(%{$me->aliases()})) {
+                if (exists($yourAliases->{$alias})) {
+                    if ($me->addAlias($alias, $yourAliases->{$alias})) {
+                        $changed = 1;
+                    }
+                } else {
+                    # remove this alias from me..
+                    push(@remove, $alias);
+                    delete($myNames->{$alias});
+                    $changed = 1;
+                }
+            }
+            if (!$me->removeAliases(@remove)) {
+                # no aliases left (no common aliases) - so remove this function
+                delete($myData->{$key});
+            }
+        } else {
+            $self->remove($me);
+            $changed = 1;
+        }
+    }
+    return $changed;
+}
+
+sub difference
+{
+    my ($self, $that) = @_;
+
+    my $changed  = 0;
+    my $myData   = $self->[0];
+    my $yourData = $that->[0];
+    foreach my $key (keys %$myData) {
+        if (exists($yourData->{$key})) {
+            # just remove the common aliases...
+            my $me  = $myData->{$key};
+            my $you = $yourData->{$key};
+            my @remove;
+            while (my ($alias, $count) = each(%{$you->aliases()})) {
+                if (exists($me->aliases()->{$alias})) {
+                    push(@remove, $alias);
+                    $changed = 1;
+                }
+            }
+            if (!$me->removeAliases(@remove)) {
+                # no aliases left (no disjoint aliases) - so remove this function
+                delete($myData->{$key});
+            }
+        }
+    }
+    return $changed;
 }
 
 sub cloneWithRename
@@ -2998,14 +3118,14 @@ sub append
 
     my $branch = $br->id();
     my $branchElem;
-    my $interesting = 0;
+    my $changed = 0;
     if (exists($data->{$line})) {
         $branchElem = $data->{$line};
         $line == $branchElem->line() or die("wrong line mapping");
     } else {
         $branchElem    = BranchEntry->new($line);
         $data->{$line} = $branchElem;
-        $interesting   = 1;                         # something new
+        $changed       = 1;                         # something new
     }
 
     if (!$branchElem->hasBlock($block)) {
@@ -3020,7 +3140,7 @@ sub append
                               $br->expr(), $br->is_exception()));
         ++$self->[FOUND];                       # found one
         ++$self->[HIT] if 0 != $br->count();    # hit one
-        $interesting = 1;                       # something new..
+        $changed = 1;                           # something new..
     } else {
         $block = $branchElem->getBlock($block);
 
@@ -3041,19 +3161,19 @@ sub append
             ++$self->[FOUND];                       # found one
             ++$self->[HIT] if 0 != $br->count();    # hit one
 
-            $interesting = 1;
+            $changed = 1;
         } else {
             my $me = $block->[$branch];
             if (0 == $me->count() && 0 != $br->count()) {
                 ++$self->[HIT];                     # hit one
-                $interesting = 1;
+                $changed = 1;
             }
             if ($me->merge($br, $filename, $line)) {
-                $interesting = 1;
+                $changed = 1;
             }
         }
     }
-    return $interesting;
+    return $changed;
 }
 
 sub remove
@@ -3094,7 +3214,7 @@ sub removeExceptionBranches
         if (0 == scalar(@replace)) {
             lcovutil::info(2, "$line: remove exception block $block_id\n");
 
-            $blockData->removeBlock($block_id);
+            $blockData->removeBlock($block_id, $brdata);
         } else {
             @$blockData = @replace;
         }
@@ -3107,6 +3227,16 @@ sub removeExceptionBranches
         $modified = 1;
     }
     return $modified;
+}
+
+sub removeBranches
+{
+    my ($self, $branchList) = @_;
+
+    foreach my $b (@$branchList) {
+        --$self->[FOUND];
+        --$self->[HIT] if 0 != $b->count();
+    }
 }
 
 sub _checkCounts
@@ -3161,10 +3291,10 @@ sub compatible($$)
     return 1;
 }
 
-sub merge
+sub union
 {
     my ($self, $info, $filename) = @_;
-    my $interesting = 0;
+    my $changed = 0;
 
     my $mydata = $self->[DATA];
     while (my ($line, $yourBranch) = each(%{$info->[DATA]})) {
@@ -3177,7 +3307,7 @@ sub merge
             my ($f, $h) = $yourBranch->totals();
             $self->[FOUND] += $f;
             $self->[HIT]   += $h;
-            $interesting = 1;
+            $changed = 1;
             next;
         }
         # keep track of which 'myBranch' blocks have already been merged in
@@ -3208,7 +3338,7 @@ sub merge
             ) {
                 foreach my $br (@$yourBr) {
                     if ($self->append($line, $yourId, $br, $filename)) {
-                        $interesting = 1;
+                        $changed = 1;
                     }
                 }
                 $merged{$yourId} = 1;
@@ -3233,7 +3363,7 @@ sub merge
                     $merged{$myId} = 1;    # used this one
                     foreach my $br (@$yourBr) {
                         if ($self->append($line, $myId, $br, $filename)) {
-                            $interesting = 1;
+                            $changed = 1;
                         }
                     }
                     next BLOCK;            # merged this one - go to next
@@ -3244,15 +3374,91 @@ sub merge
             $merged{$newID} = 1;    # used this one
             foreach my $br (@$yourBr) {
                 if ($self->append($line, $newID, $br, $filename)) {
-                    $interesting = 1;
+                    $changed = 1;
                 }
             }
         }
     }
-    if ($lcovustil::debug) {
+    if ($lcovutil::debug) {
         $self->_checkCounts();    # some paranoia
     }
-    return $interesting;
+    return $changed;
+}
+
+sub intersect
+{
+    my ($self, $info, $filename) = @_;
+    my $changed = 0;
+
+    my $mydata   = $self->[DATA];
+    my $yourdata = $info->[DATA];
+    foreach my $line (keys %$mydata) {
+        if (exists($yourdata->{$line})) {
+            # look at all my blocks.  If you have a compatible block, merge them
+            #   - else delete mine
+            my $myBranch   = $mydata->{$line};
+            my $yourBranch = $yourdata->{$line};
+            my @myBlocks   = $myBranch->blocks();
+            foreach my $myId (@myBlocks) {
+                my $myBr = $myBranch->getBlock($myId);
+
+                # Do you have a block with matching name, which is compatible?
+                my $yourBlock = $yourBranch->getBlock($myId)
+                    if $yourBranch->hasBlock($myId);
+                if (defined($yourBlock) &&    # you have this one
+                    compatible($myBr, $yourBlock)
+                ) {
+                    foreach my $br (@$yourBlock) {
+                        if ($self->append($line, $myId, $br, $filename)) {
+                            $changed = 1;
+                        }
+                    }
+                } else {
+                    # block not found...remove this one
+                    $myBranch->removeBlock($myId, $self);
+                    $changed = 1;
+                }
+            }    # foreach block
+        } else {
+            # my line not found in your data - so remove this one
+            $changed = 1;
+            $self->remove($line);
+        }
+    }
+    return $changed;
+}
+
+sub difference
+{
+    my ($self, $info, $filename) = @_;
+    my $changed = 0;
+
+    my $mydata   = $self->[DATA];
+    my $yourdata = $info->[DATA];
+    foreach my $line (keys %$mydata) {
+        # keep everything here if you don't have this line
+        next unless exists($yourdata->{$line});
+
+        #  look at all my blocks.  If you have a compatible block, remove it:
+        my $myBranch   = $mydata->{$line};
+        my $yourBranch = $yourdata->{$line};
+        my @myBlocks   = $myBranch->blocks();
+        foreach my $myId (@myBlocks) {
+            my $myBr = $myBranch->getBlock($myId);
+
+            # Do you have a block with matching name, which is compatible?
+            my $yourBlock = $yourBranch->getBlock($myId)
+                if $yourBranch->hasBlock($myId);
+            if (defined($yourBlock) &&    # you have this one
+                compatible($myBr, $yourBlock)
+            ) {
+                # remove common block
+                $myBranch->removeBlock($myId, $self);
+                $changed = 1;
+            }
+        }    # foreach block
+    }
+    return $changed;
 }
 
 # return BranchEntry struct (or undef)
@@ -3288,6 +3494,10 @@ use constant {
               LINE_DATA     => 4,    # per-testcase data
               BRANCH_DATA   => 5,
               FUNCTION_DATA => 6,
+
+              UNION      => 0,
+              INTERSECT  => 1,
+              DIFFERENCE => 2,
 };
 
 sub new
@@ -3296,7 +3506,7 @@ sub new
     my $self = [];
     bless $self, $class;
 
-    $self->[VERSION] = undef;        # version ID from revision control (if any)
+    $self->[VERSION] = undef;    # version ID from revision control (if any)
 
     # keep track of location in .info file that this file data was found
     #  - useful in error messages
@@ -3578,55 +3788,77 @@ sub _merge_checksums
     my $info     = shift;
     my $filename = shift;
 
-    foreach my $line ($self->check()->keylist()) {
-        if ($info->check()->mapped($line) &&
-            $self->check()->value($line) ne $info->check()->value($line)) {
-            die("ERROR: checksum mismatch at $filename:$line\n");
+    my $mine  = $self->check();
+    my $yours = $info->check();
+    foreach my $line ($yours->keylist()) {
+        if ($mine->mapped($line) &&
+            $mine->value($line) ne $yours->value($line)) {
+            lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+                                      "checksum mismatch at $filename:$line: " .
+                                          $mine->value($line),
+                                      ' -> ' . $yours->value($line));
         }
-    }
-    foreach my $line ($info->check()->keylist()) {
-        $self->check()->replace($line, $info->check()->value($line));
+        $mine->replace($line, $yours->value($line));
     }
 }
 
 sub merge
 {
-    my ($self, $info, $filename) = @_;
+    my ($self, $info, $op, $filename) = @_;
 
     my $me  = defined($self->version()) ? $self->version() : "<no version>";
     my $you = defined($info->version()) ? $info->version() : "<no version>";
 
-    lcovutil::checkVersionMatch($filename, $me, $you);
-    my $interesting = 0;
-    foreach my $name ($info->test()->keylist()) {
-        if ($self->test($name)->merge($info->test($name))) {
-            $interesting = 1;
-        }
-    }
-    if ($self->sum()->merge($info->sum())) {
-        $interesting = 1;
+    my ($countOp, $funcOp, $brOp);
+
+    if ($op == UNION) {
+        $countOp = \&CountData::union;
+        $funcOp  = \&FunctionMap::union;
+        $brOp    = \&BranchData::union;
+    } elsif ($op == INTERSECT) {
+        $countOp = \&CountData::intersect;
+        $funcOp  = \&FunctionMap::intersect;
+        $brOp    = \&BranchData::intersect;
+    } else {
+        die("unexpected op $op") unless $op == DIFFERENCE;
+        $countOp = \&CountData::difference;
+        $funcOp  = \&FunctionMap::difference;
+        $brOp    = \&BranchData::difference;
     }
 
-    if ($self->func()->merge($info->func())) {
-        $interesting = 1;
+    lcovutil::checkVersionMatch($filename, $me, $you);
+    my $changed = 0;
+
+    foreach my $name ($info->test()->keylist()) {
+        if (&$countOp($self->test($name), $info->test($name))) {
+            $changed = 1;
+        }
+    }
+    # if intersect and I contain some test that you don't, need to remove my data
+    if (&$countOp($self->sum(), $info->sum())) {
+        $changed = 1;
+    }
+
+    if (&$funcOp($self->func(), $info->func())) {
+        $changed = 1;
     }
     $self->_merge_checksums($info, $filename);
 
     foreach my $name ($info->testfnc()->keylist()) {
-        if ($self->testfnc($name)->merge($info->testfnc($name))) {
-            $interesting = 1;
+        if (&$funcOp($self->testfnc($name), $info->testfnc($name))) {
+            $changed = 1;
         }
     }
 
     foreach my $name ($info->testbr()->keylist()) {
-        if ($self->testbr($name)->merge($info->testbr($name), $filename)) {
-            $interesting = 1;
+        if (&$brOp($self->testbr($name), $info->testbr($name), $filename)) {
+            $changed = 1;
         }
     }
-    if ($self->sumbr()->merge($info->sumbr(), $filename)) {
-        $interesting = 1;
+    if (&$brOp($self->sumbr(), $info->sumbr(), $filename)) {
+        $changed = 1;
     }
-    return $interesting;
+    return $changed;
 }
 
 # this package merely reads sourcefiles as they are found on the current
@@ -4252,27 +4484,42 @@ sub insert
     $self->[FILES]->{$filename} = $data;
 }
 
-sub append_tracefile
+sub merge_tracefile
 {
-    my ($self, $trace) = @_;
+    my ($self, $trace, $op) = @_;
     die("expected TraceFile")
         unless (defined($trace) && 'TraceFile' eq ref($trace));
 
-    my $interesting = 0;
-    my $files       = $self->[FILES];
-    foreach my $filename ($trace->files()) {
-        if (defined($files->{$filename})) {
+    my $changed = 0;
+    my $mine    = $self->[FILES];
+    my $yours   = $trace->[FILES];
+    foreach my $filename (keys %$mine) {
+
+        if (exists($yours->{$filename})) {
+            # this file in both me and you...merge as appropriate
             if ($self->data($filename)
-                ->merge($trace->data($filename), $filename)) {
-                $interesting = 1;
+                ->merge($trace->data($filename), $op, $filename)) {
+                $changed = 1;
             }
         } else {
-            $files->{$filename} = $trace->data($filename);
-            $interesting = 1;
+            # file in me and not you - remove mine if intersect operation
+            if ($op == TraceInfo::INTERSECT) {
+                delete $mine->{$filename};
+                $changed = 1;
+            }
+        }
+    }
+    if ($op == TraceInfo::UNION) {
+        # now add in any files from you that are not present in me...
+        while (my ($filename, $data) = each(%$yours)) {
+            if (!exists($mine->{$filename})) {
+                $mine->{$filename} = $data;
+                $changed = 1;
+            }
         }
     }
     $self->add_comments($trace->comments());
-    return $interesting;
+    return $changed;
 }
 
 sub _eraseFunction
@@ -5417,7 +5664,7 @@ sub _read_info
                         BranchBlock->new($expr, $taken, $expr, $is_exception);
                     if (exists($table->{$expr})) {
                         # merge
-                        $table->{$expr}->merge($entry);
+                        $table->{$expr}->union($entry);
                     } else {
                         $table->{$expr} = $entry;
                     }
@@ -5461,10 +5708,10 @@ sub _read_info
                     if ($lcovutil::func_coverage) {
 
                         if ($funcdata != $functionMap) {
-                            $funcdata->merge($functionMap);
+                            $funcdata->union($functionMap);
                         }
                         if (defined($testname)) {
-                            $fileData->testfnc($testname)->merge($functionMap);
+                            $fileData->testfnc($testname)->union($functionMap);
                         }
                     }
                     # Store current section data
@@ -5760,7 +6007,7 @@ sub find_from_glob
             unless $^O =~ /Win/;
 
         my @files = glob($pattern);   # perl returns files in ASCII sorted order
-        lcovutil::ingorable_error($lcovutil::ERROR_EMPTY,
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
                                   "no files matching pattern $pattern")
             unless scalar(@files);
         foreach my $f (@files) {
@@ -5833,7 +6080,7 @@ sub _process_segment($$$)
                 }
             }
         } else {
-            if ($total_trace->append_tracefile($current)) {
+            if ($total_trace->merge_tracefile($current, TraceInfo::UNION)) {
                 push(@interesting, $tracefile);
             }
         }
@@ -6027,7 +6274,7 @@ sub merge
                 # undump the data
                 my $data = Storable::retrieve($dumpfile);
                 if (defined($data)) {
-                    my ($current, $interesting, $func_map,
+                    my ($current, $changed, $func_map,
                         $patterns, $profile, $update) = @$data;
                     my $then = Time::HiRes::gettimeofday();
                     $lcovutil::profileData{$idx}{undump} = $then - $now;
@@ -6058,10 +6305,12 @@ sub merge
                                       "segment $idx returned empty trace data");
                             next;
                         }
-                        if ($total_trace->append_tracefile($current)) {
+                        if ($total_trace->merge_tracefile(
+                                                      $current, TraceInfo::UNION
+                        )) {
                             # something in this segment improved coverage...so save
                             #   the effective input files from this one
-                            push(@effective, @$interesting);
+                            push(@effective, @$changed);
                         }
                     }
                     foreach my $k ('parse', 'append') {
