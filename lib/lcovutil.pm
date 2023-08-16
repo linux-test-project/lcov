@@ -4028,6 +4028,10 @@ our $ignore_testcase_name;    # use default name, if set
 use constant {
               FILES    => 0,
               COMMENTS => 1,
+              STATE    => 2,    # operations performed: don't do them again
+
+              DID_FILTER => 1,
+              DID_DERIVE => 2,
 };
 
 sub load
@@ -4046,7 +4050,7 @@ sub load
 sub new
 {
     my $class = shift;
-    my $self  = [{}, []];
+    my $self  = [{}, [], 0];
     bless $self, $class;
 
     return $self;
@@ -4263,7 +4267,7 @@ sub _eraseFunctions
         = @_;
 
     my $modified      = 0;
-    my $removeTrivial = $cov_filter[$FILTER_FUNCTION_ALIAS];
+    my $removeTrivial = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
     FUNC: foreach my $key ($functionMap->keylist()) {
         my $fcn      = $functionMap->findKey($key);
         my $end_line = $fcn->end_line();
@@ -4858,6 +4862,12 @@ sub _processFilterWorklist
 sub applyFilters
 {
     my $self = shift;
+    my $mask = DID_FILTER;
+    $mask |= DID_DERIVE
+        if (defined($lcovutil::derive_function_end_line) &&
+            $lcovutil::derive_function_end_line != 0);
+    return
+        if ($mask == ($self->[STATE] & $mask));
 
     # have to look through each file in each testcase; they may be different
     # due to differences in #ifdefs when the corresponding tests were compiled.
@@ -4875,9 +4885,10 @@ sub applyFilters
         # derive function end line for C/C++ code if requested
         # (not trying to handle python nested functions, etc)
         DERIVE:
-        if (defined($lcovutil::derive_function_end_line) &&
-            $lcovutil::derive_function_end_line != 0 &&
-            defined($lcovutil::func_coverage) &&
+        if (0 == ($self->[STATE] & DID_DERIVE) &&
+            defined($lcovutil::derive_function_end_line) &&
+            $lcovutil::derive_function_end_line != 0     &&
+            defined($lcovutil::func_coverage)            &&
             is_c_file($source_file)) {
             my @lines = sort { $a <=> $b } $traceInfo->sum()->keylist();
             # sort functions by start line number
@@ -4989,8 +5000,13 @@ sub applyFilters
                    lcovutil::is_filter_enabled()));
         push(@filter_workList, [$traceInfo, $name]);
     }    # foreach file
+    $self->[STATE] |= DID_DERIVE;
 
-    $self->_processFilterWorklist(\@filter_workList);
+    if (@filter_workList) {
+        $self->_processFilterWorklist(\@filter_workList);
+        # keep track - so we don't do this again
+        $self->[STATE] |= DID_FILTER;
+    }
 }
 
 sub is_rtl_file

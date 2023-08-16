@@ -102,7 +102,7 @@ fi
 #PROFILE="''
 
 
-LCOV_OPTS="$EXTRA_GCOV_OPTS --rc lcov_branch_coverage=1 --version-script $GET_VERSION $PARALLEL $PROFILE"
+LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $PARALLEL $PROFILE"
 DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
@@ -141,6 +141,10 @@ IFS='.' read -r -a VER <<< `gcc -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent"
 fi
+if [ "${VER[0]}" -lt 9 ] ; then
+    DERIVE='--rc derive_function_end_line=1'
+fi
+
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --memory 20
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --comment "this is the baseline" --memory 20
@@ -778,17 +782,17 @@ if [ $COUNT != '1' ] ; then
     fi
 fi
 
-echo lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE
+echo lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE $DERIVE
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE $DERIVE
 if [ 0 == $? ] ; then
     BASELINE_COUNT=`grep -c FN: baseline.info`
     TRIVIAL_COUNT=`grep -c FN: trivial.info`
     # expect lower function count:  we should have removed 'static_initial...
     GENERATED=`grep -c _GLOBAL__ baseline.info`
     if [[ ( 0 != $GENERATED &&
-                  $TRIVIAL_COUNT -ge $BASELINE_COUNT ) ||
-              ( 0 == $GENERATED &&
-                      $TRIVIAL_COUNT != $BASELINE_COUNT) ]] ; then
+            $TRIVIAL_COUNT -ge $BASELINE_COUNT ) ||
+          ( 0 == $GENERATED &&
+            $TRIVIAL_COUNT != $BASELINE_COUNT) ]] ; then
         echo "ERROR:  trivial filter failed"
         if [ 0 == $KEEP_GOING ] ; then
             exit 1
@@ -797,7 +801,7 @@ if [ 0 == $? ] ; then
 else
     echo "old version of gcc doesn't support trivial function filtering because no end line"
     # try to see if we can generate the data if we ignore unsupported...
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE --ignore unsupported
+    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE $DERIVE --ignore unsupported
     if [ 0 != $? ] ; then
         echo "ERROR: lcov --capture trivial failed after ignoring error"
         if [ 0 == $KEEP_GOING ] ; then
