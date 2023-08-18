@@ -120,14 +120,17 @@ install:
 		       --fixinterp --fixver --fixlibdir --fixbindir \
 		       --exec $(DESTDIR)$(LIB_DIR)/$$l ; \
 	done
-	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man1
-	$(INSTALL) -d -m 755 $(DESTDIR)$(MAN_DIR)/man5
-	for m in $(MANPAGES) ; do \
-		$(call echocmd,"  INSTALL $(DESTDIR)$(MAN_DIR)/$$m") \
-		$(INSTALL) -m 644 man/`basename $$m` $(DESTDIR)$(MAN_DIR)/$$m ; \
-		$(FIX) --version $(VERSION) --fixver --fixdate \
-		       --fixscriptdir --scriptdir $(SCRIPT_DIR) \
-		       --manpage $(DESTDIR)$(MAN_DIR)/$$m ; \
+	for section in 1 5 ; do \
+		DEST=$(DESTDIR)$(MAN_DIR)/man$$section ; \
+		$(INSTALL) -d -m 755 $$DEST ; \
+		for m in man/*.$$section ; do  \
+			F=`basename $$m` ; \
+			$(call echocmd,"  INSTALL $$DEST/$$F") \
+			  $(INSTALL) -m 644 man/$$F $$DEST/$$F ; \
+			$(FIX) --version $(VERSION) --fixver --fixdate \
+		         --fixscriptdir --scriptdir $(SCRIPT_DIR) \
+		         --manpage $$DEST/$$F ; \
+		done ;  \
 	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(CFG_DIR)
 	$(call echocmd,"  INSTALL $(DESTDIR)$(CFG_DIR)/lcovrc")
@@ -142,14 +145,22 @@ uninstall:
 		$(call echocmd,"  UNINST  $(DESTDIR)$(SCRIPT_DIR)/$$s")  \
 		$(RM) -f $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
 	done
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/$(SCRIPT_DIR)
 	for l in $(LIBS) ; do \
 		$(call echocmd,"  UNINST  $(DESTDIR)$(LIB_DIR)/$$l") \
 		$(RM) -f $(DESTDIR)$(LIB_DIR)/$$l ; \
 	done
-	for m in $(MANPAGES) ; do \
-		$(call echocmd,"  UNINST  $(DESTDIR)$(MAN_DIR)/$$m") \
-		$(RM) -f $(DESTDIR)$(MAN_DIR)/$$m ; \
-	done
+	for section in 1 5 ; do \
+		DEST=$(DESTDIR)$(MAN_DIR)/man$$section ; \
+		for m in man/*.$$section ; do  \
+			F=`basename $$m` ; \
+			$(call echocmd,"  UNINST  $$DEST/$$F") \
+			$(RM) -f $$DEST/$$F ; \
+		done ; \
+		rmdir --ignore-fail-on-non-empty $$DEST ; \
+	done ; \
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/$(MAN_DIR)
+
 	$(call echocmd,"  UNINST  $(DESTDIR)$(CFG_DIR)/lcovrc")
 	$(RM) -f $(DESTDIR)$(CFG_DIR)/lcovrc
 
