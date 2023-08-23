@@ -7897,13 +7897,18 @@ sub write_file_table_entry(*$$@)
     if (!$is_secondary &&
         defined($page_link) &&
         $page_link ne "") {
-        $namecode = "<a href=\"$page_link\">$esc_name</a>";
-        $owner    = "";
+        # could use $fileSummary->name() in the popup
+        $namecode =
+            "<a href=\"$page_link\" title=\"Click to go to " .
+            $fileSummary->type() . " $esc_name\">$esc_name</a>";
+        $owner = "";
     } elsif ($is_secondary &&
              $primary_key ne 'name' &&
              defined($file_link) &&
              $file_link ne "") {
-        $namecode = "<a href=\"$file_link\">" . $esc_name . "</a>";
+        $namecode =
+            "<a href=\"$file_link\" title=\"Click to go to $esc_name source detail\">"
+            . $esc_name . "</a>";
     } elsif ($is_secondary &&
              $primary_key ne 'name' &&
              $name eq $filename) {
@@ -7931,7 +7936,7 @@ sub write_file_table_entry(*$$@)
         if ($main::frames) {
             # href to anchor in frame doesn't seem to work in either firefox
             #   or chrome.  However, this seems like the right syntax.
-            $tableHref .= "href=\"$file_link#L__LINE__\" target=\"source\""
+            $tableHref = "href=\"$file_link#L__LINE__\" target=\"source\""
                 if 0;
         } else {
             $tableHref = "href=\"$file_link#L__LINE__\"";
@@ -7960,7 +7965,7 @@ sub write_file_table_entry(*$$@)
             $namecode =
                 "<a href=\"" .
                 File::Spec->catfile($relDir, "$filename.gcov.$html_ext") .
-                "\">$esc_name</a>";
+                "\" title=\"Click to go to $esc_name source detail\">$esc_name</a>";
         } else {
             # link to the entry in date/owner 'summary' table (keyed other way up)
             $namecode = "<a href=\"";
@@ -9212,7 +9217,7 @@ sub buildDateSummaryTable($$$$$$$$$)
         my $href = $SummaryInfo::ageGroupHeader[$bin];
         if (defined($detailLink)) {
             $href =
-                "<a href=\"$page#B$bin\" title=\"click to go to coverage summary for the period '$href'\">$href</a>";
+                "<a href=\"$page#B$bin\" title=\"Click to go to coverage summary for the period '$href'\">$href</a>";
         }
         $hit -= $found    # negative number
             if ($main::opt_missed);
@@ -9337,7 +9342,7 @@ sub buildOwnerSummaryTable($$$$$$$$$)
         if (defined($detailLink)) {
             $href =
                 "<a href=\"$page#N" . escape_id($name) .
-                "\" title=\"click to go to coverage summary for owner '$esc_name'\">$esc_name</a>";
+                "\" title=\"Click to go to coverage summary for owner '$esc_name'\">$esc_name</a>";
         }
         $hit -= $found    # negative number
             if ($main::opt_missed);
@@ -9460,7 +9465,7 @@ sub build_html_path($$$$$)
             $isAbsolute = 0;
             my $e = escape_html($elem);
             $html_path .=
-                "$sep<a href=\"${base}index$key$bin_type.$html_ext\">$e</a>";
+                "$sep<a href=\"${base}index$key$bin_type.$html_ext\" title=\"Click to go to directory $e\">$e</a>";
             $sep = $lcovutil::dirseparator;
             --$len;
         }
@@ -9522,7 +9527,7 @@ sub write_header(*$$$$$)
             # this is the header of the 'top-level' page, for either 'owner'
             #   or 'date' binning - link back to vanilla top-level page
             $view =
-                "<a href=\"index.$html_ext\" title=\"Click to return to 'flat' top-level page.\">$overview_title</a>";
+                "<a href=\"index.$html_ext\" title=\"Click to go to default view of top-level page.\">$overview_title</a>";
         } else {
             $view = $overview_title;
         }
@@ -9541,7 +9546,7 @@ sub write_header(*$$$$$)
             if ('name' ne $primary_key ||
                 '' ne $bin_type) {
                 $self_link .=
-                    "<a href=\"index.$html_ext\" title=\"Click to return to 'flat' view of this directory.\">$base</a>";
+                    "<a href=\"index.$html_ext\" title=\"Click to go to default view of this directory.\">$base</a>";
             } else {
                 $self_link .= $base;
             }
@@ -9553,11 +9558,13 @@ sub write_header(*$$$$$)
                 '' ne $bin_type) {
                 # go back to the 'vanilla' view of this directory
                 $self_link =
-                    "<a href=\"index.$html_ext\" title=\"Click to return to 'flat' view of this directory.\">$esc_trunc_name</a>";
+                    "<a href=\"index.$html_ext\" title=\"Click to go to default view of this directory.\">$esc_trunc_name</a>";
             }
         }
-        $view = "<a href=\"$base_dir" . "index$key$bin_type.$html_ext\">" .
-            "$overview_title</a> - $self_link";
+        $view =
+            "<a href=\"$base_dir" .
+            "index$key$bin_type.$html_ext\" title=\"Click to go to top-level\">"
+            . "$overview_title</a> - $self_link";
     } elsif ($type == $HDR_SOURCE || $type == $HDR_FUNC) {
         # File view
         my $dir_name = dirname($rel_filename);
@@ -9570,8 +9577,10 @@ sub write_header(*$$$$$)
         $base_dir = get_relative_base_path($dir_name);
         # if using frames, to break frameset when clicking any of the links
         my $parent = $frames ? " target=\"_parent\"" : "";
-        $view = "<a href=\"$base_dir" .
-            "index.$html_ext\"$parent>" . "$overview_title</a> - ";
+        $view =
+            "<a href=\"$base_dir" .
+            "index.$html_ext\"$parent title=\"Click to go to top-level\">" .
+            "$overview_title</a> - ";
         if ($main::flat) {
             # for flat view, point only to the top-levevl and show path
             #  to this file.  No other links
@@ -9581,7 +9590,8 @@ sub write_header(*$$$$$)
                 $html_path =~ s/<a/<a$parent/g;
                 $view .= $html_path;
             } else {
-                $view .= "<a href=\"index.$html_ext\"$parent>$esc_dir_name</a>";
+                $view .=
+                    "<a href=\"index.$html_ext\"$parent title=\"Click to go to directory $esc_dir_name\">$esc_dir_name</a>";
             }
             $view .= " - $esc_base_name";
         }
@@ -9590,16 +9600,12 @@ sub write_header(*$$$$$)
         if ($lcovutil::func_coverage) {
             $view .= "<span style=\"font-size: 80%;\">";
             if ($type == $HDR_SOURCE) {
-                if ($sort) {
-                    $view .=
-                        " (source / <a href=\"$base_name.func-c.$html_ext\">functions</a>)";
-                } else {
-                    $view .=
-                        " (source / <a href=\"$base_name.func.$html_ext\">functions</a>)";
-                }
+                my $suffix = $sort ? '-c' : '';
+                $view .=
+                    " (source / <a href=\"$base_name.func$suffix.$html_ext\" title=\"Click to go to function table\">functions</a>)";
             } elsif ($type == $HDR_FUNC) {
                 $view .=
-                    " (<a href=\"$base_name.gcov.$html_ext\">source</a> / functions)";
+                    " (<a href=\"$base_name.gcov.$html_ext\" title=\"Click to go to source detail\">source</a> / functions)";
             }
             $view .= "</span>";
         }
@@ -9653,34 +9659,35 @@ sub write_header(*$$$$$)
              ]);
     }
     if ($type != $HDR_SOURCE &&
+        $type != $HDR_FUNC   &&
         (defined($main::show_ownerBins) ||
             @SourceFile::annotateScript)
     ) {
         # we are going to have 3 versions of of the page:
         #   flat, with owner bin data, with date bin data
         # so label which one this is
-        my $thisView;
+        my ($tableLabel, $tableKey);
         if ($bin_type eq '-owner') {
-            $thisView = "Ownership bin detail";
+            $tableLabel = 'Group by:';
+            $tableKey   = 'Owner';
         } elsif ($bin_type eq '-date') {
-            $thisView = "Date bin detail";
+            $tableLabel = 'Group by:';
+            $tableKey   = 'Date bin';
         } else {
             $bin_type eq "" or
                 die("unexpected bin detail type $bin_type");
-            if ($primary_key eq 'name') {
-                $thisView = "Flat";
-            } elsif ($primary_key eq 'date') {
-                $thisView = "Date bin summary";
-            } else {
-                die("inexpected key $primary_key")
-                    unless ($primary_key eq 'owner');
-                $thisView = "Owner bin summary";
-            }
+            $tableLabel = 'Summarize by:';
+            if ($primary_key eq 'date') {
+                $tableKey = 'Date bin';
+            } elsif ($primary_key eq 'owner') {
+                $tableKey = 'Owner';
+            }    # else ($primary_key eq 'name';
         }
+        # label this only if there is both a primary and secondary
         push(@row_left,
-             [[undef, 'headerItem', 'View type:'],
-              [undef, 'headerValue', $thisView]
-             ]);
+             [[undef, 'headerItem', $tableLabel],
+              [undef, 'headerValue', $tableKey]
+             ]) if (defined($tableKey));
     }
 
     # Right row
@@ -10041,7 +10048,7 @@ sub get_line_code($$$$$$$)
         }
     } elsif ($type == $HEAD_DETAIL_HIDDEN) {
         # Text + link to detail view
-        my $help = "title=\"Click to show per-testcase coverage details\"";
+        my $help = "title=\"Click to go to per-testcase coverage details\"";
         $result .=
             " ( <a $help " . 'class="detail" href="index' .
             $key . $bin_type . '-detail' . $fileview_sortname[$sort_type] .
@@ -10162,9 +10169,7 @@ sub write_file_table(*$$$$$)
         $hide = $detailed ? $HEAD_DETAIL_HIDDEN : $HEAD_NO_DETAIL;
         $show = $detailed ? $HEAD_DETAIL_SHOWN : $HEAD_DETAIL_HIDDEN;
     }
-    my $file_col_title =
-        $fileview ? ('' eq $bin_type ? 'Filename' : 'File') :
-        ($main::flat ? 'Filename' : 'Directory');
+    my $file_col_title = ($fileview || $main::flat) ? 'File' : 'Directory';
     my $file_code =
         get_file_code($hide, $file_col_title, $sort && $sort_type != $SORT_FILE,
                       $bin_type, $primary_key, $base_dir);
