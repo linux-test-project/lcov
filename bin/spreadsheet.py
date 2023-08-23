@@ -671,32 +671,35 @@ class GenerateSpreadsheet(object):
                 summarySheet.hide()
 
             # insert the average and variance data...
-            col = 1
-            lastSummaryRow = firstSummaryRow + len(geninfoSheets) - 1
-            avgRow = 1
-            devRow = 2
-            firstCol = col
-            for k in (*geninfoChunkKeys, *geninfoKeys):
-                if k in ('order',):
-                    continue
-                for j in ('sum', 'avg'):
-                    f = xl_rowcol_to_cell(firstSummaryRow, col)
-                    t = xl_rowcol_to_cell(lastSummaryRow, col)
-                    avg = "+AVERAGE(%(from)s:%(to)s)" % {
-                        'from': f,
-                        'to': t,
-                    }
-                    summarySheet.write_formula(avgRow, col, avg, twoDecimal)
-                    avgCell = xl_rowcol_to_cell(avgRow, col)
-                    dev = "+STDEV(%(from)s:%(to)s)" % {
-                        'from': f,
-                        'to': t,
-                    }
-                    summarySheet.write_formula(devRow, col, dev, twoDecimal)
-                    col += 1
-
-            insertConditional(summarySheet, avgRow, devRow,
-                              firstSummaryRow, firstCol, lastSummaryRow, col -1)
+            #  (there will not be any such data if we didn't run geninfo)
+            try:
+                col = 1
+                lastSummaryRow = firstSummaryRow + len(geninfoSheets) - 1
+                avgRow = 1
+                devRow = 2
+                firstCol = col
+                for k in (*geninfoChunkKeys, *geninfoKeys):
+                    if k in ('order',):
+                        continue
+                    for j in ('sum', 'avg'):
+                        f = xl_rowcol_to_cell(firstSummaryRow, col)
+                        t = xl_rowcol_to_cell(lastSummaryRow, col)
+                        avg = "+AVERAGE(%(from)s:%(to)s)" % {
+                            'from': f,
+                            'to': t,
+                        }
+                        summarySheet.write_formula(avgRow, col, avg, twoDecimal)
+                        avgCell = xl_rowcol_to_cell(avgRow, col)
+                        dev = "+STDEV(%(from)s:%(to)s)" % {
+                            'from': f,
+                            'to': t,
+                        }
+                        summarySheet.write_formula(devRow, col, dev, twoDecimal)
+                        col += 1
+                insertConditional(summarySheet, avgRow, devRow,
+                                  firstSummaryRow, firstCol, lastSummaryRow, col -1)
+            except:
+                pass
         s.close()
 
 if __name__ == "__main__":
