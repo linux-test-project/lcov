@@ -680,9 +680,10 @@ In general, you should specify a diff file in unified diff format via
 when you specify a
 .IR \-\-baseline\-file\-pattern .
 Without a diff file, genhtml will assume that there are no source differences
-between 'baseline' and 'current'.  (For example:  this might be used to find
+between 'baseline' and 'current'.
+For example:  this might be used to find
 incremental changes caused by the addition of more testcases, or to compare
-coverage results between gcc versions, or between gcc and llvm.)
+coverage results between gcc versions, or between gcc and llvm.
 
 .RE
 .BI "\-\-baseline\-title " title
@@ -762,19 +763,32 @@ in the p4diff/gitdiff output as this knowledge will help to suppress spurious 'p
 .B \-\-elide\-path\-mismatch
 option, below.
 
-Note that you must specify
+In general, you will specify
 .B \-\-baseline\-file
 when you specify
 .BR \-\-diff\-file .
-Both are needed for differential coverage categorization.
-
-Conversely, if you specify a
-.B \-\-baseline\-file
-without a
-.BR \-\-diff\-file ,
-then genhtml will assume that there are no source code changes:  source text is
+The
+.I baseline_files
+are used to compute coverage differences (
+.I e.g.
+gains and losses) between the baseline and current, where the
+.I diff_file
+is used to compute code changes:  source text is
 identical between 'baseline' and 'current'.
-
+If you specify
+.I baseline_files
+but no
+.I diff_file,
+the tool will assume that there are no code changes between baseline and current.
+If you specify a
+.I diff_file
+but no
+.I baseline_files,
+the tool will assume that there is no baseline coverage data (no baseline code was covered); as result unchanged code (
+.I i.e.,
+which does not appear in the
+.I diff_file
+will be categorized as eiher GIC (covered) or UIC (not covered) while new or chagned code will be categorized as either GNC or UNC.
 
 .RE
 .BI "\-\-annotate\-script " script

@@ -3002,8 +3002,10 @@ sub type
 
     if (!defined($self->[LINEMAP]->{$file})) {
         #mapping is identity when no diff was read
-        if (@main::base_filenames &&
-            defined($main::show_tla)) {
+        if (defined($main::show_tla) &&
+            (@main::base_filenames ||
+                $main::diff_filename)
+        ) {
             return "equal";    # categories will be "GIC", "UIC"
         } else {
             return "insert";    # categories will be "GNC", "UNC"
@@ -5362,13 +5364,14 @@ die(
     if ($flat && $hierarchical);
 
 $show_tla = 1
-    if (@base_filenames);
-$show_hitTotalCol = !$show_tla || @base_filenames;
-$use_legacyLabels = 0 == scalar(@base_filenames) && $show_tla;
-if ($show_tla && 0 == scalar(@base_filenames)) {
-    # no baseline - so not a differentialreport.
+    if (@base_filenames) || defined($diff_filename);
+if ($show_tla && (0 == scalar(@base_filenames) && !defined($diff_filename))) {
+    # no baseline - so not a differential report.
     #  modify some settings to gnerate corresponding RTL code.
+    $use_legacyLabels = 1;
     SummaryInfo::noBaseline();
+} else {
+    $show_hitTotalCol = 1;
 }
 
 if (@SourceFile::annotateScript) {
@@ -5394,13 +5397,15 @@ if (@SourceFile::annotateScript) {
 if (0 != (defined($diff_filename) ^ (0 != scalar(@base_filenames)))) {
     if (@base_filenames) {
         warn(
-            "specified --baseline-file without --diff-file: assuming no source differences.  Hope that is OK."
+            "Specified --baseline-file without --diff-file: assuming no source differences.  Hope that is OK.\n"
         );
     } else {
-        die("bare '--diff-file udiff' found.  Must specify '--baseline-file lcovInfoFile' in order to compute differential coverage"
+        warn(
+            "Specified --diff-file without --baseline-file: assuming baseline code coverage was empty (nothing covered).  Hope that is OK\n"
         );
-        $diff_filename = undef;
+        # OK..just assume that the baseline is empty...
     }
+    $show_tla = 1;
 }
 
 if (defined($header_title)) {
@@ -5408,7 +5413,7 @@ if (defined($header_title)) {
 } else {
     # use the default title bar.
     $title =~ s/ differential//   # not a differential report, if no baseline...
-        unless @base_filenames;
+        unless $show_tla;
 }
 push(@fileview_prefixes, "-date")
     if ($show_dateBins);
@@ -5859,6 +5864,9 @@ sub gen_html()
         info("Found %d baseline entries.\n", scalar($base_data->files()));
         $then = Time::HiRes::gettimeofday();
         $lcovutil::profileData{parse_baseline} = $then - $now;
+    } elsif (defined($diff_filename)) {
+        # no data..
+        $base_data = TraceFile->new();
     }
 
     if ($diff_filename) {

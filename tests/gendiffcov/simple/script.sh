@@ -108,7 +108,7 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe}
-rm -rf ./cover_db ./baseline ./current ./differential* ./reverse ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate
+rm -rf ./cover_db ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -517,6 +517,17 @@ echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt
 $COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz $GENHTML_PORT $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml branch failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# check case that we have a diff file but no basline
+echo genhtml $DIFFCOV_OPTS ./current.info --diff-file diff.txt -o ./diff_no_baseline $IGNORE
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS ./current.info --diff-file diff.txt -o ./diff_no_baseline $IGNORE
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml diff_no_baseline failed"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
