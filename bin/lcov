@@ -1897,8 +1897,8 @@ sub list()
         }
 
         (undef, undef, undef, undef, undef,
-         undef, undef, undef, $found, $hit,
-         $fn_found, $fn_hit, $br_found, $br_hit) = $entry->get_info();
+         undef, undef, $found, $hit, $fn_found,
+         $fn_hit, $br_found, $br_hit) = $entry->get_info();
 
         # Assume zero count if there is no function data for this file
         if (!defined($fn_found) || !defined($fn_hit)) {
