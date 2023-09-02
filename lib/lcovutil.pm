@@ -603,18 +603,18 @@ sub merge_child_profile($)
             while (my ($f, $t) = each(%$d)) {
                 if ('HASH' eq ref($t)) {
                     while (my ($x, $y) = each(%$t)) {
-                        die("unexpected duplicate key $x in $key->$f")
+                        die("unexpected duplicate key $x=$y in $key->$f")
                             if exists($lcovutil::profileData{$key}{$f}{$x});
                         $lcovutil::profileData{$key}{$f}{$x} = $y;
                     }
                 } else {
-                    die("unexpected duplicate key $f in $key")
+                    die("unexpected duplicate key $f=$t in $key")
                         if exists($lcovutil::profileData{$key}{$f});
                     $lcovutil::profileData{$key}{$f} = $t;
                 }
             }
         } else {
-            die("unexpected duplicate key $key in profileData")
+            die("unexpected duplicate key $key=$d in profileData")
                 if exists($lcovutil::profileData{$key});
             $lcovutil::profileData{$key} = $d;
         }
@@ -4848,6 +4848,7 @@ sub _mergeParallelChunk
     my $childLog = File::Spec->catfile($tmp, "filter_$child.log");
     my $childErr = File::Spec->catfile($tmp, "filter_$child.err");
 
+    lcovutil::debug(1, "merge:$child ID $chunkId\n");
     my $start = Time::HiRes::gettimeofday();
     foreach my $f ($childLog, $childErr) {
         if (open(RESTORE, "<", $f)) {
@@ -5145,6 +5146,7 @@ sub _processFilterWorklist
             } else {
                 # parent
                 $children{$pid} = [$d, $now, $processedChunks];
+                debug(1, "fork:$pid ID $processedChunks\n");
                 ++$currentParallel;
             }
 
