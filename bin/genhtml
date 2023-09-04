@@ -4310,7 +4310,7 @@ sub _load
             '' ne $version) {
             if (defined($currentVersion)) {
                 lcovutil::checkVersionMatch($repo_path, $version,
-                                            $currentVersion);
+                                            $currentVersion, 'load');
             } else {
                 lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
                     "'$repo_path': computed '$version' but version not defined in 'current' data file "

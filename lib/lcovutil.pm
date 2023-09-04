@@ -1803,7 +1803,7 @@ sub extractFileVersion
 
 sub checkVersionMatch
 {
-    my ($filename, $me, $you) = @_;
+    my ($filename, $me, $you, $reason) = @_;
 
     my $match;
     if (@extractVersionScript) {
@@ -1816,10 +1816,12 @@ sub checkVersionMatch
         $match = $me eq $you;    # simple string compare
     }
     lcovutil::ignorable_error($ERROR_VERSION,
+                          (defined($reason) ? ($reason . ' ') : '') .
                               "$filename: revision control version mismatch: " .
-                                  (defined($me) ? $me : 'undef') .
-                                  ' <- ' . (defined($you) ? $you : 'undef'))
+                              (defined($me) ? $me : 'undef') .
+                              ' <- ' . (defined($you) ? $you : 'undef'))
         unless $match;
+    return $match;
 }
 
 #
@@ -3828,7 +3830,7 @@ sub merge
         $brOp    = \&BranchData::difference;
     }
 
-    lcovutil::checkVersionMatch($filename, $me, $you);
+    lcovutil::checkVersionMatch($filename, $me, $you, 'merge');
     my $changed = 0;
 
     foreach my $name ($info->test()->keylist()) {
@@ -4636,6 +4638,17 @@ sub _filterFile
         $srcReader->open($source_file);
     } else {
         $srcReader->close();
+    }
+    my $fileVersion = lcovutil::extractFileVersion($source_file)
+        if $srcReader->notEmpty();
+    if (defined($fileVersion) &&
+        defined($traceInfo->version())
+        &&
+        !lcovutil::checkVersionMatch($source_file, $traceInfo->version(),
+                                     $fileVersion, 'filter')
+    ) {
+        lcovutil::info(1, 'skip filtering due to version mismatch\n');
+        return ($traceInfo, 0);
     }
 
     my $modified = 0;

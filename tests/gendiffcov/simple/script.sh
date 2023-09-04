@@ -208,6 +208,23 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+# test filter with differing version
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output filt.info --filter branch,line -a baseline2.info $IGNORE
+if [ 0 == $? ] ; then
+    echo "ERROR: filter with mismatched version did not fail"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output filt.info --filter branch,line -a baseline2.info $IGNORE --ignore version
+if [ 0 != $? ] ; then
+    echo "ERROR: ignore error filer with mismatched version failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 # run genhtml with mismatched version
 echo genhtml $DIFFCOV_OPTS baseline2.info --output-directory ./mismatched
 $COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS baseline2.info --output-directory ./mismatched
