@@ -5016,6 +5016,10 @@ sub _processParallelChunk
     }
 }
 
+# chunkID is only used for uniquification and as a key in profile data.
+#  We want this umber to be unique - even if we process more than one TraceFile
+our $masterChunkID = 0;
+
 sub _processFilterWorklist
 {
     my ($self, $fileList) = @_;
@@ -5141,15 +5145,15 @@ sub _processFilterWorklist
             if (0 == $pid) {
                 # I'm the child
                 _processParallelChunk($tmp, $d, $srcReader, \@save, \@state,
-                                      $now, $processedChunks);
+                                      $now, $masterChunkID);
                 exit(0);
             } else {
                 # parent
-                $children{$pid} = [$d, $now, $processedChunks];
-                debug(1, "fork:$pid ID $processedChunks\n");
+                $children{$pid} = [$d, $now, $masterChunkID];
+                lcovutil::debug(1, "fork:$pid ID $masterChunkID\n");
                 ++$currentParallel;
             }
-
+            ++$masterChunkID;
         }
     }    # foreach
     while ($currentParallel != 0) {
@@ -5306,6 +5310,7 @@ sub applyFilters
     $self->[STATE] |= DID_DERIVE;
 
     if (@filter_workList) {
+        lcovutil::info("Apply filtering..\n");
         $self->_processFilterWorklist(\@filter_workList);
         # keep track - so we don't do this again
         $self->[STATE] |= DID_FILTER;
