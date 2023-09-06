@@ -87,6 +87,8 @@ To install in a different location - for example, your home directory, run:
 
   make PREFIX=$HOME/my_lcov install
 
+your PREFIX should be an absolute path.
+
 
 3. Dependencies:
 ----------------

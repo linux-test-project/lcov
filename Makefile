@@ -38,12 +38,25 @@ export LCOV_PERL_PATH   := /usr/bin/perl
 export LCOV_PYTHON_PATH := /usr/bin/python3
 
 PREFIX  := /usr/local
+FIRST_CHAR = $(shell echo $(PREFIX) | cut -c 1)
 
-CFG_DIR := $(PREFIX)/etc
-BIN_DIR := $(PREFIX)/bin
-LIB_DIR := $(PREFIX)/lib/lcov
-MAN_DIR := $(PREFIX)/share/man
-SCRIPT_DIR := $(PREFIX)/share/lcov/support-scripts
+# if user specified an absolute path, use it - otherwise, make it absolute
+DESTDIR := $(shell                     \
+	if [ '/' == "$(FIRST)" ] ; then \
+	  echo $(PREFIX) ;              \
+	else                            \
+	  realpath $(PREFIX) ;          \
+	fi )
+
+ifneq ($(PREFIX),$(DESTDIR))
+$(warning "installing at absolute path '$(DESTDIR)' rather your suggested '$(PREFIX)'")
+endif
+
+CFG_DIR := $(DESTDIR)/etc
+BIN_DIR := $(DESTDIR)/bin
+LIB_DIR := $(DESTDIR)/lib/lcov
+MAN_DIR := $(DESTDIR)/share/man
+SCRIPT_DIR := $(DESTDIR)/share/lcov/support-scripts
 TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
@@ -76,8 +89,8 @@ all: info
 
 info:
 	@echo "Available make targets:"
-	@echo "  install   : install binaries and man pages in DESTDIR (default /)"
-	@echo "  uninstall : delete binaries and man pages from DESTDIR (default /)"
+	@echo "  install   : install binaries and man pages in PREFIX (default $(PREFIX))"
+	@echo "  uninstall : delete binaries and man pages from PREFIX (default $(PREFIX))"
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
 	@echo "  check     : perform self-tests"
 	@echo "  checkstyle: check source files for coding style issues"
@@ -93,35 +106,35 @@ clean:
 	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
 
 install:
-	$(INSTALL) -d -m 755 $(DESTDIR)$(BIN_DIR)
+	$(INSTALL) -d -m 755 $(BIN_DIR)
 	for b in $(EXES) ; do \
-		$(call echocmd,"  INSTALL $(DESTDIR)$(BIN_DIR)/$$b") \
-		$(INSTALL) -m 755 bin/$$b $(DESTDIR)$(BIN_DIR)/$$b ; \
+		$(call echocmd,"  INSTALL $(BIN_DIR)/$$b") \
+		$(INSTALL) -m 755 bin/$$b $(BIN_DIR)/$$b ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
-		       --exec $(DESTDIR)$(BIN_DIR)/$$b ; \
+		       --exec $(BIN_DIR)/$$b ; \
 	done
-	$(INSTALL) -d -m 755 $(DESTDIR)$(SCRIPT_DIR)
+	$(INSTALL) -d -m 755 $(SCRIPT_DIR)
 	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  INSTALL $(DESTDIR)$(SCRIPT_DIR)/$$s") \
-		$(INSTALL) -m 755 bin/$$s $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
+		$(call echocmd,"  INSTALL $(SCRIPT_DIR)/$$s") \
+		$(INSTALL) -m 755 bin/$$s $(SCRIPT_DIR)/$$s ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
-		       --exec $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
+		       --exec $(SCRIPT_DIR)/$$s ; \
 	done
-	$(INSTALL) -d -m 755 $(DESTDIR)$(LIB_DIR)
+	$(INSTALL) -d -m 755 $(LIB_DIR)
 	for l in $(LIBS) ; do \
-		$(call echocmd,"  INSTALL $(DESTDIR)$(LIB_DIR)/$$l") \
-		$(INSTALL) -m 644 lib/$$l $(DESTDIR)$(LIB_DIR)/$$l ; \
+		$(call echocmd,"  INSTALL $(LIB_DIR)/$$l") \
+		$(INSTALL) -m 644 lib/$$l $(LIB_DIR)/$$l ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
-		       --exec $(DESTDIR)$(LIB_DIR)/$$l ; \
+		       --exec $(LIB_DIR)/$$l ; \
 	done
 	for section in 1 5 ; do \
-		DEST=$(DESTDIR)$(MAN_DIR)/man$$section ; \
+		DEST=$(MAN_DIR)/man$$section ; \
 		$(INSTALL) -d -m 755 $$DEST ; \
 		for m in man/*.$$section ; do  \
 			F=`basename $$m` ; \
@@ -132,26 +145,26 @@ install:
 		         --manpage $$DEST/$$F ; \
 		done ;  \
 	done
-	$(INSTALL) -d -m 755 $(DESTDIR)$(CFG_DIR)
-	$(call echocmd,"  INSTALL $(DESTDIR)$(CFG_DIR)/lcovrc")
-	$(INSTALL) -m 644 lcovrc $(DESTDIR)$(CFG_DIR)/lcovrc
+	$(INSTALL) -d -m 755 $(CFG_DIR)
+	$(call echocmd,"  INSTALL $(CFG_DIR)/lcovrc")
+	$(INSTALL) -m 644 lcovrc $(CFG_DIR)/lcovrc
 
 uninstall:
 	for b in $(EXES) ; do \
-		$(call echocmd,"  UNINST  $(DESTDIR)$(BIN_DIR)/$$b") \
-		$(RM) -f $(DESTDIR)$(BIN_DIR)/$$b ; \
+		$(call echocmd,"  UNINST  $(BIN_DIR)/$$b") \
+		$(RM) -f $(BIN_DIR)/$$b ; \
 	done
 	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  UNINST  $(DESTDIR)$(SCRIPT_DIR)/$$s")  \
-		$(RM) -f $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
+		$(call echocmd,"  UNINST  $(SCRIPT_DIR)/$$s")  \
+		$(RM) -f $(SCRIPT_DIR)/$$s ; \
 	done
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/$(SCRIPT_DIR)
+	rmdir --ignore-fail-on-non-empty $(SCRIPT_DIR)
 	for l in $(LIBS) ; do \
-		$(call echocmd,"  UNINST  $(DESTDIR)$(LIB_DIR)/$$l") \
-		$(RM) -f $(DESTDIR)$(LIB_DIR)/$$l ; \
+		$(call echocmd,"  UNINST  $(LIB_DIR)/$$l") \
+		$(RM) -f $(LIB_DIR)/$$l ; \
 	done
 	for section in 1 5 ; do \
-		DEST=$(DESTDIR)$(MAN_DIR)/man$$section ; \
+		DEST=$(MAN_DIR)/man$$section ; \
 		for m in man/*.$$section ; do  \
 			F=`basename $$m` ; \
 			$(call echocmd,"  UNINST  $$DEST/$$F") \
@@ -159,10 +172,10 @@ uninstall:
 		done ; \
 		rmdir --ignore-fail-on-non-empty $$DEST ; \
 	done ; \
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/$(MAN_DIR)
+	rmdir --ignore-fail-on-non-empty $(MAN_DIR)
 
-	$(call echocmd,"  UNINST  $(DESTDIR)$(CFG_DIR)/lcovrc")
-	$(RM) -f $(DESTDIR)$(CFG_DIR)/lcovrc
+	$(call echocmd,"  UNINST  $(CFG_DIR)/lcovrc")
+	$(RM) -f $(CFG_DIR)/lcovrc
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
