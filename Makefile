@@ -41,11 +41,11 @@ PREFIX  := /usr/local
 FIRST_CHAR = $(shell echo $(PREFIX) | cut -c 1)
 
 # if user specified an absolute path, use it - otherwise, make it absolute
-DESTDIR := $(shell                     \
-	if [ '/' == "$(FIRST)" ] ; then \
-	  echo $(PREFIX) ;              \
-	else                            \
-	  realpath $(PREFIX) ;          \
+DESTDIR := $(shell                           \
+	if [ '/' == "$(FIRST_CHAR)" ] ; then \
+	  echo $(PREFIX) ;                   \
+	else                                 \
+	  realpath $(PREFIX) ;               \
 	fi )
 
 ifneq ($(PREFIX),$(DESTDIR))
