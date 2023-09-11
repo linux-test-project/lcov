@@ -2977,13 +2977,17 @@ sub lookup
 
     $file = lc($file) if $lcovutil::case_insensitive;
 
-    if (!defined($self->[LINEMAP]->{$file})) {
+    if (!exists($self->[LINEMAP]->{$file})) {
         #mapping is identity when no diff was read
         return $line;
     }
 
     my @candidates =
         grep { $_->[$vers]->[_START] < $line } @{$self->[LINEMAP]->{$file}};
+    # candidates is empty if $line==1 - which is unusual, as there is typically
+    # a comment, copyright notice, #include, or whatever on the first line
+    return $line unless @candidates;
+
     my $chunk = pop @candidates;
 
     my $alt = ($vers == OLD) ? NEW : OLD;
@@ -3254,19 +3258,35 @@ sub _read_udiff
             /^=== (.+)$/ && do    # note: filename may contain whitespace
             {
                 if ($filename) {
+                    die("not case insensitive")
+                        unless !$lcovutil::case_insensitive ||
+                        ($filename eq lc($filename));
                     push(@{$self->[LINEMAP]->{$filename}}, $chunk);
                     undef $filename;
                 }
                 my $file = File::Spec->rel2abs($1, $main::cwd);
                 $file = lcovutil::strip_directories($file, $main::strip);
                 my $key = $lcovutil::case_insensitive ? lc($file) : $file;
-                die("$file already in linemap - marked unchangd")
-                    if (exists($self->[UNCHANGED]->{$key}));
-                warn("$file duplicate 'unchanged' entry found")
-                    if (exists($self->[LINEMAP]->{$key}));
-
+                $key = lcovutil::subst_file_name($key);
+                if (exists($self->[UNCHANGED]->{$key})) {
+                    # unchanged entry flag value should be 1
+                    die("$diff_file:$.:  %key already in linemap - marked unchangd"
+                            . ($file eq $key ? '' : " (substituted '$file')"))
+                        unless $self->[UNCHANGED]->{$key};
+                    warn(
+                        "$diff_file:$.:  duplicate 'unchanged' entry for $key\n"
+                    );
+                    last;
+                }
+                if (exists($self->[LINEMAP]->{$key})) {
+                    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        "$diff_file:$.:  $key 'unchanged' entry found but diff records exist"
+                            . ($file eq $key ? '' : " (substituted '$file')"));
+                    # message ignored - delete the diff records
+                    delete($self->[LINEMAP]->{$key});
+                }
                 $self->[UNCHANGED]->{$key} = 1;
-
                 last;
             };
 
@@ -3274,15 +3294,17 @@ sub _read_udiff
             # --- <filename>
             /^--- (.+)$/ && do {
                 if ($filename) {
-                    my $key =
-                        $lcovutil::case_insensitive ? lc($filename) : $filename;
-                    push(@{$self->[LINEMAP]->{$key}}, $chunk);
+                    die("not case insensitive")
+                        unless !$lcovutil::case_insensitive ||
+                        ($filename eq lc($filename));
+                    push(@{$self->[LINEMAP]->{$filename}}, $chunk);
                     undef $filename;
                 }
                 $file_old = File::Spec->rel2abs($1, $main::cwd);
                 $file_old =
                     lcovutil::strip_directories($file_old, $main::strip);
                 $file_old = lc($file_old) if $lcovutil::case_insensitive;
+                $file_old = lcovutil::subst_file_name($file_old);
                 $self->[LOCATION]->[OLD]->{$file_old} = $.;
                 #$in_block = 0;
                 last;
@@ -3296,9 +3318,20 @@ sub _read_udiff
                     lcovutil::strip_directories($file_new, $main::strip);
                 my $key =
                     $lcovutil::case_insensitive ? lc($file_new) : $file_new;
+                $key = lcovutil::subst_file_name($key);
                 my $notNull = $file_new ne $lcovutil::devnull;
                 $filename = $notNull ? $key : undef;
                 if ($filename) {
+                    if (exists($self->[UNCHANGED]->{$key})) {
+                        lcovutil::ignorable_error(
+                            $lcovutil::ERROR_INCONSISTENT_DATA,
+                            "$diff_file:$.: $filename marked unchanged but diff record found"
+                                .
+                                ($file_new eq $key ? '' :
+                                     " (substituted '$file_new')"));
+                        # OK - error ignored...remove the 'unchanged' marker
+                        delete($self->[UNCHANGED]->{$key});
+                    }
                     $self->[LINEMAP]->{$key} = [];
                 }
                 if ($notNull) {

@@ -1507,6 +1507,10 @@ Apply Perl regexp
 .IR regexp_pattern
 to source file names found during processing.  This is useful when some file paths in the baseline or current .info file do not match your source layout and so the source code is not found.
 See the lcov man page for more details.
+
+Note that the substitution patterns are applied to the
+.IR \-\-diff\-file
+entries as well as the baseline and current .info files.
 .RE
 
 .B \-\-omit\-lines
