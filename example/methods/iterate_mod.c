@@ -1,13 +1,8 @@
- /*
- *  methods/iterate.c
+/*
+ *  methods/iterate_mod.c
  *  
- *  Calculate the sum of a given range of integer numbers.
- *
- *  This particular method of implementation works by way of brute force,
- *  i.e. it iterates over the entire range while adding the numbers to finally
- *  get the total sum. As a positive side effect, we're able to easily detect
- *  overflows, i.e. situations in which the sum would exceed the capacity
- *  of an integer variable.
+ *  identical to 'iterate.c', but with some trivial code changs to create
+ *  differences - for differential coverage report.
  *
  */
 
@@ -19,14 +14,13 @@
 
 int iterate_get_sum (int min, int max)
 {
-        int i, total;
-
-        total = 0;
+        int total = 0;
 
         /* This is where we loop over each number in the range, including
            both the minimum and the maximum number. */
 
-        for (i = min; i <= max; i++)
+        /* just reverse iteration order */
+        for (int i = max; i >= min; total += i , --i)
         {
                 /* We can detect an overflow by checking whether the new
                    sum would exceed the maximum integer value. */
@@ -38,8 +32,6 @@ int iterate_get_sum (int min, int max)
                 }
 
                 /* Everything seems to fit into an int, so continue adding. */
-
-                total += i;
         }
 
         return total;

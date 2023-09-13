@@ -56,7 +56,8 @@ CFG_DIR := $(DESTDIR)/etc
 BIN_DIR := $(DESTDIR)/bin
 LIB_DIR := $(DESTDIR)/lib/lcov
 MAN_DIR := $(DESTDIR)/share/man
-SCRIPT_DIR := $(DESTDIR)/share/lcov/support-scripts
+SHARE_DIR := $(DESTDIR)/share/lcov
+SCRIPT_DIR := $(SHARE_DIR)/support-scripts
 TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
@@ -145,6 +146,9 @@ install:
 		         --manpage $$DEST/$$F ; \
 		done ;  \
 	done
+	mkdir -p $(SHARE_DIR)
+	find example -type d -exec mkdir -p "$(SHARE_DIR)/{}" \;
+	find example -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_DIR)/{}" \;
 	$(INSTALL) -d -m 755 $(CFG_DIR)
 	$(call echocmd,"  INSTALL $(CFG_DIR)/lcovrc")
 	$(INSTALL) -m 644 lcovrc $(CFG_DIR)/lcovrc
@@ -173,6 +177,7 @@ uninstall:
 		rmdir --ignore-fail-on-non-empty $$DEST ; \
 	done ; \
 	rmdir --ignore-fail-on-non-empty $(MAN_DIR)
+	$(RM) -rf $(SHARE_DIR)/example
 
 	$(call echocmd,"  UNINST  $(CFG_DIR)/lcovrc")
 	$(RM) -f $(CFG_DIR)/lcovrc

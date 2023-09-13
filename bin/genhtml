@@ -5446,7 +5446,7 @@ if (defined($header_title)) {
 } else {
     # use the default title bar.
     $title =~ s/ differential//   # not a differential report, if no baseline...
-        unless $show_tla;
+        unless defined($diff_filename) || 0 != scalar(@base_filenames);
 }
 push(@fileview_prefixes, "-date")
     if ($show_dateBins);

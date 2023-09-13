@@ -191,7 +191,8 @@ Assuming the compile directory is called "appdir", do the following:
 
   d) Generating a differential coverage report
 
-     See the examples in .../tests/gendiffcov.
+     See the example in .../example (run "make test_differential")
+     as well as the examples in .../tests/gendiffcov.
 
 Point the web browser of your choice to the resulting index.html file.
 
