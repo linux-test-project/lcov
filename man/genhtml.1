@@ -644,6 +644,21 @@ code character has to be inspected once. Note also that the GD.pm Perl
 module has to be installed for this option to work (it may be obtained
 from http://www.cpan.org).
 
+This option can also be controlled from the
+.I genhtml_frames
+entry of the
+.B lcovrc
+file.
+
+Please note that there is a bug in firefox and in chrome, such that
+enabling frames will disable hyperlinks from the 'directory' level summary
+table entry to the first line in the corresponding file in the particular
+category - e.g., to the first 'MIS' line (vanilla coverage report - see the
+.i \-\-show\-navigation
+option, below), to
+the first 'UNC' branch (differential coverage repot), etc.
+Hyperlinks from the summary table at the top of the 'source detail' page are not affected.
+
 .RE
 .B \-s
 .br
@@ -1445,6 +1460,13 @@ option is used, then the source code summary table will be generated with naviga
 Hyperlinks are always generated for differential coverage reports.
 
 This feature enables developers to find and understand coverage issues more quickly than they might otherwise, if they had to rely on scrolling.
+
+See the
+.I \-\-frames
+description above for a description of a browser bug which disables
+these hyperlinks in certain conditions.
+
+Navigation hyperlinks are always enabled in differential coveage report.
 
 .RE
 .BI "\-\-show\-proportions "

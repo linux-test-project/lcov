@@ -5257,6 +5257,7 @@ my %genhtml_rc_opts = (
                "genhtml_no_source"          => \$no_sourceview,
                "genhtml_num_spaces"         => \$tab_size,
                "genhtml_highlight"          => \$highlight,
+               "genhtml_frames"             => \$frames,
                "genhtml_legend"             => \$legend,
                "genhtml_html_prolog"        => \$html_prolog_file,
                "genhtml_html_epilog"        => \$html_epilog_file,
@@ -5359,6 +5360,7 @@ $fn_hi_limit  = $hi_limit if (!defined($fn_hi_limit));
 $fn_med_limit = $med_limit if (!defined($fn_med_limit));
 $br_hi_limit  = $hi_limit if (!defined($br_hi_limit));
 $br_med_limit = $med_limit if (!defined($br_med_limit));
+$frames       = undef unless (defined($frames) && $frames);
 
 @datebins                   = @rc_date_bins unless @datebins;
 @SourceFile::annotateScript = @rc_annotate_script
