@@ -6853,11 +6853,13 @@ sub write_css_file()
     # *************************************************************
 
     # *************************************************************
-    my $ownerBackground = "#COLOR_17";            # very light pale grey/blue
-    my $ownerCovHi      = "#COLOR_18";            # light green
-    my $ownerCovMed     = "#COLOR_19";            # light yellow
-    my $ownerCovLo      = "#COLOR_20";            # lighter red
-    my $css_data        = ($_ = <<"END_OF_CSS")
+    my $ownerBackground = "#COLOR_17";    # very light pale grey/blue
+    my $ownerCovHi      = "#COLOR_18";    # light green
+    my $ownerCovMed     = "#COLOR_19";    # light yellow
+    my $ownerCovLo      = "#COLOR_20";    # lighter red
+        # use same background color as file entry unless in hiearchical report
+    my $directoryBackground = $main::hierarchical ? '#COLOR_18' : '#COLOR_06';
+    my $css_data            = ($_ = <<"END_OF_CSS")
         /* All views: initial background and text color */
         body
         {
@@ -7044,6 +7046,17 @@ sub write_css_file()
           padding-right: 20px;
           color: #COLOR_15;
           background-color: #COLOR_08;
+          font-family: monospace;
+        }
+
+        /* Directory view/File view (all): directory name entry format */
+        td.coverDirectory
+        {
+          text-align: left;
+          padding-left: 10px;
+          padding-right: 20px;
+          color: #COLOR_15;
+          background-color: $directoryBackground;
           font-family: monospace;
         }
 
@@ -7928,9 +7941,14 @@ sub write_file_table_entry(*$$@)
         $esc_name = File::Spec->catfile(escape_html($relDir), $esc_name)
             if '.' ne $relDir;
     }
+    my $obj_name = $esc_name
+        .
+        ($fileSummary->type() eq 'directory' ?
+             escape_html($lcovutil::dirseparator) :
+             '');
     #$esc_name .= "<sup>" . escape_html($asterisk) . "</sup>"
     #  if defined($asterisk);
-    my $namecode = $esc_name;
+    my $namecode = $obj_name;
     my $owner;
 
     # Add link to source if provided
@@ -7941,7 +7959,7 @@ sub write_file_table_entry(*$$@)
         # could use $fileSummary->name() in the popup
         $namecode =
             "<a href=\"$page_link\" title=\"Click to go to " .
-            $fileSummary->type() . " $esc_name\">$esc_name</a>";
+            $fileSummary->type() . " $esc_name\">$obj_name</a>";
         $owner = "";
     } elsif ($is_secondary &&
              $primary_key ne 'name' &&
@@ -7949,15 +7967,15 @@ sub write_file_table_entry(*$$@)
              $file_link ne "") {
         $namecode =
             "<a href=\"$file_link\" title=\"Click to go to $esc_name source detail\">"
-            . $esc_name . "</a>";
+            . $obj_name . "</a>";
     } elsif ($is_secondary &&
              $primary_key ne 'name' &&
              $name eq $filename) {
         # get here when we suppressed the sourceview - so the file link
         # is not defined
-        $namecode = $esc_name;
+        $namecode = $obj_name;
     } elsif (defined($primary_key)) {
-        $namecode = $esc_name;
+        $namecode = $obj_name;
         # we want the the HREF anchor on the column 1 entry -
         #   the column 0 entry may span many rows - so navigation to that
         #   entry (e.g., to find all the files in the "(7..30] days" bin)
@@ -7984,13 +8002,14 @@ sub write_file_table_entry(*$$@)
         }
     }
     # First column: name
-    my ($nameClass, $prefix);
+    my $nameClass =
+        $fileSummary->type() eq 'directory' ? 'coverDirectory' : 'coverFile';
+    my $prefix;
     if ($is_secondary) {
-        $nameClass = $primary_key ne 'name' ? "ownerName" : 'coverFile';
-        $prefix    = "owner_";
+        $prefix = "owner_";
     } else {
-        $nameClass = 'coverFile';
         $prefix    = "";
+        $nameClass = 'ownerName' if $primary_key ne 'name';
     }
     if ($is_secondary &&
         (   $primary_key eq 'name' ||
@@ -8006,7 +8025,7 @@ sub write_file_table_entry(*$$@)
             $namecode =
                 "<a href=\"" .
                 File::Spec->catfile($relDir, "$filename.gcov.$html_ext") .
-                "\" title=\"Click to go to $esc_name source detail\">$esc_name</a>";
+                "\" title=\"Click to go to $esc_name source detail\">$obj_name</a>";
         } else {
             # link to the entry in date/owner 'summary' table (keyed other way up)
             $namecode = "<a href=\"";
@@ -8033,8 +8052,9 @@ sub write_file_table_entry(*$$@)
             } else {
                 die("unexpected type '$page_type'");
             }
+            $nameClass = 'ownerName' if $primary_key eq 'name';
             $namecode .=
-                "\" title=\"go to coverage summary for $help\">$esc_name</a>";
+                "\" title=\"go to coverage summary for $help\">$obj_name</a>";
         }
     }
     my $span = (1 == $rowspan) ? "" : " rowspan=$rowspan";
