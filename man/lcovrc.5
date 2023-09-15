@@ -95,18 +95,24 @@ If entries are specified in more than one RC file (i.e., multiple \-\-config\-fi
 
 .IP "     *"
 list options include:
-.RI 'filter " = " ...'
-,
-.RI 'exclude " = " ...'
-.
-.RI 'include " = " ...'
-,
-.RI 'substitute " = " ...'
-,
-.RI 'omit_lines " = " ...'
-,
-.RI erase_functions " = " ...'
-, etc.
+.br
+.RI "    filter = " ...
+.br
+.RI "    exclude = " ...
+.br
+.RI "    ignore = " ...
+.br
+.RI "    substitute = " ...
+.br
+.RI "    omit_lines = " ...
+.br
+.RI "    erase_functions = " ...
+.br
+.RI "    genhtml_annotate_script = " ...
+.br
+.I etc.
+For a complete set of list options, see the documentation of each configuration option, below.
+.PP
 
 .PP
 .PP
@@ -861,7 +867,7 @@ Default is 5.
 Specify whether source detail view should contain a navigation image.
 See the
 .I \-\-frame
-entry in the 
+entry in the
 .B genhtml
 man page.
 .PP
@@ -1880,7 +1886,7 @@ The cutpoints specified in the lcovrc file are appended to the cutpoints (if any
 .PP
 
 .BR genhtml_annotate_script " ="
-.IR path_to_executable
+.IR path_to_executable | parameter
 .IP
 This option is equivalent to the "genhtml \-\-annotate\-script" option.
 
@@ -1922,7 +1928,7 @@ source line number.
 
 
 .BR genhtml_criteria_script " ="
-.IR path_to_executable
+.IR path_to_executable | parameter
 .IP
 This option is equivalent to the "genhtml \-\-criteria\-script" option.
 
@@ -1962,7 +1968,7 @@ See the genhtml man page for details.
 .PP
 
 .BR version_script " ="
-.IR path_to_executable
+.IR path_to_executable | parameter
 .IP
 This option is equivalent to the geninfo/lcov/genhtml "\-\-version\-script" option.
 
