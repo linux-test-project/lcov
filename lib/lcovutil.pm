@@ -4400,6 +4400,7 @@ sub skipCurrentFile
     foreach my $p (@lcovutil::exclude_file_patterns) {
         my $pattern = $p->[0];
         if ($filename =~ $pattern) {
+            lcovutil::info(1, "exclude $filename: matches '" . $p->[1] . "\n");
             ++$p->[-1];
             return 1;    # all done - explicitly excluded
         }
@@ -4408,10 +4409,13 @@ sub skipCurrentFile
         foreach my $p (@lcovutil::include_file_patterns) {
             my $pattern = $p->[0];
             if ($filename =~ $pattern) {
+                lcovutil::info(1,
+                              "include: $filename: matches '" . $p->[1] . "\n");
                 ++$p->[-1];
                 return 0;    # explicitly included
             }
         }
+        lcovutil::info(1, "exclude $filename: no include matches\n");
         return 1;            # not explicitly included - so exclude
     }
     return 0;
