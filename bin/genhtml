@@ -5071,7 +5071,7 @@ sub merge_child($$$)
             unlink $f;
             $f = $str;
         } else {
-            report_parallel_error('lcov', "unable to open $f: $!");
+            lcovutil::report_parallel_error('lcov', "unable to open $f: $!");
         }
     }
     print(STDOUT $childLog)

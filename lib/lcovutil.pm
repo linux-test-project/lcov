@@ -4871,8 +4871,8 @@ sub _mergeParallelChunk
             unlink $f;
             $f = $str;
         } else {
-            report_parallel_error($lcovutil::tool_name,
-                                  "unable to open $f: $!");
+            lcovutil::report_parallel_error($lcovutil::tool_name,
+                                            "unable to open $f: $!");
         }
     }
     print(STDOUT $childLog)
@@ -4913,10 +4913,11 @@ sub _mergeParallelChunk
             #$intervalMonitor->checkUpdate($processedFiles);
 
         } else {
-            report_parallel_error('geninfo', "unable to deserialize $dumped");
+            lcovutil::report_parallel_error('geninfo',
+                                            "unable to deserialize $dumped");
         }
     } elsif ($childstatus > 0) {
-        report_parallel_error($lcovutil::tool_name,
+        lcovutil::report_parallel_error($lcovutil::tool_name,
             "child $child returned non-zero code $childstatus: ignoring data in chunk $chunkId"
         );
     }
@@ -6296,7 +6297,7 @@ sub merge
                     $f = $str;
                 } else {
                     my $msg = "unable to open $f: $!";
-                    report_parallel_error('lcov', $msg);
+                    lcovutil::report_parallel_error('lcov', $msg);
                     $f = $msg;
                 }
             }
@@ -6320,8 +6321,8 @@ sub merge
                     lcovutil::update_state($update);
                     if ($function_mapping) {
                         if (!defined($func_map)) {
-                            report_parallel_error('lcov',
-                                   "segment $idx returned empty function data");
+                            lcovutil::report_parallel_error('lcov',
+                                "segment $idx returned empty function data");
                             next;
                         }
                         while (my ($key, $data) = each(%$func_map)) {
@@ -6336,8 +6337,8 @@ sub merge
                         }
                     } else {
                         if (!defined($current)) {
-                            report_parallel_error('lcov',
-                                      "segment $idx returned empty trace data");
+                            lcovutil::report_parallel_error('lcov',
+                                "segment $idx returned empty trace data");
                             next;
                         }
                         if ($total_trace->merge_tracefile(
@@ -6358,11 +6359,11 @@ sub merge
                         }
                     }
                 } else {
-                    report_parallel_error('lcov',
+                    lcovutil::report_parallel_error('lcov',
                                 "unable to deserialize segment $idx $dumpfile");
                 }
             } else {
-                report_parallel_error('lcov',
+                lcovutil::report_parallel_error('lcov',
                             "child $child returned non-zero code $childstatus");
             }
             my $end = Time::HiRes::gettimeofday();
