@@ -66,7 +66,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
-     $ERROR_CALLBACK
+     $ERROR_CALLBACK $ERROR_RANGE
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
@@ -121,9 +121,11 @@ our $ERROR_PARALLEL          = 14; # error in fork/join
 our $ERROR_DEPRECATED        = 15; # deprecated feature
 our $ERROR_CALLBACK          = 16; # callback produced an error
 our $ERROR_INCONSISTENT_DATA = 17; # somthing wrong with .info
+our $ERROR_RANGE             = 18; # line number out of range
 
 our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "source"       => $ERROR_SOURCE,
+                    "range"        => $ERROR_RANGE,
                     "branch"       => $ERROR_BRANCH,
                     "mismatch"     => $ERROR_MISMATCH,
                     "graph"        => $ERROR_GRAPH,
@@ -4081,16 +4083,12 @@ sub isOutOfRange
                 $self->filename() . ": there are only " .
                 scalar(@{$self->[EXCLUDE]}) . " lines in file." .
                 "\n  Use '$lcovutil::tool_name --filter range' to remove out-of-range lines.";
-            if ($lcovutil::tool_name eq 'geninfo') {
-                # some versions of gcov seem to make up lines that do not exist -
-                # this appears to be related to macros on last line in file
-                lcovutil::ignorable_error($lcovutil::ERROR_GCOV, $msg);
-            } else {
-                lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                    $msg .
-                        "\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page."
-                );
-            }
+            $msg .=
+                "\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page."
+                if ($lcovutil::tool_name ne 'geninfo');
+            # some versions of gcov seem to make up lines that do not exist -
+            # this appears to be related to macros on last line in file
+            lcovutil::ignorable_error($lcovutil::ERROR_RANGE, $msg);
         }
         # Note:  if user ignored the error, then we return 'not out of range'.
         #   The line is out of range/something is wrong - but the user did not
@@ -4104,12 +4102,12 @@ sub isExcluded
     my ($self, $lineNo, $branch) = @_;
     if (!defined($self->[EXCLUDE]) ||
         scalar(@{$self->[EXCLUDE]}) < $lineNo) {
-        # this can happen due to version mismatches:  data extracted with verion N
-        # of the file, then generating HTML with version M
+        # this can happen due to version mismatches:  data extracted with
+        # version N of the file, then generating HTML with version M
         # "--version-script callback" option can be used to detect this
         my $key = $self->filename() . $lineNo;
         lcovutil::ignorable_error(
-            $lcovutil::ERROR_SOURCE,
+            $lcovutil::ERROR_RANGE,
             "unknown line '$lineNo' in " . $self->filename()
                 .
                 (defined($self->[EXCLUDE]) ?

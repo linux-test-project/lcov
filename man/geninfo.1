@@ -772,6 +772,14 @@ various types of errors related to parallelism - e.g., child process died due to
 .B \-\-parallel
 flag and try again.
 
+.B range:
+Coverage data refers to a line number which is larger than the number of
+lines in the source file.  This can be caused by a version mismatch or
+by an issue in the
+.I gcov
+data.
+.br
+
 .B source:
 the source code file for a data set could not be found.
 

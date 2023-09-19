@@ -102,6 +102,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED $ERROR_PACKAGE
                  $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_UNSUPPORTED
                  $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA $ERROR_CALLBACK
+                 $ERROR_RANGE
                  $ERROR_PARALLEL report_parallel_error
                  $br_coverage $func_coverage
                  info $verbose init_verbose_flag debug $debug $devnull
@@ -226,8 +227,10 @@ $ERROR_COUNT       = 16;
 $ERROR_UNSUPPORTED = 17;
 $ERROR_CALLBACK    = 18;
 $ERROR_DEPRECATED  = 19;
+$ERROR_RANGE       = 20;
 
 our %htmlErrs = ("source"       => $ERROR_SOURCE,
+                 "range"        => $ERROR_RANGE,
                  "unmapped"     => $ERROR_UNMAPPED_LINE,
                  "category"     => $ERROR_UNKNOWN_CATEGORY,
                  "path"         => $ERROR_INCONSISTENT_PATH,
@@ -4406,6 +4409,7 @@ sub _load
             $lcovutil::profileData{annotate}{$self->path()} = $end - $begin;
             if (0 == $status) {
                 ++$annotatedFiles if $found;
+                $self->_synthesize($countdata, 1);    # fake annotations too
                 return $self;
             }
 
@@ -4451,6 +4455,7 @@ sub _load
         );
     }
     $self->_bare_load($path);
+    $self->_synthesize($countdata);
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{load}{$self->path()} = $end - $begin;
     return $self;
@@ -4458,12 +4463,7 @@ sub _load
 
 sub _synthesize
 {
-    my ($self, $countdata) = @_;
-
-    # Synthesize source data from coverage trace to replace unreadable file
-    lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-              "cannot read '" . $self->path() . "' - synthesizing fake content")
-        unless $main::no_sourceview;
+    my ($self, $countdata, $annotate) = @_;
 
     return $self if (!defined($countdata));
 
@@ -4472,17 +4472,58 @@ sub _synthesize
     if (@lines) {
         $last_line = $lines[scalar(@lines) - 1];
     }
-    return $self if ($last_line < 1);
+    my $currentLast = scalar(@{$self->[LINES]});
+
+    return $self if ($last_line < 1 ||
+                     $currentLast >= $last_line);
+
+    my $why;
+    if (0 == $currentLast) {
+        # Synthesize source data from coverage trace to replace unreadable file
+        my $suffix =
+            $lcovutil::ignore[$lcovutil::ERROR_SOURCE] ?
+            ' - synthesizing fake content' :
+            '';
+        lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                  "cannot read '" . $self->path() . "'$suffix")
+            unless $main::no_sourceview;
+        $why = 'not found';
+    } else {
+        my $suffix =
+            $lcovutil::ignore[$lcovutil::ERROR_RANGE] ?
+            ' ... synthesizing fake content for last ' .
+            ($last_line - $currentLast) . ' lines.' :
+            '';
+        lcovutil::ignorable_error($lcovutil::ERROR_RANGE,
+                              $self->path() . ' contains only ' . $currentLast .
+                                  ' lines but coverage data refers to line ' .
+                                  $last_line . $suffix);
+        $why = 'not long enough';
+    }
 
     # Simulate gcov behavior
-    my $notFound = "/* " . $self->path() . " not found */";
+    my $notFound = "/* " . $self->path() . " $why */";
     my $synth    = "/* (content generated from line coverage data) */";
-    for (my $line = 1; $line <= $last_line; $line++) {
-        my $mod = $line % 20;
+    my $idx      = 1;
+    my @fakeline = (undef,    # line number
+                    undef);    # source text
+    if ($annotate) {
+        my $now =
+            exists($ENV{SOURCE_DATE_EPOCH}) ?
+            DateTime->from_epoch(epoch => $ENV{SOURCE_DATE_EPOCH}) :
+            DateTime->now();
+        push(@fakeline, 'no.body',                # owner
+             $now,                                # when
+             _computeAge($now, $self->path()),    # age
+             'synthesized');    # commit ID
+    }
+    for (my $line = $currentLast + 1; $line <= $last_line; $line++) {
+        my $mod = $idx++ % 20;
         my $l = (($mod == 1) ? $notFound :
                      ($mod == 2) ? $synth :
                      "/* ... */");
-        push @{$self->[LINES]}, SourceLine->new($line, $l);
+        splice(@fakeline, 0, 2, $line, $l);
+        push(@{$self->[LINES]}, SourceLine->new(@fakeline));
     }
     return $self;
 }

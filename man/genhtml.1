@@ -1404,6 +1404,14 @@ discussion above for a discussion of how to avoid spurious warnings and/or incor
 Generate (fake) file content if source file does not exist.
 This option can be used to work around otherwise fatal annotation errors.
 
+When generating annotated file content,
+.B genhtml
+assumes that the source was written 'now' (so age is zero), the author is
+.I no.body
+and the commit ID is
+.I synthesized.
+These names and ages will appear in your HTML reports.
+
 .RE
 .BI "\-\-date\-bins " day[,day,...]
 .RS
@@ -2139,6 +2147,14 @@ flag and try again.
 File name found in
 .B \-\-diff\-file
 file but does not appear in either baseline or current trace data.  These may be mapping issues - different pathname in the tracefile vs. the diff file.
+
+.B range:
+Coverage data refers to a line number which is larger than the number of
+lines in the source file.  This can be caused by a version mismatch or
+by an issue in the
+.I gcov
+data.
+.br
 
 .B source:
 The source code file for a data set could not be found.
