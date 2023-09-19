@@ -6,4 +6,4 @@
 # should be same as target file
 #
 
-exec ./helper.sh 1 "$TARGETINFO" "$PART1INFO" "$PART2INFO"
+exec ./helper.sh $@ 1 "$TARGETINFO" "$PART1INFO" "$PART2INFO"

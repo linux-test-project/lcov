@@ -6,6 +6,28 @@
 #   genhtml_demangle_cpp_params
 #
 
+KEEP_GOING=0
+while [ $# -gt 0 ] ; do
+
+    OPT=$1
+    case $OPT in
+
+        --coverage )
+            shift
+            COVER_DB=$1
+            shift
+
+            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            KEEP_GOING=1
+
+            ;;
+
+        * )
+            break
+            ;;
+    esac
+done
+
 OUTDIR="out_demangle"
 STDOUT="demangle_stdout.log"
 STDERR="demangle_stderr.log"
@@ -36,6 +58,7 @@ EOF
 }
 
 function run() {
+    export LCOV_SHOW_LOCATION=1
         local CMDLINE="${GENHTML} --ignore unmapped,unmapped,category,category,source,source ${INFO} -o ${OUTDIR} $*"
 
         rm -rf "${OUTDIR}"
@@ -54,10 +77,10 @@ function run() {
         echo "STDERR_STOP"
 
         # Check exit code
-        [[ $RC -ne 0 ]] && die "Non-zero genhtml exit code $RC"
+        [[ $RC -ne 0 && $KEEP_GOING != 1 ]] && die "Non-zero genhtml exit code $RC"
 
         # Output must not contain warnings
-        if [[ -s ${STDERR} ]] ; then
+        if [[ -s ${STDERR} && $COVER == '' ]] ; then
                 echo "Error: Output on stderr.log:"
                 cat ${STDERR}
                 exit 1

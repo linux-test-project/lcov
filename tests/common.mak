@@ -1,5 +1,24 @@
-export TOPDIR       := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
-export TESTDIR      := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
+
+# TOPDIR == root of test directory - either build dir or copied from share/lcov
+TOPDIR       := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
+# TESTDIR == path to this particular testcase
+TESTDIR      := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
+
+ifeq ($(LCOV_HOME),)
+BINDIR = $(realpath $(TOPDIR)/../bin)
+else
+BINDIR  := $(LCOV_HOME)/bin
+endif
+
+ifeq ($(DEBUG),1)
+$(warning TOPDIR = $(TOPDIR))
+$(warning TESTDIR = $(TESTDIR))
+$(warning BINDIR = $(BINDIR))
+endif
+
+TESTBINDIR := $(TOPDIR)bin
+
+export TOPDIR TESTDIR
 export PARENTDIR    := $(dir $(patsubst %/,%,$(TOPDIR)))
 export RELDIR       := $(TESTDIR:$(PARENTDIR)%=%)
 
@@ -27,9 +46,9 @@ SIZE         := small
 CC           := gcc
 
 # Specify programs under test
-export PATH    := $(realpath $(TOPDIR)/../bin):$(realpath $(TOPDIR)/bin):$(PATH)
-export LCOV    := $(realpath $(TOPDIR)/../bin/lcov) --config-file $(LCOVRC) $(LCOVFLAGS)
-export GENHTML := $(realpath $(TOPDIR)/../bin/genhtml) --config-file $(LCOVRC) $(GENHTMLFLAGS)
+export PATH    := $(BINDIR):$(TESTBINDIR):$(PATH)
+export LCOV    := $(BINDIR)/lcov --config-file $(LCOVRC) $(LCOVFLAGS)
+export GENHTML := $(BINDIR)/genhtml --config-file $(LCOVRC) $(GENHTMLFLAGS)
 
 # Ensure stable output
 export LANG    := C
@@ -66,7 +85,7 @@ export _ONCE := 1
 check: checkdeps prepare
 
 checkdeps:
-	checkdeps $(TOPDIR)/../bin/* $(TOPDIR)/bin/*
+	checkdeps $(BINDIR)/* $(TESTBINDIR)/*
 
 prepare: $(INFOFILES) $(COUNTFILES)
 

@@ -4,7 +4,8 @@ use strict;
 use warnings;
 use FindBin;
 
-use lib "$FindBin::RealBin/../../../lib";
+use lib "$FindBin::RealBin/../../../lib";    # build dir testcase
+use lib "$ENV{LCOV_HOME}/lib/lcov";          # install testcase
 use lcovutil;
 
 foreach my $example (glob('expr*.c')) {

@@ -70,7 +70,7 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
     echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
     exit 1
 fi
@@ -94,8 +94,8 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 if ! type g++ >/dev/null 2>&1 ; then
-	echo "Missing tool: g++" >&2
-	exit 2
+        echo "Missing tool: g++" >&2
+        exit 2
 fi
 
 g++ -std=c++1y --coverage demangle.cpp

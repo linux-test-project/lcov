@@ -89,6 +89,20 @@ To install in a different location - for example, your home directory, run:
 
 your PREFIX should be an absolute path.
 
+To run the LCOV regression test suite on your installation:
+
+  $ cp -r $LCOV_HOME/share/test path/to/myTestDir
+  $ cd path/to/myTestDir
+  $ make [COVERAGE=1]
+
+If desired, you can collect coverage data for the LCOV module by setting
+the COVERAGE makefile variable.
+Note that the Devel::Cover package must be installed if COVERAGE is enabled
+To view the collected coverage information, point your browser to
+.../cover_db/coverage.html after running the tests.
+
+Note that the testcases are intended to test LCOV functionality and
+not to be easily readable tutorial examples.
 
 3. Dependencies:
 ----------------

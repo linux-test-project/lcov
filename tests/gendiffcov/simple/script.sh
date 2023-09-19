@@ -80,7 +80,7 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
     echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
     exit 1
 fi
@@ -91,19 +91,22 @@ export MANPATH=${MANPATH}:${LCOV_HOME}/man
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 if [ -f $LCOV_HOME/bin/getp4version ] ; then
-    GET_VERSION=$LCOV_HOME/bin/getp4version
-    P4ANNOTATE=$LCOV_HOME/bin/p4annotate
+    SCRIPT_DIR=$LCOV_HOME/bin
 else
-    GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
-    P4ANNOTATE=$LCOV_HOME/share/lcov/support-scripts/p4annotate
+    # running test from lcov install
+    SCRIPT_DIR=$LCOV_HOME/share/lcov/support-scripts
+    MD5_OPT='--version-script --md5'
 fi
+GET_VERSION=${SCRIPT_DIR}/getp4version
+P4ANNOTATE=${SCRIPT_DIR}/p4annotate
+CRITERIA=${SCRIPT_DIR}/criteria
 
 #PARALLEL=''
 #PROFILE="''
 
 
-LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $PARALLEL $PROFILE"
-DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
+LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $MD5_OPT $PARALLEL $PROFILE"
+DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $MD5_OPT $PROFILE $PARALLEL"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
@@ -433,9 +436,10 @@ for opt in "" "--show-details" "--hier"; do
         fi
 
         if [[ $OPTS =~ "hier" ]] ; then
-            found=0
+            # we don't expect a hierarchical path - grep return code is nonzero
+            code=0
         else
-            found=1
+            code=1
         fi
         # look for full path name (starting from '/') in the index.html file..
         #   we aren't sure where gcc is installed - so we aren't sure what
@@ -445,10 +449,11 @@ for opt in "" "--show-details" "--hier"; do
         #   hierarchical entry in the output HTML
         COUNT=`grep -c index.html\" $outdir/index.html`
         if [ $COUNT != 1 ] ; then
-            grep "index.html\">/[^/]*/[^/]*/[^/]*/" $outdir/index.html
+            # look for at least 2 directory elements in the path name
+            grep -E '[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/index.html\"[^>]*>' $outdir/index.html
             #grep "/mtkoss/gcc" $outdir/index.html
             # expect to find the string (0 return val) if flag is NOT present
-            if [ $found == $? ] ;then
+            if [ $code == $? ] ; then
                 echo "ERROR: '--hierarchical' path mismatch in $outdir"
                 status=1
                 if [ 0 == $KEEP_GOING ] ; then
@@ -529,20 +534,6 @@ for summary in Branch ; do
         fi
     fi
 done
-
-
-# and the inverse difference
-diff -u simple2.cpp simple.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff_r.txt
-
-echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz $IGNORE
-$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz $GENHTML_PORT $IGNORE
-if [ 0 != $? ] ; then
-    echo "ERROR: genhtml branch failed"
-    status=1
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
-    fi
-fi
 
 
 # check case that we have a diff file but no basline
@@ -740,8 +731,8 @@ fi
 
 # test criteria-related RC override errors:
 for errs in 'criteria_callback_levels=dir,a' 'criteria_callback_data=foo' ; do
-    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o $outdir ./current.info --rc $errs $IGNORE
-    $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o criteria ./current.info $GENHTML_PORT --rc $errs $IGNORE > criteriaErr.log 2> criteriaErr.err
+    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA -o $outdir ./current.info --rc $errs $IGNORE
+    $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA -o criteria ./current.info $GENHTML_PORT --rc $errs $IGNORE > criteriaErr.log 2> criteriaErr.err
     if [ 0 == $? ] ; then
         echo "ERROR: genhtml criteria should have failed but didn't"
         status=1
@@ -763,8 +754,8 @@ done
 # test 'coverage criteria' callback
 #  we expect to fail - and to see error message - it coverage criteria not met
 # ask for date and owner data - even though the callback doesn't use it
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria -o $outdir ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria ${LCOV_HOME}/bin/criteria --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria ./current.info $GENHTML_PORT $IGNORE > criteria.log 2> criteria.err
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA -o $outdir ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria ./current.info $GENHTML_PORT $IGNORE > criteria.log 2> criteria.err
 if [ 0 == $? ] ; then
     echo "ERROR: genhtml criteria should have failed but didn't"
     status=1
@@ -929,7 +920,8 @@ fi
 
 # some error checks...
 # use 'no_markers' flag so we won't see the filter message
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output err1.info -a baseline.info -a baseline.info --substitute "s#xyz#pwd#g" --exclude 'foo' --no-markers
+echo $LCOV_HOME/bin/lcov $LCOV_OPTS --output err1.info -a current.info -a current.info --substitute "s#xyz#pwd#g" --exclude 'thisStringDoesNotMatch' --no-markers
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output err1.info -a current.info -a current.info --substitute "s#xyz#pwd#g" --exclude 'thisStringDoesNotMatch' --no-markers
 if [ 0 == $? ] ; then
     echo "ERROR: lcov ran despite error"
     status=1
@@ -938,7 +930,8 @@ if [ 0 == $? ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output unused.info -a baseline.info -a baseline.info --substitute "s#xyz#pwd#g" --exclude 'foo' --ignore unused --no-markers $IGNORE
+echo $LCOV_HOME/bin/lcov $LCOV_OPTS --output unused.info -a current.info -a current.info --substitute "s#xyz#pwd#g" --exclude 'thisStringDoesNotMatch' --ignore unused --no-markers $IGNORE
+$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output unused.info -a current.info -a current.info --substitute "s#xyz#pwd#g" --exclude 'thisStringDoesNotMatch' --ignore unused --no-markers $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: lcov failed despite suppression"
     status=1
@@ -961,10 +954,10 @@ else
     SUFFIX=''
 fi
 
-echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./proportion --show-proportion $IGNORE
-$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS baseline.info --output-directory ./proportion --show-proportion $IGNORE
+echo genhtml $DIFFCOV_OPTS current.info --output-directory ./proportion --show-proportion $IGNORE
+$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS current.info --output-directory ./proportion --show-proportion $IGNORE
 if [ 0 != $? ] ; then
-    echo "ERROR: genhtml baseline proportional failed"
+    echo "ERROR: genhtml current proportional failed"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1

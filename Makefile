@@ -147,8 +147,13 @@ install:
 		done ;  \
 	done
 	mkdir -p $(SHARE_DIR)
-	find example -type d -exec mkdir -p "$(SHARE_DIR)/{}" \;
-	find example -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_DIR)/{}" \;
+	for d in example tests ; do \
+		( cd $$d ; make clean ) ; \
+		find $$d -type d -exec mkdir -p "$(SHARE_DIR)/{}" \; ; \
+		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_DIR)/{}" \; ; \
+	done
+	@chmod -R ugo+x $(SHARE_DIR)/tests/bin
+	@find $(SHARE_DIR)/tests \( -name '*.sh' -o -name '*.pl' \) -exec chmod ugo+x {} \;
 	$(INSTALL) -d -m 755 $(CFG_DIR)
 	$(call echocmd,"  INSTALL $(CFG_DIR)/lcovrc")
 	$(INSTALL) -m 644 lcovrc $(CFG_DIR)/lcovrc
@@ -158,29 +163,32 @@ uninstall:
 		$(call echocmd,"  UNINST  $(BIN_DIR)/$$b") \
 		$(RM) -f $(BIN_DIR)/$$b ; \
 	done
-	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  UNINST  $(SCRIPT_DIR)/$$s")  \
-		$(RM) -f $(SCRIPT_DIR)/$$s ; \
-	done
-	rmdir --ignore-fail-on-non-empty $(SCRIPT_DIR)
+	rmdir --ignore-fail-on-non-empty $(BIN_DIR) || true
 	for l in $(LIBS) ; do \
 		$(call echocmd,"  UNINST  $(LIB_DIR)/$$l") \
 		$(RM) -f $(LIB_DIR)/$$l ; \
 	done
+	rmdir --ignore-fail-on-non-empty $(LIB_DIR) || true
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib || true
 	for section in 1 5 ; do \
 		DEST=$(MAN_DIR)/man$$section ; \
 		for m in man/*.$$section ; do  \
 			F=`basename $$m` ; \
-			$(call echocmd,"  UNINST  $$DEST/$$F") \
-			$(RM) -f $$DEST/$$F ; \
+                        if [ -e man/$$F ] ; then \
+			   $(call echocmd,"  UNINST  $$DEST/$$F") \
+                           $(RM) -f $$DEST/$$F ; \
+                        fi ; \
 		done ; \
-		rmdir --ignore-fail-on-non-empty $$DEST ; \
+		rmdir --ignore-fail-on-non-empty $$DEST || true ; \
 	done ; \
-	rmdir --ignore-fail-on-non-empty $(MAN_DIR)
-	$(RM) -rf $(SHARE_DIR)/example
-
+	rmdir --ignore-fail-on-non-empty $(MAN_DIR) || true
+	rm -rf $(SHARE_DIR)
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/share 
 	$(call echocmd,"  UNINST  $(CFG_DIR)/lcovrc")
 	$(RM) -f $(CFG_DIR)/lcovrc
+	rmdir --ignore-fail-on-non-empty $(CFG_DIR) || true
+	rmdir --ignore-fail-on-non-empty $(DESTDIR) || true
+
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
@@ -233,7 +241,7 @@ ifeq ($(COVERAGE), 1)
 # write to .../tests/cover_db
 export COVER_DB := ./cover_db
 endif
-export TESTCASE_ARGS COVER_DB
+export TESTCASE_ARGS
 
 test: check
 
@@ -241,9 +249,9 @@ check:
 	if [ "x$(COVERAGE)" != 'x' ] && [ ! -d tests/$(COVER_DB) ]; then \
 	  mkdir tests/$(COVER_DB) ; \
 	fi
-	@$(MAKE) -s -C tests check
-	if [ "x$(COVERAGE)" != 'x' ] ; then \
-	  ( cd tests ; cover ) ; \
+	@$(MAKE) -s -C tests check LCOV_HOME=`pwd`
+	@if [ "x$(COVERAGE)" != 'x' ] ; then \
+	  $(MAKE) -s -C tests report ; \
 	fi
 
 # Files to be checked for coding style issue issues -

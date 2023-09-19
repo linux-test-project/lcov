@@ -37,6 +37,12 @@ function t_detail()
 function t_announce()
 {
 	local TESTNAME="$1"
+	local len=`echo "$1" | wc -c`
+	local start=`expr $len - 31`
+	if [[ $len > 32 ]] ; then
+	   # test name too long - trim from left
+	   TESTNAME="...`echo $TESTNAME | cut -c ${start}-`"
+	fi
 
 	printf "$BOLD%-.35s$RESET " "$TESTNAME .............................."
 	t_marker >> "$LOGFILE"

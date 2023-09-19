@@ -6,4 +6,4 @@
 # be same as input
 #
 
-exec ./helper.sh 0.5 "$FULLINFO" "$FULLINFO" "$FULLINFO"
+exec ./helper.sh $@ 0.5 "$FULLINFO" "$FULLINFO" "$FULLINFO"
