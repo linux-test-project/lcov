@@ -99,7 +99,7 @@ LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE"
 DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT $PROFILE $PARALLEL"
 
 rm -f *.cpp *.gcno *.gcda a.out *.info *.log *.json dumper* *.annotated annotate.sh
-rm -rf ./vanilla ./annotated annotateErr ./cover_db
+rm -rf ./vanilla ./annotated annotateErr ./range ./filter ./cover_db
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -172,7 +172,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
 fi
 
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS -o vanilla --ignroe range ./munged.info
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS -o vanilla --ignore range ./munged.info
 $COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS -o vanilla --ignore range ./munged.info  2>&1 | tee vanilla.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml vanilla failed"
@@ -200,6 +200,55 @@ for dir in annotated vanilla ; do
        fi
    fi
 done
+
+echo ${LCOV_HOME}/bin/lcov $LCOV_OPTS --ignore range -o range.info -a ./munged.info --filter branch
+$COVER ${LCOV_HOME}/bin/lcov $LCOV_OPTS  --ignore range -o range.info -a ./munged.info --filter branch 2>&1 | tee range.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --ignore range failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+COUNT1=`grep -c -i "warning: .*range.* unknown line .* there are only" range.log`
+if [ 1 != $COUNT1 ] ; then
+    echo "Missing expected warning"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+echo ${LCOV_HOME}/bin/lcov $LCOV_OPTS --ignore range -o range.info -a ./munged.info --filter branch --rc warn_once_per_file=0
+$COVER ${LCOV_HOME}/bin/lcov $LCOV_OPTS  --ignore range -o range.info -a ./munged.info --filter branch --rc warn_once_per_file=0 2>&1 | tee range2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --ignore range2 failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+COUNT2=`grep -c -i "warning: .*range.* unknown line .* there are only" range2.log`
+if [ 2 != $COUNT2 ] ; then
+    echo "Expected 2 messages found $COUNT2"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+echo ${LCOV_HOME}/bin/lcov $LCOV_OPTS -o filter.info --filter range -a ./munged.info --filter branch
+$COVER ${LCOV_HOME}/bin/lcov $LCOV_OPTS -o filter.info --filter range -a ./munged.info --filter branch 2>&1 | tee filter.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --filter range failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -i "warning: .*range.* unknown line .* there are only" filter.log
+if [ 0 == $? ] ; then
+    echo "Found unexpected warning"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 echo "Tests passed"
 

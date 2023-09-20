@@ -143,6 +143,7 @@ our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "callback"     => $ERROR_CALLBACK,
                     "package"      => $ERROR_PACKAGE,);
 our $stop_on_error;    # attempt to keep going
+our $warn_once_per_file = 1;
 
 our $br_coverage   = 0;    # If set, generate branch coverage statistics
 our $func_coverage = 1;    # If set, generate function coverage statistics
@@ -893,6 +894,7 @@ my %rc_common = (
              "ignore_errors"          => \@rc_ignore,
              "max_message_count"      => \$lcovutil::suppressAfter,
              'stop_on_error'          => \$lcovutil::stop_on_error,
+             'warn_once_per_file'     => \$lcovutil::warn_once_per_file,
              "rtl_file_extensions"    => \$rtlExtensions,
              "c_file_extensions"      => \$cExtensions,
              "filter_lookahead"       => \$lcovutil::source_filter_lookahead,
@@ -1342,15 +1344,53 @@ sub is_ignored($)
 }
 
 our %warnOnlyOnce;
+our $deferWarnings = 0;
 # if 'stop_on_error' is false, then certain errors should be emitted at most once
 #  (not relevant if stop_on_error is true - as we will exit after the error.
 sub warn_once
 {
-    my $key = shift;
+    my ($msgType, $key) = @_;
     return 0
-        if (exists($warnOnlyOnce{$key}));
-    $warnOnlyOnce{$key} = 1;
+        if (exists($warnOnlyOnce{$msgType}) &&
+            exists($warnOnlyOnce{$msgType}{$key}));
+    $warnOnlyOnce{$msgType}{$key} = 1;
     return 1;
+}
+
+sub store_deferred_message
+{
+    my ($msgType, $isError, $key, $msg) = @_;
+    die(
+       "unexpected deferred value of $msg->$key: $warnOnlyOnce{$msgType}{$key}")
+        unless 1 == $warnOnlyOnce{$msgType}{$key};
+    if ($deferWarnings) {
+        $warnOnlyOnce{$msgType}{$key} = [$msg, $isError];
+    } else {
+        if ($isError) {
+            lcovutil::ignorable_error($msgType, $msg);
+        } else {
+            lcovutil::ignorable_warning($msgType, $msg);
+        }
+    }
+}
+
+sub merge_deferred_warnings
+{
+    my $hash = shift;
+    while (my ($type, $d) = each(%$hash)) {
+        while (my ($key, $m) = each(%$d)) {
+            if (!(exists($warnOnlyOnce{$type}) &&
+                  exists($warnOnlyOnce{$type}{$key}))) {
+                my ($msg, $isError) = @$m;
+                if ($isError) {
+                    lcovutil::ignorable_error($type, $msg);
+                } else {
+                    lcovutil::ignorable_warning($type, $msg);
+                }
+                $warnOnlyOnce{$type}{$key} = 1;
+            }
+        }
+    }
 }
 
 sub initial_state
@@ -1359,37 +1399,29 @@ sub initial_state
     #  so we can merge back into parent.  This may prevent us from
     #  complaining about the same thing in multiple children - but only
     #  if those children don't execute in parallel.
-    return Storable::dclone([\%warnOnlyOnce, \@message_count]);
+    return Storable::dclone([\@message_count]);
 }
 
 sub compute_update
 {
     my $state = shift;
-    my @new_warn;
-    while (my ($key, $val) = each(%warnOnlyOnce)) {
-        push(@new_warn, $key)
-            unless exists($state->[0]->{$key});
-    }
     my @new_count;
     foreach my $msg (@message_count) {
         my $v =
             defined($message_count[$msg]) ?
-            ($message_count[$msg] - $state->[1]->[$msg]) :
+            ($message_count[$msg] - $state->[0]->[$msg]) :
             0;
         push(@new_count, $v);
     }
-    return [\@new_warn, \@new_count];
+    return [\@new_count];
 }
 
 sub update_state
 {
     my $update = shift;
-    foreach my $key (@{$update->[0]}) {
-        $warnOnlyOnce{$key} = 1;
-    }
-    foreach my $msg (@{$update->[1]}) {
+    foreach my $msg (@{$update->[0]}) {
         next unless defined($message_count[$msg]);
-        $message_count[$msg] += $update->[1]->[$msg];
+        $message_count[$msg] += $update->[0]->[$msg];
     }
 }
 
@@ -4075,20 +4107,23 @@ sub isOutOfRange
             ++$filt->[1];    # one coverpoint suppressed
             return 1;
         }
-        my $key = $self->filename() . $lineNo;
-        if (lcovutil::warn_once($key)) {
+        my $key = $self->filename();
+        $key .= $lineNo unless $lcovutil::warn_once_per_file;
+        if (lcovutil::warn_once($lcovutil::ERROR_RANGE, $key)) {
             my $c = ($context eq 'line') ? 'line' : "$context at line";
             my $msg =
                 "unknown $c '$lineNo' in " .
                 $self->filename() . ": there are only " .
-                scalar(@{$self->[EXCLUDE]}) . " lines in file." .
-                "\n  Use '$lcovutil::tool_name --filter range' to remove out-of-range lines.";
+                scalar(@{$self->[EXCLUDE]}) . " lines in file.";
             $msg .=
-                "\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page."
+                "\n  This can be caused by code changes/version mismatch: see the \"--version-script script_file\" discussion in the genhtml man page."
                 if ($lcovutil::tool_name ne 'geninfo');
+            $msg .=
+                "\n  Use '$lcovutil::tool_name --filter range' to remove out-of-range lines.";
             # some versions of gcov seem to make up lines that do not exist -
             # this appears to be related to macros on last line in file
-            lcovutil::ignorable_error($lcovutil::ERROR_RANGE, $msg);
+            lcovutil::store_deferred_message($lcovutil::ERROR_RANGE,
+                                             1, $key, $msg);
         }
         # Note:  if user ignored the error, then we return 'not out of range'.
         #   The line is out of range/something is wrong - but the user did not
@@ -4105,9 +4140,11 @@ sub isExcluded
         # this can happen due to version mismatches:  data extracted with
         # version N of the file, then generating HTML with version M
         # "--version-script callback" option can be used to detect this
-        my $key = $self->filename() . $lineNo;
-        lcovutil::ignorable_error(
+        my $key = $self->filename();
+        $key .= $lineNo unless ($lcovutil::warn_once_per_file);
+        lcovutil::store_deferred_message(
             $lcovutil::ERROR_RANGE,
+            1, $key,
             "unknown line '$lineNo' in " . $self->filename()
                 .
                 (defined($self->[EXCLUDE]) ?
@@ -4115,7 +4152,7 @@ sub isExcluded
                       scalar(@{$self->[EXCLUDE]}) . " lines in file") :
                      "") .
                 ".\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page."
-        ) if lcovutil::warn_once($key);
+        ) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
         return 0;    # even though out of range - this is not excluded by filter
     }
     return 1
@@ -4884,10 +4921,12 @@ sub _mergeParallelChunk
     if (0 == $childstatus && -f $dumped) {
         my $data = Storable::retrieve($dumped);
         if (defined($data)) {
-            my ($updates, $save, $state, $childFinish, $profile, $update) =
-                @$data;
+            my ($updates, $save, $state, $childFinish, $profile, $warnings,
+                $update)
+                = @$data;
 
             lcovutil::merge_child_profile($profile);
+            lcovutil::merge_deferred_warnings($warnings);
             lcovutil::update_state($update);
             #my $childCpuTime = $profile->{filt_child}{$chunkId};
             #$totalFilterCpuTime    += $childCpuTime;
@@ -4953,7 +4992,8 @@ sub _processParallelChunk
     my $childStart = Time::HiRes::gettimeofday();
     my ($tmp, $chunk, $srcReader, $save, $state, $forkAt, $chunkId) = @_;
     # clear profile - want only my contribution
-    %lcovutil::profileData = ();
+    %lcovutil::profileData  = ();
+    %lcovutil::warnOnlyOnce = ();
     my $currentState = lcovutil::initial_state();
     my $stdout_file  = File::Spec->catfile($tmp, "filter_$$.log");
     my $stderr_file  = File::Spec->catfile($tmp, "filter_$$.err");
@@ -5020,8 +5060,12 @@ sub _processParallelChunk
     $lcovutil::profileData{filt_child}{$chunkId} = $end - $start;
 
     eval {
-        Storable::store([\@updates, $save, $state, $then,
+        Storable::store([\@updates,
+                         $save,
+                         $state,
+                         $then,
                          \%lcovutil::profileData,
+                         \%lcovutil::warnOnlyOnce,
                          lcovutil::compute_update($currentState)
                         ],
                         $dumpf);
@@ -5147,6 +5191,7 @@ sub _processFilterWorklist
             }
 
             # parallel processing...
+            $lcovutil::deferWarnings = 1;
             my $now = Time::HiRes::gettimeofday();
             my $pid = fork();
             if (!defined($pid)) {
@@ -6215,6 +6260,7 @@ sub merge
         my %children;
         my @pending;
         while (my $segment = pop(@segments)) {
+            $lcovutil::deferWarnings = 1;
             my $now = Time::HiRes::gettimeofday();
             my $pid = fork();
             if (!defined($pid)) {
@@ -6253,6 +6299,7 @@ sub merge
                                      $function_mapping,
                                      $patterns,
                                      \%lcovutil::profileData,
+                                     \%lcovutil::warnOnlyOnce,
                                      lcovutil::compute_update($currentState)
                                     ],
                                     $file);
@@ -6312,14 +6359,15 @@ sub merge
                 # undump the data
                 my $data = Storable::retrieve($dumpfile);
                 if (defined($data)) {
-                    my ($current, $changed, $func_map,
-                        $patterns, $profile, $update) = @$data;
+                    my ($current, $changed, $func_map, $patterns,
+                        $profile, $warnings, $update) = @$data;
                     my $then = Time::HiRes::gettimeofday();
                     $lcovutil::profileData{$idx}{undump} = $then - $now;
                     $lcovutil::profileData{$idx}{total} =
                         $profile->{$idx}{total};
                     # and pass back substitutions, etc.
                     lcovutil::merge_child_pattern_counts($patterns);
+                    lcovutil::merge_deferred_warnings($warnings);
                     lcovutil::update_state($update);
                     if ($function_mapping) {
                         if (!defined($func_map)) {

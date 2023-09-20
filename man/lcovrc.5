@@ -55,6 +55,15 @@ One or more environment variables may be used to set the RC value.
 .PP
 A list of valid statements and their description can be found in
 section 'OPTIONS' below.
+.br
+.B NOTE
+that there is no error checking of keys in the options file:  spelling errors
+are simply seen as values which are not used by some particular tool.
+If you are unsure of whether your options file is read or its values
+applied, you can use the
+.I \-\-verbose \-\-verbose
+flag to enable printing of option value overrides.
+(The option appears twice to enable a higher level of verbosity.)
 
 Both 'list' and 'scalar' (non list) options are supported in the lcovrc file.
 
@@ -177,6 +186,12 @@ max_message_count = 100
 # Default is 1:  stop when error occurs
 .br
 #stop_on_error = 1
+
+# If set to non-zero, only issue particluar warning once per file
+.br
+# Default is 1
+.br
+#warn_once_per_file = 1
 
 # list of file extensions which should be treated as C/C++ code
 .br
@@ -816,6 +831,19 @@ Default is 1:  stop when error occurs.
 If the
 .I 'ignore_error msgType'
 option is also used, then those messages will be treated as warnings rather than errors (or will be entirely suppressed if the message type appears multiple times in the ignore_messages option).
+
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR warn_once_per_file " = "
+.IR 0|1
+.IP
+If set to 1, tell the tools to emit certain errors only once per file
+(rather than multiple times, if the issue occurs multiple times in the same
+file).
+
+Default is 1:  do not report additional errors.
 
 This option is used by genhtml, lcov, and geninfo.
 

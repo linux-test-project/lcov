@@ -949,7 +949,8 @@ sub _merge_one_child($$$$$)
     if (0 == $childstatus && -f $dumped) {
         my $data = Storable::retrieve($dumped);
         if (defined($data)) {
-            my ($childInfo, $patterns, $profile, $counts, $updates) = @$data;
+            my ($childInfo, $patterns, $profile, $warnings, $counts, $updates)
+                = @$data;
             lcovutil::update_state($updates);
             $files_created  += $counts->[0];
             $processedFiles += $counts->[1];
@@ -957,6 +958,7 @@ sub _merge_one_child($$$$$)
             # HGC:  need to pass back substitutions, etc.
             lcovutil::merge_child_pattern_counts($patterns);
             lcovutil::merge_child_profile($profile);
+            lcovutil::merge_deferred_warnings($warnings);
             my $childCpuTime = $profile->{child}{$chunkId};
             $totalChildCpuTime    += $childCpuTime;
             $intervalChildCpuTime += $childCpuTime;
@@ -1219,6 +1221,7 @@ sub gen_info(@)
                 --$currentParallel;
             }
 
+            $lcovutil::deferWarnings = 1;
             my $now = Time::HiRes::gettimeofday();
             my $pid = fork();
             if (!defined($pid)) {
@@ -1240,7 +1243,8 @@ sub gen_info(@)
                 #   be it.
                 my $childStart = Time::HiRes::gettimeofday();
                 # clear profile - want only my contribution
-                %lcovutil::profileData = ();
+                %lcovutil::profileData  = ();
+                %lcovutil::warnOnlyOnce = ();
                 my $currentState = lcovutil::initial_state();
                 $output_filename =
                     File::Spec->catfile($tempFileDir,
@@ -1292,6 +1296,7 @@ sub gen_info(@)
                     Storable::store([$single_file ? $childInfo : undef,
                                      $patterns,
                                      \%lcovutil::profileData,
+                                     \%lcovutil::warnOnlyOnce,
                                      [$files_created, scalar(@$chunk), $then],
                                      lcovutil::compute_update($currentState)
                                     ],

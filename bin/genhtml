@@ -3169,13 +3169,21 @@ sub check_path_consistency
                 my $single = 1 == scalar(@unused);
                 # @todo could print line numbers in baseline, current .info files and
                 #   in diff file ..
-                warn("source file '$f' (in $type .info file" .
-                     ($missed{$f} == 3 ? "s" : "") .
-                     ") has same basename as 'diff' " .
-                     ($single ? 'entry ' : "entries:\n\t") . "'" .
-                     join("'\n\t", @unused) . "' - but a different path." .
-                     ($single ? "  " : "\n\t") .
-                     "Possible pathname mismatch?");
+                if (lcovutil::warn_once($lcovutil::ERROR_MISMATCH, $f)) {
+                    lcovutil::ignorable_warning(
+                                       $lcovutil::ERROR_MISMATCH,
+                                       "source file '$f' (in $type .info file" .
+                                           ($missed{$f} == 3 ? "s" : "") .
+                                           ") has same basename as 'diff' "
+                                           .
+                                           ($single ? 'entry ' : "entries:\n\t"
+                                           ) .
+                                           "'" .
+                                           join("'\n\t", @unused) .
+                                           "' - but a different path." .
+                                           ($single ? "  " : "\n\t") .
+                                           "Possible pathname mismatch?");
+                }
                 if ($main::elide_path_mismatch &&
                     $missed{$f} == 3 &&
                     $single) {
@@ -4939,6 +4947,7 @@ sub compute
         my $trunc_dir = ($rel_dir eq '') ? 'root' : $rel_dir;
 
         if (1 < $lcovutil::maxParallelism) {
+            $lcovutil::deferWarnings = 1;
             my $annotateCount = $SourceFile::annotatedFiles;
             my $totalCount    = $SourceFile::totalFiles;
             my $pid           = fork();
@@ -5016,6 +5025,7 @@ sub compute
                                   $selfSummary,
                                   $criteria,
                                   \%lcovutil::profileData,
+                                  \%lcovutil::warnOnlyOnce,
                                   [$SourceFile::annotatedFiles - $annotateCount,
                                    $SourceFile::totalFiles - $totalCount
                                   ],
@@ -5140,8 +5150,8 @@ sub merge_child($$$)
         # now undump the data ...
         my $data = Storable::retrieve($dumpfile);
         if (defined($data)) {
-            my ($perTest, $summary, $criteria, $profile, $countData, $update) =
-                @$data;
+            my ($perTest, $summary, $criteria, $profile,
+                $warnings, $countData, $update) = @$data;
             die("unexpected restored count data")
                 if (($type eq 'file' && $countData->[1] != 1) ||
                     ($type ne 'file' &&
@@ -5150,6 +5160,7 @@ sub merge_child($$$)
             $SourceFile::annotatedFiles += $countData->[0];
             $SourceFile::totalFiles     += $countData->[1];
             lcovutil::update_state($update);
+            lcovutil::merge_deferred_warnings($warnings);
             $childSummary->copyGuts($summary);
             if ('file' eq $type) {
                 my $base_name = File::Basename::basename($fullname);

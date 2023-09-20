@@ -64,6 +64,10 @@ max_message_count = 100
 # See the man pages for more detail
 #stop_on_error = 1
 
+# If set to non-zero, only issue particluar warning once per file
+# Default is 1
+#warn_once_per_file = 1
+
 # List of file extensions which should be treated as RTL code (e.g., Verilog)
 # Comma-separated list.  Default is "v,vh,sv,vhd?"
 #rtl_file_extensions = v,vh,sv,vhd?
