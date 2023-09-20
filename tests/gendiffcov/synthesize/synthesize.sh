@@ -252,6 +252,6 @@ fi
 
 echo "Tests passed"
 
-if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE; then
+if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover
 fi

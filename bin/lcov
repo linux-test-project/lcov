@@ -285,17 +285,17 @@ if (defined($opt_external)) {
 
 my $begin = Time::HiRes::gettimeofday();
 
-if (!$lcovutil::lcov_capture &&
+if (!($lcovutil::lcov_capture || @add_tracefile) &&
     scalar(@lcovutil::extractVersionScript) > 1) {
     foreach my $e (@lcovutil::extractVersionScript) {
         $e = "'$e'" if ($e =~ /\s/);
     }
-    warn("--build-directory ignored except with --capture");
+    warn("--version-script ignored except with --capture or --add-tracefile");
 }
 
 # Check list width option
 if ($opt_list_width <= 40) {
-    die("ERROR: lcov_list_width parameter out of range (needs to be " .
+    die("lcov_list_width parameter out of range (needs to be " .
         "larger than 40)\n");
 }
 
@@ -363,8 +363,8 @@ eval {
             userspace_capture();
         } else {
             if ($initial) {
-                die("ERROR: --initial cannot be used together with --to-package\n"
-                ) if (defined($to_package));
+                die("--initial cannot be used together with --to-package\n")
+                    if (defined($to_package));
                 kernel_capture_initial();
             } else {
                 kernel_capture();
@@ -407,7 +407,7 @@ eval {
         list();
     } elsif ($diff) {
         if (scalar(@ARGV) != 1) {
-            die("ERROR: option --diff requires one additional argument!\n" .
+            die("option --diff requires one additional argument!\n" .
                 "Use $tool_name --help to get usage information\n");
         }
         $trace = diff();
@@ -579,7 +579,7 @@ sub check_options()
 
     if ($i == 0 ||
         $i > 1) {
-        die("Error: invalid command line:\n  $0 " .
+        die("invalid command line:\n  $0 " .
                 join(' ', @main::cmdArgs) .
                 "\nNeed " . ($i > 1 ? 'only ' : '') .
                 "one of options -z, -c, -a, -e, -r, -l, --diff, --intersect, --subtract, or --summary\n"
@@ -628,7 +628,7 @@ sub userspace_reset()
                 if ($?);
             chomp(@file_list);
             foreach (@file_list) {
-                unlink($_) or die("ERROR: cannot remove file $_: $!\n");
+                unlink($_) or die("cannot remove file $_: $!\n");
             }
         }
         ignorable_error($ERROR_EMPTY,
@@ -656,7 +656,7 @@ sub userspace_capture()
         return;
     }
     if (scalar(@directory) != 1) {
-        die("ERROR: -d may be specified only once with --to-package\n");
+        die("-d may be specified only once with --to-package\n");
     }
     $dir = $directory[0];
     if (defined($base_directory)) {
@@ -686,10 +686,10 @@ sub kernel_reset()
     } elsif (-e "$gcov_dir/reset") {
         $reset_file = "$gcov_dir/reset";
     } else {
-        die("ERROR: no reset control found in $gcov_dir\n");
+        die("no reset control found in $gcov_dir\n");
     }
     open(HANDLE, ">", $reset_file) or
-        die("ERROR: cannot write to $reset_file: $!\n");
+        die("cannot write to $reset_file: $!\n");
     print(HANDLE "0");
     close(HANDLE);
 }
@@ -709,10 +709,10 @@ sub lcov_copy_single($$)
     local $/;
     local *HANDLE;
 
-    open(HANDLE, "<", $from) or die("ERROR: cannot read $from: $!\n");
+    open(HANDLE, "<", $from) or die("cannot read $from: $!\n");
     $content = <HANDLE>;
     close(HANDLE);
-    open(HANDLE, ">", $to) or die("ERROR: cannot write $from: $!\n");
+    open(HANDLE, ">", $to) or die("cannot write $from: $!\n");
     if (defined($content)) {
         print(HANDLE $content);
     }
@@ -777,7 +777,7 @@ sub lcov_copy_fn($$$)
     if (-d) {
         if (!-d $absto) {
             mkpath($absto) or
-                die("ERROR: cannot create directory $absto\n");
+                die("cannot create directory $absto\n");
             chmod(0700, $absto);
         }
     } elsif (-l) {
@@ -785,10 +785,10 @@ sub lcov_copy_fn($$$)
         my $link = readlink($absfrom);
 
         if (!defined($link)) {
-            die("ERROR: cannot read link $absfrom: $!\n");
+            die("cannot read link $absfrom: $!\n");
         }
         symlink($link, $absto) or
-            die("ERROR: cannot create link $absto: $!\n");
+            die("cannot create link $absto: $!\n");
     } else {
         lcov_copy_single($absfrom, $absto);
         chmod(0600, $absto);
@@ -1000,7 +1000,7 @@ sub get_package($)
     $file = abs_path($file);
     chdir($dir);
     open(HANDLE, "-|", "tar xvfz '$file' 2>$lcovutil::devnull") or
-        die("ERROR: could not process package $file: $!\n");
+        die("could not process package $file: $!\n");
     $count = 0;
     while (<HANDLE>) {
         if (/\.da$/ || /\.gcda$/) {
@@ -1009,7 +1009,7 @@ sub get_package($)
     }
     close(HANDLE);
     if ($count == 0) {
-        die("ERROR: no data file found in package $file\n");
+        die("no data file found in package $file\n");
     }
     info("  data directory .......: $dir\n");
     $build = read_file(File::Spec->catfile($dir, $pkg_build_file));
@@ -1020,7 +1020,7 @@ sub get_package($)
     if (defined($gkv)) {
         $gkv = int($gkv);
         if ($gkv != $GKV_PROC && $gkv != $GKV_SYS) {
-            die("ERROR: unsupported gcov kernel version found ($gkv)\n");
+            die("unsupported gcov kernel version found ($gkv)\n");
         }
         info("  content type .........: kernel data\n");
         info("  gcov kernel version ..: %s\n", $GKV_NAME[$gkv]);
@@ -1086,7 +1086,7 @@ sub create_package($$$;$)
 
     # Check for availability of tar tool first
     system("tar --help > $lcovutil::devnull") and
-        die("ERROR: tar command not available\n");
+        die("tar command not available\n");
 
     # Print information about the package
     info("Creating package $file:\n");
@@ -1096,7 +1096,7 @@ sub create_package($$$;$)
     if (defined($build)) {
         info("  build directory ......: $build\n");
         write_file(File::Spec->catfile($dir, $pkg_build_file), $build) or
-            die("ERROR: could not write to $dir/$pkg_build_file\n");
+            die("could not write to $dir/$pkg_build_file\n");
     }
 
     # Handle gcov kernel version data
@@ -1104,7 +1104,7 @@ sub create_package($$$;$)
         info("  content type .........: kernel data\n");
         info("  gcov kernel version ..: %s\n", $GKV_NAME[$gkv]);
         write_file(File::Spec->catfile($dir, $pkg_gkv_file), $gkv) or
-            die("ERROR: could not write to $dir/$pkg_gkv_file\n");
+            die("could not write to $dir/$pkg_gkv_file\n");
     } else {
         info("  content type .........: application data\n");
     }
@@ -1113,7 +1113,7 @@ sub create_package($$$;$)
     $file = abs_path($file);
     chdir($dir);
     system("tar cfz $file .") and
-        die("ERROR: could not create package $file\n");
+        die("could not create package $file\n");
     chdir($cwd);
 
     # Remove temporary files
@@ -1169,7 +1169,7 @@ sub get_base($)
     # obj base is parent of parent of markerfile link target.
     $link = readlink($markerfile);
     if (!defined($link)) {
-        die("ERROR: could not read $markerfile\n");
+        die("could not read $markerfile\n");
     }
     $obj = dirname(dirname(dirname($link)));
 
@@ -1225,7 +1225,7 @@ sub apply_base_dir($$$@)
                 next;
             }
         }
-        die("ERROR: subdirectory $dir not found\n" .
+        die("subdirectory $dir not found\n" .
             "Please use -b to specify the correct directory\n");
     }
     return @result;
@@ -1270,7 +1270,7 @@ sub kernel_capture_initial()
     } else {
         (undef, $build) = get_base($gcov_dir);
         if (!defined($build)) {
-            die("ERROR: could not auto-detect build directory.\n" .
+            die("could not auto-detect build directory.\n" .
                 "Please use -b to specify the build directory\n");
         }
         $source = "auto-detected";
@@ -1326,7 +1326,7 @@ sub adjust_kernel_dir($$)
         $build = $build_auto;
     }
     if (!defined($build)) {
-        die("ERROR: could not auto-detect build directory.\n" .
+        die("could not auto-detect build directory.\n" .
             "Please use -b to specify the build directory\n");
     }
     # Make @kernel_directory relative to sysfs base
@@ -1364,8 +1364,7 @@ sub link_data_cb($$$)
     my $dir;
 
     if (-e $absto) {
-        die("ERROR: could not create symlink at $absto: " .
-            "File already exists!\n");
+        die("could not create symlink at $absto: " . "File already exists!\n");
     }
     if (-l $absto) {
         # Broken link - possibly from an interrupted earlier run
@@ -1376,12 +1375,11 @@ sub link_data_cb($$$)
     $base = $absto;
     $base =~ s/\.(gcda|da)$//;
     if (!-e $base . ".gcno" && !-e $base . ".bbg" && !-e $base . ".bb") {
-        die("ERROR: No graph file found for $absfrom in " .
-            dirname($base) . "!\n");
+        die("No graph file found for $absfrom in " . dirname($base) . "!\n");
     }
 
     symlink($absfrom, $absto) or
-        die("ERROR: could not create symlink at $absto: $!\n");
+        die("could not create symlink at $absto: $!\n");
 }
 
 #
@@ -1402,7 +1400,7 @@ sub unlink_data_cb($$$)
     return if (!defined($target) || $target ne $absfrom);
 
     unlink($absto) or
-        warn("WARNING: could not remove symlink $absto: $!\n");
+        warn("could not remove symlink $absto: $!\n");
 }
 
 #
@@ -2050,12 +2048,12 @@ sub read_diff($)
     # Check if file exists and is readable
     stat($diff_file);
     if (!(-r _)) {
-        die("ERROR: cannot read file $diff_file!\n");
+        die("cannot read file $diff_file!\n");
     }
 
     # Check if this is really a plain file
     if (!(-f _)) {
-        die("ERROR: not a plain file: $diff_file!\n");
+        die("not a plain file: $diff_file!\n");
     }
 
     my $diffFile = InOutFile->in($diff_file);    # maybe compressed
@@ -2151,7 +2149,7 @@ sub read_diff($)
     }
 
     if (!%diff) {
-        die("ERROR: no valid diff data found in $diff_file!\n" .
+        die("no valid diff data found in $diff_file!\n" .
             "Make sure to use 'diff -u' when generating the diff " .
             "file.\n");
     }
@@ -2314,7 +2312,7 @@ sub get_line_hash($$$)
                 $old_depth = ($diff_name =~ tr/\///);
                 $new_depth = (tr/\///);
                 if ($old_depth == $new_depth) {
-                    die("ERROR: diff file contains " .
+                    die("diff file contains " .
                         "ambiguous entries for $filename\n");
                 } elsif ($new_depth > $old_depth) {
                     $diff_name = $_;
@@ -2667,9 +2665,9 @@ sub setup_gkv()
         }
     }
     if (defined($gcov_dir)) {
-        die("ERROR: could not find gcov kernel data at $gcov_dir\n");
+        die("could not find gcov kernel data at $gcov_dir\n");
     } else {
-        die("ERROR: no gcov kernel data found\n");
+        die("no gcov kernel data found\n");
     }
 }
 

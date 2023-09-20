@@ -176,7 +176,7 @@ sub genpng_process_file($$$$$)
     my @source;
 
     open(HANDLE, "<", $filename) or
-        die("ERROR: cannot open $filename!\n");
+        die("cannot open $filename!\n");
 
     # Check for .gcov filename extension
     if ($filename =~ /^(.*).gcov$/) {
@@ -260,7 +260,7 @@ sub gen_png($$$$$@)
     $height = scalar(@source);
     # Create image
     $overview = new GD::Image($overview_width, $height) or
-        die("ERROR: cannot allocate overview image!\n");
+        die("cannot allocate overview image!\n");
 
     # Define colors
     # overview->colorAllocate(red, green, blue)
@@ -391,7 +391,7 @@ sub gen_png($$$$$@)
 
     # Write PNG file
     open(PNG_HANDLE, ">", $filename) or
-        die("ERROR: cannot write png file $filename!\n");
+        die("cannot write png file $filename!\n");
     binmode(*PNG_HANDLE);
     print(PNG_HANDLE $overview->png());
     close(PNG_HANDLE) or die("unable to close $filename: $!\n");

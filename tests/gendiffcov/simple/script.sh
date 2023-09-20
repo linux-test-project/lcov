@@ -686,7 +686,7 @@ if [ 0 == $? ] ; then
     fi
 fi
 
-grep -i "Error: possible path inconsistency" err.log
+grep -i "Error: .* possible path inconsistency" err.log
 if [ 0 != $? ] ; then
     echo "ERROR:  can't find expected error message"
     status=1

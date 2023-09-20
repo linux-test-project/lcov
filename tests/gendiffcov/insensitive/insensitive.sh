@@ -261,7 +261,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep -i "Error: non-zero exit status from annotate" fail.log
+grep -i "Error: (annotate) non-zero exit status from annotate" fail.log
 if [ 0 != $? ] ; then
     echo "did not find expected annotate error message in fail.log"
     exit 1
@@ -275,7 +275,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep -i "Warning: ('annotate') non-zero exit status from annotate" fail2.log
+grep -i "Warning: .* non-zero exit status from annotate" fail2.log
 if [ 0 != $? ] ; then
     echo "did not find expected annotate warning message in fail2.log"
     exit 1
@@ -302,6 +302,6 @@ fi
 
 echo "Tests passed"
 
-if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE; then
+if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE ]; then
     cover
 fi

@@ -470,7 +470,7 @@ sub create_temp_dir()
     my $dir = tempdir(DIR     => $lcovutil::tmp_dir,
                       CLEANUP => !defined($lcovutil::preserve_intermediates));
     if (!defined($dir)) {
-        die("ERROR: cannot create temporary directory\n");
+        die("cannot create temporary directory\n");
     }
     append_tempdir($dir);
     return $dir;
@@ -490,7 +490,7 @@ sub warn_handler($)
     }
     # Enforce consistent "WARNING:" message prefix
     $msg =~ s/^warning:\s+//i;
-    warn("$tool_name: WARNING: $msg");
+    print(STDERR "$tool_name: WARNING: $msg");
 }
 
 sub die_handler($)
@@ -671,7 +671,7 @@ sub save_profile($)
             print(JSON $json);
             close(JSON) or die("unable to close $dest: $!\n");
         } else {
-            print("Error:  unable to open profile output $dest: '$!'\n");
+            warn("unable to open profile output $dest: '$!'\n");
         }
     }
 }
@@ -723,7 +723,7 @@ sub do_mangle_check
         $lcovutil::demangle_cpp_cmd .= (($e =~ /\s/) ? "'$e'" : $e) . ' ';
     }
     my $tool = $lcovutil::cpp_demangle[0];
-    die("ERROR: could not find $tool tool needed for --demangle-cpp")
+    die("could not find $tool tool needed for --demangle-cpp")
         if (lcovutil::system_no_output(3, "echo \"\" | '$tool'"));
 }
 
@@ -744,7 +744,7 @@ sub read_config($)
 
     info(1, "read_config: $filename\n");
     if (!open(HANDLE, "<", $filename)) {
-        warn("WARNING: cannot read configuration file $filename: $!\n");
+        warn("cannot read configuration file $filename: $!\n");
         return undef;
     }
     VAR: while (<HANDLE>) {
@@ -780,8 +780,9 @@ sub read_config($)
                 $result{$key} = $value;
             }
         } else {
-            warn("WARNING: malformed statement in line $. " .
-                 "of configuration file $filename\n");
+            lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
+                                        "malformed statement in line $. " .
+                                            "of configuration file $filename");
         }
     }
     close(HANDLE) or die("unable to close $filename: $!\n");
@@ -816,8 +817,10 @@ sub _set_config($$$)
     } else {
         # opt is a scalar or not defined
         if ('ARRAY' eq ref($value)) {
-            warn("setting scalar config '$key' with array value [" .
-                 join(', ', @$value) . "] - using '" . $value->[-1] . "'");
+            lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
+                             "setting scalar config '$key' with array value [" .
+                                 join(', ', @$value) .
+                                 "] - using '" . $value->[-1] . "'");
             $$r = $value->[-1];
         } else {
             $$r = $value;
@@ -1046,7 +1049,7 @@ sub parseOptions
     }
     foreach my $d (['--config-file', scalar(@unsupported_config)],
                    ['--rc', scalar(%unsupported_rc)]) {
-        die("Error: '" . $d->[0] . "' option name cannot be abbreviated\n")
+        die("'" . $d->[0] . "' option name cannot be abbreviated\n")
             if ($d->[1]);
     }
 
@@ -1230,7 +1233,7 @@ sub munge_file_patterns
         my $error = $@;
         chomp($error);
         $error =~ s/at \(eval.*$//;
-        die("ERROR: invalid '" . $regexp->[0] . "' exclude pattern: $error")
+        die("invalid '" . $regexp->[0] . "' exclude pattern: $error")
             if $error;
     }
 }
@@ -1329,7 +1332,7 @@ sub parse_ignore_errors(@)
     return if (!@ignore_errors);
 
     foreach my $item (@ignore_errors) {
-        die("ERROR: unknown argument for --ignore-errors: '$item'")
+        die("unknown argument for --ignore-errors: '$item'")
             unless exists($ERROR_ID{lc($item)});
         my $item_id = $ERROR_ID{lc($item)};
         $ignore[$item_id] += 1;
@@ -1467,11 +1470,11 @@ sub ignorable_error($$;$)
             "\t(use \"$tool_name --ignore-errors $errName ...\" to bypass this error)\n";
 
         if (defined($stop_on_error) && 0 == $stop_on_error) {
-            warn_handler("Error: $msg\n" .
+            warn_handler("($errName) $msg\n" .
                          ($message_count[$code] == 1 ? '' : "$ignoreOpt\n"));
             return;
         }
-        die_handler("Error: $msg\n$ignoreOpt");
+        die_handler("($errName) $msg\n$ignoreOpt");
     }
     # only tell the user how to suppress this on the first occurrence
     my $ignoreOpt =
@@ -1479,7 +1482,7 @@ sub ignorable_error($$;$)
         "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n"
         :
         '';
-    warn_handler("Warning: ('$errName') $msg\n$ignoreOpt")
+    warn_handler("($errName) $msg\n$ignoreOpt")
         unless $ignore[$code] > 1 || (defined($quiet) && $quiet);
 }
 
@@ -1503,7 +1506,7 @@ sub ignorable_warning($$;$)
         my $ignoreOpt =
             ($message_count[$code] != 1) ? "" :
             "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
-        warn_handler("Warning: $msg\n$ignoreOpt");
+        warn_handler("($errName) $msg\n$ignoreOpt");
     }
 }
 
@@ -1543,7 +1546,7 @@ sub parse_cov_filters(@)
     return if (!@filters);
 
     foreach my $item (@filters) {
-        die("ERROR: unknown argument for --filter: '$item'\n")
+        die("unknown argument for --filter: '$item'\n")
             unless exists($COVERAGE_FILTERS{lc($item)});
         my $item_id = $COVERAGE_FILTERS{lc($item)};
 
@@ -1785,7 +1788,7 @@ sub get_overall_line($$$)
 # Make sure precision is within valid range [1:4]
 sub check_precision()
 {
-    die("ERROR: specified precision is out of range (1 to 4)\n")
+    die("specified precision is out of range (1 to 4)\n")
         if ($default_precision < 1 || $default_precision > 4);
 }
 
@@ -2030,7 +2033,7 @@ sub checkGzip
 {
     # Check for availability of GZIP tool
     lcovutil::system_no_output(1, "gzip", "-h") and
-        die("ERROR: gzip command not available!\n");
+        die("gzip command not available!\n");
     $checkedGzipAvail = 1;
 }
 
@@ -2047,7 +2050,7 @@ sub out
         '-' eq $f) {
         if ($demangle) {
             open(HANDLE, '|-', $lcovutil::demangle_cpp_cmd) or
-                die("Error: unable to demangle: $!\n");
+                die("unable to demangle: $!\n");
             $self->[0] = \*HANDLE;
         } else {
             $self->[0] = \*STDOUT;
@@ -2061,7 +2064,7 @@ sub out
             # Open compressed file
             $cmd .= "gzip -c $m'$f'";
             open(HANDLE, "|-", $cmd) or
-                die("ERROR: cannot start gzip to compress to file $f: $!\n");
+                die("cannot start gzip to compress to file $f: $!\n");
         } else {
             if ($demangle) {
                 $cmd .= "$m '$f'";
@@ -2069,7 +2072,7 @@ sub out
                 $cmd .= $f;
             }
             open(HANDLE, $demangle ? '|-' : $m, $cmd) or
-                die("ERROR: cannot write to $f: $!\n");
+                die("cannot write to $f: $!\n");
         }
         $self->[0] = \*HANDLE;
     }
@@ -2099,23 +2102,23 @@ sub in
                 if (-z $f);
             # Check integrity of compressed file - fails for zero size file
             lcovutil::system_no_output(1, "gzip", "-dt", $f) and
-                die("ERROR: integrity check failed for compressed file $f!\n");
+                die("integrity check failed for compressed file $f!\n");
 
             # Open compressed file
             my $cmd = "gzip -cd '$f'";
             $cmd .= " | " . $lcovutil::demangle_cpp_cmd
                 if ($demangle);
             open(HANDLE, "-|", $cmd) or
-                die("ERROR: cannot start gunzip to decompress file $f: $!\n");
+                die("cannot start gunzip to decompress file $f: $!\n");
 
         } elsif ($demangle &&
                  defined($lcovutil::demangle_cpp_cmd)) {
             open(HANDLE, "-|", "cat '$f' | $lcovutil::demangle_cpp_cmd") or
-                die("ERROR: cannot start demangler for file $f: $!\n");
+                die("cannot start demangler for file $f: $!\n");
         } else {
             # Open decompressed file
             open(HANDLE, "<", $f) or
-                die("ERROR: cannot read file $f: $!\n");
+                die("cannot read file $f: $!\n");
         }
         $self->[0] = \*HANDLE;
     }
@@ -2476,7 +2479,7 @@ sub merge
     my ($self, $that, $filename, $line) = @_;
     if ($self->exprString() ne $that->exprString()) {
         my $loc = defined($filename) ? "\"$filename\":$line: " : '';
-        lcovutil::ignorable_error($ERROR_MISMATCH,
+        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                                   "${loc}mismatched expressions for id " .
                                       $self->id() . ", " . $that->id() .
                                       ": '" . $self->exprString() .
@@ -2491,7 +2494,7 @@ sub merge
     }
     if ($self->is_exception() != $that->is_exception()) {
         my $loc = defined($filename) ? "\"$filename\":$line: " : '';
-        lcovutil::ignorable_error($ERROR_MISMATCH,
+        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                                   "${loc}mismatched exception tag for id " .
                                       $self->id() . ", " . $that->id() .
                                       ": '" . $self->is_exception() .
@@ -2833,9 +2836,8 @@ sub define_function
     my $data;
     if (exists($locationMap->{$key})) {
         $data = $locationMap->{$key};
-        # @todo maybe refactor to make the ERROR_INCONSISTENT_DATA
         lcovutil::ignorable_error(
-                    $ERROR_MISMATCH,
+                    $lcovutil::ERROR_INCONSISTENt_DATA,
                     "mismatched end line for $fnName at $filename:$start_line: "
                         .
                         (
@@ -2923,7 +2925,7 @@ sub add_count
         my $data = $nameMap->{$fnName};
         $data->addAlias($fnName, $count);
     } else {
-        lcovutil::ignorable_error($ERROR_MISMATCH,
+        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                                   "unknown function '$fnName'");
     }
 }
@@ -2947,8 +2949,9 @@ sub union
             $thisData = $myData->{$key};
             if ($thisData->line() != $thatData->line() ||
                 $thisData->file() ne $thatData->file()) {
-                warn("ERROR: function data mismatch at " .
-                     $thatData->file() . ":" . $thatData->line());
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                               "function data mismatch at " .
+                                   $thatData->file() . ":" . $thatData->line());
                 next;
             }
         }
@@ -3047,9 +3050,9 @@ sub cloneWithRename
 
             # Abort if two functions on different lines map to the
             # same demangled name.
-            die(  "ERROR: Demangled function name $cn maps to different lines ("
-                . $newData->findName($cn)->line()
-                . " vs " . $data->line() . ") in " . $newData->file())
+            die("Demangled function name $cn maps to different lines (" .
+                $newData->findName($cn)->line() .
+                " vs " . $data->line() . ") in " . $newData->file())
                 if (defined($newData->findName($cn)) &&
                     $newData->findName($cn)->line() != $data->line());
             $newData->define_function($cn, $data->file(), $data->line(),
@@ -3129,7 +3132,7 @@ sub append
     my $data = $self->[DATA];
     $filename = '<stdin>' if (defined($filename) && $filename eq '-');
     if (!defined($br)) {
-        lcovutil::ignorable_error($ERROR_BRANCH,
+        lcovutil::ignorable_error($lcovutil::ERROR_BRANCH,
                             (defined $filename ? "\"$filename\":$line: " : "")
                                 . "expected 'BranchEntry' or 'integer, BranchBlock'"
         ) unless ('BranchEntry' eq ref($block));
@@ -3169,7 +3172,7 @@ sub append
     if (!$branchElem->hasBlock($block)) {
         $branch == 0
             or
-            lcovutil::ignorable_error($ERROR_BRANCH,
+            lcovutil::ignorable_error($lcuvutil::ERROR_BRANCH,
                                       "unexpected non-zero initial branch");
         $branch = 0;
         my $l = $branchElem->addBlock($block);
@@ -3183,7 +3186,7 @@ sub append
         $block = $branchElem->getBlock($block);
 
         if ($branch > scalar(@$block)) {
-            lcovutil::ignorable_error($ERROR_BRANCH,
+            lcovutil::ignorable_error($lcovutil::ERROR_BRANCH,
                 (defined $filename ? "\"$filename\":$line: " : "") .
                     "unexpected non-sequential branch ID $branch for block $block"
                     . (defined($filename) ? "" : " of line $line: ")
@@ -3998,14 +4001,14 @@ sub parseLines
         ) {
             my ($start, $stop, $ref) = @$d;
             if ($_ =~ $start) {
-                lcovutil::ignorable_error($ERROR_MISMATCH,
+                lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                     "$filename: overlapping exclude directives. Found $start at line $line - but no matching $stop for $start at line "
                         . $$ref)
                     if $$ref;
                 $$ref = $line;
                 last;
             } elsif ($_ =~ $stop) {
-                lcovutil::ignorable_error($ERROR_MISMATCH,
+                lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                     "$filename: found $stop directive at line $line without matching $start directive"
                 ) unless $$ref;
                 $$ref = 0;
@@ -4035,13 +4038,13 @@ sub parseLines
                  ($exclude_exception_region ? 4 : 0) | $exclude_branch_line |
                  $exclude_exception_branch_line);
     }
-    lcovutil::ignorable_error($ERROR_MISMATCH,
+    lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
         "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP"
     ) if $exclude_region;
-    lcovutil::ignorable_error($ERROR_MISMATCH,
+    lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
         "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP"
     ) if $exclude_br_region;
-    lcovutil::ignorable_error($ERROR_MISMATCH,
+    lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
         "$filename: unmatched $lcovutil::EXCL_EXCEPTION_BR_START at line $exclude_exception_region - saw EOF while looking for matching $lcovutil::EXCL_EXCEPTION_BR_STOP"
     ) if $exclude_exception_region;
 
@@ -4979,7 +4982,7 @@ sub _updateModifiedFile
 
     if ($state->[0]->[1] != 0 &&
         !defined($didUnsupportedBeginEndLineWarning)) {
-        lcovutil::ignorable_error($ERROR_UNSUPPORTED,
+        lcovutil::ignorable_error($lcovutil::ERROR_UNSUPPORTED,
             "Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer.   See lcovrc man entry for 'derive_function_end_line'."
         );
         $didUnsupportedBeginEndLineWarning = 1;
@@ -5105,7 +5108,7 @@ sub _processFilterWorklist
                     $chunkSize = $1;
                 }
             } else {
-                warn(
+                lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
                     "lcov_filter_chunk_size '$lcovutil::lcov_filter_chunk_size not recognized - ignoring\n"
                 );
             }
@@ -5339,7 +5342,7 @@ sub applyFilters
                         } else {
                             if ($f->end_line() != $func->end_line()) {
                                 lcovutil::ignorable_error(
-                                       $lcovutil::ERROR_INCONSISTENT,
+                                       $lcovutil::ERROR_INCONSISTENT_DATA,
                                        '"' . $func->file() .
                                            '":' . $first . ': function \'' .
                                            $func->name() . ' last line is ' .
@@ -5465,12 +5468,12 @@ sub _read_info
     # Check if file exists and is readable
     stat($tracefile);
     if (!(-r _)) {
-        die("ERROR: cannot read file $tracefile!\n");
+        die("cannot read file $tracefile!\n");
     }
 
     # Check if this is really a plain file
     if (!(-f _)) {
-        die("ERROR: not a plain file: $tracefile!\n");
+        die("not a plain file: $tracefile!\n");
     }
 
     # Check for .gz extension
@@ -5847,8 +5850,10 @@ sub _read_info
                               "no valid records found in tracefile $tracefile");
     }
     if (defined($changed_testname)) {
-        warn("WARNING: invalid characters removed from testname in " .
-             "tracefile $tracefile: '$changed_testname'->'$testname'\n");
+        lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
+                    "invalid characters removed from testname in " .
+                        "tracefile $tracefile: '$changed_testname'->'$testname'\n"
+        );
     }
 }
 
@@ -6126,14 +6131,14 @@ sub _process_segment($$$)
         eval {
             $current = TraceFile->load($tracefile, $readSourceFile,
                                        $lcovutil::verify_checksum, 1);
-            print("after load $tracefile: memory: " .
-                  lcovutil::current_process_size() . "\n")
+            lcovutil::debug("after load $tracefile: memory: " .
+                            lcovutil::current_process_size() . "\n")
                 if $lcovutil::debug;    # predicate to avoid function call...
         };
         my $then = Time::HiRes::gettimeofday();
         $lcovutil::profileData{parse}{$tracefile} = $then - $now;
         if ($@) {
-            lcovutil::ignorable_error($ERROR_CORRUPT,
+            lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
                                   "unable to read trace file '$tracefile': $@");
             next;
         }

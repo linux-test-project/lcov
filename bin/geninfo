@@ -323,7 +323,8 @@ if (defined($rc_adjust_src_path)) {
 
         chomp($msg);
         $msg =~ s/at \(eval.*$//;
-        warn("WARNING: invalid pattern in geninfo_adjust_src_path: $msg\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                          "invalid pattern in geninfo_adjust_src_path: $msg\n");
 
     } else {
         if (!defined($replace)) {
@@ -373,7 +374,7 @@ if (0 == scalar(@gcov_tool)) {
         $tool = abs_path($tool);
     }
     if (!-x $tool) {
-        die("Error: cannot access gcov tool '$gcov_tool[0]'");
+        die("cannot access gcov tool '$gcov_tool[0]'");
     }
     $gcov_tool[0] = $tool;
     if (scalar(@gcov_tool) > 1) {
@@ -390,7 +391,7 @@ if (scalar(@lcovutil::extractVersionScript) > 1) {
 
 # Check gcov tool
 if (system_no_output(3, @gcov_tool, "--help") == -1) {
-    die("ERROR: failed execution of gcov_tool \"" .
+    die("failed execution of gcov_tool \"" .
         join(' ', @gcov_tool) . " --help\": $!");
 }
 
@@ -409,8 +410,7 @@ if ($rc_intermediate eq "0") {
                           !$lcovutil::exclude_exception_branch) ||
                          $gcov_caps->{'json-format'}) ? 1 : 0;
 } else {
-    die("ERROR: invalid value for geninfo_intermediate: " .
-        "'$rc_intermediate'\n");
+    die("invalid value for geninfo_intermediate: " . "'$rc_intermediate'\n");
 }
 
 if ($gcov_version >= (9 << 16) &&
@@ -424,19 +424,19 @@ if ($gcov_version >= (9 << 16) &&
 if ($intermediate) {
     info("Using intermediate gcov format\n");
     if ($opt_derive_func_data) {
-        warn("WARNING: --derive-func-data is not compatible with " .
+        warn("--derive-func-data is not compatible with " .
              "intermediate format - ignoring\n");
         $opt_derive_func_data = 0;
     }
     if ($lcovutil::exclude_exception_branch && !$gcov_caps->{'json-format'}) {
-        die("ERROR: excluding exception branches is not compatible with " .
+        die("excluding exception branches is not compatible with " .
             "text intermediate format\n");
     }
 }
 
 if ($lcovutil::exclude_exception_branch &&
     ($gcov_version < $GCOV_VERSION_3_3_0)) {
-    die("ERROR: excluding exception branches is not compatible with " .
+    die("excluding exception branches is not compatible with " .
         "gcov versions older than 3.3\n");
 }
 
@@ -469,7 +469,8 @@ parse_cov_filters(@opt_filter);
 
 # Make sure test names only contain valid characters
 if ($test_name =~ s/\W/_/g) {
-    warn("WARNING: invalid characters removed from testname!\n");
+    lcovutil::ingnorable_warning($lcovutil::ERROR_FORMAT,
+                                 "invalid characters removed from testname");
 }
 
 # Adjust test name to include uname output if requested
@@ -577,7 +578,7 @@ foreach my $dir (@lcovutil::internal_dirs) {
 }
 
 if ($initial && $lcovutil::br_coverage && !$intermediate) {
-    warn("Note: --initial does not generate branch coverage data\n");
+    warn("--initial does not generate branch coverage data\n");
 }
 
 # where to write parallel child data
@@ -614,7 +615,8 @@ if (0 == $exit_code) {
         $lcovutil::profileData{write}  = $then - $f;
     }
     if ($files_created == 0) {
-        warn("WARNING: no data generated\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                  "no data generated\n");
     }
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{emit} = $then - $now;
@@ -1022,7 +1024,7 @@ sub gen_info(@)
             my $now = Time::HiRes::gettimeofday();
             my @found =
                 `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>$lcovutil::devnull`;
-            die("Error return code from 'find \"$directory\" ...': $!")
+            die("eturn code from 'find \"$directory\" ...': $!")
                 if ($?);
             my $then = Time::HiRes::gettimeofday();
             $lcovutil::profileData{find}{$directory} = $then - $now;
@@ -1037,9 +1039,8 @@ sub gen_info(@)
             # keep track of directory where we found the file
             foreach my $entry (@found) {
                 if (exists($files{$entry})) {
-                    warn(
-                        "duplicate file $directory fone in both $directory and "
-                            . $files{$entry} / "\n");
+                    warn("duplicate file $directory in both $directory and " .
+                         $files{$entry} . "\n");
                 } else {
                     ++$total;
                 }
@@ -1052,8 +1053,8 @@ sub gen_info(@)
             my $d = dirname($directory);
 
             if (exists($files{$directory})) {
-                warn("duplicate file $directory fone in both $d and " .
-                     $files{$directory} / "\n");
+                warn("duplicate file $directory in both $d and " .
+                     $files{$directory} . "\n");
             } else {
                 ++$total;
             }
@@ -1073,9 +1074,8 @@ sub gen_info(@)
                     $chunkSize = $1;
                 }
             } else {
-                warn(
-                    "geninfo_chunk_size '$defaultChunkSize' is not recognized - ignoring\n"
-                );
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                    "geninfo_chunk_size '$defaultChunkSize' is not recognized");
             }
         }
         # Need to balance time in child vs. time to merge child data -
@@ -1485,9 +1485,9 @@ sub process_dafile($$$$)
 
     # Ignore empty graph file (e.g. source file with no statement)
     if (-z $bb_filename) {
-        warn("WARNING: empty $bb_filename (skipped)\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY, "empty $bb_filename");
         chdir($cwd) or die("can't cd back to $cwd: $!");
-        return;
+        return undef;
     }
 
     # Read contents of graph file into hash. We need it later to find out
@@ -1524,11 +1524,11 @@ sub process_dafile($$$$)
         $da_arg = File::Basename::basename($da_filename);
         my $gcda = File::Spec->catfile($tempdir, $da_arg);
         symlink($da_filename, $gcda) or
-            die("ERROR: cannot create link $gcda: $!\n");
+            die("cannot create link $gcda: $!\n");
         my $gcno = File::Spec->catfile($tempdir,
                                        File::Basename::basename($bb_filename));
         symlink($bb_filename, $gcno) or
-            die("ERROR: cannot create link $gcno: $!\n");
+            die("cannot create link $gcno: $!\n");
         $object_dir = '.';
     }
 
@@ -1572,12 +1572,13 @@ sub process_dafile($$$$)
 
     # Check for files
     if (!@gcov_list) {
-        warn("WARNING: gcov did not create any files for " . "$da_filename!\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                      "gcov did not create any files for " . "$da_filename!\n");
     }
 
     if ($code) {
         ignorable_error($ERROR_GCOV, "GCOV failed for $da_filename!");
-        return;
+        return undef;
     }
 
     my $traceFile = TraceFile->new();
@@ -1607,8 +1608,9 @@ sub process_dafile($$$$)
 
             # Skip files that are not mentioned in the graph file
             if (!@matches) {
-                warn("WARNING: cannot find an entry for " . $gcov_file .
-                     " in $graph_file_extension file, skipping file!\n");
+                lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+                             "cannot find an entry for " .
+                                 $gcov_file . " in $graph_file_extension file");
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
@@ -1616,7 +1618,8 @@ sub process_dafile($$$$)
             # Read in contents of gcov file
             my @result = read_gcov_file($gcov_file, $da_filename, $source);
             if (!defined($result[0])) {
-                warn("WARNING: skipping unreadable file " . $gcov_file . "\n");
+                lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
+                                          "$gcov_file is unreadable");
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
@@ -1626,7 +1629,8 @@ sub process_dafile($$$$)
 
             # Skip empty files
             if (!@gcov_content) {
-                warn("WARNING: skipping empty file " . $gcov_file . "\n");
+                lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                          "$gcov_file is empty");
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
@@ -1916,7 +1920,7 @@ sub solve_ambiguous_match($$$)
 
         # Compare file contents
         open(SOURCE, "<", $filename) or
-            die("ERROR: cannot read $filename: $!\n");
+            die("cannot read $filename: $!\n");
 
         $no_match = 0;
         for ($index = 2; <SOURCE>; $index += 3) {
@@ -1939,7 +1943,7 @@ sub solve_ambiguous_match($$$)
         }
     }
 
-    die("ERROR: could not match gcov data for $rel_name!\n");
+    die("could not match gcov data for $rel_name!\n");
 }
 
 #
@@ -2225,7 +2229,8 @@ sub read_gcov_file($$$)
     }
 
     if ($exclude_flag || $exclude_br_flag || $exclude_exception_br_flag) {
-        warn("WARNING: unterminated exclusion section in $filename\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+                                 "unterminated exclusion section in $filename");
     }
     return (\@result, $branchData, \@functions);
 }
@@ -2289,7 +2294,7 @@ sub read_intermediate_json($$$)
     if (!defined($json) ||
         !exists($json->{"files"}) ||
         ref($json->{"files"} ne "ARRAY")) {
-        die("ERROR: Unrecognized JSON output format in $gcov_filename\n");
+        die("Unrecognized JSON output format in $gcov_filename\n");
     }
 
     $$basedir_ref = $json->{"current_working_directory"};
@@ -2770,7 +2775,7 @@ sub process_intermediate($$$$)
         }
         if ($lcovutil::preserve_intermediates) {
             File::Copy::move($gcov_filename, $fdir) or
-                die("ERROR: cannot rename $gcov_filename: $!");
+                die("cannot rename $gcov_filename: $!");
         } else {
             unlink($gcov_filename);
         }
@@ -2820,6 +2825,7 @@ sub process_intermediate($$$$)
 
     err:
     ignorable_error($ERROR_GCOV, "$errmsg!");
+    return undef;
 }
 
 # Map LLVM versions to the version of GCC gcov which they emulate.
@@ -2830,7 +2836,7 @@ sub map_llvm_version($)
 
     return 0x040200 if ($ver >= 0x030400);
 
-    warn("WARNING: This version of LLVM's gcov is unknown.  " .
+    warn("This version of LLVM's gcov is unknown.  " .
          "Assuming it emulates GCC gcov version 4.2.\n");
 
     return 0x040200;
@@ -2883,7 +2889,7 @@ sub get_gcov_version()
     }
 
     open(GCOV_PIPE, "-|", "\"$gcov_tool[0]\" --version") or
-        die("ERROR: cannot retrieve gcov version: $!\n");
+        die("cannot retrieve gcov version: $!\n");
     local $/;
     $version_string = <GCOV_PIPE>;
     close(GCOV_PIPE) or die("unable to close gcov pipe: $!\n");
@@ -2897,7 +2903,7 @@ sub get_gcov_version()
         $version_string = (split('\n', $version_string))[0];
         chomp($version_string);
     } else {
-        warn("WARNING: cannot determine gcov version - assuming $a.$b.$c\n");
+        warn("cannot determine gcov version - assuming $a.$b.$c\n");
     }
     $result = $a << 16 | $b << 8 | $c;
 
@@ -2975,8 +2981,9 @@ sub process_graphfile($$)
 
     # Ignore empty graph file (e.g. source file with no statement)
     if (-z $graph_filename) {
-        warn("WARNING: empty $graph_filename (skipped)\n");
-        return;
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                  "empty $graph_filename");
+        return undef;
     }
 
     if ($gcov_version < $GCOV_VERSION_3_4_0) {
@@ -3097,7 +3104,8 @@ sub graph_read(*$;$$)
     if ($peek) {
         $pos = tell($handle);
         if ($pos == -1) {
-            warn("Could not get current file position: $!\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
+                                     "Could not get current file position: $!");
             return undef;
         }
     }
@@ -3125,7 +3133,8 @@ sub graph_read(*$;$$)
     }
     if ($peek) {
         if (!seek($handle, $pos, 0)) {
-            warn("Could not set file position: $!\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
+                                      "Could not set file position: $!");
             return undef;
         }
     }
@@ -3615,7 +3624,8 @@ sub read_bb($)
         } elsif ($value > 0) {
             # Line number
             if (!defined($filename) || !defined($function)) {
-                warn("WARNING: unassigned line number $value\n");
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                          "unassigned line number $value");
                 next;
             }
             push(@{$bb->{$function}->{$filename}}, $value);
@@ -3733,7 +3743,8 @@ sub read_bbg_lines_record(*$$$$$)
         }
         # Got an actual line number
         if (!defined($filename)) {
-            warn("WARNING: unassigned line number in $bbg_filename\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                     "unassigned line number in $bbg_filename");
             next;
         }
         push(@{$bb->{$function}->{$filename}}, $lineno);
@@ -3932,7 +3943,8 @@ sub read_gcno_lines_record(*$$$$$$)
         }
         # Got an actual line number
         if (!defined($filename)) {
-            warn("WARNING: unassigned line number in $gcno_filename\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                    "unassigned line number in $gcno_filename");
             next;
         }
         # Add to list
@@ -3978,8 +3990,9 @@ sub determine_gcno_split_crc($$$$)
             return 1;
         } else {
             # Sanity check
-            warn("Found overlong string in function record: " .
-                 "try '--compat split_crc'\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                "Found overlong string in function record:  try '--compat split_crc'"
+            );
         }
     }
 
@@ -4157,7 +4170,8 @@ sub read_gcno($)
         if ($next_pos > $filelength) {
             debug("Overlong record: file_length=$filelength " .
                   "rec_length=$length\n");
-            warn("WARNING: $gcno_filename: Overlong record at end of file!\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                              "$gcno_filename: Overlong record at end of file");
             last;
         }
         # Process record
@@ -4225,7 +4239,7 @@ sub get_gcov_capabilities()
 {
     my $help = join(' ', @gcov_tool) . ' --help';
     $help = `$help`;
-    die("Error return code from '\"$gcov_tool[0]\" --help': $!")
+    die("return code from '\"$gcov_tool[0]\" --help': $!")
         if ($?);
     my %capabilities;
     my %short_option_translations = ('a' => 'all-blocks',
@@ -4313,20 +4327,19 @@ sub parse_compat_modes($)
         #   mode (implies on)
         if ($directive !~ /^(\w+)=(\w+)$/ &&
             $directive !~ /^(\w+)$/) {
-            die("ERROR: Unknown compatibility mode specification: " .
-                "$directive!\n");
+            die("Unknown compatibility mode specification: " . "$directive!\n");
         }
         # Determine mode
         $mode = $COMPAT_NAME_TO_MODE{lc($1)};
         if (!defined($mode)) {
-            die("ERROR: Unknown compatibility mode '$1'!\n");
+            die("Unknown compatibility mode '$1'!\n");
         }
         $specified{$mode} = 1;
         # Determine value
         if (defined($2)) {
             $value = $COMPAT_NAME_TO_VALUE{lc($2)};
             if (!defined($value)) {
-                die("ERROR: Unknown compatibility mode value '$2'!\n");
+                die("Unknown compatibility mode value '$2'!\n");
             }
         } else {
             $value = $COMPAT_VALUE_ON;
@@ -4343,8 +4356,7 @@ sub parse_compat_modes($)
             my $autodetect = $COMPAT_MODE_AUTO{$mode};
 
             if (!defined($autodetect)) {
-                die("ERROR: No auto-detection for " .
-                    "mode '$name' available!\n");
+                die("No auto-detection for " . "mode '$name' available!\n");
             }
 
             if (ref($autodetect) eq "CODE") {

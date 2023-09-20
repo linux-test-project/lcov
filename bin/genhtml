@@ -207,7 +207,7 @@ our $BR_SUB = 0;
 our $BR_ADD = 1;
 
 # Error classes which users may specify to ignore during processing
-our $ERROR_SOURCE            = 0;
+$ERROR_SOURCE = 0;
 our $ERROR_UNMAPPED_LINE     = 1;
 our $ERROR_UNKNOWN_CATEGORY  = 2;
 our $ERROR_INCONSISTENT_PATH = 3;
@@ -678,7 +678,7 @@ sub get
         }
         return $missed;
     } else {
-        die("ERROR:  unexpected 'get' key $key")
+        die("unexpected 'get' key $key")
             unless exists($hash->{$key});
         return $hash->{$key};
     }
@@ -2527,7 +2527,7 @@ sub _categorizeBranchCov
             $data = LineData->new($type);
             $lineDataMap->{$line} = $data;
             # we expect the associated line to also have line coverage data
-            lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+            lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
                    "line $line of $filename has branchcov but no linecov data");
         } else {
             $data = $lineDataMap->{$line};
@@ -3236,7 +3236,7 @@ sub _read_udiff
     # Check if file exists and is readable
     stat($diff_file);
     if (!(-r _)) {
-        die("ERROR: cannot read udiff file $diff_file!\n");
+        die("cannot read udiff file $diff_file!\n");
     }
 
     $self->[DIFF_FILENAME] = $diff_file;
@@ -3284,7 +3284,7 @@ sub _read_udiff
                     die("$diff_file:$.:  %key already in linemap - marked unchangd"
                             . ($file eq $key ? '' : " (substituted '$file')"))
                         unless $self->[UNCHANGED]->{$key};
-                    warn(
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "$diff_file:$.:  duplicate 'unchanged' entry for $key\n"
                     );
                     last;
@@ -3703,7 +3703,7 @@ sub _countBranchTlaData
         # deleted lines don't have owner data...
         $srcLine = $self->line($line);
         if (!defined($srcLine)) {
-            lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
                       "no data for 'branch' line:$line, file:" . $self->path());
         } else {
             # if this line is not in the project (e.g., from some 3rd party
@@ -3815,7 +3815,7 @@ sub _countLineTlaData
         # this case can happen if the line number annotations are
         #   wrong in the .info file - so the branch coverage line
         #   number turns out not to be an executable source code line
-        lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
                "unexpected category $tla for line " . $self->path() . ":$line");
         return;
     }
@@ -3838,7 +3838,7 @@ sub _countLineTlaData
         my $l = $self->line($line);
 
         if (!defined($l)) {
-            lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
                      "no data for line:$line, TLA:$tla, file:" . $self->path());
             return;
         }
@@ -4067,7 +4067,7 @@ sub nextTlaGroup
     #  undef = nexTlaGroup('CBC', 13) : no following group
     my ($self, $tla, $after) = @_;
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
                                   "unknown linecov TLA '$tla'");
         return undef;
     }
@@ -4106,7 +4106,7 @@ sub nextBranchTlaGroup
     # report and go the next branch, even if it is on the adjacent line
     my ($self, $tla, $after) = @_;
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
                                   "unknown branch TLA '$tla'");
         return undef;
     }
@@ -4125,7 +4125,7 @@ sub nextInDateBin
     my ($self, $dateBin, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
                                   "unknown linecov TLA '$tla'");
         return undef;
     }
@@ -4145,7 +4145,7 @@ sub nextInDateBin
             my $t = $self->line($line)->tla();
             my $a = $self->line($line)->age();
             if (!defined($a)) {
-                lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+                lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
                            "no age data for line:$line, file:" . $self->path());
                 return undef;
             }
@@ -4167,13 +4167,13 @@ sub nextInDateBin
         $line = $tlaLocations->[$idx];
         my $l = $self->line($line);
         if (!defined($l)) {
-            lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
                                "no data for line:$line, file:" . $self->path());
             return undef;
         }
         my $a = $l->age();
         if (!defined($a)) {
-            lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
                            "no age data for line:$line, file:" . $self->path());
             return undef;
         }
@@ -4194,7 +4194,7 @@ sub nextInOwnerBin
     my ($self, $owner, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
                                   "unknown linecov TLA '$tla'");
         return undef;
     }
@@ -4214,14 +4214,14 @@ sub nextInOwnerBin
         for ($line = $after + 1; $line <= $lastline; ++$line) {
             my $l = $self->line($line);
             if (!defined($l)) {
-                lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+                lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
                                "no data for line:$line, file:" . $self->path());
                 return undef;
             }
             my $t = $l->tla();
             my $o = $l->owner();
             if (!defined($o)) {
-                lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+                lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
                          "no owber data for line:$line, file:" . $self->path());
                 return undef;
             }
@@ -4244,7 +4244,7 @@ sub nextBranchInDateBin
     my ($self, $dateBin, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
                                   "unknown branch TLA '$tla'");
         return undef;
     }
@@ -4266,13 +4266,13 @@ sub nextBranchInDateBin
         my $line = $lines->[$idx];
         my $l    = $self->line($line);
         if (!defined($l)) {
-            lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
                                "no data for line:$line, file:" . $self->path());
             next;
         }
         my $a = $l->age();
         if (!defined($a)) {
-            lcovutil::ignorable_error($ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
                            "no age data for line:$line, file:" . $self->path());
             return undef;
         }
@@ -4289,7 +4289,7 @@ sub nextBranchInOwnerBin
     my ($self, $owner, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
                                   "unknown branch TLA '$tla'");
         return undef;
     }
@@ -4347,7 +4347,7 @@ sub _load
     if (!defined($repo_path)) {
         if (0 == scalar(@annotateScript) &&
             !$main::synthesizeMissingFile) {
-            lcovutil::ignorable_error($ERROR_SOURCE,
+            lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
                            "\"" . $self->path() . "\" does not exist: $!" .
                                " (see --synthesize-missing option to work around)"
             );
@@ -4442,7 +4442,7 @@ sub _load
                 if @{$self->[LINES]};
             # might be useful to provide more than one line of context - if there is more than one line?
             lcovutil::ignorable_error(
-                           $ERROR_ANNOTATE_SCRIPT,
+                           $main::ERROR_ANNOTATE_SCRIPT,
                            ($! ? "annotate command '$cmd' pipe error: $!" :
                                 "non-zero exit status from annotate '$cmd' pipe"
                                ) .
@@ -4453,7 +4453,7 @@ sub _load
             $self->[LINES] = [];
         } else {
             # open failed.
-            lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
+            lcovutil::ignorable_error($main::ERROR_ANNOTATE_SCRIPT,
                                       "'open(-| $cmd)' failed: \"$!\"\n");
         }
     }    # end if annotate script exists
@@ -5454,7 +5454,7 @@ foreach my $data (['criteria_callback_levels', \@criteriaCallbackLevels,
 
 foreach my $d (@ReadCurrentSource::source_directories) {
     if (!-d $d) {
-        lcovutil::ignorable_error($ERROR_SOURCE,
+        lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
                                   "--source-directory '$d' not found");
     }
 }
@@ -5633,15 +5633,14 @@ $html_epilog = get_html_epilog($html_epilog_file);
 
 # Issue a warning if --no-sourceview is enabled together with --frames
 if ($no_sourceview && defined($frames)) {
-    warn("WARNING: option --frames disabled because --no-sourceview " .
+    warn("option --frames disabled because --no-sourceview " .
          "was specified!\n");
     $frames = undef;
 }
 
 # Issue a warning if --no-prefix is enabled together with --prefix
 if ($no_prefix && @dir_prefix) {
-    warn("WARNING: option --prefix disabled because --no-prefix was " .
-         "specified!\n");
+    warn("option --prefix disabled because --no-prefix was " . "specified!\n");
     @dir_prefix = undef;
 }
 
@@ -5977,7 +5976,7 @@ sub gen_html()
         # in either the current or baseline trace data.  Those may be
         # mapping issues - different pathname in .info file vs udiff
         if (!$diff_data->check_path_consistency($base_data, $current_data)) {
-            lcovutil::ignorable_error($ERROR_INCONSISTENT_PATH,
+            lcovutil::ignorable_error($main::ERROR_INCONSISTENT_PATH,
                   "possible path inconsistency in baseline/current/udiff data");
         }
     }
@@ -6045,7 +6044,7 @@ sub gen_html()
 
     if (@SourceFile::annotateScript &&
         0 == $SourceFile::annotatedFiles) {
-        lcovutil::ignorable_error($ERROR_ANNOTATE_SCRIPT,
+        lcovutil::ignorable_error($main::ERROR_ANNOTATE_SCRIPT,
               "\"--annotate-script '" .
                   join(' ', @SourceFile::annotateScript) .
                   "'\" did not find any revision-controlled files in your sandbox"
@@ -6075,10 +6074,10 @@ sub html_create($$)
 
     if ($html_gzip) {
         open($handle, "|-", "gzip -c > $filename'") or
-            die("ERROR: cannot open $filename for writing (gzip): $!\n");
+            die("cannot open $filename for writing (gzip): $!\n");
     } else {
         open($handle, ">", $filename) or
-            die("ERROR: cannot open $filename for writing: $!\n");
+            die("cannot open $filename for writing: $!\n");
     }
 }
 
@@ -6544,7 +6543,7 @@ sub read_testfile($)
     local *TEST_HANDLE;
 
     open(TEST_HANDLE, "<", $_[0]) or
-        die("ERROR: cannot open $_[0]: $!\n");
+        die("cannot open $_[0]: $!\n");
 
     while (<TEST_HANDLE>) {
         chomp($_);
@@ -6561,7 +6560,7 @@ sub read_testfile($)
         # Match lines beginning with TD:<whitespace(s)>
         if (/^TD:\s+(.*?)\s*$/) {
             if (!defined($test_name)) {
-                die("ERROR: Found test description without prior test name in $_[0]:$.\n"
+                die("Found test description without prior test name in $_[0]:$.\n"
                 );
             }
             # Check for empty line
@@ -6578,8 +6577,8 @@ sub read_testfile($)
     close(TEST_HANDLE) or die("unable to close HTML file: $!\n");
 
     if ($changed_testname) {
-        warn("WARNING: invalid characters removed from testname in " .
-             "descriptions file $_[0]\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+         "invalid characters removed from testname in descriptions file $_[0]");
     }
 
     return \%result;
@@ -6868,7 +6867,7 @@ sub write_png_files()
     foreach (keys(%data)) {
         my $f = File::Spec->catfile($main::output_directory, $_);
         open(PNG_HANDLE, ">", $f) or
-            die("ERROR: cannot create $f: $!\n");
+            die("cannot create $f: $!\n");
         binmode(PNG_HANDLE);
         print(PNG_HANDLE map(chr, @{$data{$_}}));
         close(PNG_HANDLE) or die("unable to close PNG handle: $!\n");
@@ -6886,7 +6885,7 @@ sub write_htaccess_file()
 
     my $f = File::Spec->catdir($main::output_directory, '.htaccess');
     open(*HTACCESS_HANDLE, ">", $f) or
-        die("ERROR: cannot open $f for writing: $!\n");
+        die("cannot open $f for writing: $!\n");
 
     $htaccess_data = (<<"END_OF_HTACCESS")
 AddEncoding x-gzip .html
@@ -6913,12 +6912,12 @@ sub write_css_file()
     if ($css_filename) {
         # Simply copy that file
         system("cp", $css_filename, $f) and
-            die("ERROR: cannot copy file $css_filename: $!\n");
+            die("cannot copy file $css_filename: $!\n");
         return;
     }
 
     open(CSS_HANDLE, ">", $f) or
-        die("ERROR: cannot open $f for writing: $!\n");
+        die("cannot open $f for writing: $!\n");
 
     # *************************************************************
 
@@ -7733,7 +7732,7 @@ sub write_html(*$)
     $html_code =~ s/^\t//gm;
 
     print(HTML_HANDLE $html_code) or
-        die("ERROR: cannot write HTML data ($!)\n");
+        die("cannot write HTML data ($!)\n");
 }
 
 #
@@ -8835,7 +8834,7 @@ sub write_source_line(*$$$$)
         if (exists($lcovutil::pngChar{$bucket})) {
             $pchar = $lcovutil::pngChar{$bucket};
         } else {
-            lcovutil::ignorable_error($ERROR_UNKNOWN_CATEGORY,
+            lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
                                       "unexpected TLA '$bucket'");
             $pchar = '';
             $count = 0 unless defined($count);
@@ -8945,7 +8944,7 @@ sub write_source_line(*$$$$)
                     OWNER: {
                         if (!defined($src_owner) || !defined($src_age)) {
                             # maybe this should be a different error type?
-                            main::ignorable_eror($ERROR_UNMAPPED_LINE,
+                            lcovutil::ignorable_eror($main::ERROR_UNMAPPED_LINE,
                                       "undefined owner/age for $bucket $line " .
                                           $sourceDetail->path());
                             last OWNER;
@@ -10839,8 +10838,8 @@ sub write_source($$$$$$$)
         $cbdata->lineNo($line_number);
 
         # Source code matches coverage data?
-        die("ERROR: checksum mismatch  at " .
-            $srcfile->path() . ":$line_number\n")
+        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+                "checksum mismatch  at " . $srcfile->path() . ":$line_number\n")
             if (
                defined($checkdata->value($line_number)) &&
                ($checkdata->value($line_number) ne md5_base64($srcline->text()))
@@ -11212,7 +11211,7 @@ sub get_html_prolog($)
         local *HANDLE;
 
         open(HANDLE, "<", $filename) or
-            die("ERROR: cannot open html prolog $filename: $!\n");
+            die("cannot open html prolog $filename: $!\n");
         while (<HANDLE>) {
             $result .= $_;
         }
@@ -11251,7 +11250,7 @@ sub get_html_epilog($)
         local *HANDLE;
 
         open(HANDLE, "<", $filename) or
-            die("ERROR: cannot open html epilog $filename: $!\n");
+            die("cannot open html epilog $filename: $!\n");
         while (<HANDLE>) {
             $result .= $_;
         }
