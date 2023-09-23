@@ -1912,9 +1912,15 @@ Substitutions are performed on
 .I tooltip_string:
 
 .IP "       %C:"
-commit ID (from annotate callback - see --anotate-script entry in genhtml documentation
+commit ID (from annotate callback - see
+.I --anotate-script
+entry in the
+.B genhtml
+man page)
 .IP "       %U:"
-commit author name
+commit author abbreviated name (returned by annotate callback)
+.IP "       %F:"
+commit author full name (returned by annotate callback)
 .IP "       %D:"
 commit date (as returned by annotate callback)
 .IP "       %d:"

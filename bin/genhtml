@@ -3505,18 +3505,20 @@ use constant {
               LINE         => 0,
               TEXT         => 1,
               OWNER        => 2,
-              DATE         => 3,
-              AGE          => 4,
-              COMMIT       => 5,
-              LINE_TLA     => 6,
-              BRANCH_TLA   => 7,
-              FUNCTION_TLA => 8,
+              FULL_NAME    => 3,
+              DATE         => 4,
+              AGE          => 5,
+              COMMIT       => 6,
+              LINE_TLA     => 7,
+              BRANCH_TLA   => 8,
+              FUNCTION_TLA => 9,
 };
 
 sub new
 {
     my $class = shift;
-    my @data  = @_;      #[lineNo, text, owner, date, age, commitID, lineCovTla]
+    my @data  = @_
+        ; #[lineNo, text, abbrev_name, full_name, date, age, commitID, lineCovTla]
         # [line, text, owner, date, age, commit, lineTLA, branchTLA, functionTLA
     my $self = \@data;
     bless $self, $class;
@@ -3527,6 +3529,12 @@ sub owner
 {
     my $self = shift;
     return $#$self >= OWNER ? $self->[OWNER] : undef;
+}
+
+sub full_name
+{
+    my $self = shift;
+    return $#$self >= FULL_NAME ? $self->[FULL_NAME] : undef;
 }
 
 # line coverage TLA
@@ -3586,7 +3594,7 @@ sub text
 
 package SourceFile;
 our @annotateScript;
-our $annotateTooltip = 'Line %l: commit %C on %d';
+our $annotateTooltip = 'Line %l: commit %C on %d by %F';
 our $annotatedFiles  = 0;
 our $totalFiles      = 0;
 
@@ -4378,28 +4386,35 @@ sub _load
 
                 my ($commit, $owner, $when, $text) = split(/\|/, $line, 4);
                 my $age = _computeAge($when, $path);
+                # semicolon is not a legal character in email address -
+                #   so we use that to delimit the 'abbreviated name' and
+                #   the 'full name' - in case they are different.
+                # this is an attempt to be backward-compatible with
+                # existing annotation scripts which return only one name
+                my ($abbrev, $full) = split(/;/, $owner, 2);
                 if ($commit ne 'NONE') {
                     die("inconsistent 'annotate' data for '$repo_path': both 'commit' and 'no commit' lines"
                     ) if (defined($found) && !$found);
                     $found = 1;
 
-                    defined($owner) or
+                    defined($abbrev) or
                         die("owner is undef for $repo_path:$lineNum");
-                    $self->[LINE_OWNERS]->{$owner} = {}
-                        unless exists($self->[LINE_OWNERS]->{$owner});
-                    my $dhash = $self->[LINE_OWNERS]->{$owner};
+                    $self->[LINE_OWNERS]->{$abbrev} = {}
+                        unless exists($self->[LINE_OWNERS]->{$abbrev});
+                    my $dhash = $self->[LINE_OWNERS]->{$abbrev};
                     $dhash->{lines} = []
                         unless exists($dhash->{lines});
                     push(@{$dhash->{lines}}, $lineNum);
                 } else {
                     die("inconsistent 'annotate' data for '$repo_path': both 'no commit' and 'commit' lines"
                     ) if (defined($found) && $found);
-                    $found = 0;
-                    $owner = "no.body";
+                    $found  = 0;
+                    $abbrev = "no.body";
                 }
+                $full = $abbrev unless defined($full);
                 push @{$self->[LINES]},
-                    SourceLine->new($lineNum, $text, $owner, $when, $age,
-                                    $commit);
+                    SourceLine->new($lineNum, $text, $abbrev, $full,
+                                    $when, $age, $commit);
             }
             close(HANDLE);
             my $status = $? >> 8;
@@ -4513,6 +4528,7 @@ sub _synthesize
             DateTime->from_epoch(epoch => $ENV{SOURCE_DATE_EPOCH}) :
             DateTime->now();
         push(@fakeline, 'no.body',                # owner
+             'fake user',                         # full name
              $now,                                # when
              _computeAge($now, $self->path()),    # age
              'synthesized');    # commit ID
@@ -8855,6 +8871,7 @@ sub write_source_line(*$$$$)
         my $date = $lineData->date();
         $date =~ s/(T.+)$//;    # just the year/month/day part
         foreach my $p (['%U', $lineData->owner()],
+                       ['%F', $lineData->full_name()],
                        ['%D', $lineData->date()],
                        ['%d', $date],
                        ['%A', $lineData->age()],

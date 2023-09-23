@@ -109,10 +109,10 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
                             $commit = $changelists{$commit};
                         }
                     }
-
                     # line owner filtering to canonical form
                     $owner =~ s/ dot /./g;
                     $owner =~ s/ at /\@/;
+                    $fullname = $owner;
 
                     if ($internal_domain) {
                         ## strip domain part for internal users...
@@ -129,7 +129,10 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
                     $when =~ s/\s//;
                     # insert ':' between hour and minute digits of zone offset
                     $when =~ s/([0-9][0-9])$/:$1/;
-                    printf("%s|%s|%s|%s\n", $commit, $owner, $when, $text);
+                    # ';' is not a legal character in an email address -
+                    #  so use it as a delimiter
+                    printf("%s|%s;%s|%s|%s\n",
+                           $commit, $owner, $fullname, $when, $text);
                     die("no uniform match") if defined($matched) && !$matched;
                     $matched = 1;
                 } else {

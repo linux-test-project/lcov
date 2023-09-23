@@ -292,12 +292,13 @@ branch_coverage = 0
 #  %d:  line number
 #  %C:  commit ID (from annotate callback - see --anotate-script entry in
 #       genhtml documentation)
-#  %U:  commit author name
+#  %U:  commit author abbreviated name
+#  %F:  commit author full name
 #  %D:  commit date (as returned by annotate callback)
 #  %d:  simplified commit date - yyyy-mm-dd part only (remove time of day)
 #  %A:  commit age
 #  %l:  line number
-#genhtml_annotate_tooltip = Commit ID: %C by %U on %D
+#genhtml_annotate_tooltip = Commit ID: %C by %F on %D
 
 # specify coverage criteria script for genhtml
 #genhtml_criteria_script = path_to_my_executable

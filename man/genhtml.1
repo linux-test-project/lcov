@@ -927,7 +927,7 @@ executable should output a line to the standard output stream in the following f
 .br
 
 .RS
-.IR commit_id | author_id | date | source_code
+.IR commit_id | author_data | date | source_code
 .br
 .RE
 
@@ -950,10 +950,33 @@ and as 'successfully annotated' otherwise.
 .RE
 .br
 
-.B author_id
+.B author_data
 .br
 .RS
-identifies the author of the last change
+identifies the author of the last change.
+.br
+For backward compatibility with existing annotate-script implementations,
+two
+.I author_data
+formats are supportd:
+.IP - 3
+.I string
+:  the string used as both the 'abbreviated name' (used as 'owner' name in
+HTML output and callbacks) and as 'full name' (used in tooltip callbacks)
+.PP
+.IP - 3
+.I abbrev_string;full_name
+: the
+.I author_data
+string contains both an 'abbreviated name' and a 'full name' - separated by a semicolon character (';').
+.br
+This is useful when generating coverage reports for opensource software
+components where there are many 'External' contributors who you do not want
+to distinguish in 'owner' summary tables but you still want to know who the
+actual author was.  (See the
+.B gitblame
+callback script for an example.)
+.PP
 .br
 .RE
 .br
