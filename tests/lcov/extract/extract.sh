@@ -90,9 +90,9 @@ if [ "${VER[0]}" -lt 5 ] ; then
     FILTER='--filter branch'
 fi
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.*
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log
 if [ -d separate ] ; then
-    chmod -R u+w separate
+    chmod -R ug+rxw separate
     rm -rf separate
 fi
 
@@ -373,6 +373,7 @@ if [ 0 != $? ] ; then
     echo "Error:  execution failed"
     exit 1
 fi
+mkdir separate/run/my/test/no_read
 chmod ugo-w separate/run
 $COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/build -d separate/run/my/test -o separate.info $FILTER $IGNORE
 if [ 0 != $? ] ; then
@@ -397,6 +398,41 @@ for d in separate.info copy.info ; do
         exit 1
     fi
 done
+
+# trigger an error from an unreadable directory..
+chmod ugo-rx separate/run/my/test/no_read
+$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o unreadable.info $FILTER $IGNORE 2>&1 | tee err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected fail from unreadable dire"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+grep "error in 'find" err.log
+if [ 0 != $? ] ; then
+    echo "expected error not found"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o unreadable.info $FILTER $IGNORE --ignore utility 2>&1 | tee warn.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  extract from unreadbale failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep "error in 'find" warn.log
+if [ 0 != $? ] ; then
+    echo "expected warning not found"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+chmod -R ug+rxw separate
 
 echo "Tests passed"
 

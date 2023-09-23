@@ -1024,7 +1024,8 @@ sub gen_info(@)
             my $now = Time::HiRes::gettimeofday();
             my @found =
                 `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>$lcovutil::devnull`;
-            die("eturn code from 'find \"$directory\" ...': $!")
+            lcovutil::ignorable_error($lcovutil::ERROR_UTILITY,
+                                      "error in 'find \"$directory\" ...': $!")
                 if ($?);
             my $then = Time::HiRes::gettimeofday();
             $lcovutil::profileData{find}{$directory} = $then - $now;
@@ -2703,7 +2704,9 @@ sub process_intermediate($$$$)
             my $gcda = File::Spec->catfile($tempdir, $data_file);
             debug("create links to process $filename in $tempdir\n");
             symlink($file, $gcda);
-            if ($?) {
+            # unclear why symlink returns an error code when it actually
+            #  created the link
+            if ($? && !-l $gcda) {
                 $errmsg = "unable to create link $data_file: $!";
                 goto err;
             }
@@ -2711,7 +2714,7 @@ sub process_intermediate($$$$)
             my $g    = solve_relative_path($cwd, $gcno_file);
             my $gcno = File::Spec->catfile($tempdir, basename($gcno_file));
             symlink($g, $gcno);
-            if ($?) {
+            if ($? && !-l $gcda) {
                 $errmsg = "unable to create link $gcno: $!";
                 goto err;
             }

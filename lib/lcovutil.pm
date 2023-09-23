@@ -66,7 +66,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
-     $ERROR_CALLBACK $ERROR_RANGE
+     $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
@@ -122,6 +122,7 @@ our $ERROR_DEPRECATED        = 15; # deprecated feature
 our $ERROR_CALLBACK          = 16; # callback produced an error
 our $ERROR_INCONSISTENT_DATA = 17; # somthing wrong with .info
 our $ERROR_RANGE             = 18; # line number out of range
+our $ERROR_UTILITY           = 19; # some tool failed - e.g., 'find'
 
 our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "source"       => $ERROR_SOURCE,
@@ -141,6 +142,7 @@ our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "inconsistent" => $ERROR_INCONSISTENT_DATA,
                     "deprecated"   => $ERROR_DEPRECATED,
                     "callback"     => $ERROR_CALLBACK,
+                    'utility'      => $ERROR_UTILITY,
                     "package"      => $ERROR_PACKAGE,);
 our $stop_on_error;    # attempt to keep going
 our $warn_once_per_file = 1;
