@@ -290,7 +290,8 @@ if (!($lcovutil::lcov_capture || @add_tracefile) &&
     foreach my $e (@lcovutil::extractVersionScript) {
         $e = "'$e'" if ($e =~ /\s/);
     }
-    warn("--version-script ignored except with --capture or --add-tracefile");
+    lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+           "--version-script ignored except with --capture or --add-tracefile");
 }
 
 # Check list width option
@@ -324,7 +325,8 @@ if (@ARGV &&
 
 if (defined($lcovutil::opt_no_external) &&
     !(defined($lcovutil::lcov_capture) && $lcovutil::lcov_capture != 0)) {
-    warn("'--no-external' is ignored except in 'lcov --capture|-c'\n");
+    lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+                  "'--no-external' is ignored except in 'lcov --capture|-c'\n");
     $lcovutil::opt_no_external = 0;
 }
 
@@ -616,7 +618,8 @@ sub userspace_reset()
         my $count = 0;
         foreach my $current_dir (@dirs) {
             if (!-d $current_dir) {
-                warn("$current_dir is not a directory - skpping\n");
+                lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                                          "$current_dir is not a directory");
                 next;
             }
             ++$count;

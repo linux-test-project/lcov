@@ -5499,11 +5499,11 @@ if (@SourceFile::annotateScript) {
 }
 if (0 != (defined($diff_filename) ^ (0 != scalar(@base_filenames)))) {
     if (@base_filenames) {
-        warn(
+        lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
             "Specified --baseline-file without --diff-file: assuming no source differences.  Hope that is OK.\n"
         );
     } else {
-        warn(
+        lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
             "Specified --diff-file without --baseline-file: assuming baseline code coverage was empty (nothing covered).  Hope that is OK\n"
         );
         # OK..just assume that the baseline is empty...
@@ -5633,14 +5633,15 @@ $html_epilog = get_html_epilog($html_epilog_file);
 
 # Issue a warning if --no-sourceview is enabled together with --frames
 if ($no_sourceview && defined($frames)) {
-    warn("option --frames disabled because --no-sourceview " .
-         "was specified!\n");
+    lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+             "option --frames disabled because --no-sourceview was specified.");
     $frames = undef;
 }
 
 # Issue a warning if --no-prefix is enabled together with --prefix
 if ($no_prefix && @dir_prefix) {
-    warn("option --prefix disabled because --no-prefix was " . "specified!\n");
+    lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+                    "option --prefix disabled because --no-prefix was ignored");
     @dir_prefix = undef;
 }
 

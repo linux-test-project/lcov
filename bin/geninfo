@@ -424,8 +424,8 @@ if ($gcov_version >= (9 << 16) &&
 if ($intermediate) {
     info("Using intermediate gcov format\n");
     if ($opt_derive_func_data) {
-        warn("--derive-func-data is not compatible with " .
-             "intermediate format - ignoring\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+               "--derive-func-data is not compatible with intermediate format");
         $opt_derive_func_data = 0;
     }
     if ($lcovutil::exclude_exception_branch && !$gcov_caps->{'json-format'}) {
@@ -578,7 +578,8 @@ foreach my $dir (@lcovutil::internal_dirs) {
 }
 
 if ($initial && $lcovutil::br_coverage && !$intermediate) {
-    warn("--initial does not generate branch coverage data\n");
+    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                            "--initial does not generate branch coverage data");
 }
 
 # where to write parallel child data
@@ -1018,6 +1019,11 @@ sub gen_info(@)
     my %files;
     my $total = 0;
     foreach my $directory (@_) {
+        unless (-e $directory) {
+            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                                      "no such file or directory '$directory'");
+            next;
+        }
         if (-d $directory) {
             info("Scanning $directory for $ext files ...\n");
 
@@ -1040,22 +1046,37 @@ sub gen_info(@)
             # keep track of directory where we found the file
             foreach my $entry (@found) {
                 if (exists($files{$entry})) {
-                    warn("duplicate file $directory in both $directory and " .
-                         $files{$entry} . "\n");
+                    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_USAGE,
+                        "duplicate file $entry in both $files{$entry} and $directory"
+                            .
+                            (lcovutil::is_ignored($lcovutil::ERROR_USAGE) ?
+                                 ' (skip latter)' :
+                                 ''));
+                    next;
                 } else {
                     ++$total;
                 }
                 $files{$entry} = $directory;
             }
         } else {
-            die("no such file or directory '$directory'")
-                unless (-e $directory);
+            my ($name, $d, $e) = fileparse($directory, qr/\.[^.]*/);
+            if ($e ne $ext) {
+                lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                       "$directory has unsupported extension: expected '$ext'" .
+                           ($initial ? " for initial capture" : ""));
+                next;
+            }
             # use the directory where we find the file as the base dir
-            my $d = dirname($directory);
-
             if (exists($files{$directory})) {
-                warn("duplicate file $directory in both $d and " .
-                     $files{$directory} . "\n");
+                lcovutil::ignorable_error(
+                   $lcovutil::ERROR_USAGE,
+                   "duplicate file $directory in both $files{$directory} and $d"
+                       .
+                       (lcovutil::is_ignored($lcovutil::ERROR_USAGE) ?
+                            ' (skip latter)' :
+                            ''));
+                next;
             } else {
                 ++$total;
             }
@@ -1098,9 +1119,6 @@ sub gen_info(@)
         lcovutil::info(2, "schedule %s in %d\n", $filename, scalar(@worklist));
         # find the corresponding gcno file...
         my ($name, $d, $e) = fileparse($filename, qr/\.[^.]*/);
-        die("unexpected extension '$e': should be $ext" .
-            ($initial ? " for initial capture" : ""))
-            unless ($e eq $ext);
         my ($gcda_file, $gcno_file);
         if ($initial) {
             $gcno_file = $filename;

@@ -66,7 +66,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
-     $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY
+     $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE
      $ERROR_PARALLEL report_parallel_error
      $stop_on_error
 
@@ -123,6 +123,7 @@ our $ERROR_CALLBACK          = 16; # callback produced an error
 our $ERROR_INCONSISTENT_DATA = 17; # somthing wrong with .info
 our $ERROR_RANGE             = 18; # line number out of range
 our $ERROR_UTILITY           = 19; # some tool failed - e.g., 'find'
+our $ERROR_USAGE             = 20; # misusing some feature
 
 our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "source"       => $ERROR_SOURCE,
@@ -143,6 +144,7 @@ our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
                     "deprecated"   => $ERROR_DEPRECATED,
                     "callback"     => $ERROR_CALLBACK,
                     'utility'      => $ERROR_UTILITY,
+                    'usage'        => $ERROR_USAGE,
                     "package"      => $ERROR_PACKAGE,);
 our $stop_on_error;    # attempt to keep going
 our $warn_once_per_file = 1;
@@ -1205,8 +1207,8 @@ sub munge_file_patterns
                         last;
                     }
                 }
-                warn(
-                    "--$flag pattern '$pat' does not seem to be case insensitive - but you asked for case insenstive matching\n"
+                lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+                    "--$flag pattern '$pat' does not seem to be case insensitive - but you asked for case insenstive matching"
                 );
             }
         }
