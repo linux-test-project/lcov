@@ -5510,10 +5510,11 @@ sub _read_info
             $filename = lcovutil::subst_file_name($1);
             # should this one be skipped?
             $skipCurrentFile = skipCurrentFile($filename);
-            if ($skipCurrentFile &&
-                !exists($lcovutil::excluded_files{$filename})) {
-                $lcovutil::excluded_files{$filename} = 1;
-                lcovutil::info("Excluding $filename\n");
+            if ($skipCurrentFile) {
+                if (!exists($lcovutil::excluded_files{$filename})) {
+                    $lcovutil::excluded_files{$filename} = 1;
+                    lcovutil::info("Excluding $filename\n");
+                }
                 next;
             }
 
