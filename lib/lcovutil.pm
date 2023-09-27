@@ -1829,6 +1829,7 @@ sub extractFileVersion
     if (open(VERS, "-|", $cmd)) {
         $version = <VERS>;
         chomp($version);
+        $version =~ s/\r//;
         close(VERS);
         my $status = $? >> 8;
         0 == $status
@@ -3997,6 +3998,7 @@ sub parseLines
         my $exclude_branch_line           = 0;
         my $exclude_exception_branch_line = 0;
         chomp($_);
+        s/\r//;    # remove carriage return
         foreach my $d ([$excl_start, $excl_stop, \$exclude_region],
                        [$excl_br_start, $excl_br_stop, \$exclude_br_region],
                        [$excl_ex_start, $excl_ex_stop,
@@ -4252,8 +4254,8 @@ sub containsTrivialFunction
     for (my $line = $start; $line <= $end; ++$line) {
         my $src = $self->getLine($line);
         chomp($src);
-        # remove end-of-line comments
-        $src =~ s#//.*$##;
+        $src =~ s/\s+$//;     # whitespace
+        $src =~ s#//.*$##;    # remove end-of-line comments
         $text .= $src;
     }
     # remove any multiline comments that were present:
@@ -5502,6 +5504,7 @@ sub _read_info
     while (<$infoHdl>) {
         chomp($_);
         my $line = $_;
+        $line =~ s/\s+$//;    # whitespace
 
         next if $line =~ /^#/;    # skip comment
 
