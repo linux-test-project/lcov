@@ -87,7 +87,7 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
                  warn_file_patterns
-                 %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
+                 %lcovErrors $ERROR_GCOV $ERROR_SOURCE $ERROR_MISMATCH
                  $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION
                  $ERROR_UNUSED $ERROR_PACKAGE $ERROR_CORRUPT
                  $ERROR_PARALLEL report_parallel_error
@@ -115,16 +115,6 @@ our $pkg_build_file = ".build_directory";
 # Branch data combination types
 our $BR_SUB = 0;
 our $BR_ADD = 1;
-
-lcovutil::define_errors(\%lcovutil::geninfoErrs);
-
-# right now, all the lcov errors can also be produced by geninfo - none are unique
-# $unique_error_num   = scalar(keys(%lcovutil::geninfoErrs));
-# errors unique to 'lcov':
-#our %lcovErrs = (
-#  "err_name" => $unique_error_num_MISMATCH,
-#);
-#lcovutil::define_errors(\%lcovErrs);
 
 # Prototypes
 sub print_usage(*);
@@ -884,7 +874,7 @@ sub lcov_geninfo(@)
     ) {
         # pass only the 'ignore' options that geninfo understands
         push(@param, "--ignore-errors", $_)
-            if exists($lcovutil::geninfoErrs{$_});
+            if exists($lcovutil::lcovErrors{$_});
     }
     foreach (@lcovutil::opt_filter) {
         push(@param, "--filter", $_);

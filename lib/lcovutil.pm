@@ -26,7 +26,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      info warn_once set_info_callback init_verbose_flag $verbose
      debug $debug
      append_tempdir create_temp_dir temp_cleanup folder_is_empty $tmp_dir $preserve_intermediates
-     define_errors parse_ignore_errors ignorable_error ignorable_warning is_ignored
+     define_errors parse_ignore_errors ignorable_error ignorable_warning
+     is_ignored message_count
      die_handler warn_handler abort_handler
 
      $maxParallelism $maxMemory init_parallel_params current_process_size
@@ -62,12 +63,14 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
 
      $lcov_filter_parallel $lcov_filter_chunk_size
 
-     %geninfoErrs $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
+     %lcovErrors $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
-     $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT
+     $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_PATH
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
      $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE
      $ERROR_PARALLEL report_parallel_error
+
+     $ERROR_UNMAPPED_LINE $ERROR_UNKNOWN_CATEGORY $ERROR_ANNOTATE_SCRIPT
      $stop_on_error
 
      @extractVersionScript $verify_checksum
@@ -102,7 +105,9 @@ our $verbose = 0;    # default level - higher to enable additional logging
 
 our $split_char = ',';    # by default: split on comma
 
-# geninfo errors are shared by 'lcov' - so we put them in a common location
+# share common definition for all error types.
+# Note that geninfo cannot produce some types produced by genhtml, and vice
+# versa.  Easier to maintain a common definition.
 our $ERROR_GCOV              = 0;
 our $ERROR_SOURCE            = 1;
 our $ERROR_GRAPH             = 2;
@@ -124,28 +129,39 @@ our $ERROR_INCONSISTENT_DATA = 17; # somthing wrong with .info
 our $ERROR_RANGE             = 18; # line number out of range
 our $ERROR_UTILITY           = 19; # some tool failed - e.g., 'find'
 our $ERROR_USAGE             = 20; # misusing some feature
+our $ERROR_PATH              = 21; # path issues
+# genhtml errors
+our $ERROR_UNMAPPED_LINE = 22;     # inconsistent coverage data
+our $ERROR_UNKNOWN_CATEGORY =
+    23;    # we did something wrong with inconsistent data
+our $ERROR_ANNOTATE_SCRIPT = 24;    # annotation failed somehow
 
-our %geninfoErrs = ("gcov"         => $ERROR_GCOV,
-                    "source"       => $ERROR_SOURCE,
-                    "range"        => $ERROR_RANGE,
-                    "branch"       => $ERROR_BRANCH,
-                    "mismatch"     => $ERROR_MISMATCH,
-                    "graph"        => $ERROR_GRAPH,
-                    "format"       => $ERROR_FORMAT,
-                    "empty"        => $ERROR_EMPTY,
-                    "version"      => $ERROR_VERSION,
-                    "unused"       => $ERROR_UNUSED,
-                    "parallel"     => $ERROR_PARALLEL,           # error on wait
-                    "corrupt"      => $ERROR_CORRUPT,
-                    "negative"     => $ERROR_NEGATIVE,
-                    "count"        => $ERROR_COUNT,
-                    "unsupported"  => $ERROR_UNSUPPORTED,
-                    "inconsistent" => $ERROR_INCONSISTENT_DATA,
-                    "deprecated"   => $ERROR_DEPRECATED,
-                    "callback"     => $ERROR_CALLBACK,
-                    'utility'      => $ERROR_UTILITY,
-                    'usage'        => $ERROR_USAGE,
-                    "package"      => $ERROR_PACKAGE,);
+our %lcovErrors = ("annotate"     => $ERROR_ANNOTATE_SCRIPT,
+                   "branch"       => $ERROR_BRANCH,
+                   "callback"     => $ERROR_CALLBACK,
+                   "category"     => $ERROR_UNKNOWN_CATEGORY,
+                   "corrupt"      => $ERROR_CORRUPT,
+                   "count"        => $ERROR_COUNT,
+                   "deprecated"   => $ERROR_DEPRECATED,
+                   "empty"        => $ERROR_EMPTY,
+                   "format"       => $ERROR_FORMAT,
+                   "gcov"         => $ERROR_GCOV,
+                   "graph"        => $ERROR_GRAPH,
+                   "inconsistent" => $ERROR_INCONSISTENT_DATA,
+                   "mismatch"     => $ERROR_MISMATCH,
+                   "negative"     => $ERROR_NEGATIVE,
+                   "package"      => $ERROR_PACKAGE,
+                   "parallel"     => $ERROR_PARALLEL,            # error on wait
+                   "path"         => $ERROR_PATH,
+                   "range"        => $ERROR_RANGE,
+                   "source"       => $ERROR_SOURCE,
+                   "unmapped"     => $ERROR_UNMAPPED_LINE,
+                   "unsupported"  => $ERROR_UNSUPPORTED,
+                   "unused"       => $ERROR_UNUSED,
+                   'usage'        => $ERROR_USAGE,
+                   'utility'      => $ERROR_UTILITY,
+                   "version"      => $ERROR_VERSION,);
+
 our $stop_on_error;    # attempt to keep going
 our $warn_once_per_file = 1;
 
@@ -1343,6 +1359,13 @@ sub parse_ignore_errors(@)
     }
 }
 
+sub message_count($)
+{
+    my $code = shift;
+
+    return $message_count[$code];
+}
+
 sub is_ignored($)
 {
     my $code = shift;
@@ -1437,6 +1460,7 @@ sub warnSuppress($$)
     my ($code, $errName) = @_;
     if ($message_count[$code] == $suppressAfter - 1) {
         my $explain =
+            $lcovutil::verbose ||
             $message_count[$ERROR_COUNT] == 0 ?
             "\n\tTo increase or decrease this limit us '--rc max_message_count=value'."
             :
@@ -1474,15 +1498,20 @@ sub ignorable_error($$;$)
             "\t(use \"$tool_name --ignore-errors $errName ...\" to bypass this error)\n";
 
         if (defined($stop_on_error) && 0 == $stop_on_error) {
-            warn_handler("($errName) $msg\n" .
-                         ($message_count[$code] == 1 ? '' : "$ignoreOpt\n"));
+            warn_handler(
+                        "($errName) $msg\n"
+                            .
+                            (
+                            $lcovutil::verbose ||
+                                $message_count[$code] == 1 ? '' : "$ignoreOpt\n"
+                            ));
             return;
         }
         die_handler("($errName) $msg\n$ignoreOpt");
     }
     # only tell the user how to suppress this on the first occurrence
     my $ignoreOpt =
-        ($message_count[$code] == 1) ?
+        ($lcovutil::verbose || $message_count[$code] == 1) ?
         "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n"
         :
         '';
@@ -1508,7 +1537,7 @@ sub ignorable_warning($$;$)
         !$ignore[$code]) {
         # only tell the user how to suppress this on the first occurrence
         my $ignoreOpt =
-            ($message_count[$code] != 1) ? "" :
+            ($lcovutil::verbose || $message_count[$code] != 1) ? "" :
             "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
         warn_handler("($errName) $msg\n$ignoreOpt");
     }
@@ -4123,12 +4152,16 @@ sub isOutOfRange
             my $msg =
                 "unknown $c '$lineNo' in " .
                 $self->filename() . ": there are only " .
-                scalar(@{$self->[EXCLUDE]}) . " lines in file.";
-            $msg .=
-                "\n  This can be caused by code changes/version mismatch: see the \"--version-script script_file\" discussion in the genhtml man page."
-                if ($lcovutil::tool_name ne 'geninfo');
-            $msg .=
-                "\n  Use '$lcovutil::tool_name --filter range' to remove out-of-range lines.";
+                scalar(@{$self->[EXCLUDE]}) . " lines in the file.";
+            if ($lcovutil::verbose ||
+                0 == lcovutil::message_count($lcovutil::ERROR_RANGE)) {
+                # only print verbose addition on first message
+                $msg .=
+                    "\n  Issue can be caused by code changes/version mismatch: see the \"--version-script script_file\" discussion in the genhtml man page."
+                    if ($lcovutil::tool_name ne 'geninfo');
+                $msg .=
+                    "\n  Use '$lcovutil::tool_name --filter range' to remove out-of-range lines.";
+            }
             # some versions of gcov seem to make up lines that do not exist -
             # this appears to be related to macros on last line in file
             lcovutil::store_deferred_message($lcovutil::ERROR_RANGE,
@@ -4158,10 +4191,14 @@ sub isExcluded
                 .
                 (defined($self->[EXCLUDE]) ?
                      (" there are only " .
-                      scalar(@{$self->[EXCLUDE]}) . " lines in file") :
+                      scalar(@{$self->[EXCLUDE]}) . " lines in the file.") :
                      "") .
-                ".\n  This can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page."
-        ) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
+                (
+                ($lcovutil::verbose ||
+                     lcovutil::message_count($lcovutil::ERROR_RANGE) == 0) ?
+                    "\n  Issue can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page."
+                :
+                    '')) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
         return 0;    # even though out of range - this is not excluded by filter
     }
     return 1
@@ -6450,5 +6487,9 @@ sub merge
 
     return ($total_trace, \@effective);
 }
+
+# call the common initialization functions
+
+lcovutil::define_errors(\%lcovErrors);
 
 1;

@@ -102,7 +102,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_EMPTY $ERROR_VERSION $ERROR_UNUSED $ERROR_PACKAGE
                  $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_UNSUPPORTED
                  $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA $ERROR_CALLBACK
-                 $ERROR_RANGE
+                 $ERROR_RANGE $ERROR_PATH
                  $ERROR_PARALLEL report_parallel_error
                  $br_coverage $func_coverage
                  info $verbose init_verbose_flag debug $debug $devnull
@@ -205,52 +205,6 @@ our $BR_CLOSE = 5;
 # Branch data combination types
 our $BR_SUB = 0;
 our $BR_ADD = 1;
-
-# Error classes which users may specify to ignore during processing
-$ERROR_SOURCE = 0;
-our $ERROR_UNMAPPED_LINE     = 1;
-our $ERROR_UNKNOWN_CATEGORY  = 2;
-our $ERROR_INCONSISTENT_PATH = 3;
-$ERROR_INCONSISTENT_DATA = 4;
-$ERROR_MISMATCH          = 5;
-$ERROR_BRANCH            = 6;
-$ERROR_VERSION           = 7;
-$ERROR_UNUSED            = 8;
-$ERROR_FORMAT            = 9;
-$ERROR_EMPTY             = 10;
-our $ERROR_ANNOTATE_SCRIPT = 11;
-$ERROR_PARALLEL    = 12;
-$ERROR_PACKAGE     = 13;
-$ERROR_CORRUPT     = 14;
-$ERROR_NEGATIVE    = 15;
-$ERROR_COUNT       = 16;
-$ERROR_UNSUPPORTED = 17;
-$ERROR_CALLBACK    = 18;
-$ERROR_DEPRECATED  = 19;
-$ERROR_RANGE       = 20;
-
-our %htmlErrs = ("source"       => $ERROR_SOURCE,
-                 "range"        => $ERROR_RANGE,
-                 "unmapped"     => $ERROR_UNMAPPED_LINE,
-                 "category"     => $ERROR_UNKNOWN_CATEGORY,
-                 "path"         => $ERROR_INCONSISTENT_PATH,
-                 "inconsistent" => $ERROR_INCONSISTENT_DATA,
-                 "mismatch"     => $ERROR_MISMATCH,
-                 "branch"       => $ERROR_BRANCH,
-                 "format"       => $ERROR_FORMAT,
-                 "empty"        => $ERROR_EMPTY,
-                 "annotate"     => $ERROR_ANNOTATE_SCRIPT,
-                 "version"      => $ERROR_VERSION,
-                 "unused"       => $ERROR_UNUSED,
-                 "parallel"     => $ERROR_PARALLEL,
-                 "package"      => $ERROR_PACKAGE,
-                 "negative"     => $ERROR_NEGATIVE,
-                 "count"        => $ERROR_COUNT,
-                 "unsupported"  => $ERROR_UNSUPPORTED,
-                 "deprecated"   => $ERROR_DEPRECATED,
-                 "callback"     => $ERROR_CALLBACK,
-                 "corrupt"      => $ERROR_CORRUPT,);
-lcovutil::define_errors(\%htmlErrs);
 
 # Data related prototypes
 sub print_usage(*);
@@ -2527,7 +2481,7 @@ sub _categorizeBranchCov
             $data = LineData->new($type);
             $lineDataMap->{$line} = $data;
             # we expect the associated line to also have line coverage data
-            lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
+            lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                    "line $line of $filename has branchcov but no linecov data");
         } else {
             $data = $lineDataMap->{$line};
@@ -3703,7 +3657,7 @@ sub _countBranchTlaData
         # deleted lines don't have owner data...
         $srcLine = $self->line($line);
         if (!defined($srcLine)) {
-            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                       "no data for 'branch' line:$line, file:" . $self->path());
         } else {
             # if this line is not in the project (e.g., from some 3rd party
@@ -3815,7 +3769,7 @@ sub _countLineTlaData
         # this case can happen if the line number annotations are
         #   wrong in the .info file - so the branch coverage line
         #   number turns out not to be an executable source code line
-        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                "unexpected category $tla for line " . $self->path() . ":$line");
         return;
     }
@@ -3838,7 +3792,7 @@ sub _countLineTlaData
         my $l = $self->line($line);
 
         if (!defined($l)) {
-            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                      "no data for line:$line, TLA:$tla, file:" . $self->path());
             return;
         }
@@ -4067,7 +4021,7 @@ sub nextTlaGroup
     #  undef = nexTlaGroup('CBC', 13) : no following group
     my ($self, $tla, $after) = @_;
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                                   "unknown linecov TLA '$tla'");
         return undef;
     }
@@ -4106,7 +4060,7 @@ sub nextBranchTlaGroup
     # report and go the next branch, even if it is on the adjacent line
     my ($self, $tla, $after) = @_;
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                                   "unknown branch TLA '$tla'");
         return undef;
     }
@@ -4125,7 +4079,7 @@ sub nextInDateBin
     my ($self, $dateBin, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                                   "unknown linecov TLA '$tla'");
         return undef;
     }
@@ -4145,7 +4099,7 @@ sub nextInDateBin
             my $t = $self->line($line)->tla();
             my $a = $self->line($line)->age();
             if (!defined($a)) {
-                lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
+                lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                            "no age data for line:$line, file:" . $self->path());
                 return undef;
             }
@@ -4167,13 +4121,13 @@ sub nextInDateBin
         $line = $tlaLocations->[$idx];
         my $l = $self->line($line);
         if (!defined($l)) {
-            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                                "no data for line:$line, file:" . $self->path());
             return undef;
         }
         my $a = $l->age();
         if (!defined($a)) {
-            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                            "no age data for line:$line, file:" . $self->path());
             return undef;
         }
@@ -4194,7 +4148,7 @@ sub nextInOwnerBin
     my ($self, $owner, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                                   "unknown linecov TLA '$tla'");
         return undef;
     }
@@ -4214,14 +4168,14 @@ sub nextInOwnerBin
         for ($line = $after + 1; $line <= $lastline; ++$line) {
             my $l = $self->line($line);
             if (!defined($l)) {
-                lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
+                lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                                "no data for line:$line, file:" . $self->path());
                 return undef;
             }
             my $t = $l->tla();
             my $o = $l->owner();
             if (!defined($o)) {
-                lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
+                lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                          "no owber data for line:$line, file:" . $self->path());
                 return undef;
             }
@@ -4244,7 +4198,7 @@ sub nextBranchInDateBin
     my ($self, $dateBin, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                                   "unknown branch TLA '$tla'");
         return undef;
     }
@@ -4266,13 +4220,13 @@ sub nextBranchInDateBin
         my $line = $lines->[$idx];
         my $l    = $self->line($line);
         if (!defined($l)) {
-            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                                "no data for line:$line, file:" . $self->path());
             next;
         }
         my $a = $l->age();
         if (!defined($a)) {
-            lcovutil::ignorable_error($main::ERROR_UNMAPPED_LINE,
+            lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                            "no age data for line:$line, file:" . $self->path());
             return undef;
         }
@@ -4289,7 +4243,7 @@ sub nextBranchInOwnerBin
     my ($self, $owner, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
-        lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
+        lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                                   "unknown branch TLA '$tla'");
         return undef;
     }
@@ -4442,7 +4396,7 @@ sub _load
                 if @{$self->[LINES]};
             # might be useful to provide more than one line of context - if there is more than one line?
             lcovutil::ignorable_error(
-                           $main::ERROR_ANNOTATE_SCRIPT,
+                           $lcovutil::ERROR_ANNOTATE_SCRIPT,
                            ($! ? "annotate command '$cmd' pipe error: $!" :
                                 "non-zero exit status from annotate '$cmd' pipe"
                                ) .
@@ -4453,7 +4407,7 @@ sub _load
             $self->[LINES] = [];
         } else {
             # open failed.
-            lcovutil::ignorable_error($main::ERROR_ANNOTATE_SCRIPT,
+            lcovutil::ignorable_error($lcovutil::ERROR_ANNOTATE_SCRIPT,
                                       "'open(-| $cmd)' failed: \"$!\"\n");
         }
     }    # end if annotate script exists
@@ -5977,7 +5931,7 @@ sub gen_html()
         # in either the current or baseline trace data.  Those may be
         # mapping issues - different pathname in .info file vs udiff
         if (!$diff_data->check_path_consistency($base_data, $current_data)) {
-            lcovutil::ignorable_error($main::ERROR_INCONSISTENT_PATH,
+            lcovutil::ignorable_error($lcovutil::ERROR_PATH,
                   "possible path inconsistency in baseline/current/udiff data");
         }
     }
@@ -6045,7 +5999,7 @@ sub gen_html()
 
     if (@SourceFile::annotateScript &&
         0 == $SourceFile::annotatedFiles) {
-        lcovutil::ignorable_error($main::ERROR_ANNOTATE_SCRIPT,
+        lcovutil::ignorable_error($lcovutil::ERROR_ANNOTATE_SCRIPT,
               "\"--annotate-script '" .
                   join(' ', @SourceFile::annotateScript) .
                   "'\" did not find any revision-controlled files in your sandbox"
@@ -8835,7 +8789,7 @@ sub write_source_line(*$$$$)
         if (exists($lcovutil::pngChar{$bucket})) {
             $pchar = $lcovutil::pngChar{$bucket};
         } else {
-            lcovutil::ignorable_error($main::ERROR_UNKNOWN_CATEGORY,
+            lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                                       "unexpected TLA '$bucket'");
             $pchar = '';
             $count = 0 unless defined($count);
@@ -8945,7 +8899,8 @@ sub write_source_line(*$$$$)
                     OWNER: {
                         if (!defined($src_owner) || !defined($src_age)) {
                             # maybe this should be a different error type?
-                            lcovutil::ignorable_eror($main::ERROR_UNMAPPED_LINE,
+                            lcovutil::ignorable_eror(
+                                      $lcovutil::ERROR_UNMAPPED_LINE,
                                       "undefined owner/age for $bucket $line " .
                                           $sourceDetail->path());
                             last OWNER;
