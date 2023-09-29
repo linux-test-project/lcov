@@ -111,7 +111,6 @@ our $GCNO_LINES_TAG     = 0x01450000;
 our $GCNO_FILE_MAGIC    = 0x67636e6f;
 our $BBG_FILE_MAGIC     = 0x67626267;
 
-
 # Compatibility mode values
 our $COMPAT_VALUE_OFF  = 0;
 our $COMPAT_VALUE_ON   = 1;
@@ -598,34 +597,42 @@ if ($@) {
 }
 
 if (0 == $exit_code) {
-    my $now = Time::HiRes::gettimeofday();
-    # have to check the loaded input data for exclusion markers because the
-    #  data was generated directly from the gcov files - did not go through
-    #  TraceFile::load which explicitly checks
-    if ($single_file && defined($trace_data)) {
-        $trace_data->applyFilters();
-        my $f = Time::HiRes::gettimeofday();
-        $trace_data->add_comments(@lcovutil::comments);
-        $trace_data->write_info_file($output_filename,
-                                     $lcovutil::verify_checksum);
-        $files_created++;
+    eval {
+        my $now = Time::HiRes::gettimeofday();
+        # have to check the loaded input data for exclusion markers because the
+        #  data was generated directly from the gcov files - did not go through
+        #  TraceFile::load which explicitly checks
+        if ($single_file && defined($trace_data)) {
+            $trace_data->applyFilters();
+            my $f = Time::HiRes::gettimeofday();
+            $trace_data->add_comments(@lcovutil::comments);
+            $trace_data->write_info_file($output_filename,
+                                         $lcovutil::verify_checksum);
+            $files_created++;
+            my $then = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{filter} = $f - $now;
+            $lcovutil::profileData{write}  = $then - $f;
+        }
+        if ($files_created == 0) {
+            lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                      "no data generated\n");
+        }
         my $then = Time::HiRes::gettimeofday();
-        $lcovutil::profileData{filter} = $f - $now;
-        $lcovutil::profileData{write}  = $then - $f;
-    }
-    if ($files_created == 0) {
-        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
-                                  "no data generated\n");
-    }
-    my $then = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{emit} = $then - $now;
+        $lcovutil::profileData{emit} = $then - $now;
 
-    lcovutil::info(1, "Processed $processedFiles GCDA files\n");
-    info("Finished .info-file creation\n");
-    summarize_cov_filters();
+        lcovutil::info(1, "Processed $processedFiles GCDA files\n");
+        info("Finished .info-file creation\n");
+        summarize_cov_filters();
 
-    # print warnings
-    lcovutil::warn_file_patterns();
+        # print warnings
+        lcovutil::warn_file_patterns();
+    }
+}
+if ($@) {
+    # eval of filter application failed - set erro rreturn code, but
+    #  still try to emit profile
+    print(STDERR $@);
+    $exit_code = 1;
 }
 my $end = Time::HiRes::gettimeofday();
 $lcovutil::profileData{total} = $end - $start;

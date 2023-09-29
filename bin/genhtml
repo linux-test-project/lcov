@@ -1062,6 +1062,7 @@ sub checkCoverageCriteria
                 (0 == scalar(@criteriaCallbackLevels) ||
                  grep(/$type/, @criteriaCallbackLevels)));
 
+    my $start = Time::HiRes::gettimeofday();
     my %data;
     foreach my $t (LINE_DATA, FUNCTION_DATA, BRANCH_DATA) {
         my $key = type2str($t);
@@ -1154,6 +1155,9 @@ sub checkCoverageCriteria
         lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
                                   "'open(-| $cmd)' failed: \"$!\"");
     }
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{criteria}{$self->type() eq 'top' ? 'top' :
+            $self->name()} = $end - $start;
 }
 
 package OwnerDetailCallback;

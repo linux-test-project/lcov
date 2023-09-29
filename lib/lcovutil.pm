@@ -185,6 +185,8 @@ our $cpp_demangle_tool;
 # Deprecated:  prefer -Xlinker approach with @cpp_dmangle_tool
 our $cpp_demangle_params;
 
+# version extract may be expensive - so only do it once
+our %versionCache;
 our @extractVersionScript;   # script/callback to find version ID of file
 our $verify_checksum;        # compute and/or check MD5 sum of source code lines
 
@@ -1429,29 +1431,41 @@ sub initial_state
     #  so we can merge back into parent.  This may prevent us from
     #  complaining about the same thing in multiple children - but only
     #  if those children don't execute in parallel.
-    return Storable::dclone([\@message_count]);
+    return Storable::dclone([\@message_count, \%versionCache]);
 }
 
 sub compute_update
 {
     my $state = shift;
     my @new_count;
+    my ($initialCount, $initialVersionCache) = @$state;
     foreach my $msg (@message_count) {
         my $v =
             defined($message_count[$msg]) ?
-            ($message_count[$msg] - $state->[0]->[$msg]) :
+            ($message_count[$msg] - $initialCount->[$msg]) :
             0;
         push(@new_count, $v);
     }
+    my %versionUpdate;
+    while (my ($f, $v) = each(%versionCache)) {
+        $versionUpdate{$f} = $v
+            unless exists($initialVersionCache->{$f});
+    }
+
     return [\@new_count];
 }
 
 sub update_state
 {
     my $update = shift;
-    foreach my $msg (@{$update->[0]}) {
+    my ($updateCount, $updateVersionCache) = @$update;
+    foreach my $msg (@$updateCount) {
         next unless defined($message_count[$msg]);
         $message_count[$msg] += $update->[0]->[$msg];
+    }
+    while (my ($f, $v) = each(%$updateVersionCache)) {
+        die("unexpected entry") if exists($versionCache{$f});
+        $versionCache{$f} = $v;
     }
 }
 
@@ -1849,7 +1863,9 @@ sub extractFileVersion
 
     return undef
         unless @extractVersionScript;
+    return $versionCache{$filename} if exists($versionCache{$filename});
 
+    my $start = Time::HiRes::gettimeofday();
     #die("$filename does not exist")
     #    unless -f $filename;
     my $version;
@@ -1869,6 +1885,14 @@ sub extractFileVersion
         lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
                                   "'open(-| $cmd)' failed: \"$!\"");
     }
+    my $end = Time::HiRes::gettimeofday();
+    if (exists($lcovutil::profileData{version}) &&
+        exists($lcovutil::profileData{version}{$filename})) {
+        $lcovutil::profileData{version}{$filename} += $end - $start;
+    } else {
+        $lcovutil::profileData{version}{$filename} = $end - $start;
+    }
+    $versionCache{$filename} = $version;
     return $version;
 }
 
