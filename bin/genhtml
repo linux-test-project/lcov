@@ -3235,8 +3235,9 @@ sub _read_udiff
                 }
                 my $file = File::Spec->rel2abs($1, $main::cwd);
                 $file = lcovutil::strip_directories($file, $main::strip);
-                my $key = $lcovutil::case_insensitive ? lc($file) : $file;
-                $key = lcovutil::subst_file_name($key);
+                my $key = lcovutil::subst_file_name($file);
+                $key = ReadCurrentSource::resolve_path($key);
+                $key = lc($key) if $lcovutil::case_insensitive;
                 if (exists($self->[UNCHANGED]->{$key})) {
                     # unchanged entry flag value should be 1
                     die("$diff_file:$.:  %key already in linemap - marked unchangd"
@@ -3272,8 +3273,9 @@ sub _read_udiff
                 $file_old = File::Spec->rel2abs($1, $main::cwd);
                 $file_old =
                     lcovutil::strip_directories($file_old, $main::strip);
-                $file_old = lc($file_old) if $lcovutil::case_insensitive;
                 $file_old = lcovutil::subst_file_name($file_old);
+                $file_old = ReadCurrentSource::resolve_path($file_old);
+                $file_old = lc($file_old) if $lcovutil::case_insensitive;
                 $self->[LOCATION]->[OLD]->{$file_old} = $.;
                 #$in_block = 0;
                 last;
@@ -3285,11 +3287,13 @@ sub _read_udiff
                 $file_new = File::Spec->rel2abs($1, $main::cwd);
                 $file_new =
                     lcovutil::strip_directories($file_new, $main::strip);
-                my $key =
-                    $lcovutil::case_insensitive ? lc($file_new) : $file_new;
-                $key = lcovutil::subst_file_name($key);
+                my $key = lcovutil::subst_file_name($file_new);
+                $key = ReadCurrentSource::resolve_path($key);
+                $key = lc($key)
+                    if $lcovutil::case_insensitive;
                 my $notNull = $file_new ne $lcovutil::devnull;
                 $filename = $notNull ? $key : undef;
+
                 if ($filename) {
                     if (exists($self->[UNCHANGED]->{$key})) {
                         lcovutil::ignorable_error(
@@ -5664,8 +5668,11 @@ if ($@) {
 my $then = Time::HiRes::gettimeofday();
 $lcovutil::profileData{overall} = $then - $now;
 
-lcovutil::warn_file_patterns()    # warn about unused include/exclude directives
-    if 0 == $exit_status;
+if (0 == $exit_status) {
+    # warn about unused include/exclude directives
+    lcovutil::warn_file_patterns();
+    ReadCurrentSource::warn_sourcedir_patterns();
+}
 
 # now check the coverage criteria (if any)
 if (0 == $exit_status &&

@@ -1792,9 +1792,15 @@ option
 Add 'dirname' to the list of places to look for source files.
 .br
 
-For relative paths listed in
+For relative source file paths
+.I e.g.
+paths found in
 .IR tracefile,
-genhtml will first look for the path from 'cwd' (where genhtml was
+or in
+.IR diff-file
+\- possibly after substitutions have been applied -
+.B genhtml
+will first look for the path from 'cwd' (where genhtml was
 invoked) and
 then from each alternate directory name in the order specified.
 The first location matching location is used.

@@ -871,9 +871,9 @@ sub apply_config($$$)
 my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
     @rc_include_patterns, @rc_subst_patterns, @rc_omit_patterns,
     @rc_erase_patterns, @rc_version_script, @unsupported_config,
-    %unsupported_rc, $keepGoing, $help,
-    $rc_no_branch_coverage, $rc_no_func_coverage, $rc_no_checksum,
-    $version);
+    @rc_source_directories, %unsupported_rc, $keepGoing,
+    $help, $rc_no_branch_coverage, $rc_no_func_coverage,
+    $rc_no_checksum, $version);
 my $quiet = 0;
 my $tempdirname;
 
@@ -928,6 +928,7 @@ my %rc_common = (
              "profile"  => \$lcovutil::profile,
              "parallel" => \$lcovutil::maxParallelism,
              "memory"   => \$lcovutil::maxMemory,
+             'source_directory' => \@rc_source_directories,
 
              "no_exception_branch"   => \$lcovutil::exclude_exception_branch,
              'filter'                => \@rc_filter,
@@ -962,6 +963,9 @@ our %argCommon = ("tempdir=s"        => \$tempdirname,
                   "branch-coverage"      => \$lcovutil::br_coverage,
                   "no-function-coverage" => \$rc_no_func_coverage,
                   "no-branch-coverage"   => \$rc_no_branch_coverage,
+
+                  'source-directory=s' =>
+                      \@ReadCurrentSource::source_directories,
 
                   "filter=s"          => \@opt_filter,
                   "demangle-cpp:s"    => \@lcovutil::cpp_demangle,
@@ -1100,6 +1104,11 @@ sub parseOptions
         unless @lcovutil::exclude_function_patterns;
     @lcovutil::extractVersionScript = @rc_version_script
         unless @lcovutil::extractVersionScript;
+
+    @ReadCurrentSource::source_directories = @rc_source_directories
+        unless @ReadCurrentSource::source_directories;
+    $ReadCurrentSource::searchPath =
+        SearchPath->new(@ReadCurrentSource::source_directories);
 
     $lcovutil::stop_on_error = 0
         if (defined $keepGoing);
@@ -2198,6 +2207,83 @@ sub hdl
 {
     my $self = shift;
     return $self->[0];
+}
+
+package SearchPath;
+
+sub new
+{
+    my $class = shift;
+    my $self  = [];
+    bless $self, $class;
+    foreach my $p (@_) {
+        push(@$self, [$p, 0]);
+    }
+    return $self;
+}
+
+sub patterns
+{
+    my $self = shift;
+    return $self;
+}
+
+sub resolve
+{
+    my ($self, $filename) = @_;
+    foreach my $d (@$self) {
+        my $path = File::Spec->catfile($d->[0], $filename);
+        if (-e $path) {
+            lcovutil::info(1, "found $filename at $path\n");
+            ++$d->[1];
+            return $path;
+        }
+    }
+    return $filename;
+}
+
+sub warn_unused
+{
+    my ($self, $optName) = @_;
+    foreach my $d (@$self) {
+        my $name = $d->[0];
+        $name = "'$name'" if $name =~ /\s/;
+        if (0 == $d->[1]) {
+            lcovutil::ignorable_error($lcovutil::ERROR_UNUSED,
+                                      "\"$optName $name\" is unused.");
+        } else {
+            lcovutil::info(1,
+                           "\"$optName $name\" used " . $d->[1] . " times\n");
+        }
+    }
+}
+
+sub reset
+{
+    my $self = shift;
+    foreach my $d (@$self) {
+        $d->[1] = 0;
+    }
+}
+
+sub current_count
+{
+    my $self = shift;
+    my @rtn;
+    foreach my $d (@$self) {
+        push(@rtn, $d->[1]);
+    }
+    return \@rtn;
+}
+
+sub update_count
+{
+    my $self = shift;
+    die("invalid update count: " . scalar(@$self) . ' ' . scalar(@_))
+        unless ($#$self == $#_);
+    foreach my $d (@$self) {
+        $d->[1] += shift;
+    }
 }
 
 package MapData;
@@ -3966,10 +4052,13 @@ sub merge
 package ReadCurrentSource;
 
 our @source_directories;
+our $searchPath;
+our @dirs_used;
 use constant {
               FILENAME => 0,
-              SOURCE   => 1,
-              EXCLUDE  => 2,
+              PATH     => 1,
+              SOURCE   => 2,
+              EXCLUDE  => 3,
 };
 
 sub new
@@ -3994,15 +4083,18 @@ sub close
 sub resolve_path
 {
     my $filename = shift;
-    my $path     = $filename;
-    my $idx      = 0;
-    while (!-e $path &&
-           !File::Spec->file_name_is_absolute($path) &&
-           $idx < scalar(@source_directories)) {
-        $path = File::Spec->catfile($source_directories[$idx], $filename);
-        $idx += 1;
-    }
-    return -e $path ? $path : $filename;
+    return $filename
+        if (-e $filename ||
+            File::Spec->file_name_is_absolute($filename) ||
+            0 == scalar(@source_directories));
+
+    return $searchPath->resolve($filename);
+}
+
+sub warn_sourcedir_patterns
+{
+    $searchPath->warn_unused(
+            @source_directories ? '--source-directory' : 'source_directory = ');
 }
 
 sub open
@@ -4012,7 +4104,10 @@ sub open
     $version = "" unless defined($version);
     my $path = resolve_path($filename);
     if (open(SRC, "<", $path)) {
-        lcovutil::info(1, "read $version$filename\n");
+        lcovutil::info(1,
+                       "read $version$filename" .
+                           ($path ne $filename ? " (at $path)" : '') . "\n");
+        $self->[PATH] = $path;
         my @sourceLines = <SRC>;
         CORE::close(SRC) or die("unable to close $filename: $!\n");
         $self->[FILENAME] = $filename;
@@ -4024,6 +4119,12 @@ sub open
         return undef;
     }
     return $self;
+}
+
+sub path
+{
+    my $self = shift;
+    return $self->[PATH];
 }
 
 sub parseLines
@@ -4748,7 +4849,10 @@ sub _filterFile
     } else {
         $srcReader->close();
     }
-    my $fileVersion = lcovutil::extractFileVersion($source_file)
+    my $path = ReadCurrentSource::resolve_path($source_file);
+    lcovutil::info(1, "extractVersion($path) for $source_file\n")
+        if $path ne $source_file;
+    my $fileVersion = lcovutil::extractFileVersion($path)
         if $srcReader->notEmpty();
     if (defined($fileVersion) &&
         defined($traceInfo->version())

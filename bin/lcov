@@ -148,7 +148,7 @@ sub summary();
 our @directory;                 # Specifies where to get coverage data from
 # Where code was built/where .gcno files can be found
 # (if .gcno files are in a different place than the .gcda files)
-our $build_directory;
+our @build_directory;
 our @kernel_directory;    # If set, captures only from specified kernel subdirs
 our @add_tracefile;       # If set, reads in and combines all files in list
 our @intersect;           # glob patterns for intersect RHS
@@ -209,7 +209,7 @@ my %lcov_rc_params = ("lcov_gcov_dir"          => \$gcov_dir,
                       "lcov_fail_under_lines"  => \$opt_fail_under_lines,);
 
 my %lcov_options = ("directory|d|di=s"     => \@directory,
-                    "build-directory=s"    => \$build_directory,
+                    "build-directory=s"    => \@build_directory,
                     "add-tracefile|a=s"    => \@add_tracefile,
                     "list|l=s"             => \$list,
                     "kernel-directory|k=s" => \@kernel_directory,
@@ -437,6 +437,7 @@ if (0 == $exit_code) {
     if (!defined($lcovutil::lcov_capture)) {
         lcovutil::warn_file_patterns()
             ;    # warn about unused include/exclude directives
+        ReadCurrentSource::warn_sourcedir_patterns();
         summarize_cov_filters(1);
     }
 }
@@ -849,8 +850,12 @@ sub lcov_geninfo(@)
     if (defined($verify_checksum)) {
         push(@param, $verify_checksum ? '--checksum' : '--no-checksum');
     }
-    push(@param, "--build-directory", $build_directory)
-        if ($build_directory);
+    foreach my $b (@build_directory) {
+        push(@param, "--build-directory", $b);
+    }
+    foreach my $s (@ReadCurrentSource::source_directories) {
+        push(@param, "--source-directory", $s);
+    }
     if ($no_compat_libtool) {
         push(@param, "--no-compat-libtool");
     } elsif ($compat_libtool) {

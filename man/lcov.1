@@ -30,6 +30,9 @@ Capture coverage data tracefile (from compiler-generated data):
 .RB [ \-\-build\-directory
 .IR directory ]
 .br
+.RB [ \-\-source\-directory
+.IR directory ]
+.br
 .RB [ \-i | \-\-initial ]
 .br
 .RB [ \-\-gcov\-tool
@@ -437,12 +440,35 @@ directories are used. In that case use configuration file setting
 .I build_directory
 .br
 .RS
-.RI Search for .gcno data files from build_directory rather than
+search for .gcno data files from build_directory rather than
 adjacent to the corresponding .gcda file.
 
 See man
 .BR geninfo (1))
 for details.
+
+
+.RE
+.BI "\-\-source\-directory " dirname
+.RS
+Add 'dirname' to the list of places to look for source files.
+.br
+
+For relative source file paths listed in
+.I e.g.
+paths found in
+.IR tracefile,
+or found in gcov output during
+.I \-\-capture
+\- possibly after substitutions have been applied -
+.B lcov
+ will first look for the path from 'cwd' (where genhtml was
+invoked) and
+then from each alternate directory name in the order specified.
+The first location matching location is used.
+
+This option can be specified multiple times, to add more directories to the source search path.
+
 
 .RE
 .B \-c

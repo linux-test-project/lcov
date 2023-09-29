@@ -213,7 +213,8 @@ our $data_file_extension;
 our @data_directory;
 # root of directory where .gcno files can be found -directory name,
 # if .gcda and .gcno not in same place
-our @build_directory;
+my @build_directory;
+our $buildDirSearchPath;
 our $test_name = "";
 our $help;
 our $output_filename;
@@ -270,7 +271,7 @@ $SIG{__DIE__}  = \&die_handler;
 $ENV{"LC_ALL"} = "C";
 
 # retrieve settings from RC file - use these if not overridden on command line
-
+my @rc_build_dir;
 my %geninfo_rc_opts = (
           "geninfo_gcov_tool"           => \@gcov_tool,
           "geninfo_adjust_testname"     => \$adjust_testname,
@@ -285,12 +286,13 @@ my %geninfo_rc_opts = (
           "geninfo_intermediate"        => \$rc_intermediate,
           "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
           'geninfo_chunk_size'          => \$defaultChunkSize,
-          'geninfo_interval_update'     => \$defaultInterval,);
+          'geninfo_interval_update'     => \$defaultInterval,
+          'build_directory'             => \@rc_build_dir);
 
 my %geninfo_opts = ("test-name|t=s"       => \$test_name,
                     "output-filename|o=s" => \$output_filename,
                     "base-directory|b=s"  => \$base_directory,
-                    "build-directory|b=s" => \@build_directory,
+                    "build-directory=s"   => \@build_directory,
                     "follow|f"            => \$follow,
                     "compat-libtool"      => \$opt_compat_libtool,
                     "no-compat-libtool"   => \$opt_no_compat_libtool,
@@ -308,6 +310,9 @@ if (!lcovutil::parseOptions(\%geninfo_rc_opts, \%geninfo_opts)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
+
+$buildDirSearchPath =
+    SearchPath->new(@build_directory ? @build_directory : @rc_build_dir);
 
 # Check regexp
 if (defined($rc_adjust_src_path)) {
@@ -623,17 +628,21 @@ if (0 == $exit_code) {
         lcovutil::info(1, "Processed $processedFiles GCDA files\n");
         info("Finished .info-file creation\n");
         summarize_cov_filters();
-
         # print warnings
         lcovutil::warn_file_patterns();
+        $buildDirSearchPath->warn_unused(
+                                        @build_directory ? '--build-directory' :
+                                            'build_directory = ');
+        ReadCurrentSource::warn_sourcedir_patterns();
     }
 }
 if ($@) {
-    # eval of filter application failed - set erro rreturn code, but
+    # eval of filter application failed - set error return code, but
     #  still try to emit profile
     print(STDERR $@);
     $exit_code = 1;
 }
+summarize_messages();
 my $end = Time::HiRes::gettimeofday();
 $lcovutil::profileData{total} = $end - $start;
 
@@ -1133,9 +1142,8 @@ sub gen_info(@)
             GCNO: foreach ($gcno_file) {
                 last if (-f $gcno_file || -l $gcno_file);
 
-                my $alt = lcovutil::subst_file_name($gcno_file);
-                my $prefix =
-                    "looking for GCNO corresponding to '$gcda_file':\n";
+                my $alt    = lcovutil::subst_file_name($gcno_file);
+                my $prefix = "looking for GCNO matching '$gcda_file':\n";
                 if ($alt ne $gcno_file) {
                     $gcno_file = $alt;
                     lcovutil::info(1, "$prefix  at '$gcno_file'\n");
@@ -1145,6 +1153,8 @@ sub gen_info(@)
                 # check to see if this file is in a different directory
                 my $dir = $d;
                 $dir =~ s#^$searchdir##g;
+                $prefix =
+                    "looking for GCNO matching '$gcda_file' prefix:'$dir':\n";
                 # handle case that gcda and gcno are in different directories
                 #  - say, where is the gcda that we found, then see if gcno is
                 #    in the same directory. If not, then look in a gcno path and
@@ -1156,15 +1166,19 @@ sub gen_info(@)
                 #   then append the remaining path the the GCDA file, to the
                 #   'GCNO_PATH' that we were provided.
                 #     - if there is a file there:  use it.
-                foreach my $build_directory (@build_directory) {
+                foreach my $d (@$buildDirSearchPath) {
                     # is the GCNO in the relative path from build_dir?
+                    my $build_directory = $d->[0];
                     $gcno_file =
                         File::Spec->catfile($build_directory, $dir,
                                             $name . ".gcno");
 
                     lcovutil::info(1, "$prefix  at '$gcno_file'\n");
                     $prefix = '';
-                    last GCNO if (-f $gcno_file || -l $gcno_file);
+                    if (-f $gcno_file || -l $gcno_file) {
+                        ++$d->[1];
+                        last GCNO;
+                    }
 
                     # is the GCNO in the relative path after we apply substitutions?
                     $alt = lcovutil::subst_file_name($gcno_file);
@@ -1172,7 +1186,10 @@ sub gen_info(@)
                         $gcno_file = $alt;
                         lcovutil::info(1, "$prefix  at '$gcno_file'\n");
                         $prefix = '';
-                        last GCNO if (-f $gcno_file || -l $gcno_file);
+                        if (-f $gcno_file || -l $gcno_file) {
+                            ++$d->[1];
+                            last GCNO;
+                        }
                     }
                 }    # foreach build_directory
 
@@ -1193,6 +1210,8 @@ sub gen_info(@)
                 next DATA_FILE;
             }    # foreach switch
         }    # if (initial)
+        lcovutil::info(1, "   mapped $gcda_file -> $gcno_file\n")
+            unless $initial;
         push(@$chunk, [$searchdir, $gcda_file, $gcno_file]);
         if (scalar(@$chunk) == $chunkSize) {
             push(@worklist, $chunk);
@@ -1279,6 +1298,7 @@ sub gen_info(@)
                 %lcovutil::profileData  = ();
                 %lcovutil::warnOnlyOnce = ();
                 my $currentState = lcovutil::initial_state();
+                $buildDirSearchPath->reset();
                 $output_filename =
                     File::Spec->catfile($tempFileDir,
                                         "geninfo_$$.info" . $tempFileExt);
@@ -1313,6 +1333,7 @@ sub gen_info(@)
                 foreach my $f ($output_filename) {
                     unlink $f if -f $f && !$lcovutil::preserve_intermediates;
                 }
+                my $buildDirCounts = $buildDirSearchPath->current_count();
                 my $patterns = lcovutil::save_child_pattern_counts();
 
                 my $then = Time::HiRes::gettimeofday();
@@ -1327,6 +1348,7 @@ sub gen_info(@)
                 # dump parsed data - then read back and merge
                 eval {
                     Storable::store([$single_file ? $childInfo : undef,
+                                     $buildDirCounts,
                                      $patterns,
                                      \%lcovutil::profileData,
                                      \%lcovutil::warnOnlyOnce,

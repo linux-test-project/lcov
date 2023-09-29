@@ -359,6 +359,20 @@ and
 This option can be used several times to specify multiple alternate directories to look for .gcno files.  This may be useful if your application uses code which is compiled in many separate locations - for example, common libraries that are shared between teams.
 
 .RE
+.BI "\-\-source\-directory " dirname
+.RS
+Add 'dirname' to the list of places to look for source files.
+.br
+
+For relative source file paths found in the gcov data \- possibly after substituions have been applied,
+.B geninfo
+will first look for the path from 'cwd' (where genhtml was
+invoked) and
+then from each alternate directory name in the order specified.
+The first location matching location is used.
+
+This option can be specified multiple times, to add more directories to the source search path.
+.RE
 
 .B \-\-branch\-coverage
 .br
