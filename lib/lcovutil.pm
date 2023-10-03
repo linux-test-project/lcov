@@ -26,7 +26,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      info warn_once set_info_callback init_verbose_flag $verbose
      debug $debug
      append_tempdir create_temp_dir temp_cleanup folder_is_empty $tmp_dir $preserve_intermediates
-     define_errors parse_ignore_errors ignorable_error ignorable_warning
+     summarize_messages define_errors
+     parse_ignore_errors ignorable_error ignorable_warning
      is_ignored message_count
      die_handler warn_handler abort_handler
 
@@ -67,8 +68,9 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_PATH
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
-     $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE
-     $ERROR_PARALLEL report_parallel_error
+     $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE $ERROR_INTERNAL
+     $ERROR_PARALLEL $ERROR_PARENT $ERROR_CHILD
+     report_parallel_error check_parent_process
 
      $ERROR_UNMAPPED_LINE $ERROR_UNKNOWN_CATEGORY $ERROR_ANNOTATE_SCRIPT
      $stop_on_error
@@ -86,7 +88,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
 
 our @ignore;
 our @message_count;
-our $suppressAfter = 100;    # stop warning after this number of messsages
+our %message_types;
+our $suppressAfter = 100;    # stop warning after this number of messages
 our %ERROR_ID;
 our %ERROR_NAME;
 our $tool_dir     = $FindBin::RealBin;
@@ -108,59 +111,66 @@ our $split_char = ',';    # by default: split on comma
 # share common definition for all error types.
 # Note that geninfo cannot produce some types produced by genhtml, and vice
 # versa.  Easier to maintain a common definition.
-our $ERROR_GCOV              = 0;
-our $ERROR_SOURCE            = 1;
-our $ERROR_GRAPH             = 2;
-our $ERROR_FORMAT            = 3;  # bad record in .info file
-our $ERROR_EMPTY             = 4;  # no records found in info file
-our $ERROR_VERSION           = 5;
-our $ERROR_UNUSED            = 6;  # exclude/include/substitute pattern not used
-our $ERROR_MISMATCH          = 7;
-our $ERROR_BRANCH            = 8;  # branch numbering is not correct
-our $ERROR_PACKAGE           = 9;  # missing package
-our $ERROR_CORRUPT           = 10; # corrupt file
-our $ERROR_NEGATIVE          = 11; # unexpected negative count in coverage data
-our $ERROR_COUNT             = 12; # too many messages of type
-our $ERROR_UNSUPPORTED       = 13; # some unsupported feature or usage
-our $ERROR_PARALLEL          = 14; # error in fork/join
-our $ERROR_DEPRECATED        = 15; # deprecated feature
-our $ERROR_CALLBACK          = 16; # callback produced an error
-our $ERROR_INCONSISTENT_DATA = 17; # somthing wrong with .info
-our $ERROR_RANGE             = 18; # line number out of range
-our $ERROR_UTILITY           = 19; # some tool failed - e.g., 'find'
-our $ERROR_USAGE             = 20; # misusing some feature
-our $ERROR_PATH              = 21; # path issues
+our $ERROR_GCOV;
+our $ERROR_SOURCE;
+our $ERROR_GRAPH;
+our $ERROR_FORMAT;               # bad record in .info file
+our $ERROR_EMPTY;                # no records found in info file
+our $ERROR_VERSION;
+our $ERROR_UNUSED;               # exclude/include/substitute pattern not used
+our $ERROR_MISMATCH;
+our $ERROR_BRANCH;               # branch numbering is not correct
+our $ERROR_PACKAGE;              # missing utility package
+our $ERROR_CORRUPT;              # corrupt file
+our $ERROR_NEGATIVE;             # unexpected negative count in coverage data
+our $ERROR_COUNT;                # too many messages of type
+our $ERROR_UNSUPPORTED;          # some unsupported feature or usage
+our $ERROR_PARALLEL;             # error in fork/join
+our $ERROR_DEPRECATED;           # deprecated feature
+our $ERROR_CALLBACK;             # callback produced an error
+our $ERROR_INCONSISTENT_DATA;    # somthing wrong with .info
+our $ERROR_RANGE;                # line number out of range
+our $ERROR_UTILITY;              # some tool failed - e.g., 'find'
+our $ERROR_USAGE;                # misusing some feature
+our $ERROR_PATH;                 # path issues
+our $ERROR_INTERNAL;             # tool issue
+our $ERROR_PARENT;               # parent went away so child should die
+our $ERROR_CHILD;                # nonzero child exit status
 # genhtml errors
-our $ERROR_UNMAPPED_LINE = 22;     # inconsistent coverage data
-our $ERROR_UNKNOWN_CATEGORY =
-    23;    # we did something wrong with inconsistent data
-our $ERROR_ANNOTATE_SCRIPT = 24;    # annotation failed somehow
+our $ERROR_UNMAPPED_LINE;        # inconsistent coverage data
+our $ERROR_UNKNOWN_CATEGORY;     # we did something wrong with inconsistent data
+our $ERROR_ANNOTATE_SCRIPT;      # annotation failed somehow
 
-our %lcovErrors = ("annotate"     => $ERROR_ANNOTATE_SCRIPT,
-                   "branch"       => $ERROR_BRANCH,
-                   "callback"     => $ERROR_CALLBACK,
-                   "category"     => $ERROR_UNKNOWN_CATEGORY,
-                   "corrupt"      => $ERROR_CORRUPT,
-                   "count"        => $ERROR_COUNT,
-                   "deprecated"   => $ERROR_DEPRECATED,
-                   "empty"        => $ERROR_EMPTY,
-                   "format"       => $ERROR_FORMAT,
-                   "gcov"         => $ERROR_GCOV,
-                   "graph"        => $ERROR_GRAPH,
-                   "inconsistent" => $ERROR_INCONSISTENT_DATA,
-                   "mismatch"     => $ERROR_MISMATCH,
-                   "negative"     => $ERROR_NEGATIVE,
-                   "package"      => $ERROR_PACKAGE,
-                   "parallel"     => $ERROR_PARALLEL,            # error on wait
-                   "path"         => $ERROR_PATH,
-                   "range"        => $ERROR_RANGE,
-                   "source"       => $ERROR_SOURCE,
-                   "unmapped"     => $ERROR_UNMAPPED_LINE,
-                   "unsupported"  => $ERROR_UNSUPPORTED,
-                   "unused"       => $ERROR_UNUSED,
-                   'usage'        => $ERROR_USAGE,
-                   'utility'      => $ERROR_UTILITY,
-                   "version"      => $ERROR_VERSION,);
+my @lcovErrs = (["annotate", \$ERROR_ANNOTATE_SCRIPT],
+                ["branch", \$ERROR_BRANCH],
+                ["callback", \$ERROR_CALLBACK],
+                ["category", \$ERROR_UNKNOWN_CATEGORY],
+                ["child", \$ERROR_CHILD],
+                ["corrupt", \$ERROR_CORRUPT],
+                ["count", \$ERROR_COUNT],
+                ["deprecated", \$ERROR_DEPRECATED],
+                ["empty", \$ERROR_EMPTY],
+                ["format", \$ERROR_FORMAT],
+                ["gcov", \$ERROR_GCOV],
+                ["graph", \$ERROR_GRAPH],
+                ["inconsistent", \$ERROR_INCONSISTENT_DATA],
+                ["internal", \$ERROR_INTERNAL],
+                ["mismatch", \$ERROR_MISMATCH],
+                ["negative", \$ERROR_NEGATIVE],
+                ["package", \$ERROR_PACKAGE],
+                ["parallel", \$ERROR_PARALLEL],
+                ["parent", \$ERROR_PARENT],
+                ["path", \$ERROR_PATH],
+                ["range", \$ERROR_RANGE],
+                ["source", \$ERROR_SOURCE],
+                ["unmapped", \$ERROR_UNMAPPED_LINE],
+                ["unsupported", \$ERROR_UNSUPPORTED],
+                ["unused", \$ERROR_UNUSED],
+                ['usage', \$ERROR_USAGE],
+                ['utility', \$ERROR_UTILITY],
+                ["version", \$ERROR_VERSION],);
+
+our %lcovErrors;
 
 our $stop_on_error;    # attempt to keep going
 our $warn_once_per_file = 1;
@@ -196,7 +206,8 @@ our $default_precision = 1;
 # undef indicates not set by command line or RC option - so default to
 # sequential processing
 our $maxParallelism;
-our $maxMemory = 0;    # zero indicates no memory limit to parallelism
+our $maxMemory        = 0;    # zero indicates no memory limit to parallelism
+our $in_child_process = 0;
 
 our $lcov_filter_parallel = 1;    # enable by default
 our $lcov_filter_chunk_size;
@@ -628,18 +639,26 @@ sub merge_child_profile($)
             while (my ($f, $t) = each(%$d)) {
                 if ('HASH' eq ref($t)) {
                     while (my ($x, $y) = each(%$t)) {
-                        die("unexpected duplicate key $x=$y in $key->$f")
+                        lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                                   "unexpected duplicate key $x=$y in $key->$f")
                             if exists($lcovutil::profileData{$key}{$f}{$x});
                         $lcovutil::profileData{$key}{$f}{$x} = $y;
                     }
                 } else {
-                    die("unexpected duplicate key $f=$t in $key")
-                        if exists($lcovutil::profileData{$key}{$f});
-                    $lcovutil::profileData{$key}{$f} = $t;
+                    if (grep(/^$key$/, ('version', 'parse', 'append')) &&
+                        exists($lcovutil::profileData{$key}{$f})) {
+                        $lcovutil::profileData{$key}{$f} += $t;
+                    } else {
+                        lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                            "unexpected duplicate key $f=$t in $key:$lcovutil::profileData{$key}{$f}"
+                        ) if exists($lcovutil::profileData{$key}{$f});
+                        $lcovutil::profileData{$key}{$f} = $t;
+                    }
                 }
             }
         } else {
-            die("unexpected duplicate key $key=$d in profileData")
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                              "unexpected duplicate key $key=$d in profileData")
                 if exists($lcovutil::profileData{$key});
             $lcovutil::profileData{$key} = $d;
         }
@@ -867,7 +886,7 @@ sub apply_config($$$)
 }
 
 # use these list values from the RC file unless the option is
-#   passed on teh command line
+#   passed on the command line
 my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
     @rc_include_patterns, @rc_subst_patterns, @rc_omit_patterns,
     @rc_erase_patterns, @rc_version_script, @unsupported_config,
@@ -925,9 +944,9 @@ my %rc_common = (
              "filter_lookahead"       => \$lcovutil::source_filter_lookahead,
              "filter_bitwise_conditional" =>
         \$lcovutil::source_filter_bitwise_are_conditional,
-             "profile"  => \$lcovutil::profile,
-             "parallel" => \$lcovutil::maxParallelism,
-             "memory"   => \$lcovutil::maxMemory,
+             "profile"          => \$lcovutil::profile,
+             "parallel"         => \$lcovutil::maxParallelism,
+             "memory"           => \$lcovutil::maxMemory,
              'source_directory' => \@rc_source_directories,
 
              "no_exception_branch"   => \$lcovutil::exclude_exception_branch,
@@ -1215,7 +1234,7 @@ sub munge_file_patterns
         die("Invalid $flag regexp in ('" . join('\' \'', @$list) . "'):\n$@")
             if $@;
     }
-    # sadly, substitions aren't regexps and can't be precompiled
+    # sadly, substitutions aren't regexps and can't be precompiled
     foreach my $p (['substitute', \@file_subst_patterns]) {
         my ($flag, $list) = @$p;
         next unless @$list;
@@ -1337,16 +1356,50 @@ sub strip_directories($$)
     return $filename;
 }
 
-sub define_errors($)
+sub define_errors()
 {
-    my $hash = shift;
-    foreach my $k (keys(%$hash)) {
-        my $id = $hash->{$k};
-        $ERROR_ID{$k}                 = $id;
-        $ERROR_NAME{$id}              = $k;
-        $ignore[$ERROR_ID{$k}]        = 0;
-        $message_count[$ERROR_ID{$k}] = 0;
+    my $id = 0;
+    foreach my $d (@lcovErrs) {
+        my ($k, $ref) = @$d;
+        $$ref               = $id;
+        $lcovErrors{$k}     = $id;
+        $ERROR_ID{$k}       = $id;
+        $ERROR_NAME{$id}    = $k;
+        $ignore[$id]        = 0;
+        $message_count[$id] = 0;
+        ++$id;
     }
+}
+
+sub summarize_messages
+{
+    return if $lcovutil::in_child_process;
+
+    my %total = ('error'   => 0,
+                 'warning' => 0,
+                 'ignore'  => 0,);
+    # use verbosity level -1:  so print unless user says "-q -q"...really quiet
+
+    my $found = 0;
+    while (my ($type, $hash) = each(%message_types)) {
+        while (my ($name, $count) = each(%$hash)) {
+            $total{$type} += $count;
+            $found = 1;
+        }
+    }
+    info(-1, "Message summary:\n");
+    foreach my $type ('error', 'warning', 'ignore') {
+        next unless $total{$type};
+        $found = 1;
+        my $leader = '  ' . $total{$type} . " $type message" .
+            ($total{$type} > 1 ? 's' : '') . ":\n";
+        my $h = $message_types{$type};
+        foreach my $k (sort keys %$h) {
+            info(-1, $leader . '    ' . $k . ": " . $h->{$k} . "\n");
+            $leader = '';
+        }
+    }
+    info(-1, "  no messages were reported\n") unless $found;
 }
 
 sub parse_ignore_errors(@)
@@ -1436,10 +1489,34 @@ sub merge_deferred_warnings
 
 sub initial_state
 {
+    # a bit of a hack:   this method is called at the start of each
+    #  child process - so use it to record that we are executing in a
+    #  child.
+    # The flag is used to reduce verbosity from children - and possibly
+    #  for other things later
+    $lcovutil::in_child_process = 1;
+
     # keep track of number of warnings, etc. generated in child -
     #  so we can merge back into parent.  This may prevent us from
     #  complaining about the same thing in multiple children - but only
     #  if those children don't execute in parallel.
+    %message_types = ();    #reset
+    $ReadCurrentSource::searchPath->reset();
+    # clear profile - want only my contribution
+    %lcovutil::profileData  = ();
+    %lcovutil::warnOnlyOnce = ();
+
+    # clear pattern counts so we can update number found in children
+    foreach my $patType (\@lcovutil::exclude_file_patterns,
+                         \@lcovutil::include_file_patterns,
+                         \@lcovutil::file_subst_patterns,
+                         \@omit_line_patterns
+    ) {
+        foreach my $p (@$patType) {
+            $p->[-1] = 0;
+        }
+    }
+
     return Storable::dclone([\@message_count, \%versionCache]);
 }
 
@@ -1448,11 +1525,9 @@ sub compute_update
     my $state = shift;
     my @new_count;
     my ($initialCount, $initialVersionCache) = @$state;
-    foreach my $msg (@message_count) {
-        my $v =
-            defined($message_count[$msg]) ?
-            ($message_count[$msg] - $initialCount->[$msg]) :
-            0;
+    my $id = 0;
+    foreach my $count (@message_count) {
+        my $v = $count - $initialCount->[$id++];
         push(@new_count, $v);
     }
     my %versionUpdate;
@@ -1460,22 +1535,73 @@ sub compute_update
         $versionUpdate{$f} = $v
             unless exists($initialVersionCache->{$f});
     }
+    my @rtn = (\@new_count,
+               \%versionUpdate,
+               \%message_types,
+               $ReadCurrentSource::searchPath->current_count(),
+               \%lcovutil::profileData,
+               \%lcovutil::warnOnlyOnce);
 
-    return [\@new_count];
+    foreach my $patType (\@lcovutil::exclude_file_patterns,
+                         \@lcovutil::include_file_patterns,
+                         \@lcovutil::file_subst_patterns,
+                         \@omit_line_patterns
+    ) {
+        my @count;
+        foreach my $p (@$patType) {
+            push(@count, $p->[-1]);
+        }
+        push(@rtn, \@count);
+    }
+
+    return \@rtn;
 }
 
 sub update_state
 {
-    my $update = shift;
-    my ($updateCount, $updateVersionCache) = @$update;
-    foreach my $msg (@$updateCount) {
-        next unless defined($message_count[$msg]);
-        $message_count[$msg] += $update->[0]->[$msg];
+    my $updateCount = shift;
+    my $id          = 0;
+    foreach my $count (@$updateCount) {
+        $message_count[$id++] += $count;
     }
+    my $updateVersionCache = shift;
     while (my ($f, $v) = each(%$updateVersionCache)) {
-        die("unexpected entry") if exists($versionCache{$f});
+        lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                                  "unexpected version entry")
+            if exists($versionCache{$f}) && !$versionCache{$f} eq $v;
         $versionCache{$f} = $v;
     }
+    my $msgTypes = shift;
+    while (my ($type, $h) = each(%$msgTypes)) {
+        while (my ($err, $count) = each(%$h)) {
+            if (exists($message_types{$type}) &&
+                exists($message_types{$type}{$err})) {
+                $message_types{$type}{$err} += $count;
+            } else {
+                $message_types{$type}{$err} = $count;
+            }
+        }
+    }
+    my $searchCount = shift;
+    $ReadCurrentSource::searchPath->update_count(@$searchCount);
+
+    my $profile = shift;
+    lcovutil::merge_child_profile($profile);
+    my $warnOnce = shift;
+    lcovutil::merge_deferred_warnings($warnOnce);
+
+    foreach my $patType (\@lcovutil::exclude_file_patterns,
+                         \@lcovutil::include_file_patterns,
+                         \@lcovutil::file_subst_patterns,
+                         \@omit_line_patterns
+    ) {
+        my $count = shift;
+        die("unexpected pattern count") unless $#$count == $#$patType;
+        foreach my $p (@$patType) {
+            $p->[-1] += shift @$count;
+        }
+    }
+    die("unexpected update data") unless -1 == $#_;    # exhausted list
 }
 
 sub warnSuppress($$)
@@ -1494,9 +1620,20 @@ sub warnSuppress($$)
     }
 }
 
+sub _count_message($$)
+{
+    my ($type, $name) = @_;
+
+    $message_types{$type}{$name} = 0
+        unless (exists($message_types{$type}) &&
+                exists($message_types{$type}{$name}));
+    ++$message_types{$type}{$name};
+}
+
 sub ignorable_error($$;$)
 {
     my ($code, $msg, $quiet) = @_;
+    die("undefined error code for '$msg'") unless defined($code);
 
     my $errName = "code_$code";
     $errName = $ERROR_NAME{$code}
@@ -1508,6 +1645,7 @@ sub ignorable_error($$;$)
         #  this message is not fatal and we emitted it some number of times,
         #  or the message is fatal - and this is the first time we see it
 
+        _count_message('ignore', $errName);
         # warn that we are suppressing from here on - for the first skipped
         #   message of this type
         warnSuppress($code, $errName);
@@ -1519,32 +1657,36 @@ sub ignorable_error($$;$)
         !$ignore[$code]) {
         my $ignoreOpt =
             "\t(use \"$tool_name --ignore-errors $errName ...\" to bypass this error)\n";
-
+        $ignoreOpt = ''
+            if ($lcovutil::in_child_process ||
+                !($lcovutil::verbose || $message_count[$code] == 1));
         if (defined($stop_on_error) && 0 == $stop_on_error) {
-            warn_handler(
-                        "($errName) $msg\n"
-                            .
-                            (
-                            $lcovutil::verbose ||
-                                $message_count[$code] == 1 ? '' : "$ignoreOpt\n"
-                            ));
-            return;
+            _count_message('warning', $errName);
+            warn_handler("($errName) $msg\n$ignoreOpt");
         }
+        _count_message('error', $errName);
         die_handler("($errName) $msg\n$ignoreOpt");
     }
     # only tell the user how to suppress this on the first occurrence
     my $ignoreOpt =
-        ($lcovutil::verbose || $message_count[$code] == 1) ?
-        "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n"
-        :
-        '';
-    warn_handler("($errName) $msg\n$ignoreOpt")
-        unless $ignore[$code] > 1 || (defined($quiet) && $quiet);
+        "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
+    $ignoreOpt = ''
+        if ($lcovutil::in_child_process ||
+            !($lcovutil::verbose || $message_count[$code] == 1));
+
+    if ($ignore[$code] > 1 || (defined($quiet) && $quiet)) {
+        _count_message('ignore', $errName);
+    } else {
+        _count_message('warning', $errName);
+        warn_handler("($errName) $msg\n$ignoreOpt");
+    }
 }
 
 sub ignorable_warning($$;$)
 {
     my ($code, $msg, $quiet) = @_;
+    die("undefined error code for '$msg'") unless defined($code);
+
     my $errName = "code_$code";
     $errName = $ERROR_NAME{$code}
         if exists($ERROR_NAME{$code});
@@ -1553,6 +1695,7 @@ sub ignorable_warning($$;$)
         # warn that we are suppressing from here on - for the first skipped
         #   message of this type
         warnSuppress($code, $errName);
+        _count_message('ignore', $errName);
         return;
     }
     chomp($msg);    # we insert the newline
@@ -1560,18 +1703,47 @@ sub ignorable_warning($$;$)
         !$ignore[$code]) {
         # only tell the user how to suppress this on the first occurrence
         my $ignoreOpt =
-            ($lcovutil::verbose || $message_count[$code] != 1) ? "" :
             "\t(use \"$tool_name --ignore-errors $errName,$errName ...\" to suppress this warning)\n";
+        $ignoreOpt = ''
+            if ($lcovutil::in_child_process ||
+                !($lcovutil::verbose || $message_count[$code] == 1));
         warn_handler("($errName) $msg\n$ignoreOpt");
+        _count_message('warning', $errName);
+    } else {
+        _count_message('ignore', $errName);
     }
 }
 
 sub report_parallel_error
 {
-    my ($operation, $msg) = @_;
-    ignorable_error($ERROR_PARALLEL,
+    my $operation = shift;
+    my $errno     = shift;
+    my $msg       = shift;
+    # kill all my remaining children so user doesn't see unexpected console
+    #  messages from dangling children (who cannot open files because the
+    #  temp directory has been deleted, and so forth)
+    kill(9, @_) if @_ && !is_ignored($errno);
+    ignorable_error($errno,
         "$operation: error '$msg' during child processing (try removing the '--parallel' option)"
     );
+}
+
+sub check_parent_process
+{
+    die("must call from child process") unless $lcovutil::in_child_process;
+    # if parent PID changed to 1 (init) - then my parent went away so
+    #  I should exit now
+    # for reasons which are unclear to me:  the PPID is sometimes unchanged
+    #  after the parent process dies - to also check if we can send it a signal
+    my $ppid = getppid();
+    lcovutil::info(2, "check_parent_process($$) = $ppid\n");
+    if (1 == getppid() ||
+        1 != kill(0, $ppid)) {
+        lcovutil::ignorable_error($lcovutil::ERROR_PARENT,
+            "parent process died during '--parallel' execution - child $$ cannot continue."
+        );
+        exit(0);
+    }
 }
 
 sub is_filter_enabled
@@ -1618,7 +1790,6 @@ sub parse_cov_filters(@)
 
 sub summarize_cov_filters
 {
-
     # use verbosity level -1:  so print unless user says "-q -q"...really quiet
 
     for my $key (keys(%COVERAGE_FILTERS)) {
@@ -1671,33 +1842,6 @@ sub reenable_cov_filters
     }
     @lcovutil::omit_line_patterns        = @{$data->[1]};
     @lcovutil::exclude_function_patterns = @{$data->[2]};
-}
-
-sub save_child_pattern_counts
-{
-    my @excluded = map { $_->[-1] } @lcovutil::exclude_file_patterns;
-    my @included = map { $_->[-1] } @lcovutil::include_file_patterns;
-    my @subst    = map { $_->[-1] } @lcovutil::file_subst_patterns;
-    return [\@excluded, \@included, \@subst];
-
-}
-
-sub merge_child_pattern_counts
-{
-    # merge back counts of successful application of substitution and exclusion
-    #  patterns (else the parent won't know that the child uses some pattern -
-    #  and will complain about it later
-    my $patterns = shift;
-    my ($excluded, $included, $subst) = @$patterns;
-    foreach my $d ([$excluded, \@lcovutil::exclude_file_patterns],
-                   [$included, \@lcovutil::include_file_patterns],
-                   [$subst, \@lcovutil::file_subst_patterns]
-    ) {
-        my ($r, $x) = @$d;
-        for (my $i = 0; $i <= $#$r; ++$i) {
-            $x->[$i]->[-1] += $r->[$i];    # add back this count
-        }
-    }
 }
 
 sub filterStringsAndComments
@@ -2868,7 +3012,7 @@ sub removeAliases
     my $aliases = $self->[ALIASES];
     my $rename  = 0;
     foreach my $name (@_) {
-        exists($aliases->{$name}) or die("remoing non-existent alias $name");
+        exists($aliases->{$name}) or die("removing non-existent alias $name");
 
         my $count = $aliases->{$name};
         delete($aliases->{$name});
@@ -2981,7 +3125,7 @@ sub define_function
     if (exists($locationMap->{$key})) {
         $data = $locationMap->{$key};
         lcovutil::ignorable_error(
-                    $lcovutil::ERROR_INCONSISTENt_DATA,
+                    $lcovutil::ERROR_INCONSISTENT_DATA,
                     "mismatched end line for $fnName at $filename:$start_line: "
                         .
                         (
@@ -4548,7 +4692,8 @@ sub serialize
 sub deserialize
 {
     my ($class, $file) = @_;
-    my $self = Storable::retrieve($file) or die("unable to deserialize $file");
+    my $self = Storable::retrieve($file) or
+        die("unable to deserialize $file\n");
     ref($self) eq $class or die("did not deserialize a $class");
     return $self;
 }
@@ -5077,6 +5222,10 @@ sub _mergeParallelChunk
     lcovutil::debug(1, "merge:$child ID $chunkId\n");
     my $start = Time::HiRes::gettimeofday();
     foreach my $f ($childLog, $childErr) {
+        if (!-f $f) {
+            $f = '';    # there was no output
+            next;
+        }
         if (open(RESTORE, "<", $f)) {
             # slurp into a string and eval..
             my $str = do { local $/; <RESTORE> };    # slurp whole thing
@@ -5084,25 +5233,24 @@ sub _mergeParallelChunk
             unlink $f;
             $f = $str;
         } else {
-            lcovutil::report_parallel_error($lcovutil::tool_name,
-                                            "unable to open $f: $!");
+            $f = "unable to open $f: $!";
+            if (0 == $childstatus) {
+                lcovutil::report_parallel_error($lcovutil::tool_name,
+                                         $ERROR_PARALLEL, $f, keys(%$children));
+            }
         }
     }
     print(STDOUT $childLog)
         if ($childstatus != 0 ||
             $lcovutil::verbose > 1);
     print(STDERR $childErr);
-    if (0 == $childstatus && -f $dumped) {
+    if (-f $dumped) {
         my $data = Storable::retrieve($dumped);
         if (defined($data)) {
-            my ($updates, $save, $state, $childFinish, $profile, $warnings,
-                $update)
-                = @$data;
+            my ($updates, $save, $state, $childFinish, $update) = @$data;
 
-            lcovutil::merge_child_profile($profile);
-            lcovutil::merge_deferred_warnings($warnings);
-            lcovutil::update_state($update);
-            #my $childCpuTime = $profile->{filt_child}{$chunkId};
+            lcovutil::update_state(@$update);
+            #my $childCpuTime = $lcovutil::profileData{filt_child}{$chunkId};
             #$totalFilterCpuTime    += $childCpuTime;
             #$intervalFilterCpuTime += $childCpuTime;
 
@@ -5128,17 +5276,21 @@ sub _mergeParallelChunk
             #$intervalMonitor->checkUpdate($processedFiles);
 
         } else {
-            lcovutil::report_parallel_error('geninfo',
-                                            "unable to deserialize $dumped");
+            lcovutil::report_parallel_error($lcovutil::tool_name,
+                           $ERROR_PARALLEL, "unable to deserialize $dumped: $@",
+                           , keys(%$children));
         }
-    } elsif ($childstatus > 0) {
-        lcovutil::report_parallel_error($lcovutil::tool_name,
-            "child $child returned non-zero code $childstatus: ignoring data in chunk $chunkId"
-        );
     }
     foreach my $f ($dumped) {
         unlink $f
             if -f $f;
+    }
+    if ($childstatus != 0) {
+        lcovutil::report_parallel_error(
+            $lcovutil::tool_name,
+            $ERROR_CHILD,
+            "child $child returned non-zero code $childstatus: ignoring data in chunk $chunkId",
+            keys(%$children));
     }
     my $to = Time::HiRes::gettimeofday();
     $lcovutil::profileData{filt_chunk}{$chunkId} = $to - $forkAt;
@@ -5166,15 +5318,14 @@ sub _processParallelChunk
     my $childStart = Time::HiRes::gettimeofday();
     my ($tmp, $chunk, $srcReader, $save, $state, $forkAt, $chunkId) = @_;
     # clear profile - want only my contribution
-    %lcovutil::profileData  = ();
-    %lcovutil::warnOnlyOnce = ();
     my $currentState = lcovutil::initial_state();
     my $stdout_file  = File::Spec->catfile($tmp, "filter_$$.log");
     my $stderr_file  = File::Spec->catfile($tmp, "filter_$$.err");
     my $childInfo;
     # set count to zero so we know how many got created in
     # the child process
-    my $now = Time::HiRes::gettimeofday();
+    my $now    = Time::HiRes::gettimeofday();
+    my $status = 0;
 
     # clear current status so we see updates from this child
     # pattern counts
@@ -5198,15 +5349,22 @@ sub _processParallelChunk
     my @updates;
     my ($stdout, $stderr, $code) = Capture::Tiny::capture {
 
-        foreach my $d (@$chunk) {
-            # could keep track of individual file time if we wanted to
-            my ($data, $modified) = _filterFile(@$d, $srcReader, $state);
+        eval {
+            foreach my $d (@$chunk) {
+                # could keep track of individual file time if we wanted to
+                my ($data, $modified) = _filterFile(@$d, $srcReader, $state);
 
-            lcovutil::info(1,
-                   $d->[1] . ' is ' . ($modified ? '' : 'NOT ') . "modified\n");
-            if ($modified) {
-                push(@updates, [$d->[1], $data]);
+                lcovutil::info(1,
+                               $d->[1] . ' is ' .
+                                   ($modified ? '' : 'NOT ') . "modified\n");
+                if ($modified) {
+                    push(@updates, [$d->[1], $data]);
+                }
             }
+        };
+        if ($@) {
+            print(STDERR $@);
+            $status = 1;
         }
     };
     my $end = Time::HiRes::gettimeofday();
@@ -5221,8 +5379,13 @@ sub _processParallelChunk
         $f = [$f->[-2], $f->[-1]];
     }
 
+    # parent might have already caught an error, cleaned up and
+    #  removed the tempdir and exited.
+    lcovutil::check_parent_process();
+
     # print stdout and stderr ...
     foreach my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
+        next unless ($d->[1]);    # only print if there is something to print
         my $f = InOutFile->out($d->[0]);
         my $h = $f->hdl();
         print($h $d->[1]);
@@ -5234,12 +5397,7 @@ sub _processParallelChunk
     $lcovutil::profileData{filt_child}{$chunkId} = $end - $start;
 
     eval {
-        Storable::store([\@updates,
-                         $save,
-                         $state,
-                         $then,
-                         \%lcovutil::profileData,
-                         \%lcovutil::warnOnlyOnce,
+        Storable::store([\@updates, $save, $state, $then,
                          lcovutil::compute_update($currentState)
                         ],
                         $dumpf);
@@ -5248,6 +5406,7 @@ sub _processParallelChunk
         lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
                                   "Child $$ serialize failed: $!");
     }
+    return $status;
 }
 
 # chunkID is only used for uniquification and as a key in profile data.
@@ -5359,8 +5518,16 @@ sub _processFilterWorklist
                         $lcovutil::maxMemory);
                 my $child       = wait();
                 my $childstatus = $?;
-                $self->_mergeParallelChunk($tmp, $child, \%children,
-                                           $childstatus, \@save);
+                eval {
+                    $self->_mergeParallelChunk($tmp, $child, \%children,
+                                               $childstatus, \@save);
+                };
+                if ($@) {
+                    $childstatus = 1 unless $childstatus;
+                    lcovutil::report_parallel_error($lcovutil::tool_name,
+                          $lcovutil::ERROR_CHILD,
+                          "child returned non-zero exit code $childstatus: $@");
+                }
                 --$currentParallel;
             }
 
@@ -5379,9 +5546,10 @@ sub _processFilterWorklist
             }
             if (0 == $pid) {
                 # I'm the child
-                _processParallelChunk($tmp, $d, $srcReader, \@save, \@state,
-                                      $now, $masterChunkID);
-                exit(0);
+                my $status =
+                    _processParallelChunk($tmp, $d, $srcReader, \@save,
+                                          \@state, $now, $masterChunkID);
+                exit($status);    # normal return
             } else {
                 # parent
                 $children{$pid} = [$d, $now, $masterChunkID];
@@ -5395,8 +5563,17 @@ sub _processFilterWorklist
         my $child       = wait();
         my $childstatus = $?;
         --$currentParallel;
-        $self->_mergeParallelChunk($tmp, $child, \%children, $childstatus,
-                                   \@save);
+        eval {
+            $self->_mergeParallelChunk($tmp, $child, \%children, $childstatus,
+                                       \@save);
+        };
+        if ($@) {
+            $childstatus = 1 unless $childstatus;
+            lcovutil::report_parallel_error($lcovutil::tool_name,
+                          $lcovutil::ERROR_CHILD,
+                          "child returned non-zero exit code $childstatus: $@");
+        }
+
     }
     lcovutil::info("Finished filter file processing\n");
 }
@@ -5701,7 +5878,7 @@ sub _read_info
                 }
             }
             $fileData = $self->data($filename);
-            # record line number where file entry found - can use it in error messsages
+            # record line number where file entry found - can use it in error messages
             $fileData->location($tracefile, $.);
             ($testdata, $sumcount, $funcdata, $checkdata,
              $testfncdata, $testbrdata, $sumbrcount) = $fileData->get_info();
@@ -6437,6 +6614,7 @@ sub merge
             lcovutil::create_temp_dir();
         my %children;
         my @pending;
+        my $patterns;
         while (my $segment = pop(@segments)) {
             $lcovutil::deferWarnings = 1;
             my $now = Time::HiRes::gettimeofday();
@@ -6453,31 +6631,40 @@ sub merge
                 # I'm the child
                 my $stdout_file = File::Spec->catfile($tempDir, "lcov_$$.log");
                 my $stderr_file = File::Spec->catfile($tempDir, "lcov_$$.err");
-                local (*STDERR);
-                local (*STDOUT);
-                open(STDOUT1, '>' . $stdout_file) or
-                    die($stdout_file . ': ' . $!);
-                open(STDERR1, '>' . $stderr_file) or
-                    die($stderr_file . ': ' . $!);
-                open(STDOUT, ">&STDOUT1") or
-                    die("cound not redirect stdout: $!");
-                open(STDERR, ">&STDERR1") or
-                    die("cound not redirect stderr: $!");
-                my $currentState = lcovutil::initial_state();
-                my @interesting =
-                    _process_segment($total_trace, $readSourceFile, $segment);
 
-                my $patterns = lcovutil::save_child_pattern_counts();
-                my $then     = Time::HiRes::gettimeofday();
-                $lcovutil::profileData{$idx}{total} = $then - $now;
+                my $currentState = lcovutil::initial_state();
+                my $status       = 0;
+                my @interesting;
+                my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+                    eval {
+                        @interesting =
+                            _process_segment($total_trace,
+                                             $readSourceFile, $segment);
+                    };
+                    if ($@) {
+                        print(STDERR $@);
+                        $status = 1;
+                    }
+
+                    my $then = Time::HiRes::gettimeofday();
+                    $lcovutil::profileData{$idx}{total} = $then - $now;
+                };
+                # print stdout and stderr ...
+                foreach
+                    my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
+                    next
+                        unless ($d->[1])
+                        ;    # only print if there is something to print
+                    my $f = InOutFile->out($d->[0]);
+                    my $h = $f->hdl();
+                    print($h $d->[1]);
+                }
+
                 my $file = File::Spec->catfile($tempDir, "dumper_$$");
                 eval {
                     Storable::store([$total_trace,
                                      \@interesting,
                                      $function_mapping,
-                                     $patterns,
-                                     \%lcovutil::profileData,
-                                     \%lcovutil::warnOnlyOnce,
                                      lcovutil::compute_update($currentState)
                                     ],
                                     $file);
@@ -6486,9 +6673,7 @@ sub merge
                     lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
                                               "Child $$ serialize failed: $!");
                 }
-                close(STDOUT1) or die("unable to close stdout: $!\n");
-                close(STDERR1) or die("unable to close stderr: $!\n");
-                exit(0);
+                exit($status);
             } else {
                 $children{$pid} = [$now, $idx];
                 push(@pending, $segment);
@@ -6515,6 +6700,10 @@ sub merge
             my $childErr = File::Spec->catfile($tempDir, "lcov_$child.err");
 
             foreach my $f ($childLog, $childErr) {
+                if (!-f $f) {
+                    $f = '';    # there was no output
+                    next;
+                }
                 if (open(RESTORE, "<", $f)) {
                     # slurp into a string and eval..
                     my $str = do { local $/; <RESTORE> };    # slurp whole thing
@@ -6523,9 +6712,11 @@ sub merge
                         unless ($str && $lcovutil::preserve_intermediates);
                     $f = $str;
                 } else {
-                    my $msg = "unable to open $f: $!";
-                    lcovutil::report_parallel_error('lcov', $msg);
-                    $f = $msg;
+                    $f = "unable to open $f: $!";
+                    if (0 == $childstatus) {
+                        lcovutil::report_parallel_error('lcov', $f,
+                                              $ERROR_PARALLEL, keys(%children));
+                    }
                 }
             }
             print(STDOUT $childLog)
@@ -6533,24 +6724,20 @@ sub merge
                     $lcovutil::verbose);
             print(STDERR $childErr);
 
-            if (0 == $childstatus) {
-                # undump the data
-                my $data = Storable::retrieve($dumpfile);
-                if (defined($data)) {
-                    my ($current, $changed, $func_map, $patterns,
-                        $profile, $warnings, $update) = @$data;
+            # undump the data
+            my $data = Storable::retrieve($dumpfile) if -f $dumpfile;
+            if (defined($data)) {
+                eval {
+                    my ($current, $changed, $func_map, $update) = @$data;
                     my $then = Time::HiRes::gettimeofday();
                     $lcovutil::profileData{$idx}{undump} = $then - $now;
-                    $lcovutil::profileData{$idx}{total} =
-                        $profile->{$idx}{total};
-                    # and pass back substitutions, etc.
-                    lcovutil::merge_child_pattern_counts($patterns);
-                    lcovutil::merge_deferred_warnings($warnings);
-                    lcovutil::update_state($update);
+                    lcovutil::update_state(@$update);
                     if ($function_mapping) {
                         if (!defined($func_map)) {
                             lcovutil::report_parallel_error('lcov',
-                                "segment $idx returned empty function data");
+                                $ERROR_PARALLEL,
+                                "segment $idx returned empty function data",
+                                keys(%children));
                             next;
                         }
                         while (my ($key, $data) = each(%$func_map)) {
@@ -6566,7 +6753,9 @@ sub merge
                     } else {
                         if (!defined($current)) {
                             lcovutil::report_parallel_error('lcov',
-                                "segment $idx returned empty trace data");
+                                $ERROR_PARALLEL,
+                                "segment $idx returned empty trace data",
+                                , keys(%children));
                             next;
                         }
                         if ($total_trace->merge_tracefile(
@@ -6577,22 +6766,20 @@ sub merge
                             push(@effective, @$changed);
                         }
                     }
-                    foreach my $k ('parse', 'append') {
-                        $lcovutil::profileData{$idx}{$k} = {};
-                        while (my ($key, $val) = each(%{$profile->{$k}})) {
-                            # could keep track of the segment this ran in - so
-                            #   we see the execution time of each file in the segment
-                            #   as well as the segment overall time
-                            $lcovutil::profileData{$idx}{$k}{$key} = $val;
-                        }
-                    }
-                } else {
-                    lcovutil::report_parallel_error('lcov',
-                                "unable to deserialize segment $idx $dumpfile");
+                };    # end eval
+                if ($@) {
+                    $childstatus = 1 unless $childstatus;
+                    lcovutil::report_parallel_error('lcov', $ERROR_PARALLEL,
+                              "unable to deserialize segment $idx $dumpfile:$@",
+                              keys(%children));
                 }
-            } else {
-                lcovutil::report_parallel_error('lcov',
-                            "child $child returned non-zero code $childstatus");
+            }
+            if (0 != $childstatus) {
+                lcovutil::report_parallel_error(
+                    'lcov',
+                    $ERROR_CHILD,
+                    "error in child $child processing: non-zero code $childstatus",
+                    keys(%children));
             }
             my $end = Time::HiRes::gettimeofday();
             $lcovutil::profileData{$idx}{merge} = $end - $start;
@@ -6618,6 +6805,6 @@ sub merge
 
 # call the common initialization functions
 
-lcovutil::define_errors(\%lcovErrors);
+lcovutil::define_errors();
 
 1;

@@ -1091,6 +1091,15 @@ branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected in
 Version script error.
 .br
 
+.B child
+child process returned non-zero exit code during
+.I \-\-parallel
+execution.  This typically indicates that the child encountered an error:  see the log file immediately above this message.
+In contrast:  the
+.B parallel
+error indicates an unexpected/unhandled exception in the child process - not a 'typical' lcov error.
+.br
+
 .B corrupt:
 corrupt/unreadable file found.
 
@@ -1114,6 +1123,9 @@ the gcov tool returned with a non\-zero return code.
 
 .B graph:
 the graph file could not be found or is corrupted.
+
+.B internal:
+internal tool issue detected.  Please report this bug along with a testcase.
 
 .B mismatch:
 Inconsistent entries found in trace file:
@@ -1139,7 +1151,19 @@ and try compiling with "-fprofile-update=atomic". You will need to recompile, re
 a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
 
 .B parallel:
-various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the \-\-parallel flag and try again.
+various types of errors related to parallelism -
+.I i.e.,
+a child process died due to an error.  The corresponding error message appears in the log file immediately before the
+.I parallel
+error.
+If you see an error related to parallel execution that seems invalid, it may be a good idea to remove the \-\-parallel flag and try again.  If removing the flag leads to a different result, please report the issue (along with a testcase) so that the tool can be fixed.
+
+.B parent:
+the parent process exited while child was active during
+.I \-\-parallel
+execution.  This happens when the parent has encountered a fatal error -
+.I e.g.
+an error in some other child which was not ignored.  This child cannot continue working without its parent - and so will exit.
 
 .B range:
 Coverage data refers to a line number which is larger than the number of

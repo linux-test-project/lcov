@@ -2105,6 +2105,15 @@ Annotate, version, or criteria script error.
 Line number categorizations are incorrect in the .info file, so branch coverage line number turns out to not be an executable source line.
 .br
 
+.B child
+child process returned non-zero exit code during
+.I \-\-parallel
+execution.  This typically indicates that the child encountered an error:  see the log file immediately above this message.
+In contrast:  the
+.B parallel
+error indicates an unexpected/unhandled exception in the child process - not a 'typical' lcov error.
+.br
+
 .B count:
 An excessive number of messages of some class has been reported - subsequent messages of that type will be suppressed.
 The limit can be controlled by the 'max_message_count' variable. See the lcovrc man page.
@@ -2135,6 +2144,9 @@ Files have been moved or repository history presented by
 .B \-\-diff\-file
 data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' and 'annotate' scripts.
 .br
+
+.B internal:
+internal tool issue detected.  Please report this bug along with a testcase.
 
 .B mismatch:
 Inconsistent entries found in trace file:
@@ -2167,10 +2179,12 @@ A required perl package is not installed on your system.  In some cases, it is p
 .br
 
 .B parallel:
-Various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the
-.B \-\-parallel
-flag and try again.
-.br
+various types of errors related to parallelism -
+.I i.e.,
+a child process died due to an error.  The corresponding error message appears in the log file immediately before the
+.I parallel
+error.
+If you see an error related to parallel execution that seems invalid, it may be a good idea to remove the \-\-parallel flag and try again.  If removing the flag leads to a different result, please report the issue (along with a testcase) so that the tool can be fixed.
 
 .B path:
 File name found in

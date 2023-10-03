@@ -103,7 +103,8 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_UNSUPPORTED
                  $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA $ERROR_CALLBACK
                  $ERROR_RANGE $ERROR_PATH
-                 $ERROR_PARALLEL report_parallel_error
+                 $ERROR_PARALLEL $ERROR_CHILD report_parallel_error
+                 summarize_messages
                  $br_coverage $func_coverage
                  info $verbose init_verbose_flag debug $debug $devnull
                  parseOptions
@@ -1156,8 +1157,10 @@ sub checkCoverageCriteria
                                   "'open(-| $cmd)' failed: \"$!\"");
     }
     my $end = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{criteria}{$self->type() eq 'top' ? 'top' :
-            $self->name()} = $end - $start;
+    $lcovutil::profileData{criteria}{
+        $self->type() eq 'top' ? 'top' :
+            $self->name()
+    } = $end - $start;
 }
 
 package OwnerDetailCallback;
@@ -4882,7 +4885,10 @@ sub compute
         my ($type, $data, $short_path, $path, $parentData) = @$task;
         my ($selfSummary, $perTestData, $name) = @$data;
         #main::info("$type: $name\n");
-        my ($parentSummary, $parentPerTestData, $parentPath) =
+        # break initialization into 2 statements - see
+        # https://stackoverflow.com/questions/26676488/why-is-the-variable-not-available
+        my ($parentSummary, $parentPerTestData, $parentPath);
+        ($parentSummary, $parentPerTestData, $parentPath) =
             @{$parentData->[0]->[1]}
             unless 'top' eq $type;
 
@@ -4925,58 +4931,73 @@ sub compute
             if (0 == $pid) {
                 # I'm the child
                 # clear the profile data - we want just my contribution
-                my $childStart = Time::HiRes::gettimeofday();
-                %lcovutil::profileData = ();
+                my $childStart   = Time::HiRes::gettimeofday();
                 my $tmp          = '' . $self->[4];
                 my $stdout_file  = File::Spec->catfile($tmp, "genhtml_$$.log");
                 my $stderr_file  = File::Spec->catfile($tmp, "genhtml_$$.err");
                 my $currentState = lcovutil::initial_state();
-                local (*STDERR);
-                local (*STDOUT);
-                open(STDOUT1, '>' . $stdout_file) or
-                    die($stdout_file . ': ' . $!);
-                open(STDERR1, '>' . $stderr_file) or
-                    die($stderr_file . ': ' . $!);
-                open(STDOUT, ">&STDOUT1") or
-                    die("could not redirect stdout: $!");
-                open(STDERR, ">&STDERR1") or
-                    die("could not redirect stderr: $!");
+                my $status       = 0;
+                my $criteria;
+                my ($stdout, $stderr, $code) = Capture::Tiny::capture {
 
-                if ('file' eq $type) {
-                    ($perTestData->[0], $perTestData->[1], $perTestData->[2]) =
-                        main::process_file($selfSummary, $parentSummary,
-                                           $trunc_dir, $rel_dir, $name);
-                } elsif ('dir' eq $type) {
-                    # Create sorted summary pages
-                    main::write_summary_pages(
+                    eval {
+                        if ('file' eq $type) {
+                            ($perTestData->[0], $perTestData->[1],
+                             $perTestData->[2])
+                                =
+                                main::process_file($selfSummary, $parentSummary,
+                                                   $trunc_dir, $rel_dir, $name);
+                        } elsif ('dir' eq $type) {
+                            # Create sorted summary pages
+                            main::write_summary_pages(
                                             $name, 1,    # this is a directory,
                                             $selfSummary, $main::show_details,
                                             $rel_dir, $base_dir, $trunc_dir,
                                             $perTestData);
-                } else {
-                    die("unexpected task '" . join(' ', @$task) . ".")
-                        unless 'top' eq $type;
+                        } else {
+                            die("unexpected task '" . join(' ', @$task) . ".")
+                                unless 'top' eq $type;
 
-                    # Generate overview page
-                    lcovutil::info("Writing top-level directory view page.\n");
-                    # Create sorted pages
-                    main::write_summary_pages(
-                        $name, 0,                        # 0 == list directories
-                        $selfSummary,
-                        0, # don't generate 'details' links for top-level report
-                        ".", "", undef, undef);
+                            # Generate overview page
+                            lcovutil::info(
+                                    "Writing top-level directory view page.\n");
+                            # Create sorted pages
+                            main::write_summary_pages(
+                                $name, 0,    # 0 == list directories
+                                $selfSummary,
+                                0
+                                , # don't generate 'details' links for top-level report
+                                ".", "", undef, undef);
+                        }
+
+                        $selfSummary->checkCoverageCriteria();
+                        # clear the parent pointer that we hacked into place.  Don't want that
+                        #   extra data returned by dumper.
+                        $selfSummary->[SummaryInfo::PARENT]  = undef;
+                        $selfSummary->[SummaryInfo::SOURCES] = {}
+                            if $selfSummary->type() ne 'file';
+                        my $name =
+                            $selfSummary->type() eq 'top' ? "" :
+                            $selfSummary->name();
+                        $criteria = $SummaryInfo::coverageCriteria{$name}
+                            if exists($SummaryInfo::coverageCriteria{$name});
+                    };
+                    if ($@) {
+                        $status = 1;
+                        print(STDERR $@);
+                    }
+                };    # end capture
+                      # print stdout and stderr ...
+                foreach
+                    my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
+                    next
+                        unless ($d->[1])
+                        ;    # only print if there is something to print
+                    my $f = InOutFile->out($d->[0]);
+                    my $h = $f->hdl();
+                    print($h $d->[1]);
                 }
 
-                $selfSummary->checkCoverageCriteria();
-                # clear the parent pointer that we hacked into place.  Don't want that
-                #   extra data returned by dumper.
-                $selfSummary->[SummaryInfo::PARENT]  = undef;
-                $selfSummary->[SummaryInfo::SOURCES] = {}
-                    if $selfSummary->type() ne 'file';
-                my $name =
-                    $selfSummary->type() eq 'top' ? "" : $selfSummary->name();
-                my $criteria = $SummaryInfo::coverageCriteria{$name}
-                    if exists($SummaryInfo::coverageCriteria{$name});
                 my $file = File::Spec->catfile($tmp, "dumper_$$");
 
                 my $childEnd = Time::HiRes::gettimeofday();
@@ -4986,8 +5007,6 @@ sub compute
                                  [$perTestData,
                                   $selfSummary,
                                   $criteria,
-                                  \%lcovutil::profileData,
-                                  \%lcovutil::warnOnlyOnce,
                                   [$SourceFile::annotatedFiles - $annotateCount,
                                    $SourceFile::totalFiles - $totalCount
                                   ],
@@ -4999,9 +5018,7 @@ sub compute
                     lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
                                               "Child $$ serialize failed: $!");
                 }
-                close(STDOUT1) or die("unable to close stdout: $!\n");
-                close(STDERR1) or die("unable to close stderr: $!\n");
-                exit(0);
+                exit($status);
             } else {
                 $children->{$pid} = [$selfSummary, $name, $parentData, $start];
                 ++$currentParallel;
@@ -5084,8 +5101,8 @@ sub merge_child($$$)
     my ($childSummary, $fullname, $parentData, $start) =
         @{$children->{$childPid}};
     my $type = $childSummary->type();
-    my ($parentSummary, $parentPerTestData, $parentPath) =
-        @{$parentData->[0]->[1]}
+    my ($parentSummary, $parentPerTestData, $parentPath);
+    ($parentSummary, $parentPerTestData, $parentPath) = @{$parentData->[0]->[1]}
         unless $type eq 'top';
 
     my $tmp      = '' . $self->[4];
@@ -5093,6 +5110,10 @@ sub merge_child($$$)
     my $childLog = File::Spec->catfile($tmp, "genhtml_$childPid.log");
     my $childErr = File::Spec->catfile($tmp, "genhtml_$childPid.err");
     foreach my $f ($childLog, $childErr) {
+        if (!-f $f) {
+            $f = '';    # there was no output
+            next;
+        }
         if (open(RESTORE, "<", $f)) {
             # slurp into a string and eval..
             my $str = do { local $/; <RESTORE> };    # slurp whole thing
@@ -5100,7 +5121,11 @@ sub merge_child($$$)
             unlink $f;
             $f = $str;
         } else {
-            lcovutil::report_parallel_error('lcov', "unable to open $f: $!");
+            $f = "unable to open $f: $!";
+            if (0 == $childstatus) {
+                lcovutil::report_parallel_error('lcov',
+                               $lcovutil::ERROR_PARALLEL, $f, keys(%$children));
+            }
         }
     }
     print(STDOUT $childLog)
@@ -5108,12 +5133,12 @@ sub merge_child($$$)
             $lcovutil::verbose);
     print(STDERR $childErr);
 
-    if (0 == $childstatus) {
-        # now undump the data ...
-        my $data = Storable::retrieve($dumpfile);
-        if (defined($data)) {
-            my ($perTest, $summary, $criteria, $profile,
-                $warnings, $countData, $update) = @$data;
+    # now undump the data ...
+    my $data = Storable::retrieve($dumpfile)
+        if -f $dumpfile;
+    if (defined($data)) {
+        eval {
+            my ($perTest, $summary, $criteria, $countData, $update) = @$data;
             die("unexpected restored count data")
                 if (($type eq 'file' && $countData->[1] != 1) ||
                     ($type ne 'file' &&
@@ -5121,8 +5146,7 @@ sub merge_child($$$)
 
             $SourceFile::annotatedFiles += $countData->[0];
             $SourceFile::totalFiles     += $countData->[1];
-            lcovutil::update_state($update);
-            lcovutil::merge_deferred_warnings($warnings);
+            lcovutil::update_state(@$update);
             $childSummary->copyGuts($summary);
             if ('file' eq $type) {
                 my $base_name = File::Basename::basename($fullname);
@@ -5152,14 +5176,20 @@ sub merge_child($$$)
                     if ($criteria->[1] != 0 ||
                         0 != scalar(@{$criteria->[2]}));
             }
-            lcovutil::merge_child_profile($profile);
-        } else {
+        };
+        if ($@) {
+            $childstatus = 1 unless $childstatus;
+            print(STDERR $@);
             lcovutil::report_parallel_error('genhtml',
-                                            "unable to deserialize $dumpfile");
+                                          $lcovutil::ERROR_PARALLEL,
+                                          "unable to deserialize $dumpfile: $@",
+                                          keys(%$children));
         }
-    } else {
-        lcovutil::report_parallel_error('genhtml',
-                         "child $childPid returned non-zero code $childstatus");
+    }
+    if (0 != $childstatus) {
+        lcovutil::report_parallel_error('genhtml', $lcovutil::ERROR_CHILD,
+              "error in child $childPid processing: non-zero code $childstatus",
+              keys(%$children));
     }
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{$type}{$fullname} = $end - $start;
@@ -5328,55 +5358,54 @@ my %genhtml_rc_opts = (
 
 my $save;
 my %genhtml_options = (
-              "output-directory|o=s" => \$output_directory,
-              "header-title=s"       => \$header_title,
-              "footer=s"             => \$footer,
-              "title|t=s"            => \$test_title,
-              "description-file|d=s" => \$desc_filename,
-              "keep-descriptions|k"  => \$keep_descriptions,
-              "css-file|c=s"         => \$css_filename,
-              "baseline-file|b=s"    => \@base_filenames,
-              "baseline-title=s"     => \$baseline_title,
-              "baseline-date=s"      => \$baseline_date,
-              "current-date=s"       => \$current_date,
-              "diff-file=s"          => \$diff_filename,
-              "annotate-script=s"    => \@SourceFile::annotateScript,
-              "criteria-script=s"    => \@SummaryInfo::coverageCriteriaScript,
-              "new-file-as-baseline" => \$treatNewFileAsBaseline,
-              'elide-path-mismatch'  => \$elide_path_mismatch,
-              'synthesize-missing'   => \$synthesizeMissingFile,
-              # if 'show-owners' is set: generate the owner table
-              #    if it is passed a value: show all the owners,
-              #    regardless of whether thay have uncovered code or not
-              'show-owners:s'      => \$show_ownerBins,
-              'show-noncode'       => \$show_nonCodeOwners,
-              'show-zero-columns'  => \$show_zeroTlaColumns,
-              'simplified-colors'  => \$show_simplifiedColors,
-              "date-bins=s"        => \@datebins,
-              "prefix|p=s"         => \@opt_dir_prefix,
-              'source-directory=s' => \@ReadCurrentSource::source_directories,
-              "num-spaces=i"       => \$tab_size,
-              "no-prefix"          => \$no_prefix,
-              "no-sourceview"      => \$no_sourceview,
-              "show-details|s"     => \$show_details,
-              "frames|f"           => \$frames,
-              "highlight"          => \$highlight,
-              "legend"             => \$legend,
-              'save'               => \$save,
-              "html-prolog=s"      => \$html_prolog_file,
-              "html-epilog=s"      => \$html_epilog_file,
-              "html-extension=s"   => \$html_ext,
-              "html-gzip"          => \$html_gzip,
-              "hierarchical"       => \$hierarchical,
-              "flat"               => \$flat,
-              "sort"               => \$sort,
-              "no-sort"            => \$no_sort,
-              "precision=i"        => \$lcovutil::default_precision,
-              "missed"             => \$opt_missed,
-              "dark-mode"          => \$dark_mode,
-              "show-navigation"    => \$show_tla,
-              "show-proportion"    => \$show_functionProportions,
-              "suppress-aliases"   => \$suppress_function_aliases,);
+                 "output-directory|o=s" => \$output_directory,
+                 "header-title=s"       => \$header_title,
+                 "footer=s"             => \$footer,
+                 "title|t=s"            => \$test_title,
+                 "description-file|d=s" => \$desc_filename,
+                 "keep-descriptions|k"  => \$keep_descriptions,
+                 "css-file|c=s"         => \$css_filename,
+                 "baseline-file|b=s"    => \@base_filenames,
+                 "baseline-title=s"     => \$baseline_title,
+                 "baseline-date=s"      => \$baseline_date,
+                 "current-date=s"       => \$current_date,
+                 "diff-file=s"          => \$diff_filename,
+                 "annotate-script=s"    => \@SourceFile::annotateScript,
+                 "criteria-script=s" => \@SummaryInfo::coverageCriteriaScript,
+                 "new-file-as-baseline" => \$treatNewFileAsBaseline,
+                 'elide-path-mismatch'  => \$elide_path_mismatch,
+                 'synthesize-missing'   => \$synthesizeMissingFile,
+                 # if 'show-owners' is set: generate the owner table
+                 #    if it is passed a value: show all the owners,
+                 #    regardless of whether thay have uncovered code or not
+                 'show-owners:s'     => \$show_ownerBins,
+                 'show-noncode'      => \$show_nonCodeOwners,
+                 'show-zero-columns' => \$show_zeroTlaColumns,
+                 'simplified-colors' => \$show_simplifiedColors,
+                 "date-bins=s"       => \@datebins,
+                 "prefix|p=s"        => \@opt_dir_prefix,
+                 "num-spaces=i"      => \$tab_size,
+                 "no-prefix"         => \$no_prefix,
+                 "no-sourceview"     => \$no_sourceview,
+                 "show-details|s"    => \$show_details,
+                 "frames|f"          => \$frames,
+                 "highlight"         => \$highlight,
+                 "legend"            => \$legend,
+                 'save'              => \$save,
+                 "html-prolog=s"     => \$html_prolog_file,
+                 "html-epilog=s"     => \$html_epilog_file,
+                 "html-extension=s"  => \$html_ext,
+                 "html-gzip"         => \$html_gzip,
+                 "hierarchical"      => \$hierarchical,
+                 "flat"              => \$flat,
+                 "sort"              => \$sort,
+                 "no-sort"           => \$no_sort,
+                 "precision=i"       => \$lcovutil::default_precision,
+                 "missed"            => \$opt_missed,
+                 "dark-mode"         => \$dark_mode,
+                 "show-navigation"   => \$show_tla,
+                 "show-proportion"   => \$show_functionProportions,
+                 "suppress-aliases"  => \$suppress_function_aliases,);
 # Parse command line options
 if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
@@ -5883,6 +5912,7 @@ sub print_overall_rate($$$$$)
         }
     }
     summarize_cov_filters();
+    summarize_messages();
 }
 
 #

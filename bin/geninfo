@@ -86,9 +86,11 @@ use lcovutil qw (define_errors parse_ignore_errors
                  warn_file_patterns
                  @extractVersionScript
 
-                 $ERROR_GCOV $ERROR_GRAPH $ERROR_PACKAGE
+                 $ERROR_GCOV $ERROR_GRAPH $ERROR_PACKAGE $ERROR_CHILD
                  $ERROR_EMPTY $ERROR_PARALLEL $ERROR_UNSUPPORTED $ERROR_PATH
-                 report_parallel_error
+                 $ERROR_INCONSISTENT_DATA $ERROR_UTILITY $ERROR_FORMAT
+                 report_parallel_error check_parent_process
+                 summarize_messages
                  is_external @internal_dirs
                  parseOptions
                  @comments
@@ -863,11 +865,17 @@ sub _process_one_chunk($$$$)
     my $idx = 0;
     foreach my $data (@$chunk) {
         my $now = Time::HiRes::gettimeofday();
+        if (defined($pid) &&
+            0 != $pid) {
+            # if parent died, then time for me to go
+            lcovutil::check_parent_process();
+        }
+
         my ($searchdir, $gcda_file, $gcno_file) = @$data;
 
         # "name" will be .gcno if "$initial" else will be $gcda
         my $name = defined($gcda_file) ? $gcda_file : $gcno_file;
-        info("Processing $name%s\n", defined($pid) ? " in child $pid" : "");
+        info(1, "Processing $name%s\n", defined($pid) ? " in child $pid" : "");
 
         # multiple gcda files may refer to the same source - so generate the
         #  same 'source.gcda' output file - so they each need a different directory
@@ -949,6 +957,11 @@ sub _merge_one_child($$$$$)
     my $childErr = File::Spec->catfile($tempFileDir, "geninfo_$child.err");
 
     foreach my $f ($childLog, $childErr) {
+        if (!-f $f) {
+            # no data was printed..
+            $f = '';
+            next;
+        }
         if (open(RESTORE, "<", $f)) {
             # slurp into a string and eval..
             my $str = do { local $/; <RESTORE> };    # slurp whole thing
@@ -956,27 +969,28 @@ sub _merge_one_child($$$$$)
             unlink $f;
             $f = $str;
         } else {
-            report_parallel_error('geninfo', "unable to open $f: $!");
+            $f = "unable to open $f: $!";
+            if (0 == $childstatus) {
+                report_parallel_error('geninfo', $ERROR_PARALLEL,
+                                      $f, keys(%$children));
+            }
         }
     }
     print(STDOUT $childLog)
         if ($childstatus != 0 ||
             $lcovutil::verbose > 1);
     print(STDERR $childErr);
-    if (0 == $childstatus && -f $dumped) {
-        my $data = Storable::retrieve($dumped);
-        if (defined($data)) {
-            my ($childInfo, $patterns, $profile, $warnings, $counts, $updates)
-                = @$data;
-            lcovutil::update_state($updates);
+    my $data = Storable::retrieve($dumped)
+        if (-f $dumped);
+    if (defined($data)) {
+        eval {
+            my ($childInfo, $buildDirCounts, $counts, $updates) = @$data;
+            lcovutil::update_state(@$updates);
             $files_created  += $counts->[0];
             $processedFiles += $counts->[1];
             my $childFinish = $counts->[2];
-            # HGC:  need to pass back substitutions, etc.
-            lcovutil::merge_child_pattern_counts($patterns);
-            lcovutil::merge_child_profile($profile);
-            lcovutil::merge_deferred_warnings($warnings);
-            my $childCpuTime = $profile->{child}{$chunkId};
+            $buildDirSearchPath->update_count(@$buildDirCounts);
+            my $childCpuTime = $lcovutil::profileData{child}{$chunkId};
             $totalChildCpuTime    += $childCpuTime;
             $intervalChildCpuTime += $childCpuTime;
 
@@ -996,13 +1010,21 @@ sub _merge_one_child($$$$$)
             }
 
             $intervalMonitor->checkUpdate($processedFiles);
-        } else {
-            report_parallel_error('geninfo', "unable to deserialize $dumped");
+        };
+        if ($@) {
+            $childstatus = 1 unless $childstatus;
+            print STDOUT $@;
+            report_parallel_error('geninfo', $ERROR_PARALLEL,
+                                  "unable to deserialize $dumped: $@",
+                                  keys(%$children));
         }
-    } elsif ($childstatus > 0) {
-        report_parallel_error('geninfo',
-            "child $child returned non-zero code $childstatus: ignoring data in chunk $chunkId"
-        );
+    }
+    if ($childstatus != 0) {
+        report_parallel_error(
+            'geninfo',
+            $ERROR_CHILD,
+            "error in child processing: non-zero code $childstatus: ignoring data in chunk $chunkId",
+            keys(%$children));
     }
     foreach my $f ($dumped) {
         unlink $f
@@ -1293,10 +1315,7 @@ sub gen_info(@)
                 #   build a datastructure that we could dump - rather than
                 #   printing a .info file that we have to parse....but so
                 #   be it.
-                my $childStart = Time::HiRes::gettimeofday();
-                # clear profile - want only my contribution
-                %lcovutil::profileData  = ();
-                %lcovutil::warnOnlyOnce = ();
+                my $childStart   = Time::HiRes::gettimeofday();
                 my $currentState = lcovutil::initial_state();
                 $buildDirSearchPath->reset();
                 $output_filename =
@@ -1317,14 +1336,28 @@ sub gen_info(@)
                 # It does not work to directly open/reopen the STDOUT and STDERR
                 #   descriptors due to interactions between the child and parent
                 #   processes (see the Capture::Tiny doc for some details)
+                my $status = 0;
                 my ($stdout, $stderr, $code) = Capture::Tiny::capture {
-                    $childInfo =
-                        _process_one_chunk($chunk, $processedChunks,
-                                           $childInfo, $$);
+                    eval {
+                        $childInfo =
+                            _process_one_chunk($chunk, $processedChunks,
+                                               $childInfo, $$);
+                    };
+                    if ($@) {
+                        $status = 1;         # error
+                        print(STDERR $@);    # capture messages in $stderr
+                    }
                 };
+                # parent might have already caught an error, cleaned up and
+                #  removed the tempdir and exited.
+                lcovutil::check_parent_process();
+
                 # print stdout and stderr ...
                 foreach
                     my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
+                    next
+                        unless ($d->[1])
+                        ;    # only print if there is something to print
                     my $f = InOutFile->out($d->[0]);
                     my $h = $f->hdl();
                     print($h $d->[1]);
@@ -1334,7 +1367,6 @@ sub gen_info(@)
                     unlink $f if -f $f && !$lcovutil::preserve_intermediates;
                 }
                 my $buildDirCounts = $buildDirSearchPath->current_count();
-                my $patterns = lcovutil::save_child_pattern_counts();
 
                 my $then = Time::HiRes::gettimeofday();
                 # keep separate timestamp for when this child block was entered
@@ -1349,9 +1381,6 @@ sub gen_info(@)
                 eval {
                     Storable::store([$single_file ? $childInfo : undef,
                                      $buildDirCounts,
-                                     $patterns,
-                                     \%lcovutil::profileData,
-                                     \%lcovutil::warnOnlyOnce,
                                      [$files_created, scalar(@$chunk), $then],
                                      lcovutil::compute_update($currentState)
                                     ],
@@ -1361,7 +1390,7 @@ sub gen_info(@)
                     lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
                                               "Child $$ serialize failed: $!");
                 }
-                exit(0);
+                exit($status);
             } else {
                 # I'm the parent
                 $children{$pid} = [$chunk, $now, $processedChunks];
@@ -1632,7 +1661,8 @@ sub process_dafile($$$$)
     }
 
     if ($code) {
-        ignorable_error($ERROR_GCOV, "GCOV failed for $da_filename!");
+        ignorable_error($ERROR_UTILITY,
+                        "GCOV command failed for $da_filename!");
         return undef;
     }
 
@@ -1808,7 +1838,8 @@ sub process_dafile($$$$)
                             if ($opt_adjust_unexecuted_blocks) {
                                 $hit = 0;
                             } else {
-                                lcovutil::ignorable_warning($ERROR_GCOV,
+                                lcovutil::ignorable_warning(
+                                    $ERROR_INCONSISTENT_DATA,
                                     "$source_filename:$line_number: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
                                 ) unless $warnedUnexecuted;
                                 $warnedUnexecuted = 1;
@@ -2206,7 +2237,7 @@ sub read_gcov_file($$$)
             } elsif ($foundEOF) {
                 # data looks inconsistent...we started finding some EOF entries
                 # and now we found a following entry which claims not to be EOF
-                lcovutil::ignorable_error($ERROR_GCOV,
+                lcovutil::ignorable_error($ERROR_FORMAT,
                     "non-EOF for $source_filename:$line at $filename:$. while processing $da_filename: '$code'"
                 );
             }
@@ -2452,7 +2483,7 @@ sub intermediate_text_to_info($)
                         "Unexpected negative count '$hit' for $filename:$lineNo."
                             .
                             (
-                            $lcovutil::vebose || lcovutil::message_count(
+                            $lcovutil::verbose || lcovutil::message_count(
                                                $lcovutil::ERROR_NEGATIVE) == 0 ?
                                 "\n\tPerhaps you need to compile with '-fprofile-update=atomic"
                             :
@@ -2627,7 +2658,7 @@ sub intermediate_json_to_info($)
                 if ($opt_adjust_unexecuted_blocks) {
                     $count = 0;
                 } else {
-                    lcovutil::ignorable_warning($ERROR_GCOV,
+                    lcovutil::ignorable_warning($ERROR_INCONSISTENT_DATA,
                         "$filename:$line: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
                     ) unless $warnedUnexecuted;
                     $warnedUnexecuted = 1;
