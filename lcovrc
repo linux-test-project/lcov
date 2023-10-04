@@ -351,6 +351,11 @@ branch_coverage = 0
 # that the argument is a regexp - so special characters need to be escaped
 #erase_functions = debug)_.*\(int,\s*int\)
 
+# check that source file exists before calling version-script, annotate-script
+# or other callback.  If set and file does not exist, 'source' error is
+# generated.  Default: 1 (check for existence).
+#check_existence_before_callback = 1
+
 # specify path to version identification script
 #version_script = path_to_my_executable
 

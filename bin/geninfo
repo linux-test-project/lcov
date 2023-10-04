@@ -1686,8 +1686,8 @@ sub process_dafile($$$$)
 
             $source = solve_relative_path($base_dir, $source);
 
-            #  apply more patterns here
-            $source = lcovutil::subst_file_name($source);
+            # apply more patterns here
+            $source = ReadCurrentSource::resolve_path($source, 1);
 
             @matches = match_filename($source, keys(%{$instr}));
 
@@ -1728,7 +1728,9 @@ sub process_dafile($$$$)
                 $source_filename = solve_ambiguous_match($gcov_file, \@matches,
                                                          \@gcov_content);
             }
-            $source_filename = lcovutil::subst_file_name($source_filename);
+            $source_filename =
+                ReadCurrentSource::resolve_path($source_filename, 1);
+
             if (TraceFile::skipCurrentFile($source_filename)) {
                 $lcovutil::excluded_files{$source_filename} = 1;
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
@@ -1747,8 +1749,7 @@ sub process_dafile($$$$)
             my $branchMap   = $fileData->testbr($test_name);
             my $lineMap     = $fileData->test($test_name);
 
-            if (@lcovutil::extractVersionScript &&
-                -f $source_filename) {
+            if (@lcovutil::extractVersionScript) {
                 my $version = lcovutil::extractFileVersion($source_filename);
                 $fileData->version($version)
                     if (defined($version) && $version ne "");
@@ -2367,7 +2368,7 @@ sub read_intermediate_text($$)
             $filename = $1;
             $filename =~ s/[\r\n]$//g;
             # adjust filename...
-            $filename = lcovutil::subst_file_name($filename);
+            $filename = ReadCurrentSource::resolve_path($filename, 1);
         } elsif (defined($filename)) {
             $data->{$filename} .= $line;
         }
@@ -2464,8 +2465,7 @@ sub intermediate_text_to_info($)
         my $branchMap   = $fileData->testbr($test_name);
         my $lineMap     = $fileData->test($test_name);
 
-        if (@lcovutil::extractVersionScript &&
-            -f $filename) {
+        if (@lcovutil::extractVersionScript) {
             my $version = lcovutil::extractFileVersion($filename);
             $fileData->version($version)
                 if (defined($version) && $version ne "");
@@ -2588,8 +2588,7 @@ sub intermediate_json_to_info($)
         my $branchMap   = $fileData->testbr($test_name);
         my $lineMap     = $fileData->test($test_name);
 
-        if (@lcovutil::extractVersionScript &&
-            -f $filename) {
+        if (@lcovutil::extractVersionScript) {
             my $version = lcovutil::extractFileVersion($filename);
             $fileData->version($version)
                 if (defined($version) && $version ne "");
@@ -3168,8 +3167,7 @@ sub process_graphfile($$)
         my $functionMap = $fileData->testfnc($test_name);
         my $lineMap     = $fileData->test($test_name);
 
-        if (@lcovutil::extractVersionScript &&
-            -f $filename) {
+        if (@lcovutil::extractVersionScript) {
             my $version = lcovutil::extractFileVersion($filename);
             $fileData->version($version)
                 if (defined($version) && $version ne "");
@@ -3466,7 +3464,7 @@ sub adjust_source_filenames($$$)
         $filename = solve_relative_path($base_dir, $filename);
 
         # Apply adjustment
-        $filename = lcovutil::subst_file_name($filename);
+        $filename = ReadCurrentSource::resolve_path($filename, 1);
 
         if ($filename ne $old_filename) {
             $hash->{$filename} = delete($hash->{$old_filename});

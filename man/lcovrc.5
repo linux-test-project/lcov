@@ -2047,6 +2047,27 @@ See the genhtml man page for details.
 
 .PP
 
+.BR check_existence_before_callback " ="
+.IR 0 | 1
+.IP
+This option configures the tool to check that the file exists before calling
+the
+.I annotate-script
+or
+.I version-script
+callback.  If set and file does not exist, a
+.B source
+error is triggered.  (Note that the error may be ignored - see the
+.I \-\-ignore\-error
+option.)
+
+You may want to NOT check for file existence if your callback looks
+up information in a non-local repository.
+
+The default is 1 (check for file existence).
+
+.PP
+
 .BR version_script " ="
 .IR path_to_executable | parameter
 .IP

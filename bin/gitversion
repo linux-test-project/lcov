@@ -53,19 +53,22 @@ sub get_modify_time($)
 sub usage
 {
     print(STDERR "usage: $0 --compare old_version new_version filename OR\n" .
-          "       $0 [--md5] [--p4] [--prefix path] filename\n");
+         "       $0 [--md5] [--p4] [--prefix path] [--allow-missing] filename\n"
+    );
 }
 
 my $compare;
 my $use_md5;    # if set, append md5 checksum to the P4 version string
 my $mapp4;
 my $prefix;
+my $allow_missing;
 my $help;
-if (!GetOptions("--compare"  => \$compare,
-                "--md5"      => \$use_md5,
-                "--p4"       => \$mapp4,
-                '--prefix:s' => \$prefix,
-                '--help'     => \$help) ||
+if (!GetOptions("--compare"       => \$compare,
+                "--md5"           => \$use_md5,
+                "--p4"            => \$mapp4,
+                '--prefix:s'      => \$prefix,
+                '--allow-missing' => \$allow_missing,
+                '--help'          => \$help) ||
     $help ||
     ($compare && scalar(@ARGV) != 3) ||
     (!$compare && scalar(@ARGV) != 1)
@@ -98,8 +101,14 @@ if ($compare) {
     exit($old ne $new);    # just look for exact match
 }
 
-die("Error: $filename does not exist")
-    unless (-e $filename);
+unless (-e $filename) {
+    if ($allow_missing) {
+        print("\n");       # empty string
+        exit 0;
+    }
+    die("Error: $filename does not exist - perhaps you need the '--allow-missing' flag"
+    );
+}
 my $pathname = abs_path($filename);
 my $null     = File::Spec->devnull();
 if ($use_md5) {

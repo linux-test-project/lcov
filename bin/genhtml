@@ -3238,8 +3238,7 @@ sub _read_udiff
                 }
                 my $file = File::Spec->rel2abs($1, $main::cwd);
                 $file = lcovutil::strip_directories($file, $main::strip);
-                my $key = lcovutil::subst_file_name($file);
-                $key = ReadCurrentSource::resolve_path($key);
+                my $key = ReadCurrentSource::resolve_path($file, 1);
                 $key = lc($key) if $lcovutil::case_insensitive;
                 if (exists($self->[UNCHANGED]->{$key})) {
                     # unchanged entry flag value should be 1
@@ -3276,8 +3275,7 @@ sub _read_udiff
                 $file_old = File::Spec->rel2abs($1, $main::cwd);
                 $file_old =
                     lcovutil::strip_directories($file_old, $main::strip);
-                $file_old = lcovutil::subst_file_name($file_old);
-                $file_old = ReadCurrentSource::resolve_path($file_old);
+                $file_old = ReadCurrentSource::resolve_path($file_old, 1);
                 $file_old = lc($file_old) if $lcovutil::case_insensitive;
                 $self->[LOCATION]->[OLD]->{$file_old} = $.;
                 #$in_block = 0;
@@ -3290,8 +3288,7 @@ sub _read_udiff
                 $file_new = File::Spec->rel2abs($1, $main::cwd);
                 $file_new =
                     lcovutil::strip_directories($file_new, $main::strip);
-                my $key = lcovutil::subst_file_name($file_new);
-                $key = ReadCurrentSource::resolve_path($key);
+                my $key = ReadCurrentSource::resolve_path($file_new, 1);
                 $key = lc($key)
                     if $lcovutil::case_insensitive;
                 my $notNull = $file_new ne $lcovutil::devnull;
@@ -4344,7 +4341,14 @@ sub _load
     }
 
     #stat($annotateScript);
-    if (0 != scalar(@annotateScript)) {
+
+    ANNOTATE: if (0 != scalar(@annotateScript)) {
+
+        last ANNOTATE
+            if (scalar(@lcovutil::extractVersionScript) ==
+                0 &&    # already checked
+                lcovutil::fileExistenceBeforeCallbackError($repo_path));
+
         my $begin   = Time::HiRes::gettimeofday();
         my $lineNum = 0;
         my $cmd     = join(' ', @annotateScript) . ' \'' . $repo_path . '\'';

@@ -223,8 +223,11 @@ fi
 ln -s ../simple/simple2.cpp.annotated TEst.cpp.annotated
 
 # check that this works with test names
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 --ignore-annotate,source $IGNORE
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 $GENHTML_PORT --ignore annotate,source $IGNORE
+#  need to not do the exiistence callback because the 'insensitive' name
+#  won't be found but the version-check in the .info file already contains
+#  a value - so we would get a version check errror
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 --ignore-annotate,source $IGNORE --rc check_existence_before_callback=0
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 $GENHTML_PORT --ignore annotate,source $IGNORE --rc check_existence_before_callback=0
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -253,8 +256,8 @@ rm -f TeSt.cpp
 
 # check annotation failure message...
 # check that this works with test names
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore source $IGNORE
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source $IGNORE 2>&1 | tee fail.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore source $IGNORE --rc check_existence_before_callback=0
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source $IGNORE --rc check_existence_before_callback=0 2>&1 | tee fail.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: expected annotation error but didn't find"
     if [ 0 == $KEEP_GOING ] ; then
@@ -267,8 +270,9 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore-source,annotate $IGNORE
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source,annotate $IGNORE 2>&1 | tee fail2.log
+# just ignore the version check error this time..
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore-source,annotate,version $IGNORE
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source,annotate,version $IGNORE 2>&1 | tee fail2.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: expected synthesize  error but didn't find"
     if [ 0 == $KEEP_GOING ] ; then
@@ -286,8 +290,8 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore-source,annotate --synthesize $IGNORE
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source,annotate --synthesize $IGNORE 2>&1 | tee fail3.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore-source,annotate,version --synthesize $IGNORE
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source,annotate,version --synthesize $IGNORE 2>&1 | tee fail3.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: unexpected synthesize  error"
     if [ 0 == $KEEP_GOING ] ; then

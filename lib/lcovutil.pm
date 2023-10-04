@@ -200,6 +200,8 @@ our %versionCache;
 our @extractVersionScript;   # script/callback to find version ID of file
 our $verify_checksum;        # compute and/or check MD5 sum of source code lines
 
+our $check_file_existence_before_callback = 1;
+
 # Specify coverage rate default precision
 our $default_precision = 1;
 
@@ -645,8 +647,11 @@ sub merge_child_profile($)
                         $lcovutil::profileData{$key}{$f}{$x} = $y;
                     }
                 } else {
-                    if (grep(/^$key$/, ('version', 'parse', 'append')) &&
-                        exists($lcovutil::profileData{$key}{$f})) {
+                    # 'total' key appears in genhtml report
+                    # the others in geninfo.
+                    if (exists($lcovutil::profileData{$key}{$f}) &&
+                        grep(/^$key$/, ('version', 'parse', 'append', 'total')))
+                    {
                         $lcovutil::profileData{$key}{$f} += $t;
                     } else {
                         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
@@ -961,6 +966,9 @@ my %rc_common = (
              "case_insensitive"      => \$lcovutil::case_insensitive,
              "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
              "split_char"            => \$lcovutil::split_char,
+
+             'check_existence_before_callback' =>
+                 \$check_file_existence_before_callback,
 
              "demangle_cpp" => \@lcovutil::cpp_demangle,
 
@@ -2009,6 +2017,25 @@ sub use_vanilla_color()
     }
 }
 
+my $didFirstExistenceCheck;
+
+sub fileExistenceBeforeCallbackError
+{
+    my $filename = shift;
+    if ($lcovutil::check_file_existence_before_callback &&
+        !-e $filename) {
+
+        my $explanation =
+            $didFirstExistenceCheck ? '' :
+            '  Use \'check_existence_before_callback = 0\' config file option to remove this check.';
+        lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                "\"$filename\" does not exist." . $explanation);
+        $didFirstExistenceCheck = 1;
+        return 1;
+    }
+    return 0;
+}
+
 # figure out what file version we see
 sub extractFileVersion
 {
@@ -2018,14 +2045,16 @@ sub extractFileVersion
         unless @extractVersionScript;
     return $versionCache{$filename} if exists($versionCache{$filename});
 
+    return undef if fileExistenceBeforeCallbackError($filename);
+
     my $start = Time::HiRes::gettimeofday();
     #die("$filename does not exist")
     #    unless -f $filename;
     my $version;
     my $cmd = join(' ', @extractVersionScript) . " '$filename'";
     lcovutil::debug(1, "extractFileVersion: $cmd\n");
-    if (open(VERS, "-|", $cmd)) {
-        $version = <VERS>;
+    if (open(VERS, "-|", $cmd) &&
+        ($version = <VERS>)) {
         chomp($version);
         $version =~ s/\r//;
         close(VERS);
@@ -2374,7 +2403,8 @@ sub patterns
 
 sub resolve
 {
-    my ($self, $filename) = @_;
+    my ($self, $filename, $applySubstitutions) = @_;
+    $filename = lcovutil::subst_file_name($filename) if $applySubstitutions;
     foreach my $d (@$self) {
         my $path = File::Spec->catfile($d->[0], $filename);
         if (-e $path) {
@@ -4226,12 +4256,14 @@ sub close
 
 sub resolve_path
 {
-    my $filename = shift;
+    my ($filename, $applySubstitutions) = @_;
+    $filename = lcovutil::subst_file_name($filename) if $applySubstitutions;
     return $filename
         if (-e $filename ||
             File::Spec->file_name_is_absolute($filename) ||
             0 == scalar(@source_directories));
 
+    # don't pass 'applySubstitutions' flag as we already did that, above
     return $searchPath->resolve($filename);
 }
 
@@ -5852,7 +5884,7 @@ sub _read_info
 
         if ($line =~ /^[SK]F:(.*)/) {
             # Filename information found
-            $filename = lcovutil::subst_file_name($1);
+            $filename = ReadCurrentSource::resolve_path($1, 1);
             # should this one be skipped?
             $skipCurrentFile = skipCurrentFile($filename);
             if ($skipCurrentFile) {
@@ -6250,7 +6282,7 @@ sub write_info($$$)
             $br_hit) = $entry->get_info();
 
         # munge the source file name, if requested
-        $source_file = lcovutil::subst_file_name($source_file);
+        $source_file = ReadCurrentSource::resolve_path($source_file, 1);
 
         # Please note:  if you add or change something here (lcov info file format) -
         #   then please make corresponding changes to the '_read_info' method, above

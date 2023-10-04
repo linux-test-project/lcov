@@ -469,6 +469,18 @@ Further, the
 use the same path strings. However, see the
 .B \-\-substitute
 option for a mechanism to adjust extracted paths so they match your source and/or revision control layout.
+
+.br
+You can use the
+.BR check_exisitence_before_callback
+configuration option to tell the tool to check that the file exists before
+calling the
+.BR \-\-version\-script
+or
+.BR \-\-annotate\-script
+callback. See the
+.B lcovrc
+man page for details.
 .br
 
 Use option

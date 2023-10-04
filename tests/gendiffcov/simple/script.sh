@@ -105,8 +105,8 @@ CRITERIA=${SCRIPT_DIR}/criteria
 #PROFILE="''
 
 
-LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $MD5_OPT $PARALLEL $PROFILE"
-DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $MD5_OPT $PROFILE $PARALLEL"
+LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PARALLEL $PROFILE"
+DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PROFILE $PARALLEL"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
