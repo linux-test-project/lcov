@@ -449,6 +449,11 @@ $lcovutil::profileData{total} = $end - $begin;
 lcovutil::save_profile($output_filename ? $output_filename : "lcov")
     unless $lcovutil::lcov_capture;
 
+# exit with non-zero status if --keep-going and some errors detected
+$exit_code = 1
+    if (0 == $exit_code &&
+        lcovutil::saw_error());
+
 exit($exit_code);
 
 #

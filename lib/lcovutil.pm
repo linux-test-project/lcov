@@ -1638,6 +1638,13 @@ sub _count_message($$)
     ++$message_types{$type}{$name};
 }
 
+sub saw_error
+{
+    # true if we saw at least one error when 'stop_on_error' is false
+    # enables us to return non-zero exit status if any errors were detected
+    return exists($message_types{error});
+}
+
 sub ignorable_error($$;$)
 {
     my ($code, $msg, $quiet) = @_;

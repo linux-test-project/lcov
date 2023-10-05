@@ -5754,6 +5754,10 @@ if (0 == $exit_status &&
 }
 
 lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'));
+# exit with non-zero status if --keep-going and some errors detected
+$exit_status = 1
+    if (0 == $exit_status &&
+        lcovutil::saw_error());
 
 exit($exit_status);
 

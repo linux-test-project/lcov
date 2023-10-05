@@ -652,6 +652,10 @@ lcovutil::save_profile(
      (defined($output_filename) && '-' ne $output_filename) ? $output_filename :
          "geninfo");
 
+# exit with non-zero status if --keep-going and some errors detected
+$exit_code = 1
+    if (0 == $exit_code &&
+        lcovutil::saw_error());
 exit($exit_code);
 
 #

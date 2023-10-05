@@ -817,8 +817,14 @@ This option is used by genhtml, lcov, and geninfo.
 .BR stop_on_error " = "
 .IR 0|1
 .IP
-If set to 1, tell the tools to ignore errors and keep going to try to generate a result - however flawed or incomplete that result might be.
+If set to 0, tell the tools to ignore errors and keep going to try to generate a result - however flawed or incomplete that result might be.
 Note that ignoring some errors may lead to other errors.
+.br
+The tool will return a non-zero exit code if one or more errors are detected
+during execution when
+.I stop_on_error
+is disabled.  That is, the tool will continue execution in the presence
+of errors but will return an exit status.
 
 .br
 
@@ -830,9 +836,10 @@ Default is 1:  stop when error occurs.
 
 If the
 .I 'ignore_error msgType'
-option is also used, then those messages will be treated as warnings rather than errors (or will be entirely suppressed if the message type appears multiple times in the ignore_messages option).
+option is also used, then those messages will be treated as warnings rather than errors (or will be entirely suppressed if the message type appears multiple times in the ignore_messages option).  Warnings do not cause a non-zero exit status.
 
 This option is used by genhtml, lcov, and geninfo.
+
 
 .PP
 
