@@ -544,6 +544,7 @@ OPTIONS
                                   coverage is less than MIN (summary option)
       --version-script SCRIPTNAME Call script to find revison control version
                                   ID of source file
+      --resolve-script SCRIPTNAME Call script to find source file frpm path
   -j, --parallel [NUM]            Use parallel processing with at most NUM jobs
       --memory MB                 Use at most MB memory in parallel processing
       --profile [FILENAME]        Write performance statistics to FILENAME
@@ -928,6 +929,9 @@ sub lcov_geninfo(@)
     }
     foreach my $seg (@lcovutil::extractVersionScript) {
         push(@param, "--version-script", $seg);
+    }
+    foreach my $seg (@lcovutil::resolveCallback) {
+        push(@param, "--resolve-script", $seg);
     }
     foreach (@lcovutil::file_subst_patterns) {
         push(@param, "--substitute", $_);

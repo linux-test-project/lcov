@@ -1136,7 +1136,10 @@ sub checkCoverageCriteria
         '\' ' . $self->type() . ' \'' . $json . '\'';
     # command:  script name (top|dir|file) jsonString args..
     lcovutil::info(1, "criteria: '$cmd'\n");
-    if (open(HANDLE, "-|", $cmd)) {
+    if (open(HANDLE, "-|", @coverageCriteriaScript,
+             $self->type() eq 'top' ? 'top' : $self->name(),
+             $self->type(), $json
+    )) {
         my @msg;
         while (my $line = <HANDLE>) {
             chomp $line;
@@ -4355,7 +4358,7 @@ sub _load
         lcovutil::info(1, "annotate: '$cmd'\n");
         my $found;    # check that either all lines are annotated or none are
         local *HANDLE;
-        if (open(HANDLE, "-|", $cmd)) {
+        if (open(HANDLE, "-|", @annotateScript, $repo_path)) {
             while (my $line = <HANDLE>) {
                 chomp $line;
                 $line =~ s/\r//g;    # remove CR from line-end
@@ -5447,13 +5450,6 @@ foreach my $data (['criteria_callback_levels', \@criteriaCallbackLevels,
     }
 }
 
-foreach my $d (@ReadCurrentSource::source_directories) {
-    if (!-d $d) {
-        lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                  "--source-directory '$d' not found");
-    }
-}
-
 # Merge sort options
 $sort = 0
     if ($no_sort);
@@ -5801,6 +5797,7 @@ OPERATION
       --criteria-script SCRIPT      Use SCRIPT to check for acceptance criteria
       --version-script SCRIPT       Use SCRIPT to check for compatibility of
                                     source code and coverage data
+      --resolve-script SCRIPT       Call script to find source file frpm path
       --(no-)checksum               Compare (ignore) source line checksum
       --diff-file UDIFF             Unified diff file UDIFF describes source
                                     code changes between baseline and current

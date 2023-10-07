@@ -390,14 +390,24 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# use --resolve-script instead - simply echo the right value of the gcno file
+$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --resolve-script ./fakeResolve.sh --resolve-script separate/copy/extract.gcno -d separate/run/my/test -o resolve.info $FILTER $IGNORE
+if [ 0 != $? ] ; then
+    echo "Error:  extract with resolve-script failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
 # captured data from GCOV_PREFIX result should be identical to vanilla build
-for d in separate.info copy.info ; do
+for d in separate.info copy.info resolve.info ; do
     diff external.info $d
     if [ $? != 0 ] ; then
         echo "Error: unexpected GCOV_PREFIX result '$d'"
         exit 1
     fi
 done
+
 
 # trigger an error from an unreadable directory..
 chmod ugo-rx separate/run/my/test/no_read

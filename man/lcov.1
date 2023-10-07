@@ -69,6 +69,9 @@ Capture coverage data tracefile (from compiler-generated data):
 .RB [ \-\-version\-script
 .IR script_file ]
 .br
+.RB [ \-\-resolv-\-script
+.IR script_file ]
+.br
 .RB [ \-\-comment
 .IR comment_string ]
 .br
@@ -945,6 +948,24 @@ See the genhtml man page for more details on the version script.
 .br
 
 .RE
+.B \-\-resolve\-script
+.I script
+.br
+.RS
+Use
+.I script
+to find the file path for some source file which appears in
+an input data file if the file is not found after applying
+.I \-\-substitute
+patterns and searching the
+.I \-\-source\-directory
+list.  This option is equivalent to the
+.B resolve_script
+config file option. See the
+.B lcovrc
+man page for details.
+.RE
+
 .B \-\-comment
 .I comment_string
 .br

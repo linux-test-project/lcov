@@ -314,7 +314,8 @@ if (!lcovutil::parseOptions(\%geninfo_rc_opts, \%geninfo_opts)) {
 }
 
 $buildDirSearchPath =
-    SearchPath->new(@build_directory ? @build_directory : @rc_build_dir);
+    SearchPath->new('build directory',
+                    @build_directory ? @build_directory : @rc_build_dir);
 
 # Check regexp
 if (defined($rc_adjust_src_path)) {
@@ -722,6 +723,7 @@ OPTIONS
       --forget-test-names           Merge data for all tests names
       --version-script SCRIPTNAME   Call script to find revison control version
                                     ID of source file
+      --resolve-script SCRIPTNAME Call script to find source file frpm path
   -j, --parallel [N]                Use parallel processing with at most N jobs
       --memory MB                   Use at most MB memory in parallel processing
       --profile [FILENAME]          Write performance statistics to FILENAME
@@ -1218,6 +1220,13 @@ sub gen_info(@)
                         }
                     }
                 }    # foreach build_directory
+
+                if (@lcovutil::resolveCallback) {
+                    $gcno_file = File::Spec->catfile($d, $name . ".gcno");
+
+                    $gcno_file = SearchPath::resolveCallback($gcno_file, 1);
+                    last GCNO if (-f $gcno_file || -l $gcno_file);
+                }
 
                 # skip the .gcda file if there is no .gcno
 
@@ -2371,8 +2380,7 @@ sub read_intermediate_text($$)
         if ($line =~ /^file:(.*)$/) {
             $filename = $1;
             $filename =~ s/[\r\n]$//g;
-            # adjust filename...
-            $filename = ReadCurrentSource::resolve_path($filename, 1);
+            #filename will be simplified/sustituted in 'adjust_source_filenames'
         } elsif (defined($filename)) {
             $data->{$filename} .= $line;
         }

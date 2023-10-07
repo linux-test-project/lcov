@@ -117,6 +117,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-version\-script
 .IR script  ]
 .br
+.RB [ \-\-resolve\-script
+.IR script  ]
+.br
 .RB [ \-\-checksum ]
 .br
 .RB [ \-\-new\-file\-as\-baseline ]
@@ -382,6 +385,8 @@ following options:
 .br
 .B \-\-version\-script
 .br
+.B \-\-resolve\-script
+.br
 .RE
 
 While each script performs a separate function there are some common aspects
@@ -468,7 +473,9 @@ Further, the
 .BR \-\-version\-script ", " \-\-annotate\-script ", and " \-\-criteria\-script " scripts "
 use the same path strings. However, see the
 .B \-\-substitute
-option for a mechanism to adjust extracted paths so they match your source and/or revision control layout.
+and
+.B \-\-resolve\-script
+options for a mechanism to adjust extracted paths so they match your source and/or revision control layout.
 
 .br
 You can use the
@@ -1353,6 +1360,24 @@ is the version ID found in the corresponding .info file
 It should return non\-zero if the IDs do not match.
 .br
 
+.RE
+
+.B \-\-resolve\-script
+.I script
+.br
+.RS
+Use
+.I script
+to find the file path for some source file which which appears in
+an input data file if the file is not found after applying
+.I \-\-substitute
+patterns and searching the
+.I \-\-source\-directory
+list.  This option is equivalent to the
+.B resolve_script
+config file option. See the
+.B lcovrc
+man page for details.
 .RE
 
 .BI "\-\-checksum "

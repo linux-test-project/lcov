@@ -186,10 +186,13 @@ our $opt_no_external;
 
 # filename substitutions
 our @file_subst_patterns;
+# resolve callback
+our @resolveCallback;
+our %resolveCache;
 
 # C++ demangling
-our @cpp_demangle;         # the options passed in
-our $demangle_cpp_cmd;     # the computed command string
+our @cpp_demangle;        # the options passed in
+our $demangle_cpp_cmd;    # the computed command string
 # deprecated: demangler for C++ function names is c++filt
 our $cpp_demangle_tool;
 # Deprecated:  prefer -Xlinker approach with @cpp_dmangle_tool
@@ -649,9 +652,12 @@ sub merge_child_profile($)
                 } else {
                     # 'total' key appears in genhtml report
                     # the others in geninfo.
-                    if (exists($lcovutil::profileData{$key}{$f}) &&
-                        grep(/^$key$/, ('version', 'parse', 'append', 'total')))
-                    {
+                    if (exists($lcovutil::profileData{$key}{$f})
+                        &&
+                        grep(/^$key$/,
+                             (   'version', 'parse', 'append', 'total',
+                                 'resolve'))
+                    ) {
                         $lcovutil::profileData{$key}{$f} += $t;
                     } else {
                         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
@@ -896,8 +902,8 @@ my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
     @rc_include_patterns, @rc_subst_patterns, @rc_omit_patterns,
     @rc_erase_patterns, @rc_version_script, @unsupported_config,
     @rc_source_directories, %unsupported_rc, $keepGoing,
-    $help, $rc_no_branch_coverage, $rc_no_func_coverage,
-    $rc_no_checksum, $version);
+    @rc_resolveCallback, $help, $rc_no_branch_coverage,
+    $rc_no_func_coverage, $rc_no_checksum, $version);
 my $quiet = 0;
 my $tempdirname;
 
@@ -962,6 +968,7 @@ my %rc_common = (
              'omit_lines'            => \@rc_omit_patterns,
              'erase_functions'       => \@rc_erase_patterns,
              "version_script"        => \@rc_version_script,
+             'resolve_script'        => \@rc_resolveCallback,
              "checksum"              => \$lcovutil::verify_checksum,
              "case_insensitive"      => \$lcovutil::case_insensitive,
              "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
@@ -994,6 +1001,7 @@ our %argCommon = ("tempdir=s"        => \$tempdirname,
                   'source-directory=s' =>
                       \@ReadCurrentSource::source_directories,
 
+                  'resolve-script=s'  => \@lcovutil::resolveCallback,
                   "filter=s"          => \@opt_filter,
                   "demangle-cpp:s"    => \@lcovutil::cpp_demangle,
                   "ignore-errors=s"   => \@opt_ignore_errors,
@@ -1134,8 +1142,11 @@ sub parseOptions
 
     @ReadCurrentSource::source_directories = @rc_source_directories
         unless @ReadCurrentSource::source_directories;
+    @lcovutil::resolveCallback = @rc_resolveCallback
+        unless @lcovutil::resolveCallback;
     $ReadCurrentSource::searchPath =
-        SearchPath->new(@ReadCurrentSource::source_directories);
+        SearchPath->new('source directory',
+                        @ReadCurrentSource::source_directories);
 
     $lcovutil::stop_on_error = 0
         if (defined $keepGoing);
@@ -1525,14 +1536,14 @@ sub initial_state
         }
     }
 
-    return Storable::dclone([\@message_count, \%versionCache]);
+    return Storable::dclone([\@message_count, \%versionCache, \%resolveCache]);
 }
 
 sub compute_update
 {
     my $state = shift;
     my @new_count;
-    my ($initialCount, $initialVersionCache) = @$state;
+    my ($initialCount, $initialVersionCache, $initialResolveCache) = @$state;
     my $id = 0;
     foreach my $count (@message_count) {
         my $v = $count - $initialCount->[$id++];
@@ -1543,8 +1554,14 @@ sub compute_update
         $versionUpdate{$f} = $v
             unless exists($initialVersionCache->{$f});
     }
+    my %resolveUpdate;
+    while (my ($f, $v) = each(%resolveCache)) {
+        $resolveUpdate{$f} = $v
+            unless exists($initialResolveCache->{$f});
+    }
     my @rtn = (\@new_count,
                \%versionUpdate,
+               \%resolveUpdate,
                \%message_types,
                $ReadCurrentSource::searchPath->current_count(),
                \%lcovutil::profileData,
@@ -1578,6 +1595,13 @@ sub update_state
                                   "unexpected version entry")
             if exists($versionCache{$f}) && !$versionCache{$f} eq $v;
         $versionCache{$f} = $v;
+    }
+    my $updateResolveCache = shift;
+    while (my ($f, $v) = each(%$updateResolveCache)) {
+        lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                                  "unexpected resolve entry")
+            if exists($resolveCache{$f}) && !$resolveCache{$f} eq $v;
+        $resolveCache{$f} = $v;
     }
     my $msgTypes = shift;
     while (my ($type, $h) = each(%$msgTypes)) {
@@ -2059,11 +2083,13 @@ sub extractFileVersion
     #    unless -f $filename;
     my $version;
     my $cmd = join(' ', @extractVersionScript) . " '$filename'";
-    lcovutil::debug(1, "extractFileVersion: $cmd\n");
-    if (open(VERS, "-|", $cmd) &&
+    lcovutil::info(1, "extractFileVersion: $cmd\n");
+
+    if (open(VERS, "-|", @extractVersionScript, $filename) &&
         ($version = <VERS>)) {
         chomp($version);
         $version =~ s/\r//;
+        lcovutil::info(1, "  version: $version\n");
         close(VERS);
         my $status = $? >> 8;
         0 == $status
@@ -2393,11 +2419,17 @@ package SearchPath;
 
 sub new
 {
-    my $class = shift;
-    my $self  = [];
+    my $class  = shift;
+    my $option = shift;
+    my $self   = [];
     bless $self, $class;
     foreach my $p (@_) {
-        push(@$self, [$p, 0]);
+        if (-d $p) {
+            push(@$self, [$p, 0]);
+        } else {
+            lcovutil::ignorable_error($lcovutil::ERROR_PATH,
+                                      "$option '$p' is not a directory");
+        }
     }
     return $self;
 }
@@ -2412,13 +2444,59 @@ sub resolve
 {
     my ($self, $filename, $applySubstitutions) = @_;
     $filename = lcovutil::subst_file_name($filename) if $applySubstitutions;
-    foreach my $d (@$self) {
-        my $path = File::Spec->catfile($d->[0], $filename);
-        if (-e $path) {
-            lcovutil::info(1, "found $filename at $path\n");
-            ++$d->[1];
-            return $path;
+    return $filename if -e $filename;
+    if (!File::Spec->file_name_is_absolute($filename)) {
+        foreach my $d (@$self) {
+            my $path = File::Spec->catfile($d->[0], $filename);
+            if (-e $path) {
+                lcovutil::info(1, "found $filename at $path\n");
+                ++$d->[1];
+                return $path;
+            }
         }
+    }
+    return resolveCallback($filename, 0);
+}
+
+sub resolveCallback
+{
+    my ($filename, $applySubstitutions) = @_;
+    $filename = lcovutil::subst_file_name($filename) if $applySubstitutions;
+
+    if (@lcovutil::resolveCallback) {
+        return $lcovutil::resolveCache{$filename}
+            if exists($lcovutil::resolveCache{$filename});
+        my $start = Time::HiRes::gettimeofday();
+        my $cmd   = join(' ', @lcovutil::resolveCallback) . " '$filename'";
+        lcovutil::info(1, "resolveCallback: $cmd\n");
+        my $path;
+        if (open(VERS, "-|", @lcovutil::resolveCallback, $filename) &&
+            ($path = <VERS>)) {
+            chomp($path);
+            $path =~ s/\r//;
+            close(VERS);
+            lcovutil::info(1, "  path: $path\n");
+            my $status = $? >> 8;
+            0 == $status
+                or
+                lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                     "resolve-script '$cmd' returned non-zero exit code: '$!'");
+        } else {
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                      "'open(-| $cmd)' failed: \"$!\"");
+        }
+        # look up particular path most once...
+        $lcovutil::resolveCache{$filename} = $path if $path;
+        my $cost = Time::HiRes::gettimeofday() - $start;
+        $path = $filename unless $path;
+        if (exists($lcovutil::profileData{resolve}) &&
+            exists($lcovutil::profileData{resolve}{$path})) {
+            # might see multiple aliases for the same source file
+            $lcovutil::profileData{resolve}{$path} += $cost;
+        } else {
+            $lcovutil::profileData{resolve}{$path} = $cost;
+        }
+        return $path;
     }
     return $filename;
 }
@@ -4267,11 +4345,12 @@ sub resolve_path
     $filename = lcovutil::subst_file_name($filename) if $applySubstitutions;
     return $filename
         if (-e $filename ||
-            File::Spec->file_name_is_absolute($filename) ||
-            0 == scalar(@source_directories));
+            (!@lcovutil::resolveCallback &&
+             (File::Spec->file_name_is_absolute($filename) ||
+                0 == scalar(@source_directories))));
 
     # don't pass 'applySubstitutions' flag as we already did that, above
-    return $searchPath->resolve($filename);
+    return $searchPath->resolve($filename, 0);
 }
 
 sub warn_sourcedir_patterns
@@ -6582,6 +6661,9 @@ sub merge
 
     my $total_trace    = TraceFile->new();
     my $readSourceFile = ReadCurrentSource->new();
+    if (!defined($lcovutil::maxParallelism)) {
+        lcovutil::init_parallel_params();
+    }
     if (0 != $lcovutil::maxMemory &&
         1 != $lcovutil::maxParallelism) {
         # estimate the number of processes we think we can run..

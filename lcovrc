@@ -359,6 +359,9 @@ branch_coverage = 0
 # specify path to version identification script
 #version_script = path_to_my_executable
 
+# specify path to file pathname resolution script
+#resolve_script = path_to_my_executable
+
 # Specify JSON module to use, or choose best available if set to auto
 lcov_json_module = auto
 
