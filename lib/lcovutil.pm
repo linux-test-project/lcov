@@ -19,6 +19,7 @@ use Digest::MD5 qw(md5_base64);
 use FindBin;
 use Getopt::Long;
 use DateTime;
+use Config;
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
@@ -1755,15 +1756,26 @@ sub ignorable_warning($$;$)
 
 sub report_parallel_error
 {
-    my $operation = shift;
-    my $errno     = shift;
-    my $msg       = shift;
+    my $operation   = shift;
+    my $errno       = shift;
+    my $id          = shift;
+    my $childstatus = shift;
+    my $msg         = shift;
     # kill all my remaining children so user doesn't see unexpected console
     #  messages from dangling children (who cannot open files because the
     #  temp directory has been deleted, and so forth)
     kill(9, @_) if @_ && !is_ignored($errno);
+    my $status  = $childstatus >> 8 if $childstatus;
+    my $signal  = $childstatus & 0xFF if $childstatus;
+    my $explain = " child $id returned non-zero exit status $status"
+        if defined($childstatus);
+    $explain =
+        " child $id died died due to signal $signal (SIG" .
+        (split(' ', $Config{sig_name}))[$signal] .
+        '): possibly killed by OS due to out-of-memory - see --memory and --parallel options for throttling'
+        if defined($signal) && $signal;
     ignorable_error($errno,
-        "$operation: error '$msg' during child processing (try removing the '--parallel' option)"
+        "$operation: error '$msg': $explain (try removing the '--parallel' option)"
     );
 }
 
@@ -5353,8 +5365,8 @@ sub _mergeParallelChunk
         } else {
             $f = "unable to open $f: $!";
             if (0 == $childstatus) {
-                lcovutil::report_parallel_error($lcovutil::tool_name,
-                                         $ERROR_PARALLEL, $f, keys(%$children));
+                lcovutil::report_parallel_error('filter',
+                              $ERROR_PARALLEL, $child, 0, $f, keys(%$children));
             }
         }
     }
@@ -5394,21 +5406,26 @@ sub _mergeParallelChunk
             #$intervalMonitor->checkUpdate($processedFiles);
 
         } else {
-            lcovutil::report_parallel_error($lcovutil::tool_name,
-                           $ERROR_PARALLEL, "unable to deserialize $dumped: $@",
-                           , keys(%$children));
+            lcovutil::report_parallel_error('filter',
+                                          $ERROR_PARALLEL, $child, $childstatus,
+                                          "unable to deserialize $dumped: $@",
+                                          , keys(%$children));
         }
+    } else {
+        lcovutil::report_parallel_error('filter',
+                                       $ERROR_PARALLEL, $child, $childstatus,
+                                       "serialized data '$dumped' not presetnt",
+                                       , keys(%$children));
     }
+
     foreach my $f ($dumped) {
         unlink $f
             if -f $f;
     }
     if ($childstatus != 0) {
-        lcovutil::report_parallel_error(
-            $lcovutil::tool_name,
-            $ERROR_CHILD,
-            "child $child returned non-zero code $childstatus: ignoring data in chunk $chunkId",
-            keys(%$children));
+        lcovutil::report_parallel_error('filter', $ERROR_CHILD, $child,
+                                $childstatus, "ignoring data in chunk $chunkId",
+                                keys(%$children));
     }
     my $to = Time::HiRes::gettimeofday();
     $lcovutil::profileData{filt_chunk}{$chunkId} = $to - $forkAt;
@@ -5641,10 +5658,9 @@ sub _processFilterWorklist
                                                $childstatus, \@save);
                 };
                 if ($@) {
-                    $childstatus = 1 unless $childstatus;
-                    lcovutil::report_parallel_error($lcovutil::tool_name,
-                          $lcovutil::ERROR_CHILD,
-                          "child returned non-zero exit code $childstatus: $@");
+                    $childstatus = 1 << 8 unless $childstatus;
+                    lcovutil::report_parallel_error('filter',
+                              $lcovutil::ERROR_CHILD, $child, $childstatus, $@);
                 }
                 --$currentParallel;
             }
@@ -5686,10 +5702,9 @@ sub _processFilterWorklist
                                        \@save);
         };
         if ($@) {
-            $childstatus = 1 unless $childstatus;
-            lcovutil::report_parallel_error($lcovutil::tool_name,
-                          $lcovutil::ERROR_CHILD,
-                          "child returned non-zero exit code $childstatus: $@");
+            $childstatus = 1 << 8 unless $childstatus;
+            lcovutil::report_parallel_error('filter', $lcovutil::ERROR_CHILD,
+                                            $child, $childstatus, $@);
         }
 
     }
@@ -6835,8 +6850,8 @@ sub merge
                 } else {
                     $f = "unable to open $f: $!";
                     if (0 == $childstatus) {
-                        lcovutil::report_parallel_error('lcov', $f,
-                                              $ERROR_PARALLEL, keys(%children));
+                        lcovutil::report_parallel_error('aggregate',
+                               $ERROR_PARALLEL, $child, 0, $f, keys(%children));
                     }
                 }
             }
@@ -6855,8 +6870,11 @@ sub merge
                     lcovutil::update_state(@$update);
                     if ($function_mapping) {
                         if (!defined($func_map)) {
-                            lcovutil::report_parallel_error('lcov',
+                            lcovutil::report_parallel_error(
+                                'aggregate',
                                 $ERROR_PARALLEL,
+                                $child,
+                                0,
                                 "segment $idx returned empty function data",
                                 keys(%children));
                             next;
@@ -6873,10 +6891,13 @@ sub merge
                         }
                     } else {
                         if (!defined($current)) {
-                            lcovutil::report_parallel_error('lcov',
+                            lcovutil::report_parallel_error(
+                                'aggregate',
                                 $ERROR_PARALLEL,
+                                $child,
+                                0,
                                 "segment $idx returned empty trace data",
-                                , keys(%children));
+                                keys(%children));
                             next;
                         }
                         if ($total_trace->merge_tracefile(
@@ -6889,18 +6910,20 @@ sub merge
                     }
                 };    # end eval
                 if ($@) {
-                    $childstatus = 1 unless $childstatus;
-                    lcovutil::report_parallel_error('lcov', $ERROR_PARALLEL,
+                    $childstatus = 1 << 8 unless $childstatus;
+                    lcovutil::report_parallel_error(
+                              'aggregate',
+                              $ERROR_PARALLEL,
+                              $child,
+                              $childstatus,
                               "unable to deserialize segment $idx $dumpfile:$@",
                               keys(%children));
                 }
             }
             if (0 != $childstatus) {
-                lcovutil::report_parallel_error(
-                    'lcov',
-                    $ERROR_CHILD,
-                    "error in child $child processing: non-zero code $childstatus",
-                    keys(%children));
+                lcovutil::report_parallel_error('aggregate', $ERROR_CHILD,
+                          $child, $childstatus, "while processing segment $idx",
+                          keys(%children));
             }
             my $end = Time::HiRes::gettimeofday();
             $lcovutil::profileData{$idx}{merge} = $end - $start;

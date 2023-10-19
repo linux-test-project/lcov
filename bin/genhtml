@@ -5131,7 +5131,8 @@ sub merge_child($$$)
             $f = "unable to open $f: $!";
             if (0 == $childstatus) {
                 lcovutil::report_parallel_error('lcov',
-                               $lcovutil::ERROR_PARALLEL, $f, keys(%$children));
+                                    $lcovutil::ERROR_PARALLEL, $childPid, 0, $f,
+                                    keys(%$children));
             }
         }
     }
@@ -5185,18 +5186,18 @@ sub merge_child($$$)
             }
         };
         if ($@) {
-            $childstatus = 1 unless $childstatus;
+            $childstatus = 1 << 8 unless $childstatus;
             print(STDERR $@);
             lcovutil::report_parallel_error('genhtml',
-                                          $lcovutil::ERROR_PARALLEL,
-                                          "unable to deserialize $dumpfile: $@",
-                                          keys(%$children));
+                             $lcovutil::ERROR_PARALLEL, $childPid, $childstatus,
+                             "unable to deserialize $dumpfile: $@",
+                             keys(%$children));
         }
     }
     if (0 != $childstatus) {
         lcovutil::report_parallel_error('genhtml', $lcovutil::ERROR_CHILD,
-              "error in child $childPid processing: non-zero code $childstatus",
-              keys(%$children));
+                       $childPid, $childstatus, "error during child processing",
+                       keys(%$children));
     }
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{$type}{$fullname} = $end - $start;

@@ -977,7 +977,7 @@ sub _merge_one_child($$$$$)
         } else {
             $f = "unable to open $f: $!";
             if (0 == $childstatus) {
-                report_parallel_error('geninfo', $ERROR_PARALLEL,
+                report_parallel_error('geninfo', $ERROR_PARALLEL, $child, 0,
                                       $f, keys(%$children));
             }
         }
@@ -1018,19 +1018,17 @@ sub _merge_one_child($$$$$)
             $intervalMonitor->checkUpdate($processedFiles);
         };
         if ($@) {
-            $childstatus = 1 unless $childstatus;
+            $childstatus = 1 << 8 unless $childstatus;
             print STDOUT $@;
-            report_parallel_error('geninfo', $ERROR_PARALLEL,
-                                  "unable to deserialize $dumped: $@",
-                                  keys(%$children));
+            report_parallel_error('geninfo', $ERROR_PARALLEL, $child,
+                              $childstatus, "unable to deserialize $dumped: $@",
+                              keys(%$children));
         }
     }
     if ($childstatus != 0) {
-        report_parallel_error(
-            'geninfo',
-            $ERROR_CHILD,
-            "error in child processing: non-zero code $childstatus: ignoring data in chunk $chunkId",
-            keys(%$children));
+        report_parallel_error('geninfo', $ERROR_CHILD, $child, $childstatus,
+                              "ignoring data in chunk $chunkId",
+                              keys(%$children));
     }
     foreach my $f ($dumped) {
         unlink $f
