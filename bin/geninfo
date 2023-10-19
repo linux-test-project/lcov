@@ -584,7 +584,8 @@ foreach my $dir (@lcovutil::internal_dirs) {
 
 if ($initial && $lcovutil::br_coverage && !$intermediate) {
     lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                            "--initial does not generate branch coverage data");
+        "--initial cannot generate branch coverage data with this compiler/toolchain version."
+    );
 }
 
 # where to write parallel child data
