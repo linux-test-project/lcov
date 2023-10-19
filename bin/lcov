@@ -954,7 +954,8 @@ sub lcov_geninfo(@)
         push(@param, '--parallel', $lcovutil::maxParallelism);
     }
     # memory has not been multiplied by Mb yet - so just pass the integer value
-    push(@param, '--memory', $lcovutil::maxMemory);
+    push(@param, '--memory', $lcovutil::maxMemory)
+        if defined($lcovutil::maxMemory);
     push(@param, "--branch-coverage") if $lcovutil::br_coverage;
     # windows
     #  Kind of hacky to fork another script here.

@@ -33,6 +33,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      die_handler warn_handler abort_handler
 
      $maxParallelism $maxMemory init_parallel_params current_process_size
+     $memoryPercentage
      save_profile merge_child_profile save_cmd_line
 
      @opt_rc apply_rc_params $split_char parseOptions
@@ -212,7 +213,8 @@ our $default_precision = 1;
 # undef indicates not set by command line or RC option - so default to
 # sequential processing
 our $maxParallelism;
-our $maxMemory        = 0;    # zero indicates no memory limit to parallelism
+our $maxMemory;    # zero indicates no memory limit to parallelism
+our $memoryPercentage;
 our $in_child_process = 0;
 
 our $lcov_filter_parallel = 1;    # enable by default
@@ -577,20 +579,44 @@ sub read_proc_vmsize
     }
 }
 
+sub read_system_memory
+{
+    # NOTE:  not sure how to do this on windows...
+    my $total = 0;
+    eval {
+        my $f = InOutFile->in('/proc/meminfo');
+        my $h = $f->hdl();
+        while (<$h>) {
+            if (/MemTotal:\s+(\d+) kB/) {
+                $total = $1 * 1024;    # read #kB
+                last;
+            }
+        }
+    };
+    if ($@) {
+        lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE, $@);
+    }
+    return $total;
+}
+
 sub init_parallel_params()
 {
     if (!defined($lcovutil::maxParallelism)) {
         $lcovutil::maxParallelism = 1;
     } elsif (0 == $lcovutil::maxParallelism) {
         lcovutil::count_cores();
+        info("Found $maxParallelism cores.\n");
     }
-    $lcovutil::maxMemory *= 1 << 20;
-    if (1 != $lcovutil::maxParallelism &&    # no memory limits if not parallel
-        0 != $lcovutil::maxMemory
+
+    if (1 != $lcovutil::maxParallelism &&
+        (defined($lcovutil::maxMemory) ||
+            defined($lcovutil::memoryPercentage))
     ) {
+
         # need Memory::Process to enable the maxMemory feature
         my $cwd = Cwd::getcwd();
         #debug("init: CWD is $cwd\n");
+
         eval {
             require Memory::Process;
             Memory::Process->import();
@@ -603,6 +629,40 @@ sub init_parallel_params()
             lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
                 "package Memory::Process is required to control memory consumption during parallel operatons: $@"
             );
+            $use_MemoryProcess = 0;
+        }
+    }
+
+    if (defined($lcovutil::maxMemory)) {
+        $lcovutil::maxMemory *= 1 << 20;
+    } elsif (defined($lcovutil::memoryPercentage)) {
+        if ($lcovutil::memoryPercentage !~ /^\d+\.?\d*$/ ||
+            $lcovutil::memoryPercentage <= 0) {
+            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                "memory_percentage '$lcovutil::memoryPercentage' is not a valid value"
+            );
+            $lcovutil::memoryPercentage = 100;
+        }
+        $lcovutil::maxMemory =
+            read_system_memory() * ($lcovutil::memoryPercentage / 100.0);
+        if ($maxMemory) {
+            my $v    = $maxMemory / ((1 << 30) * 1.0);
+            my $unit = 'Gb';
+            if ($v < 1.0) {
+                $unit = 'Mb';
+                $v    = $maxMemory / ((1 << 20) * 1.0);
+            }
+            info(sprintf("Setting memory throttle limit to %0.1f %s.\n",
+                         $v, $unit
+            ));
+        }
+    } else {
+        $lcovutil::maxMemory = 0;
+    }
+    if (1 != $lcovutil::maxParallelism &&    # no memory limits if not parallel
+        0 != $lcovutil::maxMemory
+    ) {
+        if (!$use_MemoryProcess) {
             lcovutil::info(
                      "Attempting to retrieve memory size from /proc instead\n");
             # check if we can get this from /proc (i.e., are we on linux?)
@@ -612,7 +672,6 @@ sub init_parallel_params()
                     "Continuing execution without Memory::Process or /proc.  Note that your maximum memory constraint will be ignored\n"
                 );
             }
-            $use_MemoryProcess = 0;
         }
     }
     InOutFile::checkGzip()  # we know we are going to use gzip for intermediates
@@ -629,7 +688,8 @@ sub current_process_size
         $memoryObj->record('size');
         my $arr = $memoryObj->state;
         $memoryObj->reset();
-        return $arr->[0]->[0];    # current total
+        # current vmsize in kB is element 2 of array
+        return $arr->[0]->[2] * 1024;    # return total in bytes
     } else {
         # assume we are on linux - and get it from /proc
         return read_proc_vmsize();
@@ -955,10 +1015,11 @@ my %rc_common = (
              "filter_lookahead"       => \$lcovutil::source_filter_lookahead,
              "filter_bitwise_conditional" =>
         \$lcovutil::source_filter_bitwise_are_conditional,
-             "profile"          => \$lcovutil::profile,
-             "parallel"         => \$lcovutil::maxParallelism,
-             "memory"           => \$lcovutil::maxMemory,
-             'source_directory' => \@rc_source_directories,
+             "profile"           => \$lcovutil::profile,
+             "parallel"          => \$lcovutil::maxParallelism,
+             "memory"            => \$lcovutil::maxMemory,
+             "memory_percentage" => \$lcovutil::memoryPercentage,
+             'source_directory'  => \@rc_source_directories,
 
              "no_exception_branch"   => \$lcovutil::exclude_exception_branch,
              'filter'                => \@rc_filter,
@@ -6677,7 +6738,8 @@ sub merge
 
     my $total_trace    = TraceFile->new();
     my $readSourceFile = ReadCurrentSource->new();
-    if (!defined($lcovutil::maxParallelism)) {
+    if (!(defined($lcovutil::maxParallelism) && defined($lcovutil::maxMemory)
+    )) {
         lcovutil::init_parallel_params();
     }
     if (0 != $lcovutil::maxMemory &&

@@ -1630,6 +1630,13 @@ Specify the maximum amount of memory to use during parallel processing, in Mb.  
 
 This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does not know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
 
+The configuration file
+.I memory_percentage
+option provided another way to set the maximum memory consumption.
+See the
+.B lcovrc
+man pag for details.
+
 
 .RE
 .BI \-\-filter " filters"

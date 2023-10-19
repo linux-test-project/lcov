@@ -526,6 +526,21 @@ lcov_json_module = auto
 .br
 #memory = 1024
 .br
+
+.br
+# Specify a percentage of system memory to use as maximum during parallel
+.br
+# processing.
+.br
+# Do not fork if estimated memory consumption exceeds the maximum.
+.br
+# this value is used only if the maximum memory is not set.
+.br
+# default: not set
+.br
+#memory_percentage = 75
+.br
+
 .br
 # Character used to split list-type parameters
 .br
@@ -1949,6 +1964,31 @@ operations.  Effectively, the process will not fork() if this limit would be
 exceeded.
 Zero means that there is no limit.
 The default is 0 (zero) - which that there is no explicit limit.
+
+.br
+This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR memory_percentage " ="
+.IR number
+.IP
+Tells genhtml, lcov, or geninfo the maximum memory to use during parallel processing
+operations.   Maximum is computed as a percentage of the total memory
+available on the system; for example, '75' would use limit to 75% of 
+total memory, whereas 150.5 would limit to 150.5% (
+.I i.e.,
+larger than the total available.
+Effectively, the process will not fork() if this limit would be
+exceeded.
+Note that this value is used only if the maximum memory value is not
+set explicitly - either by a the
+.I \-\-memory
+command line option or the
+.I memory = integer
+configuration file setting.
+
+The default is not not set.
 
 .br
 This option is used by genhtml, lcov, and geninfo.

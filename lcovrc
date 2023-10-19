@@ -374,6 +374,14 @@ lcov_json_module = auto
 # default: 0 (no limit)
 #memory = 1024
 
+# Specify a percentage of system memory to use as maximum during parallel
+# processing.
+# Do not fork if estimated memory consumption exceeds the maximum.
+# this value is used only if the maximum memory is not set.
+# default: not set
+#memory_percentage = 1024
+
+
 # Character used to split list-type parameters
 #  - for example, the list of "--ignore_errors source,mismatch"
 # default: , (comma)
