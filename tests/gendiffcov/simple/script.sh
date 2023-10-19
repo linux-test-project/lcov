@@ -450,8 +450,8 @@ for opt in "" "--show-details" "--hier"; do
         COUNT=`grep -c index.html\" $outdir/index.html`
         if [ $COUNT != 1 ] ; then
             # look for at least 2 directory elements in the path name
-            grep -E '[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/index.html\"[^>]*>' $outdir/index.html
-            #grep "/mtkoss/gcc" $outdir/index.html
+            # name might include 'c++'
+            grep -E '[a-zA-Z0-9_.-+]+/[a-zA-Z0-9_.-+]+/index.html\"[^>]*>' $outdir/index.html
             # expect to find the string (0 return val) if flag is NOT present
             if [ $code == $? ] ; then
                 echo "ERROR: '--hierarchical' path mismatch in $outdir"
