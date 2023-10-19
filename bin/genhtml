@@ -5429,11 +5429,12 @@ $br_hi_limit  = $hi_limit if (!defined($br_hi_limit));
 $br_med_limit = $med_limit if (!defined($br_med_limit));
 $frames       = undef unless (defined($frames) && $frames);
 
-@datebins                   = @rc_date_bins unless @datebins;
-@SourceFile::annotateScript = @rc_annotate_script
-    unless @SourceFile::annotateScript;
-@SummaryInfo::coverageCriteriaScript = @rc_criteria_script
-    unless @SummaryInfo::coverageCriteriaScript;
+foreach my $rc ([\@datebins, \@rc_date_bins],
+                [\@SourceFile::annotateScript, \@rc_annotate_script],
+                [\@SummaryInfo::coverageCriteriaScript, \@rc_criteria_script]
+) {
+    @{$rc->[0]} = @{$rc->[1]} unless (@{$rc->[0]});
+}
 
 foreach my $data (['criteria_callback_levels', \@criteriaCallbackLevels,
                    ['top', 'directory', 'file']

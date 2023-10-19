@@ -1125,25 +1125,24 @@ sub parseOptions
     }
 
     lcovutil::init_verbose_flag($quiet);
-    @opt_filter                      = @rc_filter unless @opt_filter;
-    @opt_ignore_errors               = @rc_ignore unless @opt_ignore_errors;
-    @lcovutil::exclude_file_patterns = @rc_exclude_patterns
-        unless @lcovutil::exclude_file_patterns;
-    @lcovutil::include_file_patterns = @rc_include_patterns
-        unless @lcovutil::include_file_patterns;
-    @lcovutil::subst_file_patterns = @rc_subst_patterns
-        unless @lcovutil::subst_file_patterns;
-    @lcovutil::omit_line_patterns = @rc_omit_patterns
-        unless @lcovutil::omit_line_patterns;
-    @lcovutil::exclude_function_patterns = @rc_erase_patterns
-        unless @lcovutil::exclude_function_patterns;
-    @lcovutil::extractVersionScript = @rc_version_script
-        unless @lcovutil::extractVersionScript;
+    # apply the RC file settings if no command line arg
+    foreach my $rc ([\@opt_filter, \@rc_filter],
+                    [\@opt_ignore_errors, \@rc_ignore],
+                    [\@lcovutil::exclude_file_patterns, \@rc_exclude_patterns],
+                    [\@lcovutil::include_file_patterns, \@rc_include_patterns],
+                    [\@lcovutil::subst_file_patterns, \@rc_subst_patterns],
+                    [\@lcovutil::omit_line_patterns, \@rc_omit_patterns],
+                    [\@lcovutil::exclude_function_patterns, \@rc_erase_patterns
+                    ],
+                    [\@lcovutil::extractVersionScript, \@rc_version_script],
+                    [\@ReadCurrentSource::source_directories,
+                     \@rc_source_directories
+                    ],
+                    [\@lcovutil::resolveCallback, \@rc_resolveCallback]
+    ) {
+        @{$rc->[0]} = @{$rc->[1]} unless (@{$rc->[0]});
+    }
 
-    @ReadCurrentSource::source_directories = @rc_source_directories
-        unless @ReadCurrentSource::source_directories;
-    @lcovutil::resolveCallback = @rc_resolveCallback
-        unless @lcovutil::resolveCallback;
     $ReadCurrentSource::searchPath =
         SearchPath->new('source directory',
                         @ReadCurrentSource::source_directories);
