@@ -111,10 +111,12 @@ unless (-e $filename) {
 }
 my $pathname = abs_path($filename);
 my $null     = File::Spec->devnull();
-if ($use_md5) {
-    $use_md5 = `md5sum $pathname 2>$null`;
-    $use_md5 =~ /^(\S+)/;
-    $use_md5 = $1;
+
+sub compute_md5
+{
+    my $md5 = `md5sum $pathname 2>$null`;
+    $md5 =~ /^(\S+)/;
+    return $1;
 }
 
 my $dirname = dirname($pathname);
@@ -154,7 +156,7 @@ if (0 == system("git rev-parse --show-toplevel >$null 2>&1")) {
         my $diff = `git diff $file 2>$null`;
         if ('' ne $diff) {
             $version .= ' edited ' . get_modify_time($file);
-            $version .= " md5:$use_md5"
+            $version .= ' md5:' . compute_md5()
                 if $use_md5;
         }
     }
@@ -163,7 +165,7 @@ if (!$version) {
     # not in P4 - just print the modify time, so we have a prayer of
     #  noticing file differences
     $version = get_modify_time($file);
-    $version .= " md5:$use_md5"
+    $version .= ' md5:' . compute_md5()
         if ($use_md5);
 }
 print($version . "\n");
