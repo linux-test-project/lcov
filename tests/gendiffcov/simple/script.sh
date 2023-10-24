@@ -90,15 +90,15 @@ export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
-if [ -f $LCOV_HOME/bin/getp4version ] ; then
-    SCRIPT_DIR=$LCOV_HOME/bin
+if [ -f $LCOV_HOME/scripts/getp4version ] ; then
+    SCRIPT_DIR=$LCOV_HOME/scripts
 else
     # running test from lcov install
     SCRIPT_DIR=$LCOV_HOME/share/lcov/support-scripts
     MD5_OPT='--version-script --md5'
 fi
 GET_VERSION=${SCRIPT_DIR}/getp4version
-P4ANNOTATE=${SCRIPT_DIR}/p4annotate
+P4ANNOTATE=${SCRIPT_DIR}/p4annotate.pm
 CRITERIA=${SCRIPT_DIR}/criteria
 
 #PARALLEL=''
@@ -222,12 +222,46 @@ if [ 0 == $? ] ; then
 fi
 $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output filt.info --filter branch,line -a baseline2.info $IGNORE --ignore version
 if [ 0 != $? ] ; then
-    echo "ERROR: ignore error filer with mismatched version failed"
+    echo "ERROR: ignore error filter with mismatched version failed"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
+# run again with version script options passed in string
+# test filter with differing version
+$COVER $LCOV_HOME/bin/lcov $EXTRA_GCOV_OPTS --branch-coverage --version-script "$GET_VERSION --md5 --allow-missing" $PARALLEL $PROFILE --output filt2.info --filter branch,line -a baseline2.info $IGNORE
+if [ 0 == $? ] ; then
+    echo "ERROR: filter with mismatched version did not fail"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ -e filt2.info ] ; then
+    echo "ERROR: filter failed by still produced result"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+$COVER $LCOV_HOME/bin/lcov $EXTRA_GCOV_OPTS --branch-coverage --version-script "$GET_VERSION --md5 --allow-missing" $PARALLEL $PROFILE --output filt2.info --filter branch,line -a baseline2.info $IGNORE --ignore version
+if [ 0 != $? ] ; then
+    echo "ERROR: ignore error filter with combined opts and mismatched version failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+diff filt.info filt2.info
+if [ 0 != $? ] ; then
+    echo "ERROR: string and separtate args produced different result"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 # run genhtml with mismatched version
 echo genhtml $DIFFCOV_OPTS baseline2.info --output-directory ./mismatched
 $COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS baseline2.info --output-directory ./mismatched
@@ -790,6 +824,29 @@ for l in criteria.log criteria.err ; do
   fi
 done
 
+# test 'coverage criteria' callback
+#  we expect to fail - and to see error message - it coverage criteria not met
+# ask for date and owner data - even though the callback doesn't use it
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria "$CRITERIA --signoff" -o $outdir ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria "$CRITERIA --signoff" --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria ./current.info $GENHTML_PORT $IGNORE > signoff.log 2> signoff.err
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml criteria --signoff did not pass"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "UNC + LBC + UIC != 0" signoff.log
+# expect to find the string (0 return val) if flag is present
+if [ 0 != $? ] ; then
+    echo "ERROR: 'criteria string is missing from signoff.log"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
 # test '--show-navigation' option
 # need "--ignore-unused for gcc/10.2.0 - which doesn't see code in its c++ headers
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' ./current.info $IGNORE
@@ -1053,7 +1110,7 @@ fi
 
 
 # and generate a spreadsheet..check that we don't crash
-SPREADSHEET=$LCOV_HOME/bin/spreadsheet.py
+SPREADSHEET=$LCOV_HOME/scripts/spreadsheet.py
 if [ ! -f $SPREADSHEET ] ; then
     SPREADSHEET=$LCOV_HOME/share/lcov/support-scripts/spreadsheet.py
 fi

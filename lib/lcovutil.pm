@@ -44,6 +44,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $br_coverage $func_coverage
      @cpp_demangle do_mangle_check $demangle_cpp_cmd
      $cpp_demangle_tool $cpp_demangle_params
+     count_totals print_overall_rate
 
      $FILTER_BRANCH_NO_COND $FILTER_FUNCTION_ALIAS
      $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH $FILTER_LINE
@@ -72,7 +73,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
      $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE $ERROR_INTERNAL
      $ERROR_PARALLEL $ERROR_PARENT $ERROR_CHILD
-     report_parallel_error check_parent_process
+     report_parallel_error report_exit_status check_parent_process
+     report_unknown_child
 
      $ERROR_UNMAPPED_LINE $ERROR_UNKNOWN_CATEGORY $ERROR_ANNOTATE_SCRIPT
      $stop_on_error
@@ -94,8 +96,8 @@ our %message_types;
 our $suppressAfter = 100;    # stop warning after this number of messages
 our %ERROR_ID;
 our %ERROR_NAME;
-our $tool_dir     = $FindBin::RealBin;
-our $tool_name    = basename($0);        # import from lcovutil module
+our $tool_dir     = "$FindBin::RealBin";
+our $tool_name    = basename($0);          # import from lcovutil module
 our $lcov_version = 'LCOV version ' . `"$tool_dir"/get_version.sh --full`;
 our $lcov_url     = "https://github.com//linux-test-project/lcov";
 our @temp_dirs;
@@ -190,6 +192,7 @@ our $opt_no_external;
 our @file_subst_patterns;
 # resolve callback
 our @resolveCallback;
+our $resolveCallback;
 our %resolveCache;
 
 # C++ demangling
@@ -202,8 +205,9 @@ our $cpp_demangle_params;
 
 # version extract may be expensive - so only do it once
 our %versionCache;
-our @extractVersionScript;   # script/callback to find version ID of file
-our $verify_checksum;        # compute and/or check MD5 sum of source code lines
+our @extractVersionScript;    # script/callback to find version ID of file
+our $versionCallback;
+our $verify_checksum;    # compute and/or check MD5 sum of source code lines
 
 our $check_file_existence_before_callback = 1;
 
@@ -740,7 +744,7 @@ sub save_cmd_line($$)
 {
     my ($argv, $bin) = @_;
     my $cmd = $lcovutil::tool_name;
-    $lcovutil::profileData{config}{bin} = $FindBin::RealBin;
+    $lcovutil::profileData{config}{bin} = "$FindBin::RealBin";
     foreach my $arg (@$argv) {
         $cmd .= ' ';
         if ($arg =~ /\s/) {
@@ -839,6 +843,33 @@ sub do_mangle_check
         if (lcovutil::system_no_output(3, "echo \"\" | '$tool'"));
 }
 
+sub configure_callback
+{
+    my $script = $_[0];
+    my $rtn;
+    if ($script =~ /\.pm$/) {
+        my $dir     = File::Basename::dirname($script);
+        my $package = File::Basename::basename($script);
+        my $class   = $package;
+        $class =~ s/\.pm$//;
+        unshift(@INC, $dir);
+        eval {
+            require $package;
+            #$package->import(qw(new));
+            # the first value in @_ is the script name
+            $rtn = $class->new(@_);
+        };
+        if ($@) {
+            lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
+                                    "unable to load perl module '$script': $@");
+        }
+        shift(@INC);
+    } else {
+        # not module
+        $rtn = ScriptCaller->new(@_);
+    }
+    return $rtn;
+}
 #
 # read_config(filename)
 #
@@ -1223,6 +1254,12 @@ sub parseOptions
         if ($rc_no_branch_coverage);
     if (defined($rc_no_checksum)) {
         $lcovutil::verify_checksum = ($rc_no_checksum ? 0 : 1);
+    }
+
+    foreach my $cb ([\$versionCallback, \@lcovutil::extractVersionScript],
+                    [\$resolveCallback, \@lcovutil::resolveCallback]) {
+        ${$cb->[0]} = lcovutil::configure_callback(@{$cb->[1]})
+            if (@{$cb->[1]});
     }
 
     if (!$lcov_capture) {
@@ -1814,6 +1851,33 @@ sub ignorable_warning($$;$)
     }
 }
 
+sub report_unknown_child
+{
+    my $child = shift;
+    # this can happen if the user loads a callback module which starts a chaild
+    # process when it is loaded or initialied and fails to wait for that child
+    # to finish.  How it manifests is an orphan PID which is smaller (older)
+    # than any of the children that this parent actually scheduled
+    lcovutil::ignorable_error($lcovutil::ERROR_CHILD,
+        "found unknown process $child while waiting for parallel child:\n  perhaps you forgot to close a process in your callback?"
+    );
+}
+
+sub report_exit_status
+{
+    my ($errType, $message, $exitstatus, $prefix, $suffix) = @_;
+    die("expected to be called for a failure") unless $exitstatus;
+    my $status  = $exitstatus >> 8;
+    my $signal  = $exitstatus & 0xFF;
+    my $explain = "$prefix returned non-zero exit status $status";
+    $explain =
+        "$prefix died died due to signal $signal (SIG" .
+        (split(' ', $Config{sig_name}))[$signal] .
+        '): possibly killed by OS due to out-of-memory - see --memory and --parallel options for throttling'
+        if $signal;
+    ignorable_error($errType, "$message: $explain$suffix");
+}
+
 sub report_parallel_error
 {
     my $operation   = shift;
@@ -1825,18 +1889,9 @@ sub report_parallel_error
     #  messages from dangling children (who cannot open files because the
     #  temp directory has been deleted, and so forth)
     kill(9, @_) if @_ && !is_ignored($errno);
-    my $status  = $childstatus >> 8 if $childstatus;
-    my $signal  = $childstatus & 0xFF if $childstatus;
-    my $explain = " child $id returned non-zero exit status $status"
-        if defined($childstatus);
-    $explain =
-        " child $id died died due to signal $signal (SIG" .
-        (split(' ', $Config{sig_name}))[$signal] .
-        '): possibly killed by OS due to out-of-memory - see --memory and --parallel options for throttling'
-        if defined($signal) && $signal;
-    ignorable_error($errno,
-        "$operation: error '$msg': $explain (try removing the '--parallel' option)"
-    );
+    report_exit_status($errno, "$operation: '$msg'",
+                       $childstatus, "child $id",
+                       " (try removing the '--parallel' option)");
 }
 
 sub check_parent_process
@@ -2145,7 +2200,7 @@ sub extractFileVersion
     my $filename = shift;
 
     return undef
-        unless @extractVersionScript;
+        unless $versionCallback;
     return $versionCache{$filename} if exists($versionCache{$filename});
 
     return undef if fileExistenceBeforeCallbackError($filename);
@@ -2153,25 +2208,8 @@ sub extractFileVersion
     my $start = Time::HiRes::gettimeofday();
     #die("$filename does not exist")
     #    unless -f $filename;
-    my $version;
-    my $cmd = join(' ', @extractVersionScript) . " '$filename'";
-    lcovutil::info(1, "extractFileVersion: $cmd\n");
+    my $version = $versionCallback->extract_version($filename);
 
-    if (open(VERS, "-|", @extractVersionScript, $filename) &&
-        ($version = <VERS>)) {
-        chomp($version);
-        $version =~ s/\r//;
-        lcovutil::info(1, "  version: $version\n");
-        close(VERS);
-        my $status = $? >> 8;
-        0 == $status
-            or
-            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                     "version-script '$cmd' returned non-zero exit code: '$!'");
-    } else {
-        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                                  "'open(-| $cmd)' failed: \"$!\"");
-    }
     my $end = Time::HiRes::gettimeofday();
     if (exists($lcovutil::profileData{version}) &&
         exists($lcovutil::profileData{version}{$filename})) {
@@ -2187,23 +2225,20 @@ sub checkVersionMatch
 {
     my ($filename, $me, $you, $reason) = @_;
 
-    my $match;
-    if (@extractVersionScript) {
-        my $cmd = join(' ', @extractVersionScript) .
-            " --compare '$you' '$me' '$filename'";
-        lcovutil::debug("compare_version: \"$cmd\"\n");
-        my $rtn = `$cmd`;
-        $match = $? ? 0 : 1;
-    } else {
-        $match = $me eq $you;    # simple string compare
+    return 1 if $me eq $you;    # simple string compare
+
+    if ($versionCallback) {
+        # work harder
+        my $status = $versionCallback->compare_version($you, $me, $filename);
+        lcovutil::info(1, "compare_version: $status\n");
+        return 1 unless $status;    # match if return code was zero
     }
     lcovutil::ignorable_error($ERROR_VERSION,
                           (defined($reason) ? ($reason . ' ') : '') .
                               "$filename: revision control version mismatch: " .
-                              (defined($me) ? $me : 'undef') .
-                              ' <- ' . (defined($you) ? $you : 'undef'))
-        unless $match;
-    return $match;
+                              (defined($me) ? $me : 'undef') . ' <- ' .
+                              (defined($you) ? $you : 'undef'));
+    return 0;
 }
 
 #
@@ -2294,6 +2329,204 @@ sub parse_w3cdtf($)
                       second     => $sec,
                       nanosecond => $ns,
                       time_zone  => $tz,);
+}
+
+#
+# print_overall_rate($countDat, ln_do, fn_do, br_do)
+#
+# Print overall coverage rates for the specified coverage types.
+#   $countDat is the array returned by 'TraceFile->count_totals()'
+
+sub print_overall_rate($$$$)
+{
+    my ($counts, $ln_do, $fn_do, $br_do) = @_;
+
+    info("Summary coverage rate:\n");
+    info("  source files: %d\n", $counts->[0]);
+    info("  lines.......: %s\n",
+         get_overall_line($counts->[1]->[0], $counts->[1]->[1], "line"))
+        if ($ln_do);
+    info("  functions...: %s\n",
+         get_overall_line($counts->[3]->[0], $counts->[3]->[1], "function"))
+        if ($fn_do);
+    info("  branches....: %s\n",
+         get_overall_line($counts->[2]->[0], $counts->[2]->[1], "branch"))
+        if ($br_do);
+}
+
+package PipeHelper;
+
+sub new
+{
+    my $class  = shift;
+    my $reason = shift;
+
+    # backward compatibility:  see if the arguements were passed in a
+    #  one long string
+    my $args   = \@_;
+    my $arglen = 'criteria' eq $reason ? 4 : 2;
+    if ($arglen == scalar(@_) && !-e $_[0]) {
+        # two arguments:  a string (which seems not to be executable) and the
+        #  file we are acting on
+        # After next release, issue 'deprecated' warning here.
+        my @args = split(' ', $_[0]);
+        push(@args, splice(@_, 1));    # append the rest of the args
+        $args = \@args;
+    }
+
+    my $self = [$reason, join(' ', @$args)];
+    bless $self, $class;
+    if (open(PIPE, "-|", @$args)) {
+        push(@$self, \*PIPE);
+    } else {
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                       "$reason: 'open(-| " . $self->[1] . ")' failed: \"$!\"");
+        return undef;
+    }
+    return $self;
+}
+
+sub next
+{
+    my $self = shift;
+    die("no handle") unless scalar(@$self) == 3;
+    my $hdl = $self->[2];
+    return scalar <$hdl>;
+}
+
+sub close
+{
+    # close pipe and return exit status
+    my ($self, $checkError) = @_;
+    close($self->[2]);
+    if (0 != $? && $checkError) {
+        # $reason: $cmd returned non-zero exit...
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                  $self->[0] . ' \'' . $self->[1] .
+                                      "\' returned non-zero exit code: '$!'");
+    }
+    pop(@$self);
+    return $?;
+}
+
+sub DESTROY
+{
+    my $self = shift;
+    # FD can be undef if 'open' failed for any reason (e.g., filesystem issues)
+    # otherwise:  don't close if FD was STDIN or STDOUT
+    CORE::close($self->[2])
+        if 3 == scalar(@$self);
+}
+
+package ScriptCaller;
+
+sub new
+{
+    my $class = shift;
+    my $self  = [@_];
+    return bless $self, $class;
+}
+
+sub call
+{
+    my ($self, $reason, @args) = @_;
+    my $cmd = join(' ', @$self) . ' ' . join(' ', @args);
+    lcovutil::info(1, "$reason: \"$cmd\"\n");
+    my $rtn = `$cmd`;
+    return $?;
+}
+
+sub pipe
+{
+    my $self   = shift;
+    my $reason = shift;
+    return PipeHelper->new($reason, @$self, @_);
+}
+
+sub extract_version
+{
+    my ($self, $filename) = @_;
+    my $version;
+    my $pipe = $self->pipe('extract_version', $filename);
+    if (defined $pipe &&
+        ($version = $pipe->next())) {
+        chomp($version);
+        $version =~ s/\r//;
+        lcovutil::info(1, "  version: $version\n");
+    }
+    return $version;
+}
+
+sub resolve
+{
+    my ($self, $filename) = @_;
+    my $path;
+    my $pipe = $self->pipe('resolve_filename', $filename);
+    if ($pipe &&
+        ($path = $pipe->next())) {
+        chomp($path);
+        $path =~ s/\r//;
+        lcovutil::info(1, "  resolve: $path\n");
+    }
+    return $path;
+}
+
+sub compare_version
+{
+    my ($self, $yours, $mine, $file) = @_;
+    return
+        $self->call('compare_version', '--compare',
+                    "'$yours'", "'$mine'",
+                    "'$file'");
+}
+
+# annotate callback is passed filename (as munged) -
+# should return reference to array of line data,
+# line data of the form list of:
+#    source_text:  the content on that line
+#    abbreviated author name:  (must be set to something - possibly NONE
+#    full author name:  some string or undef
+#    date string:  when this line was last changed
+#    commit ID:  sonething meaningful to you
+sub annotate
+{
+    my ($self, $filename) = @_;
+    lcovutil::info(1, 'annotate ' . join(' ', @$self) . ' ' . $filename . "\n");
+    my $iter = $self->pipe('annotate', $filename);
+    return unless defined($iter);
+    my @lines;
+    while (my $line = $iter->next()) {
+        chomp $line;
+        $line =~ s/\r//g;    # remove CR from line-end
+
+        my ($commit, $author, $when, $text) = split(/\|/, $line, 4);
+        # semicolon is not a legal character in email address -
+        #   so we use that to delimit the 'abbreviated name' and
+        #   the 'full name' - in case they are different.
+        # this is an attempt to be backward-compatible with
+        # existing annotation scripts which return only one name
+        my ($abbrev, $full) = split(/;/, $author, 2);
+        push(@lines, [$text, $abbrev, $full, $when, $commit]);
+    }
+    my $status = $iter->close();
+
+    return ($status, \@lines);
+}
+
+sub check_criteria
+{
+    my ($self, $name, $type, $json) = @_;
+
+    my $iter = $self->pipe('criteria', $name, $type, $json);
+    return (0) unless $iter;    # constructor will have given error message
+    my @messages;
+    while (my $line = $iter->next()) {
+        chomp $line;
+        $line =~ s/\r//g;       # remove CR from line-end
+        next if '' eq $line;
+        push(@messages, $line);
+    }
+    return ($iter->close(), \@messages);
 }
 
 package JsonSupport;
@@ -2535,28 +2768,11 @@ sub resolveCallback
     my ($filename, $applySubstitutions) = @_;
     $filename = lcovutil::subst_file_name($filename) if $applySubstitutions;
 
-    if (@lcovutil::resolveCallback) {
+    if ($lcovutil::resolveCallback) {
         return $lcovutil::resolveCache{$filename}
             if exists($lcovutil::resolveCache{$filename});
         my $start = Time::HiRes::gettimeofday();
-        my $cmd   = join(' ', @lcovutil::resolveCallback) . " '$filename'";
-        lcovutil::info(1, "resolveCallback: $cmd\n");
-        my $path;
-        if (open(VERS, "-|", @lcovutil::resolveCallback, $filename) &&
-            ($path = <VERS>)) {
-            chomp($path);
-            $path =~ s/\r//;
-            close(VERS);
-            lcovutil::info(1, "  path: $path\n");
-            my $status = $? >> 8;
-            0 == $status
-                or
-                lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                     "resolve-script '$cmd' returned non-zero exit code: '$!'");
-        } else {
-            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                                      "'open(-| $cmd)' failed: \"$!\"");
-        }
+        my $path  = $resolveCallback->resolve($filename);
         # look up particular path most once...
         $lcovutil::resolveCache{$filename} = $path if $path;
         my $cost = Time::HiRes::gettimeofday() - $start;
@@ -4547,20 +4763,6 @@ sub parseLines
     $self->[EXCLUDE]  = \@excluded;
 }
 
-sub setData
-{
-    my ($self, $filename, $data) = @_;
-    die("expected array")
-        if (defined($data) && ref($data) ne 'ARRAY');
-    $self->[FILENAME] = $filename;
-    if (defined($data) &&
-        0 != scalar(@$data)) {
-        $self->parseLines($filename, $data);
-    } else {
-        $self->open($filename, join(' ', @lcovutil::extractVersionScript));
-    }
-}
-
 sub notEmpty
 {
     my $self = shift;
@@ -5713,6 +5915,10 @@ sub _processFilterWorklist
                         $lcovutil::maxMemory);
                 my $child       = wait();
                 my $childstatus = $?;
+                unless (exists($children{$child})) {
+                    lcovutil::report_unknown_child($child);
+                    next;
+                }
                 eval {
                     $self->_mergeParallelChunk($tmp, $child, \%children,
                                                $childstatus, \@save);
@@ -5756,6 +5962,10 @@ sub _processFilterWorklist
     while ($currentParallel != 0) {
         my $child       = wait();
         my $childstatus = $?;
+        unless (exists($children{$child})) {
+            lcovutil::report_unknown_child($child);
+            next;
+        }
         --$currentParallel;
         eval {
             $self->_mergeParallelChunk($tmp, $child, \%children, $childstatus,
@@ -6883,6 +7093,10 @@ sub merge
             my $child       = wait();
             my $now         = Time::HiRes::gettimeofday();
             my $childstatus = $? >> 8;
+            unless (exists($children{$child})) {
+                lcovutil::report_unknown_child($child);
+                next;
+            }
             my ($start, $idx) = @{$children{$child}};
             lcovutil::info(
                           1,

@@ -104,6 +104,7 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA $ERROR_CALLBACK
                  $ERROR_RANGE $ERROR_PATH
                  $ERROR_PARALLEL $ERROR_CHILD report_parallel_error
+                 report_exit_status
                  summarize_messages
                  $br_coverage $func_coverage
                  info $verbose init_verbose_flag debug $debug $devnull
@@ -272,6 +273,7 @@ sub gen_png($$$$$@);
 package SummaryInfo;
 
 our @coverageCriteriaScript;
+our $criteriaCallback;
 our %coverageCriteria;              # hash of name->(type, success 0/1, string)
 our $coverageCriteriaStatus = 0;    # set to non-zero if we see any errors
 our @criteriaCallbackTypes;         # include date, owner bin info
@@ -1059,7 +1061,7 @@ sub checkCoverageCriteria
     my $self = shift;
     my $type = $self->type();
     return
-        unless (@coverageCriteriaScript &&
+        unless ($criteriaCallback &&
                 (0 == scalar(@criteriaCallbackLevels) ||
                  grep(/$type/, @criteriaCallbackLevels)));
 
@@ -1136,29 +1138,18 @@ sub checkCoverageCriteria
         '\' ' . $self->type() . ' \'' . $json . '\'';
     # command:  script name (top|dir|file) jsonString args..
     lcovutil::info(1, "criteria: '$cmd'\n");
-    if (open(HANDLE, "-|", @coverageCriteriaScript,
-             $self->type() eq 'top' ? 'top' : $self->name(),
-             $self->type(), $json
-    )) {
-        my @msg;
-        while (my $line = <HANDLE>) {
-            chomp $line;
-            $line =~ s/\r//g;    # remove CR from line-end
-            next if '' eq $line;
-            push(@msg, $line);
-        }
-        close(HANDLE);
-        my $status = $? >> 8;
-        my $name   = $self->type() eq 'top' ? "" : $self->name();
-        $coverageCriteria{$name} = [$self->type(), $status, \@msg]
-            if (0 != $status ||
-                0 != scalar(@msg));
-        $coverageCriteriaStatus = $status
-            if $status != 0;
-    } else {
-        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                                  "'open(-| $cmd)' failed: \"$!\"");
-    }
+    my ($status, $msgs) =
+        $criteriaCallback->check_criteria(
+                                 $self->type() eq 'top' ? 'top' : $self->name(),
+                                 $self->type(), $json);
+
+    my $name = $self->type() eq 'top' ? "" : $self->name();
+    $coverageCriteria{$name} = [$self->type(), $status, $msgs]
+        if (0 != $status ||
+            (defined $msgs &&
+             0 != scalar(@$msgs)));
+    $coverageCriteriaStatus = $status
+        if $status != 0;
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{criteria}{
         $self->type() eq 'top' ? 'top' :
@@ -3567,6 +3558,7 @@ sub text
 
 package SourceFile;
 our @annotateScript;
+our $annotateCallback;
 our $annotateTooltip = 'Line %l: commit %C on %d by %F';
 our $annotatedFiles  = 0;
 our $totalFiles      = 0;
@@ -4310,7 +4302,7 @@ sub _load
     #   not exist - but that might be fine if it exists in the repo
     my $repo_path = Cwd::realpath($path);
     if (!defined($repo_path)) {
-        if (0 == scalar(@annotateScript) &&
+        if (!defined($annotateCallback) &&
             !$main::synthesizeMissingFile) {
             lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
                            "\"" . $self->path() . "\" does not exist: $!" .
@@ -4343,35 +4335,23 @@ sub _load
         $lcovutil::profileData{check_version}{$self->path()} = $end - $start;
     }
 
-    #stat($annotateScript);
-
-    ANNOTATE: if (0 != scalar(@annotateScript)) {
-
-        last ANNOTATE
-            if (scalar(@lcovutil::extractVersionScript) ==
-                0 &&    # already checked
-                lcovutil::fileExistenceBeforeCallbackError($repo_path));
-
+    if (defined($annotateCallback) &&
+        # also skip if we already emitted 'missing file' error
+        (defined($lcovutil::versionCallback) ||
+         !lcovutil::fileExistenceBeforeCallbackError($repo_path))
+    ) {
         my $begin   = Time::HiRes::gettimeofday();
         my $lineNum = 0;
-        my $cmd     = join(' ', @annotateScript) . ' \'' . $repo_path . '\'';
-        lcovutil::info(1, "annotate: '$cmd'\n");
-        my $found;    # check that either all lines are annotated or none are
-        local *HANDLE;
-        if (open(HANDLE, "-|", @annotateScript, $repo_path)) {
-            while (my $line = <HANDLE>) {
-                chomp $line;
-                $line =~ s/\r//g;    # remove CR from line-end
+
+        my ($status, $lines) = $annotateCallback->annotate($repo_path);
+        if (!$status && defined($lines)) {
+            my $found;   # check that either all lines are annotated or none are
+            foreach my $line (@$lines) {
+
+                my ($text, $abbrev, $full, $when, $commit) = @$line;
                 ++$lineNum;
 
-                my ($commit, $owner, $when, $text) = split(/\|/, $line, 4);
                 my $age = _computeAge($when, $path);
-                # semicolon is not a legal character in email address -
-                #   so we use that to delimit the 'abbreviated name' and
-                #   the 'full name' - in case they are different.
-                # this is an attempt to be backward-compatible with
-                # existing annotation scripts which return only one name
-                my ($abbrev, $full) = split(/;/, $owner, 2);
                 if ($commit ne 'NONE') {
                     die("inconsistent 'annotate' data for '$repo_path': both 'commit' and 'no commit' lines"
                     ) if (defined($found) && !$found);
@@ -4396,38 +4376,27 @@ sub _load
                     SourceLine->new($lineNum, $text, $abbrev, $full,
                                     $when, $age, $commit);
             }
-            close(HANDLE);
-            my $status = $? >> 8;
 
             my $end = Time::HiRes::gettimeofday();
 
             $lcovutil::profileData{annotate}{$self->path()} = $end - $begin;
-            if (0 == $status) {
-                ++$annotatedFiles if $found;
-                $self->_synthesize($countdata, 1);    # fake annotations too
-                return $self;
-            }
+
+            ++$annotatedFiles if $found;
+            $self->_synthesize($countdata, 1);    # fake annotations too
+            return $self;
+        } else {
 
             # non-zero exit status:  something bad happened in annotation
             # if we ignore the error - then fall through and just try to load the file
-            my $text = ': ' . $self->[LINES]->[0]->text() . '...'
-                if @{$self->[LINES]};
+            my $text = '';
+            $text = ': ' . $lines->[0]->[0] . '...'
+                if $lines && @$lines;
             # might be useful to provide more than one line of context - if there is more than one line?
-            lcovutil::ignorable_error(
-                           $lcovutil::ERROR_ANNOTATE_SCRIPT,
-                           ($! ? "annotate command '$cmd' pipe error: $!" :
-                                "non-zero exit status from annotate '$cmd' pipe"
-                               ) .
-                               ($text ? $text : ''));
-            # if falling through, clear the LINES array that might have been
-            # populated in the annotate loop.  Needs to be empty for bare load
-            # or synthesize operation
-            $self->[LINES] = [];
-        } else {
-            # open failed.
-            lcovutil::ignorable_error($lcovutil::ERROR_ANNOTATE_SCRIPT,
-                                      "'open(-| $cmd)' failed: \"$!\"\n");
-        }
+
+            lcovutil::report_exit_status($lcovutil::ERROR_ANNOTATE_SCRIPT,
+                                         "annotate command failed",
+                                         $status, '', $text);
+        }    # end if error
     }    # end if annotate script exists
 
     # Check if file exists and is readable
@@ -4862,15 +4831,11 @@ sub compute
                     if ($consumption > $lcovutil::maxMemory);
                 my $child       = wait();
                 my $childstatus = $?;
-                --$currentParallel;
-                if (!exists($children->{$child})) {
-                    # this should not happen..
-                    lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                        "lost track of children: currentSize:$currentSize wait:$child, currentParallel:$currentParallel children:("
-                            . join(', ', keys(%$children))
-                            . ")");
+                unless (exists($children->{$child})) {
+                    lcovutil::report_unknown_child($child);
                     next WORK;
                 }
+                --$currentParallel;
                 my ($summary, $fullname, $parentData, $now) =
                     @{$children->{$child}};
                 my ($parentSummary, $parentPerTestData, $parentPath) =
@@ -5076,16 +5041,11 @@ sub compute
     while ($currentParallel != 0) {
         my $child       = wait();
         my $childstatus = $?;
-        --$currentParallel;
-        if (!exists($children->{$child})) {
-            # this should not happen..
-            lcovutil::ignorable_erro($lcovutil::ERROR_PARALLEL,
-                "lost track of children in tail: wait:$child, currentParallel:$currentParallel children:("
-                    . join(', ', keys(%$children))
-                    . ")");
+        unless (exists($children->{$child})) {
+            lcovutil::report_unknown_child($child);
             next;
         }
-
+        --$currentParallel;
         my ($summary, $fullname, $parentSummary, $parentPath, $now) =
             @{$children->{$child}};
         $self->merge_child($child, $childstatus);
@@ -5210,7 +5170,7 @@ package main;
 
 # Global variables & initialization
 
-lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
+lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
 
 # TraceFile Instance containing all data from the 'current' .info file
 #  - constructed at start of GenHtml
@@ -5434,6 +5394,16 @@ foreach my $rc ([\@datebins, \@rc_date_bins],
                 [\@SummaryInfo::coverageCriteriaScript, \@rc_criteria_script]
 ) {
     @{$rc->[0]} = @{$rc->[1]} unless (@{$rc->[0]});
+}
+
+foreach my $cb ([\$SourceFile::annotateCallback, \@SourceFile::annotateScript],
+                [\$SummaryInfo::criteriaCallback,
+                 \@SummaryInfo::coverageCriteriaScript
+                ]
+) {
+
+    ${$cb->[0]} = lcovutil::configure_callback(@{$cb->[1]})
+        if scalar(@{$cb->[1]});
 }
 
 foreach my $data (['criteria_callback_levels', \@criteriaCallbackLevels,
@@ -5748,7 +5718,9 @@ if (0 == $exit_status &&
             print(STDERR $msg);
         }
     }
-    $exit_status = $SummaryInfo::coverageCriteriaStatus;
+    # fail for signal or status
+    $exit_status = (($SummaryInfo::coverageCriteriaStatus & 0xFF) |
+                    ($SummaryInfo::coverageCriteriaStatus >> 8));
 }
 
 lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'));

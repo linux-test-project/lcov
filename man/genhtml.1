@@ -393,6 +393,141 @@ While each script performs a separate function there are some common aspects
 in the way these options are handled:
 
 .IP 1. 3
+If the callback script name ends in
+.B \.pm
+then the script is assumed to be a Perl module.
+.br
+A perl module may offer performance advantages over an external script, as it is compiled once and loaded into the interpreter and because it can load and maintain internal state.
+.br
+The module is expected to export a method 'new', which is
+called with the script name and the script parameters (if any) as arguments.  It is expected to return an object which implements several standard methods:
+.br
+.I $callback_obj = packagename\-\>new(perl_module_file, args);
+.RS 3
+.IP version\-script 3
+.I $version = $callback_obj->extract_version($source_file_ename);
+.br
+.I $match = $callback_obj->check_version($old_version, $new_version, $source_file_name);
+.br
+.RS
+.IP $match 3
+ is expected to be 1 (true) if the version keys refer to the came file and 0 (false) otherwise.
+.PP
+
+.IP $version 3
+ is a string representing a unique identifier of the particular version of the file
+.PP
+.RE
+
+See example implementations
+.I $LCOV_HOME/share/lcov/support-scripts/gitversion.pm
+and
+.I $LCOV_HOME/share/lcov/support-scripts/getp4version.pm.
+.PP
+.IP annotate\-script 3
+.I ($status, $array) = $callback_obj->annotate($source_file_name);
+.br
+.br
+.br
+
+where
+.RS
+.IP $status 3
+ is 0 if the command succeeded and nonzero otherwise.
+.I $status
+is interpreted in same way as the return code from 'system(..)'
+.PP
+.IP $array 3
+is a list of line data of the form:
+.br
+.I [$text, $abbrev, $full_name, $when, $changelist].
+.PP
+.br
+
+and
+
+.IP $text 3
+is the source text from the corresponding line (without newline termination)
+.PP
+.IP $abbrev 3
+is the "abbreviated author name" responsible for this line of code.  This is the name that will be used in the various HTML tables.  For example, for brevity/readability, you may want to strip the domain from developers who are inside your organization.  If there is no associated author, then the value should be
+.I \"NONE\".
+.PP
+.IP $full_name 3
+is the "full author name" which is used in annotation tooltips.  See the
+.I genhtml_annotate_tooltip
+entry in the
+.B lcovrc(5)
+man page.
+.I $fullname
+may be
+.I undef
+if the full name and abbreviated names are the same.
+.PP
+.IP $when 3
+is the timestamp associated with the most recent edit of the corresponding
+line and may be
+.I \"NONE\"
+if there is no associated time.
+.PP
+.IP $changelist 3
+is the commit identifier associated with the most recent change to this line, or
+.I \"NONE\"
+if there isn't one.
+.PP
+
+
+See example implementations
+.I $LCOV_HOME/share/lcov/support-scripts/gitblame.pm
+and
+.I $LCOV_HOME/share/lcov/support-scripts/p4annotate.pm.
+.RE
+
+.IP criteria\-script
+.I ($status, $array) = $callback_obj->check_criteria($obj_name, $type, $json);
+.br
+.br
+
+where
+.RS
+.IP $obj_name 3
+is the source file or directory name, or \"top\" of the object whose coverage criteria is being checked.
+.PP
+.IP $type 3
+is the object type - either
+.I \"file\", \"directory\", or \"top\".
+.PP
+.IP $json 3
+is the coverage data associated with this object, in JSON format - see below.
+.PP
+.IP $status 3
+is the return status of the operation, interpreted the same way as the
+.I annotate
+callback status, described above.
+.PP
+.IP $array 3
+is a reference to a possibly empty list of strings which will be reported by genhtml.  The strings are are expected to explain why the coverage criteria failed.
+.PP
+
+See example implementations
+.I $LCOV_HOME/share/lcov/support-scripts/criteria.pm.
+.RE
+
+.IP resolve\-script
+$newpath = $callback_obj->resolve($source_file_name)
+.br
+.br
+
+where
+.I $newpath
+is the correct path to the indicated source file or
+.I undef
+if the source file is not found by the callback.
+.PP
+
+.RE
+
+.IP 2. 3
 If an option is specified only once, the argument specifies the full command
 line that
 .B genhtml
@@ -401,9 +536,13 @@ This includes the script path followed by optional additional parameters
 separated by spaces. Care must be taken to provide proper quoting if script
 path or any parameter contains spaces or shell special characters.
 .br
+If your callback command contains spaces which are not option separator, then
+the callback and arguments must be specified as described in
+.B 3.,
+below.
 .PP
 
-.IP 2. 3
+.IP 3. 3
 If an option is specified multiple times, the first invocation specifies the
 script path and any further invocation specifies one additional parameter.
 In this case, genhtml takes care of quoting of spaces contained in
@@ -411,7 +550,7 @@ script location and additional parameters.
 .br
 .PP
 
-.IP 3. 3
+.IP 4. 3
 .B genhtml
 passes any additional parameters specified via option arguments
 between the script path and the parameters required by the script's function.
@@ -424,14 +563,22 @@ Example:
 .RS
 genhtml --annotate-script /bin/script.sh
 .br
-        --annotate-script "full"
+        --annotate-script "full" ...
 .br
+
+results in the same callback as
+
 .br
+genhtml --annotate-script "/bin/script.sh full" ...
+.br
+
+Note that the former is preferred.
+
 .RE
 
-results in
+The resulting
 .B genhtml
-executing the following command line:
+callback executes the command line:
 .br
 
 .RS
@@ -440,9 +587,49 @@ executing the following command line:
 .RE
 .br
 
+Similarly
+.br
+.RS
+genhtml --annotate-script
+.I /bin/myMoodule.pm
+.br
+        --annotate-script "full" ...
+.br
+.br
+.RE
+
+results in
+.B genhtml
+executing
+.br
+
+.RS
+$annotateCallback = myModule->new("full");
+.RE
+
+to initialize the class ojbect, and then to execute
+
+.RS
+($status, $arrayRef) = $annotateCallback(
+.I source_file_name
+);
+.RE
+
+to retrieve the annotation information.
+
+
 Note that multiple instances of each script may execute simultaneously if the
 .B \-\-parallel
 option was specified. Therefore each script must either be reentrant or should arrange for its own synchronization, if necessary.
+.br
+In particular, if your callback is implemented via a perl module:
+.IP \- 3
+the class object associated with the module will intialized once (in the parent process)
+.PP
+.IP \- 3
+The callback will occur in the child process (possibly simultaneously with other child processes).
+.PP
+As a result:  if your callback needs to pass data back to the parent, you will need to arrange a communication mechanism to do so.
 .br
 
 .SS Additional considerations
@@ -454,7 +641,7 @@ option is used, genhtml will use the referenced script to determine whether your
 
 The
 .B \-\-version\-script
-option is used to verify that the same/compatible source code versions are displayed as were used to capture coverage data.
+option is used to verify that the same/compatible source code versions are displayed as were used to capture coverage data, as well as to verify that the same source code was used to capture coverage information which is going to be merged and to verify that the source version used for filtering operations is compatible with the version used to generate the data.
 
 HTML output files are created in the current working directory unless the
 .B \-\-output\-directory
@@ -489,6 +676,8 @@ callback. See the
 .B lcovrc
 man page for details.
 .br
+
+.SS Additional options
 
 Use option
 .B \-\-diff\-file
@@ -2446,25 +2635,25 @@ that creates a unified diff file via git.
 .br
 .RE
 
-.I \*[scriptdir]/p4annotate
+.I \*[scriptdir]/p4annotate.pm
 .RS
-Sample script for use with
+Sample script written as Perl module for use with
 .B --annotate-script
 that provides annotation data via Perforce.
 .br
 .RE
 
-.I \*[scriptdir]/gitblame
+.I \*[scriptdir]/gitblame.pm
 .RS
-Sample script for use with
+Sample script written as Perl module for use with
 .B --annotate-script
 that provides annotation data via git.
 .br
 .RE
 
-.I \*[scriptdir]/criteria
+.I \*[scriptdir]/criteria.pm
 .RS
-Sample script for use with
+Sample script written as Perl module for use with
 .B --criteria-script
 that implements a check for "UNC + LBC + UIC == 0".
 .br

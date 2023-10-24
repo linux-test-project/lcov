@@ -63,8 +63,9 @@ FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
 
 EXES = lcov genhtml geninfo genpng gendesc
-SCRIPTS = p4udiff p4annotate getp4version get_signature gitblame gitdiff \
-	criteria analyzeInfoFiles spreadsheet.py py2lcov gitversion
+# there may be both public and non-public user scripts - so lets not show
+#   any of their names
+SCRIPTS = $(shell ls scripts | grep -v -E '([\#\~]|\.orig|\.bak|\.BAK)' )
 LIBS = lcovutil.pm
 MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 \
 	man1/gendesc.1 man5/lcovrc.5
@@ -119,10 +120,11 @@ install:
 	$(INSTALL) -d -m 755 $(SCRIPT_DIR)
 	for s in $(SCRIPTS) ; do \
 		$(call echocmd,"  INSTALL $(SCRIPT_DIR)/$$s") \
-		$(INSTALL) -m 755 bin/$$s $(SCRIPT_DIR)/$$s ; \
+		$(INSTALL) -m 755 scripts/$$s $(SCRIPT_DIR)/$$s ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
-		       --fixinterp --fixver --fixlibdir --fixbindir \
+		       --fixinterp --fixver --fixlibdir \
+		       --fixscriptdir --scriptdir $(SCRIPT_DIR) \
 		       --exec $(SCRIPT_DIR)/$$s ; \
 	done
 	$(INSTALL) -d -m 755 $(LIB_DIR)

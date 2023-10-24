@@ -38,50 +38,22 @@
 #   It is not hard to envision much more complicated coverage criteria.
 
 use strict;
-use JSON;
+use FindBin;
 use Getopt::Long;
+use lib "$FindBin::RealBin";
+use criteria qw(new);
 
-my $signoff = 0;
+my $obj = criteria->new($0, @ARGV);
 
-if (!GetOptions('signoff' => \$signoff) ||
-    3 != scalar(@ARGV)) {
+my $signoff;
+if (!GetOptions('signoff' => \$signoff)) {
     print(STDERR "usage: name type json-string [--signoff]\n");
-    exit(1);
+    exit(1) if caller;
+    return undef;
 }
 
-#print(join(' ', @ARGV) . "\n");
-my $name = shift;
-my $type = shift;
-my $json = shift;
-
-my $fail = 0;
-if ($type eq 'top') {
-    # for the moment - only worry about the top-level coverage
-    my $db = decode_json($json);
-
-    if (exists($db->{'line'})) {
-        # our criteria is LBC + UNC + UIC == 0
-        my $sep    = '';
-        my $sum    = 0;
-        my $msg    = '';
-        my $counts = '';
-        my $lines  = $db->{'line'};
-        foreach my $tla ('UNC', 'LBC', 'UIC') {
-            $msg    .= $sep . $tla;
-            $counts .= $sep;
-            if (exists $lines->{$tla}) {
-                my $count = $lines->{$tla};
-                $sum += $count;
-                $counts .= "$count";
-            } else {
-                $counts .= "0";
-            }
-            $sep = ' + ';
-        }
-        $fail = $sum != 0;
-        print($msg . " != 0: " . $counts . "\n")
-            if $fail;
-    }
+my ($status, $msgs) = $obj->check_criteria(@ARGV);
+foreach my $m (@$msgs) {
+    print($m, "\n");
 }
-
-exit($fail && !$signoff);
+exit $status;

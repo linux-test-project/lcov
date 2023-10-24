@@ -114,7 +114,14 @@ sub update_perl($)
         die("$0: Missing option --bindir\n") if (!defined($opt_bindir));
 
         $source =~ s/^use FindBin;\n//mg;
-        $source =~ s/\$FindBin::RealBin/"$opt_bindir"/mg;
+        $source =~ s/"\$FindBin::RealBin"/"$opt_bindir"/mg;
+    }
+
+    if ($opt_fixscriptdir) {
+        die("$0: Missing option --scriptdir\n") if (!defined($opt_scriptdir));
+
+        $source =~ s/^use FindBin;\n//mg;
+        $source =~ s/"\$FindBin::RealBin"/"$opt_scriptdir"/mg;
     }
 
     return $source;

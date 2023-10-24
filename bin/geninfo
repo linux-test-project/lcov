@@ -95,6 +95,7 @@ use lcovutil qw (define_errors parse_ignore_errors
                  parseOptions
                  @comments
                  $maxParallelism init_parallel_params $maxMemory
+                 count_totals print_overall_rate
                 );
 
 if ($^O eq "msys") {
@@ -258,7 +259,7 @@ our $defaultInterval;
 our $cwd = getcwd();
 chomp($cwd);
 
-lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
+lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
 
 #
 # Code entry point
@@ -629,8 +630,11 @@ if (0 == $exit_code) {
         my $then = Time::HiRes::gettimeofday();
         $lcovutil::profileData{emit} = $then - $now;
 
-        lcovutil::info(1, "Processed $processedFiles GCDA files\n");
         info("Finished .info-file creation\n");
+        my @counts = $trace_data->count_totals();
+        lcovutil::print_overall_rate(\@counts, 1, $lcovutil::func_coverage,
+                                     $lcovutil::br_coverage)
+            if ($lcovutil::verbose >= 0);
         summarize_cov_filters();
         # print warnings
         lcovutil::warn_file_patterns();
@@ -883,6 +887,7 @@ sub _process_one_chunk($$$$)
         # "name" will be .gcno if "$initial" else will be $gcda
         my $name = defined($gcda_file) ? $gcda_file : $gcno_file;
         info(1, "Processing $name%s\n", defined($pid) ? " in child $pid" : "");
+        my $context = MessageContext->new("capturing from $name");
 
         # multiple gcda files may refer to the same source - so generate the
         #  same 'source.gcda' output file - so they each need a different directory
@@ -1302,6 +1307,10 @@ sub gen_info(@)
                         $lcovutil::maxMemory);
                 my $child       = wait();
                 my $childstatus = $?;
+                unless (exists($children{$child})) {
+                    lcovutil::report_unknown_child($child);
+                    next;
+                }
                 _merge_one_child($child, \%children, $type, $tempFileExt,
                                  $childstatus);
                 --$currentParallel;
@@ -1414,6 +1423,7 @@ sub gen_info(@)
             $trace_data =
                 _process_one_chunk($chunk, $processedChunks, $trace_data,
                                    undef);
+            $processedFiles += scalar(@$chunk);
             my $then = Time::HiRes::gettimeofday();
             $lcovutil::profileData{process}{$processedChunks} = $then - $now;
         }
@@ -1422,10 +1432,15 @@ sub gen_info(@)
     while ($currentParallel != 0) {
         my $child       = wait();
         my $childstatus = $?;
+        unless (exists($children{$child})) {
+            lcovutil::report_unknown_child($child);
+            next;
+        }
         --$currentParallel;
         _merge_one_child($child, \%children, $type, $tempFileExt, $childstatus);
     }
-    info("Finished GDCA file processing\n");
+    info("Finished processing %d GDCA file%s\n",
+         $processedFiles, 1 == $processedFiles ? '' : 's');
     # Report whether files were excluded.
     if (%lcovutil::excluded_files) {
         my $count = scalar keys %lcovutil::excluded_files;

@@ -90,9 +90,9 @@ export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
-if [ -f $LCOV_HOME/bin/getp4version ] ; then
-    GET_VERSION=$LCOV_HOME/bin/getp4version
-    ANNOTATE=$LCOV_HOME/bin/p4annotate
+if [ -f $LCOV_HOME/scripts/getp4version ] ; then
+    GET_VERSION=$LCOV_HOME/scripts/getp4version
+    ANNOTATE=$LCOV_HOME/scripts/p4annotate
 else
     GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
     ANNOTATE=$LCOV_HOME/share/lcov/support-scripts/p4annotate
@@ -264,7 +264,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep -i "Error: (annotate) non-zero exit status from annotate" fail.log
+grep -i -E "Error: \(annotate\) annotate command failed: .*non-zero exit status" fail.log
 if [ 0 != $? ] ; then
     echo "did not find expected annotate error message in fail.log"
     exit 1
@@ -279,7 +279,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep -i "Warning: .* non-zero exit status from annotate" fail2.log
+grep -i -E "Warning: \(annotate\).* non-zero exit status" fail2.log
 if [ 0 != $? ] ; then
     echo "did not find expected annotate warning message in fail2.log"
     exit 1

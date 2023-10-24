@@ -93,6 +93,7 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  $ERROR_PARALLEL report_parallel_error
                  system_no_output
                  rate get_overall_line
+                 count_totals print_overall_rate
 
                  parseOptions
                  strip_directories transform_pattern
@@ -137,7 +138,6 @@ sub my_info(@);
 set_info_callback(\&my_info);
 sub create_temp_dir();
 sub setup_gkv();
-sub print_overall_rate($$$$);
 sub check_rates($$);
 sub lcov_geninfo(@);
 sub create_package($$$;$);
@@ -198,7 +198,7 @@ $SIG{__DIE__}  = \&lcovutil::die_handler;
 $SIG{'INT'}    = \&lcovutil::abort_handler;
 $SIG{'QUIT'}   = \&lcovutil::abort_handler;
 
-lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
+lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
 
 our @cmdArgs = @ARGV;
 
@@ -426,8 +426,8 @@ if (0 == $exit_code) {
         #  the issue is that we filter them out in the write operation - but
         #  we don't bother to read it back
         my @counts = $trace->count_totals();
-        print_overall_rate(\@counts, 1, $lcovutil::func_coverage,
-                           $lcovutil::br_coverage);
+        lcovutil::print_overall_rate(\@counts, 1, $lcovutil::func_coverage,
+                                     $lcovutil::br_coverage);
         # check for failed coverage criteria
         $exit_code = check_rates($counts[1]->[0],    # lines foune
                                  $counts[1]->[1]);    # lines hit
@@ -2678,29 +2678,6 @@ sub setup_gkv()
     } else {
         die("no gcov kernel data found\n");
     }
-}
-
-#
-# print_overall_rate($countDat, ln_do, fn<do, br_do)
-#
-# Print overall coverage rates for the specified coverage types.
-#
-
-sub print_overall_rate($$$$)
-{
-    my ($counts, $ln_do, $fn_do, $br_do) = @_;
-
-    info("Summary coverage rate:\n");
-    info("  source files: %d\n", $counts->[0]);
-    info("  lines.......: %s\n",
-         get_overall_line($counts->[1]->[0], $counts->[1]->[1], "line"))
-        if ($ln_do);
-    info("  functions...: %s\n",
-         get_overall_line($counts->[3]->[0], $counts->[3]->[1], "function"))
-        if ($fn_do);
-    info("  branches....: %s\n",
-         get_overall_line($counts->[2]->[0], $counts->[2]->[1], "branch"))
-        if ($br_do);
 }
 
 #

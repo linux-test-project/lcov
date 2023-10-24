@@ -97,8 +97,8 @@ export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
-if [ -f $LCOV_HOME/bin/getp4version ] ; then
-    GET_VERSION=$LCOV_HOME/bin/getp4version
+if [ -f $LCOV_HOME/scripts/getp4version ] ; then
+    GET_VERSION=$LCOV_HOME/scripts/getp4version
 else
     GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
 fi
@@ -318,7 +318,7 @@ done
 
 
 # and generate a spreadsheet..check that we don't crash
-SPREADSHEET=$LCOV_HOME/bin/spreadsheet.py
+SPREADSHEET=$LCOV_HOME/scripts/spreadsheet.py
 if [ ! -f $SPREADSHEET ] ; then
     SPREADSHEET=$LCOV_HOME/share/lcov/support-scripts/spreadsheet.py
 fi
