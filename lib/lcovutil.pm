@@ -646,7 +646,7 @@ sub merge_child_profile($)
                 if ('HASH' eq ref($t)) {
                     while (my ($x, $y) = each(%$t)) {
                         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                                   "unexpected duplicate key $x=$y in $key->$f")
+                                   "unexpected duplicate key $x=$y at $key->$f")
                             if exists($lcovutil::profileData{$key}{$f}{$x});
                         $lcovutil::profileData{$key}{$f}{$x} = $y;
                     }
@@ -6557,6 +6557,8 @@ package AggregateTraces;
 # If set, create map of unique function to list of testcase/info
 #   files which hit that function at least once
 our $function_mapping;
+# need a static external segment index lest the exe aggregate multiple groups of data
+our $segmentIdx = 0;
 
 sub find_from_glob
 {
@@ -6743,7 +6745,6 @@ sub merge
             unless exists($lcovutil::profileData{config});
         $lcovutil::profileData{config}{segments} = scalar(@segments);
 
-        $idx = 0;
         # kind of a hack...write to the named directory that the user gave
         #   us rather than to a funny generated name
         my $tempDir = defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
@@ -6783,7 +6784,7 @@ sub merge
                     }
 
                     my $then = Time::HiRes::gettimeofday();
-                    $lcovutil::profileData{$idx}{total} = $then - $now;
+                    $lcovutil::profileData{$segmentIdx}{total} = $then - $now;
                 };
                 # print stdout and stderr ...
                 foreach
@@ -6811,10 +6812,10 @@ sub merge
                 }
                 exit($status);
             } else {
-                $children{$pid} = [$now, $idx];
+                $children{$pid} = [$now, $segmentIdx];
                 push(@pending, $segment);
             }
-            $idx++;
+            $segmentIdx++;
         }
         # now wait for all the children to finish...
         foreach (@pending) {
