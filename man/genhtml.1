@@ -2368,6 +2368,16 @@ The patch file specified by the
 argument does not contain any differences.  This may be OK if there were no source code changes between 'baseline' and 'current' (e.g., the only change was to modify a Makefile) - or may indicate an unsupported file format.
 .br
 
+.B excessive:
+your coverage data contains a suspiciously large 'hit' count which is unlikely
+to be correct - possibly indicating a bug in your toolchain.
+See the
+.I excessive_count_threshold
+section in man
+.B lcorc(5)
+for details.
+.br
+
 .B format:
 Unexpected syntax found in .info file.
 .br

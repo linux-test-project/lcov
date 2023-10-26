@@ -10,6 +10,7 @@ use File::Path qw(rmtree);
 use File::Basename qw(basename dirname);
 use File::Temp qw /tempdir/;
 use File::Spec;
+use Scalar::Util qw/looks_like_number/;
 use Cwd qw/abs_path getcwd/;
 use Storable qw(dclone);
 use Capture::Tiny;
@@ -73,6 +74,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
      $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE $ERROR_INTERNAL
      $ERROR_PARALLEL $ERROR_PARENT $ERROR_CHILD
+     $ERROR_EXCESSIVE_COUNT
      report_parallel_error report_exit_status check_parent_process
      report_unknown_child
 
@@ -140,6 +142,7 @@ our $ERROR_PATH;                 # path issues
 our $ERROR_INTERNAL;             # tool issue
 our $ERROR_PARENT;               # parent went away so child should die
 our $ERROR_CHILD;                # nonzero child exit status
+our $ERROR_EXCESSIVE_COUNT;      # suspiciously large hit count
 # genhtml errors
 our $ERROR_UNMAPPED_LINE;        # inconsistent coverage data
 our $ERROR_UNKNOWN_CATEGORY;     # we did something wrong with inconsistent data
@@ -154,6 +157,7 @@ my @lcovErrs = (["annotate", \$ERROR_ANNOTATE_SCRIPT],
                 ["count", \$ERROR_COUNT],
                 ["deprecated", \$ERROR_DEPRECATED],
                 ["empty", \$ERROR_EMPTY],
+                ['excessive', \$ERROR_EXCESSIVE_COUNT],
                 ["format", \$ERROR_FORMAT],
                 ["gcov", \$ERROR_GCOV],
                 ["graph", \$ERROR_GRAPH],
@@ -176,8 +180,9 @@ my @lcovErrs = (["annotate", \$ERROR_ANNOTATE_SCRIPT],
 
 our %lcovErrors;
 
-our $stop_on_error;    # attempt to keep going
+our $stop_on_error;                # attempt to keep going
 our $warn_once_per_file = 1;
+our $excessive_count_threshold;    # default not set: don't check
 
 our $br_coverage   = 0;    # If set, generate branch coverage statistics
 our $func_coverage = 1;    # If set, generate function coverage statistics
@@ -923,9 +928,12 @@ sub read_config($)
                 $result{$key} = $value;
             }
         } else {
+            my $context = MessageContext::context();
+            $context = " while $context" if $context;
             lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
-                                        "malformed statement in line $. " .
-                                            "of configuration file $filename");
+                                    "malformed statement in line $. " .
+                                        "of configuration file $filename$context."
+            );
         }
     }
     close(HANDLE) or die("unable to close $filename: $!\n");
@@ -1069,7 +1077,8 @@ my %rc_common = (
              'check_existence_before_callback' =>
                  \$check_file_existence_before_callback,
 
-             "demangle_cpp" => \@lcovutil::cpp_demangle,
+             "demangle_cpp"              => \@lcovutil::cpp_demangle,
+             'excessive_count_threshold' => \$excessive_count_threshold,
 
              'lcov_filter_parallel'   => \$lcovutil::lcov_filter_parallel,
              'lcov_filter_chunk_size' => \$lcovutil::lcov_filter_chunk_size,);
@@ -1766,6 +1775,8 @@ sub saw_error
     return exists($message_types{error});
 }
 
+our $message_context;
+
 sub ignorable_error($$;$)
 {
     my ($code, $msg, $quiet) = @_;
@@ -1892,6 +1903,29 @@ sub report_parallel_error
     report_exit_status($errno, "$operation: '$msg'",
                        $childstatus, "child $id",
                        " (try removing the '--parallel' option)");
+}
+
+my $explainFormatOnce;
+
+sub report_format_error($$$$)
+{
+    my ($errType, $countType, $count, $obj) = @_;
+    my $context = MessageContext::context();
+    $context = " while $context" if $context;
+    my $explain = '';
+    if ($lcovutil::ERROR_NEGATIVE == $errType &&
+        !$explainFormatOnce &&
+        'geninfo' eq $lcovutil::tool_name) {
+        $explainFormatOnce = 1;    # don't say this again
+        $explain =
+            "\n\tPerhaps you need to compile with '-fprofile-update=atomic.";
+    }
+    my $errStr =
+        $lcovutil::ERROR_NEGATIVE == $errType ? 'negative' :
+        ($lcovutil::ERROR_FORMAT == $errType ? 'non-integer' : 'excessive');
+    lcovutil::ignorable_error($errType,
+        "Unexpected $errStr $countType count '$count' for $obj$context.$explain"
+    );
 }
 
 sub check_parent_process
@@ -2352,6 +2386,27 @@ sub print_overall_rate($$$$)
     info("  branches....: %s\n",
          get_overall_line($counts->[2]->[0], $counts->[2]->[1], "branch"))
         if ($br_do);
+}
+
+package MessageContext;
+
+sub new
+{
+    my ($class, $str) = @_;
+    $lcovutil::message_context = $str;
+    my $self = [\$lcovutil::message_context];
+    return bless $self, $class;
+}
+
+sub context
+{
+    return $lcovutil::message_context ? $lcovutil::message_context : '';
+}
+
+sub DESTROY
+{
+    my $self = shift;
+    $lcovutil::message_context = undef;
 }
 
 package PipeHelper;
@@ -2927,31 +2982,58 @@ use constant {
               SORTABLE => 1,
               FOUND    => 2,
               HIT      => 3,
+              FILENAME => 4,
 };
 
 sub new
 {
     my $class    = shift;
+    my $filename = shift;
     my $sortable = defined($_[0]) ? shift : $UNSORTED;
     my $self = [{},
                 $sortable,
-                0,    # found
-                0,    # hit
+                0,            # found
+                0,            # hit
+                $filename,    # for error messaging
     ];
     bless $self, $class;
 
     return $self;
 }
 
+sub filename
+{
+    my $self = shift;
+    return $self->[FILENAME];
+}
+
 sub append
 {
     # return 1 if we hit something new, 0 if not (count was already non-zero)
-    my ($self, $key, $count) = @_;
+    # using $suppressErrMsg to avoid reporting same thing for bot the
+    # 'testcase' entry and the 'summary' entry
+    my ($self, $key, $count, $suppressErrMsg) = @_;
     my $changed = 0;    # hit something new or not
 
-    if ($count < 0) {
-        lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                          "Unexpected negative count '$count' for line '$key'");
+    if (!Scalar::Util::looks_like_number($count)) {
+        lcovutil::report_format_error($lcovutil::ERROR_FORMAT, 'hit', $count,
+                                      'line "' . $self->filename() . ":$key\"")
+            unless $suppressErrMsg;
+        $count = 0;
+    } elsif ($count < 0) {
+        lcovutil::report_format_error($lcovutil::ERROR_NEGATIVE,
+                                      'hit',
+                                      $count,
+                                      'line ' . $self->filename() . ":$key\""
+        ) unless $suppressErrMsg;
+        $count = 0;
+    } elsif (defined($lcovutil::excessive_count_threshold) &&
+             $count > $lcovutil::excessive_count_threshold) {
+        lcovutil::report_format_error($lcovutil::ERROR_EXCESSIVE_COUNT,
+                                      'hit',
+                                      $count,
+                                      'line ' . $self->filename() . ":$key\""
+        ) unless $suppressErrMsg;
     }
     my $data = $self->[HASH];
     if (!exists($data->{$key})) {
@@ -3114,9 +3196,20 @@ sub new
                 defined($is_exception) && $is_exception ? 1 : 0
     ];
     bless $self, $class;
-    if ($self->count() < 0) {
-        lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                           "Unexpected negative taken '$taken' for branch $id");
+    my $c = $self->count();
+    if (!Scalar::Util::looks_like_number($c)) {
+        lcovutil::report_format_error($lcovutil::ERROR_FORMAT,
+                                      'taken', $c, 'branch ' . $self->id());
+        $self->[TAKEN] = 0;
+
+    } elsif ($c < 0) {
+        lcovutil::report_format_error($lcovutil::ERROR_NEGATIVE,
+                                      'taken', $c, 'branch ' . $self->id());
+        $self->[TAKEN] = 0;
+    } elsif (defined($lcovutil::excessive_count_threshold) &&
+             $c > $lcovutil::excessive_count_threshold) {
+        lcovutil::report_format_error($lcovutil::ERROR_EXCESSIVE_COUNT,
+                                      'taken', $c, 'branch ' . $self->id());
     }
     return $self;
 }
@@ -3377,18 +3470,29 @@ sub set_end_line
     $self->[LAST] = $line;
 }
 
+sub _format_error
+{
+    my ($self, $errno, $name, $count) = @_;
+    my $alias =
+        $name ne $self->name() ? " (alias of '" . $self->name() . "'" : "";
+    lcovutil::report_format_error($errno, 'hit', $count,
+            "function '$name'$alias in " . $self->file() . ':' . $self->line());
+}
+
 sub addAlias
 {
     my ($self, $name, $count) = @_;
 
-    if ($count < 0) {
-        my $alias =
-            $name ne $self->name() ? " (alias of '" . $self->name() . "'" : "";
-        lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-             "Unexpected negative count '$count' for function '$name'$alias in "
-                 . $self->file());
+    if (!Scalar::Util::looks_like_number($count)) {
+        $self->_format_error($lcovutil::ERROR_FORMAT, $name, $count);
+        $count = 0;
+    } elsif ($count < 0) {
+        $self->_format_error($lcovutil::ERROR_NEGATIVE, $name, $count);
+        $count = 0;
+    } elsif (defined($lcovutil::excessive_count_threshold) &&
+             $count > $lcovutil::excessive_count_threshold) {
+        $self->_format_error($lcovutil::ERROR_EXCESSIVE_COUNT, $name, $count);
     }
-
     my $changed;
     my $aliases = $self->[ALIASES];
     if (exists($aliases->{$name})) {
@@ -4251,7 +4355,8 @@ sub new
 
     # line: [ line number  -> execution count - merged over all testcases,
     #         testcase_name -> CountData -> line_number -> execution_count ]
-    $self->[LINE_DATA] = [CountData->new($CountData::SORTED), MapData->new()];
+    $self->[LINE_DATA] =
+        [CountData->new($filename, $CountData::SORTED), MapData->new()];
 
     # branch: [ BranchData:  line number  -> branch coverage - for all tests
     #           testcase_name -> BranchData]
@@ -4319,7 +4424,7 @@ sub test
     }
 
     if (!$data->mapped($testname)) {
-        $data->append_if_unset($testname, CountData->new(1));
+        $data->append_if_unset($testname, CountData->new($self->filename(), 1));
     }
 
     return $data->value($testname);
@@ -5379,6 +5484,7 @@ sub _filterFile
     my $function_alias_histogram = $cov_filter[$FILTER_FUNCTION_ALIAS];
     my $trivial_histogram        = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
 
+    my $context = MessageContext->new("filtering $source_file");
     if (is_c_file($source_file) &&
         lcovutil::is_filter_enabled()) {
         lcovutil::info(1, "reading $source_file for lcov filtering\n");
@@ -6292,8 +6398,8 @@ sub _read_info
                 $testfnccount = $fileData->testfnc($testname);
                 $testbrcount  = $fileData->testbr($testname);
             } else {
-                $testcount    = CountData->new(1);
-                $testfnccount = CountData->new(0);
+                $testcount    = CountData->new($filename, 1);
+                $testfnccount = CountData->new($filename, 0);
                 $testbrcount  = BranchData->new();
             }
             next;
@@ -6332,7 +6438,7 @@ sub _read_info
                 last;
             };
 
-            /^DA:(\d+),(-?\d+)(,([^,\s]+))?/ && do {
+            /^DA:(\d+),([^,]+)(,([^,\s]+))?/ && do {
                 my ($line, $count, $checksum) = ($1, $2, $4);
                 if ($readSourceCallback->notEmpty()) {
                     # does the source checksum match the recorded checksum?
@@ -6358,20 +6464,13 @@ sub _read_info
                 # hold line, count and testname for postprocessing?
                 my $linesum = $fileData->sum();
 
-                if ($count < 0) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "\"$tracefile\":$.: Unexpected negative line hit count '$count' for \"$filename\":$line"
-                    );
-                    $count = 0;
-                }
-
                 # Execution count found, add to structure
                 # Add summary counts
                 $linesum->append($line, $count);
 
                 # Add test-specific counts
                 if (defined($testname)) {
-                    $fileData->test($testname)->append($line, $count);
+                    $fileData->test($testname)->append($line, $count, 1);
                 }
 
                 # Store line checksum if available
@@ -6404,18 +6503,12 @@ sub _read_info
                 last;
             };
 
-            /^FNDA:(\d+),(.+)$/ && do {
+            # Hit count may be float if Perl decided to convert it
+            /^FNDA:([^,]+),(.+)$/ && do {
                 last if (!$lcovutil::func_coverage);
                 my $fnName = $2;
                 my $hit    = $1;
-                # we expect to find a function with ths name...
-                if ($hit < 0) {
-                    my $line = $functionMap->findName($fnName)->line();
-                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "\"$tracefile\":$.: Unexpected negative hit count '$hit' for function $fnName at \"$filename\":$line."
-                    );
-                    $hit = 0;
-                }
+                # error checking is in the addAlias method
                 $functionMap->add_count($fnName, $hit);
 
                 last;
@@ -6437,13 +6530,6 @@ sub _read_info
                 my $expr  = substr($d, 0, $comma);
                 # hold line, block, expr etc - to process when we get to end of file
                 #  (for parallelism support...)
-
-                if ($taken ne '-' && $taken < 0) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "\"$tracefile\":$.: Unexpected negative taken count '$taken' for branch $block at \"$filename\":$line: "
-                    );
-                    $taken = 0;
-                }
 
                 # Notes:
                 #   - there may be other branches on the same line (..the next
@@ -6712,12 +6798,6 @@ sub write_info($$$)
                     my $aliases = $data->aliases();
                     foreach my $alias (sort keys %$aliases) {
                         my $hit = $aliases->{$alias};
-                        if ($hit < 0) {
-                            lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                                "Unexpected negative count '$hit' for function $alias at $."
-                            );
-                            $hit = 0;
-                        }
                         ++$f_found;
                         ++$f_hit if $hit > 0;
                         print(INFO_HANDLE "FNDA:$hit,$alias\n");
@@ -6747,13 +6827,6 @@ sub write_info($$$)
                             my $branch_id   = $br->id();
                             my $branch_expr = $br->expr();
                             # mostly for Verilog:  if there is a branch expression: use it.
-                            if ($taken ne '-' && $taken < 0) {
-                                lcovutil::ignorable_error(
-                                    $lcovutil::ERROR_NEGATIVE,
-                                    "Unexpected negative count '$taken' for branch $branch_id at $."
-                                );
-                                $taken = 0;
-                            }
                             printf(INFO_HANDLE "BRDA:%u,%s%u,%s,%s\n",
                                    $line,
                                    $br->is_exception() ? 'e' : '',
@@ -6784,12 +6857,6 @@ sub write_info($$$)
                         $chk = Digest::MD5::md5_base64($content);
                     }
                     $chk = ',' . $chk if ($chk);
-                }
-
-                if ($l_hit < 0) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                     "Unexpected negative count '$l_hit' for line $line at $.");
-                    $l_hit = 0;
                 }
                 print(INFO_HANDLE "DA:$line,$l_hit$chk\n");
                 $found++;
@@ -6873,6 +6940,7 @@ sub _process_segment($$$)
                                 '') .
                            "\n"
         ) if (1 != scalar(@$segment));    # ...in segment $segId
+        my $context = MessageContext->new("merging $tracefile");
         if (!-f $tracefile ||
             -z $tracefile) {
             lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,

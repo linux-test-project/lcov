@@ -1136,6 +1136,16 @@ scripts now.
 .B empty:
 the .info data file is empty (e.g., because all the code was 'removed' or excluded.
 
+.B excessive:
+your coverage data contains a suspiciously large 'hit' count which is unlikely
+to be correct - possibly indicating a bug in your toolchain.
+See the
+.I excessive_count_threshold
+section in man
+.B lcorc(5)
+for details.
+.br
+
 .B format:
 unexpected syntax found in .info file.
 

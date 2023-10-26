@@ -1324,6 +1324,22 @@ by
 Default is 5.
 .PP
 
+.BR excessive_count_threshold " ="
+.IR number
+.IP
+Set the threshold for hit count that lcov deems excessive/unlikely/indicating
+a bug somewhere in your toolchain.
+.br For example, it is unlikey that your job can run long enough to rack up
+tens of billions of hits.
+.br Message type
+.B excessive
+is used to report potential issue - see the
+.B genheml(1), lcov(1), geninfo(1)
+man pages.
+
+Default is not set. (Do not check for excessive counts.)
+.PP
+
 .
 .BR geninfo_gcov_tool " ="
 .I path_to_gcov

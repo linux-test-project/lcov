@@ -1236,8 +1236,9 @@ sub gen_info(@)
 
                 lcovutil::ignorable_error(
                     $ERROR_PATH,
-                    (lcovutil::is_ignored($ERROR_PATH) ? 'skipping ' : '') .
-                        ".gcda file $gcda_file because corresponding .gcno file '$gcno_file' is missing"
+                    (lcovutil::is_ignored($ERROR_PATH) ? 'skipping' :
+                         'cannot process') .
+                        " .gcda file $gcda_file because corresponding .gcno file '$gcno_file' is missing"
                         .
                         (
                         $lcovutil::verbose ||
@@ -2181,7 +2182,6 @@ sub read_gcov_file($$$)
     # - e.g., if we find the file due to fully qualified paths, and find
     # a non-EOF line following an EOF line.
     my $foundEOF = 0;
-    my ($warnedBranch, $warnedFunction, $warnedLine);
     while (<$input>) {
         chomp($_);
         # Also remove CR from line-end
@@ -2203,23 +2203,7 @@ sub read_gcov_file($$$)
                      ($3 eq "throw")));
             # $1 is block ID, $2 is hit count
             my $count = $2;
-            if ($count < 0) {
-                #negative...
-                lcovutil::ignorable_error(
-                    $lcovutil::ERROR_NEGATIVE,
-                    "Unexpected negative count '$count' for branch $1 of $source_filename:$last_line at $filename:$."
-                        .
-                        (
-                        $lcovutil::verbose ||
-                            lcovutil::message_count($lcovutil::ERROR_NEGATIVE)
-                            == 0 ?
-                            "\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                        :
-                            '')) unless $warnedBranch;
-                $warnedBranch = 1;    # only once
-                $count        = 0;
-            }
-            my $br = BranchBlock->new($branchId, $count, undef,
+            my $br    = BranchBlock->new($branchId, $count, undef,
                                       defined($3) && $3 eq 'throw');
             $branchData->append($last_line, $last_block, $br, $filename);
             ++$branchId;
@@ -2236,22 +2220,6 @@ sub read_gcov_file($$$)
             next if (!$lcovutil::func_coverage || $exclude_line);
             my $name  = $1;
             my $count = $2;
-            if ($count < 0) {
-                #negative...
-                lcovutil::ignorable_error(
-                    $lcovutil::ERROR_NEGATIVE,
-                    "Unexpected negative count '$count' for function $name of $source_filename:$last_line at $filename:$."
-                        .
-                        (
-                        $lcovutil::verbose ||
-                            lcovutil::message_count($lcovutil::ERROR_NEGATIVE)
-                            == 0 ?
-                            "\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                        :
-                            '')) unless $warnedFunction;
-                $warnedFunction = 1;
-                $count          = 0;
-            }
             push(@functions, $count, $name);
         } elsif (/^call/) {
             # Function call return data
@@ -2339,21 +2307,6 @@ sub read_gcov_file($$$)
                     # Check for zero count
                     if ($count =~ /^[#=]/) {
                         $count = 0;
-                    } elsif ($count < 0) {
-                        #negative...
-                        lcovutil::ignorable_error(
-                            $lcovutil::ERROR_NEGATIVE,
-                            "Unexpected negative count '$count' for $source_filename:$line at $filename:$."
-                                .
-                                (
-                                (   $lcovutil::verbose ||
-                                        lcovutil::message_count(
-                                        $lcovutil::ERROR_NEGATIVE) == 0) ?
-                                    "\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                                :
-                                    '')) unless $warnedLine;
-                        $warnedLine = 1;
-                        $count      = 0;
                     }
                     if ($unexec) {
                         push(@result, 1, [$count, $unexec]);
@@ -2477,7 +2430,6 @@ sub intermediate_text_to_info($)
 
     my $traceFile = TraceFile->new();
 
-    my ($warnedLine, $warnedBranch, $warnedFunction);    # once only
     while (my ($filename, $fileStr) = each(%$data)) {
         # note that we already substituted the source file name and handled
         # include/exclude directives - so no need to check here
@@ -2502,21 +2454,6 @@ sub intermediate_text_to_info($)
                 # lcount:<line>,<count>,<has_unexecuted_blocks>
                 my $lineNo = $1;
                 my $hit    = $2;
-                if ($hit < 0) {
-                    #negative...
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_NEGATIVE,
-                        "Unexpected negative count '$hit' for $filename:$lineNo."
-                            .
-                            (
-                            $lcovutil::verbose || lcovutil::message_count(
-                                               $lcovutil::ERROR_NEGATIVE) == 0 ?
-                                "\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                            :
-                                '')) unless $warnedLine;
-                    $warnedLine = 1;
-                    $hit        = 0;
-                }
                 $lineMap->append($lineNo, $hit);
 
                 # Intermediate text format does not provide
@@ -2533,21 +2470,6 @@ sub intermediate_text_to_info($)
 
                 # function:<line>,<endline,>?<count>,<name>
                 my ($lineNo, $endline, $hit, $name) = ($2, $4, $5, $6);
-                if ($hit < 0) {
-                    #negative...
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_NEGATIVE,
-                        "Unexpected negative count '$hit' for function $name at $filename:$lineNo."
-                            .
-                            (
-                            $lcovutil::verbose || lcovutil::message_count(
-                                               $lcovutil::ERROR_NEGATIVE) == 0 ?
-                                "\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                            :
-                                '')) unless $warnedFunction;
-                    $warnedFunction = 1;
-                    $hit            = 0;
-                }
                 my $func =
                     $functionMap->define_function($name, $filename, $lineNo,
                                                   $endline);
@@ -2602,8 +2524,7 @@ sub intermediate_json_to_info($)
     my $traceFile = TraceFile->new();
     lcovutil::debug(1,
           "called intermediate_json_to_info " . join(' ', keys(%$data)) . "\n");
-    my ($warnedLine, $warnedBranch, $warnedFunction, $warnedUnexecuted)
-        ;    # once only
+    my $warnedUnexecuted;    # once only
     while (my ($filename, $file_data) = each(%$data)) {
         # note that we already substituted the source file name and handled
         # include/exclude directives - so no need to check here
@@ -2629,22 +2550,6 @@ sub intermediate_json_to_info($)
                 my $count = $d->{"execution_count"};
                 my $name  = $lcovutil::demangle_cpp_cmd ? $d->{demangled_name} :
                     $d->{"name"};
-
-                if ($count < 0) {
-                    #negative...
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_NEGATIVE,
-                        "Unexpected negative count '$count' for function $name at $filename:$start_line."
-                            .
-                            (
-                            $lcovutil::verbose || lcovutil::message_count(
-                                               $lcovutil::ERROR_NEGATIVE) == 0 ?
-                                "\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                            :
-                                '')) unless $warnedFunction;
-                    $warnedFunction = 1;
-                    $count          = 0;
-                }
                 my $func =
                     $functionMap->define_function($name, $filename,
                                                   $start_line, $end_line);
@@ -2660,22 +2565,6 @@ sub intermediate_json_to_info($)
 
             next
                 if (!defined($line) || !defined($count));
-
-            if ($count < 0) {
-                #negative...
-                lcovutil::ignorable_error(
-                    $lcovutil::ERROR_NEGATIVE,
-                    "Unexpected negative count '$count' for $filename:$line." .
-                        (
-                        $lcovutil::verbose ||
-                            lcovutil::message_count($lcovutil::ERROR_NEGATIVE)
-                            == 0 ?
-                            "\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                        :
-                            '')) unless $warnedLine;
-                $warnedLine = 1;
-                $count      = 0;
-            }
             if (0 == scalar(@$branches) && $unexec && $count != 0) {
                 lcovutil::debug(
                     "$filename:$line: unexecuted block on non-branch line with count=$count\n"
@@ -2713,23 +2602,6 @@ sub intermediate_json_to_info($)
                     ) {
                         if (!defined($brcount) || $unexec) {
                             $brcount = "-";
-                        } else {
-                            if ($brcount < 0) {
-                                #negative...
-                                lcovutil::ignorable_error(
-                                    $lcovutil::ERROR_NEGATIVE,
-                                    "Unexpected negative count '$brcount' for branch $branch_num of $filename:$line."
-                                        .
-                                        (
-                                        $lcovutil::verbose ||
-                                            lcovutil::message_count(
-                                            $lcovutil::ERROR_NEGATIVE) == 0 ?
-                                            "\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                                        :
-                                            '')) unless $warnedBranch;
-                                $warnedBranch = 1;
-                                $brcount      = 0;
-                            }
                         }
                         my $entry =
                             BranchBlock->new($branch_num, $brcount, undef,
