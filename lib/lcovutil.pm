@@ -520,29 +520,28 @@ sub append_tempdir($)
     push(@temp_dirs, @_);
 }
 
-sub warn_handler($)
+sub _msg_handler
 {
-    my ($msg) = @_;
+    my ($msg, $error) = @_;
 
     if (!($debug || exists($ENV{LCOV_SHOW_LOCATION}))) {
         $msg =~ s/ at \S+ line \d+\.$//;
     }
-    # Enforce consistent "WARNING:" message prefix
-    $msg =~ s/^warning:\s+//i;
-    print(STDERR "$tool_name: WARNING: $msg");
+    # Enforce consistent "WARNING/ERROR:" message prefix
+    $msg =~ s/^(error|warning):\s+//i;
+    my $type = $error ? 'ERROR' : 'WARNING';
+
+    return "$tool_name: $type: $msg";
+}
+
+sub warn_handler($$)
+{
+    print(STDERR _msg_handler(@_));
 }
 
 sub die_handler($)
 {
-    my ($msg) = @_;
-
-    temp_cleanup();
-    if (!($debug || exists($ENV{LCOV_SHOW_LOCATION}))) {
-        $msg =~ s/ at \S+ line \d+\.$//;
-    }
-    # Enforce consistent "ERROR:" message prefix
-    $msg =~ s/^error:\s+//i;
-    die("$tool_name: ERROR: $msg");
+    die(_msg_handler(@_, 1));
 }
 
 sub abort_handler($)
@@ -1701,8 +1700,9 @@ sub ignorable_error($$;$)
             if ($lcovutil::in_child_process ||
                 !($lcovutil::verbose || $message_count[$code] == 1));
         if (defined($stop_on_error) && 0 == $stop_on_error) {
-            _count_message('warning', $errName);
-            warn_handler("($errName) $msg\n$ignoreOpt");
+            _count_message('error', $errName);
+            warn_handler("($errName) $msg\n$ignoreOpt", 1);
+            return;
         }
         _count_message('error', $errName);
         die_handler("($errName) $msg\n$ignoreOpt");
@@ -1718,7 +1718,7 @@ sub ignorable_error($$;$)
         _count_message('ignore', $errName);
     } else {
         _count_message('warning', $errName);
-        warn_handler("($errName) $msg\n$ignoreOpt");
+        warn_handler("($errName) $msg\n$ignoreOpt", 0);
     }
 }
 
@@ -1747,7 +1747,7 @@ sub ignorable_warning($$;$)
         $ignoreOpt = ''
             if ($lcovutil::in_child_process ||
                 !($lcovutil::verbose || $message_count[$code] == 1));
-        warn_handler("($errName) $msg\n$ignoreOpt");
+        warn_handler("($errName) $msg\n$ignoreOpt", 0);
         _count_message('warning', $errName);
     } else {
         _count_message('ignore', $errName);
@@ -6227,7 +6227,7 @@ sub _read_info
                         BranchBlock->new($expr, $taken, $expr, $is_exception);
                     if (exists($table->{$expr})) {
                         # merge
-                        $table->{$expr}->union($entry);
+                        $table->{$expr}->merge($entry, $filename, $line);
                     } else {
                         $table->{$expr} = $entry;
                     }
