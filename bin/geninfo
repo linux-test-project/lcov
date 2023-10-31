@@ -474,8 +474,8 @@ parse_cov_filters(@opt_filter);
 
 # Make sure test names only contain valid characters
 if ($test_name =~ s/\W/_/g) {
-    lcovutil::ingnorable_warning($lcovutil::ERROR_FORMAT,
-                                 "invalid characters removed from testname");
+    lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
+                                "invalid characters removed from testname");
 }
 
 # Adjust test name to include uname output if requested
