@@ -5971,11 +5971,35 @@ sub gen_html()
             $no_prefix = 1;
         }
     } else {
-        my $msg = "Using user-specified filename prefix ";
-        for my $i (0 .. $#dir_prefix) {
-            $dir_prefix[$i] =~ s/$lcovutil::dirseparator+$//;
+        my $msg  = "Using user-specified filename prefix ";
+        my $dirs = $current_data->directories();
+        my $i    = 0;
+        # somewhat of a hack:  the layout code doesn't react well when
+        #  the 'prefix' directory contains source files (as opposed to
+        #  containing a directory which contains source files).
+        # Rather than trying to handle that special case, just munge the
+        #  prefix to be something we like better.
+        while ($i <= $#dir_prefix) {
+            my $p = $dir_prefix[$i];
+            # remove redundant /'s
+            $p =~ s/$lcovutil::dirseparator+$//;
+            $p = substr($p, 0, -1)
+                if $lcovutil::dirseparator eq substr($p, -1);
+            while (exists($dirs->{$p}) && $p) {
+                $p = File::Basename::dirname($p);
+            }
+            unless ($p) {
+                lcovutil::info("skipping prefix $dir_prefix[$i]\n");
+                splice(@dir_prefix, $i, 1);
+                next;
+            }
+            lcovutil::info(
+                          "using prefix '$p' (rather than '$dir_prefix[$i]')\n")
+                if ($p ne $dir_prefix[$i]);
+            $dir_prefix[$i] = $p;
             $msg .= ", " unless 0 == $i;
-            $msg .= "\"" . $dir_prefix[$i] . "\"";
+            $msg .= "\"" . $p . "\"";
+            ++$i;
         }
         info($msg . "\n");
     }

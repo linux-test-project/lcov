@@ -110,8 +110,8 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
-rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe}
-rm -rf ./cover_db ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate
+rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d
+rm -rf ./cover_db ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix*
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -358,16 +358,49 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-#genhtml current.info --output-directory ./current
-echo genhtml $DIFFCOV_OPTS --show-details current.info --output-directory ./current $IGNORE
-$COVER $LCOV_HOME/bin/genhtml $DIFFCOV_OPTS current.info --show-details --output-directory ./current $IGNORE
-if [ 0 != $? ] ; then
-    echo "ERROR: genhtml current failed"
-    status=1
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+# check that vanilla, flat, hierarchical work with and without prefix
+    now=`date`
+for mode in '' '--flat' '--hierarchical' ; do
+    echo genhtml $DIFFCOV_OPTS $mode --show-details current.info --output-directory ./current$mode $IGNORE
+    $COVER $LCOV_HOME/bin/genhtml $mode $DIFFCOV_OPTS current.info --show-details --output-directory ./current$mode $IGNORE --current-date "$now"
+    if [ 0 != $? ] ; then
+        echo "ERROR: genhtml current $mode failed"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
+
+    # run again with prefix
+    echo genhtml $DIFFCOV_OPTS $mode --show-details current.info --output-directory ./current_prefix$mode $IGNORE --prefix `pwd`
+    $COVER $LCOV_HOME/bin/genhtml $mode $DIFFCOV_OPTS current.info --show-details --output-directory ./current_prefix$mode $IGNORE --prefix `pwd` --current-date "$now"
+    if [ 0 != $? ] ; then
+        echo "ERROR: genhtml current $mode --prefix failed"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    diff current$mode/index.html current_prefix$mode/index.html
+    if [ 0 != $? ] ; then
+        echo "ERROR: diff current $mode --prefix failed"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    # and content should be the same
+    ls current$mode > c
+    ls current_prefix$mode > d
+    diff c d
+    if [ 0 != $? ] ; then
+        echo "ERROR: diff current $mode content differs"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
 
 diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff.txt
 

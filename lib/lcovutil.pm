@@ -5213,6 +5213,19 @@ sub files
     return keys %{$self->[FILES]};
 }
 
+sub directories
+{
+    my $self = shift;
+    # return hash of directories whcih contain source files
+    my %dirs;
+    foreach my $f ($self->files()) {
+        my $d = File::Basename::dirname($f);
+        $dirs{$d} = [] unless exists($dirs{$d});
+        push(@{$dirs{$d}}, $f);
+    }
+    return \%dirs;
+}
+
 sub file_exists
 {
     my ($self, $name) = @_;
