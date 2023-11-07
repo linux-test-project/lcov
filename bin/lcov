@@ -1614,6 +1614,7 @@ sub remove_file_patterns($)
     # Write extracted data
     my $removed = scalar(keys(%lcovutil::excluded_files));
     emit($data, "Removed $removed files\n");
+    return $data;
 }
 
 # get_prefix(max_width, max_percentage_too_long, path_list)
