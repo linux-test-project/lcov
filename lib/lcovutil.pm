@@ -74,7 +74,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
      $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE $ERROR_INTERNAL
      $ERROR_PARALLEL $ERROR_PARENT $ERROR_CHILD
-     $ERROR_EXCESSIVE_COUNT
+     $ERROR_EXCESSIVE_COUNT $ERROR_MISSING
      report_parallel_error report_exit_status check_parent_process
      report_unknown_child
 
@@ -143,6 +143,7 @@ our $ERROR_INTERNAL;             # tool issue
 our $ERROR_PARENT;               # parent went away so child should die
 our $ERROR_CHILD;                # nonzero child exit status
 our $ERROR_EXCESSIVE_COUNT;      # suspiciously large hit count
+our $ERROR_MISSING;              # file missing/not found
 # genhtml errors
 our $ERROR_UNMAPPED_LINE;        # inconsistent coverage data
 our $ERROR_UNKNOWN_CATEGORY;     # we did something wrong with inconsistent data
@@ -164,6 +165,7 @@ my @lcovErrs = (["annotate", \$ERROR_ANNOTATE_SCRIPT],
                 ["inconsistent", \$ERROR_INCONSISTENT_DATA],
                 ["internal", \$ERROR_INTERNAL],
                 ["mismatch", \$ERROR_MISMATCH],
+                ["missing", \$ERROR_MISSING],
                 ["negative", \$ERROR_NEGATIVE],
                 ["package", \$ERROR_PACKAGE],
                 ["parallel", \$ERROR_PARALLEL],
@@ -2240,8 +2242,6 @@ sub extractFileVersion
     return undef if fileExistenceBeforeCallbackError($filename);
 
     my $start = Time::HiRes::gettimeofday();
-    #die("$filename does not exist")
-    #    unless -f $filename;
     my $version = $versionCallback->extract_version($filename);
 
     my $end = Time::HiRes::gettimeofday();
@@ -6928,9 +6928,12 @@ sub find_from_glob
                                   "no files matching pattern $pattern")
             unless scalar(@files);
         foreach my $f (@files) {
-            die("'$f' found from pattern '$pattern' is not a readable file")
-                unless (-r $f &&
-                        -f $f);
+            if (!(-r $f || -f $f)) {
+                lcovutil::ignorable_error($lcovutil::ERROR_MISSING,
+                     "'$f' found from pattern '$pattern' is not a readable file"
+                );
+                next;
+            }
             push(@merge, $f);
         }
     }

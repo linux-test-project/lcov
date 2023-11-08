@@ -1160,8 +1160,17 @@ internal tool issue detected.  Please report this bug along with a testcase.
 
 .B mismatch:
 Inconsistent entries found in trace file:
- - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
- - function execution count (FNDA:...) but no function declaration (FN:...).
+.br
+.IP \(bu 3
+branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
+.PP
+.IP \(bu 3
+function execution count (FNDA:...) but no function declaration (FN:...).
+.PP
+
+.B missing:
+File does not exist or is not readable.
+.br
 
 .B negative:
 negative 'hit' count found.
