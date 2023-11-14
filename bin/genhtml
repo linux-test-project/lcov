@@ -352,18 +352,19 @@ use constant {
               NAME          => 1,
               PARENT        => 2,
               RELATIVE_DIR  => 3,
-              LINE_DATA     => 4,
-              BRANCH_DATA   => 5,
-              FUNCTION_DATA => 6,
+              FULL_DIR      => 4,
+              LINE_DATA     => 5,
+              BRANCH_DATA   => 6,
+              FUNCTION_DATA => 7,
 
-              FILE_DETAILS => 7,  # SourceFile struct - only ued for 'file' type
-              SOURCES      => 7,  # used by top and directory types
-              IS_ABSOLUTE  => 8,  # used by directory type only
+              FILE_DETAILS => 8, # SourceFile struct - only used for 'file' type
+              SOURCES      => 8, # used by top and directory types
+              IS_ABSOLUTE  => 9, # used by directory type only
 
               # coverage data list for type
               DATA   => 0,
               AGE    => 1,
-              OWNERS => 2,        # nut used by Function coverage - no owner
+              OWNERS => 2,       # not used by Function coverage - no owner
 };
 
 sub type2str
@@ -437,6 +438,7 @@ sub new
                 $name,
                 undef,              # parent
                 undef,              # relative dir,
+                undef,              # full directory path,
                 [undef, [], {}],    # line data
                 [undef, [], {}],    # branch data
                 [undef, []]         # function data
@@ -470,7 +472,7 @@ sub new
 sub copyGuts
 {
     my ($self, $that) = @_;
-    my @copy = (RELATIVE_DIR, LINE_DATA, BRANCH_DATA, FUNCTION_DATA);
+    my @copy = (RELATIVE_DIR, FULL_DIR, LINE_DATA, BRANCH_DATA, FUNCTION_DATA);
     if ($that->[TYPE] eq 'file') {
         push(@copy, FILE_DETAILS);
     } elsif ($that->[TYPE] eq 'directory') {
@@ -496,6 +498,17 @@ sub relativeDir
     $self->[RELATIVE_DIR] = $dir_string
         if defined($dir_string);
     return $self->[RELATIVE_DIR];
+}
+
+sub fullDir
+{
+    my ($self, $dir_string) = @_;
+    die("bad usage")
+        unless ((!defined($dir_string) && defined($self->[FULL_DIR])) ||
+                (defined($dir_string) && !defined($self->[FULL_DIR])));
+    $self->[FULL_DIR] = $dir_string
+        if defined($dir_string);
+    return $self->[FULL_DIR];
 }
 
 sub type
@@ -4867,19 +4880,25 @@ sub compute
         my $start = Time::HiRes::gettimeofday();
 
         my $rel_dir;
+        my $full_dir_path;
         if ($type eq 'file') {
             $rel_dir =
                 File::Spec->catdir(@{$short_path}[0 .. $#$short_path - 1]);
             die("file error for " . File::Spec->catdir(@$short_path))
                 if '' eq $rel_dir;
+            $full_dir_path =
+                File::Spec->catdir(@{$path}[0 .. $#$path - 1]);
         } elsif ($type eq 'dir') {
-            $rel_dir = File::Spec->catdir(@$short_path);
+            $rel_dir       = File::Spec->catdir(@$short_path);
+            $full_dir_path = File::Spec->catdir(@$path);
         } else {
-            $rel_dir = '.';
+            $rel_dir       = '.';
+            $full_dir_path = '.';
         }
         # keep track of where this data is stored - need it later for
         #  top-level 'flat' view
         $selfSummary->relativeDir($rel_dir);
+        $selfSummary->fullDir($full_dir_path);
 
         my $p = File::Spec->catdir($main::output_directory, $rel_dir);
         File::Path::make_path($p) unless -d $p;
@@ -8006,7 +8025,7 @@ sub write_file_table_entry(*$$@)
         !$is_secondary) {
         my $relDir = $fileSummary->relativeDir();
         die("relative directory not set") unless $relDir;
-        $esc_name = File::Spec->catfile(escape_html($relDir), $esc_name)
+        $esc_name = escape_html(File::Spec->catfile($relDir, $name))
             if '.' ne $relDir;
     }
     my $obj_name = $esc_name
@@ -8014,10 +8033,12 @@ sub write_file_table_entry(*$$@)
         ($fileSummary->type() eq 'directory' ?
              escape_html($lcovutil::dirseparator) :
              '');
-    #$esc_name .= "<sup>" . escape_html($asterisk) . "</sup>"
-    #  if defined($asterisk);
     my $namecode = $obj_name;
     my $owner;
+    my $full_path =
+        'directory' eq $fileSummary->type() ? $fileSummary->fullDir() :
+        $fileSummary->name();
+    $full_path = escape_html($full_path);
 
     # Add link to source if provided
     my $anchor = 'NAME';
@@ -8027,14 +8048,14 @@ sub write_file_table_entry(*$$@)
         # could use $fileSummary->name() in the popup
         $namecode =
             "<a href=\"$page_link\" title=\"Click to go to " .
-            $fileSummary->type() . " $esc_name\">$obj_name</a>";
+            $fileSummary->type() . " $full_path\">$obj_name</a>";
         $owner = "";
     } elsif ($is_secondary &&
              $primary_key ne 'name' &&
              defined($file_link) &&
              $file_link ne "") {
         $namecode =
-            "<a href=\"$file_link\" title=\"Click to go to $esc_name source detail\">"
+            "<a href=\"$file_link\" title=\"Click to go to $full_path source detail\">"
             . $obj_name . "</a>";
     } elsif ($is_secondary &&
              $primary_key ne 'name' &&
@@ -11177,18 +11198,15 @@ sub remove_unused_descriptions()
 
 sub apply_prefix($@)
 {
-    my $filename   = shift;
-    my @dir_prefix = @_;
+    my $filename = shift;
 
-    if (@dir_prefix) {
-        foreach my $prefix (@dir_prefix) {
-            if ($prefix eq $filename) {
-                return "root";
-            }
-            if ($prefix ne "" &&
-                $filename =~ /^\Q$prefix\E$lcovutil::dirseparator(.*)$/) {
-                return substr($filename, length($prefix) + 1);
-            }
+    foreach my $prefix (@_) {
+        if ($prefix eq $filename) {
+            return 'root';
+        }
+        if ($prefix ne "" &&
+            $filename =~ /^\Q$prefix\E$lcovutil::dirseparator(.*)$/) {
+            return substr($filename, length($prefix) + 1);
         }
     }
 
