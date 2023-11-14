@@ -64,7 +64,6 @@ use File::Path;
 use Cwd qw/abs_path getcwd/;
 use Time::HiRes;    # for profiling
 use Capture::Tiny;
-use Module::Load;
 use FindBin;
 use Storable;
 
