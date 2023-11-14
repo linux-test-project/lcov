@@ -68,8 +68,9 @@ sub call_annotate
 {
     my $cb = shift;
     my $class;
-    eval { $class = $cb->new(@_); };
     my $filename = pop;
+    eval { $class = $cb->new(@_); };
+    die("$cb construction error: $@") if $@;
     my ($status, $list) = $class->annotate($filename);
     foreach my $line (@$list) {
         my ($text, $abbrev, $full, $when, $cl) = @$line;
@@ -82,9 +83,10 @@ sub call_get_version
 {
     my $cb = shift;
     my $class;
-    eval { $class = $cb->new(@_); };
     my $filename = pop;
-    my $v        = $class->extract_version($filename);
+    eval { $class = $cb->new(@_); };
+    die("$cb construction error: $@") if $@;
+    my $v = $class->extract_version($filename);
     print($v, "\n");
     exit 0;
 }

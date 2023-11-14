@@ -17,7 +17,7 @@
 #   <http://www.gnu.org/licenses/>.
 #
 #
-# gitblame [--p4] [--prefix path] [domain] pathname
+# gitblame [--p4] [--prefix path] [--abbrev regexp] [domain] pathname
 #
 #   This script runs "git blame" for the specified file and formats the result
 #   to match the diffcov(1) age/ownership annotation specification.
@@ -33,6 +33,8 @@
 #   If passed a domain name (or domain regexp):
 #     strip that domain from the author's address, and treat all users outside
 #     the matching domain as "External".
+#   The --abbrev argument enables you to specify one or more regexp patterns
+#     which are used to compute the user name abbreviation that are applied.
 
 package gitblame;
 use strict;
@@ -47,7 +49,7 @@ our @EXPORT_OK = qw(new);
 
 use constant {
               P4     => 0,
-              DOMAIN => 1,
+              ABBREV => 1,
               PREFIX => 2,
 };
 
@@ -59,21 +61,27 @@ sub new
     my $mapP4;
     my $prefix;
     my @args = @_;
-
+    my @abbrev;
     if (!GetOptionsFromArray(\@_,
                              ("p4"       => \$mapP4,
-                              "prefix:s" => \$prefix)
+                              "prefix:s" => \$prefix,
+                              'abbrev:s' => \@abbrev)
     )) {
         my $exe = basename($script ? $script : $0);
-        print(STDERR "usage: $exe [--p4] [domain] pathname\n");
+        print(STDERR
+              "usage: $exe [--p4] [--abbrev regexp]* [domain] pathname\n");
         exit(1) if ($script eq $0);
         return undef;
     }
-
     my $internal_domain = shift;
+    if ($internal_domain) {
+        push(@abbrev, 's/^([^@]+)\@' . $internal_domain . '$/$1/');
+        push(@abbrev, 's/^([^@]+)\@.+$/External/');
+        # else leave domain in place
+    }
     my @prefix;
     push(@prefix, $prefix) if $prefix;
-    my $self = [$mapP4, $internal_domain, \@prefix];
+    my $self = [$mapP4, \@abbrev, \@prefix];
     return bless $self, $class;
 }
 
@@ -109,6 +117,7 @@ sub annotate
                 open(HANDLE, "-|",
                      "cd $dir ; git blame -e $basename 2> /dev/null")
             ) {
+                my %abbrev;    # user name abbreviations
                 while (my $line = <HANDLE>) {
                     chomp $line;
                     # Also remove CR from line-end
@@ -152,14 +161,18 @@ sub annotate
                         $owner =~ s/ at /\@/;
                         my $fullname = $owner;
 
-                        if ($self->[DOMAIN]) {
-                            ## strip domain part for internal users...
-                            $owner =~ s/\@$self->[DOMAIN]//;
-                            # replace everybody else with "External"
-                            $owner =~ s/.*\@.*/External/;
+                        if (exists($abbrev{$fullname})) {
+                            $owner = $abbrev{$fullname};
+                        } else {
+                            # compute only once...
+                            foreach my $re (@{$self->[ABBREV]}) {
+                                ## strip domain part for internal users...
+                                eval '$owner =~ ' . $re . ';';
+                                die("invalid domain pattern '$re': $@")
+                                    if $@;
+                            }
+                            $abbrev{$fullname} = $owner;
                         }
-                        # else leave domain in place
-
                         # Convert Git date/time to diffcov canonical format
                         # replace space between date and time with 'T'
                         $when =~ s/\s/T/;

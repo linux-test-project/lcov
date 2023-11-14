@@ -17,7 +17,7 @@
 #   <http://www.gnu.org/licenses/>.
 #
 #
-# gitblame [--p4] [--prefix path] [domain] pathname
+# gitblame [--p4] [--prefix path] [--abbrev regexp] [domain] pathname
 #
 #   This script runs "git blame" for the specified file and formats the result
 #   to match the diffcov(1) age/ownership annotation specification.
@@ -33,6 +33,8 @@
 #   If passed a domain name (or domain regexp):
 #     strip that domain from the author's address, and treat all users outside
 #     the matching domain as "External".
+#   The --abbrev argument enables you to specify one or more regexp patterns
+#     which are used to compute the user name abbreviation that are applied.
 
 use strict;
 use FindBin;
