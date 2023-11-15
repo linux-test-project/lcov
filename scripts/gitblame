@@ -42,4 +42,8 @@ use lib "$FindBin::RealBin";
 use gitblame qw(new);
 use annotateutil qw(call_annotate);
 
-call_annotate('gitblame', $0, @ARGV);
+if (-f $ARGV[-1] || '-' ne index($ARGV[-1], 1)) {
+    call_annotate('gitblame', $0, @ARGV);
+} else {
+    gitblame->new($0, @ARGV);
+}

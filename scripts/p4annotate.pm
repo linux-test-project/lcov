@@ -49,6 +49,7 @@ use constant {
               LOG     => 0,
               VERIFY  => 1,
               LOGFILE => 2,
+              SCRIPT  => 3,
 };
 
 sub printlog
@@ -69,17 +70,20 @@ sub new
                            #other arguments are as passed...
     my $logfile;
     my $verify = 0;    # if set, check that we merged local changes correctly
+    my $exe    = basename($script ? $script : $0);
 
     if (exists($ENV{LOG_P4ANNOTATE})) {
         $logfile = $ENV{LOG_P4ANNOTATE};
     }
+    my $help;
     if (!GetOptionsFromArray(\@_,
                              ("verify" => \$verify,
-                              "log=s"  => \$logfile,)
-    )) {
-        my $exe = basename($script ? $script : $0);
+                              "log=s"  => \$logfile,
+                              'help'   => \$help)) ||
+        $help
+    ) {
         print(STDERR "usage: $exe [--log logfile] [--verify] filename\n");
-        exit(1) if $script eq $0;
+        exit($help ? 0 : 1) if $script eq $0;
         return 1;
     }
 
@@ -88,12 +92,13 @@ sub new
         push(@notset, $var) unless exists($ENV{$var});
     }
     if (@notset) {
-        die("$0 requires environment variable" .
+        die("$exe requires environment variable" .
             (1 < scalar(@notset) ? 's' : '') . ' ' .
             join(' ', @notset) . " to be set.");
     }
 
     my $self = [$logfile, $verify];
+    $self->[SCRIPT] = $exe;
     bless $self, $class;
     if ($logfile) {
         open(LOGFILE, ">>", $logfile) or
@@ -101,7 +106,7 @@ sub new
 
         $self->[LOG]     = \*LOGFILE;
         $self->[LOGFILE] = $logfile;
-        $self->printlog("$0 " . join(" ", @args) . "\n");
+        $self->printlog("$exe " . join(" ", @args) . "\n");
     }
     return $self;
 }

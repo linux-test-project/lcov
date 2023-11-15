@@ -39,11 +39,13 @@ sub get_modify_time($)
 sub not_in_repo
 {
     my ($pathname, $lines) = @_;
+    my $context = '';
+    eval { $context = MessageContext::context(); };
     my $mtime = get_modify_time($pathname);   # when was the file last modified?
         # who does the filesystem think owns it?
     my $owner = getpwuid((stat($pathname))[4]);
 
-    open(HANDLE, $pathname) or die("unable to open '$pathname': $!");
+    open(HANDLE, $pathname) or die("unable to open '$pathname'$context: $!");
     while (my $line = <HANDLE>) {
         chomp $line;
         # Also remove CR from line-end
@@ -51,7 +53,7 @@ sub not_in_repo
 
         push(@$lines, [$line, $owner, undef, $mtime, "NONE"]);
     }
-    close(HANDLE) or die("unable to close '$pathname");
+    close(HANDLE) or die("unable to close '$pathname'$context");
 }
 
 sub compute_md5

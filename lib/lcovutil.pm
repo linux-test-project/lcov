@@ -931,7 +931,6 @@ sub read_config($)
             }
         } else {
             my $context = MessageContext::context();
-            $context = " while $context" if $context;
             lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
                                     "malformed statement in line $. " .
                                         "of configuration file $filename$context."
@@ -1777,8 +1776,6 @@ sub saw_error
     return exists($message_types{error});
 }
 
-our $message_context;
-
 sub ignorable_error($$;$)
 {
     my ($code, $msg, $quiet) = @_;
@@ -1882,11 +1879,13 @@ sub report_exit_status
     die("expected to be called for a failure") unless $exitstatus;
     my $status  = $exitstatus >> 8;
     my $signal  = $exitstatus & 0xFF;
-    my $explain = "$prefix returned non-zero exit status $status";
+    my $explain = "$prefix returned non-zero exit status $status" .
+        MessageContext::context();
     $explain =
         "$prefix died died due to signal $signal (SIG" .
         (split(' ', $Config{sig_name}))[$signal] .
-        '): possibly killed by OS due to out-of-memory - see --memory and --parallel options for throttling'
+        ')' . MessageContext::context() .
+        ': possibly killed by OS due to out-of-memory - see --memory and --parallel options for throttling'
         if $signal;
     ignorable_error($errType, "$message: $explain$suffix");
 }
@@ -1913,7 +1912,6 @@ sub report_format_error($$$$)
 {
     my ($errType, $countType, $count, $obj) = @_;
     my $context = MessageContext::context();
-    $context = " while $context" if $context;
     my $explain = '';
     if ($lcovutil::ERROR_NEGATIVE == $errType &&
         !$explainFormatOnce &&
@@ -2242,8 +2240,13 @@ sub extractFileVersion
     return undef if fileExistenceBeforeCallbackError($filename);
 
     my $start = Time::HiRes::gettimeofday();
-    my $version = $versionCallback->extract_version($filename);
-
+    my $version;
+    eval { $version = $versionCallback->extract_version($filename); };
+    if ($@) {
+        my $context = MessageContext::context();
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                               "extract_version($filename) failed$context: $@");
+    }
     my $end = Time::HiRes::gettimeofday();
     if (exists($lcovutil::profileData{version}) &&
         exists($lcovutil::profileData{version}{$filename})) {
@@ -2263,7 +2266,16 @@ sub checkVersionMatch
 
     if ($versionCallback) {
         # work harder
-        my $status = $versionCallback->compare_version($you, $me, $filename);
+        my $status;
+        eval {
+            $status = $versionCallback->compare_version($you, $me, $filename);
+        };
+        if ($@) {
+            my $context = MessageContext::context();
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                    "compare_version($you, $me, $filename) failed$context: $@");
+            $status = 1;
+        }
         lcovutil::info(1, "compare_version: $status\n");
         return 1 unless $status;    # match if return code was zero
     }
@@ -2390,23 +2402,30 @@ sub print_overall_rate($$$$)
 
 package MessageContext;
 
+our @message_context;
+
 sub new
 {
     my ($class, $str) = @_;
-    $lcovutil::message_context = $str;
-    my $self = [\$lcovutil::message_context];
+    push(@message_context, $str);
+    my $self = [$str];
     return bless $self, $class;
 }
 
 sub context
 {
-    return $lcovutil::message_context ? $lcovutil::message_context : '';
+    my $context = join(' while ', @message_context);
+    $context = ' while ' . $context if $context;
+    return $context;
 }
 
 sub DESTROY
 {
     my $self = shift;
-    $lcovutil::message_context = undef;
+    die('unbalanced context "' . $self->[0] . '" not head of ("' .
+        join('" "', @message_context) . '")')
+        unless scalar(@message_context) && $self->[0] eq $message_context[-1];
+    pop(@message_context);
 }
 
 package PipeHelper;
@@ -2827,7 +2846,13 @@ sub resolveCallback
         return $lcovutil::resolveCache{$filename}
             if exists($lcovutil::resolveCache{$filename});
         my $start = Time::HiRes::gettimeofday();
-        my $path  = $resolveCallback->resolve($filename);
+        my $path;
+        eval { $path = $resolveCallback->resolve($filename); };
+        if ($@) {
+            my $context = MessageContext::context();
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                      "resolve($filename) failed$context: $@");
+        }
         # look up particular path most once...
         $lcovutil::resolveCache{$filename} = $path if $path;
         my $cost = Time::HiRes::gettimeofday() - $start;
@@ -5162,7 +5187,8 @@ sub load
     my ($class, $tracefile, $readSource, $verify_checksum,
         $ignore_function_exclusions)
         = @_;
-    my $self = $class->new();
+    my $self    = $class->new();
+    my $context = MessageContext->new("loading $tracefile");
 
     $self->_read_info($tracefile, $readSource, $verify_checksum);
 
@@ -6374,6 +6400,13 @@ sub _read_info
 
         if ($line =~ /^[SK]F:(.*)/) {
             # Filename information found
+            if ($1 =~ /^\s*$/) {
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                    "\"$tracefile\":$.: unexpected empty file name in record '$line'"
+                );
+                $skipCurrentFile = 1;
+                next;
+            }
             $filename = ReadCurrentSource::resolve_path($1, 1);
             # should this one be skipped?
             $skipCurrentFile = skipCurrentFile($filename);

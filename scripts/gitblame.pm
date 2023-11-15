@@ -51,6 +51,7 @@ use constant {
               P4     => 0,
               ABBREV => 1,
               PREFIX => 2,
+              SCRIPT => 3,
 };
 
 sub new
@@ -62,15 +63,18 @@ sub new
     my $prefix;
     my @args = @_;
     my @abbrev;
+    my $exe = basename($script ? $script : $0);
+    my $help;
     if (!GetOptionsFromArray(\@_,
                              ("p4"       => \$mapP4,
                               "prefix:s" => \$prefix,
-                              'abbrev:s' => \@abbrev)
-    )) {
-        my $exe = basename($script ? $script : $0);
+                              'abbrev:s' => \@abbrev,
+                              'help'     => \$help)) ||
+        $help
+    ) {
         print(STDERR
               "usage: $exe [--p4] [--abbrev regexp]* [domain] pathname\n");
-        exit(1) if ($script eq $0);
+        exit($help ? 0 : 1) if ($script eq $0);
         return undef;
     }
     my $internal_domain = shift;
@@ -81,7 +85,7 @@ sub new
     }
     my @prefix;
     push(@prefix, $prefix) if $prefix;
-    my $self = [$mapP4, \@abbrev, \@prefix];
+    my $self = [$mapP4, \@abbrev, \@prefix, $exe];
     return bless $self, $class;
 }
 
@@ -90,16 +94,21 @@ sub annotate
     my ($self, $file) = @_;
 
     my $pathname = File::Spec->catfile(@{$self->[PREFIX]}, $file);
-    die("$0 expected readable file, found '" .
-        (defined($pathname) ? $pathname : '<undef>') . "'")
-        unless defined($pathname) &&
-        (-f $pathname || -l $pathname) &&
-        -r $pathname;
+    # if running as module, then context might be available
+    my $context = '';
+    eval { $context = MessageContext::context(); };
+    unless (defined($pathname) &&
+            (-f $pathname || -l $pathname) &&
+            -r $pathname) {
+        $context = ':' . $context if $context;
+        die($self->[SCRIPT] . $context . ' expected readable file, found \'' .
+            (defined($pathname) ? $pathname : '<undef>') . "'");
+    }
 
     # set working directory to account for nested repos and submodules
     my $dir      = dirname($pathname);
     my $basename = basename($pathname);
-    -d $dir or die("no such directory '$dir'");
+    -d $dir or die("no such directory '$dir'$context");
 
     my %changelists;
     my $status = 0;
@@ -148,10 +157,10 @@ sub annotate
                                         }
                                     }
                                 } else {
-                                    die("unable to execute 'git show -s $commit': $!"
+                                    die("unable to execute 'git show -s $commit'$context: $!"
                                     );
                                 }
-                                close(GITLOG) or die("unable to close");
+                                close(GITLOG) or die("unable to close$context");
                             } else {
                                 $commit = $changelists{$commit};
                             }
@@ -168,7 +177,7 @@ sub annotate
                             foreach my $re (@{$self->[ABBREV]}) {
                                 ## strip domain part for internal users...
                                 eval '$owner =~ ' . $re . ';';
-                                die("invalid domain pattern '$re': $@")
+                                die("invalid domain pattern '$re'$context: $@")
                                     if $@;
                             }
                             $abbrev{$fullname} = $owner;
@@ -184,17 +193,18 @@ sub annotate
                         #  so use it as a delimiter
                         push(@lines,
                              [$text, $owner, $fullname, $when, $commit]);
-                        die("no uniform match")
+                        die("no uniform match$context")
                             if defined($matched) && !$matched;
                         $matched = 1;
                     } else {
                         push(@lines, [$line, "NONE", undef, "NONE", "NONE"]);
-                        die("no uniform match")
+                        die("no uniform match$context")
                             if defined($matched) && $matched;
                         $matched = 0;
                     }
                 }
-                close(HANDLE) or die("unable to close git blame pipe: $!\n");
+                close(HANDLE) or
+                    die("unable to close git blame pipe$context: $!\n");
                 $status = $?;
                 #if (0 != $?) {
                 #    $? & 0x7F &

@@ -1151,10 +1151,20 @@ sub checkCoverageCriteria
         '\' ' . $self->type() . ' \'' . $json . '\'';
     # command:  script name (top|dir|file) jsonString args..
     lcovutil::info(1, "criteria: '$cmd'\n");
-    my ($status, $msgs) =
-        $criteriaCallback->check_criteria(
+    my ($status, $msgs);
+    eval {
+        ($status, $msgs) =
+            $criteriaCallback->check_criteria(
                                  $self->type() eq 'top' ? 'top' : $self->name(),
                                  $self->type(), $json);
+    };
+    if ($@) {
+        my $context = MessageContext::context();
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                  "check_criteria failed$context: $@");
+        $status = 2;
+        $msgs   = [$@];
+    }
 
     my $name = $self->type() eq 'top' ? "" : $self->name();
     $coverageCriteria{$name} = [$self->type(), $status, $msgs]
@@ -3138,19 +3148,16 @@ sub check_path_consistency
                 # @todo could print line numbers in baseline, current .info files and
                 #   in diff file ..
                 if (lcovutil::warn_once($lcovutil::ERROR_MISMATCH, $f)) {
-                    lcovutil::ignorable_warning(
-                                       $lcovutil::ERROR_MISMATCH,
-                                       "source file '$f' (in $type .info file" .
-                                           ($missed{$f} == 3 ? "s" : "") .
-                                           ") has same basename as 'diff' "
-                                           .
-                                           ($single ? 'entry ' : "entries:\n\t"
-                                           ) .
-                                           "'" .
-                                           join("'\n\t", @unused) .
-                                           "' - but a different path." .
-                                           ($single ? "  " : "\n\t") .
-                                           "Possible pathname mismatch?");
+                    lcovutil::ignorable_warning($lcovutil::ERROR_MISMATCH,
+                        "source file '$f' (in $type .info file" .
+                            ($missed{$f} == 3 ? "s" : "") .
+                            ") has same basename as 'diff' " .
+                            ($single ? 'entry ' : "entries:\n\t") . "'" .
+                            join("'\n\t", @unused) .
+                            "' - but a different path." .
+                            ($single ? "  " : "\n\t") .
+                            "Possible pathname mismatch?  Perhaps see \"--elide-path-mismatch\" and/or \"--substitute\" options in 'man $lcovutil::tool_name'"
+                    );
                 }
                 if ($main::elide_path_mismatch &&
                     $missed{$f} == 3 &&
@@ -4356,7 +4363,16 @@ sub _load
         my $begin   = Time::HiRes::gettimeofday();
         my $lineNum = 0;
 
-        my ($status, $lines) = $annotateCallback->annotate($repo_path);
+        my ($status, $lines);
+        eval { ($status, $lines) = $annotateCallback->annotate($repo_path); };
+        if ($@) {
+            my $context = MessageContext::context();
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                          'annotate(' . $self->path() . ") failed$context: $@");
+            $status = 1;
+            # set $lines so exit status error below prints something
+            $lines = [[$@]];
+        }
         if (!$status && defined($lines)) {
             my $found;   # check that either all lines are annotated or none are
             foreach my $line (@$lines) {
