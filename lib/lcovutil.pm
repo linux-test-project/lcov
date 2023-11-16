@@ -81,7 +81,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_UNMAPPED_LINE $ERROR_UNKNOWN_CATEGORY $ERROR_ANNOTATE_SCRIPT
      $stop_on_error
 
-     @extractVersionScript $verify_checksum
+     @extractVersionScript $verify_checksum $compute_file_version
 
      is_external @internal_dirs $opt_no_external
      rate get_overall_line $default_precision check_precision
@@ -1071,6 +1071,7 @@ my %rc_common = (
              "version_script"        => \@rc_version_script,
              'resolve_script'        => \@rc_resolveCallback,
              "checksum"              => \$lcovutil::verify_checksum,
+             'compute_file_version'  => \$lcovutil::compute_file_version,
              "case_insensitive"      => \$lcovutil::case_insensitive,
              "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
              "split_char"            => \$lcovutil::split_char,
@@ -1273,6 +1274,12 @@ sub parseOptions
     }
 
     if (!$lcov_capture) {
+        if ($lcovutil::compute_file_version &&
+            !defined($versionCallback)) {
+            lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+                "'compute_file_version=1' option has no effect without either '--version-script' or 'version_script=...'."
+            );
+        }
         lcovutil::munge_file_patterns();
         lcovutil::init_parallel_params();
         # Determine which errors the user wants us to ignore
@@ -6640,6 +6647,13 @@ sub _read_info
             /^end_of_record/ && do {
                 # Found end of section marker
                 if ($filename) {
+                    if (!defined($fileData->version()) &&
+                        $lcovutil::compute_file_version &&
+                        @lcovutil::extractVersionScript) {
+                        my $version = lcovutil::extractFileVersion($filename);
+                        $fileData->version($version)
+                            if (defined($version) && $version ne "");
+                    }
                     if (is_c_file($filename)) {
                         # RTL code was added directly - no issue with
                         #  duplicate data entries in geninfo result

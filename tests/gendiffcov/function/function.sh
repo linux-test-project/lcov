@@ -107,7 +107,9 @@ fi
 #PROFILE="''
 
 # filter out the compiler-generated _GLOBAL__sub_... symbol
-LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
+LCOV_BASE="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
+VERSION_OPTS="--version-script $GET_VERSION"
+LCOV_OPTS="$LCOV_BASE $VERSION_OPTS"
 DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
@@ -152,6 +154,39 @@ if [ 0 != $? ] ; then
     fi
 fi
 gzip -c baseline_call.info > baseline_call.info.gz
+
+# run again - without version info:
+echo lcov $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest
+$COVER $LCOV_HOME/bin/lcov $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov --capture no version failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep VER: baseline_no_vers.info
+if [ 0 == $? ] ; then
+    echo "ERROR: lcov contains version info"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# insert the version info
+echo lcov $VERSION_OPTS --rc compute_file_version=1 --add-tracefile baseline_no_vers.info --output-file baseline_vers.info
+$COVER lcov $VERSION_OPTS --rc compute_file_version=1 --add-tracefile baseline_no_vers.info --output-file baseline_vers.info
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov insert version failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+diff baseline_vers.info baseline_call.info
+if [ 0 != $? ] ; then
+    echo "ERROR: data differs after version insert"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 
 rm -f test.gcno test.gcda a.out
 
