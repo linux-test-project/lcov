@@ -1309,6 +1309,12 @@ Note that end lines are derived only for C/C++ files; see the
 .I c_file_extensions
 setting, above, for the list of extensions used to identify these files.
 .br
+Lambda functions are ignored during end line computation. Note that lambdas
+are identified via function name matching - so you must enable demangling
+if your toolchain is too old to report demangled names in the GCOV output.
+See the
+.I demangle_cpp
+setting, above.
 
 Default is 1.
 .PP

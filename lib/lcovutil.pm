@@ -3441,10 +3441,23 @@ sub name
     return $self->[NAME];
 }
 
+sub filename
+{
+    my $self = shift;
+    return $self->[FILE];
+}
+
 sub hit
 {
     my $self = shift;
     return $self->[COUNT];
+}
+
+sub isLambda
+{
+    my $self = shift;
+    return (TraceFile::is_c_file($self->filename()) &&
+            $self->name() =~ /{lambda\(/);
 }
 
 sub count
@@ -6168,8 +6181,10 @@ sub applyFilters
             is_c_file($source_file)) {
             my @lines = sort { $a <=> $b } $traceInfo->sum()->keylist();
             # sort functions by start line number
+            # ignore lambdas - which we don't process correctly at the moment
+            #   (would need to do syntactic search for the end line)
             my @functions = sort { $a->line() <=> $b->line() }
-                $traceInfo->func()->valuelist();
+                grep({ !$_->isLambda() } $traceInfo->func()->valuelist());
 
             my $currentLine = @lines ? shift(@lines) : 0;
             my $funcData    = $traceInfo->testfnc();
@@ -6235,6 +6250,9 @@ sub applyFilters
                                        $func->name() . "\n");
                     $func->set_end_line($currentLine);
                 }
+                die('failed to set end line for ' .
+                    $func->name() . ' in file ' . $func->filename())
+                    unless defined($func->end_line());
                 # now look for this function in each testcase -
                 #  set the same endline (if not already set)
                 my $key = $func->file() . ':' . $first;

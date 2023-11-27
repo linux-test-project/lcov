@@ -1748,7 +1748,7 @@ In the 'function coverage detail' table, also show the percentage of lines and b
 This feature enables developers to focus attention on functions which have the largest effect on overall code coverage.
 
 This feature is disabled by default.
-Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports or that you configure the tool to derive the required dta - see the
+Note that this option requires that you use a compiler version which is new enough to support function begin/end line reports or that you configure the tool to derive the required data - see the
 .BI derive_function_end_line
 discussion in man
 .B lcovrc(5).
@@ -1784,7 +1784,7 @@ Exclude coverage data from lines which fall within a function whose name matches
 .B \-\-demangle\-cpp
 option is used or not.
 
-Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports or that you configure the tool to derive the required dta - see the
+Note that this option requires that you use a compiler version which is new enough to support function begin/end line reports or that you configure the tool to derive the required data - see the
 .BI derive_function_end_line
 discussion in man
 .B lcovrc(5).
@@ -2280,8 +2280,10 @@ a link to a page which lists all functions found in that file plus the
 respective call count for those functions.
 The function coverage page groups the data for every alias of each function, sorted by name or execution count.  The representative name of the group of functions is the shorted (i.e., containing the fewest characters).
 
-If using differential coverage and a sufficiently recent gcc version which report both begin and end line of functions (gcc/9 and newer), functions are considered 'new' if any of their source lines have changed.
-With older gcc versions, functions are considered 'new' if the function signature has changed or if the entire function is new.
+If using differential coverage and a sufficiently recent compiler version which report both begin and end line of functions (
+.I e.g., 
+gcc/9 and newer), functions are considered 'new' if any of their source lines have changed.
+With older compiler versions, functions are considered 'new' if the function signature has changed or if the entire function is new.
 
 .RE
 .B \-\-branch\-coverage
