@@ -3494,9 +3494,10 @@ sub set_end_line
     my ($self, $line) = @_;
     if ($line < $self->line()) {
         lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                  '"' . $self->file() . '":' . $self->line() .
-                                      ': function ' . $self->name() .
-                                      " end line $line less than start line");
+            '"' . $self->file() . '":' . $self->line() . ': function ' .
+                $self->name() . " end line $line less than start line." .
+                "  Cannot derive function end line.  See lcovrc man entry for 'derive_function_end_line'."
+        );
         return;
     }
     $self->[LAST] = $line;

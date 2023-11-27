@@ -1844,10 +1844,22 @@ man pag for details.
 .RS
 Specify a list of coverpoint filters to apply to input data.
 
+Note that certain filters apply only to C/C++ source files.
+.B genhtml
+associates the file extension ('.c', '.vhd', 
+.I etc.
+) with its source langage.  See the
+.I c_file_extentions
+and
+.I rtl_file_extensions
+sections of the
+.B lcovrc
+man page for a description of the default associations and how they can be changed.
+
 .I filters
 can be a comma\-separated list of the following keywords:
 
-.B branch:
+.IP branch: 3
 ignore branch counts for C/C++ source code lines which do not appear to contain conditionals.  These may be generated automatically by the compiler (e.g., from C++ exception handling) - and are not interesting to users.
 This option has no effect unless
 .B \-\-branch\-coverage
@@ -1859,42 +1871,51 @@ and
 .I filter_bitwise_conditional.
 
 The most common use for branch filtering is to remove compiler-generated branches related to C++ exception handlers.  See the no_exception_branch' option in the lcovrc man page for a way to remove all identified exception branches.
+.PP
 
-.B brace:
+.IP brace: 3
 ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceding line has the same count or if the close brace has a zero count and either the preceding line has a non\-zero count, or the close brace is not the body of a conditional.
 
 These lines seem to appear and disappear in gcov output - and cause differential coverage to report bogus LBC and/or GIC and/or UIC counts.  Bogus LBC or UIC counts are a problem because an automated regression which uses pass criteria "LBC + UIC + UNC == 0" will fail.
+.PP
 
-.B blank:
+.IP blank: 3
 ignore lines which contain only whitespace (or whitespace + comments) whose 'hit' count is zero.  These appear to be a 'gcov' artifact related to compiler-generated code - such as exception handlers and destructor calls at the end of scope - and can confuse differential coverage criteria.
+.PP
 
-.B range:
+.IP range: 3
 Ignore line and branch coverpoints on lines which are out-of range/whose line number is beyond the end of the source file.  These appear to be gcov artifacts caused by a macro instantiation on the last line of the file.
-
 .B line:
 alias for "\-\-filter brace,blank".
+.PP
 
-.B region:
+.IP region: 3
 apply LCOV_EXCL_START/LCOV_EXCL_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
 This option may be useful in cases that the source code was not found during 'lcov \-\-capture ...' but is accessible now.
+.PP
 
-.B branch_region:
+.IP branch_region: 3
 apply LCOV_EXCL_BR_START/LCOV_EXCL_BR_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
 This is similar to the 'region option, above - but applies to branch coverpoints only.
+.PP
 
-.B function:
+.IP function: 3
 combine data for every "unique" function which is defined at the same file/line.
 .I geninfo/gcov
 seem to have a bug such that they create multiple entries for the same function.
 This feature also merges all instances of the same template function/template method.
+.PP
 
-.B trivial:
+.IP trivial: 3
 remove trivial functions and associated coverpoints.  'Trivial' functions are
 whose body is empty/do not contain any statements.  Commonly, these include compiler-generated methods (e.g., default constructors and assignment operators) as well as static initialization wrappers, etc.
 
 Note that the
 .I trivial
-filter requires function end line information - and so requires that you use a gcc veraion which is new enough to support begin/end line reports:  gcc/9 or newer, or that you enable lcov/genhtml/geninfo to derive the information:
+filter requires function end line information - and so requires that you use a compiler veraion which is new enough to support begin/end line reports
+(
+.I e.g.,
+gcc/9 or newer) or that you enable lcov/genhtml/geninfo to derive the information:
 
 In the
 .B lcovrc
@@ -1910,6 +1931,7 @@ Also see the
 and
 .I lcov_filter_chunk_size
 settings, which may improve CPU performance if the number of files to process is very large.
+.PP
 
 .RE
 .BI "\-o " output\-directory
