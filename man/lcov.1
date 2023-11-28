@@ -378,9 +378,9 @@ and related tools generate and collect line and function coverage data.
 Branch data is not collected or displayed by default; all tools support the
 .B --branch-coverage
 option to enable branch coverage - or you can permanently enable branch coverage by adding the appropriate
-settings to your personal, group, or site lcov configuration file.  See the
-.B lcovrc
-man page for details.
+settings to your personal, group, or site lcov configuration file.  See man
+.B lcovrc(5)
+for details.
 
 .SH OPTIONS
 
@@ -434,8 +434,9 @@ directory in which the source code file is located.
 Note that this option will not work in environments where multiple base
 directories are used. In that case use configuration file setting
 .B geninfo_auto_base=1
-(see
-.BR lcovrc (5)).
+(see man
+.BR lcovrc (5)
+).
 
 .RE
 
@@ -624,7 +625,9 @@ libtool, disable this option to prevent problems when capturing coverage data.
 .br
 .RS
 Specify a configuration file to use.
-See the lcovrc man page for details of the file format and options.
+See man
+.B lcovrc(5)
+for details of the file format and options.
 
 When this option is specified, neither the system\-wide configuration file
 /etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
@@ -738,10 +741,8 @@ Exclude coverage data from lines which fall within a function whose name matches
 
 Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports or that you configure the tool to derive the required dta - see the
 .BI derive_function_end_line
-discussion in the
-.B lcovrc
-man page.
-
+discussion in man
+.B lcovrc(5).
 
 .RE
 .B \-\-substitute
@@ -961,9 +962,9 @@ patterns and searching the
 .I \-\-source\-directory
 list.  This option is equivalent to the
 .B resolve_script
-config file option. See the
-.B lcovrc
-man page for details.
+config file option. See man
+.B lcovrc(5)
+for details.
 .RE
 
 .B \-\-comment
@@ -1105,134 +1106,155 @@ lcov ... --ignore-errors source,source ...
 .I errors
 can be a comma\-separated list of the following keywords:
 
-.B branch:
+.IP branch: 3
 branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+.PP
 
-.B callback:
+.IP callback: 3
 Version script error.
-.br
+.PP
 
-.B child
+.IP child: 3
 child process returned non-zero exit code during
 .I \-\-parallel
 execution.  This typically indicates that the child encountered an error:  see the log file immediately above this message.
 In contrast:  the
 .B parallel
 error indicates an unexpected/unhandled exception in the child process - not a 'typical' lcov error.
-.br
+.PP
 
-.B corrupt:
+.IP corrupt: 3
 corrupt/unreadable file found.
+.PP
 
-.B count:
+.IP count: 3
 An excessive number of messages of some class have been reported - subsequent messages of that type will be suppressed.
-The limit can be controlled by the 'max_message_count' variable. See the lcovrc man page.
+The limit can be controlled by the 'max_message_count' variable. See man
+.B lcovrc(5).
+.PP
 
-.B deprecated:
+.IP deprecated: 3
 You are using a deprecated option.
 This option will be removed in an upcoming release - so you should change your
 scripts now.
+.PP
 
-.B empty:
+.IP empty: 3
 the .info data file is empty (e.g., because all the code was 'removed' or excluded.
+.PP
 
-.B excessive:
+.IP excessive: 3
 your coverage data contains a suspiciously large 'hit' count which is unlikely
 to be correct - possibly indicating a bug in your toolchain.
 See the
 .I excessive_count_threshold
 section in man
-.B lcorc(5)
+.B lcovrc(5)
 for details.
-.br
+.PP
 
-.B format:
+.IP format: 3
 unexpected syntax found in .info file.
+.PP
 
-.B gcov:
+.IP gcov: 3
 the gcov tool returned with a non\-zero return code.
+.PP
 
-.B graph:
+.IP graph: 3
 the graph file could not be found or is corrupted.
+.PP
 
-.B internal:
+.IP internal: 3
 internal tool issue detected.  Please report this bug along with a testcase.
+.PP
 
-.B mismatch:
+.IP mismatch: 3
 Inconsistent entries found in trace file:
-.br
+
+
+.RS 3
 .IP \(bu 3
 branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
 .PP
 .IP \(bu 3
 function execution count (FNDA:...) but no function declaration (FN:...).
 .PP
+.RE
+.PP
 
-.B missing:
+.IP missing: 3
 File does not exist or is not readable.
-.br
+.PP
 
-.B negative:
+.IP negative: 3
 negative 'hit' count found.
-.br
 
 Note that negative counts may be caused by a known GCC bug - see
-.br
 
-.RS
-https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080
-.RE
-.br
+  https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080
 
 and try compiling with "-fprofile-update=atomic". You will need to recompile, re-run your tests, and re-capture coverage data.
-.br
+.PP
 
-.B package:
+.IP package: 3
 a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
+.PP
 
-.B parallel:
+.IP parallel: 3
 various types of errors related to parallelism -
 .I i.e.,
 a child process died due to an error.  The corresponding error message appears in the log file immediately before the
 .I parallel
 error.
-If you see an error related to parallel execution that seems invalid, it may be a good idea to remove the \-\-parallel flag and try again.  If removing the flag leads to a different result, please report the issue (along with a testcase) so that the tool can be fixed.
 
-.B parent:
+If you see an error related to parallel execution that seems invalid, it may be a good idea to remove the \-\-parallel flag and try again.  If removing the flag leads to a different result, please report the issue (along with a testcase) so that the tool can be fixed.
+.PP
+
+.IP parent: 3
 the parent process exited while child was active during
 .I \-\-parallel
 execution.  This happens when the parent has encountered a fatal error -
 .I e.g.
 an error in some other child which was not ignored.  This child cannot continue working without its parent - and so will exit.
+.PP
 
-.B range:
+.IP range: 3
 Coverage data refers to a line number which is larger than the number of
 lines in the source file.  This can be caused by a version mismatch or
 by an issue in the
 .I gcov
 data.
-.br
+.PP
 
-.B source:
+.IP source: 3
 the source code file for a data set could not be found.
+.PP
 
-.B unsupported:
+.IP unsupported: 3
 the requested feature is not supported for this tool configuration.  For example, function begin/end line range exclusions use some GCOV features that are not available in older GCC releases.
+.PP
 
-.B unused:
+.IP unused: 3
 the include/exclude/erase/omit/substitute pattern did not match any file pathnames.
+.PP
 
-.B usage:
+.IP usage: 3
 unsupported usage detected - e.g. an unsupported option combination.
 
-.B utility:
+.PP
+
+.IP utility: 3
 a tool called during processing returned an error code (e.g., 'find' encountered an unreadable directory).
+.PP
 
-.B version:
+.IP version: 3
 revision control IDs of the file which we are trying to merge are not the same - line numbering and other information may be incorrect.
+.PP
 
-.br
-Also see man lcovrc for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed.  This can be used to reduce log file volume.
+Also see man
+.B lcovrc(5)
+for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed.  This can be used to reduce log file volume.
 
 
 .RE
@@ -1242,7 +1264,9 @@ Do not stop if error occurs: attempt to generate a result, however flawed.
 
 This command line option corresponds to the
 .I stop_on_error [0|1]
-lcovrc option.  See the lcovrc man page for more details.
+lcovrc option.  See man
+.B lcovrc(5)
+for more details.
 
 .RE
 .BI "\-\-preserve "
@@ -1440,9 +1464,9 @@ This option may be useful if the compute farm environment imposes strict limits 
 The configuration file
 .I memory_percentage
 option provided another way to set the maximum memory consumption.
-See the
-.B lcovrc
-man pag for details.
+See man
+.B lcovrc(5)
+for details.
 
 .RE
 
@@ -1457,7 +1481,7 @@ Use this option to specify a
 statement which overrides the corresponding configuration statement in
 the lcovrc configuration file. You can specify this option more than once
 to override multiple configuration statements.
-See
+See man
 .BR lcovrc (5)
 for a list of available keywords and their meaning.
 .RE
