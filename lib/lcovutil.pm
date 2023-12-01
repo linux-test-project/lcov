@@ -1753,15 +1753,15 @@ sub update_state
 sub warnSuppress($$)
 {
     my ($code, $errName) = @_;
-    if ($message_count[$code] == $suppressAfter - 1) {
+    if ($message_count[$code] == ($suppressAfter + 1)) {
         my $explain =
             $lcovutil::verbose ||
             $message_count[$ERROR_COUNT] == 0 ?
-            "\n\tTo increase or decrease this limit us '--rc max_message_count=value'."
+            "\n\tTo increase or decrease this limit use '--rc max_message_count=value'."
             :
             '';
         ignorable_warning($ERROR_COUNT,
-            "$suppressAfter count reached for '$errName' messages: no more will be reported.$explain"
+            "max_message_count=$suppressAfter reached for '$errName' messages: no more will be reported.$explain"
         );
     }
 }
@@ -1792,7 +1792,7 @@ sub ignorable_error($$;$)
     $errName = $ERROR_NAME{$code}
         if exists($ERROR_NAME{$code});
 
-    if ($message_count[$code]++ > $suppressAfter &&
+    if ($message_count[$code]++ >= $suppressAfter &&
         0 < $suppressAfter) {
         # safe to just continue without checking anything else - as either
         #  this message is not fatal and we emitted it some number of times,
@@ -1844,7 +1844,7 @@ sub ignorable_warning($$;$)
     my $errName = "code_$code";
     $errName = $ERROR_NAME{$code}
         if exists($ERROR_NAME{$code});
-    if ($message_count[$code]++ > $suppressAfter &&
+    if ($message_count[$code]++ >= $suppressAfter &&
         0 < $suppressAfter) {
         # warn that we are suppressing from here on - for the first skipped
         #   message of this type
