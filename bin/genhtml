@@ -4482,11 +4482,12 @@ sub _synthesize
             unless $main::no_sourceview;
         $why = 'not found';
     } else {
-        my $suffix =
-            $lcovutil::ignore[$lcovutil::ERROR_RANGE] ?
-            ' ... synthesizing fake content for last ' .
-            ($last_line - $currentLast) . ' lines.' :
-            '';
+        my $suffix = '';
+        if ($lcovutil::ignore[$lcovutil::ERROR_RANGE]) {
+            my $num    = $last_line - $currentLast;
+            my $plural = $num == 1 ? 'line' : "$num lines";
+            $suffix = ' ... synthesizing fake content for last ' . $plural;
+        }
         lcovutil::ignorable_error($lcovutil::ERROR_RANGE,
                               $self->path() . ' contains only ' . $currentLast .
                                   ' lines but coverage data refers to line ' .
