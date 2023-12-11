@@ -1022,6 +1022,7 @@ my %deprecated_rc = ("genhtml_demangle_cpp"        => "demangle_cpp",
                      "genhtml_demangle_cpp_params" => "demangle_cpp",
                      "geninfo_checksum"            => "checksum",
                      "geninfo_no_exception_branch" => "no_exception_branch",
+                     'geninfo_adjust_src_path'     => 'substitute',
                      "lcov_branch_coverage"        => "branch_coverage",
                      "lcov_function_coverage"      => "function_coverage",
                      "genhtml_function_coverage"   => "function_coverage",
@@ -1294,7 +1295,7 @@ sub parseOptions
             lcovutil::ignorable_warning($lcovutil::ERROR_DEPRECATED,
                 "RC option '$key' is deprecated.  Consider using '" .
                     $deprecated_rc{$key} .
-                    ". instead.  (Backward-compatible support will be removed in the future"
+                    "'. instead.  (Backward-compatible support will be removed in the future"
             );
         }
     }

@@ -170,6 +170,30 @@ if [ $COUNT != '1' ] ; then
     exit 1
 fi
 
+# use legacy RC 'geninfo_adjust_src_path option (had been a bug)
+$COVER $LCOV_HOME/bin/lcov --capture $LCOV_OPTS --capture --no-external --directory . -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_adjust_src_path='/tmp/foo => /build/bar'" --ignore unused 2>&1 | tee rcOptBug.log
+if [ 0 != $? ] ; then
+    echo "Error:  extract with RC option failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E "'substitute' pattern .+ is unused" rcOptBug.log
+if [ 0 != $? ] ; then
+    echo "Error:  missing RC pattern unused message"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E "RC option 'geninfo_adjust_src_path' is deprecated" rcOptBug.log
+if [ 0 != $? ] ; then
+    echo "Error:  missing RC pattern unused message"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+
 # workaround:  depending on compiler verision, we see a coverpoint on the
 #  close brace line (gcc/6 for example) or we don't (gcc/10 for example)
 BRACE_LINE='^DA:28'
@@ -422,7 +446,7 @@ done
 chmod ugo-rx separate/run/my/test/no_read
 $COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o unreadable.info $FILTER $IGNORE 2>&1 | tee err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
-    echo "Error:  expected fail from unreadable dire"
+    echo "Error:  expected fail from unreadable dir"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
@@ -438,7 +462,7 @@ fi
 
 $COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o unreadable.info $FILTER $IGNORE --ignore utility 2>&1 | tee warn.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
-    echo "Error:  extract from unreadbale failed"
+    echo "Error:  extract from unreadable failed"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi

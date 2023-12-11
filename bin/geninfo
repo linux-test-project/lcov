@@ -320,25 +320,18 @@ $buildDirSearchPath =
 # Check regexp
 if (defined($rc_adjust_src_path)) {
     my ($pattern, $replace) = split(/\s*=>\s*/, $rc_adjust_src_path);
-    local $SIG{__DIE__};
-    my $src_pattern;
-    eval '$src_pattern = qr>' . $pattern . '>;';
-    if (!defined($src_pattern)) {
-        my $msg = $@;
-
-        chomp($msg);
-        $msg =~ s/at \(eval.*$//;
+    # If no replacement is specified, simply remove pattern
+    $replace = '' unless defined($replace);
+    my $p = "s#$pattern#$replace#g";
+    $p .= 'i' if $lcovutil::case_insensitive;
+    my $text = 'abc';
+    my $str  = eval { '$test =~ ' . $p . ';' };
+    if ($@) {
         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                          "invalid pattern in geninfo_adjust_src_path: $msg\n");
-
+            "Invalid 'geninfo_adjust_src_path=$rc_adjust_src_path' syntax: '$@'"
+        );
     } else {
-        if (!defined($replace)) {
-            # If no replacement is specified, simply remove pattern
-            $replace = "";
-        }
-        my $p = 's#$pattern#$replace#g';
-        push(@lcovutil::file_subst_patterns,
-             [lcovutil::transform_pattern($p), $p, 0]);
+        push(@lcovutil::file_subst_patterns, [$p, 0]);
     }
 }
 
