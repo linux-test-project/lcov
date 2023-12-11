@@ -861,7 +861,11 @@ sub lcov_geninfo(@)
         push(@param, "--build-directory", $b);
     }
     foreach my $s (@ReadCurrentSource::source_directories) {
-        push(@param, "--source-directory", $s);
+        # a bit of a hack:  we pushed the --base-directory argument onto
+        #  the source list - and we need to make sure that we only pass
+        #  it to geninfo once.
+        push(@param, "--source-directory", $s)
+            unless (defined($base_directory) && $s eq $base_directory);
     }
     if ($no_compat_libtool) {
         push(@param, "--no-compat-libtool");
