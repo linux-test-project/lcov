@@ -4001,7 +4001,7 @@ sub append
     if (!$branchElem->hasBlock($block)) {
         $branch == 0
             or
-            lcovutil::ignorable_error($lcuvutil::ERROR_BRANCH,
+            lcovutil::ignorable_error($lcovutil::ERROR_BRANCH,
                                       "unexpected non-zero initial branch");
         $branch = 0;
         my $l = $branchElem->addBlock($block);
