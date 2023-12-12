@@ -42,8 +42,6 @@ PREFIX  := /usr/local
 FIRST_CHAR = $(shell echo "$(DESTDIR)$(PREFIX)" | cut -c 1)
 ifneq ("$(FIRST_CHAR)", "/")
 $(error "DESTDIR + PREFIX expected to be absolute path - found $(FIRST_CHAR)")
-else
-$(warning "found $(FIRST_CHAR)")
 endif
 
 CFG_DIR := $(PREFIX)/etc
@@ -52,6 +50,14 @@ LIB_DIR := $(PREFIX)/lib/lcov
 MAN_DIR := $(PREFIX)/share/man
 SHARE_DIR := $(PREFIX)/share/lcov/
 SCRIPT_DIR := $(SHARE_DIR)/support-scripts
+
+CFG_INST_DIR := $(DESTDIR)$(CFG_DIR)
+BIN_INST_DIR := $(DESTDIR)$(BIN_DIR)
+LIB_INST_DIR := $(DESTDIR)$(LIB_DIR)
+MAN_INST_DIR := $(DESTDIR)$(MAN_DIR)
+SHARE_INST_DIR := $(DESTDIR)$(SHARE_DIR)
+SCRIPT_INST_DIR := $(SHARE_INST_DIR)/support-scripts
+
 TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
@@ -103,39 +109,36 @@ clean:
 	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
 
 install:
-	BDIR=$(DESTDIR)$(BIN_DIR)
-	$(INSTALL) -d -m 755 $(BDIR)
+	$(INSTALL) -d -m 755 $(BIN_INST_DIR)
 	for b in $(EXES) ; do \
-		$(call echocmd,"  INSTALL $(BDIR)/$$b") \
-		$(INSTALL) -m 755 bin/$$b $(BDIR)/$$b ; \
+		$(call echocmd,"  INSTALL $(BIN_INST_DIR)/$$b") \
+		$(INSTALL) -m 755 bin/$$b $(BIN_INST_DIR)/$$b ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
-		       --exec $(BDIR)/$$b ; \
+		       --exec $(BIN_INST_DIR)/$$b ; \
 	done
-	SDIR=$(DESTDIR)$(SCRIPT_DIR)
-	$(INSTALL) -d -m 755 $(SDIR)
+	$(INSTALL) -d -m 755 $(SCRIPT_INST_DIR)
 	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  INSTALL $(SDIR)/$$s") \
-		$(INSTALL) -m 755 scripts/$$s $(SDIR)/$$s ; \
+		$(call echocmd,"  INSTALL $(SCRIPT_INST_DIR)/$$s") \
+		$(INSTALL) -m 755 scripts/$$s $(SCRIPT_INST_DIR)/$$s ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir \
 		       --fixscriptdir --scriptdir $(SCRIPT_DIR) \
-		       --exec $(SDIR)/$$s ; \
+		       --exec $(SCRIPT_INST_DIR)/$$s ; \
 	done
-	LDIR=$(DESTDIR)$(LIB_DIR)
-	$(INSTALL) -d -m 755 $(LDIR)
+	$(INSTALL) -d -m 755 $(LIB_INST_DIR)
 	for l in $(LIBS) ; do \
-		$(call echocmd,"  INSTALL $(LDIR)/$$l") \
-		$(INSTALL) -m 644 lib/$$l $(LDIR)/$$l ; \
+		$(call echocmd,"  INSTALL $(LIB_INST_DIR)/$$l") \
+		$(INSTALL) -m 644 lib/$$l $(LIB_INST_DIR)/$$l ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
-		       --exec $(LDIR)/$$l ; \
+		       --exec $(LIB_INST_DIR)/$$l ; \
 	done
 	for section in 1 5 ; do \
-		DEST=$(DESTDIR)$(MAN_DIR)/man$$section ; \
+		DEST=$(MAN_INST_DIR)/man$$section ; \
 		$(INSTALL) -d -m 755 $$DEST ; \
 		for m in man/*.$$section ; do  \
 			F=`basename $$m` ; \
@@ -146,58 +149,42 @@ install:
 		         --manpage $$DEST/$$F ; \
 		done ;  \
 	done
-	SHR=$(DESTDIR)$(SHARE_DIR)
-	mkdir -p $(SHR)
+	mkdir -p $(SHARE_INST_DIR)
 	for d in example tests ; do \
 		( cd $$d ; make clean ) ; \
-		find $$d -type d -exec mkdir -p "$(SHR)/{}" \; ; \
-		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHR)/{}" \; ; \
-	done
-	@chmod -R ugo+x $(SHR)/tests/bin
-	@find $(SHR)/tests \( -name '*.sh' -o -name '*.pl' \) -exec chmod ugo+x {} \;
-	CDIR=$(DESTDIR)$(CFG_DIR)
-	$(INSTALL) -d -m 755 $(CDIR)
-	$(call echocmd,"  INSTALL $(CDIR)/lcovrc")
-	$(INSTALL) -m 644 lcovrc $(CDIR)/lcovrc
+		find $$d -type d -exec mkdir -p "$(SHARE_INST_DIR){}" \; ; \
+		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_INST_DIR){}" \; ; \
+	done ;
+	@chmod -R ugo+x $(SHARE_INST_DIR)/tests/bin
+	@find $(SHARE_INST_DIR)/tests \( -name '*.sh' -o -name '*.pl' \) -exec chmod ugo+x {} \;
+	$(INSTALL) -d -m 755 $(CFG_INST_DIR)
+	$(call echocmd,"  INSTALL $(CFG_INST_DIR)/lcovrc")
+	$(INSTALL) -m 644 lcovrc $(CFG_INST_DIR)/lcovrc
 	$(call echocmd,"  done INSTALL")
 
 
 uninstall:
 	for b in $(EXES) ; do \
-		$(call echocmd,"  UNINST  $(DESTDIR)$(BIN_DIR)/$$b") \
-		$(RM) -f $(DESTDIR)$(BIN_DIR)/$$b ; \
+		$(call echocmd,"  UNINST  $(BIN_INST_DIR)/$$b") \
+		$(RM) -f $(BIN_INST_DIR)/$$b ; \
 	done
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(BIN_DIR) || true
+	rmdir --ignore-fail-on-non-empty $(BIN_INST_DIR) || true
 	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  UNINST  $(DESTDIR)$(SCRIPT_DIR)/$$s")  \
-		$(RM) -f $(DESTDIR)$(SCRIPT_DIR)/$$s ; \
+		$(call echocmd,"  UNINST  $(SCRIPT_INST_DIR)/$$s")  \
+		$(RM) -f $(SCRIPT_INST_DIR)/$$s ; \
 	done
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/$(SCRIPT_DIR)
+	rmdir --ignore-fail-on-non-empty $(SCRIPT_INST_DIR)
 	for l in $(LIBS) ; do \
-		$(call echocmd,"  UNINST  $(DESTDIR)$(LIB_DIR)/$$l") \
-		$(RM) -f $(DESTDIR)$(LIB_DIR)/$$l ; \
+		$(call echocmd,"  UNINST  $(LIB_INST_DIR)/$$l") \
+		$(RM) -f $(LIB_INST_DIR)/$$l ; \
 	done
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(LIB_DIR) || true
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(DESTDIR)/lib || true
-	for section in 1 5 ; do \
-		DEST=$(DESTDIR)$(MAN_DIR)/man$$section ; \
-		for m in man/*.$$section ; do  \
-			F=`basename $$m` ; \
-                        if [ -e man/$$F ] ; then \
-			   $(call echocmd,"  UNINST  $$DEST/$$F") \
-                           $(RM) -f $$DEST/$$F ; \
-                        fi ; \
-		done ; \
-		rmdir --ignore-fail-on-non-empty $$DEST || true ; \
-	done ; \
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(MAN_DIR) || true
-	rm -rf $(SHARE_DIR)
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/share 
-	$(call echocmd,"  UNINST  $(DESTDIR)$(CFG_DIR)/lcovrc")
-	$(RM) -f $(DESTDIR)$(CFG_DIR)/lcovrc
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(CFG_DIR) || true
-	rmdir --ignore-fail-on-non-empty $(DESTDIR) || true
-
+	rmdir --ignore-fail-on-non-empty $(LIB_INST_DIR) || true
+	rmdir `dirname $(LIB_INST_DIR)` || true
+	rm -rf `dirname $(SHARE_INST_DIR)`
+	$(call echocmd,"  UNINST  $(CFG_INST_DIR)/lcovrc")
+	$(RM) -f $(CFG_INST_DIR)/lcovrc
+	rmdir --ignore-fail-on-non-empty $(CFG_INST_DIR) || true
+	rmdir --ignore-fail-on-non-empty $(PREFIX)$(DESTDIR) || true
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
