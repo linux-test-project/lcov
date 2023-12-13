@@ -2494,22 +2494,25 @@ sub _categorizeBranchCov
     #     a high probability event?
     foreach my $line ($branchCurrent->keylist()) {
         my $type = $linemap->type($filename, $linemap->NEW, $line);
-        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                 "'current' line $filename:$line should not be marked 'delete'")
-            if $type eq 'delete';
-        #next if $type eq 'delete';
-
-        $branchCovLines{$line} = 1;
+        if ($type eq 'delete') {
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                "'current' line $filename:$line should not be marked 'delete'");
+            delete($branchCurrent->{$line});
+            next;
+        }
         my $data;
         if (!exists($lineDataMap->{$line})) {
-            $data = LineData->new($type);
-            $lineDataMap->{$line} = $data;
             # we expect the associated line to also have line coverage data
             lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                    "line $line of $filename has branchcov but no linecov data");
+            # maybe should skip this branch if no line data - rather
+            #  than building fake data.
+            $data = LineData->new($type);
+            $lineDataMap->{$line} = $data;
         } else {
             $data = $lineDataMap->{$line};
         }
+        $branchCovLines{$line} = 1;
         # we expect that the line number matches...
         $data->lineNo("current", $line);
         # append this branch data for the line

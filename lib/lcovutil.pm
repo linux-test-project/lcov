@@ -6513,6 +6513,13 @@ sub _read_info
 
             /^DA:(\d+),([^,]+)(,([^,\s]+))?/ && do {
                 my ($line, $count, $checksum) = ($1, $2, $4);
+                if ($line <= 0) {
+                    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
+                    );
+                    last;
+                }
                 if ($readSourceCallback->notEmpty()) {
                     # does the source checksum match the recorded checksum?
                     if ($verify_checksum) {
@@ -6567,6 +6574,13 @@ sub _read_info
                 my $lineNo   = $1;
                 my $fnName   = $4;
                 my $end_line = $3;
+                if ($lineNo <= 0) {
+                    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        "\"$tracefile\":$.: unexpected line number '$lineNo' in .info file record '$_'"
+                    );
+                    last;
+                }
                 # the function may already be defined by another testcase
                 #  (for the same file)
                 $functionMap->define_function($fnName, $filename, $lineNo,
@@ -6596,6 +6610,24 @@ sub _read_info
                 #     and check whether we found an integer or an expression
                 my ($line, $is_exception, $block, $d) =
                     ($1, defined($2) && 'e' eq $2, $3, $4);
+
+                if ($line <= 0) {
+                    # Python coverage.py emits line number 0 (zero) for branches
+                    #  - which is bogus, as there is no line number zero,
+                    #    and the corresponding branch expression is not there in
+                    #    any case.
+                    # Meantime:  this confuses the lcov DB - so we simply skip
+                    # such data.
+                    # Note that we only need to check while reading .info files.
+                    #   - if we wrote one from geninfo, then we will not have
+                    #     produced bogus data - so no need to check.
+                    #   - only some (broken) external tool could have the issue
+                    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
+                    );
+                    last;
+                }
 
                 last if $is_exception && $lcovutil::exclude_exception_branch;
                 my $comma = rindex($d, ',');
@@ -6866,6 +6898,14 @@ sub write_info($$$)
                         defined($data->end_line()) ?
                         ',' . $data->end_line() :
                         '';
+                    if ($line <= 0) {
+                        my $alias = (sort keys %$aliases)[0];
+                        lcovutil::ignorable_error(
+                            $lcovutil::ERROR_INCONSISTENT_DATA,
+                            "\"$source_file\": unexpected line number '$line' for function $alias"
+                        );
+                        next;
+                    }
                     foreach my $alias (sort keys %$aliases) {
                         print(INFO_HANDLE "FN:$line$endLine,$alias\n");
                     }
@@ -6873,8 +6913,9 @@ sub write_info($$$)
                 my $f_found = 0;
                 my $f_hit   = 0;
                 foreach my $key (@functionOrder) {
-                    my $data    = $functionMap->findKey($key);
-                    my $line    = $data->line();
+                    my $data = $functionMap->findKey($key);
+                    my $line = $data->line();
+                    next unless $line > 0;
                     my $aliases = $data->aliases();
                     foreach my $alias (sort keys %$aliases) {
                         my $hit = $aliases->{$alias};
@@ -6895,6 +6936,13 @@ sub write_info($$$)
 
                 foreach my $line (sort({ $a <=> $b } $testbrcount->keylist())) {
 
+                    if ($line <= 0) {
+                        lcovutil::ignorable_error(
+                            $lcovutil::ERROR_INCONSISTENT_DATA,
+                            "\"$source_file\": unexpected line number '$line' in branch data record record '$_'"
+                        );
+                        last;
+                    }
                     my $brdata = $testbrcount->value($line);
                     # want the block_id to be treated as 32-bit unsigned integer
                     #  (need masking to match regression tests)
