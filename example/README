@@ -20,7 +20,7 @@ Hierarchical view:
        - Additional navigation links also enabled
          ('--show-navigation' flag)
 
-Differential coverage
+Differential coverage:
 
   - Point your browser to
       exampleRepo/differential/index.html
@@ -36,6 +36,27 @@ Differential coverage
   - The Makefile simulates this by checking code into a git repo,
     building an executable and then updating a few source files, rebuildling,
     and running some tests.
+
+Code review:
+
+  - point your browser to
+      exampleRepo/differential/index.html
+
+  - This example builds on the "Differential coverage" example, above
+    to emulate a possible code review methodology in which adds code
+    coverage to the review criteria.
+    The intent is to generate a reduced report which shows only the
+    code changes which negatively affect code coverage - while removing
+    other details which only distract from the review.
+
+      - Use the 'genhtml --select-script ...' feature to show only new
+        source code which was negatively affected by the change under
+        review (uncovered and/or lost code).
+        You might want to modify the select criteria to include positive
+        change (e.g., GNC, GBC, and GIC categories).
+
+      - Real use cases are likely to use more sophisticated select-script
+        callbacks (e.g., to select from a range of changelists).
 
 Feel free to edit the Makefile or to run the lcov utilities directly,
 to see the effect of other options that you find in the lcov man pages.

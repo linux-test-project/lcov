@@ -120,6 +120,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-resolve\-script
 .IR script  ]
 .br
+.RB [ \-\-select\-script
+.IR script  ]
+.br
 .RB [ \-\-checksum ]
 .br
 .RB [ \-\-new\-file\-as\-baseline ]
@@ -383,9 +386,11 @@ following options:
 .br
 .B \-\-criteria\-script
 .br
-.B \-\-version\-script
-.br
 .B \-\-resolve\-script
+.br
+.B \-\-select\-script
+.br
+.B \-\-version\-script
 .br
 .RE
 
@@ -1292,7 +1297,7 @@ leaf-directory, and top-level coverage results:
 .RS
 .B script
 .I "[additional_parameters] " "name " " type"
-.I "json_data"
+.I "coverage_data"
 .br
 .RE
 
@@ -1332,11 +1337,12 @@ checked, that is one of "file", "directory", or "top"
 .br
 .RE
 
-.B json_data
+.B coverage_data
 .br
 .RS
-is a JSON representation of coverage data for the corresponding source code
-object
+is either a coverage data hash or a JSON representation of coverage data hash of the corresponding source code
+object.
+If the callback is a Perl module, then the it is passes a hash object - other wise, it is passed a JSON representation of that data.
 .br
 .RE
 .RE
@@ -1579,6 +1585,22 @@ patterns and searching the
 .I \-\-source\-directory
 list.  This option is equivalent to the
 .B resolve_script
+config file option. See man
+.B lcovrc(5)
+for details.
+.RE
+
+.B \-\-select\-script
+.I callback
+.br
+.RS
+Use
+.I callback
+to decide whether a particular source line is interesting and should be
+included in the output data/generated report or not.
+
+This option is equivalent to the
+.B select_script
 config file option. See man
 .B lcovrc(5)
 for details.
@@ -1847,7 +1869,7 @@ Specify a list of coverpoint filters to apply to input data.
 
 Note that certain filters apply only to C/C++ source files.
 .B genhtml
-associates the file extension ('.c', '.vhd', 
+associates the file extension ('.c', '.vhd',
 .I etc.
 ) with its source langage.  See the
 .I c_file_extentions
@@ -2281,7 +2303,7 @@ respective call count for those functions.
 The function coverage page groups the data for every alias of each function, sorted by name or execution count.  The representative name of the group of functions is the shorted (i.e., containing the fewest characters).
 
 If using differential coverage and a sufficiently recent compiler version which report both begin and end line of functions (
-.I e.g., 
+.I e.g.,
 gcc/9 and newer), functions are considered 'new' if any of their source lines have changed.
 With older compiler versions, functions are considered 'new' if the function signature has changed or if the entire function is new.
 
@@ -2518,7 +2540,7 @@ a tool called during processing returned an error code (e.g., 'find' encountered
 \-\-version\-script comparison returned non\-zero mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
 .PP
 
-Also see 'man 
+Also see 'man
 .B lcovrc(5)
 ' for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed.  This can be used to reduce log file volume.
 .br

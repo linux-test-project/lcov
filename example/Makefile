@@ -16,18 +16,21 @@ LCOV_FLAGS = --branch
 # path differs depending on whether we are in the install dir or not
 # run with "make LCOV_HOME=/path/to/my/release" if necessary
 
-LCOV_HOME = $(shell if [ -d ../bin ] ; then realpath .. ; else echo realpath ../../.. ; fi)
+ifeq ($(LCOV_HOME),)
+LCOV_HOME := $(shell if [ -d ../bin ] ; then echo `realpath ..` ; else echo `realpath ../../..` ; fi)
+endif
 
-EG_SRCDIR = $(LCOV_HOME)/example
+EG_SRCDIR = $(shell if [ -d $(LCOV_HOME)/example ] ; then echo $(LCOV_HOME)/example ; else echo $(LCOV_HOME)/share/lcov/example ; fi)
 # override this variable to write the differential testcase data someplace
 #  else
 REPO = exampleRepo
 BINDIR = $(LCOV_HOME)/bin
+SCRIPTS = $(LCOV_HOME)/scripts
 LCOV    := $(BINDIR)/lcov $(LCOV_FLAGS)
 GENHTML := $(BINDIR)/genhtml $(LCOV_FLAGS)
 GENDESC := $(BINDIR)/gendesc
 GENPNG  := $(BINDIR)/genpng
-SCRIPTDIR = $(shell if [ -d ../bin ] ; then echo $(BINDIR) ; else echo $(LCOV_HOME)/share/lcov/support-scripts ; fi)
+SCRIPTDIR = $(shell if [ -d ../scripts ] ; then echo $(SCRIPTS) ; else echo $(LCOV_HOME)/share/lcov/support-scripts ; fi)
 
 # Depending on the presence of the GD.pm perl module, we can use the
 # special option '--frames' for genhtml
@@ -125,9 +128,13 @@ test_overflow:
 	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "test_overflow" --no-external
 
 # This test pretends to write some code, run some tests, then modify
-# code and rerun some tests.
+#   code and rerun some tests.
 # The differential coverage report is categorizes the code based on
-# what changed in the source code and what changed in the tests.
+#   what changed in the source code and what changed in the tests.
+# Note that we are suing perl module for callbacks here - but could use
+#   script or executable if desired.
+# Could use --verbose and --quiet flags to make the execution less noisy -
+#   but verbosity can help to debug configuration issues.
 # See the lcov README and man pages for more details.
 test_differential:
 	@echo
@@ -135,7 +142,7 @@ test_differential:
 	@echo '* Test case 4: differential coverage example'
 	@echo '*'
 	@echo
-	@echo "Initialize GIT repo with example source"
+	@echo "Step 1: Initialize GIT repo with example source"
 	@$(RM) -rf $(REPO)
 	@git init $(REPO) ;
 	@(cd $(REPO) ; \
@@ -149,36 +156,55 @@ test_differential:
 	./example ; \
 	./example 2 1000 ; \
 	./example 2 100000 || true )
-	@echo "Capture initial coverage"
+
+	@echo "Step 2: Capture initial coverage"
 	(cd $(REPO) ; \
-	$(LCOV) --capture -o baseline.info -d . --version-script $(SCRIPTDIR)/gitversion )
-	@echo "Modify code"
+	$(LCOV) --capture -o baseline.info -d . --version-script $(SCRIPTDIR)/gitversion.pm )
+
+	@echo "Step 3: Modify source code"
 	@(cd $(REPO) ; \
 	cp -f $(EG_SRCDIR)/example_mod.c example.c ; \
 	cp -f $(EG_SRCDIR)/methods/iterate_mod.c methods/iterate.c ; \
 	git add example.c methods/iterate.c ; git commit -m current ; \
 	git tag current )
-	@echo "Rebuild and run tests"
+
+	@echo "Step 4: Rebuild and run tests (fewer tests this time)"
 	( cd $(REPO) ; \
 	find . -name '*.gc*' -delete ; \
 	$(CC) -o example --coverage -I. example.c methods/gauss.c methods/iterate.c ; \
 	./example )
-	@echo "Capture new coverage (after source changes)"
+
+	@echo "Step 5: Capture new coverage (after source changes)"
 	(cd $(REPO) ; \
-	 $(LCOV) --capture -o current.info -d . --version-script $(SCRIPTDIR)/gitversion )
+	 $(LCOV) --capture -o current.info -d . --version-script $(SCRIPTDIR)/gitversion.pm )
 	@echo "Compute source diffs"
-	(cd $(REPO) ; \
+	(cd $(REPO) ;                                       \
 	$(SCRIPTDIR)/gitdiff . `git rev-list -n 1 baseline` \
 	  `git rev-list -n 1 current` > udiff.txt )
-	@echo "Generate differential coverage report"
-	(cd $(REPO) ; \
+
+	@echo "Step 6: Generate differential coverage report"
+	(cd $(REPO) ;                                            \
 	$(GENHTML) -o differential --baseline-file baseline.info \
-	  --diff-file udiff.txt \
-	  --title "Differential coverage example" --show-owners \
-	  --annotate $(SCRIPTDIR)/gitblame \
-	  --version-script $(SCRIPTDIR)/gitversion \
+	  --diff-file udiff.txt                                  \
+	  --title "Differential coverage example" --show-owners  \
+	  --annotate $(SCRIPTDIR)/gitblame.pm                    \
+	  --version-script $(SCRIPTDIR)/gitversion.pm            \
 	  -- current.info )
+
 	@echo "point your browser to `realpath $(REPO)`/differential/index.html"
+
+	@echo "Step 7: Generate subset report for code review:"
+	(cd $(REPO) ;                                            \
+	$(GENHTML) -o review --baseline-file baseline.info \
+	  --diff-file udiff.txt                                  \
+	  --title "Differential report for code review" --show-owners  \
+	  --annotate $(SCRIPTDIR)/gitblame.pm                    \
+	  --version-script $(SCRIPTDIR)/gitversion.pm            \
+	  --select-script $(SCRIPTDIR)/select.pm                 \
+	  --select-script --tla --select-script UNC,UIC,LBC      \
+	  -- current.info )
+
+	@echo "point your browser to `realpath $(REPO)`/review/index.html"
 
 
 clean:

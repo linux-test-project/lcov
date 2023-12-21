@@ -238,8 +238,8 @@ New features and capabilities fall into 7 major categories:
      and the genhtml man page for details.
 
      Related options:
-        --baseline-file, --diff-file, --annotate-script, --date-bins,
-        --new-file-as-baseline, --elide-path-mismtach
+        --baseline-file, --diff-file, --annotate-script, --select-script
+        --date-bins, --new-file-as-baseline, --elide-path-mismatch
 
   b) Error handling
 
@@ -323,6 +323,9 @@ New features and capabilities fall into 7 major categories:
              Sample script: criteria
         iv) find source files in more complicated environments - where
             simple substitutions become complicated or unweildy.
+        v) select a subset of coverage data to display - e.g., to
+           use in a code review which wants to concentrate on only
+           the changes caused by a particular commit or range of commits.
 
      The callback may be any desired script or executable - but there
      may be performance advantages if it is written as a Perl module.
@@ -335,7 +338,7 @@ New features and capabilities fall into 7 major categories:
 
      Related options:
        --annotate-script, --criteria-script, --version-script
-       --resolve-script
+       --resolve-script --select-script
 
   f) Performance
 

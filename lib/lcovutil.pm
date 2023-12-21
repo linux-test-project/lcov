@@ -2597,9 +2597,10 @@ sub annotate
 
 sub check_criteria
 {
-    my ($self, $name, $type, $json) = @_;
+    my ($self, $name, $type, $data) = @_;
 
-    my $iter = $self->pipe('criteria', $name, $type, $json);
+    my $iter =
+        $self->pipe('criteria', $name, $type, JsonSupport::encode($data));
     return (0) unless $iter;    # constructor will have given error message
     my @messages;
     while (my $line = $iter->next()) {
@@ -2609,6 +2610,16 @@ sub check_criteria
         push(@messages, $line);
     }
     return ($iter->close(), \@messages);
+}
+
+sub select
+{
+    my ($self, $lineData, $annotateData) = @_;
+
+    my @params = ('select', JsonSupport::encode($lineData));
+    push(@params, JsonSupport::encode($annotateData))
+        if defined($annotateData);
+    return $self->call(@params);
 }
 
 package JsonSupport;
@@ -5508,7 +5519,8 @@ sub _eraseFunctions
         }
         foreach my $p (@lcovutil::exclude_function_patterns) {
             my $pat = $p->[0];
-            while (my ($alias, $hit) = each(%{$fcn->aliases()})) {
+            my $a   = $fcn->aliases();
+            foreach my $alias (keys %$a) {
                 if ($alias =~ $pat) {
                     ++$p->[-1] if $isMasterList;
                     if (defined($end_line)) {

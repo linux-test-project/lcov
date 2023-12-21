@@ -65,13 +65,12 @@ sub new
 
 sub check_criteria
 {
-    my ($self, $name, $type, $json) = @_;
+    my ($self, $name, $type, $db) = @_;
 
     my $fail = 0;
     my @messages;
     if ($type eq 'top') {
         # for the moment - only worry about the top-level coverage
-        my $db = decode_json($json);
 
         if (exists($db->{'line'})) {
             # our criteria is LBC + UNC + UIC == 0

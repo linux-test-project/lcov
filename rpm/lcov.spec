@@ -18,7 +18,7 @@ Prefix: /etc
 %global __python %{__python3}
 
 # lcov Perl modules are not intended for use by other packages
-%define __requires_exclude ^perl\\(lcovutil\\)$|^perl\\((criteria)\\)$|^perl\\((annotateutil)\\)$|^perl\\((gitblame)\\)$|^perl\\((gitversion)\\)$|^perl\\((p4annotate)\\)
+%define __requires_exclude ^perl\\(lcovutil\\)$|^perl\\((criteria)\\)$|^perl\\((annotateutil)\\)$|^perl\\((gitblame)\\)$|^perl\\((gitversion)\\)$|^perl\\((select)\\)$|^perl\\((p4annotate)\\)
 %define __provides_exclude ^perl.*$
 
 %description

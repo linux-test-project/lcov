@@ -279,6 +279,10 @@ our $coverageCriteriaStatus = 0;    # set to non-zero if we see any errors
 our @criteriaCallbackTypes;         # include date, owner bin info
 our @criteriaCallbackLevels;        # call back at (top, directory, file) levels
 
+our @selectCallbackScript;
+our $selectCallback;
+our @cleanDirectoryList;
+
 our @tlaPriorityOrder = ("UNC",
                          "LBC",
                          "UIC",
@@ -453,6 +457,8 @@ sub new
 
     for my $type (LINE_DATA, BRANCH_DATA, FUNCTION_DATA) {
         $self->[$type]->[DATA] = _initCounts();
+        # no age data unless annotations are enabled
+        next unless @SourceFile::annotateScript;
         my $ageList = $self->[$type]->[AGE];
         foreach my $i (0 .. $#cutpoints + 1) {
             my $h = _initCounts();
@@ -629,6 +635,13 @@ sub get_source
     die("bad usage") if $self->type() eq 'file';
     return
         exists($self->[SOURCES]->{$name}) ? $self->[SOURCES]->{$name} : undef;
+}
+
+sub remove_source
+{
+    my ($self, $name) = @_;
+    die("bad usage") if $self->type() eq 'file';
+    delete $self->[SOURCES]->{$name};
 }
 
 sub get
@@ -856,7 +869,7 @@ sub append
         my $mine  = $self->[$group]->[DATA];
         my $yours = $record->[$group]->[DATA];
         while (my ($key, $value) = each(%$yours)) {
-            $mine->{$key} += $value;
+            $mine->{$key} += $yours->{$key};
         }
     }
 
@@ -885,16 +898,16 @@ sub append
             my $ownerList = $self->[$covType]->[OWNERS];
             while (my ($name, $yours) = each(%{$record->[$covType]->[OWNERS]}))
             {
-
                 if (!exists($ownerList->{$name})) {
                     $ownerList->{$name} = {};
                 }
                 my $mine = $ownerList->{$name};
-
-                foreach my $tla (keys(%$yours)) {
-                    my $count = exists($mine->{$tla}) ? $mine->{$tla} : 0;
-                    $count += $yours->{$tla};
-                    $mine->{$tla} = $count;
+                while (my ($tla, $count) = each(%$yours)) {
+                    if (exists($mine->{$tla})) {
+                        $mine->{$tla} += $count;
+                    } else {
+                        $mine->{$tla} = $count;
+                    }
                 }
             }
         }
@@ -1015,6 +1028,42 @@ sub functionCovCount
     return $d->{$key};
 }
 
+sub removeLine
+{
+    my ($self, $lineData) = @_;
+
+    my $l = $self->[LINE_DATA]->[DATA];
+    $l->{hit}   -= $lineData->curr_count() != 0;
+    $l->{found} -= 1 if $lineData->in_curr();
+    if ($lcovutil::br_coverage) {
+        my $b = $lineData->current_branch();
+        if (defined($b)) {
+            my ($found, $hit) = $b->totals();
+            my $br = $self->[BRANCH_DATA]->[DATA];
+            $br->{hit}   -= $hit;
+            $br->{found} -= $found;
+        }
+    }
+    if ($lcovutil::func_coverage) {
+        my $f = $lineData->current_function();
+        if (defined($f)) {
+            my $fn = $self->[FUNCTION_DATA]->[DATA];
+            $fn->{hit}   -= $f->hit() != 0;
+            $fn->{found} -= 1;
+        }
+    }
+}
+
+sub is_empty
+{
+    my $self = shift;
+    my $t    = $self->[LINE_DATA]->[DATA];
+    foreach my $category (keys %$t) {
+        return 0 if 0 != $t->{$category};
+    }
+    return 1;
+}
+
 sub l_found
 {
     my $self  = shift;
@@ -1109,7 +1158,8 @@ sub checkCoverageCriteria
                     if (exists($data{$key})) {
                         $b = $data{$key};
                     } else {
-                        $data{$key} = {};
+                        $b = {};
+                        $data{$key} = $b;
                     }
                     if (exists($b->{$i})) {
                         $b->{$i}->{$k} = $count;
@@ -1144,11 +1194,10 @@ sub checkCoverageCriteria
             }
         }
     }
-    my $json = JsonSupport::encode(\%data);    # imported from lcovutil.pm
     my $cmd =
         join(' ', @coverageCriteriaScript) .
         ' \'' . ($self->type() eq 'top' ? 'top' : $self->name()) .
-        '\' ' . $self->type() . ' \'' . $json . '\'';
+        '\' ' . $self->type() . ' \'json_encoded_data\'';
     # command:  script name (top|dir|file) jsonString args..
     lcovutil::info(1, "criteria: '$cmd'\n");
     my ($status, $msgs);
@@ -1156,7 +1205,7 @@ sub checkCoverageCriteria
         ($status, $msgs) =
             $criteriaCallback->check_criteria(
                                  $self->type() eq 'top' ? 'top' : $self->name(),
-                                 $self->type(), $json);
+                                 $self->type(), \%data);
     };
     if ($@) {
         my $context = MessageContext::context();
@@ -2025,8 +2074,8 @@ sub new
     #   base_branch, curr_branch, differential_branch ] <- branch coverage count data
     # $type in ('insert', 'equal', 'delete')
     my $self = [$type, undef, undef,
-                ['UNK', 0, 0],    # line coverage data
-                [],               # branch coverge data
+                ['UNK', undef, undef],    # line coverage data
+                [],                       # branch coverge data
                 []
     ];    # function coverage
     bless $self, $class;
@@ -2074,14 +2123,20 @@ sub in_base
 {
     # @return true or false:  is this object present in the baseline?
     my $self = shift;
-    return defined($self->[LINENO_BASE]);
+    # coverpoint is in baseline data if line coverage number is defined
+    return defined($self->[LINE_DATA]->[LINE_BASELINE]);
 }
 
 sub in_curr
 {
     # @return true or false:  is this object present in the current version?
+    # storing negative number for 'current' location of deleted line -
+    #   first location above or below the deleted region
     my $self = shift;
-    return defined($self->[LINENO_CURRENT]);
+    # coverpoint is in current data if line coverage number is defined
+    #  otherwise, the line may be present without coverage data associated
+    #  with it (say, excluded now - or possibly filtered out)
+    return defined($self->[LINE_DATA]->[LINE_CURRENT]);
 }
 
 sub base_count
@@ -2091,8 +2146,13 @@ sub base_count
     die("non-zero count but not in base")
         if (defined($inc) && !defined($self->[LINENO_BASE]));
     my $linecov = $self->[LINE_DATA];
-    $linecov->[LINE_BASELINE] += $inc
-        if defined($inc);
+    if (defined($inc)) {
+        if (defined($linecov->[LINE_BASELINE])) {
+            $linecov->[LINE_BASELINE] += $inc;
+        } else {
+            $linecov->[LINE_BASELINE] = $inc;
+        }
+    }
 
     return $linecov->[LINE_BASELINE];
 }
@@ -2102,11 +2162,16 @@ sub curr_count
     # return line hit count in current
     my ($self, $inc) = @_;
     die("non-zero count but not in current")
-        if (defined($inc) && !defined($self->[LINENO_CURRENT]));
+        if (defined($inc) &&
+            (!defined($self->[LINENO_CURRENT]) || $self->[LINENO_CURRENT] < 0));
     my $linecov = $self->[LINE_DATA];
-    $linecov->[LINE_CURRENT] += $inc
-        if defined($inc);
-
+    if (defined($inc)) {
+        if (defined($linecov->[LINE_CURRENT])) {
+            $linecov->[LINE_CURRENT] += $inc;
+        } else {
+            $linecov->[LINE_CURRENT] += $inc;
+        }
+    }
     return $linecov->[LINE_CURRENT];
 }
 
@@ -2178,7 +2243,8 @@ sub current_branch
 {
     my ($self, $branchData, $filename) = @_;
     die("has current branch data but not in current")
-        if (defined($branchData) && !defined($self->[LINENO_CURRENT]));
+        if (defined($branchData) &&
+            (!defined($self->[LINENO_CURRENT]) || $self->[LINENO_CURRENT] < 0));
     if (defined($branchData)) {
         $self->_mergeBranchData(DATA_CURRENT, $branchData, $filename);
     }
@@ -2224,7 +2290,8 @@ sub current_function
 {
     my ($self, $functionData) = @_;
     die("has current function data but not in current")
-        if (defined($functionData) && !defined($self->[LINENO_CURRENT]));
+        if (defined($functionData) &&
+            (!defined($self->[LINENO_CURRENT]) || $self->[LINENO_CURRENT] < 0));
     if (defined($functionData)) {
         $self->_mergeFunctionData(DATA_CURRENT, $functionData);
     }
@@ -2250,9 +2317,10 @@ sub differential_function
 package FileCoverageInfo;
 
 use constant {
-              VERSION     => 0,
-              LINEMAP     => 1,
-              FUNCTIONMAP => 2,
+              VERSION             => 0,
+              LINEMAP             => 1,
+              DELETED_LINE_LEADER => 2,
+              FUNCTIONMAP         => 3,
 };
 
 sub new
@@ -2261,10 +2329,11 @@ sub new
 
     # [hash of lineNumber -> LineData struct, optional FunctionMap]
     my $self = [
-                [defined($base_data) ? $base_data->version() : undef,
-                 $current_data->version()
-                ],
-                {}
+             [defined($base_data) ? $base_data->version() : undef,
+              $current_data->version()
+             ],
+             {}, # the line data map
+             {}  # currentLineNo -> [deleted lines for which this is the leader]
     ];
     bless $self, $class;
 
@@ -2282,26 +2351,31 @@ sub new
     $self->_categorizeFunctionCov($filename, $base_data, $current_data,
                                   $linemap, $verbose)
         if ($lcovutil::func_coverage);
+
+    while (my ($lineNo, $deleted) = each(%{$self->[DELETED_LINE_LEADER]})) {
+        @$deleted =
+            sort({ $a->lineNo('base') <=> $b->lineNo('base') } @$deleted);
+    }
     return $self;
 }
 
 sub version
 {
     my ($self, $which) = @_;
-    return $which eq 'current' ? $self->[0]->[1] : $self->[0]->[0];
+    return $which eq 'current' ? $self->[VERSION]->[1] : $self->[VERSION]->[0];
 }
 
 sub lineMap
 {
     my $self = shift;
-    return $self->[1];
+    return $self->[LINEMAP];
 }
 
 sub functionMap
 {
     # simply a map of function leader name -> differential FunctionEntry
     my $self = shift;
-    return (scalar(@$self) > 2) ? $self->[2] : undef;
+    return (scalar(@$self) >= FUNCTIONMAP) ? $self->[FUNCTIONMAP] : undef;
 }
 
 sub line
@@ -2309,6 +2383,15 @@ sub line
     my ($self, $lineNo) = @_;
     my $lineMap = $self->lineMap();
     return exists($lineMap->{$lineNo}) ? $lineMap->{$lineNo} : undef;
+}
+
+sub deletedLineData
+{
+    my ($self, $currentLineNumber) = @_;
+
+    my $map = $self->[DELETED_LINE_LEADER];
+    return
+        exists($map->{$currentLineNumber}) ? $map->{$currentLineNumber} : undef;
 }
 
 sub recategorizeTlaAsBaseline
@@ -2326,8 +2409,7 @@ sub recategorizeTlaAsBaseline
     my %remap = ('UIC' => 'UBC',
                  'GIC' => 'CBC');
 
-    foreach my $line (keys %$lineMap) {
-        my $data = $lineMap->{$line};
+    while (my ($line, $data) = each(%$lineMap)) {
         die("unexpected $line 'in_base'") if $data->in_base();
 
         my $lineTla = $data->tla();
@@ -2361,10 +2443,8 @@ sub recategorizeTlaAsBaseline
                 $hit->[1] = $remap{$tla};
             }
 
-            my $aliases = $func->aliases();
-            foreach my $alias (keys %$aliases) {
-                my $data = $aliases->{$alias};
-                my $tla  = $data->[1];
+            while (my ($alias, $data) = each(%{$func->aliases()})) {
+                my $tla = $data->[1];
                 if (exists($remap{$tla})) {
                     $data->[1] = $remap{$tla};
                 }
@@ -2387,12 +2467,76 @@ sub _categorize
     return $tla;
 }
 
+sub _findLineData
+{
+    my ($self, $linemap, $filename, $base_lineNo) = @_;
+    my $current_lineNo =
+        $linemap->lookup($filename, $linemap->OLD, $base_lineNo);
+    my $type = $linemap->type($filename, $linemap->OLD, $base_lineNo);
+
+    my $lineDataMap = $self->lineMap();
+    my $linedata;
+
+    if ($type ne "delete") {
+        if (!defined($lineDataMap->{$current_lineNo})) {
+            $linedata = LineData->new($type);
+            $lineDataMap->{$current_lineNo} = $linedata;
+            $linedata->lineNo('current', $current_lineNo);
+        } else {
+            $linedata = $lineDataMap->{$current_lineNo};
+        }
+        $linedata->lineNo('base', $base_lineNo);
+    } else {
+        # nothing walks the keylist so a prefix is sufficient to distiguish
+        # records that should be summarized but not displayed
+        my $dline = "<<<" . $base_lineNo;
+        if (!exists($lineDataMap->{$dline})) {
+            $linedata = LineData->new($type);
+            $linedata->lineNo('base', $base_lineNo);
+            $lineDataMap->{$dline} = $linedata;
+            # look up and/or down to find the first baseline line
+            # which is not deleted - and store that as the corresponding
+            # 'current' line.
+            # this way, we can know the extents of the deleted region
+            my $c;
+            for (my $i = $base_lineNo - 1; $i > 0; --$i) {
+                if ('delete' ne $linemap->type($filename, $linemap->OLD, $i)) {
+                    $c = $linemap->lookup($filename, $linemap->OLD, $i);
+                    last;
+                }
+            }
+            if (!defined($c)) {
+                # there were no 'current' lines above me - so I must be
+                # at the first line in the file.  It must not be deleted
+                $c = 1;
+                die("$filename:1: incorrectly marked 'delete'")
+                    if (
+                      'delete' eq $linemap->type($filename, $linemap->OLD, $c));
+            }
+            die("$filename:  no current block for deleted line $base_lineNo")
+                unless defined($c);
+            $linedata->lineNo('current', -$c);
+            # keep track of where deleted lines were - so we can
+            # mark them in the source view
+            if (exists($self->[DELETED_LINE_LEADER]->{$c})) {
+                push(@{$self->[DELETED_LINE_LEADER]->{$c}}, $linedata);
+            } else {
+                $self->[DELETED_LINE_LEADER]->{$c} = [$linedata];
+            }
+        } else {
+            $linedata = $lineDataMap->{$dline};
+        }
+    }
+    return $linedata;
+}
+
 # categorize line coverage numbers
 sub _categorizeLineCov
 {
     my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
     my $lineDataMap = $self->lineMap();
 
+    # $lineCovBase, $lineCovCurrent are CountData objects
     my $lineCovBase    = $base_data->sum() if defined($base_data);
     my $lineCovCurrent = $current_data->sum();
 
@@ -2420,25 +2564,8 @@ sub _categorizeLineCov
 
     if (defined($lineCovBase)) {
         foreach my $bline ($lineCovBase->keylist()) {
-            my $cline = $linemap->lookup($filename, $linemap->OLD, $bline);
-            my $type  = $linemap->type($filename, $linemap->OLD, $bline);
-            my $linedata;
-            if ($type ne "delete") {
-                if (!defined($lineDataMap->{$cline})) {
-                    $lineDataMap->{$cline} = LineData->new($type);
-                }
-                $linedata = $lineDataMap->{$cline};
-            } else {
-                # nothing walks the keylist so a prefix is sufficient to distiguish
-                # records that should be summarized but not displayed
-                my $dline = "<<<" . $bline;
-                if (!defined($lineDataMap->{$dline})) {
-                    $lineDataMap->{$dline} = LineData->new($type);
-                }
-                $linedata = $lineDataMap->{$dline};
-            }
-            my $val = $lineCovBase->value($bline);
-            $linedata->lineNo("base", $bline);
+            my $linedata = $self->_findLineData($linemap, $filename, $bline);
+            my $val      = $lineCovBase->value($bline);
             $linedata->base_count($val);
         }
     }
@@ -2523,30 +2650,15 @@ sub _categorizeBranchCov
     # now look through the baseline to find matching data
     if (defined($branchBaseline)) {
         foreach my $base_line ($branchBaseline->keylist()) {
-            my $curr_line =
-                $linemap->lookup($filename, $linemap->OLD, $base_line);
-            my $type = $linemap->type($filename, $linemap->OLD, $base_line);
-            my $data;
+            my $data = $self->_findLineData($linemap, $filename, $base_line);
+            my $curr_line = $data->lineNo('current');
+            my $type      = $data->type();
             if ($type ne 'delete') {
                 $branchCovLines{$curr_line} = 1;
-                if (!exists($lineDataMap->{$curr_line})) {
-                    $data = LineData->new($type);
-                    $lineDataMap->{$curr_line} = $data;
-                } else {
-                    $data = $lineDataMap->{$curr_line};
-                }
             } else {
                 # the line has been deleted...just record the data
                 my $deleteKey = "<<<" . $base_line;
-                $branchCovLines{$deleteKey} = 1;
-                if (!exists($lineDataMap->{$deleteKey})) {
-                    $data = LineData->new($type);
-                    $lineDataMap->{$deleteKey} = $data;
-                } else {
-                    $data = $lineDataMap->{$deleteKey};
-                }
             }
-            $data->lineNo("base", $base_line);
             my $baseBranchData = $branchBaseline->value($base_line);
             $data->baseline_branch($baseBranchData, $filename);
         }    # foreach line in baseline data
@@ -2700,35 +2812,19 @@ sub _categorizeFunctionCov
     if (defined($funcBase)) {
         # now look through the baseline to find matching data
         foreach my $key ($funcBase->keylist()) {
-            my $func      = $funcBase->findKey($key);
-            my $line      = $func->line();
-            my $type      = $linemap->type($filename, $linemap->OLD, $line);
-            my $curr_line = $linemap->lookup($filename, $linemap->OLD, $line);
-            my $data;
+            my $func = $funcBase->findKey($key);
+            my $line = $func->line();
+            my $data = $self->_findLineData($linemap, $filename, $line);
+
+            my $type      = $data->type();
+            my $curr_line = $data->lineNo('current');
             if ($type ne 'delete') {
                 $funcCovLines{$curr_line} = 1;
-
-                if (!exists($lineDataMap->{$curr_line})) {
-                    $data = LineData->new($type);
-                    $lineDataMap->{$curr_line} = $data;
-                } else {
-                    $data = $lineDataMap->{$curr_line};
-                }
             } else {
                 # the line has been deleted...just record the data
                 my $deleteKey = "<<<" . $line;
                 $funcCovLines{$deleteKey} = 1;
-                if (!exists($lineDataMap->{$deleteKey})) {
-                    $data = LineData->new($type);
-                    $lineDataMap->{$deleteKey} = $data;
-                } else {
-                    $data = $lineDataMap->{$deleteKey};
-                }
             }
-            die("inconsistent 'base' line number")
-                if (defined($data->lineNo("base")) &&
-                    $data->lineNo("base") != $line);
-            $data->lineNo("base", $line);
             $data->baseline_function($func);
         }    # foreach function in baseline data
     }
@@ -3486,6 +3582,45 @@ sub _read_udiff
     return $self;
 }
 
+package InInterestingRegion;
+
+use constant {
+              NEXT  => 0,
+              PREV  => 1,
+              STACK => 2,
+};
+
+our $num_context_lines = 5;
+
+sub new
+{
+    my $class = shift;
+    my $self  = [undef, undef, Storable::dclone(\@_)];
+    $self->[NEXT] = shift(@{$self->[STACK]});
+    return bless $self, $class;
+}
+
+sub interesting
+{
+    my ($self, $lineNum) = @_;
+    if (defined($self->[NEXT])) {
+        if ($lineNum == $self->[NEXT]) {
+            $self->[PREV] = $self->[NEXT];
+            $self->[NEXT] = shift(@{$self->[STACK]});
+            return 1;
+        } elsif ($lineNum >= $self->[NEXT] - $num_context_lines) {
+            return 1;
+        }
+    }
+    if (defined($self->[PREV])) {
+        if ($lineNum <= $self->[PREV] + $num_context_lines) {
+            return 1;
+        }
+        $self->[PREV] = undef;
+    }
+    return 0;
+}
+
 package SourceLine;
 
 use constant {
@@ -3589,10 +3724,11 @@ our $totalFiles      = 0;
 use constant {
               PATH              => 0,
               LINES             => 1,
-              LINE_OWNERS       => 2,
-              LINE_CATEGORIES   => 3,
-              BRANCH_OWNERS     => 4,
-              BRANCH_CATEGORIES => 5
+              INTERESTING_LINES => 2,
+              LINE_OWNERS       => 3,
+              LINE_CATEGORIES   => 4,
+              BRANCH_OWNERS     => 5,
+              BRANCH_CATEGORIES => 6,
 };
 
 sub new
@@ -3607,10 +3743,11 @@ sub new
         die("unexpected input args");
 
     my $self = [$filepath,
-                [],    # lines
-                {},    # owner -> hash of TLS->list of lines
-                {},    # TLS -> list of lines
-                {}     # owner -> has of TLA->list of lines
+                [],       # lines
+                undef,    # list of interesting lines
+                {},       # owner -> hash of TLS->list of lines
+                {},       # TLA -> list of lines
+                {}        # owner -> hash of TLA->list of lines
     ];
     bless $self, $class;
 
@@ -3647,6 +3784,25 @@ sub new
     my $currentTla;
     my $regionStartLine;
     my $lineCovData = $fileCovInfo->lineMap();
+
+    my @lineArray;    # interesting line numbers
+    my $inRegion;
+    if (defined($selectCallback)) {
+        while (my ($line, $lne) = each(%$lineCovData)) {
+            # ignore deleted lines as they don't appear in source listing
+            my $tla = $lne->tla();
+            # no annotations for deleted line
+            my $annotateData = $self->line($line)
+                unless grep(/$tla/, ('DUB', 'DCB'));
+            # callback arguments are (LineData, SourceLine)
+            if ($selectCallback->select($lne, $annotateData)) {
+                push(@lineArray, $line);
+            }
+        }
+        @lineArray                 = sort(@lineArray);
+        $self->[INTERESTING_LINES] = \@lineArray;
+        $inRegion                  = InInterestingRegion->new(@lineArray);
+    }
     foreach my $line (sort({
                                my $ka =
                                    ("<" ne substr($a, 0, 1)) ? $a :
@@ -3657,7 +3813,23 @@ sub new
                                $ka <=> $kb
                       } keys(%{$lineCovData}))
     ) {
+        # is this line within N of an interesting one?
         my $lne = $lineCovData->{$line};
+        my $tla = $lne->tla();
+        # deleted line associated with first 'current' line above -
+        # or line below, if there is no current line above
+        my $lineNum =
+            grep(/$tla/, ('DUB', 'DCB')) ? -$lne->lineNo('current') : $line;
+
+        if (defined($inRegion) &&
+            !$inRegion->interesting($lineNum)) {
+            lcovutil::info(1,
+                           "  drop $line" .
+                               ($line eq $lineNum ? '' : " ($lineNum)") . "\n");
+            $fileSummary->removeLine($lne);
+            delete($lineCovData->{$line});
+            next;
+        }
         $self->_countLineTlaData($line, $lne, $fileSummary);
 
         $self->_countBranchTlaData($line, $lne, $fileSummary)
@@ -3868,7 +4040,7 @@ sub _countLineTlaData
             push(@{$dhash->{lines}}, $line);
             $dhash->{$tla} = []
                 unless exists($dhash->{$tla});
-            # and the list of lines with this TLA, belowing to this user
+            # and the list of lines with this TLA, belonging to this user
             push(@{$dhash->{$tla}}, $line);
         }
     }
@@ -4005,6 +4177,22 @@ sub lines
 {
     my $self = shift;
     return $self->[LINES];
+}
+
+sub is_empty
+{
+    my $self = shift;
+    # anything interesting here?
+    return defined($self->interesting_lines()) &&
+        0 == @{$self->interesting_lines()};
+}
+
+sub interesting_lines
+{
+    my $self = shift;
+    # return list of lines containing coverpoints, which are marked by
+    #  the $selectionCallback - see the --select-script parameter
+    return $self->[INTERESTING_LINES];
 }
 
 sub binarySearchLine
@@ -4391,12 +4579,6 @@ sub _load
 
                     defined($abbrev) or
                         die("owner is undef for $repo_path:$lineNum");
-                    $self->[LINE_OWNERS]->{$abbrev} = {}
-                        unless exists($self->[LINE_OWNERS]->{$abbrev});
-                    my $dhash = $self->[LINE_OWNERS]->{$abbrev};
-                    $dhash->{lines} = []
-                        unless exists($dhash->{lines});
-                    push(@{$dhash->{lines}}, $lineNum);
                 } else {
                     die("inconsistent 'annotate' data for '$repo_path': both 'no commit' and 'commit' lines"
                     ) if (defined($found) && $found);
@@ -4786,6 +4968,23 @@ sub new
     }
 
     $self->compute();
+    # remove empty directories produced when no data in the directory
+    #   was selected.  We want to clean both the directory and its parents.
+    foreach my $dir (@cleanDirectoryList) {
+        while ($dir) {
+            my $d = File::Spec->catfile($main::output_directory, $dir);
+            if (-d $d) {
+                print("removing empty $d\n");
+                if (!rmdir($d)) {
+                    # directory not empty - stop
+                    last;
+                }
+            }
+            $d = File::Basename::dirname($dir);    # look up
+            last if $d eq $dir;
+            $dir = $d;
+        }
+    }
     return $self;
 }
 
@@ -4821,6 +5020,70 @@ sub completed_dependency
         push(@{$self->[$WORKLIST_IDX]}, $pendingParent->[0]);
         delete($pending->{$parent});
     }
+}
+
+sub merge_one
+{
+    my ($self, $parentPerTestData, $fullname, $perTest, $summary,
+        $parentSummary, $parentPath, $parallel)
+        = @_;
+    my $type = $summary->type();
+    if ('file' eq $type) {
+        my $base_name = File::Basename::basename($fullname);
+        for (my $i = 0; $i < 3; $i++) {
+            $parentPerTestData->[$i]->{$base_name} = $perTest->[$i];
+        }
+    } elsif ('directory' eq $type) {
+        for (my $i = 0; $i < 3; $i++) {
+            while (my ($basename, $data) = each(%{$perTest->[$i]})) {
+                $parentPerTestData->[$i]->{$basename} = $data;
+            }
+        }
+    } else {
+        die("unexpected type $type")
+            unless $type eq 'top';
+        # set the top-level to this (restored) value...
+        $self->[0] = $summary if $parallel;
+    }
+    if ($type ne 'top') {
+        my $mergeInto = $main::flat ? $self->top() : $parentSummary;
+        $mergeInto->append($summary);
+
+        my $parentName = $main::flat ? '' : $parentPath;
+        $self->completed_dependency($parentName, $fullname);
+    }
+}
+
+sub compute_one
+{
+    my ($type, $name, $summary, $parentSummary, $rel_dir, $base_dir, $trunc_dir)
+        = @_;
+
+    my $perTestData;
+    if ('file' eq $type) {
+        my ($testdata, $testfncdata, $testbrdata) =
+            main::process_file($summary, $parentSummary,
+                               $trunc_dir, $rel_dir, $name);
+        $perTestData = [$testdata, $testfncdata, $testbrdata];
+    } elsif ('dir' eq $type) {
+        $perTestData = [{}, {}, {}];
+        # process the directory...
+        main::write_summary_pages($name, 1,    # this is a directory,
+                                  $summary, $main::show_details,
+                                  $rel_dir, $base_dir, $trunc_dir,
+                                  $perTestData);
+    } else {
+        die("unexpected task")
+            unless 'top' eq $type;
+        # Create sorted pages
+        main::write_summary_pages(
+                       $name, 0,               # 0 == list directories
+                       $summary,
+                       0,  # don't generate 'details' links for top-level report
+                       ".", "", undef, undef);
+    }
+    $summary->checkCoverageCriteria();
+    return $perTestData;
 }
 
 sub compute
@@ -4869,19 +5132,7 @@ sub compute
                     next WORK;
                 }
                 --$currentParallel;
-                my ($summary, $fullname, $parentData, $now) =
-                    @{$children->{$child}};
-                my ($parentSummary, $parentPerTestData, $parentPath) =
-                    @{$parentData->[0]->[1]};
-
                 $self->merge_child($child, $childstatus);
-
-                delete($children->{$child});
-
-                if ($summary->type() ne 'top') {
-                    # remove current object from dependencies...
-                    $self->completed_dependency($parentPath, $fullname);
-                }
                 next WORK;
             }
         }
@@ -4949,39 +5200,15 @@ sub compute
                 my $currentState = lcovutil::initial_state();
                 my $status       = 0;
                 my $criteria;
+                my $thisTestData;
                 my ($stdout, $stderr, $code) = Capture::Tiny::capture {
 
                     eval {
-                        if ('file' eq $type) {
-                            ($perTestData->[0], $perTestData->[1],
-                             $perTestData->[2])
-                                =
-                                main::process_file($selfSummary, $parentSummary,
-                                                   $trunc_dir, $rel_dir, $name);
-                        } elsif ('dir' eq $type) {
-                            # Create sorted summary pages
-                            main::write_summary_pages(
-                                            $name, 1,    # this is a directory,
-                                            $selfSummary, $main::show_details,
-                                            $rel_dir, $base_dir, $trunc_dir,
-                                            $perTestData);
-                        } else {
-                            die("unexpected task '" . join(' ', @$task) . ".")
-                                unless 'top' eq $type;
+                        $thisTestData =
+                            compute_one($type, $name, $selfSummary,
+                                        $parentSummary, $rel_dir, $base_dir,
+                                        $trunc_dir);
 
-                            # Generate overview page
-                            lcovutil::info(
-                                    "Writing top-level directory view page.\n");
-                            # Create sorted pages
-                            main::write_summary_pages(
-                                $name, 0,    # 0 == list directories
-                                $selfSummary,
-                                0
-                                , # don't generate 'details' links for top-level report
-                                ".", "", undef, undef);
-                        }
-
-                        $selfSummary->checkCoverageCriteria();
                         # clear the parent pointer that we hacked into place.  Don't want that
                         #   extra data returned by dumper.
                         $selfSummary->[SummaryInfo::PARENT]  = undef;
@@ -5037,41 +5264,12 @@ sub compute
         } else {
             #not parallel
 
-            if ('file' eq $type) {
-                my ($testdata, $testfncdata, $testbrdata) =
-                    main::process_file($selfSummary, $parentSummary,
-                                       $trunc_dir, $rel_dir, $name);
-                my $base_name = File::Basename::basename($name);
+            my $thisTestData =
+                compute_one($type, $name, $selfSummary, $parentSummary,
+                            $rel_dir, $base_dir, $trunc_dir);
 
-                $perTestData->[0]{$base_name} = $testdata;
-                $perTestData->[1]{$base_name} = $testfncdata;
-                $perTestData->[2]{$base_name} = $testbrdata;
-                my $mergeInto = $main::flat ? $self->top() : $parentSummary;
-                $mergeInto->append($selfSummary);
-            } elsif ('dir' eq $type) {
-                # process the directory...
-                main::write_summary_pages($name, 1,    # this is a directory,
-                                          $selfSummary, $main::show_details,
-                                          $rel_dir, $base_dir, $trunc_dir,
-                                          $perTestData);
-                $parentSummary->append($selfSummary);
-            } else {
-                die("unexpected task '" . join(' ', @$task) . ".")
-                    unless 'top' eq $type;
-                # Create sorted pages
-                main::write_summary_pages(
-                       $name, 0,                       # 0 == list directories
-                       $selfSummary,
-                       0,  # don't generate 'details' links for top-level report
-                       ".", "", undef, undef);
-            }
-            $selfSummary->checkCoverageCriteria();
-
-            # remove current object from dependencies...
-            if ($type ne 'top') {
-                my $mergeInto = $main::flat ? '' : $parentPath;
-                $self->completed_dependency($mergeInto, $name);
-            }
+            $self->merge_one($perTestData, $name, $thisTestData,
+                             $selfSummary, $parentSummary, $parentPath);
             my $end = Time::HiRes::gettimeofday();
             $lcovutil::profileData{$type}{$name} = $end - $start;
         }
@@ -5087,15 +5285,14 @@ sub compute
         --$currentParallel;
         my ($summary, $fullname, $parentSummary, $parentPath, $now) =
             @{$children->{$child}};
-        $self->merge_child($child, $childstatus);
-
-        # remove current object from dependencies...
         if ($summary->type() ne 'top') {
+            # tail processing should see only the top-level object -
+            #  all other objects should have dependencies which would cause
+            #  them to be processed in the loop above
             die("did not expect to get here.." .
                 $summary->type() . " $currentParallel");
-
-            $self->completed_dependency($parentPath, $fullname);
         }
+        $self->merge_child($child, $childstatus);
     }
 }
 
@@ -5106,6 +5303,7 @@ sub merge_child($$$)
 
     my ($childSummary, $fullname, $parentData, $start) =
         @{$children->{$childPid}};
+    delete($children->{$childPid});
     my $type = $childSummary->type();
     my ($parentSummary, $parentPerTestData, $parentPath);
     ($parentSummary, $parentPerTestData, $parentPath) = @{$parentData->[0]->[1]}
@@ -5155,26 +5353,9 @@ sub merge_child($$$)
             $SourceFile::totalFiles     += $countData->[1];
             lcovutil::update_state(@$update);
             $childSummary->copyGuts($summary);
-            if ('file' eq $type) {
-                my $base_name = File::Basename::basename($fullname);
-                for (my $i = 0; $i < 3; $i++) {
-                    $parentPerTestData->[$i]->{$base_name} = $perTest->[$i];
-                }
-            } elsif ('directory' eq $type) {
-                for (my $i = 0; $i < 3; $i++) {
-                    while (my ($basename, $data) = each(%{$perTest->[$i]})) {
-                        $parentPerTestData->[$i]->{$basename} = $data;
-                    }
-                }
-            } else {
-                die("unexpected type $type")
-                    unless $type eq 'top';
-                $self->[0] = $summary;    # set the top-level to this value...
-            }
-            if ($type ne 'top') {
-                my $mergeInto = $main::flat ? $self->top() : $parentSummary;
-                $mergeInto->append($childSummary);
-            }
+            $self->merge_one($parentPerTestData, $fullname, $perTest,
+                             $childSummary, $parentSummary, $parentPath, 1);
+            # and save the deserialized criteria data
             if (defined($criteria)) {
                 my $name =
                     $childSummary->type() eq 'top' ? "" : $childSummary->name();
@@ -5309,7 +5490,7 @@ STDERR->autoflush;
 STDOUT->autoflush;
 
 my @datebins;
-my (@rc_date_bins, @rc_annotate_script, @rc_criteria_script);
+my (@rc_date_bins, @rc_annotate_script, @rc_criteria_script, @rc_select_script);
 
 my %genhtml_rc_opts = (
                "genhtml_css_file"           => \$css_filename,
@@ -5361,7 +5542,9 @@ my %genhtml_rc_opts = (
                'genhtml_criteria_script'     => \@rc_criteria_script,
                'criteria_callback_data'      => \@criteriaCallbackTypes,
                'criteria_callback_levels'    => \@criteriaCallbackLevels,
-               'genhtml_date_bins'           => \@rc_date_bins,);
+               "select_script"               => \@rc_select_script,
+               'num_context_lines' => \$InInterestingRegion::num_context_lines,
+               'genhtml_date_bins' => \@rc_date_bins,);
 
 my $save;
 my %genhtml_options = (
@@ -5379,6 +5562,7 @@ my %genhtml_options = (
                  "diff-file=s"          => \$diff_filename,
                  "annotate-script=s"    => \@SourceFile::annotateScript,
                  "criteria-script=s" => \@SummaryInfo::coverageCriteriaScript,
+                 "select-script=s"   => \@selectCallbackScript,
                  "new-file-as-baseline" => \$treatNewFileAsBaseline,
                  'elide-path-mismatch'  => \$elide_path_mismatch,
                  'synthesize-missing'   => \$synthesizeMissingFile,
@@ -5430,7 +5614,9 @@ $frames       = undef unless (defined($frames) && $frames);
 
 foreach my $rc ([\@datebins, \@rc_date_bins],
                 [\@SourceFile::annotateScript, \@rc_annotate_script],
-                [\@SummaryInfo::coverageCriteriaScript, \@rc_criteria_script]
+                [\@SummaryInfo::coverageCriteriaScript, \@rc_criteria_script],
+                [\@selectCallbackScript, \@rc_select_script]
+
 ) {
     @{$rc->[0]} = @{$rc->[1]} unless (@{$rc->[0]});
 }
@@ -5438,9 +5624,9 @@ foreach my $rc ([\@datebins, \@rc_date_bins],
 foreach my $cb ([\$SourceFile::annotateCallback, \@SourceFile::annotateScript],
                 [\$SummaryInfo::criteriaCallback,
                  \@SummaryInfo::coverageCriteriaScript
-                ]
+                ],
+                [\$selectCallback, \@selectCallbackScript]
 ) {
-
     ${$cb->[0]} = lcovutil::configure_callback(@{$cb->[1]})
         if scalar(@{$cb->[1]});
 }
@@ -5470,7 +5656,10 @@ die(
 
 $show_tla = 1
     if (@base_filenames) || defined($diff_filename);
-if ($show_tla && (0 == scalar(@base_filenames) && !defined($diff_filename))) {
+if ($show_tla &&
+    (0 == scalar(@base_filenames) &&
+        !defined($diff_filename))
+) {
     # no baseline - so not a differential report.
     #  modify some settings to gnerate corresponding RTL code.
     $use_legacyLabels = 1;
@@ -5673,8 +5862,7 @@ check_precision();
 # Make sure output_directory exists, create it if necessary
 $output_directory = '.'
     if !defined($output_directory);
-if ($output_directory &&
-    !-d $output_directory) {
+if ($output_directory && !-d $output_directory) {
     info(1, "make_path $output_directory\n");
     File::Path::make_path($output_directory);
 }
@@ -5715,8 +5903,7 @@ if (0 == $exit_status) {
 }
 
 # now check the coverage criteria (if any)
-if (0 == $exit_status &&
-    @SummaryInfo::coverageCriteriaScript) {
+if (0 == $exit_status && @SummaryInfo::coverageCriteriaScript) {
     # print the criteria summary to stdout:
     #   all criteria fails + any non-empty messages
     # In addtion:  print fails to stderr
@@ -5765,8 +5952,7 @@ if (0 == $exit_status &&
 lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'));
 # exit with non-zero status if --keep-going and some errors detected
 $exit_status = 1
-    if (0 == $exit_status &&
-        lcovutil::saw_error());
+    if (0 == $exit_status && lcovutil::saw_error());
 
 exit($exit_status);
 
@@ -6142,8 +6328,20 @@ sub write_dir_page
     my $activeTlaColsForType =
         write_header(*HTML_HANDLE, $ctrls, $trunc_dir, $rel_dir, $summary,
                      undef);
-    write_file_table(*HTML_HANDLE, $base_dir, $perTestcaseResult,
-                     $summary, $ctrls, $activeTlaColsForType);
+    if (0 != $summary->sources()) {
+        write_file_table(*HTML_HANDLE, $base_dir, $perTestcaseResult,
+                         $summary, $ctrls, $activeTlaColsForType);
+    } else {
+        my $msg =
+            "Coverage data table is empty - no coverpoints exist in the selected subset.";
+        write_html(*HTML_HANDLE, <<END_OF_HTML);
+          <br>
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="subTableHeader">$msg</td></tr>
+          </table>
+          <br>
+END_OF_HTML
+    }
     write_html_epilog(*HTML_HANDLE, $base_dir);
     close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
 }
@@ -6152,6 +6350,19 @@ sub write_summary_pages($$$$$$$$)
 {
     my ($name, $summaryType, $summary, $show_details,
         $rel_dir, $base_dir, $trunc_dir, $testhashes) = @_;
+
+    foreach my $c ($summary->sources()) {
+        my $child = $summary->get_source($c);
+        # filter this one out if no data
+        if ($child->is_empty()) {
+            $summary->remove_source($c);
+        }
+    }
+    if (0 == $summary->sources() && $summaryType == 1) {
+        # remove empty directory
+        push(@cleanDirectoryList, $rel_dir);
+        return;
+    }
 
     my $start = Time::HiRes::gettimeofday();
     my @summaryBins;
@@ -6198,6 +6409,8 @@ sub write_summary_pages($$$$$$$$)
 
     foreach my $params (@dirPageCalls) {
         write_dir_page(@$params);
+        last    # only write 'index.html' - not the sorted versions
+            if ($summary->is_empty());
     }
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{html}{$name} = $end - $start;
@@ -6321,6 +6534,9 @@ sub process_file($$$$$)
     #     source code is older than baseline file
     my $srcfile = SourceFile->new($filename, $fileSummary, $fileCovInfo,
                                   $sumcount, $fileHasNoBaselineInfo);
+    if ($srcfile->is_empty()) {
+        return;
+    }
     # somewhat of a hack:  we are ultimately going to merge $fileSummary
     #   (the data for this particular file) into $parent_dir (the data
     #    for the parent directory) - but we need to do that in the caller
@@ -7508,10 +7724,27 @@ sub write_css_file()
           margin-top: 2px;
         }
 
+        /* elided/removed code */
+        span.elidedSource
+        {
+          font-family: sans-serif;
+          /*font-size: 8pt; */
+          font-style: italic;
+          background-color: lightgrey;
+        }
+
         /* Source code view: line number format */
         span.lineNum
         {
           background-color: #COLOR_09;
+        }
+
+        /* Source code view: line number format when there are deleted
+           lines in the corresponding location */
+        span.lineNumWithDelete
+        {
+          foreground-color: #COLOR_09;
+          background-color: lightgrey;
         }
 
         /* Source code view: format for Cov legend */
@@ -8907,8 +9140,9 @@ sub write_source_line(*$$$$)
         # '$result' is used to generate the PNG frame
         info(2,
              "    $bucket: line=$line " .
-                 (defined($count) ? "count= $count " : "") .
-                 "curr=$curr_count base=$base_count\n");
+                 (defined($count) ? "count= $count " : "") . 'curr=' .
+                 (defined($curr_count) ? $curr_count : '-') . 'base=' .
+                 (defined($base_count) ? $base_count : '-') . "\n");
     }
     $result .= ":" . $source;
 
@@ -9113,7 +9347,24 @@ sub write_source_line(*$$$$)
         }
     }    # DATE_SECTION
 
-    $html .= sprintf("<span class=\"lineNum\">%8d</span> ", $line);
+    # use a different HTML tag if there are deleted lines here
+    my $deletedLines = $fileCovInfo->deletedLineData($line);
+    my $lineNumTag   = 'lineNum';
+    my $lineNumTitle = '';
+    if (defined($deletedLines)) {
+        my $first = $deletedLines->[0]->lineNo('base');
+        my $last  = $deletedLines->[-1]->lineNo('base');
+        die("invalid deleted lines array") unless $first <= $last;
+        $lineNumTitle = ' title="'
+            .
+            (($first != $last) ? "removed lines [$first:$last]" :
+                 "removed line $first") .
+            ' from baseline version"';
+        $lineNumTag = 'lineNumWithDelete';
+    }
+    my $lineNumSpan = "<span class=\"$lineNumTag\"$lineNumTitle>";
+
+    $html .= sprintf("$lineNumSpan%8d</span> ", $line);
     #printf("tla= " . $tla);
     #printf("html= " . $html);
     $html .= shift(@br_html) . ":" if ($lcovutil::br_coverage);
@@ -9147,7 +9398,7 @@ sub write_source_line(*$$$$)
         # Add lines for overlong branch information
         foreach (@br_html) {
             write_html($handle,
-                       "$html_continuation_leader<span class=\"lineNum\">" .
+                       "$html_continuation_leader$lineNumSpan" .
                            ' ' x 8 . "</span> $_\n");
         }
     }
@@ -9415,6 +9666,12 @@ sub buildDateSummaryTable($$$$$$$$$)
                          defined($nextLocationCallback) &&
                          $tla ne 'DCB'                  &&
                          $tla ne 'DUB') {
+                    # no link for deleted lines (DUB, DCB) because there
+                    # is no TLA for those categories at the location in
+                    # the 'current' sourceview.  That location is just a
+                    # normal line - maybe "not code", maybe 'CBC' or some
+                    # other TLA.
+
                     # link to first entry
                     my $firstAppearance =
                         &$nextLocationCallback($fileDetail, $bin, $tla);
@@ -9982,13 +10239,13 @@ END_OF_HTML
         push(@row_right, \@headerRow);
     }
     # Line coverage
-    my $tot = $summary->l_found();
+    my $tot = $summary->l_found();    #might have been modified...
     my $hit = $summary->l_hit();
     my $style =
         $rate_name[classify_rate($tot, $hit, $ln_med_limit, $ln_hi_limit)];
     my $rate = rate($hit, $tot, "&nbsp;%");
     $hit -= $tot
-        if $main::opt_missed;    # negative number
+        if $main::opt_missed;         # negative number
     my @dataRow = ([undef, "headerItem", "Lines:"],
                    [undef, "headerCovTableEntry$style", $rate],
                    [undef, "headerCovTableEntry", $tot]);
@@ -10874,9 +11131,46 @@ sub write_source($$$$$$$)
     my $line_number = 0;
     my $cbdata      = PrintCallback->new($srcfile, $fileCovInfo);
 
+    my ($region, $empty);
+    if ($selectCallback) {
+        $region = InInterestingRegion->new(@{$srcfile->interesting_lines()});
+        $empty  = '';
+        if ($srcfile->isProjectFile()) {
+            $empty .= ' ' x $main::age_field_width;
+            $empty .= ' ' x $main::owner_field_width;
+        }
+        # using 8 characters for line number field, with different
+        # foreground/background - to make distinctive
+        $empty .= '  <span class="lineNumWithDelete">' .
+            (' ' x (8 - 3)) . '...</span>';
+        $empty .= ' ' x $main::br_field_width if $main::br_coverage;
+        $empty .= ' ' x $main::tla_field_width;
+        $empty .= ' ' x ($line_field_width - 1);
+        $empty .=
+            '<span class="elidedSource">     (elided NUM_LINES ignored lines)</span>';
+    }
+
+    my $prevLine = 0;
     foreach my $srcline (@{$srcfile->lines()}) {
         $line_number++;
         $cbdata->lineNo($line_number);
+        if (defined($region) && !$region->interesting($line_number)) {
+            lcovutil::info(1, "skip line $line_number\n");
+            next;
+        }
+        if ($prevLine != $line_number - 1) {
+            $cbdata->age(-1, $line_number);
+            $cbdata->owner(undef, $line_number);
+            $cbdata->tla(undef, $line_number);
+
+            lcovutil::info(1, "continuation_line $line_number\n");
+            my $l = $empty;
+            my $c = $line_number - ($prevLine + 1);
+            $l =~ s/NUM_LINES/$c/;
+            push(@result, $l);
+            write_html(*HTML_HANDLE, $l . "\n");
+        }
+        $prevLine = $line_number;
 
         # Source code matches coverage data?
         lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
@@ -10892,6 +11186,15 @@ sub write_source($$$$$$$)
                                $sumbrcount->value($line_number),
                                $cbdata));
     }
+    if ($prevLine != $line_number) {
+        # need another blank line at the bottom...
+        my $l = $empty;
+        my $c = $line_number - $prevLine;
+        $l =~ s/NUM_LINES/$c/;
+        push(@result, $l);
+        write_html(*HTML_HANDLE, $l . "\n");
+    }
+
     write_source_epilog(*HTML_HANDLE);
     return (@result);
 }

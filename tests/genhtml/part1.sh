@@ -19,6 +19,11 @@ while [ $# -gt 0 ] ; do
 
             ;;
 
+        -v | --verbose )
+            set -x
+            shift
+            ;;
+
         * )
             break
             ;;

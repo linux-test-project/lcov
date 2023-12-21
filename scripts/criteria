@@ -42,6 +42,7 @@ use FindBin;
 use Getopt::Long;
 use lib "$FindBin::RealBin";
 use criteria qw(new);
+use JSON;
 
 my $obj = criteria->new($0, @ARGV);
 
@@ -51,8 +52,10 @@ if (!GetOptions('signoff' => \$signoff)) {
     exit(1) if caller;
     return undef;
 }
+my $json = pop(@ARGV);
+my $db   = decode_json($json);
 
-my ($status, $msgs) = $obj->check_criteria(@ARGV);
+my ($status, $msgs) = $obj->check_criteria(@ARGV, $db);
 foreach my $m (@$msgs) {
     print($m, "\n");
 }

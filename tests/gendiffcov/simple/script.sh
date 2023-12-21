@@ -100,6 +100,7 @@ fi
 GET_VERSION=${SCRIPT_DIR}/getp4version
 P4ANNOTATE=${SCRIPT_DIR}/p4annotate.pm
 CRITERIA=${SCRIPT_DIR}/criteria
+SELECT=${SCRIPT_DIR}/select.pm
 
 #PARALLEL=''
 #PROFILE="''
@@ -111,7 +112,7 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d
-rm -rf ./cover_db ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix*
+rm -rf ./cover_db ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -873,6 +874,74 @@ grep "UNC + LBC + UIC != 0" signoff.log
 # expect to find the string (0 return val) if flag is present
 if [ 0 != $? ] ; then
     echo "ERROR: 'criteria string is missing from signoff.log"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+# check select script
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml select did not pass"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+FILE=`find select -name test.cpp.gcov.html`
+for owner in roderick.glossop ; do #expect to filter these guys out
+    grep $owner $FILE
+    if [ 0 == $? ] ; then
+        echo "ERROR: did not find $owner in select group"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+COUNT=`grep -c 'ignored lines' $FILE`
+if [ 0 != $? ] ; then
+    echo "ERROR: did not find elided message"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ 2 != $COUNT ] ; then
+    echo "ERROR: did not find elided messages"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+# check select script
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2
+$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml select did not pass"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep 'Coverage data table is empty' select2/index.html
+if [ 0 != $? ] ; then
+    echo "ERROR: did not find elided message"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+NAME=`(cd select2 ; ls /*.html)`
+if [ "index.html" != $NAME ] ; then
+    echo "ERROR: expected to find only one HTML file"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1

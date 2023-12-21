@@ -1539,6 +1539,15 @@ use the following parameter:
 .br
 
 This will change all "/tmp/build" strings in the path to "/usr/src".
+
+The
+.I adjust_src_path
+option is similar to the
+.I substitution = ...
+option - which is somewhat more general and allows you to specify
+multiple substituion patterns.  Also see the
+.I resolve_script
+option.
 .PP
 
 .BR source_directory " ="
@@ -1997,7 +2006,7 @@ This option is used by genhtml, lcov, and geninfo.
 .IP
 Tells genhtml, lcov, or geninfo the maximum memory to use during parallel processing
 operations.   Maximum is computed as a percentage of the total memory
-available on the system; for example, '75' would use limit to 75% of 
+available on the system; for example, '75' would use limit to 75% of
 total memory, whereas 150.5 would limit to 150.5% (
 .I i.e.,
 larger than the total available.
@@ -2173,7 +2182,7 @@ See the genhtml man page for details.
 .IP
 This option is equivalent to the geninfo/lcov/genhtml "\-\-resolve\-script" option.
 
-This option can be used multiple times in the lcovrc file to specify both a version script and additional options which are passed to the script.
+This option can be used multiple times in the lcovrc file to specify both a resolve script and additional options which are passed to the script.
 
 The resolve script provides a mechanism to find a
 source or data file that cannot be found by simply modify paths via substituion
@@ -2185,12 +2194,12 @@ above) and searching along the corresponding directory list:
 .B geninfo:
 the
 .I "'build_directory = dirname'"
-config file entry 
+config file entry
 or
 .I \-\-build\=directory
 command line option, used to search for GCNO files,
 .PP
-.IP 
+.IP
 .B geninfo/genhtml/lcov:
 the
 .I "'source_directory = dirname'"
@@ -2215,6 +2224,67 @@ whether it should look for either a source or data file.
 The script should return either empty string (file not found/no such file) or the actual
 path name.  The returned path may be either absolute or relative to CWD.
 .RE
+.PP
+
+.BR select_script " ="
+.IR path_to_executable | parameter
+.IP
+This option is equivalent to the genhtml "\-\-select\-script" option.
+
+This option can be used multiple times in the lcovrc file to specify both a select script and additional options which are passed to the script.
+
+The select script provides a mechanism to decide whether a particular
+source line is interesting - whether it should be included in the
+generated
+coverage report - or not.
+
+Lines which are not selected but fall within
+.I num_context_lines
+of a selected line are also included in the report.  See below.
+
+The select script is called as:
+
+.B "   select_script"
+[callback_args]
+.I lineDataJson [annotateDataJson]
+
+or as:
+
+.B "   select_module"
+[callback_args]
+.I lineDataRef [annotateDataRef]
+
+where
+.I lineDataJson
+is a json-encoded LineData structure (see the lcovutil.pm source code) and
+.I annoateDataJson
+is the json-encoded data returned by your
+.I annotate\-script
+(see the
+.I \-\-annotate\-script
+parameter in man
+.B genhtml(1).
+The module callback is similar except that is is passed objects rather than JSON encodings of hte objects.
+
+The script should return "1" or "0".
+
+See example implementation
+.I $LCOV_HOME/share/lcov/support-scripts/select.pm.
+.RE
+
+
+.PP
+
+.BR num_context_lines " = "
+.IR integer
+.IP
+Set the number of lines around each selected line which is included in the
+report - see
+.I select_script = ...
+above and the
+.I \-\-select\-script
+command line option in man
+.B genhtml(1).
 .PP
 
 .BR filter " ="
