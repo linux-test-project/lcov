@@ -98,7 +98,7 @@ info:
 	@echo "  check     : perform self-tests"
 	@echo "  checkstyle: check source files for coding style issues"
 	@echo "  release   : finalize release and create git tag for specified VERSION"
-	@echo "  test      : same as 'make check"
+	@echo "  test      : same as 'make check'"
 
 clean:
 	$(call echocmd,"  CLEAN   lcov")
