@@ -35,10 +35,10 @@ while [ $# -gt 0 ] ; do
                LOCAL_COVERAGE=0
                shift
             fi
-            if [ ! -d $COVER_DB ] ; then
-                mkdir -p $COVER_DB
+            if [ ! -d ${COVER_DB} ] ; then
+                mkdir -p ${COVER_DB}
             fi
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             ;;
 
         --home | -home )
@@ -95,6 +95,12 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 if [ -f $LCOV_HOME/scripts/getp4version ] ; then
@@ -146,7 +152,7 @@ ${CXX} --coverage -DCALL_FUNCTIONS test.cpp
 
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -157,7 +163,7 @@ gzip -c baseline_call.info > baseline_call.info.gz
 
 # run again - without version info:
 echo lcov $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest
-$COVER $LCOV_HOME/bin/lcov $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest
+$COVER $LCOV_TOOL $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture no version failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -173,7 +179,7 @@ if [ 0 == $? ] ; then
 fi
 # insert the version info
 echo lcov $VERSION_OPTS --rc compute_file_version=1 --add-tracefile baseline_no_vers.info --output-file baseline_vers.info
-$COVER lcov $VERSION_OPTS --rc compute_file_version=1 --add-tracefile baseline_no_vers.info --output-file baseline_vers.info
+$COVER $LCOV_TOOL $VERSION_OPTS --rc compute_file_version=1 --add-tracefile baseline_no_vers.info --output-file baseline_vers.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov insert version failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -194,7 +200,7 @@ ${CXX} --coverage test.cpp
 ./a.out
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (2) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -211,7 +217,7 @@ ln -s current.cpp test.cpp
 ${CXX} --coverage -DADD_CODE -DREMOVE_CODE -DCALL_FUNCTIONS test.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current_call.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current_call.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current_call.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (3) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -224,7 +230,7 @@ rm -f test.gcno test.gcda a.out
 ${CXX} --coverage -DADD_CODE -DREMOVE_CODE test.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current_nocall.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current_nocall.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current_nocall.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (4) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -259,8 +265,8 @@ fi
 for base in baseline_call baseline_nocall ; do
     for curr in current_call current_nocall ; do
         OUT=${base}_${curr}
-        echo $LCOV_HOME/bin/genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info
-        $COVER $LCOV_HOME/bin/genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --elide-path
+        echo genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info
+        $COVER $GENHTML_TOOL -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --elide-path
         if [ $? != 0 ] ; then
             echo "genhtml $OUT failed"
             if [ 0 == $KEEP_GOING ] ; then
@@ -290,7 +296,7 @@ rm *.gcda *.gcno
 ${CXX} --coverage -std=c++11 -o template template.cpp
 ./template
 echo lcov $LCOV_OPTS --capture --directory . --demangle --output-file template.info --no-external --branch-coverage --test-name myTest
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --demangle --directory . --output-file template.info --no-external --branch-coverage --test-name myTest
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --demangle --directory . --output-file template.info --no-external --branch-coverage --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -307,8 +313,8 @@ fi
 
 for opt in '' '--forget-test-names' ; do
     outdir="alias$opt"
-    echo $LCOV_HOME/bin/genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion
-    $COVER $LCOV_HOME/bin/genhtml -o $outdir $pt $DIFFCOV_OPTS  template.info --show-proportion
+    echo genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion
+    $COVER $GENHTML_TOOL -o $outdir $pt $DIFFCOV_OPTS  template.info --show-proportion
     if [ $? != 0 ] ; then
         echo "genhtml $outdir failed"
         if [ 0 == $KEEP_GOING ] ; then
@@ -326,8 +332,8 @@ for opt in '' '--forget-test-names' ; do
 
     outdir="no_alias$opt"
     # suppres aliases
-    echo $LCOV_HOME/bin/genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion --suppress-alias
-    $COVER $LCOV_HOME/bin/genhtml -o $outdir $opt $DIFFCOV_OPTS  template.info --show-proportion --suppress-alias
+    echo genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion --suppress-alias
+    $COVER $GENHTML_TOOL -o $outdir $opt $DIFFCOV_OPTS  template.info --show-proportion --suppress-alias
     if [ $? != 0 ] ; then
         echo "genhtml $outdir failed"
         if [ 0 == $KEEP_GOING ] ; then

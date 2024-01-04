@@ -64,7 +64,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      set_rtl_extensions set_c_extensions
      $source_filter_lookahead $source_filter_bitwise_are_conditional
      $exclude_exception_branch
-     $derive_function_end_line $trivial_function_threshold
+     $derive_function_end_line $derive_function_end_line_all_files
+     $trivial_function_threshold
 
      $lcov_filter_parallel $lcov_filter_chunk_size
 
@@ -289,10 +290,11 @@ our $EXCL_EXCEPTION_LINE = 'LCOV_EXCL_EXCEPTION_BR_LINE';
 our @exclude_file_patterns;
 our @include_file_patterns;
 our %excluded_files;
-our $case_insensitive           = 0;
-our $exclude_exception_branch   = 0;
-our $derive_function_end_line   = 1;
-our $trivial_function_threshold = 5;
+our $case_insensitive                   = 0;
+our $exclude_exception_branch           = 0;
+our $derive_function_end_line           = 1;
+our $derive_function_end_line_all_files = 0;    # by default, C only
+our $trivial_function_threshold         = 5;
 
 # list of regexps applied to line text - if exclude if matched
 our @omit_line_patterns;
@@ -1031,6 +1033,8 @@ my @deprecated_uses;
 
 my %rc_common = (
              'derive_function_end_line' => \$lcovutil::derive_function_end_line,
+             'derive_function_end_line_all_files' =>
+        \$derive_function_end_line_all_files,
              'trivial_function_threshold' => \$lcovutil::trivial_function_threshold,
              "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
              "lcov_json_module"            => \$JsonSupport::rc_json_module,
@@ -1507,6 +1511,7 @@ sub define_errors()
 
 sub summarize_messages
 {
+    my $silent = shift;
     return if $lcovutil::in_child_process;
 
     my %total = ('error'   => 0,
@@ -1521,19 +1526,20 @@ sub summarize_messages
             $found = 1;
         }
     }
-    info(-1, "Message summary:\n");
+    my $header = "Message summary:\n";
     foreach my $type ('error', 'warning', 'ignore') {
         next unless $total{$type};
         $found = 1;
-        my $leader = '  ' . $total{$type} . " $type message" .
+        my $leader = $header . '  ' . $total{$type} . " $type message" .
             ($total{$type} > 1 ? 's' : '') . ":\n";
         my $h = $message_types{$type};
         foreach my $k (sort keys %$h) {
             info(-1, $leader . '    ' . $k . ": " . $h->{$k} . "\n");
             $leader = '';
         }
+        $header = '';
     }
-    info(-1, "  no messages were reported\n") unless $found;
+    info(-1, "$header  no messages were reported\n") unless $found || $silent;
 }
 
 sub parse_ignore_errors(@)
@@ -6186,11 +6192,13 @@ sub applyFilters
         # derive function end line for C/C++ code if requested
         # (not trying to handle python nested functions, etc)
         DERIVE:
-        if (0 == ($self->[STATE] & DID_DERIVE) &&
+        if (0 == ($self->[STATE] & DID_DERIVE)           &&
             defined($lcovutil::derive_function_end_line) &&
             $lcovutil::derive_function_end_line != 0     &&
             defined($lcovutil::func_coverage)            &&
-            is_c_file($source_file)) {
+            ($lcovutil::derive_end_line_all_files ||
+                is_c_file($source_file))
+        ) {
             my @lines = sort { $a <=> $b } $traceInfo->sum()->keylist();
             # sort functions by start line number
             # ignore lambdas - which we don't process correctly at the moment

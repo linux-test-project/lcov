@@ -35,7 +35,7 @@ while [ $# -gt 0 ] ; do
                LOCAL_COVERAGE=0
                shift
             fi
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             ;;
 
         --home | -home )
@@ -88,6 +88,12 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
@@ -134,7 +140,7 @@ if [ "${VER[0]}" -lt 5 ] ; then
 fi
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file current.info --no-external $IGNORE
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current.info --no-external $IGNORE
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current.info --no-external $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -145,8 +151,8 @@ fi
 # add an out-of-range line to the coverage data
 perl munge.pl current.info > munged.info
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info 2>&1 | tee err.log
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info 2>&1 | tee err.log
 if [ 0 == ${[PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml did not return error"
     if [ 0 == $KEEP_GOING ] ; then
@@ -162,8 +168,8 @@ if [ 0 != $? ] ; then
 fi
 
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated --ignore range ./munged.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated ./munged.info --ignore range 2>&1 | tee annotate.log
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated --ignore range ./munged.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated ./munged.info --ignore range 2>&1 | tee annotate.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml annotated failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -172,8 +178,8 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
 fi
 
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS -o vanilla --ignore range ./munged.info
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS -o vanilla --ignore range ./munged.info  2>&1 | tee vanilla.log
+echo genhtml $DIFFCOV_OPTS -o vanilla --ignore range ./munged.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS -o vanilla --ignore range ./munged.info  2>&1 | tee vanilla.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml vanilla failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -201,8 +207,8 @@ for dir in annotated vanilla ; do
    fi
 done
 
-echo ${LCOV_HOME}/bin/lcov $LCOV_OPTS --ignore range -o range.info -a ./munged.info --filter branch
-$COVER ${LCOV_HOME}/bin/lcov $LCOV_OPTS  --ignore range -o range.info -a ./munged.info --filter branch 2>&1 | tee range.log
+echo lcov $LCOV_OPTS --ignore range -o range.info -a ./munged.info --filter branch
+$COVER $LCOV_TOOL $LCOV_OPTS  --ignore range -o range.info -a ./munged.info --filter branch 2>&1 | tee range.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: lcov --ignore range failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -217,8 +223,8 @@ if [ 1 != $COUNT1 ] ; then
     fi
 fi
 
-echo ${LCOV_HOME}/bin/lcov $LCOV_OPTS --ignore range -o range.info -a ./munged.info --filter branch --rc warn_once_per_file=0
-$COVER ${LCOV_HOME}/bin/lcov $LCOV_OPTS  --ignore range -o range.info -a ./munged.info --filter branch --rc warn_once_per_file=0 2>&1 | tee range2.log
+echo lcov $LCOV_OPTS --ignore range -o range.info -a ./munged.info --filter branch --rc warn_once_per_file=0
+$COVER $LCOV_TOOL $LCOV_OPTS  --ignore range -o range.info -a ./munged.info --filter branch --rc warn_once_per_file=0 2>&1 | tee range2.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: lcov --ignore range2 failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -233,8 +239,8 @@ if [ 2 != $COUNT2 ] ; then
     fi
 fi
 
-echo ${LCOV_HOME}/bin/lcov $LCOV_OPTS -o filter.info --filter range -a ./munged.info --filter branch
-$COVER ${LCOV_HOME}/bin/lcov $LCOV_OPTS -o filter.info --filter range -a ./munged.info --filter branch 2>&1 | tee filter.log
+echo lcov $LCOV_OPTS -o filter.info --filter range -a ./munged.info --filter branch
+$COVER $LCOV_TOOL $LCOV_OPTS -o filter.info --filter range -a ./munged.info --filter branch 2>&1 | tee filter.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: lcov --filter range failed"
     if [ 0 == $KEEP_GOING ] ; then

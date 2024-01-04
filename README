@@ -54,6 +54,7 @@ Further README contents
   bin/lcov           - Tool for capturing LCOV coverage data
   bin/genhtml        - Tool for creating HTML output from LCOV data
   bin/gendesc        - Tool for creating description files as used by genhtml
+  bin/perl2lcov      - Tool to translate Perl Devel::Cover data to lcov format
   bin/geninfo        - Internal tool (creates LCOV data files)
   bin/genpng         - Internal tool (creates png overviews of source files)
   man                - Directory containing man pages for included tools
@@ -363,11 +364,27 @@ New features and capabilities fall into 7 major categories:
 
   g) Language support
 
-     Added 'py2lcov' script, which translates python Coverage.py XML data
-     to lcov format.
+     Added 'py2lcov' and 'perl2lcov' scripts.
 
-     See the Coverage.py documentation at https://coverage.readthedocs.io,
-     as well as ".../py2lcov --help"
+       - py2lcov:
+
+           translates python Coverage.py XML data to lcov format.
+
+           See the Coverage.py documentation at https://coverage.readthedocs.io,
+           as well as ".../py2lcov --help"
+
+       - perl2lcov
+
+          translates Perl Devel::Cover data to lcov format.
+
+          See the Devel::Cover documentation at
+            https://metacpan.org/pod/Devel::Cover
+          to find out how to generate coverage data for Perl code.
+
+          See "perl2lcov --help" for brief instructions on how to
+          use the translator.
+          Note that perl2lcov uses a similar set of command line and
+          config file options as lcov, genhtml, and geninfo.
 
      Other languages can be integrated using a similar approach.
 

@@ -78,6 +78,16 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
+#use geninfo for capture - so we can collect coverage info
+CAPTURE=$GENINFO_TOOL 
+#CAPTURE="$LCOV_TOOL --capture --directory"
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
@@ -123,7 +133,7 @@ if [ "${VER[0]}" -lt 8 ] ; then
     # cannot generate branch data unless 'intermediate'
     IGNORE_USAGE="--ignore usage"
 fi
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --initial --directory . -o initial.info $IGNORE_EMPTY $IGNORE_USAGE
+$COVER $CAPTURE . $LCOV_OPTS --initial -o initial.info $IGNORE_EMPTY $IGNORE_USAGE
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --initial"
     if [ $KEEP_GOING == 0 ] ; then
@@ -137,7 +147,7 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o external.info $FILTER $IGNORE
+$COVER $CAPTURE . $LCOV_OPTS -o external.info $FILTER $IGNORE
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --capture"
     if [ $KEEP_GOING == 0 ] ; then
@@ -145,7 +155,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list external.info $FILTER $IGNORE
+$COVER $LCOV_TOOL $LCOV_OPTS --list external.info $FILTER $IGNORE
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --list"
     if [ $KEEP_GOING == 0 ] ; then
@@ -160,9 +170,9 @@ if [ $COUNT == '1' ] ; then
     exit 1
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o internal.info
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o internal.info
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list internal.info
+$COVER $LCOV_TOOL $LCOV_OPTS --list internal.info
 
 COUNT=`grep -c SF: internal.info`
 if [ $COUNT != '1' ] ; then
@@ -171,7 +181,7 @@ if [ $COUNT != '1' ] ; then
 fi
 
 # use legacy RC 'geninfo_adjust_src_path option (had been a bug)
-$COVER $LCOV_HOME/bin/lcov --capture $LCOV_OPTS --capture --no-external --directory . -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_adjust_src_path='/tmp/foo => /build/bar'" --ignore unused 2>&1 | tee rcOptBug.log
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_adjust_src_path='/tmp/foo => /build/bar'" --ignore unused 2>&1 | tee rcOptBug.log
 if [ 0 != $? ] ; then
     echo "Error:  extract with RC option failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -200,7 +210,7 @@ BRACE_LINE='^DA:28'
 MARKER_LINES=`grep -v $BRACE_LINE internal.info | grep -c "^DA:"`
 
 # check 'no-markers':  is the excluded line back?
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o nomarkers.info --no-markers
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o nomarkers.info --no-markers
 if [ $? != 0 ] ; then
     echo "error return from extract no-markers"
     if [ $KEEP_GOING == 0 ] ; then
@@ -217,7 +227,7 @@ if [ $NOMARKER_LINES != '13' ] ; then
 fi
 
 # override excl_line start/stop - and make sure we didn't match
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o excl.info --rc lcov_excl_start=nomatch_start --rc lcov_excl_stop=nomatch_end
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o excl.info --rc lcov_excl_start=nomatch_start --rc lcov_excl_stop=nomatch_end
 if [ $? != 0 ] ; then
     echo "error return from marker override"
     if [ $KEEP_GOING == 0 ] ; then
@@ -233,7 +243,7 @@ if [ $EXCL_LINES != $NOMARKER_LINES ] ; then
 fi
 
 # override excl_br line start/stop - and make sure we match match
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o exclbr.info --rc lcov_excl_br_start=TEST_BRANCH_START --rc lcov_excl_br_stop=TEST_BRANCH_STOP
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o exclbr.info --rc lcov_excl_br_start=TEST_BRANCH_START --rc lcov_excl_br_stop=TEST_BRANCH_STOP
 if [ $? != 0 ] ; then
     echo "error return from branch marker override"
     if [ $KEEP_GOING == 0 ] ; then
@@ -250,7 +260,7 @@ if [ $EXCL_BRANCHES -ge $NOMARKER_BRANCHES ] ; then
 fi
 
 # override excl_br line start/stop - and make sure we match match
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o exclbrline.info --rc lcov_excl_br_line=TEST_BRANCH_LINE
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o exclbrline.info --rc lcov_excl_br_line=TEST_BRANCH_LINE
 if [ $? != 0 ] ; then
     echo "error return from branch line marker override"
     if [ $KEEP_GOING == 0 ] ; then
@@ -269,7 +279,7 @@ fi
 
 
 # check to see if "--omit-lines" works properly...
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines '\s+std::string str.+' --directory . -o omit.info
+$COVER $CAPTURE . $LCOV_OPTS --no-external --omit-lines '\s+std::string str.+' -o omit.info
 
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --omit"
@@ -287,7 +297,7 @@ if [ $COUNT != '11' ] ; then
 fi
 
 # check to see if "--omit-lines" works fails if no match
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines 'xyz\s+std::string str.+' --directory . -o omitErr.info
+$COVER $CAPTURE . $LCOV_OPTS --no-external --omit-lines 'xyz\s+std::string str.+' -o omitErr.info
 
 if [ 0 == $? ] ; then
     echo "Error:  did not see expected error code from lcov --omit"
@@ -296,7 +306,7 @@ if [ 0 == $? ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --omit-lines 'xyz\s+std::string str.+' --directory . -o omitWarn.info --ignore unused
+$COVER $CAPTURE . $LCOV_OPTS --no-external --omit-lines 'xyz\s+std::string str.+' -o omitWarn.info --ignore unused
 
 if [ 0 != $? ] ; then
     echo "Error:  unexpected expected error code from lcov --omit --ignore.."
@@ -314,7 +324,7 @@ fi
 echo "omit_lines = ^std::string str.+\$" > testRC # no space at start ofline
 echo "omit_lines = ^\\s+std::string str.+\$" >> testRC
 #should fail due to no match...
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --config-file testRC --directory . -o rc_omitErr.info
+$COVER $CAPTURE . $LCOV_OPTS --no-external --config-file testRC -o rc_omitErr.info
 
 if [ 0 == $? ] ; then
     echo "Error:  did not see expected error code from lcov --config with bad omit"
@@ -325,7 +335,7 @@ fi
 echo "ignore_errors = unused" >> testRC
 echo "ignore_errors = empty" >> testRC
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --config-file testRC --directory . -o rc_omitWarn.info
+$COVER $CAPTURE . $LCOV_OPTS --no-external --config-file testRC -o rc_omitWarn.info
 
 if [ 0 != $? ] ; then
     echo "Error:  saw unexpected error code from lcov --config with ignored bad omit"
@@ -340,7 +350,7 @@ if [ $COUNT != '11' ] ; then
 fi
 
 # test with checksum..
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --no-external --directory . -o checksum.info --checksum
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o checksum.info --checksum
 if [ $? != 0 ] ; then
     echo "capture with checksum failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -348,7 +358,7 @@ if [ $? != 0 ] ; then
     fi
 fi
 # read file with matching checksum...
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary checksum.info --checksum
+$COVER $LCOV_TOOL $LCOV_OPTS --summary checksum.info --checksum
 if [ $? != 0 ] ; then
     echo "summary with checksum failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -357,7 +367,7 @@ if [ $? != 0 ] ; then
 fi
 #munge the checksum in the outpt file
 perl -i -pe 's/DA:6,1.+/DA:6,1,abcde/g' < checksum.info > mismatch.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary mismatch.info --checksum
+$COVER $LCOV_TOOL $LCOV_OPTS --summary mismatch.info --checksum
 if [ $? == 0 ] ; then
     echo "summary with mismatched checksum expected to fail"
     if [ $KEEP_GOING == 0 ] ; then
@@ -366,7 +376,7 @@ if [ $? == 0 ] ; then
 fi
 
 perl -i -pe 's/DA:6,1.+/DA:6,1/g' < checksum.info > missing.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary missing.info --checksum
+$COVER $LCOV_TOOL $LCOV_OPTS --summary missing.info --checksum
 if [ $? == 0 ] ; then
     echo "summary with missing checksum expected to fail"
     if [ $KEEP_GOING == 0 ] ; then
@@ -408,14 +418,14 @@ if [ 0 != $? ] ; then
 fi
 mkdir separate/run/my/test/no_read
 chmod ugo-w separate/run
-$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/build -d separate/run/my/test -o separate.info $FILTER $IGNORE
+$COVER $CAPTURE separate/run/my/test --branch-coverage $PARALLEL $PROFILE --build-directory separate/build  -o separate.info $FILTER $IGNORE
 if [ 0 != $? ] ; then
     echo "Error:  extract failed"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
 fi
-$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o copy.info $FILTER $IGNORE
+$COVER $CAPTURE separate/run/my/test --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy  -o copy.info $FILTER $IGNORE
 if [ 0 != $? ] ; then
     echo "Error:  extract from copy failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -424,7 +434,7 @@ if [ 0 != $? ] ; then
 fi
 
 # use --resolve-script instead - simply echo the right value of the gcno file
-$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --resolve-script ./fakeResolve.sh --resolve-script separate/copy/extract.gcno -d separate/run/my/test -o resolve.info $FILTER $IGNORE
+$COVER $CAPTURE  separate/run/my/test --branch-coverage $PARALLEL $PROFILE --resolve-script ./fakeResolve.sh --resolve-script separate/copy/extract.gcno -o resolve.info $FILTER $IGNORE
 if [ 0 != $? ] ; then
     echo "Error:  extract with resolve-script failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -444,7 +454,7 @@ done
 
 # trigger an error from an unreadable directory..
 chmod ugo-rx separate/run/my/test/no_read
-$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o unreadable.info $FILTER $IGNORE 2>&1 | tee err.log
+$COVER $CAPTURE separate/run/my/test --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -o unreadable.info $FILTER $IGNORE 2>&1 | tee err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "Error:  expected fail from unreadable dir"
     if [ $KEEP_GOING == 0 ] ; then
@@ -460,7 +470,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov --capture --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -d separate/run/my/test -o unreadable.info $FILTER $IGNORE --ignore utility 2>&1 | tee warn.log
+$COVER $CAPTURE separate/run/my/test --branch-coverage $PARALLEL $PROFILE --build-directory separate/copy -o unreadable.info $FILTER $IGNORE --ignore utility 2>&1 | tee warn.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  extract from unreadable failed"
     if [ $KEEP_GOING == 0 ] ; then

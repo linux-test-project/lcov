@@ -98,12 +98,19 @@ if ! type g++ >/dev/null 2>&1 ; then
         exit 2
 fi
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
+
 g++ -std=c++1y --coverage demangle.cpp
 ./a.out 1
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list demangle.info
+$COVER $LCOV_TOOL $LCOV_OPTS --list demangle.info
 
 # how many branches reported?
 COUNT=`grep -c BRDA: demangle.info`
@@ -131,9 +138,9 @@ for k in FN FNDA ; do
 done
 
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --directory . -o vanilla.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --directory . -o vanilla.info
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list vanilla.info
+$COVER $LCOV_TOOL $LCOV_OPTS --list vanilla.info
 
 # how many branches reported?
 COUNT=`grep -c BRDA: vanilla.info`
@@ -169,7 +176,7 @@ if [ $? == 0 ] ; then
     echo "   compiler version support start/end reporting - testing erase"
 
     # end line is captured - so we should be able to filter
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main -o exclude.info -v -v
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main -o exclude.info -v -v
     if [ $? != 0 ] ; then
         echo "geninfo with exclusion failed"
         if [ $KEEP_GOING == 0 ] ; then
@@ -187,7 +194,7 @@ if [ $? == 0 ] ; then
     done
 
     # check that the same lines are removed by 'aggregate'
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o aggregate.info -a demangle.info --erase-functions main -v
+    $COVER $LCOV_TOOL $LCOV_OPTS -o aggregate.info -a demangle.info --erase-functions main -v
 
     diff exclude.info aggregate.info
     if [ $? != 0 ] ; then
@@ -199,7 +206,7 @@ else
     # no end line in data - check for error message...
     echo "----------------------"
     echo "   compiler version DOESN't support start/end reporting - check error"
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude.info
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude.info
     if [ 0 == $? ] ; then
         echo "Error:  expected exit for unsupported feature"
         if [ $KEEP_GOING == 0 ] ; then
@@ -207,7 +214,7 @@ else
         fi
     fi
 
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unsupported,unused -o ignore.info
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unsupported,unused -o ignore.info
     if [ 0 != $? ] ; then
         echo "Error:  expected to ignore unsupported message"
         if [ $KEEP_GOING == 0 ] ; then

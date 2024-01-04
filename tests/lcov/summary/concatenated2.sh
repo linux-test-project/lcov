@@ -17,9 +17,14 @@ while [ $# -gt 0 ] ; do
             COVER_DB=$1
             shift
 
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             KEEP_GOING=1
 
+            ;;
+
+        -v | --verbose )
+            set -x
+            shift
             ;;
 
         * )
@@ -33,7 +38,7 @@ STDERR=summary_concatenated2_stderr.log
 INFO=concatenated2.info
 
 cat $PART1INFO $PART2INFO >$INFO
-$LCOV --summary "${INFO}" >${STDOUT} 2>${STDERR}
+$LCOV --summary "${INFO}" 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
 RC=$?
 cat "${STDOUT}" "${STDERR}"
 

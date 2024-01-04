@@ -14,9 +14,14 @@ while [ $# -gt 0 ] ; do
             COVER_DB=$1
             shift
 
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             KEEP_GOING=1
 
+            ;;
+
+        -v | --verbose )
+            set -x
+            shift
             ;;
 
         * )
@@ -32,7 +37,7 @@ STDERR="part2_stderr.log"
 rm -rf "${OUTDIR}"
 
 # Run genhtml
-$GENHTML $PART2INFO -o ${OUTDIR} >${STDOUT} 2>${STDERR}
+$GENHTML $PART2INFO -o ${OUTDIR} 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
 RC=$?
 
 echo "STDOUT_START"

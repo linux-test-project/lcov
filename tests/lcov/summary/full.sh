@@ -16,9 +16,14 @@ while [ $# -gt 0 ] ; do
             COVER_DB=$1
             shift
 
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             KEEP_GOING=1
 
+            ;;
+
+        -v | --verbose )
+            set -x
+            shift
             ;;
 
         * )
@@ -30,7 +35,7 @@ done
 STDOUT=summary_full_stdout.log
 STDERR=summary_full_stderr.log
 
-$LCOV --summary "${FULLINFO}" >${STDOUT} 2>${STDERR}
+$LCOV --summary "${FULLINFO}" 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
 RC=$?
 cat "${STDOUT}" "${STDERR}"
 
@@ -47,7 +52,7 @@ if [[ ! -s "${STDOUT}" ]] ; then
 fi
 
 # There must not be any output on stderr
-if [[ -s "${STDERR}" && $COVER == '' ]] ; then
+if [[ -s "${FILTERED}" && $COVER == '' ]] ; then
         echo "Error: Unexpected output on standard error"
         exit 1
 fi

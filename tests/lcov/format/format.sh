@@ -1,6 +1,8 @@
 #!/bin/bash
 set +x
 
+# test various errors in .info data
+
 CLEAN_ONLY=0
 COVER=
 
@@ -34,7 +36,7 @@ while [ $# -gt 0 ] ; do
                LOCAL_COVERAGE=0
                shift
             fi
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             ;;
 
         --home | -home )
@@ -78,6 +80,13 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
@@ -105,7 +114,7 @@ if ! type g++ >/dev/null 2>&1 ; then
         exit 2
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary format.info 2>&1 | tee err1.log
+$COVER $LCOV_TOOL $LCOV_OPTS --summary format.info 2>&1 | tee err1.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "Error:  expected error from lcov --summary but didn't see it"
     if [ $KEEP_GOING == 0 ] ; then
@@ -120,7 +129,7 @@ if [ "$ERRS" != 1 ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary format.info --ignore negative 2>&1 | tee err2.log
+$COVER $LCOV_TOOL $LCOV_OPTS --summary format.info --ignore negative 2>&1 | tee err2.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "Error:  expected error from lcov --summary negative but didn't see it"
     if [ $KEEP_GOING == 0 ] ; then
@@ -135,7 +144,7 @@ if [ "$ERRS" != 1 ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o out.info -a format.info --ignore format,negative 2>&1 | tee warn.log
+$COVER $LCOV_TOOL $LCOV_OPTS -o out.info -a format.info --ignore format,negative 2>&1 | tee warn.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  unexpected error from lcov -add"
     if [ $KEEP_GOING == 0 ] ; then
@@ -162,7 +171,7 @@ done
 
 
 # the file we wrote should be clean
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --summary out.info
+$COVER $LCOV_TOOL $LCOV_OPTS --summary out.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error from lcov --summary"
     if [ $KEEP_GOING == 0 ] ; then
@@ -172,7 +181,7 @@ fi
 
 rm -f out2.info
 # test excessive count messages
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o out2.info -a format.info --ignore format,format,negative,negative --rc excessive_count_threshold=1000000 2>&1 | tee excessive.log
+$COVER $LCOV_TOOL $LCOV_OPTS -o out2.info -a format.info --ignore format,format,negative,negative --rc excessive_count_threshold=1000000 2>&1 | tee excessive.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "Error:  expected excessive hit count message"
     if [ $KEEP_GOING == 0 ] ; then
@@ -191,10 +200,10 @@ if [ -e out2.info ] ; then
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
-fi    
+fi
 
 # check that --keep-going works as expected
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o out2.info -a format.info --ignore format,format,negative,negative --rc excessive_count_threshold=1000000 --keep-going 2>&1 | tee keepGoing.log
+$COVER $LCOV_TOOL $LCOV_OPTS -o out2.info -a format.info --ignore format,format,negative,negative --rc excessive_count_threshold=1000000 --keep-going 2>&1 | tee keepGoing.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "Error:  expected excessive hit count message"
     if [ $KEEP_GOING == 0 ] ; then
@@ -222,7 +231,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o out.info -a format.info --ignore format,format,negative,negative,excessive --rc excessive_count_threshold=1000000 2>&1 | tee warnExcessive.log
+$COVER $LCOV_TOOL $LCOV_OPTS -o out.info -a format.info --ignore format,format,negative,negative,excessive --rc excessive_count_threshold=1000000 2>&1 | tee warnExcessive.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  expected to warn"
     if [ $KEEP_GOING == 0 ] ; then

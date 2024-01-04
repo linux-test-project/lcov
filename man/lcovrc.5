@@ -348,6 +348,13 @@ genhtml_desc_html=0
 #derive_function_end_line = 1
 .br
 
+# If set, derive function end lines for all file types.
+# By default, we derive end lines for C/C++ files only
+#
+.br
+#derive_end_line_all_files = 0
+.br
+
 # Maximum size of function (number lines) which will be checked by '--filter trivial'
 .br
 #trivial_function_threshold = 5
@@ -1305,9 +1312,11 @@ options.
 
 This option is not required if you are using gcc/9 or newer; these versions report function begin/end lines directly.
 
-Note that end lines are derived only for C/C++ files; see the
+Note that end lines are derived only for C/C++ files unless the
+.I derive_function_end_lines_all_files
+option is enabled; see the
 .I c_file_extensions
-setting, above, for the list of extensions used to identify these files.
+setting, above, for the list of extensions used to identify C/C++ these files.
 .br
 Lambda functions are ignored during end line computation. Note that lambdas
 are identified via function name matching - so you must enable demangling
@@ -1317,6 +1326,19 @@ See the
 setting, above.
 
 Default is 1.
+.PP
+
+.BR derive_function_end_line_all_files " ="
+.IR  0 | 1
+.IP
+If non-zero, derive end lines for all functions, regardless of source language.
+By default, end lines are computed only in  C/C++ files.
+.br
+This option has no effect if
+.I derive_function_end_lines
+is disabled.
+
+Default is 0 (disabled).
 .PP
 
 .BR trivial_function_threshold " ="

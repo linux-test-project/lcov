@@ -30,13 +30,12 @@ while [ $# -gt 0 ] ; do
             ;;
 
         --coverage )
-            #COVER="perl -MDevel::Cover "
             if [[ "$1"x != 'x' &&  $1 != "-"* ]] ; then
                COVER_DB=$1
                LOCAL_COVERAGE=0
                shift
             fi
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             ;;
 
         --home | -home )
@@ -80,6 +79,12 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
@@ -107,7 +112,7 @@ if ! type g++ >/dev/null 2>&1 ; then
         exit 2
 fi
 
-$COVER $LCOV_HOME/bin/genhtml $LCOV_OPTS -o relative relative.info --ignore source,source --synthesize
+$COVER $GENHTML_TOOL $LCOV_OPTS -o relative relative.info --ignore source,source --synthesize
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from genhtml"
     if [ $KEEP_GOING == 0 ] ; then

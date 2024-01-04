@@ -5,18 +5,41 @@ TOPDIR       := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 TESTDIR      := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
 
 ifeq ($(LCOV_HOME),)
-BINDIR = $(realpath $(TOPDIR)/../bin)
+ROOT_DIR = $(realpath $(TOPDIR)/..)
 else
-BINDIR  := $(LCOV_HOME)/bin
+ROOT_DIR := $(LCOV_HOME)
+endif
+BINDIR = $(ROOT_DIR)/bin
+
+ifneq (,$(wildcard $(ROOT_DIR)/scripts))
+SCRIPTDIR := $(ROOT_DIR)/scripts
+else
+SCRIPTDIR := $(ROOT_DIR)/share/lcov/support-scripts
 endif
 
 ifeq ($(DEBUG),1)
 $(warning TOPDIR = $(TOPDIR))
 $(warning TESTDIR = $(TESTDIR))
 $(warning BINDIR = $(BINDIR))
+$(warning SCRIPTDIR = $(SCRIPTDIR))
 endif
 
 TESTBINDIR := $(TOPDIR)bin
+
+IS_GIT := $(shell git -C $(TOPDIR) rev-parse 2>&1 > /dev/null ; if [ 0 == $$? ]; then echo 1 ; else echo 0 ; fi)
+
+ifeq (1,$(IS_GIT))
+ANNOTATE_SCRIPT=$(SCRIPTDIR)/gitblame.pm
+VERSION_SCRIPT=$(SCRIPTDIR)/gitversion.pm
+else
+ANNOTATE_SCRIPT=$(SCRIPTDIR)/p4annotate.pm
+VERSION_SCRIPT=$(SCRIPTDIR)/getp4version
+endif
+
+ifneq ($(COVER_DB),)
+EXEC_COVER := perl -MDevel::Cover=-db,$(COVER_DB),-coverage,statement,branch,condition,subroutine,-silent,1
+endif
+
 
 export TOPDIR TESTDIR
 export PARENTDIR    := $(dir $(patsubst %/,%,$(TOPDIR)))
@@ -34,9 +57,9 @@ export PART1COUNTS  := $(TOPDIR)part1.counts
 export PART2INFO    := $(TOPDIR)part2.info
 export PART2COUNTS  := $(TOPDIR)part2.counts
 export INFOFILES    := $(ZEROINFO) $(FULLINFO) $(TARGETINFO) $(PART1INFO) \
-		       $(PART2INFO)
+                       $(PART2INFO)
 export COUNTFILES   := $(ZEROCOUNTS) $(FULLCOUNTS) $(TARGETCOUNTS) \
-		       $(PART1COUNTS) $(PART2COUNTS)
+                       $(PART1COUNTS) $(PART2COUNTS)
 
 # Use pre-defined lcovrc file
 LCOVRC       := $(TOPDIR)lcovrc
@@ -45,10 +68,15 @@ LCOVRC       := $(TOPDIR)lcovrc
 SIZE         := small
 CC           := gcc
 
+export LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/lcov
+export GENHTML_TOOL := $(EXEC_COVER) $(BINDIR)/genhtml
+export GENINFO_TOOL := $(EXEC_COVER) $(BINDIR)/geninfo
+export PERL2LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/perl2lcov
+
 # Specify programs under test
 export PATH    := $(BINDIR):$(TESTBINDIR):$(PATH)
-export LCOV    := $(BINDIR)/lcov --config-file $(LCOVRC) $(LCOVFLAGS)
-export GENHTML := $(BINDIR)/genhtml --config-file $(LCOVRC) $(GENHTMLFLAGS)
+export LCOV    := $(LCOV_TOOL) --config-file $(LCOVRC) $(LCOVFLAGS)
+export GENHTML := $(GENHTML_TOOL) --config-file $(LCOVRC) $(GENHTMLFLAGS)
 
 # Ensure stable output
 export LANG    := C
@@ -63,7 +91,7 @@ else
 endif
 
 ifneq ($(COVER_DB),)
-OPTS += --coverage $(COVER_DB)
+#OPTS += --coverage $(COVER_DB)
 endif
 ifneq ($(TESTCASE_ARGS),)
 OPTS += --script-args "$(TESTCASE_ARGS)"
@@ -75,6 +103,7 @@ MAKEOVERRIDES := $(filter-out TESTS=%,$(MAKEOVERRIDES))
 
 # Default target
 check:
+	#echo "found tests '$(TESTS)'"
 	runtests "$(MAKE)" $(TESTS) $(OPTS)
 
 ifeq ($(_ONCE),)

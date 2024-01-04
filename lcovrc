@@ -186,8 +186,9 @@ genhtml_desc_html=0
 # If set, derive function end line from line coverpoint data - default ON
 #derive_function_end_line = 1
 
-# If set, derive function end line from line coverpoint data - default ON
-#derive_function_end_line = 1
+# If set, derive function end lines for all file types.
+# By default, we derive end lines for C/C++ files only
+#derive_end_line_all_files = 0
 
 # Maximum size of function (number lines) which will be checked by '--filter trivial'
 #trivial_function_threshold = 5

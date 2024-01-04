@@ -17,13 +17,31 @@ This directory contains a number of regression tests for LCOV. To start it:
 
        - make [COVERAGE=1]
 
-       - results will be written to the terminal and stored in 'test.log'
-         If enabled, coverage data can be viewed by pointing your browser
-         to .../cover_db/coverage.html.  The coverage data can be redirected
-         to a different location via the COVER_DB variable.
+         - to generate coverage data for the lcov module, the 'Devel::Cover'
+           perl package must be available.
 
-       - to generate coverage data for the lcov module, the 'Devel::Cover'
-         perl package must be available.
+          - the Devel::Cover result is written to the terminal and stored in
+            'test.log'
+
+       - Results:
+
+           The Devel::Cover 'raw' coverage data can be viewed by pointing your
+           browser to .../cover_db/coverage.html.
+           The coverage data can be redirected to a different location via the
+           COVER_DB variable:
+              $ make [COVER_DB=path/to/wherever] COVERAGE=1 ... test
+
+           The data is translated to LCOV format and stored in
+           .../cover_db/perlcov.info.
+           The data can be redirected to a different location via the PERLCOV
+           variable:
+              $ make [PERLCOV=path/to/my/file.info] COVERAGE=1 ... test
+
+           The corresponding genhtml-generated HTMLreport can be viewed by
+           pointing your browser to .../perlcov/index.html.
+           The report can be redirected to a different location via the HTML_RPT
+           variable:
+              $ make [HTML_RPT=path/to/my/html] COVERAGE=1 ... test
 
 
 You can modify some aspects of testing by specifying additional parameters on

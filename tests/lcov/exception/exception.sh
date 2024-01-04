@@ -78,6 +78,17 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
+# use geninfo to capture - so we collect coverage data...
+CAPTURE="$GENINFO_TOOL ."
+# CAPTURE="$LCOV_TOOL --capture -d ."
+
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
@@ -113,7 +124,7 @@ if [ "${VER[0]}" -lt 8 ] ; then
     # cannot generate branch data unless 'intermediate'
     IGNORE_USAGE="--ignore usage"
 fi
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --initial --directory . -o initial.info $IGNORE_EMPTY $IGNORE_USAGE
+$COVER $CAPTURE $LCOV_OPTS --initial -o initial.info $IGNORE_EMPTY $IGNORE_USAGE
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --initial"
     if [ $KEEP_GOING == 0 ] ; then
@@ -127,7 +138,7 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o all.info --include '*/exception.cpp' --no-markers
+$COVER $CAPTURE $LCOV_OPTS -o all.info --include '*/exception.cpp' --no-markers
 
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov extract"
@@ -136,7 +147,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list all.info
+$COVER $LCOV_TOOL $LCOV_OPTS --list all.info
 
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --list"
@@ -153,7 +164,7 @@ if [ $EXCEPTIONS != '0' ] ; then
 
     # when run without 'no markers", then we should remove exception
     #  branches in the marked region
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o filter.info --include '*/exception.cpp'
+    $COVER $CAPTURE $LCOV_OPTS -o filter.info --include '*/exception.cpp'
 
     if [ 0 != $? ] ; then
         echo "Error:  unexpected error code from lcov extract filter"
@@ -187,7 +198,7 @@ if [ $EXCEPTIONS != '0' ] ; then
 
     # override the exclusion markers and check that we didn't remove
     #  exception branches..
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o override.info --include '*/exception.cpp' --rc lcov_excl_exception_br_start=nomatch_start --rc lcov_excl_exception_br_stop=nomatch_stop --rc lcov_excl_exception_br_line=notThere
+    $COVER $CAPTURE $LCOV_OPTS -o override.info --include '*/exception.cpp' --rc lcov_excl_exception_br_start=nomatch_start --rc lcov_excl_exception_br_stop=nomatch_stop --rc lcov_excl_exception_br_line=notThere
 
     if [ 0 != $? ] ; then
         echo "Error:  unexpected error code from lcov exclusion override filter"

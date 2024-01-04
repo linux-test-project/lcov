@@ -61,8 +61,14 @@ if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
 fi
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 # adding zero does not change anything
-$COVER $LCOV -o track -a $FULLINFO -a $ZEROINFO --map-functions
+$COVER $LCOV_TOOL -o track -a $FULLINFO -a $ZEROINFO --map-functions
 if [[ $? != 0 && $KEEP_GOING != 1 ]] ; then
     echo "lcov -map-functions failed"
     exit 1

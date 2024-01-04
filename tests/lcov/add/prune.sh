@@ -57,12 +57,18 @@ while [ $# -gt 0 ] ; do
     esac
 done
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
 fi
 
 # adding zero does not change anything
-$COVER $LCOV -o prune -a $FULLINFO -a $ZEROINFO --prune
+$COVER $LCOV_TOOL -o prune -a $FULLINFO -a $ZEROINFO --prune
 if [[ $? != 0 && $KEEP_GOING != 1 ]] ; then
     echo "lcov -prune failed"
     exit 1
@@ -74,7 +80,7 @@ if [ "$PRUNED" != "$FULLINFO" ] ; then
 fi
 
 # expect that all the additions did something...
-$COVER $LCOV -o prune2 -a $PART1INFO -a $PART2INFO -a $FULLINFO --prune
+$COVER $LCOV_TOOL -o prune2 -a $PART1INFO -a $PART2INFO -a $FULLINFO --prune
 if [[ $? != 0 && $KEEP_GOING != 1 ]] ; then
     echo "lcov -prune2 failed"
     exit 1
@@ -87,7 +93,7 @@ if [ "$PRUNED2" != "$EXP" ] ; then
 fi
 
 # expect no effect from adding 'part1' or 'part2' after 'full'
-$COVER $LCOV -o prune3 -a $FULLINFO -a $PART1INFO -a $PART2INFO --prune
+$COVER $LCOV_TOOL -o prune3 -a $FULLINFO -a $PART1INFO -a $PART2INFO --prune
 if [[ $? != 0 && $KEEP_GOING != 1 ]] ; then
     echo "lcov -prune3 failed"
     exit 1

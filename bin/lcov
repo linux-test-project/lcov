@@ -438,7 +438,7 @@ if (0 == $exit_code) {
         lcovutil::warn_file_patterns()
             ;    # warn about unused include/exclude directives
         ReadCurrentSource::warn_sourcedir_patterns();
-        summarize_cov_filters(1);
+        summarize_cov_filters();
         summarize_messages();
     }
 }

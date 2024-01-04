@@ -24,7 +24,8 @@
 #                          --parallel n  - use --parallel flag
 #                          --home path   - path to lcov script
 #                          --llvm        - use LLVM rather than gcc
-#                         --keep-going  - don't stop on error
+#                         --keep-going   - don't stop on error
+#                         --verbose      - echo commands to test.log
 #                   Note that not all tests have been updated to use
 #                   all flags
 
@@ -62,12 +63,12 @@ TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
 
-EXES = lcov genhtml geninfo genpng gendesc
+EXES = lcov genhtml geninfo genpng gendesc perl2lcov
 # there may be both public and non-public user scripts - so lets not show
 #   any of their names
 SCRIPTS = $(shell ls scripts | grep -v -E '([\#\~]|\.orig|\.bak|\.BAK)' )
 LIBS = lcovutil.pm
-# similarly, lets not talk about man pages	
+# similarly, lets not talk about man pages
 MANPAGES = $(foreach m, $(shell cd man ; ls *.1), man1/$(m)) \
 	$(foreach m, $(shell cd man ; ls *.5), man5/$(m))
 
@@ -235,15 +236,16 @@ rpms: lcov-$(VERSION).tar.gz
 
 ifeq ($(COVERAGE), 1)
 # write to .../tests/cover_db
-export COVER_DB := ./cover_db
+export COVER_DB := $(shell echo `pwd`/tests/cover_db)
+export HTML_RPT := ./perlcov
 endif
 export TESTCASE_ARGS
 
 test: check
 
 check:
-	if [ "x$(COVERAGE)" != 'x' ] && [ ! -d tests/$(COVER_DB) ]; then \
-	  mkdir tests/$(COVER_DB) ; \
+	if [ "x$(COVERAGE)" != 'x' ] && [ ! -d $(COVER_DB) ]; then \
+	  mkdir $(COVER_DB) ; \
 	fi
 	@$(MAKE) -s -C tests check LCOV_HOME=`pwd`
 	@if [ "x$(COVERAGE)" != 'x' ] ; then \

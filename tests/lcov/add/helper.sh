@@ -21,9 +21,14 @@ while [ $# -gt 0 ] ; do
             COVER_DB=$1
             shift
 
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             KEEP_GOING=1
 
+            ;;
+
+        --verbose | -v )
+            set -x
+            shift
             ;;
 
         * )

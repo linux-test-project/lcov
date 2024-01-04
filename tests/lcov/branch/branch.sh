@@ -78,6 +78,16 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
+#use geninfo to capture - to collect coverage data
+CAPTURE="$GENINFO_TOOL ."
+#CAPTURE="$LCOV_TOOL --capture --directory ."
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
@@ -122,7 +132,7 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o no_macro.info $FILTER $IGNORE --no-external
+$COVER $CAPTURE $LCOV_OPTS . -o no_macro.info $FILTER $IGNORE --no-external
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --capture"
     if [ $KEEP_GOING == 0 ] ; then
@@ -152,7 +162,7 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . -o macro.info $FILTER $IGNORE --no-external
+$COVER $CAPTURE $LCOV_OPTS -o macro.info $FILTER $IGNORE --no-external
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --capture"
     if [ $KEEP_GOING == 0 ] ; then
@@ -168,7 +178,7 @@ if [ $COUNT2 != 6 ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -a no_macro.info -a macro.info -o total.info $IGNORE $FILTER
+$COVER $LCOV_TOOL $LCOV_OPTS -a no_macro.info -a macro.info -o total.info $IGNORE $FILTER
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --aggregate"
     if [ $KEEP_GOING == 0 ] ; then
@@ -196,7 +206,7 @@ if [ $TOTAL != $EXPECT ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -a macro.info -a no_macro.info -o total2.info
+$COVER $LCOV_TOOL $LCOV_OPTS -a macro.info -a no_macro.info -o total2.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --aggregate (2)"
     if [ $KEEP_GOING == 0 ] ; then

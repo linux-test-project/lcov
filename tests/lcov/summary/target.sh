@@ -17,9 +17,14 @@ while [ $# -gt 0 ] ; do
             COVER_DB=$1
             shift
 
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             KEEP_GOING=1
 
+            ;;
+
+        -v | --verbose )
+            set -x
+            shift
             ;;
 
         * )
@@ -31,7 +36,7 @@ done
 STDOUT=summary_target_stdout.log
 STDERR=summary_target_stderr.log
 
-$LCOV --summary "${TARGETINFO}" >${STDOUT} 2>${STDERR}
+$LCOV --summary "${TARGETINFO}" 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
 RC=$?
 cat "${STDOUT}" "${STDERR}"
 

@@ -3770,11 +3770,6 @@ sub new
         }
     }
 
-    if (defined($main::show_dateBins) &&
-        !$self->isProjectFile()) {
-        lcovutil::info("no owner/date info for '$filepath'\n");
-    }
-
     # sort lines in ascending numerical order - we want the 'owner'
     #   and 'tla' line lists to be sorted - and it is probably faster to
     #   sort the file list once than to sort each of the sub-lists
@@ -3838,6 +3833,10 @@ sub new
         $self->_countFunctionTlaData($line, $lne, $fileSummary)
             if ($lcovutil::func_coverage &&
                 defined($lne->differential_function()));
+    }
+    if (defined($main::show_dateBins) &&
+        !$self->isProjectFile()) {
+        lcovutil::info("no owner/date info for '$filepath'\n");
     }
     return $self;
 }
@@ -3912,11 +3911,7 @@ sub _countBranchTlaData
             # HGC:  could clean this up...no need to keep track
             #   of 'hit' as we can just compute from CBC + GNC + ...
             # found another line...
-            my $hit =
-                ($tla eq 'GBC' ||
-                 $tla eq 'GIC' ||
-                 $tla eq 'GNC' ||
-                 $tla eq 'CBC');
+            my $hit = grep(/$tla/, ('GBC', 'GIC', 'GNC', 'CBC'));
             $fileSummary->branchCovCount("found", "age", $src_age, 1);
             $fileSummary->branchCovCount("hit", "age", $src_age, 1)
                 if $hit;
@@ -4063,8 +4058,7 @@ sub _accountFunction
     if (defined($src_age)) {
         $fileSummary->functionCovCount($tla, 'age', $src_age, 1);
 
-        my $hit =
-            ($tla eq 'GBC' || $tla eq 'GIC' || $tla eq 'GNC' || $tla eq 'CBC');
+        my $hit = grep(/$tla/, ('GBC', 'GIC', 'GNC', 'CBC'));
         $fileSummary->functionCovCount("found", "age", $src_age, 1);
         $fileSummary->functionCovCount("hit", "age", $src_age, 1)
             if $hit;

@@ -36,7 +36,7 @@ while [ $# -gt 0 ] ; do
                LOCAL_COVERAGE=0
                shift
             fi
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             ;;
 
         --home | -home )
@@ -80,6 +80,12 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
@@ -117,7 +123,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o lambda.info --capture -d . --demangle --rc derive_function_end_line=0
+$COVER $LCOV_TOOL $LCOV_OPTS -o lambda.info --capture -d . --demangle --rc derive_function_end_line=0
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov"
     if [ $KEEP_GOING == 0 ] ; then
@@ -126,7 +132,7 @@ if [ 0 != $? ] ; then
 fi
 
 
-$COVER $LCOV_HOME/bin/genhtml $LCOV_OPTS -o report lambda.info --show-proportion
+$COVER $GENHTML_TOOL $LCOV_OPTS -o report lambda.info --show-proportion
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from genhtml"
     if [ $KEEP_GOING == 0 ] ; then
