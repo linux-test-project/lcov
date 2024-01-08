@@ -63,7 +63,7 @@ TMP_DIR := $(shell mktemp -d)
 FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
 	   $(wildcard rpm/*) lcovrc
 
-EXES = lcov genhtml geninfo genpng gendesc perl2lcov
+EXES = lcov genhtml geninfo genpng gendesc perl2lcov py2lcov
 # there may be both public and non-public user scripts - so lets not show
 #   any of their names
 SCRIPTS = $(shell ls scripts | grep -v -E '([\#\~]|\.orig|\.bak|\.BAK)' )

@@ -73,11 +73,7 @@ fi
 
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
-if [ -f ${LCOV_HOME}/scripts/py2lcov ] ; then
-       PY2LCOV_SCRIPT=${LCOV_HOME}/scripts/py2lcov
-else
-       PY2LCOV_SCRIPT=${LCOV_HOME}/share/lcov/support-scripts/py2lcov
-fi
+PY2LCOV_SCRIPT=${LCOV_HOME}/bin/py2lcov
 
 if [ ! -x $PY2LCOV_SCRIPT ] ; then
     echo "missing py2lcov script - dying"
