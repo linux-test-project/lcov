@@ -1231,7 +1231,7 @@ if [ ! -f $SPREADSHEET ] ; then
     SPREADSHEET=$LCOV_HOME/share/lcov/support-scripts/spreadsheet.py
 fi
 if [ -f $SPREADSHEET ] ; then
-    $SPREADSHEET -o results.xlsx `find . -name "*.json"`
+    $PYCOVER $SPREADSHEET -o results.xlsx `find . -name "*.json"`
     if [ 0 != $? ] ; then
         status=1
         echo "ERROR:  spreadsheet generation failed"

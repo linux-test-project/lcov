@@ -55,6 +55,7 @@ Further README contents
   bin/genhtml        - Tool for creating HTML output from LCOV data
   bin/gendesc        - Tool for creating description files as used by genhtml
   bin/perl2lcov      - Tool to translate Perl Devel::Cover data to lcov format
+  bin/py2lcov        - Tool to translate Python Coverage.py to lcov format
   bin/geninfo        - Internal tool (creates LCOV data files)
   bin/genpng         - Internal tool (creates png overviews of source files)
   man                - Directory containing man pages for included tools
@@ -180,45 +181,88 @@ Point the web browser of your choice to the resulting index.html file.
 
 5. An example of how to access coverage data for a user space program
 ---------------------------------------------------------------------
-Requirements: compile the program in question using GCC with the options
-'-fprofile-arcs -ftest-coverage' or '--coverage'. During linking, make sure
-to specify '-lgcov' or '--coverage'.
 
-Assuming the compile directory is called "appdir", do the following:
+ a) Capture current coverage state to a file:
 
-  a) Resetting counters
+   i) C/C++ code:
 
-     lcov --directory appdir --zerocounters
+      Compile your program using the '--coverage' GCC or LLVM
+      option. During linking, make sure to specify '--coverage':
 
-  b) Capturing the current coverage state to a file
+        $ gcc -o myTest --coverage simple.c
+          OR
+        $ gcc -c file1.c file2.c ... --coverage
+        $ gcc -o myOtherTest --coverage file1.o file2.o ....
 
-     lcov --directory appdir --capture --output-file app.info
+       Run your testcase at least once:
 
-     Note that this step only works after the application has
-     been started and stopped at least once. Otherwise lcov will
-     abort with an error mentioning that there are no data/.gcda files.
+        $ path/to/my/testcase/myTest
 
-     The GCC runtime emits coverage data (the .gcda files) in an atexit
-     callback.  If your application exits abnormally or crashes before
-     the callback is executed, then no coverage data will be available.
+       Capture the current coverage state to a file:
 
-  c) Getting HTML output
+         $ lcov --directory path/to/my/testcase --capture --output-file app.info
 
-     genhtml app.info
+       Note that runtime coverage data exists only after the application has
+       been started and stopped at least once. Otherwise, no data wil be found
+       and  lcov will abort with an error mentioning that there are no data/.gcda
+       files.
 
-  d) Generating a differential coverage report
+       The coverage runtime emits data (the .gcda files) in an atexit
+       callback.  If your application exits abnormally or crashes before
+       the callback is executed, then no coverage data will be available.
 
-     See the example in .../example (run "make test_differential")
-     as well as the examples in .../tests/gendiffcov.
+       For further information on the gcc profiling mechanism, please
+       consult the gcov man page.
 
-Point the web browser of your choice to the resulting index.html file.
+      See 'man lcov' for more information - especially if your build/test
+      environment is not trivial.
 
-Please note that independently of where the application is installed or
-from which directory it is run, the --directory statement needs to
-point to the directory in which the application was compiled.
+   ii) Python code:
 
-For further information on the gcc profiling mechanism, please also
-consult the gcov man page.
+     - install the Coverage.py module
+
+     - execute your testcase to produce python coverage data:
+
+         $ COVERAGE_FILE=./pycov.dat coverage run --append --branch \
+             myPythonScript [my script args]
+
+     - translate Python coverage data to LCOV format:
+
+         $ py2lcov -o pycov.info [py2lcov_options] pycov.dat [x.dat]+
+
+     See 'py2lcov --help' and the Coverage.py documentation for more
+     information.
+
+   iii) Perl code:
+
+     - install the Devel::Cover module
+
+     - execute your testcase to produce perl coverage data:
+
+         $ perl -MDevel::Cover=-db,perlcov_db,-coverage,statement,branch,condition,subroutine,-silent,1 myPerlTest.pl [my script args]
+
+     - translate Perl coverage data to LCOV format:
+
+         $ perl2lcov --output perlcov.info perlcov_db [perl2lcov options]
+
+     See 'perl2lcov --help' and the Devel::Cover documentation for more
+     information.
+
+ b) Generate an HTML coverage report:
+
+    Generate an HTML report, combining all of your LCOV data files:
+
+      $ genhtml -o html_report app.info pycov.info perlcov.info
+
+    Point the web browser of your choice to the resulting file:
+    html_report/index.html.
+
+    See 'man genhtml' for more details.
+
+ c) Generate a differential coverage report:
+
+    See the example in .../example (run "make test_differential")
+    as well as the examples in .../tests/gendiffcov.
 
 
 6. New features:

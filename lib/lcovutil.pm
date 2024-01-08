@@ -6508,6 +6508,16 @@ sub _read_info
 
             /^VER:(.+)$/ && do {
                 # revision control version string found
+                # we might try to set the version multiple times if the
+                #  file appears multiple times in the .info file
+                if (defined($fileData->version()) &&
+                    $fileData->version() eq $1) {
+                    # this is OK -
+                    #  we might try to set the version multiple times if the
+                    #  file appears multiple times in the .info file.
+                    # This can happen, with some translators
+                    last;
+                }
                 $fileData->version($1);
                 last;
             };

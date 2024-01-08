@@ -237,7 +237,8 @@ rpms: lcov-$(VERSION).tar.gz
 ifeq ($(COVERAGE), 1)
 # write to .../tests/cover_db
 export COVER_DB := $(shell echo `pwd`/tests/cover_db)
-export HTML_RPT := ./perlcov
+export PYCOV_DB := $(shell echo `pwd`/tests/pycov.dat)
+export HTML_RPT := ./lcov_coverage
 endif
 export TESTCASE_ARGS
 
