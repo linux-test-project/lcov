@@ -4470,6 +4470,8 @@ sub nextBranchInOwnerBin
     return undef;
 }
 
+my %annotateWarnings;    # warn only once per file
+
 sub _computeAge
 {
     my ($when, $path) = @_;
@@ -4484,12 +4486,17 @@ sub _computeAge
         DateTime->now();
     my $then = lcovutil::parse_w3cdtf($when);
     if ($then > $now) {
-        my $data =
-            exists($ENV{SOURCE_DATE_EPOCH}) ?
-            "'SOURCE_DATE_EPOCH=$ENV{SOURCE_DATE_EPOCH}'" :
-            "'now'";
-        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-            "File \"$path\": $data ($now) is older than annotate time '$when'");
+        unless (exists($annotateWarnings{$path})) {
+            # issue annotation warning at most once per file
+            my $data =
+                exists($ENV{SOURCE_DATE_EPOCH}) ?
+                "'SOURCE_DATE_EPOCH=$ENV{SOURCE_DATE_EPOCH}'" :
+                "'now'";
+            $annotateWarnings{$path} = $now;
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                "File \"$path\": $data ($now) is older than annotate time '$when'"
+            );
+        }
         return 0;
     }
     return $then->delta_days($now)->in_units('days');

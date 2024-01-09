@@ -17,7 +17,8 @@ TESTS := genhtml lcov gendiffcov py2lcov perl2lcov
 # there may or may not be some .info files generated for exported
 #  tools - py2lcov, perl2lcov, etc.  We want them included in the
 #  report - but they might not have been generated, so we need to
-#  ignore the potential 'empty glob pattern' error message
+#  ignore the potential 'empty glob pattern' error message and a
+#  potential remote repo timestamp issue
 report:
 	if [ "x$(COVERAGE)" != 'x' ] ; then \
 	  cover ; \
