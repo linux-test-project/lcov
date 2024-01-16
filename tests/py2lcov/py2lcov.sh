@@ -28,7 +28,7 @@ while [ $# -gt 0 ] ; do
             set -x
             ;;
 
-        --keep-going )
+        -k | --keep-going )
             KEEP_GOING=1
             ;;
 
@@ -174,18 +174,18 @@ for line in 10 12 13 ; do
 done
 # look for expected location and function hit counts:
 for d in \
-    'FN:2,4,enter(s,...)' \
-    'FNDA:1,enter(s,...)' \
-    'FN:6,8,unusedFunc()' \
-    'FNDA:0,unusedFunc()' \
-    'FN:13,14,main().localfunc().nested1().nested2()' \
-    'FNDA:0,main().localfunc().nested1().nested2()' \
-    'FN:12,16,main().localfunc().nested1()' \
-    'FNDA:0,main().localfunc().nested1()' \
-    'FN:10,18,main().localfunc()' \
-    'FNDA:0,main().localfunc()' \
-    'FN:5,18,main()' \
-    'FNDA:1,main()' ; do
+    'FN:2,4,enter' \
+    'FNDA:1,enter' \
+    'FN:6,8,unusedFunc' \
+    'FNDA:0,unusedFunc' \
+    'FN:13,14,main.localfunc.nested1.nested2' \
+    'FNDA:0,main.localfunc.nested1.nested2' \
+    'FN:12,16,main.localfunc.nested1' \
+    'FNDA:0,main.localfunc.nested1' \
+    'FN:10,18,main.localfunc' \
+    'FNDA:0,main.localfunc' \
+    'FN:5,18,main' \
+    'FNDA:1,main' ; do
 
     grep $d functions.info
     if [ 0 != $? ] ; then

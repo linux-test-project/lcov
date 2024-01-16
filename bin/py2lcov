@@ -204,8 +204,9 @@ class ProcessFile:
                                       'end'   : currentObj['end'],
                                       'hit'   : hit})
 
-
-        parseLine = re.compile('(\s*)((def|class)\s*([^:]+)(:|$))?');
+        # just collect the function/class name - ignore the params
+        parseLine = re.compile('(\s*)((def|class)\s*([^\( \t]+))?')
+        #parseLine = re.compile('(\s*)((def|class)\s*([^:]+)(:|$))?')
         for node in fileNode:
             if node.tag != 'lines':
                 continue
@@ -284,7 +285,7 @@ class ProcessFile:
                                 }
                             else:
                                 # just a line - may be the first executable
-                                #   lline in some function:
+                                #   line in some function:
                                 if currentObj and not 'hit' in currentObj:
                                     currentObj['hit'] = hit
                                     # mark that function decl line is not

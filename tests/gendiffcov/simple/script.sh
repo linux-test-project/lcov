@@ -7,7 +7,6 @@ COVER=
 PARALLEL='--parallel 0'
 PROFILE="--profile"
 CXX='g++'
-COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
 
@@ -34,8 +33,12 @@ while [ $# -gt 0 ] ; do
                COVER_DB=$1
                LOCAL_COVERAGE=0
                shift
+            else
+                COVER_DB='cover_db.dat'
             fi
-            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
+            export PYCOV_DB="${COVER_DB}_py"
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine,-silent,1 "
+            PYCOVER="COVERAGE_FILE=$PYCOV_DB coverage run --branch --append"
             ;;
 
         --home | -home )
@@ -125,8 +128,8 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
-rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d
-rm -rf ./cover_db ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2
+rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py
+rm -rf ./cover_db ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -1231,7 +1234,7 @@ if [ ! -f $SPREADSHEET ] ; then
     SPREADSHEET=$LCOV_HOME/share/lcov/support-scripts/spreadsheet.py
 fi
 if [ -f $SPREADSHEET ] ; then
-    $PYCOVER $SPREADSHEET -o results.xlsx `find . -name "*.json"`
+    eval $PYCOVER $SPREADSHEET -o results.xlsx `find . -name "*.json"`
     if [ 0 != $? ] ; then
         status=1
         echo "ERROR:  spreadsheet generation failed"
@@ -1252,7 +1255,9 @@ fi
 if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover
     ${LCOV_HOME}/bin/perl2lcov -o perlcov.info --testname simple --version-script $GET_VERSION ./cover_db
-    ${LCOV_HOME}/bin/genhtml -o perlcov perlcov.info --flat --show-navigation --show_proportion --version-script $GET_VERSION --annotate-script $P4ANNOTATE
+    ${LCOV_HOME}/bin/py2lcov -o pycov.info --testname simple --version-script $GET_VERSION $PYCOV_DB
+    ${LCOV_HOME}/bin/genhtml -o html_report perlcov.info pycov.info --branch --flat --show-navigation --show-proportion --version-script $GET_VERSION --annotate-script $P4ANNOTATE --parallel --ignore empty,usage
+    echo "see HTML report 'html_report'"
 fi
 
 exit $status
