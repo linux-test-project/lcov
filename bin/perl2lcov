@@ -192,6 +192,11 @@ foreach my $db (@ARGV) {
                               "unable to process $file without statement data");
             next;
         }
+        if ($lcovutil::verify_checksum &&
+            !-f $file) {
+            lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                              "cannot read '$f': unable to compute --checksum");
+        }
         my $version = lcovutil::extractFileVersion($file) if -f $file;
         $fileData->version($version) if defined($version) && $version ne '';
 
@@ -321,7 +326,7 @@ foreach my $db (@ARGV) {
 
 $info->applyFilters();
 $info->add_comments(@lcovutil::comments);
-$info->write_info_file($output_file);
+$info->write_info_file($output_file, $lcovutil::verify_checksum);
 
 lcovutil::warn_file_patterns();
 lcovutil::summarize_cov_filters();

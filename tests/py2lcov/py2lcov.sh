@@ -221,6 +221,26 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# run again, generating checksum data...
+eval ${PYCOV} ${PY2LCOV_TOOL} -o checksum.info functions.dat $VERSION --checksum
+if [ 0 != $? ] ; then
+    echo "py2lcov failed function example"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# expect to see checksum on each DA line..
+for l in `grep -E '^DA:' checksum.info` ; do
+    echo $l | grep -E 'DA:[0-9]+,[0-9]+,.+'
+    if [ 0 != $? ] ; then
+        echo "no checksum in '$l'"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
 # run without generating function data:
 eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat -o no_functions.info $VERSION --no-function
 if [ 0 != $? ] ; then

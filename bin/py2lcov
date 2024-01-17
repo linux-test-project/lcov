@@ -44,6 +44,14 @@ import xml.etree.ElementTree as ET
 import fnmatch
 import subprocess
 import copy
+import base64
+import hashlib
+
+def line_hash(line: str) -> str:
+    """Produce a hash of a source line for use in the LCOV file."""
+    hashed = hashlib.md5(line.encode("utf-8")).digest()
+    return base64.b64encode(hashed).decode("ascii").rstrip("=")
+
 
 class ProcessFile:
     def __init__(self, scriptArgs):
@@ -344,7 +352,16 @@ class ProcessFile:
                 self._outf.write("FN:%(start)d,%(end)d,%(name)s\nFNDA:%(hit)d,%(name)s\n" % f)
             # print the LCOV line data.
             for lineNo in sorted(lineData.keys()):
-                self._outf.write("DA:%d,%d\n" % (lineNo, lineData[lineNo]));
+                checksum = ''
+                if self._args.checksum:
+                    try:
+                        checksum = ',' + line_hash(lines[lineNo])
+                    except IndexError as err:
+                        print('"%s":%d: unable to compute checksum for missing line' % (filename, lineNo))
+                        if not self._args.keepGoing:
+                            raise(err)
+
+                self._outf.write("DA:%d,%d%s\n" % (lineNo, lineData[lineNo], checksum));
 
             # print the LCOV totals - not used by lcov, but maybe somebody does
             for key in totals:
@@ -406,6 +423,9 @@ Example:
                         help="print debug messages")
     parser.add_argument('--version-script', dest='version',
                         help="version extract callback")
+    parser.add_argument('--checksum', dest='checksum', action='store_true',
+                        default=False,
+                        help="compute line checksum - see 'man lcov'")
     parser.add_argument("--no-functions", dest='deriveFunctions',
                         default=True, action='store_false',
                         help="do not derive function coverpoints")

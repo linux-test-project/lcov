@@ -138,6 +138,25 @@ if [ "$G" != 'FN:6,8,global1' ] ; then
     exit 1
 fi
 
+# run again, collecting checksum..
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output checksum.info --testname testCheck ./cover_one --checksum
+if [ 0 != $? ] ; then
+    echo "perl2lcov checksum failed"
+fi
+
+# do we see the checksums we expect?
+# expect to see checksum on each DA line..
+for l in `grep -E '^DA:' checksum.info` ; do
+    echo $l | grep -E 'DA:[0-9]+,[0-9]+,.+'
+    if [ 0 != $? ] ; then
+        echo "no checksum in '$l'"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+
 $COVER ${EXEC_COVER} $PERL2LCOV_TOOL --help
 if [ 0 != $? ] ; then
     echo "perl2lcov help failed"

@@ -6584,7 +6584,8 @@ sub _read_info
                 }
 
                 # Store line checksum if available
-                if (defined($checksum)) {
+                if (defined($checksum) &&
+                    $lcovutil::verify_checksum) {
                     # Does it match a previous definition
                     if ($fileData->check()->mapped($line) &&
                         ($fileData->check()->value($line) ne $checksum)) {
@@ -6592,7 +6593,6 @@ sub _read_info
                             "checksum mismatch at $filename:$line in $tracefile"
                         );
                     }
-
                     $fileData->check()->replace($line, $checksum);
                 }
                 last;
@@ -6898,14 +6898,8 @@ sub write_info($$$)
             print(INFO_HANDLE "VER:" . $entry->version() . "\n")
                 if defined($entry->version());
             if (defined($srcReader)) {
-                $srcReader->close();
-                if (is_c_file($source_file)) {
-                    lcovutil::info(1,
-                                   "reading $source_file for lcov checksum\n");
-                    $srcReader->open($source_file);
-                } else {
-                    lcovutil::debug("not reading $source_file: no ext match\n");
-                }
+                lcovutil::info(1, "reading $source_file for lcov checksum\n");
+                $srcReader->open($source_file);
             }
 
             my $functionMap = $testfncdata->{$testname};
@@ -7010,7 +7004,8 @@ sub write_info($$$)
                 if ($verify_checksum) {
                     if (exists($checkdata->{$line})) {
                         $chk = $checkdata->{$line};
-                    } elsif (defined($srcReader)) {
+                    } elsif (defined($srcReader) &&
+                             $srcReader->notEmpty()) {
                         my $content = $srcReader->getLine($line);
                         $chk = Digest::MD5::md5_base64($content);
                     }
