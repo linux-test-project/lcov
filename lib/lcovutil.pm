@@ -135,7 +135,7 @@ our $ERROR_UNSUPPORTED;          # some unsupported feature or usage
 our $ERROR_PARALLEL;             # error in fork/join
 our $ERROR_DEPRECATED;           # deprecated feature
 our $ERROR_CALLBACK;             # callback produced an error
-our $ERROR_INCONSISTENT_DATA;    # somthing wrong with .info
+our $ERROR_INCONSISTENT_DATA;    # something wrong with .info
 our $ERROR_RANGE;                # line number out of range
 our $ERROR_UTILITY;              # some tool failed - e.g., 'find'
 our $ERROR_USAGE;                # misusing some feature
@@ -271,7 +271,7 @@ our %COVERAGE_FILTERS = ("branch"        => $FILTER_BRANCH_NO_COND,
                          "trivial"       => $FILTER_TRIVIAL_FUNCTION,);
 our @cov_filter;    # 'undef' if filter is not enabled,
                     # [line_count, coverpoint_count] histogram if
-                    #   filter is enabled: nubmer of applications
+                    #   filter is enabled: number of applications
                     #   of this filter
 
 our $EXCL_START = "LCOV_EXCL_START";
@@ -640,7 +640,7 @@ sub init_parallel_params()
         chdir($cwd);
         if ($@) {
             lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
-                "package Memory::Process is required to control memory consumption during parallel operatons: $@"
+                "package Memory::Process is required to control memory consumption during parallel operations: $@"
             );
             $use_MemoryProcess = 0;
         }
@@ -1392,7 +1392,7 @@ sub munge_file_patterns
                     }
                 }
                 lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
-                    "--$flag pattern '$pat' does not seem to be case insensitive - but you asked for case insenstive matching"
+                    "--$flag pattern '$pat' does not seem to be case insensitive - but you asked for case insensitive matching"
                 );
             }
         }
@@ -1458,7 +1458,7 @@ sub subst_file_name($)
         my $old = $name;
         # sadly, no support for pre-compiled patterns
         eval '$name =~ ' . $p->[0] . ';';  # apply pattern that user provided...
-            # $@ should never match:  we already checked pattern vaidity during
+            # $@ should never match:  we already checked pattern validity during
             #   initialization - above.  Still: belt and braces.
         die("invalid 'subst' regexp '" . $p->[0] . "': $@")
             if ($@);
@@ -1879,7 +1879,7 @@ sub report_unknown_child
 {
     my $child = shift;
     # this can happen if the user loads a callback module which starts a chaild
-    # process when it is loaded or initialied and fails to wait for that child
+    # process when it is loaded or initialized and fails to wait for that child
     # to finish.  How it manifests is an orphan PID which is smaller (older)
     # than any of the children that this parent actually scheduled
     lcovutil::ignorable_error($lcovutil::ERROR_CHILD,
@@ -1995,7 +1995,7 @@ sub parse_cov_filters(@)
         $cov_filter[$item_id] = [0, 0];
     }
     if ($cov_filter[$FILTER_LINE]) {
-        # when line filtering is enabled, turn on brace and blank fltering as well
+        # when line filtering is enabled, turn on brace and blank filtering as well
         #  (backward compatibility)
         $cov_filter[$FILTER_LINE_CLOSE_BRACE] = [0, 0];
         $cov_filter[$FILTER_BLANK_LINE]       = [0, 0];
@@ -2449,7 +2449,7 @@ sub new
     my $class  = shift;
     my $reason = shift;
 
-    # backward compatibility:  see if the arguements were passed in a
+    # backward compatibility:  see if the arguments were passed in a
     #  one long string
     my $args   = \@_;
     my $arglen = 'criteria' eq $reason ? 4 : 2;
@@ -2575,7 +2575,7 @@ sub compare_version
 #    abbreviated author name:  (must be set to something - possibly NONE
 #    full author name:  some string or undef
 #    date string:  when this line was last changed
-#    commit ID:  sonething meaningful to you
+#    commit ID:  something meaningful to you
 sub annotate
 {
     my ($self, $filename) = @_;
@@ -3565,7 +3565,7 @@ sub addAlias
     } else {
         $aliases->{$name} = $count;
         $changed = 1;
-        # keep track of the shortest name as the function represntative
+        # keep track of the shortest name as the function representative
         my $curlen = length($self->[NAME]);
         my $len    = length($name);
         $self->[NAME] = $name
@@ -4865,7 +4865,7 @@ sub parseLines
     my $excl_ex_stop             = qr($lcovutil::EXCL_EXCEPTION_BR_STOP);
     my $excl_ex_line             = qr($lcovutil::EXCL_EXCEPTION_LINE);
     # @todo:  if we had annotated data here, then we could whine at the
-    #   author fo the unmatched start, extra end, etc.
+    #   author of the unmatched start, extra end, etc.
     LINES: foreach (@$sourceLines) {
         $line += 1;
         my $exclude_branch_line           = 0;
@@ -5281,7 +5281,7 @@ sub files
 sub directories
 {
     my $self = shift;
-    # return hash of directories whcih contain source files
+    # return hash of directories which contain source files
     my %dirs;
     foreach my $f ($self->files()) {
         my $d = File::Basename::dirname($f);
@@ -7382,7 +7382,7 @@ sub merge
                         while (my ($key, $data) = each(%$func_map)) {
                             $function_mapping->{$key} = [$data->[0], []]
                                 unless exists($function_mapping->{$key});
-                            die("mimatched function name '" .
+                            die("mismatched function name '" .
                                 $data->[0] . "' at $key")
                                 unless (
                                   $data->[0] eq $function_mapping->{$key}->[0]);

@@ -123,7 +123,7 @@ our %COMPAT_NAME_TO_VALUE = ("off"  => $COMPAT_VALUE_OFF,
                              "on"   => $COMPAT_VALUE_ON,
                              "auto" => $COMPAT_VALUE_AUTO,);
 
-# Compatiblity modes
+# Compatibility modes
 our $COMPAT_MODE_LIBTOOL   = 1 << 0;
 our $COMPAT_MODE_HAMMER    = 1 << 1;
 our $COMPAT_MODE_SPLIT_CRC = 1 << 2;
@@ -719,7 +719,7 @@ OPTIONS
       --erase-functions REGEXP      Exclude data for functions matching REGEXP
       --omit-lines REGEXP           Ignore data in lines matching REGEXP
       --forget-test-names           Merge data for all tests names
-      --version-script SCRIPTNAME   Call script to find revison control version
+      --version-script SCRIPTNAME   Call script to find revision control version
                                     ID of source file
       --resolve-script SCRIPTNAME Call script to find source file frpm path
   -j, --parallel [N]                Use parallel processing with at most N jobs
@@ -1140,7 +1140,7 @@ sub gen_info(@)
             }
         }
         # Need to balance time in child vs. time to merge child data -
-        #   - if we hav too many children, then they finish and wait in the
+        #   - if we have too many children, then they finish and wait in the
         #     queue to be merged.
         #   - if we have too few, then the merge time in child gets long
         # build up in set to 80% of
@@ -2728,7 +2728,7 @@ sub process_intermediate($$$$)
         }
     } else {
         # if .gcda and .gcno files are in the same directory, then simply
-        #   processs in place - otherwise, link the .gcda and .gcno files
+        #   process in place - otherwise, link the .gcda and .gcno files
         #   into tempdir and run from here
         if (dirname($filename) eq dirname($gcno_file)) {
             # Process data file in place

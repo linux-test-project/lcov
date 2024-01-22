@@ -165,7 +165,7 @@ if (!GetOptions("exclude=s"    => \@exclude_patterns,
 usage: [(--exclude|include) regexp[,regexp]] [--no-unchanged] sandbox_directory base_changelist current_changelist
  'exclude' wins if both exclude and include would match.
  'current_changelist' may be a changelist number or "sandbox".
- "sandbox" indicates that there may be changes in 'sandbox_directory' which have not ben commited to perforce yet.
+ "sandbox" indicates that there may be changes in 'sandbox_directory' which have not ben committed to perforce yet.
 EOF
     );
     exit(1);

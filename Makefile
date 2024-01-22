@@ -281,7 +281,7 @@ endif
 
 release:
 	@if [ "$(origin VERSION)" != "command line" ] ; then echo "Please specify new version number, e.g. VERSION=1.16" >&2 ; exit 1 ; fi
-	@if [ -n "$$(git status --porcelain 2>&1)" ] ; then echo "The repository contains uncommited changes" >&2 ; exit 1 ; fi
+	@if [ -n "$$(git status --porcelain 2>&1)" ] ; then echo "The repository contains uncommitted changes" >&2 ; exit 1 ; fi
 	@if [ -n "$$(git tag -l v$(VERSION))" ] ; then echo "A tag for the specified version already exists (v$(VERSION))" >&2 ; exit 1 ; fi
 	@echo "Preparing release tag for version $(VERSION)"
 	git checkout master

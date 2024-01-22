@@ -611,7 +611,7 @@ executing
 $annotateCallback = myModule->new("full");
 .RE
 
-to initialize the class ojbect, and then to execute
+to initialize the class object, and then to execute
 
 .RS
 ($status, $arrayRef) = $annotateCallback(
@@ -628,7 +628,7 @@ option was specified. Therefore each script must either be reentrant or should a
 .br
 In particular, if your callback is implemented via a perl module:
 .IP \- 3
-the class object associated with the module will intialized once (in the parent process)
+the class object associated with the module will initialized once (in the parent process)
 .PP
 .IP \- 3
 The callback will occur in the child process (possibly simultaneously with other child processes).
@@ -1018,7 +1018,7 @@ the tool will assume that there is no baseline coverage data (no baseline code w
 .I i.e.,
 which does not appear in the
 .I diff_file
-will be categorized as eiher GIC (covered) or UIC (not covered) while new or chagned code will be categorized as either GNC or UNC.
+will be categorized as eiher GIC (covered) or UIC (not covered) while new or changed code will be categorized as either GNC or UNC.
 
 .RE
 .BI "\-\-annotate\-script " script
@@ -1173,7 +1173,7 @@ identifies the author of the last change.
 For backward compatibility with existing annotate-script implementations,
 two
 .I author_data
-formats are supportd:
+formats are supported:
 .IP - 3
 .I string
 :  the string used as both the 'abbreviated name' (used as 'owner' name in
@@ -1871,7 +1871,7 @@ Note that certain filters apply only to C/C++ source files.
 .B genhtml
 associates the file extension ('.c', '.vhd',
 .I etc.
-) with its source langage.  See the
+) with its source language.  See the
 .I c_file_extentions
 and
 .I rtl_file_extensions
@@ -2364,7 +2364,7 @@ The
 option can be used multiple times to specify the demangling tool and a set of
 command line options that are passed to the tool - similar to how the gcc
 .I -Xlinker
-paramter works.  In that case, you callback will be executed as:
+parameter works.  In that case, you callback will be executed as:
 .I | demangle_param0 demangle_param1 ...
 Note that the demangle tool is called as a pipe and is expected to read from stdin and write to stdout.
 

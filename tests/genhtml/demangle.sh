@@ -121,7 +121,7 @@ else
         echo "Skipping - missing c++filt tool"
 fi
 
-# need to quiet warnings because 'run' method croaks if ther is
+# need to quiet warnings because 'run' method croaks if there is
 #  anything in stderr
 IGNORE="--ignore deprecated"
 echo

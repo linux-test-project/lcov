@@ -802,7 +802,7 @@ sub findOwnerList
     #  where lineCovData = [missedCount, totalCount]
     #        branchCovData = [missed, total] or undef if not enabled
     #        functionCov = [missed, total] or undef if not enabled
-    #   - sorted in decending order number of missed lines
+    #   - sorted in descending order number of missed lines
     my ($self, $all) = @_;
 
     my @owners;
@@ -1448,7 +1448,7 @@ sub findOwnerList
     # return [ [owner, lineCovData, branchCovData]] for each owner
     #  where lineCovData = [missedCount, totalCount, callback]
     #        branchCovData = [missed, total, callback] or undef if not enabled
-    #   - sorted in decending order number of missed lines
+    #   - sorted in descending order number of missed lines
     return $self->summary()->findOwnerList($all);
 }
 
@@ -1552,7 +1552,7 @@ sub findFileList
     #  where lineCovData = [missedCount, totalCount, OwnerDetailCallback]
     #        branchCovData = [missed, total, dateDetailCallback]
     #                         or undef if not enabled
-    #   - sorted in decending order number of missed lines
+    #   - sorted in descending order number of missed lines
     my $dirSummary = $self->[1];
     my $owner      = $self->[0];
     my @files;
@@ -1677,7 +1677,7 @@ sub findFileList
     #  where lineCovData = [missedCount, totalCount, OwnerDetailCallback]
     #        branchCovData = [missed, total, dateDetailCallback]
     #                         or undef if not enabled
-    #   - sorted in decending order number of missed lines
+    #   - sorted in descending order number of missed lines
     my $dirSummary = $self->[2];
     my $ageval     = $self->[1];
     my @files;
@@ -2075,7 +2075,7 @@ sub new
     # $type in ('insert', 'equal', 'delete')
     my $self = [$type, undef, undef,
                 ['UNK', undef, undef],    # line coverage data
-                [],                       # branch coverge data
+                [],                       # branch coverage data
                 []
     ];    # function coverage
     bless $self, $class;
@@ -2200,7 +2200,7 @@ sub _mergeBranchData
 
             my $c = $current->getBlock($branchId);
             my $d = $branchData->getBlock($branchId);
-            # handle case of inconsisent branch data
+            # handle case of inconsistent branch data
             my $nc = scalar(@$c);
             my $nd = scalar(@$d);
             if ($nc != $nd) {
@@ -2487,7 +2487,7 @@ sub _findLineData
         }
         $linedata->lineNo('base', $base_lineNo);
     } else {
-        # nothing walks the keylist so a prefix is sufficient to distiguish
+        # nothing walks the keylist so a prefix is sufficient to distinguish
         # records that should be summarized but not displayed
         my $dline = "<<<" . $base_lineNo;
         if (!exists($lineDataMap->{$dline})) {
@@ -3355,7 +3355,7 @@ sub _read_udiff
                 $key = lc($key) if $lcovutil::case_insensitive;
                 if (exists($self->[UNCHANGED]->{$key})) {
                     # unchanged entry flag value should be 1
-                    die("$diff_file:$.:  %key already in linemap - marked unchangd"
+                    die("$diff_file:$.:  %key already in linemap - marked unchanged"
                             . ($file eq $key ? '' : " (substituted '$file')"))
                         unless $self->[UNCHANGED]->{$key};
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
@@ -5408,7 +5408,7 @@ our $current_date = get_date_string(undef);
 
 our @info_filenames;      # List of .info files to use as data source
 our $header_title;        # Title at top of HTML report page (above table)
-our $footer;              # String at bootom of HTML report page
+our $footer;              # String at bottom of HTML report page
 our $test_title;          # Title for output as written to each page header
 our $output_directory;    # Name of directory in which to store output
 our @base_filenames;      # Optional: names of files containing baseline data
@@ -5423,7 +5423,7 @@ our $show_details;        # If set, generate detailed directory view
 our $no_prefix;           # If set, do not remove filename prefix
 our $show_tla;            # categorize coverage data (or not)
 our $show_functionProportions = 0
-    ; # show proportion of lines/branches containted in the function whihc are hit
+    ; # show proportion of lines/branches contained in the function which are hit
 our $show_hitTotalCol;    # include the 'hit' or 'missed' total count in tables
                           #   - this is part of the 'legacy' view
     #   - also enabled when full differential categories are used
@@ -5569,7 +5569,7 @@ my %genhtml_options = (
                  'synthesize-missing'   => \$synthesizeMissingFile,
                  # if 'show-owners' is set: generate the owner table
                  #    if it is passed a value: show all the owners,
-                 #    regardless of whether thay have uncovered code or not
+                 #    regardless of whether they have uncovered code or not
                  'show-owners:s'     => \$show_ownerBins,
                  'show-noncode'      => \$show_nonCodeOwners,
                  'show-zero-columns' => \$show_zeroTlaColumns,
@@ -5662,7 +5662,7 @@ if ($show_tla &&
         !defined($diff_filename))
 ) {
     # no baseline - so not a differential report.
-    #  modify some settings to gnerate corresponding RTL code.
+    #  modify some settings to generate corresponding RTL code.
     $use_legacyLabels = 1;
     SummaryInfo::noBaseline();
 } else {
@@ -5907,7 +5907,7 @@ if (0 == $exit_status) {
 if (0 == $exit_status && @SummaryInfo::coverageCriteriaScript) {
     # print the criteria summary to stdout:
     #   all criteria fails + any non-empty messages
-    # In addtion:  print fails to stderr
+    # In addition:  print fails to stderr
     # This way:  Jenkins script can log failure if stderr is not empty
     my $leader = '';
     if ($SummaryInfo::coverageCriteriaStatus != 0) {
@@ -6126,7 +6126,7 @@ sub print_overall_rate($$$$$)
 # Generate a set of HTML pages from contents of .info file INFO_FILENAME.
 # Files will be written to the current directory. If provided, test case
 # descriptions will be read from .tests file TEST_FILENAME and included
-# in ouput.
+# in output.
 #
 # Die on error.
 #
@@ -7181,7 +7181,7 @@ sub write_css_file()
     my $ownerCovHi      = "#COLOR_18";    # light green
     my $ownerCovMed     = "#COLOR_19";    # light yellow
     my $ownerCovLo      = "#COLOR_20";    # lighter red
-        # use same background color as file entry unless in hiearchical report
+        # use same background color as file entry unless in hierarchical report
     my $directoryBackground = $main::hierarchical ? '#COLOR_18' : '#COLOR_06';
     my $css_data            = ($_ = <<"END_OF_CSS")
         /* All views: initial background and text color */
@@ -7857,7 +7857,7 @@ END_OF_CSS
             my $align = $elem eq 'td' ? "right" : "left";
             $css_data .= ($_ = <<"END_OF_SPAN")
 
-        /* Source code view/table entry backround: format for lines classified as "$title" */
+        /* Source code view/table entry background: format for lines classified as "$title" */
         $elem.tla$tla
         {
           text-align: $align;
@@ -7916,7 +7916,7 @@ END_OF_DATE_SPAN
 
     print(CSS_HANDLE $css_data);
 
-    close(CSS_HANDLE) or die("unable to close CSS handel: $!\n");
+    close(CSS_HANDLE) or die("unable to close CSS handle: $!\n");
 }
 
 #
@@ -8165,7 +8165,7 @@ END_OF_HTML
 END_OF_HTML
     } else {
         my $t = ucfirst($primary_key);
-        # a bit of a hack...just subtitute the primary key and related
+        # a bit of a hack...just substitute the primary key and related
         #   strings into the 'file heading' link - so we display the
         #   'sort' widget
         if ($primary_key eq 'owner' &&

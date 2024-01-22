@@ -50,7 +50,7 @@ genhtml_med_limit = 75
 
 # Ignore some errors during geninfo/lcov/genhtml processing - comma-separated
 # string.  Same as using "--ignore-errors a,b,c" command line option.
-# See man pages for list of ignorable messsages
+# See man pages for list of ignorable messages
 #ignore_errors = empty,mismatch
 
 # Stop emitting message after this number have been printed
@@ -76,7 +76,7 @@ max_message_count = 100
 # (comma-separated list)
 #c_file_extensions = h,c,i,C,H,I,cpp,hpp,icc,cc,hh,cxx,hxx
 
-# maxmimum number of lines to look at, when filtering bogus branch expressions
+# maximum number of lines to look at, when filtering bogus branch expressions
 #filter_lookahead = 5
 
 # if nonzero, bitwise operators '|', '&', '~' indicate conditional expressions
@@ -88,10 +88,10 @@ genhtml_line_field_width = 12
 # Width of branch coverage field in source code view
 genhtml_branch_field_width = 16
 
-# width of 'owner' field in source code veiw - default is 20
+# width of 'owner' field in source code view - default is 20
 #genhtml_owner_field_width = 20
 
-# width of 'age' field in source code veiw - default is 5
+# width of 'age' field in source code view - default is 5
 #genhtml_age_field_width = 5
 
 # Width of overview image (used by --frames option of genhtml)
@@ -233,7 +233,7 @@ genhtml_desc_html=0
 # and have attribute '"unexecuted_blocks": true'
 #geninfo_unexecuted_blocks = 0
 
-# Specify compatiblity modes (same as --compat option of geninfo).
+# Specify compatibility modes (same as --compat option of geninfo).
 #geninfo_compat = libtool=on, hammer=auto, split_crc=auto
 
 # Adjust path to source files by removing or changing path components that
@@ -292,7 +292,7 @@ branch_coverage = 0
 #genhtml_annotate_script = path_to_my_executable
 
 # specify the annotation popup that will appear if user hovers over source code
-# set to empy to elide tooltip
+# set to empty to elide tooltip
 # Substitutions:
 #  %d:  line number
 #  %C:  commit ID (from annotate callback - see --anotate-script entry in
@@ -309,7 +309,7 @@ branch_coverage = 0
 #genhtml_criteria_script = path_to_my_executable
 
 # specify whether you want date and/or owner information passed to your criteria
-# callback - in addition to summary information, which is always retuned
+# callback - in addition to summary information, which is always returned
 #criteria_callback_data = date,owner
 
 # specify when the criteria callback will be executed
@@ -395,7 +395,7 @@ lcov_json_module = auto
 # override line default line exclusion regexp
 #lcov_excl_line = LCOV_EXCL_LINE
 
-# overide branch exclusion regexp
+# override branch exclusion regexp
 #lcov_excl_br_line = LCOV_EXCL_BR_LINE
 
 # override exception branch exclusion regexp

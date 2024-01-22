@@ -82,7 +82,7 @@ may also work, but some older versions are known not to.
 
 Please execute
     make checkstyle MODE=full UPDATE=true
-on your code and verify correctness of the reformating (if any) before
+on your code and verify correctness of the reformatting (if any) before
 submitting a pull request.
 
 Testing:
@@ -124,7 +124,7 @@ makes you think of a small project that you want to tackle:  excellent.)
 Pull requests which add tests for existing features or which enhance
 existing tests are actively encouraged.
 The lcov maintainers are painfully aware that the code coverage of the
-lcov test suite on the lcov code base is embarassingly low.
+lcov test suite on the lcov code base is embarrassingly low.
 
 Note that existing tests and/or test drivers may themselves need to be
 modified in order to work correctly on other platforms and with other

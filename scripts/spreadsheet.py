@@ -34,7 +34,7 @@ class GenerateSpreadsheet(object):
         geninfoKeys = ('order', 'file', 'parse', 'exec', 'append')
 
         # work: productive time: process_one_chunk + merge chunk
-        # chunk: everything from fork() to end of filesytem cleanup after child merge
+        # chunk: everything from fork() to end of filesystem cleanup after child merge
         # child: time from entering child process to immediately before serialize
         # process: time to call process_one_chunk
         # undump:  time to deserialize chunk data into master
@@ -72,7 +72,7 @@ class GenerateSpreadsheet(object):
             devCell = xl_rowcol_to_cell(devRow, beginCol, True, False)
             # relative row, relative column
             dataCell = xl_rowcol_to_cell(beginRow, beginCol, False, False)
-            # absolute value of differnce from the average
+            # absolute value of difference from the average
             diff = 'ABS(%(cell)s - %(avg)s)' % {
                 'cell' : dataCell,
                 'avg' : avgCell,
@@ -445,7 +445,7 @@ class GenerateSpreadsheet(object):
                 #          child (can't record 'dumper' call time
                 #          because that also dumps the profile
                 # child:   time from child coming to life after fork
-                #          to immediately afer 'process_one_file'
+                #          to immediately after 'process_one_file'
                 # exec: time take to by 'gcov' call
                 # merge: time to merge child process (undump, read
                 #       trace data, append to summary, etc.)
@@ -477,7 +477,7 @@ class GenerateSpreadsheet(object):
                 row = dataSection('files', sorted(data['file'].keys(), key=cmp_to_key(cmpFile)),
                                   geninfoKeys, fileDataRow, fileStatsRow)
 
-                # now the fiter data - if any
+                # now the filter data - if any
                 if args.show_filter:
                     filterDataRow = row + 1;
                     try:
@@ -614,7 +614,7 @@ class GenerateSpreadsheet(object):
                 try:
                     dirData = data['dir']
                 except:
-                    # hack - 'flat' report doens't have directory data
+                    # hack - 'flat' report doesn't have directory data
                     for f in sorted(fileData.keys()):
                       visitScope(f, None)
                     dirData = {}

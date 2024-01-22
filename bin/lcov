@@ -501,7 +501,7 @@ OPERATION
                                   data (requires --add-tracefile)
       --map-functions             List tracefiles with non-zero coverage for
                                   each function (requires --add-tracefile)
-     --intersect PATTERN          Set interection with tracefiles matching
+     --intersect PATTERN          Set intersection with tracefiles matching
                                   glob PATTERN
      --subtract PATTERN           Set difference with tracefiles matching
                                   glob PATTERN
@@ -542,7 +542,7 @@ OPTIONS
       --forget-test-names         Merge data for all tests names
       --fail-under-lines MIN      Exit with a status of 1 if the total line
                                   coverage is less than MIN (summary option)
-      --version-script SCRIPTNAME Call script to find revison control version
+      --version-script SCRIPTNAME Call script to find revision control version
                                   ID of source file
       --resolve-script SCRIPTNAME Call script to find source file frpm path
   -j, --parallel [NUM]            Use parallel processing with at most NUM jobs

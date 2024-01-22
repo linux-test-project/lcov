@@ -224,7 +224,7 @@ else
     # expect not to find 'main'
     grep main ignore.info
     if [ $? == 0 ] ; then
-        echo "expected 'main' to be filterd out"
+        echo "expected 'main' to be filtered out"
         exit 1
     fi
     # but expect to find coverpoint within main..

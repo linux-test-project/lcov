@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# lambda funciton extents
+# lambda function extents
 set +x
 
 CLEAN_ONLY=0

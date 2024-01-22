@@ -49,7 +49,7 @@ You can modify some aspects of testing by specifying additional parameters on
 
   - SIZE
 
-    Select the size of the artifical coverage files used for testing.
+    Select the size of the artificial coverage files used for testing.
     Supported values are small, medium, and large.
 
     The default value is small.
