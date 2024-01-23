@@ -203,7 +203,7 @@ Point the web browser of your choice to the resulting index.html file.
          $ lcov --directory path/to/my/testcase --capture --output-file app.info
 
        Note that runtime coverage data exists only after the application has
-       been started and stopped at least once. Otherwise, no data wil be found
+       been started and stopped at least once. Otherwise, no data will be found
        and  lcov will abort with an error mentioning that there are no data/.gcda
        files.
 
@@ -334,7 +334,7 @@ New features and capabilities fall into 7 major categories:
 
      Other options are used to focus on or to exclude certain sections
      of code, as well as to do regexp replacement of file names - possibly
-     using case-insensitve comparison.
+     using case-insensitive comparison.
      (Path munging is useful primarily when the build structure does
      not exactly match the layout in your revision control system; this
      is common in large projects with reusable components.)
@@ -392,7 +392,7 @@ New features and capabilities fall into 7 major categories:
      In general, this provides speedup that is nearly linear in the number
      of cores.
      There is also an option to throttle parallelism to not exceed peak
-     memory consumption contraints, as well as options to enable simple
+     memory consumption constraints, as well as options to enable simple
      profile data collection - so you can see where time is going and
      thus to hint at potential optimizations.  The 'spreadsheet.py'
      script can be used to view generated profile data.

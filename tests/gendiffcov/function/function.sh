@@ -331,7 +331,7 @@ for opt in '' '--forget-test-names' ; do
     fi
 
     outdir="no_alias$opt"
-    # suppres aliases
+    # suppress aliases
     echo genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion --suppress-alias
     $COVER $GENHTML_TOOL -o $outdir $opt $DIFFCOV_OPTS  template.info --show-proportion --suppress-alias
     if [ $? != 0 ] ; then

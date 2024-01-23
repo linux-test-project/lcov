@@ -127,7 +127,7 @@ fi
 for space in 'space1' 'space2' ; do
     N=`grep FN: one.info | grep -c $space::`
     if [ 2 != "$N" ] ; then
-        echo "wrong number of functios in $space"
+        echo "wrong number of functions in $space"
         exit 1
     fi
 done

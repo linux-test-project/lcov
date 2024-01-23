@@ -374,7 +374,7 @@ if [[ "${PYCOV}" =~ "COVERAGE_FILE=" || "${PY2LCOV_TOOL}" =~ "COVERAGE_FILE=" ]]
     # can't generate coverage report for this feature...
     COVERAGE_FILE=functions.dat ${LCOV_HOME}/bin/py2lcov -o fromEnv.info
 else
-    # get input from envirionment var:
+    # get input from environment var:
     eval COVERAGE_FILE=functions.dat ${PYCOV} ${PY2LCOV_TOOL} -o fromEnv.info
 fi
 

@@ -22,7 +22,7 @@
 #   This script runs "p4 annotate" for the specified file and formats the result
 #   to match the diffcov(1) 'annotate' callback specification:
 #      use p4annotate;
-#      my $calllback = p4annotate->new([--md5] [--log logifle] [--verify]);
+#      my $callback = p4annotate->new([--md5] [--log logfile] [--verify]);
 #      $callback->annotate(filename);
 #
 #   It is implemented so that it can be loaded as a Perl module such that the

@@ -200,7 +200,7 @@ if [ 0 != $? ] ; then
 fi
 COUNT=`grep -c SF: merge2.info`
 if [ $COUNT != '1' ] ; then
-    echo "ERROR: expected 1 file in case-insenstive result found $COUNT"
+    echo "ERROR: expected 1 file in case-insensitive result found $COUNT"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
@@ -231,7 +231,7 @@ ln -s ../simple/simple2.cpp.annotated TEst.cpp.annotated
 # check that this works with test names
 #  need to not do the exiistence callback because the 'insensitive' name
 #  won't be found but the version-check in the .info file already contains
-#  a value - so we would get a version check errror
+#  a value - so we would get a version check error
 echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 --ignore-annotate,source $IGNORE --rc check_existence_before_callback=0
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 $GENHTML_PORT --ignore annotate,source $IGNORE --rc check_existence_before_callback=0
 if [ 0 != $? ] ; then

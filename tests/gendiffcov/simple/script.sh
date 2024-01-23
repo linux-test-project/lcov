@@ -273,7 +273,7 @@ if [ 0 != $? ] ; then
 fi
 diff filt.info filt2.info
 if [ 0 != $? ] ; then
-    echo "ERROR: string and separtate args produced different result"
+    echo "ERROR: string and separate args produced different result"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -423,7 +423,7 @@ done
 diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff.txt
 
 # change the default annotation tooltip so grep commands looking for
-#  owner tabel entries doesn't match accidentally
+#  owner table entries doesn't match accidentally
 #  No spaces to avoid escaping quote substitutions
 POPUP='--rc genhtml_annotate_tooltip=mytooltip'
 for opt in "" --dark-mode --flat ; do
@@ -495,7 +495,7 @@ for opt in "" "--show-details" "--hier"; do
     for o in "" $opt ; do
         OPTS="$TEST_OPTS $o"
         outdir=./differential${EXT}${o}
-        echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $IGNROE $POPUP
+        echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $IGNORE $POPUP
         $COVER ${GENHTML_TOOL} $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $GENHTML_PORT $IGNORE $POPUP
         if [ 0 != $? ] ; then
             echo "ERROR: genhtml $outdir failed (2)"
@@ -621,7 +621,7 @@ for summary in Branch ; do
 done
 
 
-# check case that we have a diff file but no basline
+# check case that we have a diff file but no baseline
 echo genhtml $DIFFCOV_OPTS ./current.info --diff-file diff.txt -o ./diff_no_baseline $IGNORE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS ./current.info --diff-file diff.txt -o ./diff_no_baseline $IGNORE
 if [ 0 != $? ] ; then
@@ -691,7 +691,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-# expect to find differential TLAs - but don't expec ownership and date tables
+# expect to find differential TLAs - but don't expect ownership and date tables
 for key in UNC LBC UIC UBC GBC GIC GNC CBC EUB ECB DUB DCB ; do
     grep $key no_annotation/index.html
     if [ 0 != $? ] ;then

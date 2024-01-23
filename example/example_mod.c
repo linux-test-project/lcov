@@ -2,7 +2,7 @@
  *  example_mod.c
  *
  * Identical behaviour to 'example.c' - but with some trivial code changes
- * (including this change to commment section) - to create a few differences,
+ * (including this change to comment section) - to create a few differences,
  * for differential coverage report example.
  * 
  */

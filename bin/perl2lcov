@@ -241,7 +241,7 @@ foreach my $db (@ARGV) {
                     # However, this doesn't quite work because the truth
                     #   table computed by Devel::Cover is sometimes ordered
                     #   with the dependent clause after the independent
-                    #   one - and soemtimes the opposite.
+                    #   one - and sometimes the opposite.
                     # For the moment:  punt when we don't grok
                     foreach my $block (@br) {
                         my $counts     = $block->[0];
