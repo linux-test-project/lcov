@@ -2906,7 +2906,7 @@ sub _categorizeFunctionCov
                     } else {
                         # line is same
                         my $bline =
-                            $linemap->lookup($filename, $linemap->OLD, $line);
+                            $linemap->lookup($filename, $linemap->NEW, $line);
                         if (defined($lineCovBase->value($bline)) ^
                             defined($lineCovCurrent->value($line))) {
                             $changed = 1;
