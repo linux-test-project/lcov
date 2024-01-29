@@ -17,5 +17,7 @@ def main():
 
         return 1
 
+# LCOV_EXCL_START
 if __name__ == '__main__':
     main()
+# LCOV_EXCL_STOP

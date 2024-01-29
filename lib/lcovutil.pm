@@ -61,7 +61,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      parse_cov_filters summarize_cov_filters
      disable_cov_filters reenable_cov_filters is_filter_enabled
      filterStringsAndComments simplifyCode balancedParens
-     set_rtl_extensions set_c_extensions
+     set_extensions
      $source_filter_lookahead $source_filter_bitwise_are_conditional
      $exclude_exception_branch
      $derive_function_end_line $derive_function_end_line_all_files
@@ -189,8 +189,6 @@ our $excessive_count_threshold;    # default not set: don't check
 
 our $br_coverage   = 0;    # If set, generate branch coverage statistics
 our $func_coverage = 1;    # If set, generate function coverage statistics
-our $rtlExtensions;
-our $cExtensions;
 
 # for external file filtering
 our @internal_dirs;
@@ -300,9 +298,12 @@ our $trivial_function_threshold         = 5;
 our @omit_line_patterns;
 our @exclude_function_patterns;
 
-our $rtl_file_extensions  = 'v|vh|sv|vhdl?';
-our $c_file_extensions    = 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx';
-our $java_file_extensions = 'java';
+our %languageExtensions = ('c'      => 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx',
+                           'rtl'    => 'v|vh|sv|vhdl?',
+                           'perl'   => 'pl|pm',
+                           'python' => 'py',
+                           'java'   => 'java');
+
 # don't look more than 10 lines ahead when filtering (default)
 our $source_filter_lookahead = 10;
 # by default, don't treat expressions containing bitwise operators '|', '&', '~'
@@ -801,16 +802,11 @@ sub save_profile($)
     }
 }
 
-sub set_rtl_extensions
+sub set_extensions
 {
-    my $str = shift;
-    $rtl_file_extensions = join('|', split($split_char, $str));
-}
-
-sub set_c_extensions
-{
-    my $str = shift;
-    $c_file_extensions = join('|', split($split_char, $str));
+    my ($type, $str) = @_;
+    die("unknown language '$type'") unless exits($languageExtensions{$type});
+    $languageExtensions{$type} = join('|', split($split_char, $str));
 }
 
 sub do_mangle_check
@@ -1030,6 +1026,8 @@ my %deprecated_rc = ("genhtml_demangle_cpp"        => "demangle_cpp",
                      "genhtml_function_coverage"   => "function_coverage",
                      "genhtml_branch_coverage"     => "branch_coverage",);
 my @deprecated_uses;
+my ($cExtensions, $rtlExtensions, $javaExtensions,
+    $perlExtensions, $pythonExtensions);
 
 my %rc_common = (
              'derive_function_end_line' => \$lcovutil::derive_function_end_line,
@@ -1057,6 +1055,9 @@ my %rc_common = (
              'warn_once_per_file'     => \$lcovutil::warn_once_per_file,
              "rtl_file_extensions"    => \$rtlExtensions,
              "c_file_extensions"      => \$cExtensions,
+             "perl_file_extensions"   => \$perlExtensions,
+             "python_file_extensions" => \$pythonExtensions,
+             "java_file_extensions"   => \$javaExtensions,
              "filter_lookahead"       => \$lcovutil::source_filter_lookahead,
              "filter_bitwise_conditional" =>
         \$lcovutil::source_filter_bitwise_are_conditional,
@@ -1198,10 +1199,14 @@ sub apply_rc_params($)
         # Copy configuration file and --rc values to variables
         $set_value |= apply_config(\%rcHash, $config, \%new_opt_rc);
     }
-    lcovutil::set_rtl_extensions($rtlExtensions)
-        if $rtlExtensions;
-    lcovutil::set_c_extensions($cExtensions)
-        if $cExtensions;
+    foreach my $d (['rtl', $rtlExtensions],
+                   ['c', $cExtensions],
+                   ['perl', $perlExtensions],
+                   ['python', $pythonExtensions],
+                   ['java', $javaExtensions]
+    ) {
+        lcovutil::set_extensions(@$d) if $d->[1];
+    }
 
     return $set_value;
 }
@@ -3473,7 +3478,7 @@ sub hit
 sub isLambda
 {
     my $self = shift;
-    return (TraceFile::is_c_file($self->filename()) &&
+    return (TraceFile::is_language('c', $self->filename()) &&
             $self->name() =~ /{lambda\(/);
 }
 
@@ -5504,7 +5509,7 @@ sub _eraseFunctions
             lcovutil::info(1, "no end line for '$name' at $key\n");
         } elsif (
                defined($removeTrivial) &&
-               is_c_file($source_file) &&
+               is_language('c', $source_file) &&
                (defined($srcReader) &&
                 $srcReader->containsTrivialFunction($fcn->line(), $end_line))
         ) {
@@ -5555,17 +5560,19 @@ sub _eraseFunctions
 sub _filterFile
 {
     my ($traceInfo, $source_file, $srcReader, $state) = @_;
-    my $region                   = $cov_filter[$FILTER_EXCLUDE_REGION];
-    my $range                    = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
-    my $branch_histogram         = $cov_filter[$FILTER_BRANCH_NO_COND];
-    my $brace_histogram          = $cov_filter[$FILTER_LINE_CLOSE_BRACE];
+    my $region           = $cov_filter[$FILTER_EXCLUDE_REGION];
+    my $branch_region    = $cov_filter[$FILTER_EXCLUDE_BRANCH];
+    my $range            = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
+    my $branch_histogram = $cov_filter[$FILTER_BRANCH_NO_COND]
+        if (is_language('c', $source_file));
+    my $brace_histogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
+        if (is_language('c', $source_file));
     my $blank_histogram          = $cov_filter[$FILTER_BLANK_LINE];
     my $function_alias_histogram = $cov_filter[$FILTER_FUNCTION_ALIAS];
     my $trivial_histogram        = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
 
     my $context = MessageContext->new("filtering $source_file");
-    if (is_c_file($source_file) &&
-        lcovutil::is_filter_enabled()) {
+    if (lcovutil::is_filter_enabled()) {
         lcovutil::info(1, "reading $source_file for lcov filtering\n");
         $srcReader->open($source_file);
     } else {
@@ -5617,8 +5624,7 @@ sub _filterFile
     }
 
     return
-        unless (is_c_file($source_file) &&
-                $srcReader->notEmpty() &&
+        unless ($srcReader->notEmpty() &&
                 lcovutil::is_filter_enabled());
 
     my ($testdata, $sumcount, $funcdata, $checkdata,
@@ -5668,29 +5674,32 @@ sub _filterFile
              # $testbrcount is undef if there are no branches in the scope
         if ($lcovutil::br_coverage &&
             defined($testbrcount) &&
-            ($branch_histogram || $region || $range)) {
+            ($branch_histogram || $region || $branch_region || $range)) {
             foreach my $line ($testbrcount->keylist()) {
+                # for counting: keep track filter which triggered exclusion -
                 my $remove;
                 # omit if line excluded or branches excluded on this line
                 if ($srcReader->isOutOfRange($line, 'branch')) {
                     # only counting line coverpoints that got excluded
-                    $remove = 1;
-                } elsif ($region &&
+                    die("inconsistent state") unless $range;
+                    $remove = $range;
+                } elsif (($region || $branch_region) &&
                          $srcReader->isExcluded($line, 2)) {
                     # all branches here
-                    $remove = 1;
+                    $remove = $region ? $region : $branch_region;
+                    die("inconsistent") unless $remove;
                 } elsif ($branch_histogram &&
                          !$srcReader->containsConditional($line)) {
-                    $remove = 1;
+                    $remove = $branch_histogram;
+                }
+                if ($remove) {
                     my $brdata = $testbrcount->value($line);
-                    ++$branch_histogram->[0];    # one line where we skip
-                    $branch_histogram->[1] += scalar($brdata->blocks());
+                    ++$remove->[0];    # one line where we skip
+                    $remove->[1] += ($brdata->totals())[0];
                     lcovutil::info(2,
                                    "filter BRDA '" .
                                        $srcReader->getLine($line) .
                                        "' $source_file:$line\n");
-                }
-                if ($remove) {
                     # now remove this branch everywhere...
                     foreach my $tn ($testbrdata->keylist()) {
                         my $d = $testbrdata->value($tn);
@@ -6190,15 +6199,20 @@ sub applyFilters
             delete($self->[FILES]->{$source_file});
             next;
         }
-        # derive function end line for C/C++ code if requested
-        # (not trying to handle python nested functions, etc)
+        # derive function end line for C/C++ and java code if requested
+        # (not trying to handle python nested functions, etc.)
+        # However, see indent handling in the py2lcov script.  Arguably, that
+        #   could/should be done here/in Perl rather than in Python.)
+        # Jacoco pretends to report function end line - but it appears
+        #   to be the last line executed - not the actual last line of
+        #   the function - so broken/completely useless.
         DERIVE:
         if (0 == ($self->[STATE] & DID_DERIVE)           &&
             defined($lcovutil::derive_function_end_line) &&
             $lcovutil::derive_function_end_line != 0     &&
             defined($lcovutil::func_coverage)            &&
             ($lcovutil::derive_end_line_all_files ||
-                is_c_file($source_file))
+                is_language('c|java|perl', $source_file))
         ) {
             my @lines = sort { $a <=> $b } $traceInfo->sum()->keylist();
             # sort functions by start line number
@@ -6311,7 +6325,7 @@ sub applyFilters
                    (0 != scalar(@lcovutil::exclude_function_patterns) ||
                     defined($lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION]))
                   ) ||
-                  (is_c_file($source_file) &&
+                  (is_language('c|perl|python|java', $source_file) &&
                    lcovutil::is_filter_enabled()));
         push(@filter_workList, [$traceInfo, $name]);
     }    # foreach file
@@ -6325,22 +6339,15 @@ sub applyFilters
     }
 }
 
-sub is_rtl_file
+sub is_language
 {
-    my $filename = shift;
-    return $filename =~ /\.($rtl_file_extensions)$/ ? 1 : 0;
-}
-
-sub is_java_file
-{
-    my $filename = shift;
-    return $filename =~ /\.($java_file_extensions)$/ ? 1 : 0;
-}
-
-sub is_c_file
-{
-    my $filename = shift;
-    return $filename =~ /\.($c_file_extensions)$/ ? 1 : 0;
+    my ($lang, $filename) = @_;
+    foreach my $l (split('\|', $lang)) {
+        die("unknown language '$l'")
+            unless exists($lcovutil::languageExtensions{$l});
+        return 1 if $filename =~ /\.($lcovutil::languageExtensions{$l})$/;
+    }
+    return 0;
 }
 
 # Read in the contents of the .info file specified by INFO_FILENAME. Data will
@@ -6476,7 +6483,7 @@ sub _read_info
                 #   at the source for some previous file.
                 $readSourceCallback->close();
                 undef $currentBranchLine;
-                if (is_c_file($filename)) {
+                if (is_language('c', $filename)) {
                     $readSourceCallback->open($filename);
                 }
             }
@@ -6686,7 +6693,7 @@ sub _read_info
                 #     generate an CNF or truth-table like entry corresponding
                 #     to the branch.
 
-                if (!is_c_file($filename)) {
+                if (!is_language('c', $filename)) {
                     # At least at present, Verilog/SystemVerilog/VHDL,
                     # java, python, etc don't need branch number fixing
                     my $key = "$line,$block";
@@ -6737,7 +6744,7 @@ sub _read_info
                         $fileData->version($version)
                             if (defined($version) && $version ne "");
                     }
-                    if (is_c_file($filename)) {
+                    if (is_language('c', $filename)) {
                         # RTL code was added directly - no issue with
                         #  duplicate data entries in geninfo result
                         my $testcaseBranchData = $fileData->testbr($testname)

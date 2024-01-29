@@ -780,6 +780,57 @@ This parameter must be set from the lcovrc file or via the
 command line option; note that you may need to protect the value from shell expansion in the latter case.
 .br
 
+.PP
+
+.BR java_file_extensions " ="
+.IR str[,str]+
+.IP
+Specify a comma-separated list of file extensions which should be assumed to be Java code.
+.br
+
+If not specified, the default set is 'java'.
+If you want all files to be treated as Java code, you can use:
+.I java_file_extensions = .*
+
+This parameter must be set from the lcovrc file or via the
+.I \-\-rc name=value
+command line option; note that you may need to protect the value from shell expansion in the latter case.
+.br
+
+.PP
+
+.BR perl_file_extensions " ="
+.IR str[,str]+
+.IP
+Specify a comma-separated list of file extensions which should be assumed to be Perl code.
+.br
+
+If not specified, the default set is 'pl,pm'.
+If you want all files to be treated as Perl code, you can use:
+.I perl_file_extensions = .*
+
+This parameter must be set from the lcovrc file or via the
+.I \-\-rc name=value
+command line option; note that you may need to protect the value from shell expansion in the latter case.
+.br
+
+.PP
+
+.BR python_file_extensions " ="
+.IR str[,str]+
+.IP
+Specify a comma-separated list of file extensions which should be assumed to be Python code.
+.br
+
+If not specified, the default set is 'py'.
+If you want all files to be treated as Python code, you can use:
+.I python_file_extensions = .*
+
+This parameter must be set from the lcovrc file or via the
+.I \-\-rc name=value
+command line option; note that you may need to protect the value from shell expansion in the latter case.
+.br
+
 
 .PP
 

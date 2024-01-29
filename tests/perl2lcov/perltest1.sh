@@ -137,6 +137,45 @@ if [ "$G" != 'FN:6,8,global1' ] ; then
     echo "wrong name/location for function in global namespace"
     exit 1
 fi
+DA=`grep -c -E '^DA:' one.info`
+BR=`grep -c -E '^BRDA:' one.info`
+
+# do region exclusions work?
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --filter region --output region.info ./cover_one
+if [ 0 != $? ] ; then
+    echo "perl2lcov failed"
+    exit 1
+fi
+# how many lines now?
+REGION_DA=`grep -c -E '^DA:' region.info`
+REGION_BR=`grep -c -E '^BRDA:' region.info`
+if [ $BR -lt $REGION_BR ] ; then
+    echo "wrong region branch count $BR -> $REGION_BR"
+    exit 1
+fi
+if [ $DA -lt $REGION_DA ] ; then
+    echo "wrong region line count $DA -> $REGION_DA"
+    exit 1
+fi
+
+# how about just branch exclusion...
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --filter branch_region --output br_region.info ./cover_one
+if [ 0 != $? ] ; then
+    echo "perl2lcov failed"
+    exit 1
+fi
+# how many lines now?
+BREGION_DA=`grep -c -E '^DA:' br_region.info`
+BREGION_BR=`grep -c -E '^BRDA:' br_egion.info`
+if [ $REGION_BR != $BREGION_BR ] ; then
+    echo "wrong branch region branch count $BR -> $BREGION_BR"
+    exit 1
+fi
+if [ $DA != $BREGION_DA ] ; then
+    echo "wrong branch region line count $DA -> $BREGION_DA"
+    exit 1
+fi
+
 
 # run again, collecting checksum..
 $COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output checksum.info --testname testCheck ./cover_one --checksum

@@ -10,11 +10,11 @@ sub global1 {
 }
 
 package space1;
-
+# LCOV_EXCL_START
 sub packageFunc {
   print("this is a function in space1 - not exercised\n");
 }
-
+# LCOV_EXCL_STOP
 sub packageFunc2 {
   my $val = shift;
   if (exists($ENV{NO_SUCH_VARIABLE}) &&
@@ -41,7 +41,7 @@ sub packageFunc2 {
 }
 
 package main;
-
+# LCOV_EXCL_BR_START
 print "simple perl testcase\n";
 global1();
 
@@ -52,3 +52,4 @@ unless (@ARGV) {
   print("no args so we entered the branch\n");
 }
 exit 0;
+# LCOV_EXCL_BR_STOP

@@ -83,7 +83,6 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  create_temp_dir temp_cleanup
                  summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
-                 set_rtl_extensions set_c_extensions
 
                  @exclude_file_patterns @include_file_patterns %excluded_files
                  warn_file_patterns summarize_messages

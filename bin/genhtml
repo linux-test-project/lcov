@@ -110,7 +110,6 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  info $verbose init_verbose_flag debug $debug $devnull
                  parseOptions
                  strip_directories
-                 set_rtl_extensions set_c_extensions
                  parse_cov_filters summarize_cov_filters
                  $FILTER_BRANCH_NO_COND $FILTER_LINE_CLOSE_BRACE @cov_filter
                  rate get_overall_line $default_precision check_precision

@@ -174,9 +174,9 @@ for line in 10 12 13 ; do
 done
 # look for expected location and function hit counts:
 for d in \
-    'FN:2,4,enter' \
+    'FN:2,7,enter' \
     'FNDA:1,enter' \
-    'FN:6,8,unusedFunc' \
+    'FN:10,12,unusedFunc' \
     'FNDA:0,unusedFunc' \
     'FN:13,14,main.localfunc.nested1.nested2' \
     'FNDA:0,main.localfunc.nested1.nested2' \
@@ -409,6 +409,51 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+#check that python filtering works as expected...
+$COVER $LCOV_TOOL $LCOV_OPTS -o region.info -a no_version.info --filter region
+if [ 0 != $? ] ; then
+    echo "lcov filter region failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $LCOV_TOOL $LCOV_OPTS -o branch_region.info -a no_version.info --filter branch_region
+if [ 0 != $? ] ; then
+    echo "lcov filter branch_region failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+DA=`grep -c -E '^DA:' no_version.info`
+BR=`grep -c -E '^BRDA:' no_version.info`
+
+REGION_DA=`grep -c -E '^DA:' region.info`
+REGION_BR=`grep -c -E '^BRDA:' region.info`
+
+BRANCH_REGION_DA=`grep -c -E '^DA:' branch_region.info`
+BRANCH_REGION_BR=`grep -c -E '^BRDA:' branch_region.info`
+
+if [ $REGION_BR != $BRANCH_REGION_BR ] ; then
+    echo "wrong branch region branch count $BR -> $BRNCH_BREGION_BR"
+    exit 1
+fi
+if [ $DA != $BRANCH_REGION_DA ] ; then
+    echo "wrong branch region line count $DA -> $BRANCH_REGION_DA"
+    exit 1
+fi
+
+if [ $BR -le $_REGION_BR ] ; then
+    echo "wrongregion branch count $BR -> $BREGION_BR"
+    exit 1
+fi
+if [ $DA -le $REGION_DA ] ; then
+    echo "wrong region line count $DA -> $REGION_DA"
+    exit 1
+fi
+
 
 echo "Tests passed"
 
