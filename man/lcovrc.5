@@ -415,6 +415,13 @@ geninfo_compat_libtool = 0
 #geninfo_external = 1
 .br
 
+# Specify whether to capture coverage data from compile-time data files
+.br
+# which have no corresponding runtime data.
+.br
+#geninfo_capture_all = 1
+.br
+
 # Use gcov's --all-blocks option if non-zero
 .br
 #geninfo_gcov_all_blocks = 1
@@ -1515,6 +1522,21 @@ specified by the \-\-directory or \-\-base\-directory options of
 
 Default is 1.
 .PP
+
+.BR geninfo_capture_all " ="
+.IR 0 | 1
+.IP
+If non\-zero, capture coverage data from both runtime data files as
+well as compile time data files which have no corresponding runtime data.
+See the
+.I \-\-all
+flag description in
+.B man(1) geninfo
+for more information.
+
+Default is 0:  do not process bare compile-time data files.
+.PP
+
 
 .BR geninfo_gcov_all_blocks " ="
 .IR 0 | 1

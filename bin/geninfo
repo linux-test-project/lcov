@@ -232,6 +232,7 @@ our $adjust_testname;
 our @ignore_errors;         # List of errors to ignore (parameter)
 our @opt_filter;            # list of coverpoints to ignore (parameter)
 our $initial;
+our $captureAll;            # look for both .gcda and lone .gcno files
 our $no_recursion = 0;
 our $maxdepth;
 our $no_markers           = 0;
@@ -289,6 +290,7 @@ my %geninfo_rc_opts = (
           "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
           'geninfo_chunk_size'          => \$defaultChunkSize,
           'geninfo_interval_update'     => \$defaultInterval,
+          'geninfo_capture_all'         => \$captureAll,
           'build_directory'             => \@rc_build_dir);
 
 my %geninfo_opts = ("test-name|t=s"       => \$test_name,
@@ -300,6 +302,7 @@ my %geninfo_opts = ("test-name|t=s"       => \$test_name,
                     "no-compat-libtool"   => \$opt_no_compat_libtool,
                     "gcov-tool=s"         => \@gcov_tool,
                     "initial|i"           => \$initial,
+                    "all"                 => \$captureAll,
                     "no-recursion"        => \$no_recursion,
                     "no-markers"          => \$no_markers,
                     "derive-func-data"    => \$opt_derive_func_data,
@@ -333,6 +336,12 @@ if (defined($rc_adjust_src_path)) {
     } else {
         push(@lcovutil::file_subst_patterns, [$p, 0]);
     }
+}
+
+if ($captureAll && $initial) {
+    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                              "'--all' ignored when '--initial' is used");
+    $captureAll = undef;
 }
 
 if (defined($lcovutil::tempdirname)) {
@@ -644,13 +653,13 @@ if (0 == $exit_code) {
                                         @build_directory ? '--build-directory' :
                                             'build_directory = ');
         ReadCurrentSource::warn_sourcedir_patterns();
+    };
+    if ($@) {
+        # eval of filter application failed - set error return code, but
+        #  still try to emit profile
+        print(STDERR $@);
+        $exit_code = 1;
     }
-}
-if ($@) {
-    # eval of filter application failed - set error return code, but
-    #  still try to emit profile
-    print(STDERR $@);
-    $exit_code = 1;
 }
 summarize_messages();
 my $end = Time::HiRes::gettimeofday();
@@ -700,6 +709,7 @@ COMMON OPTIONS
 
 OPTIONS
   -i, --initial                     Capture initial zero coverage data
+  --all                             Capture both .gcda and lone .gcno data
   -t, --test-name NAME              Use test case NAME for resulting data
   -o, --output-filename OUTFILE     Write data only to OUTFILE
   -f, --follow                      Follow links when searching .da/.gcda files
@@ -832,6 +842,219 @@ sub checkUpdate
     }
 }
 
+package BuildWorkList;
+
+sub new
+{
+    my $class = shift;
+    my $self  = [[], {}, {}];    # [worklist, processedFiles, messages]
+    return bless $self, $class;
+}
+
+sub worklist
+{
+    my $self = shift;
+    # we saved the mssages for the end...
+    foreach my $msg (values %{$self->[2]}) {
+        lcovutil::ignorable_error($msg->[0], $msg->[1]);
+    }
+    return $self->[0];
+}
+
+sub find_corresponding_gcno_file
+{
+    my ($gcda_file, $searchdir) = @_;
+    my ($name, $d, $e) = File::Basename::fileparse($gcda_file, qr/\.[^.]*/);
+    my $gcno_file = File::Spec->catfile($d, $name . ".gcno");
+    foreach ($gcno_file) {
+        return $gcno_file if (-f $gcno_file || -l $gcno_file);
+
+        my $alt    = lcovutil::subst_file_name($gcno_file);
+        my $prefix = "looking for GCNO matching '$gcda_file':\n";
+        if ($alt ne $gcno_file) {
+            $gcno_file = $alt;
+            lcovutil::info(1, "$prefix  at '$gcno_file'\n");
+            $prefix = '';
+            return $gcno_file if (-f $gcno_file || -l $gcno_file);
+        }
+        # check to see if this file is in a different directory
+        my $dir = $d;
+        $dir =~ s#^$searchdir##g;
+        $prefix = "looking for GCNO matching '$gcda_file' prefix:'$dir':\n";
+        # handle case that gcda and gcno are in different directories
+        #  - say, where is the gcda that we found, then see if gcno is
+        #    in the same directory. If not, then look in a gcno path and
+        #    link both gcda and gcno into this tempdir, run gcov, then
+        #    unlink
+        # from the directory where the gcda file is found:
+        #   strip off the directory where we start the search
+        #   then strip off the GCOV_PREFIX (if there is one)
+        #   then append the remaining path the the GCDA file, to the
+        #   'GCNO_PATH' that we were provided.
+        #     - if there is a file there:  use it.
+        foreach my $d (@$buildDirSearchPath) {
+            # is the GCNO in the relative path from build_dir?
+            my $build_directory = $d->[0];
+            $gcno_file =
+                File::Spec->catfile($build_directory, $dir, $name . ".gcno");
+
+            lcovutil::info(1, "$prefix  at '$gcno_file'\n");
+            $prefix = '';
+            if (-f $gcno_file || -l $gcno_file) {
+                ++$d->[1];
+                return $gcno_file;
+            }
+
+            # is the GCNO in the relative path after we apply substitutions?
+            $alt = lcovutil::subst_file_name($gcno_file);
+            if ($alt ne $gcno_file) {
+                $gcno_file = $alt;
+                lcovutil::info(1, "$prefix  at '$gcno_file'\n");
+                $prefix = '';
+                if (-f $gcno_file || -l $gcno_file) {
+                    ++$d->[1];
+                    return $gcno_file;
+                }
+            }
+        }    # foreach build_directory
+
+        if (@lcovutil::resolveCallback) {
+            $gcno_file = File::Spec->catfile($d, $name . ".gcno");
+
+            $gcno_file = SearchPath::resolveCallback($gcno_file, 1);
+            return $gcno_file if (-f $gcno_file || -l $gcno_file);
+        }
+    }    # foreach switch
+
+    # skip the .gcda file if there is no .gcno
+    lcovutil::ignorable_error(
+        $lcovutil::ERROR_PATH,
+        (lcovutil::is_ignored($lcovutil::ERROR_PATH) ? 'skipping' :
+             'cannot process') .
+            " .gcda file $gcda_file because corresponding .gcno file '$gcno_file' is missing"
+            .
+            (
+            $lcovutil::verbose ||
+                lcovutil::message_count($lcovutil::ERROR_PATH) == 0 ?
+                " (see the '--build-directory' entry in 'man geninfo' for suggestions)"
+            :
+                '') .
+            '.');
+
+    return undef;
+}
+
+sub add_worklist_entry
+{
+    my ($self, $filename, $directory) = @_;
+    if (exists($self->[1]->{$filename})) {
+        lcovutil::ignorable_error(
+                                 $lcovutil::ERROR_USAGE,
+                                 "duplicate file $filename in both " .
+                                     $self->[1]->{$filename} . " and $directory"
+                                     .
+                                     (lcovutil::is_ignored(
+                                                       $lcovutil::ERROR_USAGE) ?
+                                          ' (skip latter)' :
+                                          ''));
+        return;
+    }
+    $self->[1]->{$filename} = $directory;
+
+    my ($gcda_file, $gcno_file);
+    if ($filename !~ /$data_file_extension$/) {
+        $gcno_file = $filename;
+    } else {
+        $gcda_file = $filename;
+        $gcno_file = find_corresponding_gcno_file($filename, $directory);
+        return unless $gcno_file;    # would have errored out
+
+        my ($vol, $dir, $name) = File::Spec->splitpath($gcno_file);
+        # remove trailing slash
+        $self->[1]->{$gcno_file} = substr($dir, 0, -1);
+    }
+    push(@{$self->[0]}, [$directory, $gcda_file, $gcno_file]);
+}
+
+sub find_files
+{
+    my $self        = shift;
+    my $processGcno = shift;
+    my ($type, $ext);
+
+    if ($processGcno) {
+        $type = "graph";
+        $ext  = $graph_file_extension;
+    } else {
+        $type = "data";
+        $ext  = $data_file_extension;
+    }
+    foreach my $directory (@_) {
+        unless (-e $directory) {
+            # hold error until the end of processing...
+            $self->[2]->{$directory} = [$lcovutil::ERROR_USAGE,
+                                        "no such file or directory '$directory'"
+            ];
+            next;
+        }
+        if (-d $directory) {
+            lcovutil::info("Scanning $directory for $ext files ...\n");
+
+            my $now = Time::HiRes::gettimeofday();
+            my @found =
+                `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>$lcovutil::devnull`;
+            lcovutil::ignorable_error($lcovutil::ERROR_UTILITY,
+                                      "error in 'find \"$directory\" ...': $!")
+                if ($?);
+            my $time = Time::HiRes::gettimeofday() - $now;
+            if (exists($lcovutil::profileData{find}) &&
+                exists($lcovutil::profileData{find}{$directory})) {
+                $lcovutil::profileData{find}{$directory} += $time;
+            } else {
+                $lcovutil::profileData{find}{$directory} = $time;
+            }
+            chomp(@found);
+            if (!@found) {
+                if (!defined($processGcno) || $processGcno != 2) {
+                    $self->[2]->{$directory} = [
+                                             $lcovutil::ERROR_EMPTY,
+                                             "no $ext files found in $directory"
+                    ];
+                }
+
+                next;
+            }
+            delete($self->[2]->{$directory})
+                ;    # if exists($self->[2]->{$directory});
+            lcovutil::info("Found %d %s files in %s\n",
+                           scalar(@found), $type, $directory);
+            # keep track of directory where we found the file
+            foreach my $entry (@found) {
+                # don't add gcno file again, if we already handled the .gcda
+                $self->add_worklist_entry($entry, $directory)
+                    unless (defined($processGcno) &&
+                            $processGcno == 2 &&
+                            exists($self->[1]->{$entry}));
+            }
+        } elsif (!defined($processGcno) || $processGcno == 1) {
+            my ($name, $d, $e) =
+                File::Basename::fileparse($directory, qr/\.[^.]*/);
+            if ($e ne $ext &&
+                (!$captureAll || $e ne $graph_file_extension)) {
+                $self->[2]->{$directory} = [
+                       $lcovutil::ERROR_USAGE,
+                       "$directory has unsupported extension: expected '$ext'" .
+                           ($initial ? " for initial capture" : "")
+                ];
+                next;
+            }
+            delete($self->[2]->{$directory});
+            # use the directory where we find the file as the base dir
+            $self->add_worklist_entry($directory, $d);
+        }
+    }
+}
+
 package main;
 
 #
@@ -900,7 +1123,7 @@ sub _process_one_chunk($$$$)
                           "geninfo_XXXXX",
                           DIR     => $tempFileDir,
                           CLEANUP => !defined($lcovutil::preserve_intermediates)
-        ) if ($intermediate || !defined($initial));
+        ) if ($intermediate || !defined($gcda_file));
 
         # keep track of order - so we can estimate which files were processed
         # at same time
@@ -913,7 +1136,7 @@ sub _process_one_chunk($$$$)
             $trace =
                 process_intermediate($searchdir, $gcda_file,
                                      $gcno_file, $tmp->dirname);
-        } elsif ($initial) {
+        } elsif (!defined($gcda_file)) {
             # just read the gcno file and set all the counters to zero
             $trace = process_graphfile($searchdir, $gcno_file);
         } else {
@@ -957,13 +1180,13 @@ sub _process_one_chunk($$$$)
     return $combined;
 }
 
-sub _merge_one_child($$$$$)
+sub _merge_one_child($$$$)
 {
-    my ($child, $children, $type, $tempFileExt, $childstatus) = @_;
+    my ($child, $children, $tempFileExt, $childstatus) = @_;
     my $start = Time::HiRes::gettimeofday();
 
     debug(
-        "_merge_one_child: $child $type (parent $$) status $childstatus from $tempFileDir\n"
+        "_merge_one_child: $child (parent $$) status $childstatus from $tempFileDir\n"
     );
     my ($chunk, $forkAt, $chunkId) = @{$children->{$child}};
     my $dumped   = File::Spec->catfile($tempFileDir, "dumper_$child");
@@ -1054,84 +1277,16 @@ sub _merge_one_child($$$$$)
 
 sub gen_info(@)
 {
-    my $type;
-    my $ext;
+    my $builder = BuildWorkList->new();
 
-    if ($initial) {
-        $type = "graph";
-        $ext  = $graph_file_extension;
-    } else {
-        $type = "data";
-        $ext  = $data_file_extension;
+    $builder->find_files($initial, @_);
+    if (!defined($initial) &&
+        defined($captureAll) &&
+        $captureAll) {
+        $builder->find_files(2, @_);
     }
-    my %files;
-    my $total = 0;
-    foreach my $directory (@_) {
-        unless (-e $directory) {
-            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                                      "no such file or directory '$directory'");
-            next;
-        }
-        if (-d $directory) {
-            info("Scanning $directory for $ext files ...\n");
-
-            my $now = Time::HiRes::gettimeofday();
-            my @found =
-                `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>$lcovutil::devnull`;
-            lcovutil::ignorable_error($lcovutil::ERROR_UTILITY,
-                                      "error in 'find \"$directory\" ...': $!")
-                if ($?);
-            my $then = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{find}{$directory} = $then - $now;
-            chomp(@found);
-            if (!@found) {
-                lcovutil::ignorable_error($ERROR_EMPTY,
-                                          "no $ext files found in $directory");
-                next;
-            }
-            info("Found %d %s files in %s\n", scalar(@found), $type,
-                 $directory);
-            # keep track of directory where we found the file
-            foreach my $entry (@found) {
-                if (exists($files{$entry})) {
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_USAGE,
-                        "duplicate file $entry in both $files{$entry} and $directory"
-                            .
-                            (lcovutil::is_ignored($lcovutil::ERROR_USAGE) ?
-                                 ' (skip latter)' :
-                                 ''));
-                    next;
-                } else {
-                    ++$total;
-                }
-                $files{$entry} = $directory;
-            }
-        } else {
-            my ($name, $d, $e) = fileparse($directory, qr/\.[^.]*/);
-            if ($e ne $ext) {
-                lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                       "$directory has unsupported extension: expected '$ext'" .
-                           ($initial ? " for initial capture" : ""));
-                next;
-            }
-            # use the directory where we find the file as the base dir
-            if (exists($files{$directory})) {
-                lcovutil::ignorable_error(
-                   $lcovutil::ERROR_USAGE,
-                   "duplicate file $directory in both $files{$directory} and $d"
-                       .
-                       (lcovutil::is_ignored($lcovutil::ERROR_USAGE) ?
-                            ' (skip latter)' :
-                            ''));
-                next;
-            } else {
-                ++$total;
-            }
-            $files{$directory} = $d;
-        }
-    }
-
+    my $filelist = $builder->worklist();
+    my $total    = scalar(@$filelist);
     if (1 < $lcovutil::maxParallelism) {
         my $floor = int($total / $lcovutil::maxParallelism);
         if (defined($defaultChunkSize)) {
@@ -1161,100 +1316,8 @@ sub gen_info(@)
     }
     my @worklist;
     my $chunk = [];
-    DATA_FILE: while (my ($filename, $searchdir) = each(%files)) {
-        #  $filename will be .gcda or .gcno.
-        #  expect gcno only if --initial
-        lcovutil::info(2, "schedule %s in %d\n", $filename, scalar(@worklist));
-        # find the corresponding gcno file...
-        my ($name, $d, $e) = fileparse($filename, qr/\.[^.]*/);
-        my ($gcda_file, $gcno_file);
-        if ($initial) {
-            $gcno_file = $filename;
-        } else {
-            $gcda_file = $filename;
-            $gcno_file = File::Spec->catfile($d, $name . ".gcno");
-            GCNO: foreach ($gcno_file) {
-                last if (-f $gcno_file || -l $gcno_file);
-
-                my $alt    = lcovutil::subst_file_name($gcno_file);
-                my $prefix = "looking for GCNO matching '$gcda_file':\n";
-                if ($alt ne $gcno_file) {
-                    $gcno_file = $alt;
-                    lcovutil::info(1, "$prefix  at '$gcno_file'\n");
-                    $prefix = '';
-                    last GCNO if (-f $gcno_file || -l $gcno_file);
-                }
-                # check to see if this file is in a different directory
-                my $dir = $d;
-                $dir =~ s#^$searchdir##g;
-                $prefix =
-                    "looking for GCNO matching '$gcda_file' prefix:'$dir':\n";
-                # handle case that gcda and gcno are in different directories
-                #  - say, where is the gcda that we found, then see if gcno is
-                #    in the same directory. If not, then look in a gcno path and
-                #    link both gcda and gcno into this tempdir, run gcov, then
-                #    unlink
-                # from the directory where the gcda file is found:
-                #   strip off the directory where we start the search
-                #   then strip off the GCOV_PREFIX (if there is one)
-                #   then append the remaining path the the GCDA file, to the
-                #   'GCNO_PATH' that we were provided.
-                #     - if there is a file there:  use it.
-                foreach my $d (@$buildDirSearchPath) {
-                    # is the GCNO in the relative path from build_dir?
-                    my $build_directory = $d->[0];
-                    $gcno_file =
-                        File::Spec->catfile($build_directory, $dir,
-                                            $name . ".gcno");
-
-                    lcovutil::info(1, "$prefix  at '$gcno_file'\n");
-                    $prefix = '';
-                    if (-f $gcno_file || -l $gcno_file) {
-                        ++$d->[1];
-                        last GCNO;
-                    }
-
-                    # is the GCNO in the relative path after we apply substitutions?
-                    $alt = lcovutil::subst_file_name($gcno_file);
-                    if ($alt ne $gcno_file) {
-                        $gcno_file = $alt;
-                        lcovutil::info(1, "$prefix  at '$gcno_file'\n");
-                        $prefix = '';
-                        if (-f $gcno_file || -l $gcno_file) {
-                            ++$d->[1];
-                            last GCNO;
-                        }
-                    }
-                }    # foreach build_directory
-
-                if (@lcovutil::resolveCallback) {
-                    $gcno_file = File::Spec->catfile($d, $name . ".gcno");
-
-                    $gcno_file = SearchPath::resolveCallback($gcno_file, 1);
-                    last GCNO if (-f $gcno_file || -l $gcno_file);
-                }
-
-                # skip the .gcda file if there is no .gcno
-
-                lcovutil::ignorable_error(
-                    $ERROR_PATH,
-                    (lcovutil::is_ignored($ERROR_PATH) ? 'skipping' :
-                         'cannot process') .
-                        " .gcda file $gcda_file because corresponding .gcno file '$gcno_file' is missing"
-                        .
-                        (
-                        $lcovutil::verbose ||
-                            lcovutil::message_count($ERROR_PATH) == 0 ?
-                            " (see the '--build-directory' entry in 'man geninfo' for suggestions)"
-                        :
-                            '') .
-                        '.');
-                next DATA_FILE;
-            }    # foreach switch
-        }    # if (initial)
-        lcovutil::info(1, "   mapped $gcda_file -> $gcno_file\n")
-            unless $initial;
-        push(@$chunk, [$searchdir, $gcda_file, $gcno_file]);
+    foreach my $j (@$filelist) {
+        push(@$chunk, $j);
         if (scalar(@$chunk) == $chunkSize) {
             push(@worklist, $chunk);
             $chunk = [];
@@ -1314,7 +1377,7 @@ sub gen_info(@)
                     lcovutil::report_unknown_child($child);
                     next;
                 }
-                _merge_one_child($child, \%children, $type, $tempFileExt,
+                _merge_one_child($child, \%children, $tempFileExt,
                                  $childstatus);
                 --$currentParallel;
             }
@@ -1440,10 +1503,13 @@ sub gen_info(@)
             next;
         }
         --$currentParallel;
-        _merge_one_child($child, \%children, $type, $tempFileExt, $childstatus);
+        _merge_one_child($child, \%children, $tempFileExt, $childstatus);
     }
-    info("Finished processing %d GDCA file%s\n",
-         $processedFiles, 1 == $processedFiles ? '' : 's');
+    info("Finished processing %d " .
+             ($initial ? 'GCNO' : ($captureAll ? 'GCDA/GCNO' : 'GCDA')) .
+             " file%s\n",
+         $processedFiles,
+         1 == $processedFiles ? '' : 's');
     # Report whether files were excluded.
     if (%lcovutil::excluded_files) {
         my $count = scalar keys %lcovutil::excluded_files;

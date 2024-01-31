@@ -35,6 +35,8 @@ Capture coverage data tracefile (from compiler-generated data):
 .br
 .RB [ \-i | \-\-initial ]
 .br
+.RB [ \-\-all ] ]
+.br
 .RB [ \-\-gcov\-tool
 .IR tool ]
 .br
@@ -480,7 +482,7 @@ This option can be specified multiple times, to add more directories to the sour
 .B \-\-capture
 .br
 .RS
-Capture coverage data.
+Capture runtime coverage data.
 
 By default captures the current kernel execution counts and writes the
 resulting coverage data to the standard output. Use the \-\-directory
@@ -488,6 +490,13 @@ option to capture counts for a user space program.
 
 The result of the capture operation will be written to stdout or the tracefile
 specified with \-o.
+
+When combined with the
+.BR \-\-all
+flag, both runtime and compile-time coverage will be extracted in one step.
+See the description of the
+.BR \-\-initial
+flag, below.
 
 See man
 .BR geninfo (1))
@@ -1293,7 +1302,12 @@ Demangle C++ function names.  See the genhtml man page for details.
 .br
 .B \-\-initial
 .RS
-Capture initial zero coverage data.
+Capture initial zero coverage data - i.e., from the compile-time '.gcno' data
+files.
+Also see the
+.B \-\-all
+flag, which tells the tool to capture both compile-time ('.gcno') and runtime
+('.gcda') data at the same time.
 
 Run lcov with \-c and this option on the directories containing .bb, .bbg
 or .gcno files before running any test case. The result is a "baseline"
@@ -1326,8 +1340,32 @@ Recommended procedure when capturing data for a test case:
 .RS
 # lcov \-a app_base.info \-a app_test.info \-o app_total.info
 .br
-
 .RE
+
+The above 4 steps are equivalent to
+.br
+.RS
+# lcov \-\-capture \-\-all -o app_total.info \-d appdir
+.RE
+
+The combined compile- and runtime data will produce a different result than
+capturing runtime data alone if your project contains some compilation units
+which are not used in any of your testcase executables or shared libraries -
+that is, there are some '.gcno' (compile time) data files that do not
+have matching '.gcda' (runtime) data files.
+In that case, the runtime-only report will not contain any coverpoints from
+the unused files, whereas those coverpoints will appear (with all zero 'hit'
+counts) in the combined report.
+
+The
+.BR \-\-initial
+flag is ignored except in
+.BR \-\-capture
+mode.  The
+.BR \-\-all
+flag is ignored if the
+.BR \-\-initial
+flag is specified.
 .RE
 
 .B \-k

@@ -20,6 +20,8 @@ geninfo \- Generate tracefiles from GCOV coverage data files
 .IR comment-string ]
 .br
 .RB [ \-i | \-\-initial ]
+.RB [ \-\-all ]
+.br
 .RB [ \-t | \-\-test\-name
 .IR test\-name ]
 .br
@@ -922,11 +924,43 @@ file that contains zero coverage for every instrumented line and function.
 Combine this data file (using lcov \-a) with coverage data files captured
 after a test run to ensure that the percentage of total lines covered is
 correct even when not all object code files were loaded during the test.
+Also see the
+.I \-\-all
+flag, below.
 
-Note: currently, the
+Note: the
 .B \-\-initial
-option does not generate branch coverage information.
+option is not supported for gcc versions less than 6, and does not generate branch coverage information for gcc versions less than 8.
 .RE
+
+.B \-\-all
+.RS
+Capture coverage data from both compile time (.gcno) data files which do not have corresponding runtime (.gcda) data files, as well as from those that
+.I do
+have corresponding runtime data.
+There will be no runtime data unless some executable which links the corresponding object file has run to completion.
+
+Note that the execution count of coverpoints found only in files which do not have any runtime data will be zero.
+
+This flag is ignored if the
+.I \-\-initial
+flag is set.
+
+Using the
+.B \-\-all
+flag is equivalent to executing both
+.I geninfo --initial ...
+and
+.I geninfo  ...
+and merging the result.
+
+Also see the
+.I geninfo_capture_all
+entry in
+.B man(5) lcovrc.
+
+.RE
+
 
 .B \-\-no\-markers
 .br

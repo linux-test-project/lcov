@@ -172,6 +172,7 @@ our $no_compat_libtool;  # If set, indicates that libtool mode is to be disabled
 
 our @gcov_tool;
 our $initial;
+our $captureAll;
 our $no_recursion = 0;
 our $to_package;
 our $from_package;
@@ -229,6 +230,7 @@ my %lcov_options = ("directory|d|di=s"     => \@directory,
                     "gcov-tool=s"          => \@gcov_tool,
 
                     "initial|i"          => \$initial,
+                    "all"                => \$captureAll,
                     "no-recursion"       => \$no_recursion,
                     "to-package=s"       => \$to_package,
                     "from-package=s"     => \$from_package,
@@ -281,6 +283,18 @@ if (!($lcovutil::lcov_capture || @add_tracefile) &&
     }
     lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
            "--version-script ignored except with --capture or --add-tracefile");
+}
+
+if ($initial && !$lcovutil::lcov_capture) {
+    lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+                          "'--initial' is ignored except in '--capture' mode.");
+    $initial = undef;
+}
+
+if ($captureAll && $initial) {
+    lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+                                "'--all' ignored when '--initial' is used.");
+    $captureAll = undef;
 }
 
 # Check list width option
@@ -507,6 +521,7 @@ OPERATION
 
 OPTIONS
   -i, --initial                   Capture initial zero coverage data
+  --all                           Captuer from both .gcda and lone .gcno files
   -t, --test-name NAME            Specify test name to be stored with data
   -o, --output-file FILENAME      Write data to FILENAME instead of stdout
   -d, --directory DIR             Use .da files in DIR instead of kernel
@@ -899,6 +914,9 @@ sub lcov_geninfo(@)
     }
     if ($initial) {
         push(@param, "--initial");
+    }
+    if ($captureAll) {
+        push(@param, "--all");
     }
     if ($no_markers) {
         push(@param, "--no-markers");
