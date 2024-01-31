@@ -2887,10 +2887,10 @@ sub _categorizeFunctionCov
             my $end_line = $curr->end_line();
 
             if (defined($end_line)) {
-                # @todo could keep list of functions and branch coverpoints
-                #  contained in the function - then report per-function coverage
-                #  in the function detail view.  Maybe user would want to
-                #  work on functions which are hit but whose coverage is low
+                # we keep list of functions and branch coverpoints contained
+                # in the function - and can report per-function coverage
+                # in the function detail view.  Maybe user will prioritize
+                # functions which are hit but whose coverage is low
                 $changed = 0;
                 for (my $line = $curr->line(); $line <= $end_line; ++$line) {
                     # data for this line
