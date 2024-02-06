@@ -44,6 +44,7 @@ Further README contents
   5. An example of how to access coverage data for a user space program
   6. New features in lcov 2.0
   7. Questions and Comments
+  8. Filing a new issue
 
 
 
@@ -100,6 +101,7 @@ To run the LCOV regression test suite on your installation:
 If desired, you can collect coverage data for the LCOV module by setting
 the COVERAGE makefile variable.
 Note that the Devel::Cover package must be installed if COVERAGE is enabled
+or if you want to use the perl2lcov utility.
 To view the collected coverage information, point your browser to
 .../cover_db/coverage.html after running the tests.
 
@@ -446,3 +448,35 @@ In case of further questions, feel free to open a new issue using the issue
 tracker on the LCOV code repository site at:
 
   https://github.com/linux-test-project/lcov
+
+
+8. Filing a new issue
+---------------------
+Before filing a new issue - and if you are using an LCOV release (as opposed
+to using a clone of the github repo) - please verify whether the issue is
+still present in the LCOV master version.  See section 2, above for
+directions on how to clone and install the most up-to-date LCOV version.
+
+If possible, please include a testcase which illustrates the problem
+when you file an issue.
+Please describe your environment (platform, compiler, perl, and python
+versions,  etc.).  Please include a detailed description of the issue:
+what you were trying to do (your goal - not the mechanics of your
+procedure), what you did (the mechanics of your procedure), the result
+you wanted to see vs. what actually happened.
+Depending on the issue, your testcase may need to include source code and
+compile/link command lines, directions for how to run your example, the
+command lines used to capture and generate your lcov reports, etc.
+In other cases, the captured '.info' files may be sufficient to reproduce
+the issue.
+When in doubt: more is better than less.
+
+If you cannot include a testcase - e.g., because you feel that it is
+senstitive or proprietary - then your detailed description is even more
+important.
+Note that, without an example, it may be difficult or impossible to
+diagnose or fix the problem.
+
+Bear in mind that you are asking for help from volunteers.   Your
+priority might not be their priority. Civility, consideration and politeness
+go a long way.
