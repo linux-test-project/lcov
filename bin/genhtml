@@ -1033,8 +1033,10 @@ sub removeLine
     my ($self, $lineData) = @_;
 
     my $l = $self->[LINE_DATA]->[DATA];
-    $l->{hit}   -= $lineData->curr_count() != 0;
-    $l->{found} -= 1 if $lineData->in_curr();
+    if ($lineData->in_curr()) {
+        $l->{hit}   -= $lineData->curr_count() != 0;
+        $l->{found} -= 1;
+    }
     if ($lcovutil::br_coverage) {
         my $b = $lineData->current_branch();
         if (defined($b)) {
@@ -3794,7 +3796,7 @@ sub new
                 push(@lineArray, $line);
             }
         }
-        @lineArray                 = sort(@lineArray);
+        @lineArray                 = sort({ $a <=> $b } @lineArray);
         $self->[INTERESTING_LINES] = \@lineArray;
         $inRegion                  = InInterestingRegion->new(@lineArray);
     }
