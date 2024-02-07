@@ -562,12 +562,21 @@ $output_filename = catfile($cwd, $output_filename)
 # Build list of directories to identify external files
 foreach my $entry (@data_directory, $base_directory) {
     next if (!defined($entry));
+    # do not apply substitution patterns to the dir name -
+    #   if user really wants that, they can specify a substitution and/or
+    #   include/exclude patterns
     my $p = solve_relative_path($cwd, $entry);
-    push(@lcovutil::internal_dirs, $p);
+    push(@lcovutil::internal_dirs, $p)
+        unless grep($p, @lcovutil::internal_dirs);
     if (!file_name_is_absolute($entry) &&
         $entry ne $p) {
-        push(@lcovutil::internal_dirs, $entry);
+        push(@lcovutil::internal_dirs, $entry)
+            unless grep($entry, @lcovutil::internal_dirs);
     }
+}
+if (@lcovutil::internal_dirs) {
+    lcovutil::info("Recording 'internal' directories:\n\t" .
+                   join("\n\t", @internal_dirs) . "\n");
 }
 
 # Function is_external() requires all internal_dirs to end with a slash
@@ -3375,8 +3384,14 @@ sub filter_source_files($)
 
     foreach my $filename (keys(%{$hash})) {
         # Skip external files if requested
-        if (is_external($filename) ||
+        my $external = is_external($filename);
+        if ($external ||
             TraceFile::skipCurrentFile($filename)) {
+            if ($external) {
+                lcovutil::info("Dropping 'external' file '$filename'\n");
+            } else {
+                lcovutil::info("Excluding file '$filename'\n");
+            }
             # Remove file data
             delete($hash->{$filename});
             $lcovutil::excluded_files{$filename} = 1;

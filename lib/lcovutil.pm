@@ -6186,6 +6186,7 @@ sub applyFilters
             unless ('TraceInfo' eq ref($traceInfo));
         my $source_file = $traceInfo->filename();
         if (lcovutil::is_external($source_file)) {
+            lcovutil::info("excluding 'external' file '$source_file'\n");
             delete($self->[FILES]->{$source_file});
             next;
         }
