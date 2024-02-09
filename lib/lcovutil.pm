@@ -2633,11 +2633,13 @@ sub check_criteria
 
 sub select
 {
-    my ($self, $lineData, $annotateData) = @_;
+    my ($self, $lineData, $annotateData, $filename, $lineNo) = @_;
 
-    my @params = ('select', JsonSupport::encode($lineData));
-    push(@params, JsonSupport::encode($annotateData))
-        if defined($annotateData);
+    my @params = (
+               'select',
+               JsonSupport::encode($lineData),
+               defined($annotateData) ? JsonSupport::encode($annotateData) : '',
+               $filename, $lineNo);
     return $self->call(@params);
 }
 

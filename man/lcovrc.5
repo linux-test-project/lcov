@@ -2312,6 +2312,21 @@ The resolve script is called as:
 [callback_args]
 .I " file_name"
 .PP
+
+or
+.IP
+.I $resolve_callback =
+.B resolve_module
+.I ->new([callback_args])
+.PP
+to initialize the callback, then
+.IP
+.I $resolve_callback->
+.B resolve
+.I (file_name)
+.PP
+to find the actual file location.
+
 If necessary, the callback can check the suffix of the filename to determine
 whether it should look for either a source or data file.
 .PP
@@ -2337,29 +2352,56 @@ Lines which are not selected but fall within
 .I num_context_lines
 of a selected line are also included in the report.  See below.
 
+Note that selection is fundamentally intended to show regions of code with soem surrounding context.  It might not do what you expect if there is no code - e.g., if the region of interest has been compiled out via compiler or exclusion directives.
+For example: when selecting based on SHA or changelist ID, an inserted comment will not be selected unless it is
+.I num_context_lines
+of an inserted or changed line of code.
+
 The select script is called as:
 
 .B "   select_script"
 [callback_args]
-.I lineDataJson [annotateDataJson]
+.I lineDataJson annotateDataJson filenName lineNumber
 
 or as:
 
-.B "   select_module"
-[callback_args]
-.I lineDataRef [annotateDataRef]
+.I "   $selectCallback ="
+.B select_module
+.I ->new([callback_args])
 
+to initialize the callback object, then as
+
+.I "   " $selectCallback
+.B select
+.I  (lineDataRef annotateDataRef fileName lineNumber)
+
+.RS
+to determine selection,
 where
+.IP \- 3
+.I fileName
+is the name of the source file and
+.PP
+.IP \- 3
+.I lineNumber
+is the source file line number, indexed from zero,
+.PP
+.IP \- 3
 .I lineDataJson
-is a json-encoded LineData structure (see the lcovutil.pm source code) and
-.I annoateDataJson
+is a json-encoded LineData structure (see the lcovutil.pm source code), and
+.PP
+.IP \- 3
+.I annotateDataJson
 is the json-encoded data returned by your
 .I annotate\-script
 (see the
 .I \-\-annotate\-script
 parameter in man
 .B genhtml(1).
+), or the empty string if there are no annotations for this file.
+.PP
 The module callback is similar except that is is passed objects rather than JSON encodings of the objects.
+.RE
 
 The script should return "1" or "0".
 

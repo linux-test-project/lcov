@@ -18,7 +18,7 @@
 #
 #
 # select.pm [--tla tla[,tla]*]* [--range min_days:mex_days] \
-#    [--owner regexp]* line_data annotate_data
+#    [--owner regexp]* [--(sha|cl) id]* line_data annotate_data
 #
 #   This is a sample 'genhtml --select-script' callback - used to decide
 #   whether a particular line information is interesting - and thus should
@@ -27,6 +27,11 @@
 #   --tla: is a (possibly comma-separated list of) differential categories
 #     which should be retained:
 #        select.pm --tla LBC,UNC,UIC ...
+#
+#   --sha/--cl:  is a (posibly comma-separated list of) git SHAs or
+#     perforce changelists which should be retained.
+#     Match checks that the provided string matches the leading characters
+#     of the full SHA or changelist.
 #
 #   --range: is a time period such that only code written or changed
 #     within the specified period is retained.
@@ -59,6 +64,7 @@ use constant {
               AGE   => 0,
               TLA   => 1,
               OWNER => 2,
+              SHA   => 3,
 };
 
 sub new
@@ -66,21 +72,30 @@ sub new
     my $class  = shift;
     my $script = shift;
 
-    my (@range, @tla, @owner);
+    my (@range, @tla, @owner, @sha);
     my @args = @_;
     my $exe  = basename($script ? $script : $0);
     my $help;
     if (!GetOptionsFromArray(\@_,
-                             ("range:s" => \@range,
-                              'tla:s'   => \@tla,
-                              'owner:s' => \@owner,
-                              'help'    => \$help)) ||
+                             ("range:s"  => \@range,
+                              'tla:s'    => \@tla,
+                              'owner:s'  => \@owner,
+                              'sha|cl:s' => \@sha,
+                              'help'     => \$help)) ||
         $help ||
         0 == scalar(@args)    # expect at least one selection  criteria
     ) {
-        print(STDERR
-                "usage: $exe [--range min_days:max_days] [--owner regexp]* [--tla tla]*\n"
-        );
+        print(STDERR <<EOF);
+usage: $exe
+       [--range min_days:max_days]
+       [--owner regexp]*
+       [--tla tla]*
+       [--sha sha]*
+       [--cl changelist]*
+
+Line is selected (return true) if any of the criteria match
+EOF
+
         exit($help ? 0 : 1) if ($script eq $0);
         return undef;
     }
@@ -92,6 +107,7 @@ sub new
                 join(' ', @args) . '"');
         }
     }
+    @sha = split(',', join(',', @sha));
     @tla = split(',', join(',', @tla));
     foreach my $tla (@tla) {
         die("invalid tla '$tla' in \"$exe " . join(' ', @args) . '"')
@@ -108,16 +124,21 @@ sub new
             unless $min <= $max;
         $range = [$min, $max];
     }
-    my $self = [\@range, \@tla, \@owner];
+    my $self = [\@range, \@tla, \@owner, \@sha];
     return bless $self, $class;
 }
 
 sub select
 {
-    my ($self, $lineData, $annotateData) = @_;
+    my ($self, $lineData, $annotateData, $filename, $lineNo) = @_;
 
-    my $tla = $lineData->tla();
-    return 1 if grep(/$tla/, @{$self->[TLA]});
+    if (defined($lineData)) {
+        # this line might not have coverage data, if genhtml is checking
+        # for a contiguous region of context lines (e.g., which are part
+        # of some SHA) which are not code and thus have no data
+        my $tla = $lineData->tla();
+        return 1 if grep(/$tla/, @{$self->[TLA]});
+    }
 
     if (defined($annotateData)) {
         my $age = $annotateData->age();
@@ -126,12 +147,27 @@ sub select
                 if ($age >= $a->[0] &&
                     $age <= $a->[1]);
         }
+        my $commit = $annotateData->commit();
+        if (defined($commit) &&
+            '' ne $commit) {
+
+            foreach my $sha (@{$self->[SHA]}) {
+                # match at head of commit ID string
+                return 1 if $commit =~ /^$sha/;
+            }
+        }
 
         foreach my $re (@{$self->[OWNER]}) {
             return 1 if $annotateData->full_name() =~ $re;
         }
     }
-    lcovutil::info(1, "drop " . $lineData->type() . " $tla\n");
+    lcovutil::info(1,
+                   "drop "
+                       .
+                       (defined($lineData) ?
+                            $lineData->type() . ' ' . $lineData->tla() :
+                            "$filename:$lineNo") .
+                       "\n");
     # no match - not interesting
     return 0;
 }

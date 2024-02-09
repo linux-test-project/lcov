@@ -3586,35 +3586,99 @@ sub _read_udiff
 package InInterestingRegion;
 
 use constant {
-              NEXT  => 0,
-              PREV  => 1,
-              STACK => 2,
+              NEXT         => 0,
+              PREV         => 1,
+              STACK        => 2,
+              ANNOTATE_OBJ => 3,
+              LINECOV_HASH => 4,
+              # non-code line in a contiguous region before or after the
+              # 'interesting' code lie - should also be included -
+              # keep track of the length of that region, above and below
+              LINES_BEFORE => 5,
+              LINES_AFTER  => 6,
+
 };
 
 our $num_context_lines = 5;
 
 sub new
 {
-    my $class = shift;
-    my $self  = [undef, undef, Storable::dclone(\@_)];
+    my ($class, $srcFileStruct, $lineCovHash) = @_;
+
+    my $self = [undef, undef,
+                Storable::dclone($srcFileStruct->interesting_lines()),
+                $srcFileStruct, $lineCovHash
+    ];
+    # we will call the $annotateObj->line(int) to collect annotate data
+    #   for certain lines - to find out of a non-code line is in a
+    #   continguous region by the same author, in the same SHA or etc.
     $self->[NEXT] = shift(@{$self->[STACK]});
+    if (defined($self->[NEXT]) && $self->[NEXT] != 1) {
+        _computeContextBefore($self, 0);
+    }
     return bless $self, $class;
+}
+
+sub _computeContextBefore
+{
+    my ($self, $prev) = @_;
+
+    my $count    = 0;
+    my $data     = $self->[LINECOV_HASH];
+    my $annotate = $self->[ANNOTATE_OBJ];
+    # find contiguous source region which matches the select criteria.
+    #   That might include non-code lined (e.g., commments)
+    for (my $l = $self->[NEXT] - 1; $l > $prev; --$l) {
+        my $lineData     = $data->{$l} if exists($data->{$l});
+        my $annotateData = $annotate->line($l);
+        last
+            unless $selectCallback->select($lineData, $annotateData,
+                                           $self->[ANNOTATE_OBJ]->path(), $l);
+        ++$count;
+    }
+    # region of interest is the (possibly empty) contigous region we found
+    # plus the number of context lines
+    $self->[LINES_BEFORE] = $num_context_lines + $count;
 }
 
 sub interesting
 {
     my ($self, $lineNum) = @_;
+    die("unexpected lineNum '$lineNum'") if $lineNum < 1;
     if (defined($self->[NEXT])) {
         if ($lineNum == $self->[NEXT]) {
             $self->[PREV] = $self->[NEXT];
             $self->[NEXT] = shift(@{$self->[STACK]});
+            # compute following context lines - starting from here
+            #  and going to either end of file or next interesting line
+            my $max = defined($self->[NEXT]) ? $self->[NEXT] :
+                $self->[ANNOTATE_OBJ]->num_lines();
+            my $count    = 0;
+            my $data     = $self->[LINECOV_HASH];
+            my $annotate = $self->[ANNOTATE_OBJ];
+            for (my $l = $self->[PREV] + 1; $l < $max; ++$l) {
+                my $lineData     = $data->{$l} if exists($data->{$l});
+                my $annotateData = $annotate->line($l);
+                last
+                    if !$selectCallback->select($lineData, $annotateData,
+                                             $self->[ANNOTATE_OBJ]->path(), $l);
+                ++$count;
+            }
+            $self->[LINES_AFTER] = $num_context_lines + $count;
+
+            # and how many lines before the next interesting one?
+            if (defined($self->[NEXT])) {
+                $self->_computeContextBefore($self->[PREV]);
+            } else {
+                $self->[LINES_BEFORE] = 0;
+            }
             return 1;
-        } elsif ($lineNum >= $self->[NEXT] - $num_context_lines) {
+        } elsif ($lineNum >= $self->[NEXT] - $self->[LINES_BEFORE]) {
             return 1;
         }
     }
     if (defined($self->[PREV])) {
-        if ($lineNum <= $self->[PREV] + $num_context_lines) {
+        if ($lineNum <= $self->[PREV] + $self->[LINES_AFTER]) {
             return 1;
         }
         $self->[PREV] = undef;
@@ -3784,6 +3848,21 @@ sub new
     my @lineArray;    # interesting line numbers
     my $inRegion;
     if (defined($selectCallback)) {
+        # This implementation looks for all the 'line' coverpoints - then
+        #   expands the selected region around those points - e.g., by
+        #   adding noncode lines which are in the selected changelist and
+        #   surrounding the selected region with 'num_context_lines' of
+        #   context.
+        # A side effect of this criteria is that disjoint noncode regions -
+        #   e.g., comments or unused #ifdef code - will not be selected.
+        # A different implementation would go through the annotated source
+        #   and mark all selected lines, then go through again to add
+        #   context.
+        # It isn't clear which approach is best - but the current approach
+        #   seems to match user expectations - so I'm going with it, at
+        #   least for now.
+        #   Not too hard to do - but significant overkill - to make the
+        #   approach configurable.  Let's see if there is user demand.
         while (my ($line, $lne) = each(%$lineCovData)) {
             # ignore deleted lines as they don't appear in source listing
             my $tla = $lne->tla();
@@ -3791,13 +3870,14 @@ sub new
             my $annotateData = $self->line($line)
                 unless grep(/$tla/, ('DUB', 'DCB'));
             # callback arguments are (LineData, SourceLine)
-            if ($selectCallback->select($lne, $annotateData)) {
+            if ($selectCallback->select($lne, $annotateData,
+                                        $self->path(), $line)) {
                 push(@lineArray, $line);
             }
         }
         @lineArray                 = sort({ $a <=> $b } @lineArray);
         $self->[INTERESTING_LINES] = \@lineArray;
-        $inRegion                  = InInterestingRegion->new(@lineArray);
+        $inRegion = InInterestingRegion->new($self, $lineCovData);
     }
     foreach my $line (sort({
                                my $ka =
@@ -4174,6 +4254,12 @@ sub lines
 {
     my $self = shift;
     return $self->[LINES];
+}
+
+sub num_lines
+{
+    my $self = shift;
+    return scalar(@{$self->[LINES]});
 }
 
 sub is_empty
@@ -11141,7 +11227,7 @@ sub write_source($$$$$$$)
 
     my ($region, $empty);
     if ($selectCallback) {
-        $region = InInterestingRegion->new(@{$srcfile->interesting_lines()});
+        $region = InInterestingRegion->new($srcfile, $fileCovInfo->lineMap());
         $empty  = '';
         if ($srcfile->isProjectFile()) {
             $empty .= ' ' x $main::age_field_width;
