@@ -1655,7 +1655,8 @@ sub initial_state
     foreach my $patType (\@lcovutil::exclude_file_patterns,
                          \@lcovutil::include_file_patterns,
                          \@lcovutil::file_subst_patterns,
-                         \@omit_line_patterns
+                         \@lcovutil::omit_line_patterns,
+                         \@lcovutil::exclude_function_patterns
     ) {
         foreach my $p (@$patType) {
             $p->[-1] = 0;
@@ -1696,7 +1697,8 @@ sub compute_update
     foreach my $patType (\@lcovutil::exclude_file_patterns,
                          \@lcovutil::include_file_patterns,
                          \@lcovutil::file_subst_patterns,
-                         \@omit_line_patterns
+                         \@lcovutil::omit_line_patterns,
+                         \@lcovutil::exclude_function_patterns
     ) {
         my @count;
         foreach my $p (@$patType) {
@@ -1751,7 +1753,8 @@ sub update_state
     foreach my $patType (\@lcovutil::exclude_file_patterns,
                          \@lcovutil::include_file_patterns,
                          \@lcovutil::file_subst_patterns,
-                         \@omit_line_patterns
+                         \@lcovutil::omit_line_patterns,
+                         \@lcovutil::exclude_function_patterns
     ) {
         my $count = shift;
         die("unexpected pattern count") unless $#$count == $#$patType;
@@ -1976,7 +1979,8 @@ sub is_filter_enabled
              || defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])
              || defined(
                    $lcovutil::cov_filter[$lcovutil::FILTER_TRIVIAL_FUNCTION]) ||
-             0 != scalar(@lcovutil::omit_line_patterns));
+             0 != scalar(@lcovutil::omit_line_patterns) ||
+             0 != scalar(@lcovutil::exclude_function_patterns));
 }
 
 sub parse_cov_filters(@)
@@ -2022,18 +2026,22 @@ sub summarize_cov_filters
                  "\n    " . $histogram->[1] . " coverpoint" .
                  ($histogram->[1] > 1 ? "s" : "") . "\n");
     }
-    my $patternCount = scalar(@omit_line_patterns);
-    if ($patternCount) {
-        my $omitCount = 0;
-        foreach my $p (@omit_line_patterns) {
-            $omitCount += $p->[-1];
+    foreach my $q (['omit-lines', 'line', \@omit_line_patterns],
+                 ['erase-functions', 'function', \@exclude_function_patterns]) {
+        my ($opt, $type, $patterns) = @$q;
+        my $patternCount = scalar(@$patterns);
+        if ($patternCount) {
+            my $omitCount = 0;
+            foreach my $p (@$patterns) {
+                $omitCount += $p->[-1];
+            }
+            info(-1,
+                 "Omitted %d total $type%s matching %d '--$opt' pattern%s\n",
+                 $omitCount,
+                 $omitCount == 1 ? '' : 's',
+                 $patternCount,
+                 $patternCount == 1 ? '' : 's');
         }
-        info(-1,
-             "Omitted %d total line%s matching %d '--omit-lines' pattern%s\n",
-             $omitCount,
-             $omitCount == 1 ? '' : 's',
-             $patternCount,
-             $patternCount == 1 ? '' : 's');
     }
 }
 
@@ -2055,7 +2063,7 @@ sub reenable_cov_filters
 {
     my $data    = shift;
     my $filters = $data->[0];
-    # disable but return current status - so the can be re-enabled
+    # re-enable in the same order
     for (my $i = 0; $i < scalar(@$filters); $i++) {
         $cov_filter[$i] = $filters->[$i];
     }
@@ -5843,8 +5851,11 @@ sub _mergeParallelChunk
             my $now = Time::HiRes::gettimeofday();
             $lcovutil::profileData{filt_undump}{$chunkId} = $now - $start;
 
-            for (my $i = scalar(@{$store->[0]}) - 1; $i >= 0; --$i) {
-                $store->[0]->[$i]->[-1] += $save->[0]->[$i];
+            foreach my $patType (@{$store->[0]}) {
+                my $svType = shift(@{$save->[0]});
+                foreach my $p (@$patType) {
+                    $p->[-1] += shift(@$svType);
+                }
             }
             for (my $i = scalar(@{$store->[1]}) - 1; $i >= 0; --$i) {
                 $store->[1]->[$i]->[-2] += $save->[1]->[$i]->[0];
@@ -5869,9 +5880,9 @@ sub _mergeParallelChunk
         }
     } else {
         lcovutil::report_parallel_error('filter',
-                                       $ERROR_PARALLEL, $child, $childstatus,
-                                       "serialized data '$dumped' not presetnt",
-                                       , keys(%$children));
+                                        $ERROR_PARALLEL, $child, $childstatus,
+                                        "serialized data '$dumped' not present",
+                                        , keys(%$children));
     }
 
     foreach my $f ($dumped) {
@@ -5960,11 +5971,12 @@ sub _processParallelChunk
     };
     my $end = Time::HiRes::gettimeofday();
     # collect pattern counts
+    my @pcounts;
     foreach my $l (@{$save->[0]}) {
-        foreach my $p (@$l) {
-            $p = $p->[-1];
-        }
+        my @c = map({ $_->[-1] } @$l);    # grap the counts
+        push(@pcounts, \@c);
     }
+    $save->[0] = \@pcounts;
     # filter counts
     foreach my $f (@{$save->[1]}) {
         $f = [$f->[-2], $f->[-1]];
@@ -5981,7 +5993,6 @@ sub _processParallelChunk
         my $h = $f->hdl();
         print($h $d->[1]);
     }
-    my @counts;
     my $dumpf = File::Spec->catfile($tmp, "dumper_$$");
     my $then  = Time::HiRes::gettimeofday();
     $lcovutil::profileData{filt_proc}{$chunkId}  = $then - $forkAt;
@@ -5995,7 +6006,7 @@ sub _processParallelChunk
     };
     if ($@) {
         lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                                  "Child $$ serialize failed: $!");
+                                  "Child $$ serialize failed: $@");
     }
     return $status;
 }

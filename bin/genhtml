@@ -3836,7 +3836,9 @@ sub new
                 defined($lne->differential_function()));
     }
     if (defined($main::show_dateBins) &&
-        !$self->isProjectFile()) {
+        %$lineCovData &&                    # haven't filtered out everything
+        !$self->isProjectFile()
+    ) {
         lcovutil::info("no owner/date info for '$filepath'\n");
     }
     return $self;
@@ -8309,6 +8311,10 @@ sub write_file_table_entry(*$$@)
              $primary_key ne 'name' &&
              defined($file_link) &&
              $file_link ne "") {
+        if ($main::flat) {
+            $file_link =
+                File::Spec->catfile($fileSummary->relativeDir(), $file_link);
+        }
         $namecode =
             "<a href=\"$file_link\" title=\"Click to go to $full_path source detail\">"
             . $obj_name . "</a>";
