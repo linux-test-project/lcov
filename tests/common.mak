@@ -26,7 +26,7 @@ endif
 
 TESTBINDIR := $(TOPDIR)bin
 
-IS_GIT := $(shell git -C $(TOPDIR) rev-parse 2>&1 > /dev/null ; if [ 0 == $$? ]; then echo 1 ; else echo 0 ; fi)
+IS_GIT := $(shell git -C $(TOPDIR) rev-parse 2>&1 > /dev/null ; if [ 0 -eq $$? ]; then echo 1 ; else echo 0 ; fi)
 
 ifeq (1,$(IS_GIT))
 ANNOTATE_SCRIPT=$(SCRIPTDIR)/gitblame.pm
