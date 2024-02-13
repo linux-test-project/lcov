@@ -96,6 +96,10 @@ if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent"
     # and filter exception branches to avoid spurious differences for old compiler
     FILTER='--filter branch'
+
+    # gcc older than 5 doesn't support lambda
+    echo "Compiler version it too old - skipping lambda test"
+    exit 0
 fi
 
 rm -rf *.txt* *.json dumper* report lambda *.gcda *.gcno *.info

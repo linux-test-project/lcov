@@ -217,7 +217,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
 fi
 COUNT1=`grep -c -i "warning: .*range.* unknown line .* there are only" range.log`
 if [ 1 != $COUNT1 ] ; then
-    echo "Missing expected warning"
+    echo "Missing expected warning: expected 1 found $COUNT1"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi

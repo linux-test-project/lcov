@@ -5,6 +5,8 @@
 
 set -ex
 
+rm -f test *.gcno *.gcda
+
 echo "Build test program"
 "$CC" test.c -o test --coverage
 

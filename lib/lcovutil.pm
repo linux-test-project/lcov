@@ -6298,9 +6298,20 @@ sub applyFilters
                                        $func->name() . "\n");
                     $func->set_end_line($currentLine);
                 }
-                die('failed to set end line for ' .
-                    $func->name() . ' in file ' . $func->filename())
-                    unless defined($func->end_line());
+                # we may not have set the end line above due to inconsistency
+                #  but we also might not have line data
+                #  - see .../tests/lcov/extract with gcc/4.8
+                if (!defined($func->end_line())) {
+                    lcovutil::ignorable_error(
+                     $lcovutil::ERROR_INCONSISTENT_DATA,
+                     '"' . $func->filename() . '":' . $func->line() .
+                         ': failed to set end line for function ' .
+                         $func->name() .
+                         ".  See lcovrc man entry for 'derive_function_end_line'."
+                    );
+                    next FUNC;
+                }
+
                 # now look for this function in each testcase -
                 #  set the same endline (if not already set)
                 my $key = $func->file() . ':' . $first;

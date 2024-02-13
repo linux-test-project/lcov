@@ -899,8 +899,8 @@ fi
 
 
 # check select script
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select $IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml select did not pass"
     status=1
@@ -937,8 +937,8 @@ fi
 
 
 # check select script
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml select did not pass"
     status=1

@@ -1123,7 +1123,7 @@ sub _process_one_chunk($$$$)
                           "geninfo_XXXXX",
                           DIR     => $tempFileDir,
                           CLEANUP => !defined($lcovutil::preserve_intermediates)
-        ) if ($intermediate || !defined($gcda_file));
+        ) if ($intermediate || defined($gcda_file));
 
         # keep track of order - so we can estimate which files were processed
         # at same time
