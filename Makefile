@@ -270,11 +270,11 @@ endif
 	  if [ 0 != $$? ] ; then                                 \
 	    RC=1;                                                \
 	    echo "saw mismatch for $$FILE";                      \
-	    if [[ -f $$FILE.tdy && "$(UPDATE)x" != 'x' ]] ; then \
+	    if [ -f $$FILE.tdy -a "$(UPDATE)x" != 'x' ]; then    \
 	      echo "updating $$FILE";                            \
 	      mv $$FILE $$FILE.orig;                             \
 	      mv $$FILE.tdy $$FILE ;                             \
-            fi                                                   \
+	    fi                                                   \
 	  fi                                                     \
 	done ;                                                   \
 	exit $$RC
