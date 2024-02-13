@@ -129,10 +129,11 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py
-rm -rf ./cover_db ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report
+rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
-    cover -delete
+    cover -delete -db $COVER_DB
+    rm -rf $PYCOV_DB
 fi
 
 if [[ 1 == $CLEAN_ONLY ]] ; then
@@ -1254,7 +1255,7 @@ fi
 
 if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover
-    ${LCOV_HOME}/bin/perl2lcov -o perlcov.info --testname simple --version-script $GET_VERSION ./cover_db
+    ${LCOV_HOME}/bin/perl2lcov -o perlcov.info --testname simple --version-script $GET_VERSION $COVER_DB
     ${LCOV_HOME}/bin/py2lcov -o pycov.info --testname simple --version-script $GET_VERSION $PYCOV_DB
     ${LCOV_HOME}/bin/genhtml -o html_report perlcov.info pycov.info --branch --flat --show-navigation --show-proportion --version-script $GET_VERSION --annotate-script $P4ANNOTATE --parallel --ignore empty,usage
     echo "see HTML report 'html_report'"

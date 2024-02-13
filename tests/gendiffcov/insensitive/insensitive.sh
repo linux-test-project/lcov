@@ -35,7 +35,7 @@ while [ $# -gt 0 ] ; do
                LOCAL_COVERAGE=0
                shift
             fi
-            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine,-silent,1 "
             ;;
 
         --home | -home )

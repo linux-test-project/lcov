@@ -238,19 +238,27 @@ ifeq ($(COVERAGE), 1)
 # write to .../tests/cover_db
 export COVER_DB := $(shell echo `pwd`/tests/cover_db)
 export PYCOV_DB := $(shell echo `pwd`/tests/pycov.dat)
-export HTML_RPT := ./lcov_coverage
+export HTML_RPT := $(shell echo `pwd`/lcov_coverage)
+#export LCOV_FORCE_PARALLEL = 1
 endif
 export TESTCASE_ARGS
 
 test: check
 
+# for COVERAGE mode check: run once with LCOV_FORCE_PARALLEL=1 and
+#   once without - so we can merge the result
 check:
-	if [ "x$(COVERAGE)" != 'x' ] && [ ! -d $(COVER_DB) ]; then \
-	  mkdir $(COVER_DB) ; \
-	fi
+	if [ "x$(COVERAGE)" != 'x' ] ; then                                 \
+	  if [ ! -d $(COVER_DB) ]; then                                     \
+	    mkdir $(COVER_DB) ;                                             \
+	  fi ;                                                              \
+	  echo "*** Run once, force parallel ***" ;                         \
+	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C tests check LCOV_HOME=`pwd` ; \
+	  echo "*** Run again, no force ***" ;                              \
+	fi 
 	@$(MAKE) -s -C tests check LCOV_HOME=`pwd`
-	@if [ "x$(COVERAGE)" != 'x' ] ; then \
-	  $(MAKE) -s -C tests report ; \
+	@if [ "x$(COVERAGE)" != 'x' ] ; then       \
+	  $(MAKE) -s -C tests report ;             \
 	fi
 
 # Files to be checked for coding style issue issues -

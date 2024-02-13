@@ -6025,8 +6025,7 @@ sub _processFilterWorklist
     my $parallel = $lcovutil::lcov_filter_parallel;
     # not much point in parallel calculation if the number of files is small
     my $workList = $fileList;
-    PARALLEL:
-    if (scalar(@$fileList) > 50 &&
+    if ((exists($ENV{LCOV_FORCE_PARALLEL}) || scalar(@$fileList) > 50) &&
         $parallel &&
         1 < $lcovutil::maxParallelism) {
 
@@ -6057,23 +6056,24 @@ sub _processFilterWorklist
                 $chunkSize = 1;
             }
         }
-        last PARALLEL if $chunkSize == 1;
-        $workList = [];
-        my $idx     = 0;
-        my $current = [];
-        # maybe sort files by number of lines, then distribute larger ones
-        #   across chunks?  Or sort so total number of lines is balanced
-        foreach my $f (@$fileList) {
-            push(@$current, $f);
-            if (++$idx == $chunkSize) {
-                $idx = 0;
-                push(@$workList, $current);
-                $current = [];
+        if ($chunkSize != 1) {
+            $workList = [];
+            my $idx     = 0;
+            my $current = [];
+            # maybe sort files by number of lines, then distribute larger ones
+            #   across chunks?  Or sort so total number of lines is balanced
+            foreach my $f (@$fileList) {
+                push(@$current, $f);
+                if (++$idx == $chunkSize) {
+                    $idx = 0;
+                    push(@$workList, $current);
+                    $current = [];
+                }
             }
+            push(@$workList, $current) if (@$current);
+            lcovutil::info("Filter: chunkSize $chunkSize nChunks " .
+                           scalar(@$workList) . "\n");
         }
-        push(@$workList, $current) if (@$current);
-        lcovutil::info("Filter: chunkSize $chunkSize nChunks " .
-                       scalar(@$workList) . "\n");
     }
 
     my $srcReader = ReadCurrentSource->new();
@@ -7233,7 +7233,9 @@ sub merge
     }
 
     if (1 != $lcovutil::maxParallelism &&
-        1 < $nTests) {
+        (exists($ENV{LCOV_FORCE_PARALLEL}) ||
+            1 < $nTests)
+    ) {
         # parallel implementation is to segment the file list into N
         #  segments, then parse-and-merge scalar(@merge)/N files in each slave,
         #  then merge the slave result.
