@@ -106,12 +106,6 @@ our @gcov_tool;
 
 our $GCOV_VERSION_8_0_0 = 0x80000;
 our $GCOV_VERSION_4_7_0 = 0x40700;
-our $GCOV_VERSION_3_4_0 = 0x30400;
-our $GCOV_VERSION_3_3_0 = 0x30300;
-our $GCNO_FUNCTION_TAG  = 0x01000000;
-our $GCNO_LINES_TAG     = 0x01450000;
-our $GCNO_FILE_MAGIC    = 0x67636e6f;
-our $BBG_FILE_MAGIC     = 0x67626267;
 
 # Compatibility mode values
 our $COMPAT_VALUE_OFF  = 0;
@@ -145,8 +139,7 @@ our %COMPAT_MODE_DEFAULTS = ($COMPAT_MODE_LIBTOOL   => $COMPAT_VALUE_ON,
                              $COMPAT_MODE_SPLIT_CRC => $COMPAT_VALUE_AUTO,);
 
 # Compatibility mode auto-detection routines
-sub compat_hammer_autodetect();
-our %COMPAT_MODE_AUTO = ($COMPAT_MODE_HAMMER    => \&compat_hammer_autodetect,
+our %COMPAT_MODE_AUTO = ($COMPAT_MODE_HAMMER    => 0,    # no gcc/3.3 support
                          $COMPAT_MODE_SPLIT_CRC => 1,    # will be done later
 );
 
@@ -183,20 +176,10 @@ sub graph_cleanup($);
 sub graph_find_base($);
 sub graph_from_bb($$$$);
 sub graph_add_order($$$);
-sub read_bb_word(*;$);
-sub read_bb_value(*;$);
-sub read_bb_string(*$);
-sub read_bb($);
-sub read_bbg_word(*;$);
-sub read_bbg_value(*;$);
-sub read_bbg_string(*);
-sub read_bbg_lines_record(*$$$$$);
-sub read_bbg($);
 sub read_gcno_word(*;$$);
 sub read_gcno_value(*$;$$);
 sub read_gcno_string(*$);
 sub read_gcno_lines_record(*$$$$$$);
-sub determine_gcno_split_crc($$$$);
 sub read_gcno_function_record(*$$$$$);
 sub read_gcno($);
 sub get_gcov_capabilities();
@@ -210,8 +193,8 @@ sub which($);
 # Global variables
 our $gcov_version;
 our $gcov_version_string;
-our $graph_file_extension;
-our $data_file_extension;
+our $graph_file_extension = '.gcno';
+our $data_file_extension  = '.gcda';
 our @data_directory;
 # root of directory where .gcno files can be found -directory name,
 # if .gcda and .gcno not in same place
@@ -244,7 +227,6 @@ our $opt_gcov_all_blocks          = 1;
 our $opt_adjust_unexecuted_blocks = 0;
 our $opt_compat;
 our %compat_value;
-our $gcno_split_crc;
 our $rc_auto_base    = 1;
 our $rc_intermediate = "auto";
 our $intermediate;
@@ -441,12 +423,6 @@ if ($intermediate) {
     }
 }
 
-if ($lcovutil::exclude_exception_branch &&
-    ($gcov_version < $GCOV_VERSION_3_3_0)) {
-    die("excluding exception branches is not compatible with " .
-        "gcov versions older than 3.3\n");
-}
-
 # Determine gcov options
 push(@gcov_tool, "-b")
     if ($gcov_caps->{'branch-probabilities'} &&
@@ -546,17 +522,9 @@ if (!@data_directory) {
     @data_directory = @dirs;
 }
 
-if ($gcov_version < $GCOV_VERSION_3_4_0) {
-    if (is_compat($COMPAT_MODE_HAMMER)) {
-        $data_file_extension  = ".da";
-        $graph_file_extension = ".bbg";
-    } else {
-        $data_file_extension  = ".da";
-        $graph_file_extension = ".bb";
-    }
-} else {
-    $data_file_extension  = ".gcda";
-    $graph_file_extension = ".gcno";
+if ($gcov_version < $GCOV_VERSION_4_7_0) {
+    die("Your toolchain version is too old and is no longer supported by lcov.  Please upgrade - or use an older lcov release."
+    );
 }
 
 # Check output filename
@@ -1651,7 +1619,6 @@ sub process_dafile($$$$)
     }
 
     # Construct name of graph file
-    $bb_basename = File::Basename::basename($gcno_file);
     $bb_filename = solve_relative_path($cwd, $gcno_file);
 
     # Find out the real location of graph file in case we're just looking at
@@ -1673,15 +1640,7 @@ sub process_dafile($$$$)
     # Read contents of graph file into hash. We need it later to find out
     # the absolute path to each .gcov file created as well as for
     # information about functions and their source code positions.
-    if ($gcov_version < $GCOV_VERSION_3_4_0) {
-        if (is_compat($COMPAT_MODE_HAMMER)) {
-            ($instr, $graph) = read_bbg($bb_filename);
-        } else {
-            ($instr, $graph) = read_bb($bb_filename);
-        }
-    } else {
-        ($instr, $graph) = read_gcno($bb_filename);
-    }
+    ($instr, $graph) = read_gcno($bb_filename);
 
     # Try to find base directory automatically if requested by user
     if ($rc_auto_base) {
@@ -2237,8 +2196,6 @@ sub read_gcov_file($$$)
     my $input = $f->hdl();
 
     my $currentBlock;
-    die("your GCC version is ANCIENT.  Not supported by this version of lcov")
-        unless $gcov_version >= $GCOV_VERSION_3_3_0;
 
     # Expect gcov format as used in gcc >= 3.3
     debug("reading $filename\n");
@@ -3098,15 +3055,7 @@ sub process_graphfile($$)
         return undef;
     }
 
-    if ($gcov_version < $GCOV_VERSION_3_4_0) {
-        if (is_compat($COMPAT_MODE_HAMMER)) {
-            ($instr, $graph) = read_bbg($graph_filename);
-        } else {
-            ($instr, $graph) = read_bb($graph_filename);
-        }
-    } else {
-        ($instr, $graph) = read_gcno($graph_filename);
-    }
+    ($instr, $graph) = read_gcno($graph_filename);
 
     # Try to find base directory automatically if requested by user
     if ($rc_auto_base) {
@@ -3642,326 +3591,6 @@ sub graph_add_order($$$)
 }
 
 #
-# read_bb_word(handle[, description])
-#
-# Read and return a word in .bb format from handle.
-#
-
-sub read_bb_word(*;$)
-{
-    my ($handle, $desc) = @_;
-
-    return graph_read($handle, 4, $desc);
-}
-
-#
-# read_bb_value(handle[, description])
-#
-# Read a word in .bb format from handle and return the word and its integer
-# value.
-#
-
-sub read_bb_value(*;$)
-{
-    my ($handle, $desc) = @_;
-    my $word;
-
-    $word = read_bb_word($handle, $desc);
-    return undef if (!defined($word));
-
-    return ($word, unpack("V", $word));
-}
-
-#
-# read_bb_string(handle, delimiter)
-#
-# Read and return a string in .bb format from handle up to the specified
-# delimiter value.
-#
-
-sub read_bb_string(*$)
-{
-    my ($handle, $delimiter) = @_;
-    my $word;
-    my $value;
-    my $string = "";
-
-    lcovutil::debug(2, "string");
-    do {
-        ($word, $value) = read_bb_value($handle, "string or delimiter");
-        return undef if (!defined($value));
-        if ($value != $delimiter) {
-            $string .= $word;
-        }
-    } while ($value != $delimiter);
-    $string =~ s/\0//g;
-
-    return $string;
-}
-
-#
-# read_bb(filename)
-#
-# Read the contents of the specified .bb file and return (instr, graph), where:
-#
-#   instr     : filename -> line data
-#   line data : [ line1, line2, ... ]
-#
-#   graph     :     filename -> file_data
-#   file_data : function name -> line_data
-#   line_data : [ line1, line2, ... ]
-#
-# See the gcov info pages of gcc 2.95 for a description of the .bb file format.
-#
-
-sub read_bb($)
-{
-    my ($bb_filename) = @_;
-    my $minus_one     = 0x80000001;
-    my $minus_two     = 0x80000002;
-    my $value;
-    my $filename;
-    my $function;
-    my $bb        = {};
-    my $fileorder = {};
-    my $instr;
-    my $graph;
-    local *HANDLE;
-
-    open(HANDLE, "<", $bb_filename) or goto open_error;
-    binmode(HANDLE);
-    while (!eof(HANDLE)) {
-        $value = read_bb_value(*HANDLE, "data word");
-        goto incomplete if (!defined($value));
-        if ($value == $minus_one) {
-            # Source file name
-            lcovutil::debug(2, "filename");
-            $filename = read_bb_string(*HANDLE, $minus_one);
-            goto incomplete if (!defined($filename));
-        } elsif ($value == $minus_two) {
-            # Function name
-            lcovutil::debug(2, "function name");
-            $function = read_bb_string(*HANDLE, $minus_two);
-            goto incomplete if (!defined($function));
-        } elsif ($value > 0) {
-            # Line number
-            if (!defined($filename) || !defined($function)) {
-                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                                          "unassigned line number $value");
-                next;
-            }
-            push(@{$bb->{$function}->{$filename}}, $value);
-            graph_add_order($fileorder, $function, $filename);
-        }
-    }
-    close(HANDLE) or die("unable to close $bb_filename: $!\n");
-
-    ($instr, $graph) = graph_from_bb($bb, $fileorder, $bb_filename, 0);
-    graph_cleanup($graph);
-
-    return ($instr, $graph);
-
-    open_error:
-    graph_error($bb_filename, "could not open file: $!");
-    return undef;
-    incomplete:
-    graph_error($bb_filename, "reached unexpected end of file");
-    return undef;
-}
-
-#
-# read_bbg_word(handle[, description])
-#
-# Read and return a word in .bbg format.
-#
-
-sub read_bbg_word(*;$)
-{
-    my ($handle, $desc) = @_;
-
-    return graph_read($handle, 4, $desc);
-}
-
-#
-# read_bbg_value(handle[, description])
-#
-# Read a word in .bbg format from handle and return its integer value.
-#
-
-sub read_bbg_value(*;$)
-{
-    my ($handle, $desc) = @_;
-    my $word;
-
-    $word = read_bbg_word($handle, $desc);
-    return undef if (!defined($word));
-
-    return unpack("N", $word);
-}
-
-#
-# read_bbg_string(handle)
-#
-# Read and return a string in .bbg format.
-#
-
-sub read_bbg_string(*)
-{
-    my ($handle, $desc) = @_;
-    my $length;
-    my $string;
-
-    lcovutil::debug(2, "string");
-    # Read string length
-    $length = read_bbg_value($handle, "string length");
-    return undef if (!defined($length));
-    if ($length == 0) {
-        return "";
-    }
-    # Read string
-    $string = graph_read($handle, $length, "string");
-    return undef if (!defined($string));
-    # Skip padding
-    graph_skip($handle, 4 - $length % 4, "string padding") or return undef;
-
-    return $string;
-}
-
-#
-# read_bbg_lines_record(handle, bbg_filename, bb, fileorder, filename,
-#                       function)
-#
-# Read a bbg format lines record from handle and add the relevant data to
-# bb and fileorder. Return filename on success, undef on error.
-#
-
-sub read_bbg_lines_record(*$$$$$)
-{
-    my ($handle, $bbg_filename, $bb, $fileorder, $filename, $function) = @_;
-    my $string;
-    my $lineno;
-
-    lcovutil::debug(2, "lines record");
-    # Skip basic block index
-    graph_skip($handle, 4, "basic block index") or return undef;
-    while (1) {
-        # Read line number
-        $lineno = read_bbg_value($handle, "line number");
-        return undef if (!defined($lineno));
-        if ($lineno == 0) {
-            # Got a marker for a new filename
-            lcovutil::debug(2, "filename");
-            $string = read_bbg_string($handle);
-            return undef if (!defined($string));
-            # Check for end of record
-            if ($string eq "") {
-                return $filename;
-            }
-            $filename = $string;
-            if (!exists($bb->{$function}->{$filename})) {
-                $bb->{$function}->{$filename} = [];
-            }
-            next;
-        }
-        # Got an actual line number
-        if (!defined($filename)) {
-            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                                     "unassigned line number in $bbg_filename");
-            next;
-        }
-        push(@{$bb->{$function}->{$filename}}, $lineno);
-        graph_add_order($fileorder, $function, $filename);
-    }
-}
-
-#
-# read_bbg(filename)
-#
-# Read the contents of the specified .bbg file and return the following mapping:
-#   graph:     filename -> file_data
-#   file_data: function name -> line_data
-#   line_data: [ line1, line2, ... ]
-#
-# See the gcov-io.h file in the SLES 9 gcc 3.3.3 source code for a description
-# of the .bbg format.
-#
-
-sub read_bbg($)
-{
-    my ($bbg_filename) = @_;
-    my $file_magic     = 0x67626267;
-    my $tag_function   = 0x01000000;
-    my $tag_lines      = 0x01450000;
-    my $word;
-    my $tag;
-    my $length;
-    my $function;
-    my $filename;
-    my $bb        = {};
-    my $fileorder = {};
-    my $instr;
-    my $graph;
-    local *HANDLE;
-
-    open(HANDLE, "<", $bbg_filename) or goto open_error;
-    binmode(HANDLE);
-    # Read magic
-    $word = read_bbg_value(*HANDLE, "file magic");
-    goto incomplete if (!defined($word));
-    # Check magic
-    if ($word != $file_magic) {
-        goto magic_error;
-    }
-    # Skip version
-    graph_skip(*HANDLE, 4, "version") or goto incomplete;
-    while (!eof(HANDLE)) {
-        # Read record tag
-        $tag = read_bbg_value(*HANDLE, "record tag");
-        goto incomplete if (!defined($tag));
-        # Read record length
-        $length = read_bbg_value(*HANDLE, "record length");
-        goto incomplete if (!defined($tag));
-        if ($tag == $tag_function) {
-            lcovutil::debug(2, "function record");
-            # Read function name
-            lcovutil::debug(2, "function name");
-            $function = read_bbg_string(*HANDLE);
-            goto incomplete if (!defined($function));
-            $filename = undef;
-            # Skip function checksum
-            graph_skip(*HANDLE, 4, "function checksum") or
-                goto incomplete;
-        } elsif ($tag == $tag_lines) {
-            # Read lines record
-            $filename =
-                read_bbg_lines_record(HANDLE, $bbg_filename,
-                                      $bb, $fileorder, $filename, $function);
-            goto incomplete if (!defined($filename));
-        } else {
-            # Skip record contents
-            graph_skip(*HANDLE, $length, "unhandled record") or
-                goto incomplete;
-        }
-    }
-    close(HANDLE) or die("unable to close $bbg_filename: $!\n");
-    ($instr, $graph) = graph_from_bb($bb, $fileorder, $bbg_filename, 0);
-
-    graph_cleanup($graph);
-
-    return ($instr, $graph);
-
-    open_error:
-    graph_error($bbg_filename, "could not open file: $!");
-    return undef;
-    incomplete:
-    graph_error($bbg_filename, "reached unexpected end of file");
-    return undef;
-    magic_error:
-    graph_error($bbg_filename, "found unrecognized bbg file magic");
-    return undef;
-}
-
-#
 # read_gcno_word(handle[, description, peek])
 #
 # Read and return a word in .gcno format.
@@ -4076,52 +3705,6 @@ sub read_gcno_lines_record(*$$$$$$)
 }
 
 #
-# determine_gcno_split_crc(handle, big_endian, rec_length, version)
-#
-# Determine if HANDLE refers to a .gcno file with a split checksum function
-# record format. Return non-zero in case of split checksum format, zero
-# otherwise, undef in case of read error.
-#
-
-sub determine_gcno_split_crc($$$$)
-{
-    my ($handle, $big_endian, $rec_length, $version) = @_;
-    my $strlen;
-    my $overlong_string;
-
-    return 1 if ($version >= $GCOV_VERSION_4_7_0);
-    return 1 if (is_compat($COMPAT_MODE_SPLIT_CRC));
-
-    # Heuristic:
-    # Decide format based on contents of next word in record:
-    # - pre-gcc 4.7
-    #   This is the function name length / 4 which should be
-    #   less than the remaining record length
-    # - gcc 4.7
-    #   This is a checksum, likely with high-order bits set,
-    #   resulting in a large number
-    $strlen = read_gcno_value($handle, $big_endian, undef, 1);
-    return undef if (!defined($strlen));
-    $overlong_string = 1 if ($strlen * 4 >= $rec_length - 12);
-
-    if ($overlong_string) {
-        if (is_compat_auto($COMPAT_MODE_SPLIT_CRC)) {
-            info("Auto-detected compatibility mode for split " .
-                 "checksum .gcno file format\n");
-
-            return 1;
-        } else {
-            # Sanity check
-            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                "Found overlong string in function record:  try '--compat split_crc'"
-            );
-        }
-    }
-
-    return 0;
-}
-
-#
 # read_gcno_function_record(handle, graph, big_endian, rec_length, version)
 #
 # Read a gcno format function record from handle and add the relevant data
@@ -4140,15 +3723,8 @@ sub read_gcno_function_record(*$$$$$)
     lcovutil::debug(2, "function record");
     # Skip ident and checksum
     graph_skip($handle, 8, "function ident and checksum") or return undef;
-    # Determine if this is a function record with split checksums
-    if (!defined($gcno_split_crc)) {
-        $gcno_split_crc =
-            determine_gcno_split_crc($handle, $big_endian,
-                                     $rec_length, $version);
-        return undef if (!defined($gcno_split_crc));
-    }
-    # Skip cfg checksum word in case of split checksums
-    graph_skip($handle, 4, "function cfg checksum") if ($gcno_split_crc);
+    # must be gcc > 4 - so only split checksum exists
+    graph_skip($handle, 4, "function cfg checksum");
     # Read function name
     lcovutil::debug(2, "function name");
     $function = read_gcno_string($handle, $big_endian);
@@ -4499,16 +4075,6 @@ sub parse_compat_modes($)
             }
         }
     }
-}
-
-sub compat_hammer_autodetect()
-{
-    if ($gcov_version_string =~ /suse/i && $gcov_version == 0x30303 ||
-        $gcov_version_string =~ /mandrake/i && $gcov_version == 0x30302) {
-        info("Auto-detected compatibility mode for GCC 3.3 (hammer)\n");
-        return $COMPAT_VALUE_ON;
-    }
-    return $COMPAT_VALUE_OFF;
 }
 
 #

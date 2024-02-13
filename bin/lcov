@@ -1404,7 +1404,7 @@ sub link_data_cb($$$)
     # Check for graph file
     $base = $absto;
     $base =~ s/\.(gcda|da)$//;
-    if (!-e $base . ".gcno" && !-e $base . ".bbg" && !-e $base . ".bb") {
+    if (!-e $base . ".gcno") {
         die("No graph file found for $absfrom in " . dirname($base) . "!\n");
     }
 
@@ -1477,7 +1477,7 @@ sub find_graph($)
     my ($dir) = @_;
     my $count = 0;
 
-    lcov_find($dir, \&find_graph_cb, \$count, '\.gcno$', '\.bb$', '\.bbg$');
+    lcov_find($dir, \&find_graph_cb, \$count, '\.gcno$');
 
     return $count > 0 ? 1 : 0;
 }
