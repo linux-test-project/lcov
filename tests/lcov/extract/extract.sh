@@ -101,6 +101,7 @@ if [ "${VER[0]}" -lt 5 ] ; then
 fi
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log
+rm -rf rcOptBug
 if [ -d separate ] ; then
     chmod -R ug+rxw separate
     rm -rf separate
