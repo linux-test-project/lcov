@@ -4948,11 +4948,15 @@ sub new
     my $worklist          = $self->[$WORKLIST_IDX];
     my $top_level_summary = $self->[0];
     # no parent data for top-level
+    my $toplevelPerTestData =
+        ($main::hierarchical || $main::flat) ? [{}, {}, {}] : undef;
     $pending->{""} = [
                       ['top',
-                       [$top_level_summary, undef, $top_level_summary->name()]
-                       ,    # summary, per-test data, name
-                       ['root'], ['root'],
+                       [$top_level_summary, $toplevelPerTestData,
+                        $top_level_summary->name()
+                       ],
+                       ['root'],
+                       ['root'],
                        [undef, undef]
                       ],
                       {}
@@ -5146,17 +5150,16 @@ sub merge_one
 
 sub compute_one
 {
-    my ($type, $name, $summary, $parentSummary, $rel_dir, $base_dir, $trunc_dir)
+    my ($type, $name, $summary, $parentSummary, $perTestData,
+        $rel_dir, $base_dir, $trunc_dir)
         = @_;
 
-    my $perTestData;
     if ('file' eq $type) {
         my ($testdata, $testfncdata, $testbrdata) =
             main::process_file($summary, $parentSummary,
                                $trunc_dir, $rel_dir, $name);
         $perTestData = [$testdata, $testfncdata, $testbrdata];
     } elsif ('dir' eq $type) {
-        $perTestData = [{}, {}, {}];
         # process the directory...
         main::write_summary_pages($name, 1,    # this is a directory,
                                   $summary, $main::show_details,
@@ -5166,11 +5169,12 @@ sub compute_one
         die("unexpected task")
             unless 'top' eq $type;
         # Create sorted pages
-        main::write_summary_pages(
-                       $name, 0,               # 0 == list directories
-                       $summary,
-                       0,  # don't generate 'details' links for top-level report
-                       ".", "", undef, undef);
+        main::write_summary_pages($name, 0,    # 0 == list directories
+                                  $summary,
+                                  # generate top-level 'details' in flat or hierarchical modes
+                                  $main::show_details &&
+                                      ($main::flat || $main::hierarchical),
+                                  ".", "", undef, $perTestData);
     }
     $summary->checkCoverageCriteria();
     return $perTestData;
@@ -5295,9 +5299,10 @@ sub compute
 
                     eval {
                         $thisTestData =
-                            compute_one($type, $name, $selfSummary,
-                                        $parentSummary, $rel_dir, $base_dir,
-                                        $trunc_dir);
+                            compute_one($type, $name,
+                                        $selfSummary, $parentSummary,
+                                        $perTestData, $rel_dir,
+                                        $base_dir, $trunc_dir);
 
                         # clear the parent pointer that we hacked into place.  Don't want that
                         #   extra data returned by dumper.
@@ -5332,7 +5337,8 @@ sub compute
                 $lcovutil::profileData{child}{$name} = $childEnd - $childStart;
                 eval {
                     Storable::store(
-                                 [$perTestData,
+                                 [$thisTestData,
+                                  $parentPerTestData,
                                   $selfSummary,
                                   $criteria,
                                   [$SourceFile::annotatedFiles - $annotateCount,
@@ -5356,9 +5362,9 @@ sub compute
 
             my $thisTestData =
                 compute_one($type, $name, $selfSummary, $parentSummary,
-                            $rel_dir, $base_dir, $trunc_dir);
+                            $perTestData, $rel_dir, $base_dir, $trunc_dir);
 
-            $self->merge_one($perTestData, $name, $thisTestData,
+            $self->merge_one($parentPerTestData, $name, $thisTestData,
                              $selfSummary, $parentSummary, $parentPath);
             my $end = Time::HiRes::gettimeofday();
             $lcovutil::profileData{$type}{$name} = $end - $start;
@@ -5433,7 +5439,9 @@ sub merge_child($$$)
         if -f $dumpfile;
     if (defined($data)) {
         eval {
-            my ($perTest, $summary, $criteria, $countData, $update) = @$data;
+            my ($perTest, $pPerTestData, $summary, $criteria, $countData,
+                $update)
+                = @$data;
             die("unexpected restored count data")
                 if (($type eq 'file' && $countData->[1] != 1) ||
                     ($type ne 'file' &&
@@ -6881,19 +6889,21 @@ sub get_relative_base_path($)
 
 sub read_testfile($)
 {
+    my $file = shift;
     my %result;
     my $test_name;
     my $changed_testname;
     local *TEST_HANDLE;
 
-    open(TEST_HANDLE, "<", $_[0]) or
-        die("cannot open $_[0]: $!\n");
+    open(TEST_HANDLE, "<", $file) or
+        die("cannot open $file]: $!\n");
 
     while (<TEST_HANDLE>) {
         chomp($_);
         s/\r//g;
         # Match lines beginning with TN:<whitespace(s)>
-        if (/^TN:\s+(.*?)\s*$/) {
+        next if /^#/;    # skip comment
+        if (/^TN:\s*(.*?)\s*$/) {
             # Store name for later use
             $test_name = $1;
             if ($test_name =~ s/\W/_/g) {
@@ -6902,10 +6912,12 @@ sub read_testfile($)
         }
 
         # Match lines beginning with TD:<whitespace(s)>
-        if (/^TD:\s+(.*?)\s*$/) {
+        if (/^TD:\s*(.*?)\s*$/) {
             if (!defined($test_name)) {
-                die("Found test description without prior test name in $_[0]:$.\n"
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                    "\"$file\":$.: Found test description without prior test name."
                 );
+                next;
             }
             # Check for empty line
             if ($1) {
@@ -6919,10 +6931,15 @@ sub read_testfile($)
     }
 
     close(TEST_HANDLE) or die("unable to close HTML file: $!\n");
+    if (!%result) {
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                  "no test descriptions found in '$file'.");
+    }
 
     if ($changed_testname) {
         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-         "invalid characters removed from testname in descriptions file $_[0]");
+            "invalid characters removed from testname in descriptions file '$file'."
+        );
     }
 
     return \%result;
@@ -8675,24 +8692,17 @@ END_OF_HTML
             write_html($handle, "    <td class=\"testPer\"></td>\n");
         }
         write_html($handle, "    <td class=\"testPer\">$rate</td>\n");
-        if ($covtype != SummaryInfo::FUNCTION_DATA) {
+        write_html($handle, "              <td class='testNum'>$found</td>\n");
+        if ($main::show_hitTotalCol) {
             write_html($handle,
-                       "              <td class='testNum'>$found</td>\n");
-            if ($main::show_hitTotalCol) {
-                write_html($handle,
-                           "              <td class='testNum'>$hit</td>\n");
+                       "              <td class='testNum'>$hit</td>\n");
+        }
+        if ($main::show_tla) {
+            foreach my $tla (@{$activeTlaCols->{$covtype}}) {
+                my $count = $callback->count($tla);
+                $count = "" if 0 == $count;
+                write_html($handle, "    <td class=coverNumDflt>$count</td>\n");
             }
-            if ($main::show_tla) {
-                foreach my $tla (@{$activeTlaCols->{$covtype}}) {
-                    my $count = $callback->count($tla);
-                    $count = "" if 0 == $count;
-                    write_html($handle,
-                               "    <td class=coverNumDflt>$count</td>\n");
-                }
-            }
-        } else {
-            write_html($handle,
-                    "    <td class=\"testNum\">$found&nbsp;/&nbsp;$hit</td>\n");
         }
     }
     write_html($handle, "    </tr>\n");
@@ -10685,7 +10695,11 @@ sub write_file_table(*$$$$$)
     # Determine HTML code for column headings
     my $hide = $HEAD_NO_DETAIL;
     my $show = $HEAD_NO_DETAIL;
-    if ($dirSummary->type() eq 'directory' && $show_details) {
+    if (($dirSummary->type() eq 'directory' ||
+         $main::flat ||
+         $main::hierarchical) &&
+        $show_details
+    ) {
         # "detailed" if line coverage hash not empty
         my $detailed =
             defined($perTestcaseData) && scalar(%{$perTestcaseData->[0]});

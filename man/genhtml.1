@@ -883,10 +883,23 @@ Generate detailed directory view.
 
 When this option is enabled,
 .B genhtml
-generates two versions of each
-file view. One containing the standard information plus a link to a
-"detailed" version. The latter additionally contains information about
-which test case covered how many lines of each source file.
+generates two versions of each source file file entry in the corresponding summary table:
+.IP
+one containing the standard information plus a link to a
+"detailed" version, and
+.PP
+.IP
+a second which contains the number of coverpoints in the hit by each
+testcase.
+.br
+Note that missed coverpoints are not shown in the per-testcase table entry data.
+.PP
+
+The corresponding summary table is found on the 'directory' page of the default 3-level genthm report, or on the top-level page of the 'flat' report (see
+.I genhtml \-\-flat ...
+), or on the parent directory page of the 'hierarchical' report (see
+.I genhtml \-\-hierarchical ...
+).
 
 .RE
 .BI "\-b " baseline\-file\-pattern

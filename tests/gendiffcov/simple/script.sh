@@ -128,8 +128,8 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
-rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py
-rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report
+rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py names.data
+rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete -db $COVER_DB
@@ -377,11 +377,41 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+echo '' > names.data
+echo  -o noNames $DIFFCOV_OPTS $IGNORE --show-details --description names.data current_name.info.gz
+$COVER $GENHTML_TOOL -o noNames $DIFFCOV_OPTS $IGNORE --show-details --description names.data current_name.info.gz
+if [ 0 == $? ] ; then
+    echo "ERROR: expected fail due to missing descriptions - but passed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+echo "TD: out of sequence" > names.data
+echo genhtml -o noNames $DIFFCOV_OPTS $IGNORE --show-details --description names.data current_name.info.gz
+$COVER $GENHTML_TOOL -o noNames $DIFFCOV_OPTS $IGNORE --show-details --description names.data current_name.info.gz
+if [ 0 == $? ] ; then
+    echo "ERROR: expected fail due to invalid sequence - but passed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
 # check that vanilla, flat, hierarchical work with and without prefix
+cat > names.data <<EOF
+TN:myTest
+TD:faking some test data
+# test empty description
+TN:unusedTest
+TD:
+EOF
+
     now=`date`
 for mode in '' '--flat' '--hierarchical' ; do
-    echo genhtml $DIFFCOV_OPTS $mode --show-details current.info --output-directory ./current$mode $IGNORE
-    $COVER $GENHTML_TOOL $mode $DIFFCOV_OPTS current.info --show-details --output-directory ./current$mode $IGNORE --current-date "$now"
+    echo genhtml $DIFFCOV_OPTS $mode --show-details current_name.info.gz --output-directory ./current$mode $IGNORE --description names.data
+    $COVER $GENHTML_TOOL $mode $DIFFCOV_OPTS current_name.info.gz --show-details --output-directory ./current$mode $IGNORE --current-date "$now" --description names.data
     if [ 0 != $? ] ; then
         echo "ERROR: genhtml current $mode failed"
         status=1
@@ -389,10 +419,25 @@ for mode in '' '--flat' '--hierarchical' ; do
             exit 1
         fi
     fi
+    # verify that the 'details' link is there:
+    #   index.html file should refer to 'show details'
+    if [ '' == "$mode" ] ; then
+        FILE=./current/simple/index.html
+    else
+        FILE=./current$mode/index.html
+    fi
+    grep 'show details' $FILE
+    if [ 0 != $? ] ; then
+        echo "ERROR: no testcase 'details' link"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
 
     # run again with prefix
-    echo genhtml $DIFFCOV_OPTS $mode --show-details current.info --output-directory ./current_prefix$mode $IGNORE --prefix `pwd`
-    $COVER $GENHTML_TOOL $mode $DIFFCOV_OPTS current.info --show-details --output-directory ./current_prefix$mode $IGNORE --prefix `pwd` --current-date "$now"
+    echo genhtml $DIFFCOV_OPTS $mode --show-details current_name.info.gz --output-directory ./current_prefix$mode $IGNORE --prefix `pwd`  --description names.data
+    $COVER $GENHTML_TOOL $mode $DIFFCOV_OPTS current_name.info.gz --show-details --output-directory ./current_prefix$mode $IGNORE --prefix `pwd` --current-date "$now"  --description names.data
     if [ 0 != $? ] ; then
         echo "ERROR: genhtml current $mode --prefix failed"
         status=1
@@ -476,8 +521,8 @@ for opt in "" --dark-mode --flat ; do
 done
 
 # check that this works with test names
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT $IGNORE
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $IGNORE --description names.data
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT $IGNORE --description names.data
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential testname failed"
     status=1
