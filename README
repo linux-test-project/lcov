@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (LCOV) -
-- Last changes: 2023-05-22
+- Last changes: 2023-02-22
 -------------------------------------------------
 
 Description
@@ -23,12 +23,15 @@ Description
   but works as well for coverage measurements on standard user space
   applications.
 
-  LCOV has recently been enhanced to support differential coverage, as well
-  as date- and owner-binning.  See https://arxiv.org/abs/2008.07947 or
-  https://ieeexplore.ieee.org/document/9438597 for
-  a detailed explanation of the concepts and several possible use models.
+  LCOV supports differential coverage, as well   as date- and owner-binning.
+  See:
+      https://arxiv.org/abs/2008.07947
+   or
+      https://ieeexplore.ieee.org/document/9438597
+  for a detailed explanation of the concepts and several possible use models.
+
   A video presentation of the basic ideas can be found at
-  http://doi.org/10.5281/zenodo.4653252
+      http://doi.org/10.5281/zenodo.4653252
 
   In addition, several other features and capabilities have been added.  See
   section 6, below, for a brief description - and also see the man pages and
@@ -103,7 +106,7 @@ the COVERAGE makefile variable.
 Note that the Devel::Cover package must be installed if COVERAGE is enabled
 or if you want to use the perl2lcov utility.
 To view the collected coverage information, point your browser to
-.../cover_db/coverage.html after running the tests.
+.../lcov_coverage/index.html after running the tests.
 
 Note that the testcases are intended to test LCOV functionality and
 not to be easily readable tutorial examples.
@@ -206,8 +209,8 @@ Point the web browser of your choice to the resulting index.html file.
 
        Note that runtime coverage data exists only after the application has
        been started and stopped at least once. Otherwise, no data will be found
-       and  lcov will abort with an error mentioning that there are no data/.gcda
-       files.
+       and lcov will abort with an error mentioning that there are no
+       data/.gcda files.
 
        The coverage runtime emits data (the .gcda files) in an atexit
        callback.  If your application exits abnormally or crashes before
@@ -480,3 +483,8 @@ diagnose or fix the problem.
 Bear in mind that you are asking for help from volunteers.   Your
 priority might not be their priority. Civility, consideration and politeness
 go a long way.
+
+Please check back and to verify the fix and close the issue once it has
+been addressed.
+Again:  remember that you are asking for help from volunteers.
+Make sure that you are doing your part.

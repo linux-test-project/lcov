@@ -784,17 +784,21 @@ Use the specified HTML report hierarchy layout.
 
 The default HTML report is 3 levels:
 
-.RS
-.B 1. top\-level:
+.RS 2
+.IP 1. 3
+.B top\-level:
 table of all directories,
-.br
+.PP
 
-.B 2. directory:
+.IP 2. 3
+.B directory:
 table of source files in a directory, and
+.PP
 
-.B 3. source file detail:
+.IP 3. 3
+.B source file detail:
 annotated source code.
-.br
+.PP
 .RE
 
 Option
@@ -806,19 +810,28 @@ Option
 .B \-\-flat
 produces a two-level HTML report:
 
-.RS
-.B 1. top\-level:
+.RS 2
+.IP 1. 3
+.B top\-level:
 table of all project source files, and
-.br
+.PP
 
-.B 2. source file detail:
+.IP 2. 3
+.B source file detail:
 annotated source code.
-.br
+.PP
 .RE
+
+The 'flat' view can reduce the number of clicks required to navigate around
+the coverage report - but is unwieldy except for rather small projects consisting of only a few source files.  It can be useful in 'code review' mode, even for very large projects (see the
+.I \-\-select\-script
+option).
+.br
+Most large projects follow a rational directory structure - which favors the 'hierarchical' report format.  Teams responsible for a particular module can focus on a specific subdirectory or set of subdirectories.
 
 Only one of options
 .B \-\-flat
-and
+or
 .B \-\-hierarchical
 can be specified at the same time.
 

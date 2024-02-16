@@ -760,15 +760,91 @@ discussion in man
 .RS
 Apply Perl regexp
 .IR regexp_pattern
-to source file names found during processing.  This is useful when the path name reported by gcov does not match your source layout and the file is not found, or when the paths found in the extracted .info file does not match your source code layout.
+to source file names found during processing.  This is useful, for example, when the path name reported by gcov does not match your source layout and the file is not found, or in more complicated environments where the build directory structure does not match the source code layout or the layout in the projects's revision control system.
 
 Use this option in situations where geninfo cannot find the correct
 path to source code files of a project. By providing a
 .I regexp_pattern
-in Perl regular expression format (see
-.BR perlre (1))
-, you can instruct geninfo to
+in Perl regular expression format (see man
+.BR perlre (1)
+), you can instruct geninfo to
 remove or change parts of the incorrect source path.
+Also see the
+.B \-\-resolve\-script
+option.
+
+One or more
+.I \-\-substitution
+patterns and/or a
+.I \-\-resolve-script
+may be specified.  When multiple paterns are specified, they are applied in the order specifed, substitution patterns first followed by the resolve callback.
+The file search order is:
+.RS
+.IP 1. 3
+Look for file name (unmodifed).
+.br
+If the file exits: return it.
+.PP
+.IP 2. 3
+Apply all substitution patterns in order - the result of the first pattern is used as the input of the second pattern, and so forth.
+.br
+If a file corresponding to the resulting name exists:  return it.
+.PP
+.IP 3. 3
+Apply the 'resolve' callback ot the final result of pattern substituions.
+.br
+If a file corresponding to the resulting name exists:  return it.
+.PP
+.IP 4. 3
+Otherwise:  return original (unmodified) file name.
+.br
+Depending on context, the unresolved file name may or may not result in an error.
+.RE
+
+Substitutions are used in multiple contexts by lcov/genhtml/geninfo:
+.RS
+.IP \-  3
+during
+.I \-\-capture,
+applied to source file names found in gcov-generated coverage data files (see man
+.B gcov(1)
+).
+.PP
+
+.IP \- 3
+during
+.I \-\-capture,
+applied to alternate
+.I \-\-build\-dir
+paths, when looking for the
+.I .gcno
+(compile time) data file corresponding to some
+.I .gcda
+(runtime) data file.
+.PP
+
+.IP \- 3
+applied to file names found in lcov data files (".info" files) -
+.I e.g.,
+during lcov data aggregation or HTML and text report generation.
+.br
+For example, substituted names are used to find source files for
+text-based filtering (see the
+.I \-\-filter
+section, below) and are passed to
+.I \-\-version\-script, \-\-annotate\-script,
+and
+.I \-criteria\-script
+callbacks.
+.PP
+
+.IP \- 3
+applied to file names found in the
+.I \-\-diff\-file
+passed to genhtml.
+.PP
+.RE
+
 
 .B Example:
 .br

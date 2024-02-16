@@ -1940,7 +1940,7 @@ sub report_format_error($$$$)
         'geninfo' eq $lcovutil::tool_name) {
         $explainFormatOnce = 1;    # don't say this again
         $explain =
-            "\n\tPerhaps you need to compile with '-fprofile-update=atomic.";
+            "\n\tPerhaps you need to compile with '-fprofile-update=atomic'.";
     }
     my $errStr =
         $lcovutil::ERROR_NEGATIVE == $errType ? 'negative' :
