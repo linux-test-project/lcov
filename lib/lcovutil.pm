@@ -6025,9 +6025,11 @@ sub _processFilterWorklist
     my $parallel = $lcovutil::lcov_filter_parallel;
     # not much point in parallel calculation if the number of files is small
     my $workList = $fileList;
-    if ((exists($ENV{LCOV_FORCE_PARALLEL}) || scalar(@$fileList) > 50) &&
-        $parallel &&
-        1 < $lcovutil::maxParallelism) {
+    if (exists($ENV{LCOV_FORCE_PARALLEL}) ||
+        (scalar(@$fileList) > 50 &&
+            $parallel &&
+            1 < $lcovutil::maxParallelism)
+    ) {
 
         $parallel = $lcovutil::maxParallelism;
 
@@ -6049,14 +6051,17 @@ sub _processFilterWorklist
 
         if (!defined($chunkSize)) {
             $chunkSize =
-                int(0.8 * scalar(@$fileList) / $lcovutil::maxParallelism);
+                $maxParallelism ?
+                (int(0.8 * scalar(@$fileList) / $lcovutil::maxParallelism)) :
+                1;
             if ($chunkSize > 100) {
                 $chunkSize = 100;
             } elsif ($chunkSize < 2) {
                 $chunkSize = 1;
             }
         }
-        if ($chunkSize != 1) {
+        if ($chunkSize != 1 ||
+            exists($ENV{LCOV_FORCE_PARALLEL})) {
             $workList = [];
             my $idx     = 0;
             my $current = [];
@@ -6092,7 +6097,9 @@ sub _processFilterWorklist
                           "filter_datXXXX",
                           DIR     => $lcovutil::tmp_dir,
                           CLEANUP => !defined($lcovutil::preserve_intermediates)
-    ) if $parallel > 1;
+        )
+        if (exists($ENV{LCOV_FORCE_PARALLEL}) ||
+            $parallel > 1);
 
     CHUNK: foreach my $d (@$workList) {
         ++$processedChunks;

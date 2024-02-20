@@ -35,6 +35,7 @@ while [ $# -gt 0 ] ; do
 
         --coverage )
             COVER_DB=$1
+            export PERL_COVER_ARGS="-MDevel::Cover=-db,$(COVER_DB),-coverage,statement,branch,condition,subroutine,-silent,1"
             shift
             OPTS="$OPTS $OPT $COVER_DB --keep-going"
             ;;
@@ -46,6 +47,10 @@ while [ $# -gt 0 ] ; do
 
     esac
 done
+
+if [[ "$SCRIPT" =~ '.pl' ]] ; then
+    INVOKE_COVER="perl ${PERL_COVER_ARGS}"
+fi
 
 TIME=$(type -P time 2>/dev/null)
 if [ ! -z "$TIME" ] ; then
@@ -70,7 +75,7 @@ t_detail "COMMAND" "\"$SCRIPT $OPTS*\"" >>"$LOGFILE"
 t_detail "OUTPUT" "" >>"$LOGFILE"
 
 # Run command
-$TIME bash -c "$SCRIPT $OPTS" 2>&1 | t_indent >>"$LOGFILE"
+$TIME bash -c "$INVOKE_COVER $SCRIPT $OPTS" 2>&1 | t_indent >>"$LOGFILE"
 RC=$?
 
 # Evaluate output of time command

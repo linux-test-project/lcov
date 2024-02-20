@@ -10,6 +10,8 @@ CXX='g++'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
 
+#echo "CMD:  $0 $@"
+
 while [ $# -gt 0 ] ; do
 
     OPT=$1
@@ -91,12 +93,6 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
-if [ 'x' == "x$GENHTML_TOOL" ] ; then
-    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
-    LCOV_TOOL=${LCOV_HOME}/bin/lcov
-    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
-fi
-
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 if [ -f $LCOV_HOME/scripts/getp4version ] ; then
@@ -106,6 +102,13 @@ else
     SCRIPT_DIR=$LCOV_HOME/share/lcov/support-scripts
     MD5_OPT='--version-script --md5'
 fi
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+    SPREADSHEET_TOOL=${SCRIPT_DIR}/spreadsheet.py
+fi
+
 # is this git or P4?
 git -C . rev-parse > /dev/null 2>&1
 if [ 0 == $? ] ; then
@@ -144,13 +147,18 @@ if ! type "${CXX}" >/dev/null 2>&1 ; then
         echo "Missing tool: $CXX" >&2
         exit 2
 fi
-
+1
 if ! python3 -c "import xlsxwriter" >/dev/null 2>&1 ; then
         echo "Missing python module: xlsxwriter" >&2
         exit 2
 fi
 
 echo *
+
+echo "COVER = '$COVER'"
+echo "COVER_DB = '$COVER_DB'"
+echo "PYCOVER = '$PYCOVER'"
+echo "PYCOV_DB = '$PYCOV_DB'"
 
 status=0
 ln -s simple.cpp test.cpp
@@ -1002,8 +1010,8 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-NAME=`(cd select2 ; ls /*.html)`
-if [ "index.html" != $NAME ] ; then
+NAME=`(cd select2 ; ls *.html)`
+if [ "index.html" != "$NAME" ] ; then
     echo "ERROR: expected to find only one HTML file"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
@@ -1274,21 +1282,11 @@ if [ 0 != $? ] ; then
 fi
 
 
-# and generate a spreadsheet..check that we don't crash
-SPREADSHEET=$LCOV_HOME/scripts/spreadsheet.py
-if [ ! -f $SPREADSHEET ] ; then
-    SPREADSHEET=$LCOV_HOME/share/lcov/support-scripts/spreadsheet.py
-fi
-if [ -f $SPREADSHEET ] ; then
-    eval $PYCOVER $SPREADSHEET -o results.xlsx `find . -name "*.json"`
-    if [ 0 != $? ] ; then
-        status=1
-        echo "ERROR:  spreadsheet generation failed"
-        exit 1
-    fi
-else
-    echo "Did not find $SPREADSHEET to run test"
+echo $SPREADSHEET_TOOL -o results.xlsx `find . -name "*.json"`
+eval $SPREADSHEET_TOOL -o results.xlsx `find . -name "*.json"`
+if [ 0 != $? ] ; then
     status=1
+    echo "ERROR:  spreadsheet generation failed"
     exit 1
 fi
 
@@ -1298,12 +1296,20 @@ else
     echo "Tests failed"
 fi
 
-if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE ] ; then
-    cover
-    ${LCOV_HOME}/bin/perl2lcov -o perlcov.info --testname simple --version-script $GET_VERSION $COVER_DB
+if [ "x$COVER" != "x" ] ; then
+    echo "Generating coverage report"
+    echo ${LCOV_HOME}/bin/py2lcov -o pycov.info --testname simple --version-script $GET_VERSION $PYCOV_DB
     ${LCOV_HOME}/bin/py2lcov -o pycov.info --testname simple --version-script $GET_VERSION $PYCOV_DB
-    ${LCOV_HOME}/bin/genhtml -o html_report perlcov.info pycov.info --branch --flat --show-navigation --show-proportion --version-script $GET_VERSION --annotate-script $P4ANNOTATE --parallel --ignore empty,usage
-    echo "see HTML report 'html_report'"
+
+    if [ 0 != $LOCAL_COVERAGE ] ; then
+        cover $COVER_DB
+        ${LCOV_HOME}/bin/perl2lcov -o perlcov.info --testname simple --version-script $GET_VERSION $COVER_DB
+        ${LCOV_HOME}/bin/genhtml -o html_report perlcov.info pycov.info --branch --flat --show-navigation --show-proportion --version-script $GET_VERSION --annotate-script $P4ANNOTATE --parallel --ignore empty,usage
+        echo "see HTML report 'html_report'"
+    else
+        echo cp pycov.info $COVER_DB/spreadsheet.info
+        cp pycov.info $COVER_DB/spreadsheet.info
+    fi
 fi
 
 exit $status

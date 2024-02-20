@@ -20,19 +20,17 @@ TESTS := genhtml lcov gendiffcov py2lcov perl2lcov
 #  ignore the potential 'empty glob pattern' error message and a
 #  potential remote repo timestamp issue
 report:
+	$(SPREADSHEET_TOOL) -o report.xlsx `find . -name "*.json"`
 	if [ "x$(COVERAGE)" != 'x' ] ; then \
-	  cover ; \
+	  cover $(COVER_DB) ; \
 	  $(BINDIR)/perl2lcov -o perlcov.info $(COVER_DB) --version-script $(VERSION_SCRIPT) ; \
 	  if [ -f $(PYCOV_DB) ] ; then \
 	    $(BINDIR)/py2lcov -o pycov.info $(PYCOV_DB) --version-script $(VERSION_SCRIPT) ; \
 	  fi ; \
-	  $(BINDIR)/genhtml -o $(HTML_RPT) perlcov.info pycov.i* $(COVER_DB)/*.info --show-navigation --flat --branch --show-proportion --version-script $(VERSION_SCRIPT) --annotate-script $(ANNOTATE_SCRIPT) --ignore empty,inconsistent ; \
+	  $(BINDIR)/genhtml --parallel -o $(HTML_RPT) perlcov.info pycov.i* $(COVER_DB)/*.info --show-navigation --flat --branch --show-proportion --version-script $(VERSION_SCRIPT) --annotate-script $(ANNOTATE_SCRIPT) --ignore empty,inconsistent ; \
 	  echo "Wrote HTML report to ${HTML_RPT}" ; \
 	fi
 
 clean:
-	rm -rf *.info *.counts test.log src
-ifeq ($(COVERAGE), 1)
-	if [ "x$(COVER_DB)" != 'x' ] ; then rm -rf $(COVER_DB) ; fi
-	if [ "x$(HTML_RPT)" != 'x' ] ; then rm -rf $(HTML_RPT) ; fi
-endif
+	rm -rf *.info *.counts test.log src report.xlsx \
+		$(COVER_DB) $(HTML_RPT) $(PYCOV_DB)

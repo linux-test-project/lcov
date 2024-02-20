@@ -43,6 +43,15 @@ This directory contains a number of regression tests for LCOV. To start it:
            variable:
               $ make [HTML_RPT=path/to/my/html] COVERAGE=1 ... test
 
+  - environment variables:
+
+      - LCOV_SHOW_LOCATION:
+        if set, show location on die() or warn()
+
+      - LCOV_FORCE_PARALLEL:
+        if set, force parallel processing, regardless of number of tasks -
+        even if only one.  This is useful for regression testing - to make
+        sure that we cover both serial and parallel execution.
 
 You can modify some aspects of testing by specifying additional parameters on
 `make` invocation:

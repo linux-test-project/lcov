@@ -8,6 +8,8 @@ use lib "$FindBin::RealBin/../../../lib";    # build dir testcase
 use lib "$ENV{LCOV_HOME}/lib/lcov";          # install testcase
 use lcovutil;
 
+lcovutil::parseOptions({},{});
+
 foreach my $example (glob('expr*.c')) {
     print("checking conditional in $example\n");
     my $file = ReadCurrentSource->new($example);

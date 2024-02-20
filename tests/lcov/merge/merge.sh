@@ -80,6 +80,12 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
@@ -108,7 +114,7 @@ if ! type g++ >/dev/null 2>&1 ; then
 fi
 
 status=0
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o intersect.info a.info --intersect b.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o intersect.info a.info --intersect b.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from intersect"
     status=1
@@ -116,7 +122,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o intersect_2.info b.info --intersect a.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o intersect_2.info b.info --intersect a.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from intersect"
     status=1
@@ -144,7 +150,7 @@ if [ 0 != $? ] ; then
 fi
 
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o diff.info a.info --subtract b.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o diff.info a.info --subtract b.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from subtract"
     status=1
@@ -161,7 +167,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o diff2.info b.info --subtract a.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o diff2.info b.info --subtract a.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from subtract 2"
     status=1
@@ -180,7 +186,7 @@ fi
 
 
 # test some error messages...
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o x.info 'y.?info' --intersect a.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o x.info 'y.?info' --intersect a.info
 if [ 0 == $? ] ; then
     echo "Error:  expected error but did not see one"
     status=1
@@ -188,7 +194,7 @@ if [ 0 == $? ] ; then
         exit 1
     fi
 fi
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o x.info a.info --intersect 'z.?info'
+$COVER $LCOV_TOOL $LCOV_OPTS -o x.info a.info --intersect 'z.?info'
 if [ 0 == $? ] ; then
     echo "Error:  expected error but did not see one"
     status=1

@@ -37,7 +37,8 @@ VERSION_SCRIPT=$(SCRIPTDIR)/getp4version
 endif
 
 ifneq ($(COVER_DB),)
-EXEC_COVER := perl -MDevel::Cover=-db,$(COVER_DB),-coverage,statement,branch,condition,subroutine,-silent,1
+export PERL_COVER_ARGS := -MDevel::Cover=-db,$(COVER_DB),-coverage,statement,branch,condition,subroutine,-silent,1
+EXEC_COVER := perl ${PERL_COVER_ARGS}
 PYCOVER = COVERAGE_FILE=$(PYCOV_DB) coverage run --branch --append
 endif
 
@@ -74,6 +75,7 @@ export GENHTML_TOOL := $(EXEC_COVER) $(BINDIR)/genhtml
 export GENINFO_TOOL := $(EXEC_COVER) $(BINDIR)/geninfo
 export PERL2LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/perl2lcov
 export PY2LCOV_TOOL := $(PYCOVER) $(BINDIR)/py2lcov
+export SPREADSHEET_TOOL := $(PYCOVER) $(SCRIPTDIR)/spreadsheet.py
 
 # Specify programs under test
 export PATH    := $(BINDIR):$(TESTBINDIR):$(PATH)
