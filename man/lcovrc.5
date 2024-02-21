@@ -216,6 +216,14 @@ max_message_count = 100
 .br
 #filter_bitwise_conditional = 1
 .br
+.br
+# if nonzero, '--filter blank' is applied to blank lines, regardless
+.br
+# of their hit count
+.br
+#filter_blank_aggressive = 1
+.br
+.br
 
 # Width of line coverage field in source code view
 .br
@@ -865,6 +873,23 @@ If not specified, the default set is 0 (do not treat them as conditional).
 There is no command line option equivalent.
 .br
 This option is used by genhtml and lcov.
+
+.PP
+
+.BR filter_blank_aggressive " ="
+.IR 0|1
+.IP
+If set to non-zero value, then blank source lines will be ignored whether
+or not their 'hit' count is zero.
+See the
+.I \-\-filter blank
+section in man
+.B genhtml(1).
+.br
+
+If not specified, the default set is 0 (filter blank lines only if they are not hit).
+.br
+There is no command line option equivalent.
 
 .PP
 

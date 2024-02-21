@@ -1934,6 +1934,10 @@ These lines seem to appear and disappear in gcov output - and cause differential
 
 .IP blank: 3
 ignore lines which contain only whitespace (or whitespace + comments) whose 'hit' count is zero.  These appear to be a 'gcov' artifact related to compiler-generated code - such as exception handlers and destructor calls at the end of scope - and can confuse differential coverage criteria.
+.br
+If lcovrc option
+.I filter_blank_aggressive = 1
+is enabled, then blank lines will be ignored whether their 'hit' count is zero or not.  Aggressive filtering may be useful in LLVM-generated coverage data, which tends to include large numbers of such lines.
 .PP
 
 .IP directive: 3

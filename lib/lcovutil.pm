@@ -66,6 +66,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $exclude_exception_branch
      $derive_function_end_line $derive_function_end_line_all_files
      $trivial_function_threshold
+     $filter_blank_aggressive
 
      $lcov_filter_parallel $lcov_filter_chunk_size
 
@@ -312,6 +313,8 @@ our $source_filter_lookahead = 10;
 # by default, don't treat expressions containing bitwise operators '|', '&', '~'
 #   as conditional in bogus branch filtering
 our $source_filter_bitwise_are_conditional = 0;
+# filter out blank lines whether they are hit or not
+our $filter_blank_aggressive = 0;
 
 our %dark_palette = ('COLOR_00' => "e4e4e4",
                      'COLOR_01' => "58a6ff",
@@ -1064,11 +1067,12 @@ my %rc_common = (
              "filter_lookahead"       => \$lcovutil::source_filter_lookahead,
              "filter_bitwise_conditional" =>
         \$lcovutil::source_filter_bitwise_are_conditional,
-             "profile"           => \$lcovutil::profile,
-             "parallel"          => \$lcovutil::maxParallelism,
-             "memory"            => \$lcovutil::maxMemory,
-             "memory_percentage" => \$lcovutil::memoryPercentage,
-             'source_directory'  => \@rc_source_directories,
+             'filter_blank_aggressive' => \$filter_blank_aggressive,
+             "profile"                 => \$lcovutil::profile,
+             "parallel"                => \$lcovutil::maxParallelism,
+             "memory"                  => \$lcovutil::maxMemory,
+             "memory_percentage"       => \$lcovutil::memoryPercentage,
+             'source_directory'        => \@rc_source_directories,
 
              "no_exception_branch"   => \$lcovutil::exclude_exception_branch,
              'filter'                => \@rc_filter,
@@ -5774,7 +5778,9 @@ sub _filterFile
                 unless $outOfRange ||
                 $excluded;
             my $isBlank =
-                ($blank_histogram && $l_hit == 0 && $srcReader->isBlank($line))
+                ($blank_histogram &&
+                 ($lcovutil::filter_blank_aggressive || $l_hit == 0) &&
+                 $srcReader->isBlank($line))
                 unless $outOfRange ||
                 $excluded;
             next

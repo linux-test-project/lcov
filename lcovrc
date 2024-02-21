@@ -82,6 +82,10 @@ max_message_count = 100
 # if nonzero, bitwise operators '|', '&', '~' indicate conditional expressions
 #filter_bitwise_conditional = 1
 
+# if nonzero, '--filter blank' is applied to blank lines, regardless
+# of their hit count
+#filter_blank_aggressive = 1
+
 # Width of line coverage field in source code view
 genhtml_line_field_width = 12
 
