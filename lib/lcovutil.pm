@@ -50,7 +50,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $FILTER_BRANCH_NO_COND $FILTER_FUNCTION_ALIAS
      $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH $FILTER_LINE
      $FILTER_LINE_CLOSE_BRACE $FILTER_BLANK_LINE $FILTER_LINE_RANGE
-     $FILTER_TRIVIAL_FUNCTION
+     $FILTER_TRIVIAL_FUNCTION $FILTER_DIRECTIVE
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
      $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
@@ -257,10 +257,13 @@ our $FILTER_LINE_RANGE = 6;
 our $FILTER_LINE = 7;
 # remove functions which have only a single line
 our $FILTER_TRIVIAL_FUNCTION = 8;
+# remove compiler directive lines which llvm-cov seems to generate
+our $FILTER_DIRECTIVE = 9;
 
 our %COVERAGE_FILTERS = ("branch"        => $FILTER_BRANCH_NO_COND,
                          'brace'         => $FILTER_LINE_CLOSE_BRACE,
                          'blank'         => $FILTER_BLANK_LINE,
+                         'directive'     => $FILTER_DIRECTIVE,
                          'range'         => $FILTER_LINE_RANGE,
                          'line'          => $FILTER_LINE,
                          'function'      => $FILTER_FUNCTION_ALIAS,
@@ -1971,16 +1974,9 @@ sub check_parent_process
 sub is_filter_enabled
 {
     # return true of there is an opportunity for filtering
-    return (defined($lcovutil::cov_filter[$lcovutil::FILTER_BRANCH_NO_COND]) ||
-             defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_CLOSE_BRACE])
-             || defined($lcovutil::cov_filter[$lcovutil::FILTER_BLANK_LINE])
-             || defined($lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE])
-             || defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION])
-             || defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])
-             || defined(
-                   $lcovutil::cov_filter[$lcovutil::FILTER_TRIVIAL_FUNCTION]) ||
-             0 != scalar(@lcovutil::omit_line_patterns) ||
-             0 != scalar(@lcovutil::exclude_function_patterns));
+    return (grep({ defined($_) } @lcovutil::cov_filter) ||
+            0 != scalar(@lcovutil::omit_line_patterns) ||
+            0 != scalar(@lcovutil::exclude_function_patterns));
 }
 
 sub parse_cov_filters(@)
@@ -4881,12 +4877,28 @@ sub parseLines
     my $excl_ex_line             = qr($lcovutil::EXCL_EXCEPTION_LINE);
     # @todo:  if we had annotated data here, then we could whine at the
     #   author of the unmatched start, extra end, etc.
+
+    my $exclude_directives =
+        qr/^\s*#\s*((else|endif)|((ifdef|if|elif|include|define|undef)\s+))/
+        if (TraceFile::is_language('c', $filename) &&
+            defined($lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]));
+
     LINES: foreach (@$sourceLines) {
         $line += 1;
         my $exclude_branch_line           = 0;
         my $exclude_exception_branch_line = 0;
         chomp($_);
         s/\r//;    # remove carriage return
+        if (defined($exclude_directives) &&
+            $_ =~ $exclude_directives) {
+            ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[0];
+            ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[1];
+            push(@excluded, 3);    #everything excluded
+            lcovutil::info(        #2,
+                            "exclude '#$1' directive on $filename:$line\n");
+            next;
+        }
+
         foreach my $d ([$excl_start, $excl_stop, \$exclude_region],
                        [$excl_br_start, $excl_br_stop, \$exclude_br_region],
                        [$excl_ex_start, $excl_ex_stop,
@@ -5186,6 +5198,10 @@ sub suppressCloseBrace
                     if ($prev == $count ||
                         ($count == 0 &&
                          $prev > 0));
+
+                lcovutil::info(3,
+                    "not skipping brace line $lineNo because previous line $prevLine hit count didn't match: $prev != $count"
+                ) unless $suppress;
                 last;
             } elsif ($count == 0 &&
                      # previous line not executable - was it an open brace?

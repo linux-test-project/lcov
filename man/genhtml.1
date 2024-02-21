@@ -1936,10 +1936,20 @@ These lines seem to appear and disappear in gcov output - and cause differential
 ignore lines which contain only whitespace (or whitespace + comments) whose 'hit' count is zero.  These appear to be a 'gcov' artifact related to compiler-generated code - such as exception handlers and destructor calls at the end of scope - and can confuse differential coverage criteria.
 .PP
 
+.IP directive: 3
+ignore lines which look like C compiler directives: #ifdef, #include, #define,
+.I etc.
+These lines are sometimes included by
+.I llvm\-cov
+when LLVM profile data is translated to LCOV format.
+.PP
+
+.IP line: 3
+alias for "\-\-filter brace,blank".
+.PP
+
 .IP range: 3
 Ignore line and branch coverpoints on lines which are out-of range/whose line number is beyond the end of the source file.  These appear to be gcov artifacts caused by a macro instantiation on the last line of the file.
-.B line:
-alias for "\-\-filter brace,blank".
 .PP
 
 .IP region: 3

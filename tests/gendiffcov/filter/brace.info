@@ -4,8 +4,9 @@ FN:1,set_brack_offset
 FNDA:27,set_brack_offset
 FNF:1
 FNH:1
+DA:3,27
 DA:1,27
 DA:8,27
-LF:2
-LH:2
+LF:3
+LH:3
 end_of_record
