@@ -301,8 +301,8 @@ if [ 0 == $? ] ; then
 fi
 
 
-echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nobranch.info $IGNORE
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_nobranch.info $IGNORE
+echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nobranch.info $IGNORE --rc memory=1024
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_nobranch.info $IGNORE --rc memory=1024
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (2) failed"
     status=1
@@ -313,8 +313,8 @@ fi
 gzip -c baseline_nobranch.info > baseline_nobranch.info.gz
 #genhtml baseline.info --output-directory ./baseline
 
-echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline $IGNORE
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline.info --output-directory ./baseline --save $IGNORE
+echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline $IGNORE --rc memory_percentage=50
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline.info --output-directory ./baseline --save $IGNORE --rc memory_percentage=50
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline failed"
     status=1
@@ -1275,6 +1275,39 @@ echo genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE --ignore annotate annotate.info
 if [ 0 != $? ] ; then
     echo "ERROR: p4annotate with no annotation ignore did not pass"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# check nonexistent --rc option (note minus on '-memory_percentage')
+echo genhtml $DIFFCOV_OPTS --output-directory ./errOut --rc -memory_percentage=50 baseline.info $IGNORE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./errOut --rc -memory_percentage=50 baseline.info $IGNORE
+if [ 0 == $? ] ; then
+    echo "ERROR: incorrect RC option not caught"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# check --rc formating
+echo genhtml $DIFFCOV_OPTS --output-directory ./errOut --rc memory_percentage baseline.info $IGNORE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./errOut --rc memory_percentage baseline.info $IGNORE
+if [ 0 == $? ] ; then
+    echo "ERROR: incorrect RC option not caught"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# skip both errors
+echo genhtml $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc -memory_percentage=50 baseline.info --ignore usage
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc percent=5 baseline.info --ignore usage $IGNORE
+if [ 0 != $? ] ; then
+    echo "ERROR: didn't ignore errors"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1

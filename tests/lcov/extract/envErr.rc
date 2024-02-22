@@ -1,0 +1,6 @@
+# comment here
+#  key should be assigned to something...
+ignore_errors
+ignore_errors = inconsistent
+parallel = 1
+memory = 1024

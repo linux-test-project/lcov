@@ -1,0 +1,7 @@
+
+ignore_errors = $ENV{ENV_IGNORE}
+# trigger an append operation
+ignore_errors = empty
+ignore_errors = inconsistent
+parallel = 1
+memory_percentage = 50

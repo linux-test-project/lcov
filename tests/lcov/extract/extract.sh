@@ -237,6 +237,55 @@ if [ "$NO_INITIAL_CAPTURE" != 1 ] ; then
     fi
 fi
 
+# test some config file options
+
+# error message for missing env var in RC file
+$COVER $LCOV_TOOL $IGNORE --capture -d . $LCOV_OPTS -o err1.info --config-file envVar.rc 2>&1 | tee err1.log
+if [ ${PIPESTATUS[0]} == 0 ] ; then
+    echo "expected 'ERROR_USAGE' - did not find"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# skip ignore error
+$COVER $LCOV_TOOL $IGNORE --capture -d . $LCOV_OPTS -o ignore1.info --config-file envVar.rc --ignore usage
+if [ 0 != $? ] ; then
+    echo "expected to ignore 'ERROR_USAGE'"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+export ENV_IGNORE='empty'
+# error message for missing env var in RC file
+$COVER $LCOV_TOOL $IGNORE --capture -d . $LCOV_OPTS -o setVar.info --config-file envVar.rc
+if [ 0 != $? ] ; then
+    echo "expected to set var from env - but didn't"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# error message for missing env var in RC file
+$COVER $LCOV_TOOL $IGNORE --capture -d . $LCOV_OPTS -o err2.info --config-file envErr.rc  2>&1 | tee err2.log
+if [ ${PIPESTATUS[0]} == 0 ] ; then
+    echo "expected mssing value error - not found"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# ignore the error
+$COVER $LCOV_TOOL $IGNORE --capture -d . $LCOV_OPTS -o ignore2.info --config-file envErr.rc --ignore format
+if [ 0 != $? ] ; then
+    echo "expected to ignore error - but didn't"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+
 # use legacy RC 'geninfo_adjust_src_path option (had been a bug)
 $COVER $CAPTURE . $LCOV_OPTS --no-external -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_adjust_src_path='/tmp/foo => /build/bar'" --ignore unused 2>&1 | tee rcOptBug.log
 if [ 0 != $? ] ; then
@@ -543,6 +592,7 @@ if [ 0 != $? ] ; then
 fi
 
 chmod -R ug+rxw separate
+
 
 echo "Tests passed"
 

@@ -249,8 +249,11 @@ my %lcov_options = ("directory|d|di=s"     => \@directory,
                     'intersect=s' => \@intersect,
                     'subtract=s'  => \@difference,);
 
+# geninfo args might get passed to lcov for --capture mode - so we need to not croak on them
+my %mergedRcOpts = (%lcov_rc_params, %lcovutil::geninfo_rc_opts);
+
 # Parse command line options
-if (!lcovutil::parseOptions(\%lcov_rc_params, \%lcov_options)) {
+if (!lcovutil::parseOptions(\%mergedRcOpts, \%lcov_options)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }

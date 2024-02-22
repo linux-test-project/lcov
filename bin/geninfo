@@ -101,8 +101,9 @@ if ($^O eq "msys") {
     require File::Spec::Win32;
 }
 
-# Constants
 our @gcov_tool;
+
+# Constants
 
 our $GCOV_VERSION_8_0_0 = 0x80000;
 our $GCOV_VERSION_4_7_0 = 0x40700;
@@ -208,29 +209,16 @@ our $files_created = 0;    # Number of output files created
 our $base_directory;
 our $version;
 our $follow;
-our $opt_compat_libtool;
 our $opt_no_compat_libtool;
-our $rc_adjust_src_path;    # Regexp specifying parts to remove from source path
-our $adjust_testname;
-our @ignore_errors;         # List of errors to ignore (parameter)
-our @opt_filter;            # list of coverpoints to ignore (parameter)
 our $initial;
-our $captureAll;            # look for both .gcda and lone .gcno files
 our $no_recursion = 0;
 our $maxdepth;
 our $no_markers           = 0;
 our $opt_derive_func_data = 0;
-our $opt_external;
 our $gcov_caps;
-our @opt_config_file;
-our $opt_gcov_all_blocks          = 1;
-our $opt_adjust_unexecuted_blocks = 0;
-our $opt_compat;
 our %compat_value;
-our $rc_auto_base    = 1;
-our $rc_intermediate = "auto";
 our $intermediate;
-our $intervalMonitor;       # class for progress reporting
+our $intervalMonitor;             # class for progress reporting
 our $totalChildCpuTime    = 0;
 our $intervalChildCpuTime = 0;    # since last updata
 
@@ -256,55 +244,36 @@ $SIG{__DIE__}  = \&die_handler;
 $ENV{"LC_ALL"} = "C";
 
 # retrieve settings from RC file - use these if not overridden on command line
-my @rc_build_dir;
-my %geninfo_rc_opts = (
-          "geninfo_gcov_tool"           => \@gcov_tool,
-          "geninfo_adjust_testname"     => \$adjust_testname,
-          "geninfo_checksum"            => \$lcovutil::verify_checksum,
-          "geninfo_compat_libtool"      => \$opt_compat_libtool,
-          "geninfo_external"            => \$opt_external,
-          "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
-          "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
-          "geninfo_compat"              => \$opt_compat,
-          "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
-          "geninfo_auto_base"           => \$rc_auto_base,
-          "geninfo_intermediate"        => \$rc_intermediate,
-          "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
-          'geninfo_chunk_size'          => \$defaultChunkSize,
-          'geninfo_interval_update'     => \$defaultInterval,
-          'geninfo_capture_all'         => \$captureAll,
-          'build_directory'             => \@rc_build_dir);
-
 my %geninfo_opts = ("test-name|t=s"       => \$test_name,
                     "output-filename|o=s" => \$output_filename,
                     "base-directory|b=s"  => \$base_directory,
                     "build-directory=s"   => \@build_directory,
                     "follow|f"            => \$follow,
-                    "compat-libtool"      => \$opt_compat_libtool,
+                    "compat-libtool"      => \$lcovutil::opt_compat_libtool,
                     "no-compat-libtool"   => \$opt_no_compat_libtool,
                     "gcov-tool=s"         => \@gcov_tool,
                     "initial|i"           => \$initial,
-                    "all"                 => \$captureAll,
+                    "all"                 => \$lcovutil::geninfo_captureAll,
                     "no-recursion"        => \$no_recursion,
                     "no-markers"          => \$no_markers,
                     "derive-func-data"    => \$opt_derive_func_data,
-                    "external|e"          => \$opt_external,
+                    "external|e"          => \$lcovutil::opt_external,
                     "no-external"         => \$lcovutil::opt_no_external,
-                    "compat=s"            => \$opt_compat,);
+                    "compat=s"            => \$lcovutil::geninfo_opt_compat,);
 
 # Parse command line options
-if (!lcovutil::parseOptions(\%geninfo_rc_opts, \%geninfo_opts)) {
+if (!lcovutil::parseOptions(\%lcovutil::geninfo_rc_opts, \%geninfo_opts)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
 
 $buildDirSearchPath =
     SearchPath->new('build directory',
-                    @build_directory ? @build_directory : @rc_build_dir);
+                 @build_directory ? @build_directory : @lcovutil::rc_build_dir);
 
 # Check regexp
-if (defined($rc_adjust_src_path)) {
-    my ($pattern, $replace) = split(/\s*=>\s*/, $rc_adjust_src_path);
+if (defined($lcovutil::rc_adjust_src_path)) {
+    my ($pattern, $replace) = split(/\s*=>\s*/, $lcovutil::rc_adjust_src_path);
     # If no replacement is specified, simply remove pattern
     $replace = '' unless defined($replace);
     my $p = "s#$pattern#$replace#g";
@@ -313,17 +282,17 @@ if (defined($rc_adjust_src_path)) {
     my $str  = eval { '$test =~ ' . $p . ';' };
     if ($@) {
         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-            "Invalid 'geninfo_adjust_src_path=$rc_adjust_src_path' syntax: '$@'"
+            "Invalid 'geninfo_adjust_src_path=$lcovutil::rc_adjust_src_path' syntax: '$@'"
         );
     } else {
         push(@lcovutil::file_subst_patterns, [$p, 0]);
     }
 }
 
-if ($captureAll && $initial) {
+if ($lcovutil::geninfo_captureAll && $initial) {
     lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
                               "'--all' ignored when '--initial' is used");
-    $captureAll = undef;
+    $lcovutil::geninfo_captureAll = undef;
 }
 
 if (defined($lcovutil::tempdirname)) {
@@ -335,13 +304,13 @@ if (defined($lcovutil::tempdirname)) {
 
 # Merge options
 if (defined($opt_no_compat_libtool)) {
-    $opt_compat_libtool    = ($opt_no_compat_libtool ? 0 : 1);
-    $opt_no_compat_libtool = undef;
+    $lcovutil::opt_compat_libtool = ($opt_no_compat_libtool ? 0 : 1);
+    $opt_no_compat_libtool        = undef;
 }
 
-if (defined($opt_external)) {
+if (defined($lcovutil::opt_external)) {
     $lcovutil::opt_no_external = 0;
-    $opt_external              = undef;
+    $lcovutil::opt_external    = undef;
 }
 
 my $start = Time::HiRes::gettimeofday();
@@ -388,18 +357,19 @@ if (system_no_output(3, @gcov_tool, "--help") == -1) {
 $gcov_caps = get_gcov_capabilities();
 
 # Determine intermediate mode
-if ($rc_intermediate eq "0") {
+if ($lcovutil::rc_intermediate eq "0") {
     $intermediate = 0;
-} elsif ($rc_intermediate eq "1") {
+} elsif ($lcovutil::rc_intermediate eq "1") {
     $intermediate = 1;
-} elsif (lc($rc_intermediate) eq "auto") {
+} elsif (lc($lcovutil::rc_intermediate) eq "auto") {
     # Use intermediate format if supported by gcov and not conflicting with
     # exception branch exclusion
     $intermediate = (($gcov_caps->{'intermediate-format'} &&
                           !$lcovutil::exclude_exception_branch) ||
                          $gcov_caps->{'json-format'}) ? 1 : 0;
 } else {
-    die("invalid value for geninfo_intermediate: " . "'$rc_intermediate'\n");
+    die("invalid value for geninfo_intermediate: " .
+        "'$lcovutil::rc_intermediate'\n");
 }
 
 if ($gcov_version >= (9 << 16) &&
@@ -428,14 +398,14 @@ push(@gcov_tool, "-b")
     if ($gcov_caps->{'branch-probabilities'} &&
         ($lcovutil::br_coverage ||
          $lcovutil::func_coverage ||
-         $opt_adjust_unexecuted_blocks));
+         $lcovutil::opt_adjust_unexecuted_blocks));
 push(@gcov_tool, "-c")
     if ($gcov_caps->{'branch-counts'} &&
         $lcovutil::br_coverage);
 push(@gcov_tool, "-a")
     if ($gcov_caps->{'all-blocks'} &&
-        $opt_gcov_all_blocks   &&
-        $lcovutil::br_coverage &&
+        $lcovutil::opt_gcov_all_blocks &&
+        $lcovutil::br_coverage         &&
         !$intermediate);
 if ($gcov_caps->{'hash-filenames'}) {
     push(@gcov_tool, "-x");
@@ -445,10 +415,10 @@ if ($gcov_caps->{'hash-filenames'}) {
 push(@gcov_tool, '-i') if $intermediate;
 
 # Determine compatibility modes
-parse_compat_modes($opt_compat);
+parse_compat_modes($lcovutil::geninfo_opt_compat);
 
-push(@opt_filter, "region", "branch_region") unless $no_markers;
-parse_cov_filters(@opt_filter);
+push(@lcovutil::opt_filter, "region", "branch_region") unless $no_markers;
+parse_cov_filters(@lcovutil::opt_filter);
 
 # Make sure test names only contain valid characters
 if ($test_name =~ s/\W/_/g) {
@@ -457,7 +427,7 @@ if ($test_name =~ s/\W/_/g) {
 }
 
 # Adjust test name to include uname output if requested
-if ($adjust_testname) {
+if ($lcovutil::geninfo_adjust_testname) {
     $test_name .= "__" . `uname -a`;
     $test_name =~ s/\W/_/g;
 }
@@ -1008,7 +978,8 @@ sub find_files
             my ($name, $d, $e) =
                 File::Basename::fileparse($directory, qr/\.[^.]*/);
             if ($e ne $ext &&
-                (!$captureAll || $e ne $graph_file_extension)) {
+                (!$lcovutil::geninfo_captureAll || $e ne $graph_file_extension)
+            ) {
                 $self->[2]->{$directory} = [
                        $lcovutil::ERROR_USAGE,
                        "$directory has unsupported extension: expected '$ext'" .
@@ -1249,8 +1220,8 @@ sub gen_info(@)
 
     $builder->find_files($initial, @_);
     if (!defined($initial) &&
-        defined($captureAll) &&
-        $captureAll) {
+        defined($lcovutil::geninfo_captureAll) &&
+        $lcovutil::geninfo_captureAll) {
         $builder->find_files(2, @_);
     }
     my $filelist = $builder->worklist();
@@ -1260,8 +1231,8 @@ sub gen_info(@)
             $lcovutil::maxParallelism ?
             (int($total / $lcovutil::maxParallelism)) :
             1;
-        if (defined($defaultChunkSize)) {
-            if ($defaultChunkSize =~ /^(\d+)\s*(%?)$/) {
+        if (defined($lcovutil::defaultChunkSize)) {
+            if ($lcovutil::defaultChunkSize =~ /^(\d+)\s*(%?)$/) {
                 if (defined($2) && $2) {
                     # a percentage
                     $chunkSize = int($total * $1 / 100);
@@ -1271,7 +1242,8 @@ sub gen_info(@)
                 }
             } else {
                 lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                    "geninfo_chunk_size '$defaultChunkSize' is not recognized");
+                    "geninfo_chunk_size '$lcovutil::defaultChunkSize' is not recognized"
+                );
             }
         }
         # Need to balance time in child vs. time to merge child data -
@@ -1307,9 +1279,9 @@ sub gen_info(@)
     my $processedChunks = 0;
 
     # process at least 5% of files before printing stats
-    $defaultInterval = 5 unless defined($defaultInterval);
+    $lcovutil::defaultInterval = 5 unless defined($lcovutil::defaultInterval);
 
-    my $intervalLength = int($total * $defaultInterval / 100);
+    my $intervalLength = int($total * $lcovutil::defaultInterval / 100);
     my $start          = Time::HiRes::gettimeofday();
 
     $intervalMonitor =
@@ -1476,8 +1448,10 @@ sub gen_info(@)
         --$currentParallel;
         _merge_one_child($child, \%children, $tempFileExt, $childstatus);
     }
-    info("Finished processing %d " .
-             ($initial ? 'GCNO' : ($captureAll ? 'GCDA/GCNO' : 'GCDA')) .
+    info("Finished processing %d "
+             .
+             ($initial ? 'GCNO' :
+                  ($lcovutil::geninfo_captureAll ? 'GCDA/GCNO' : 'GCDA')) .
              " file%s\n",
          $processedFiles,
          1 == $processedFiles ? '' : 's');
@@ -1646,7 +1620,7 @@ sub process_dafile($$$$)
     ($instr, $graph) = read_gcno($bb_filename);
 
     # Try to find base directory automatically if requested by user
-    if ($rc_auto_base) {
+    if ($lcovutil::rc_auto_base) {
         $base_dir = find_base_from_source($base_dir,
                                           [keys(%{$instr}), keys(%{$graph})]);
     }
@@ -1894,7 +1868,7 @@ sub process_dafile($$$$)
                             lcovutil::debug(
                                 "$source_filename:$line_number: unexecuted block on non-branch line with count=$hit\n"
                             );
-                            if ($opt_adjust_unexecuted_blocks) {
+                            if ($lcovutil::opt_adjust_unexecuted_blocks) {
                                 $hit = 0;
                             } else {
                                 lcovutil::ignorable_warning(
@@ -2597,7 +2571,7 @@ sub intermediate_json_to_info($)
                 lcovutil::debug(
                     "$filename:$line: unexecuted block on non-branch line with count=$count\n"
                 );
-                if ($opt_adjust_unexecuted_blocks) {
+                if ($lcovutil::opt_adjust_unexecuted_blocks) {
                     $count = 0;
                 } else {
                     lcovutil::ignorable_warning($ERROR_INCONSISTENT_DATA,
@@ -2875,7 +2849,7 @@ sub process_intermediate($$$$)
         }
 
         # Try to find base directory automatically if requested by user
-        if ($rc_auto_base) {
+        if ($lcovutil::rc_auto_base) {
             $base = find_base_from_source($base, [keys(%data)]);
         }
     }
@@ -3061,7 +3035,7 @@ sub process_graphfile($$)
     ($instr, $graph) = read_gcno($graph_filename);
 
     # Try to find base directory automatically if requested by user
-    if ($rc_auto_base) {
+    if ($lcovutil::rc_auto_base) {
         $base_dir = find_base_from_source($base_dir,
                                           [keys(%{$instr}), keys(%{$graph})]);
     }
@@ -4010,9 +3984,9 @@ sub parse_compat_modes($)
     %compat_value = %COMPAT_MODE_DEFAULTS;
 
     # Add old style specifications
-    if (defined($opt_compat_libtool)) {
+    if (defined($lcovutil::opt_compat_libtool)) {
         $compat_value{$COMPAT_MODE_LIBTOOL} =
-            $opt_compat_libtool ? $COMPAT_VALUE_ON :
+            $lcovutil::opt_compat_libtool ? $COMPAT_VALUE_ON :
             $COMPAT_VALUE_OFF;
     }
 

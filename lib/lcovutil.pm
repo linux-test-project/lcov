@@ -888,6 +888,11 @@ sub configure_callback
 # all valid key=value pairs found.
 #
 
+# need to defer any errors until after the options have been
+#  processed as user might have suppressed the error we were
+#  trying to emit
+my @deferred_rc_errors;    # ([err|warn, key, string])
+
 sub read_config($)
 {
     my $filename = $_[0];
@@ -912,15 +917,19 @@ sub read_config($)
         next unless length;
         ($key, $value) = split(/\s*=\s*/, $_, 2);
         # is this an environment variable?
-        while ($value =~ /\$ENV\{([^}]+)\}/) {
+        while (defined($value) &&
+               $value =~ /\$ENV\{([^}]+)\}/) {
             my $varname = $1;
             if (!exists($ENV{$varname})) {
-                warn(
-                    "Variable '$key' in RC file '$filename' uses environment variable '$varname' - which is not set (ignoring '$_').\n"
-                );
+                push(
+                    @deferred_rc_errors,
+                    [   1,
+                        $lcovutil::ERROR_USAGE,
+                        "\"$filename\": $.:  variable '$key' uses environment variable '$varname' - which is not set (ignoring '$_')."
+                    ]);
                 next VAR;
             }
-            $value =~ s/^\$ENV{$varname}/$ENV{$varname}/g;
+            $value =~ s/^\$ENV\{$varname\}/$ENV{$varname}/g;
         }
         if (defined($key) && defined($value)) {
             info(2, "  set: $key = $value\n");
@@ -935,10 +944,12 @@ sub read_config($)
             }
         } else {
             my $context = MessageContext::context();
-            lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
-                                    "malformed statement in line $. " .
-                                        "of configuration file $filename$context."
-            );
+            push(
+                @deferred_rc_errors,
+                [   1,
+                    $lcovutil::ERROR_FORMAT,
+                    "\"$filename\": $.: malformed configuration file statement '$_':  expected \"key = value\"/"
+                ]);
         }
     }
     close(HANDLE) or die("unable to close $filename: $!\n");
@@ -972,15 +983,12 @@ sub _set_config($$$)
         }
     } else {
         # opt is a scalar or not defined
-        if ('ARRAY' eq ref($value)) {
-            lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
-                             "setting scalar config '$key' with array value [" .
-                                 join(', ', @$value) .
-                                 "] - using '" . $value->[-1] . "'");
-            $$r = $value->[-1];
-        } else {
-            $$r = $value;
-        }
+        #  only way for $value to NOT be an array is if there is a bug in
+        #  the caller such that a scalar ref was passed where a prior call
+        #  had passed a list ref for the same RC option name
+        die("unexpected ARRAY for $key value")
+            if ('ARRAY' eq ref($value));
+        $$r = $value;
         info(2, "  assign $$r to $key\n");
     }
 }
@@ -1031,7 +1039,7 @@ my %deprecated_rc = ("genhtml_demangle_cpp"        => "demangle_cpp",
                      "lcov_function_coverage"      => "function_coverage",
                      "genhtml_function_coverage"   => "function_coverage",
                      "genhtml_branch_coverage"     => "branch_coverage",);
-my @deprecated_uses;
+
 my ($cExtensions, $rtlExtensions, $javaExtensions,
     $perlExtensions, $pythonExtensions);
 
@@ -1098,6 +1106,40 @@ my %rc_common = (
              'lcov_filter_parallel'   => \$lcovutil::lcov_filter_parallel,
              'lcov_filter_chunk_size' => \$lcovutil::lcov_filter_chunk_size,);
 
+# lcov needs to know the options which might get passed to geninfo in --capture mode
+our $defaultChunkSize;    # for performance tweaking
+our $defaultInterval;     # for performance tweaking
+our @rc_gcov_tool;
+our @rc_build_dir;
+our $geninfo_adjust_testname;
+our $opt_external;
+our $opt_compat_libtool;
+our $opt_gcov_all_blocks          = 1;
+our $opt_adjust_unexecuted_blocks = 0;
+our $geninfo_opt_compat;
+our $rc_adjust_src_path;    # Regexp specifying parts to remove from source path
+our $rc_auto_base    = 1;
+our $rc_intermediate = "auto";
+our $geninfo_captureAll;    # look for both .gcda and lone .gcno files
+
+our %geninfo_rc_opts = (
+          "geninfo_gcov_tool"           => \@rc_gcov_tool,
+          "geninfo_adjust_testname"     => \$geninfo_adjust_testname,
+          "geninfo_checksum"            => \$lcovutil::verify_checksum,
+          "geninfo_compat_libtool"      => \$opt_compat_libtool,
+          "geninfo_external"            => \$opt_external,
+          "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
+          "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
+          "geninfo_compat"              => \$geninfo_opt_compat,
+          "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
+          "geninfo_auto_base"           => \$rc_auto_base,
+          "geninfo_intermediate"        => \$rc_intermediate,
+          "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
+          'geninfo_chunk_size'          => \$defaultChunkSize,
+          'geninfo_interval_update'     => \$defaultInterval,
+          'geninfo_capture_all'         => \$geninfo_captureAll,
+          'build_directory'             => \@rc_build_dir);
+
 our %argCommon = ("tempdir=s"        => \$tempdirname,
                   "version-script=s" => \@lcovutil::extractVersionScript,
                   "checksum"         => \$lcovutil::verify_checksum,
@@ -1163,19 +1205,38 @@ sub apply_rc_params($)
 
     foreach my $v (@opt_rc) {
         my $index = index($v, '=');
-        die("malformed --rc option '$v' - should be 'key=value'")
-            if $index == -1;
+        if ($index == -1) {
+            push(@deferred_rc_errors,
+                 [1, $lcovutil::ERROR_USAGE,
+                  "malformed --rc option '$v' - should be 'key=value'"
+                 ]);
+            next;
+        }
         my $key   = substr($v, 0, $index);
         my $value = substr($v, $index + 1);
         $key =~ s/^\s+|\s+$//g;
-        next unless exists($rcHash{$key});
+        unless (exists($rcHash{$key})) {
+            push(
+                @deferred_rc_errors,
+                [   1,
+                    $lcovutil::ERROR_USAGE,
+                    "unknown/unsupported key '$key' found in '--rc $v' - see 'man lcovrc(5)' for the list of valid options"
+                ]);
+            next;
+        }
         info(1, "apply --rc overrides\n")
             unless $set_value;
         # can't complain about deprecated uses here because the user
         #  might have suppressed that message - but we haven't looked at
         #  the suppressions in the parameter list yet.
-        push(@deprecated_uses, $key)
-            if (exists($deprecated_rc{$key}));
+        push(
+            @deferred_rc_errors,
+            [   0,
+                $lcovutil::ERROR_DEPRECATED,
+                "RC option '$key' is deprecated.  Consider using '" .
+                    $deprecated_rc{$key} .
+                    "'. instead.  (Backward-compatible support will be removed in the future"
+            ]) if (exists($deprecated_rc{$key}));
         # strip spaces
         $value =~ s/^\s+|\s+$//g;
         _set_config(\%rcHash, $key, $value);
@@ -1214,7 +1275,6 @@ sub apply_rc_params($)
     ) {
         lcovutil::set_extensions(@$d) if $d->[1];
     }
-
     return $set_value;
 }
 
@@ -1307,12 +1367,13 @@ sub parseOptions
         # Ensure that the c++filt tool is available when using --demangle-cpp
         lcovutil::do_mangle_check();
 
-        foreach my $key (@deprecated_uses) {
-            lcovutil::ignorable_warning($lcovutil::ERROR_DEPRECATED,
-                "RC option '$key' is deprecated.  Consider using '" .
-                    $deprecated_rc{$key} .
-                    "'. instead.  (Backward-compatible support will be removed in the future"
-            );
+        foreach my $entry (@deferred_rc_errors) {
+            my ($isErr, $type, $msg) = @$entry;
+            if ($isErr) {
+                lcovutil::ignorable_error($type, $msg);
+            } else {
+                lcovutil::ignorable_warning($type, $msg);
+            }
         }
     }
 
