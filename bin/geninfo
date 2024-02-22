@@ -1294,6 +1294,7 @@ sub gen_info(@)
     $lcovutil::profileData{interval}  = $intervalLength;
     $lcovutil::profileData{nFiles}    = $total;
 
+    my $failedAttempts = 0;
     CHUNK: foreach my $chunk (@worklist) {
         ++$processedChunks;
         if (1 < $lcovutil::maxParallelism &&
@@ -1330,13 +1331,14 @@ sub gen_info(@)
             my $pid = fork();
             if (!defined($pid)) {
                 # fork failed
-                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                         "fork() syscall failed while trying to process chunk");
+                ++$failedAttempts;
+                lcovutil::report_fork_failure("process chunk",
+                                              $!, $failedAttempts);
                 --$processedChunks;
                 push(@worklist, $chunk);
-                sleep(10);
                 next CHUNK;
             }
+            $failedAttempts = 0;
             if (0 == $pid) {
                 # I'm the child...
                 #   set my output file to temp location so my dump won't

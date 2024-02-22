@@ -769,6 +769,19 @@ section in man
 for details.
 .PP
 
+.IP fork: 3
+Unable to create child process during
+.I \-\-parallel
+execution.
+.br
+If the message is ignored (
+.I \-\-ignore\-errors fork
+), then genhtml
+will wait a brief period and then retry the failed execution.
+.br
+If you see continued errors, either turn off or reduce parallelism, set a memory limit, or find a larger server to run the task.
+.PP
+
 .IP format: 3
 unexpected syntax found in .info file.
 .PP
@@ -1071,8 +1084,8 @@ generated:  host, date, environment,
 .RS
 Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
 
-See the
-.I geninfo_chunk_size
+Also see the
+.I memory, memory_percentage, max_fork_fails, fork_fail_timeout, geninfo_chunk_size
 and
 .I geninfo_interval_update
 entries in man

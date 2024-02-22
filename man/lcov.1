@@ -1238,6 +1238,19 @@ section in man
 for details.
 .PP
 
+.IP fork: 3
+Unable to create child process during
+.I \-\-parallel
+execution.
+.br
+If the message is ignored (
+.I \-\-ignore\-errors fork
+), then genhtml
+will wait a brief period and then retry the failed execution.
+.br
+If you see continued errors, either turn off or reduce parallelism, set a memory limit, or find a larger server to run the task.
+.PP
+
 .IP format: 3
 unexpected syntax found in .info file.
 .PP
@@ -1564,8 +1577,13 @@ Increment 'debug messages' verbosity.  This is useful primarily to developers wh
 .I [ integer ]
 .RS
 Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
-
-Currently - parallelism is used with the \-\-add\-tracefile and \-\-capture options.
+.br
+Also see the
+.I memory, memory_percentage, max_fork_fails
+and
+.I fork_fail_timeout
+entries in man
+.B lcovrc(5).
 
 .RE
 .BI "\-\-memory "

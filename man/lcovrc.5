@@ -550,6 +550,20 @@ lcov_json_module = auto
 .br
 
 .br
+# Specify the number of consecutive fork() failures to allow before
+.br
+# giving up
+.br
+# max_fork_fails = 5
+.br
+
+.br
+# Seconds to wait after failing to fork() before retrying
+.br
+# fork_fail_timeout = 10
+.br
+
+.br
 # Specify a percentage of system memory to use as maximum during parallel
 .br
 # processing.
@@ -2143,6 +2157,28 @@ The default is not not set.
 
 .br
 This option is used by genhtml, lcov, and geninfo.
+
+.PP
+
+.BR max_fork_fails " ="
+.IR integer
+.IP
+Tells genhtml, lcov, or geninfo the number of consecutive fork() failures
+to ignore during
+.I \-\-parallel
+execution before giving up.
+
+The default is 5.
+
+.PP
+
+.BR fork_fail_timeout " ="
+.IR integer_seconds
+.IP
+Tells genhtml, lcov, or geninfo how long to wait after a fork() failure
+before retrying.
+
+The default is 10 (seconds).
 
 .PP
 

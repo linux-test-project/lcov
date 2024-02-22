@@ -379,6 +379,13 @@ lcov_json_module = auto
 # default: 0 (no limit)
 #memory = 1024
 
+# Specify the number of consecutive fork() failures to allow before
+# giving up
+# max_fork_fails = 5
+
+# Seconds to wait after failing to fork() before retrying
+# fork_fail_timeout = 10
+
 # Specify a percentage of system memory to use as maximum during parallel
 # processing.
 # Do not fork if estimated memory consumption exceeds the maximum.

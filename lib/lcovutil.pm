@@ -34,7 +34,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      die_handler warn_handler abort_handler
 
      $maxParallelism $maxMemory init_parallel_params current_process_size
-     $memoryPercentage
+     $memoryPercentage $max_fork_fails $fork_fail_timeout
      save_profile merge_child_profile save_cmd_line
 
      @opt_rc apply_rc_params $split_char parseOptions
@@ -75,7 +75,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_PATH
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
      $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE $ERROR_INTERNAL
-     $ERROR_PARALLEL $ERROR_PARENT $ERROR_CHILD
+     $ERROR_PARALLEL $ERROR_PARENT $ERROR_CHILD $ERROR_FORK
      $ERROR_EXCESSIVE_COUNT $ERROR_MISSING
      report_parallel_error report_exit_status check_parent_process
      report_unknown_child
@@ -144,6 +144,7 @@ our $ERROR_PATH;                 # path issues
 our $ERROR_INTERNAL;             # tool issue
 our $ERROR_PARENT;               # parent went away so child should die
 our $ERROR_CHILD;                # nonzero child exit status
+our $ERROR_FORK;                 # fork failed
 our $ERROR_EXCESSIVE_COUNT;      # suspiciously large hit count
 our $ERROR_MISSING;              # file missing/not found
 # genhtml errors
@@ -162,6 +163,7 @@ my @lcovErrs = (["annotate", \$ERROR_ANNOTATE_SCRIPT],
                 ["empty", \$ERROR_EMPTY],
                 ['excessive', \$ERROR_EXCESSIVE_COUNT],
                 ["format", \$ERROR_FORMAT],
+                ["fork", \$ERROR_FORK],
                 ["gcov", \$ERROR_GCOV],
                 ["graph", \$ERROR_GRAPH],
                 ["inconsistent", \$ERROR_INCONSISTENT_DATA],
@@ -224,7 +226,9 @@ our $default_precision = 1;
 # undef indicates not set by command line or RC option - so default to
 # sequential processing
 our $maxParallelism;
-our $maxMemory;    # zero indicates no memory limit to parallelism
+our $max_fork_fails    = 5;     # consecutive failures
+our $fork_fail_timeout = 10;    # how long to wait, in seconds
+our $maxMemory;                 # zero indicates no memory limit to parallelism
 our $memoryPercentage;
 our $in_child_process = 0;
 
@@ -1080,6 +1084,8 @@ my %rc_common = (
              "parallel"                => \$lcovutil::maxParallelism,
              "memory"                  => \$lcovutil::maxMemory,
              "memory_percentage"       => \$lcovutil::memoryPercentage,
+             "max_fork_fails"          => \$lcovutil::max_fork_fails,
+             "fork_fail_timeout"       => \$lcovutil::fork_fail_timeout,
              'source_directory'        => \@rc_source_directories,
 
              "no_exception_branch"   => \$lcovutil::exclude_exception_branch,
@@ -1961,6 +1967,28 @@ sub report_unknown_child
     lcovutil::ignorable_error($lcovutil::ERROR_CHILD,
         "found unknown process $child while waiting for parallel child:\n  perhaps you forgot to close a process in your callback?"
     );
+}
+
+sub report_fork_failure
+{
+    my ($when, $code, $failedAttempts) = @_;
+    if ($failedAttempts > $lcovutil::max_fork_fails) {
+        lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+            "$failedAttempts consecutive fork() failures:  consider reduced parallelism or increase the max_fork_fails limit in your lcovrc"
+        );
+    }
+    my $explain = '';
+    if ($message_count[$ERROR_FORK] == 0 &&
+        $ignore[$code] == 0) {
+        $explain =
+            "\n\tUse '$tool_name --ignore_errors " .
+            $ERROR_NAME{$ERROR_FORK} . "' to bypass error and retry.";
+    }
+    lcovutil::ignorable_error($lcovutil::ERROR_FORK,
+                  "fork() syscall failed while trying to $when: $code$explain");
+    # if errors were ignored, then we wait for a while (in parent)
+    #  before re-trying.
+    sleep($lcovutil::fork_fail_timeout);
 }
 
 sub report_exit_status
@@ -6184,6 +6212,7 @@ sub _processFilterWorklist
         if (exists($ENV{LCOV_FORCE_PARALLEL}) ||
             $parallel > 1);
 
+    my $failedAttempts = 0;
     CHUNK: foreach my $d (@$workList) {
         ++$processedChunks;
         # save current counts...
@@ -6234,13 +6263,14 @@ sub _processFilterWorklist
             my $pid = fork();
             if (!defined($pid)) {
                 # fork failed
-                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                         "fork() syscall failed while trying to process chunk");
+                ++$failedAttempts;
+                lcovutil::report_fork_failure('process filter chunk',
+                                              $!, $failedAttempts);
                 --$processedChunks;
                 push(@$workList, $d);
-                sleep(10);
                 next CHUNK;
             }
+            $failedAttempts = 0;
             if (0 == $pid) {
                 # I'm the child
                 my $status =
@@ -7371,17 +7401,19 @@ sub merge
         my %children;
         my @pending;
         my $patterns;
+        my $failedAttempts = 0;
         while (my $segment = pop(@segments)) {
             $lcovutil::deferWarnings = 1;
             my $now = Time::HiRes::gettimeofday();
             my $pid = fork();
             if (!defined($pid)) {
-                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                       "fork() syscall failed while trying to process segment");
+                ++$failedAttempts;
+                lcovutil::report_fork_failure('process segment',
+                                              $!, $failedAttempts);
                 push(@segments, $segment);
-                sleep(10);
                 next;
             }
+            $failedAttempts = 0;
 
             if (0 == $pid) {
                 # I'm the child

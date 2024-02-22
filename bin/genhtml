@@ -494,10 +494,26 @@ sub name
     return $self->[NAME];
 }
 
+sub unsetDirs
+{
+    my $self = shift;
+    # need to reset after fork failure - we set the values
+    # just before forking, but now have to put them back.
+    die('bad usage: unsetDirs()')
+        unless (defined($self->[FULL_DIR]) &&
+                defined($self->[RELATIVE_DIR]));
+    $self->[FULL_DIR]     = undef;
+    $self->[RELATIVE_DIR] = undef;
+}
+
 sub relativeDir
 {
     my ($self, $dir_string) = @_;
-    die("bad usage")
+    die("bad usage: relativeDir(" .
+            (defined($dir_string) ? $dir_string : '') . ') current: '
+            .
+            (defined($self->[RELATIVE_DIR]) ? $self->[RELATIVE_DIR] : '<undef>')
+        )
         unless ((!defined($dir_string) && defined($self->[RELATIVE_DIR])) ||
                 (defined($dir_string) && !defined($self->[RELATIVE_DIR])));
     $self->[RELATIVE_DIR] = $dir_string
@@ -508,7 +524,7 @@ sub relativeDir
 sub fullDir
 {
     my ($self, $dir_string) = @_;
-    die("bad usage")
+    die("bad usage fullDir()")
         unless ((!defined($dir_string) && defined($self->[FULL_DIR])) ||
                 (defined($dir_string) && !defined($self->[FULL_DIR])));
     $self->[FULL_DIR] = $dir_string
@@ -1384,7 +1400,7 @@ sub page_link
     my $data      = $self->summary();
     my $page_link = '';
     $page_link =
-        ($main::flat && '.' ne $data->relativeDir) ?
+        ($main::flat && '.' ne $data->relativeDir()) ?
         File::Spec->catfile($data->relativeDir(), $self->name()) :
         $self->name();
     if ($data->type() eq 'file') {
@@ -5188,6 +5204,7 @@ sub compute
     my $worklist        = $self->[$WORKLIST_IDX];
     my $pending         = $self->[$PENDING_IDX];
     my $children        = $self->[$CHILDDATA_IDX];
+    my $failedAttempts  = 0;
     WORK: while (@$worklist ||
                  %$pending) {
 
@@ -5277,13 +5294,14 @@ sub compute
             my $pid           = fork();
             if (!defined($pid)) {
                 # fork failed
-                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                         "fork() syscall failed while trying to process $name");
-                # put job back
-                push(@$worklist, $task);
-                sleep(10);
+                ++$failedAttempts;
+                lcovutil::report_fork_failure("process $name",
+                                              $!, $failedAttempts);
+                $selfSummary->unsetDirs();    # reset state
+                push(@$worklist, $task);      # put job back
                 next;
             }
+            $failedAttempts = 0;
             if (0 == $pid) {
                 # I'm the child
                 # clear the profile data - we want just my contribution
