@@ -35,7 +35,7 @@ while [ $# -gt 0 ] ; do
                LOCAL_COVERAGE=0
                shift
             fi
-            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine,-silent,1 "
             ;;
 
         --home | -home )
@@ -92,6 +92,7 @@ if [ 'x' == "x$GENHTML_TOOL" ] ; then
     GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
     LCOV_TOOL=${LCOV_HOME}/bin/lcov
     GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+    PERL2LCOV_TOOL=${LCOV_HOME}/bin/perl2lcov
 fi
 
 ROOT=`pwd`
@@ -109,6 +110,7 @@ rm -rf ./vanilla ./annotated annotateErr ./range ./filter ./cover_db
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
+    rm -rf coverage
 fi
 
 if [[ 1 == $CLEAN_ONLY ]] ; then
@@ -259,5 +261,7 @@ fi
 echo "Tests passed"
 
 if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE ] ; then
-    cover
+    cover $COVER_DB
+    $PERL2LCOV_TOOL -o perlcov.info $COVER_DB
+    $GENHTML_TOOL -o coverage perlcov.info
 fi

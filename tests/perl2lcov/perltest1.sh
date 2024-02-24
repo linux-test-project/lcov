@@ -104,11 +104,25 @@ if [ 0 != $? ] ; then
     echo "perl exec failed"
     exit 1
 fi
+
+# error check:  try to run perl2lcov before running 'cover':
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output err.info --testname test1 ./cover_one 2>&1 | tee err.log
+if [ 0 == ${PIPESTATUS[0} ] ; then
+    echo "expected to fail - but passed"
+    exit 1
+fi
+grep "appears to be empty" err.log
+if [ 0 != $? ] ; then
+    echo "expected error message not found"
+    exit 1
+fi
+
 cover cover_one -silent 1
 
 $COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output one.info --testname test1 ./cover_one
 if [ 0 != $? ] ; then
     echo "perl2lcov failed"
+    exit 1
 fi
 
 # did we generate the test name we expected
@@ -195,6 +209,27 @@ for l in `grep -E '^DA:' checksum.info` ; do
     fi
 done
 
+
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL -o x.info --exclude example.pl ./cover_one
+if [ 0 == $? ] ; then
+    echo "expected ERROR_EMPTY not found"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --exclude example.pl --ignore empty ./cover_one -o x.info
+if [ 0 != $? ] ; then
+    echo "didn't ignore ERROR_EMPTY"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ `test ! -z x.info` ] ; then
+    echo 'expected empty file - but not empty'
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 
 $COVER ${EXEC_COVER} $PERL2LCOV_TOOL --help
 if [ 0 != $? ] ; then

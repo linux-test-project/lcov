@@ -23,11 +23,12 @@ report:
 	$(SPREADSHEET_TOOL) -o report.xlsx `find . -name "*.json"`
 	if [ "x$(COVERAGE)" != 'x' ] ; then \
 	  cover $(COVER_DB) ; \
-	  $(BINDIR)/perl2lcov -o perlcov.info $(COVER_DB) --version-script $(VERSION_SCRIPT) ; \
+	  $(BINDIR)/perl2lcov -o perlcov.info $(COVER_DB) --version-script $(VERSION_SCRIPT) --exclude 'filter.pl' --ignore unsupported ; \
 	  if [ -f $(PYCOV_DB) ] ; then \
 	    $(BINDIR)/py2lcov -o pycov.info $(PYCOV_DB) --version-script $(VERSION_SCRIPT) ; \
 	  fi ; \
-	  $(BINDIR)/genhtml --parallel -o $(HTML_RPT) perlcov.info pycov.i* $(COVER_DB)/*.info --show-navigation --flat --branch --show-proportion --version-script $(VERSION_SCRIPT) --annotate-script $(ANNOTATE_SCRIPT) --ignore empty,inconsistent ; \
+	  $(BINDIR)/genhtml --parallel -o $(HTML_RPT) perlcov.info pycov.info --show-navigation --flat --branch --show-proportion --version-script $(VERSION_SCRIPT) --annotate-script $(ANNOTATE_SCRIPT) --ignore empty,inconsistent ; \
+	  cp p*cov.info $(HTML_RPT) ; \
 	  echo "Wrote HTML report to ${HTML_RPT}" ; \
 	fi
 

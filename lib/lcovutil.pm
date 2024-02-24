@@ -815,7 +815,7 @@ sub save_profile($)
 sub set_extensions
 {
     my ($type, $str) = @_;
-    die("unknown language '$type'") unless exits($languageExtensions{$type});
+    die("unknown language '$type'") unless exists($languageExtensions{$type});
     $languageExtensions{$type} = join('|', split($split_char, $str));
 }
 
@@ -5063,6 +5063,12 @@ sub filename
     return $_[0]->[FILENAME];
 }
 
+sub numLines
+{
+    my $self = shift;
+    return scalar(@{$self->[SOURCE]});
+}
+
 sub getLine
 {
     my ($self, $line) = @_;
@@ -5816,8 +5822,11 @@ sub _filterFile
                     ++$remove->[0];    # one line where we skip
                     $remove->[1] += ($brdata->totals())[0];
                     lcovutil::info(2,
-                                   "filter BRDA '" .
-                                       $srcReader->getLine($line) .
+                                   "filter BRDA '"
+                                       .
+                                       ($line < $srcReader->numLines() ?
+                                            $srcReader->getLine($line) :
+                                            '<-->') .
                                        "' $source_file:$line\n");
                     # now remove this branch everywhere...
                     foreach my $tn ($testbrdata->keylist()) {
@@ -5882,7 +5891,7 @@ sub _filterFile
             lcovutil::info(2,
                            "filter DA "
                                .
-                               (defined($srcReader->getLine($line)) ?
+                               ($line < $srcReader->numLines() ?
                                     ("'" . $srcReader->getLine($line) . "'") :
                                     "") .
                                " $source_file:$line\n");
@@ -6486,10 +6495,13 @@ sub applyFilters
 sub is_language
 {
     my ($lang, $filename) = @_;
+    my $idx = index($filename, '.');
+    my $ext = $idx == -1 ? '' : substr($filename, $idx + 1);
     foreach my $l (split('\|', $lang)) {
         die("unknown language '$l'")
             unless exists($lcovutil::languageExtensions{$l});
-        return 1 if $filename =~ /\.($lcovutil::languageExtensions{$l})$/;
+        my $extensions = $lcovutil::languageExtensions{$l};
+        return 1 if ($ext =~ /($extensions)/);
     }
     return 0;
 }
@@ -6585,7 +6597,7 @@ sub _read_info
     # The hack is to put branches into a hash keyed by branch ID - and
     #   merge elements with the same key if we run into them in the multiple
     #   times in the same 'file' data (within an SF entry).
-    my %branchRenumber;    # line -> block -> branch -> branchentry
+    my %nextBranchId;    # line -> integer ID
     my ($currentBranchLine, $skipBranch);
     my $functionMap;
     my %excludedFunction;
@@ -6618,7 +6630,7 @@ sub _read_info
             }
 
             # Retrieve data for new entry
-            %branchRenumber   = ();
+            %nextBranchId     = ();
             %excludedFunction = ();
 
             if ($verify_checksum) {
@@ -6815,8 +6827,6 @@ sub _read_info
                 my $comma = rindex($d, ',');
                 my $taken = substr($d, $comma + 1);
                 my $expr  = substr($d, 0, $comma);
-                # hold line, block, expr etc - to process when we get to end of file
-                #  (for parallelism support...)
 
                 # Notes:
                 #   - there may be other branches on the same line (..the next
@@ -6837,43 +6847,20 @@ sub _read_info
                 #     generate an CNF or truth-table like entry corresponding
                 #     to the branch.
 
-                if (!is_language('c', $filename)) {
-                    # At least at present, Verilog/SystemVerilog/VHDL,
-                    # java, python, etc don't need branch number fixing
-                    my $key = "$line,$block";
-                    my $branch =
-                        exists($branchRenumber{$key}) ?
-                        $branchRenumber{$key} :
-                        0;
-                    $branchRenumber{$key} = $branch + 1;
+                my $key = "$line,$block";
+                my $branch =
+                    exists($nextBranchId{$key}) ? $nextBranchId{$key} :
+                    0;
+                $nextBranchId{$key} = $branch + 1;
 
-                    my $br =
-                        BranchBlock->new($branch, $taken, $expr, $is_exception);
-                    $fileData->sumbr()->append($line, $block, $br, $filename);
+                my $br =
+                    BranchBlock->new($branch, $taken, $expr, $is_exception);
+                $fileData->sumbr()->append($line, $block, $br, $filename);
 
-                    # Add test-specific counts
-                    if (defined($testname)) {
-                        $fileData->testbr($testname)
-                            ->append($line, $block, $br, $filename);
-                    }
-                } else {
-                    # only C code might need renumbering - but this
-                    #   is an artifact of some very old geninfo code,
-                    #   so any new data files will be OK
-                    $branchRenumber{$line} = {}
-                        unless exists($branchRenumber{$line});
-                    $branchRenumber{$line}->{$block} = {}
-                        unless exists($branchRenumber{$line}->{$block});
-                    my $table = $branchRenumber{$line}->{$block};
-
-                    my $entry =
-                        BranchBlock->new($expr, $taken, $expr, $is_exception);
-                    if (exists($table->{$expr})) {
-                        # merge
-                        $table->{$expr}->merge($entry, $filename, $line);
-                    } else {
-                        $table->{$expr} = $entry;
-                    }
+                # Add test-specific counts
+                if (defined($testname)) {
+                    $fileData->testbr($testname)
+                        ->append($line, $block, $br, $filename);
                 }
                 last;
             };
@@ -6888,36 +6875,6 @@ sub _read_info
                         $fileData->version($version)
                             if (defined($version) && $version ne "");
                     }
-                    if (is_language('c', $filename)) {
-                        # RTL code was added directly - no issue with
-                        #  duplicate data entries in geninfo result
-                        my $testcaseBranchData = $fileData->testbr($testname)
-                            if defined($testname);
-                        while (my ($line, $l_data) = each(%branchRenumber)) {
-                            foreach my $block (sort { $a <=> $b }
-                                               keys(%$l_data)
-                            ) {
-                                my $bdata    = $l_data->{$block};
-                                my $branchId = 0;
-                                foreach my $b_id (sort { $a <=> $b }
-                                                  keys(%$bdata)
-                                ) {
-                                    my $br = $bdata->{$b_id};
-                                    my $b =
-                                        BranchBlock->new($branchId, $br->data(),
-                                                    undef, $br->is_exception());
-                                    $fileData->sumbr()
-                                        ->append($line, $block, $b, $filename);
-
-                                    if (defined($testcaseBranchData)) {
-                                        $testcaseBranchData->append($line,
-                                                         $block, $b, $filename);
-                                    }
-                                    ++$branchId;
-                                }
-                            }
-                        }
-                    }    # end "if (! rtl)"
                     if ($lcovutil::func_coverage) {
 
                         if ($funcdata != $functionMap) {
@@ -6996,6 +6953,10 @@ sub write_info_file($$$)
 {
     my ($self, $filename, $do_checksum) = @_;
 
+    if ($self->empty()) {
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                  "coverage DB is empty");
+    }
     my $file = InOutFile->out($filename);
     my $hdl  = $file->hdl();
     $self->write_info($hdl, $do_checksum);

@@ -84,7 +84,7 @@ For example:
     #   data into a usable form.  This will also generate an HTML report
     #   in 'myCoverDB'
   \$ cover myCoverDB -silent 1
-    # run perl2lcov transtor to produce LCOV format data:
+    # run perl2lcov translator to produce LCOV format data:
   \$ perl2lcov -o perldata.info [--testname myTestName] myCoverDB
     # and generate a genhtml-format coverage report:
   \$ genhtml -o html_report perldata.info ...
@@ -126,10 +126,10 @@ $lcovutil::func_coverage             = 1;
 $lcovutil::derive_function_end_line  = 1;
 $lcovutil::derive_end_line_all_files = 1;
 lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
+lcovutil::set_extensions('perl', '.*');
 
 my $testname    = '';
 my $output_file = 'perlcov.info';
-our %rc_options;
 our %options = ('testname=s' => \$testname,
                 'output|o=s' => \$output_file,);
 if (!lcovutil::parseOptions({}, \%options)) {
@@ -142,12 +142,26 @@ my $info = TraceFile->new();
 foreach my $db (@ARGV) {
     # parse the other files first - to grab the data we want -
     #   Not quite sure how to map 'cond' to LCOV branch coverage.
+
+    # save a readable message before remapping the $db
+    my $msg =
+        "$db appears to be empty; perhaps you need to run 'cover $db' before executing $0.";
     my $db    = Devel::Cover::DB->new(db => $db);
     my $cover = $db->cover;
+    my @items = $cover->items;
+    if (!@items) {
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY, $msg);
+        next;
+    }
     foreach my $file ($cover->items) {
-        lcovutil::info("process $file\n");
+        my $filename = lcovutil::subst_file_name($file);
+        lcovutil::info("process $filename" .
+                ($filename ne $file ? " (substituted from $file)" : '') . "\n");
+        if (TraceFile::skipCurrentFile($filename)) {
+            lcovutil::info("   (excluded)\n");
+            next;
+        }
         my $f = $cover->file($file);
-
         my $fileData =
             $info->data($file);    # really, want to use stored file name
         my $functionMap = $fileData->testfnc($testname);
