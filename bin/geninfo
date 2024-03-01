@@ -678,7 +678,7 @@ OPTIONS
       --forget-test-names           Merge data for all tests names
       --version-script SCRIPTNAME   Call script to find revision control version
                                     ID of source file
-      --resolve-script SCRIPTNAME Call script to find source file frpm path
+      --resolve-script SCRIPTNAME   Call script to find source file frpm path
   -j, --parallel [N]                Use parallel processing with at most N jobs
       --memory MB                   Use at most MB memory in parallel processing
       --profile [FILENAME]          Write performance statistics to FILENAME

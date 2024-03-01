@@ -202,6 +202,22 @@ if [ $? == 0 ] ; then
         exit 1
     fi
 
+    perl -pe 's/(FN:[0-9]+),[0-9]+,(.+)/$1,$2/' demangle.info > munged.info
+    $COVER $LCOV_TOOL $LCOV_OPTS  --filter branch --demangle-cpp -a munged.info --erase-functions main -o munged_exclude.info --rc derive_function_end_line=0
+    if [ $? == 0 ] ; then
+        echo "lcov exclude with no function end lines passed"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    $COVER $LCOV_TOOL $LCOV_OPTS  --filter branch --demangle-cpp -a munged.info --erase-functions main -o munged_exclude.info --rc derive_function_end_line=0 --ignore unsupported
+    if [ $? != 0 ] ; then
+        echo "didn't ignore exclusion message"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+
 else
     # no end line in data - check for error message...
     echo "----------------------"

@@ -666,9 +666,7 @@ sub get
         if !defined($type);
 
     my $hash = $self->[$type]->[DATA];
-    if ($key eq "total") {
-        return $hash->{found};
-    } elsif ($key eq "missed") {
+    if ($key eq "missed") {
         my $missed = 0;
         foreach my $k ('UBC', 'UNC', 'UIC', 'LBC') {
             $missed += $hash->{$k}
@@ -766,8 +764,7 @@ sub owner_tlaCount
     return $hash->{$tla}
         if (exists($hash->{$tla}));
 
-    if ($tla eq "total" ||
-        $tla eq "found") {
+    if ($tla eq "found") {
         my $total = 0;
         foreach my $k (keys(%$hash)) {
             # count only code that can be hit (ie., not excluded)
@@ -943,15 +940,12 @@ sub lineCovCount
 
     $delta = 0 unless defined($delta);
 
-    if ($key eq 'total') {
-        $key = 'found';
-    } elsif ($key eq 'missed') {
+    if ($key eq 'missed') {
         my $found = $self->lineCovCount('found', $group, $age);
         my $hit   = $self->lineCovCount('hit', $group, $age);
         return $found - $hit;
     }
 
-    $key = 'found' if $key eq 'total';
     if ($group eq "age") {
         my $a   = $self->[LINE_DATA]->[AGE];
         my $bin = SummaryInfo::findAgeBin($age);
@@ -977,9 +971,7 @@ sub branchCovCount
 
     $delta = 0 unless defined($delta);
 
-    if ($key eq 'total') {
-        $key = 'found';
-    } elsif ($key eq 'missed') {
+    if ($key eq 'missed') {
         my $found = $self->branchCovCount('found', $group, $age);
         my $hit   = $self->branchCovCount('hit', $group, $age);
         return $found - $hit;
@@ -1013,9 +1005,7 @@ sub functionCovCount
 
     $delta = 0 unless defined($delta);
 
-    if ($key eq 'total') {
-        $key = 'found';
-    } elsif ($key eq 'missed') {
+    if ($key eq 'missed') {
         my $found = $self->functionCovCount('found', $group, $age);
         my $hit   = $self->functionCovCount('hit', $group, $age);
         return $found - $hit;
@@ -1133,6 +1123,18 @@ sub b_hit
     my $b     = $self->[BRANCH_DATA]->[DATA];
     $b->{hit} += $delta;
     return $b->{hit};
+}
+
+sub selected
+{
+    my $rtn;
+    eval { $rtn = $selectCallback->select(@_); };
+    if ($@) {
+        $rtn = 1;    # return everything
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                  "select(..) failed: $@");
+    }
+    return $rtn;
 }
 
 sub checkCoverageCriteria
@@ -2076,7 +2078,7 @@ use constant {
               LINE_BASELINE => 1,
               LINE_CURRENT  => 2,
 
-              # data elements for branchfunction data
+              # data elements for branch/function data
               DATA_BASELINE     => 0,
               DATA_CURRENT      => 1,
               DATA_DIFFERENTIAL => 2,
@@ -2097,6 +2099,46 @@ sub new
     ];    # function coverage
     bless $self, $class;
     return $self;
+}
+
+sub to_list
+{
+    # used by script-leve 'select' callback
+    my $self = shift;
+
+    my @rtn = ($self->[TYPE],
+               [$self->tla(),
+                $self->in_curr() ? $self->curr_count() : undef,
+                $self->in_base() ? $self->base_count() : undef
+               ]);
+    my $branch = $self->differential_branch();
+    if (defined($branch)) {
+        my @data;
+        push(@rtn, \@data);
+        foreach my $block ($branch->blocks()) {
+            my $br = $branch->getBlock($block);
+            my @b;
+            push(@data, \@b);
+            foreach my $b (@$br) {
+                my ($br, $tla, $d) = @$b;
+                my ($base_count, $curr_count) = @$d;
+                push(@b, [$tla, $curr_count, $base_count]);
+            }
+        }
+    } else {
+        $branch = $self->current_branch();
+        if (defined($branch)) {
+            my @data;
+            push(@rtn, \@data);
+            foreach my $block ($branch->blocks()) {
+                my $br = $branch->getBlock($block);
+                push(@data, $br->count());
+            }
+        } else {
+            push(@rtn, undef);
+        }
+    }
+    return \@rtn;
 }
 
 sub tla
@@ -3648,8 +3690,8 @@ sub _computeContextBefore
         my $lineData     = $data->{$l} if exists($data->{$l});
         my $annotateData = $annotate->line($l);
         last
-            unless $selectCallback->select($lineData, $annotateData,
-                                           $self->[ANNOTATE_OBJ]->path(), $l);
+            unless SummaryInfo::selected($lineData, $annotateData,
+                                         $self->[ANNOTATE_OBJ]->path(), $l);
         ++$count;
     }
     # region of interest is the (possibly empty) contigous region we found
@@ -3676,7 +3718,7 @@ sub interesting
                 my $lineData     = $data->{$l} if exists($data->{$l});
                 my $annotateData = $annotate->line($l);
                 last
-                    if !$selectCallback->select($lineData, $annotateData,
+                    if !SummaryInfo::selected($lineData, $annotateData,
                                              $self->[ANNOTATE_OBJ]->path(), $l);
                 ++$count;
             }
@@ -3726,6 +3768,17 @@ sub new
     my $self = \@data;
     bless $self, $class;
     return $self;
+}
+
+sub to_list
+{
+    # used by 'select' callback - if not a package
+    my $self = shift;
+    if ($#$self >= OWNER) {
+        my @rtn = @{$self}[OWNER, FUNCTION_TLA];
+        return \@rtn;
+    }
+    return undef;
 }
 
 sub owner
@@ -3886,8 +3939,8 @@ sub new
             my $annotateData = $self->line($line)
                 unless grep(/$tla/, ('DUB', 'DCB'));
             # callback arguments are (LineData, SourceLine)
-            if ($selectCallback->select($lne, $annotateData,
-                                        $self->path(), $line)) {
+            if (SummaryInfo::selected($lne, $annotateData,
+                                      $self->path(), $line)) {
                 push(@lineArray, $line);
             }
         }
@@ -3949,7 +4002,7 @@ sub _countBranchTlaData
     my ($src_age, $developer, $srcLine);
     my $lineTla = $lineData->tla();
     if (@SourceFile::annotateScript &&
-        'D' ne substr($lineTla, 0, 1)) {
+        !grep(/^$lineTla$/, ('DUB', 'DCB'))) {
         # deleted lines don't have owner data...
         $srcLine = $self->line($line);
         if (!defined($srcLine)) {
@@ -4190,7 +4243,7 @@ sub _countFunctionTlaData
         #return;
     }
 
-    if ('D' ne substr($mergedTla, 0, 1)) {
+    if (!grep(/^$mergedTla$/, ('DUB', 'DCB'))) {
         # deleted lines don't have owner data...
         $srcLine = $self->line($line);
         # info might not be available, if no annotations
@@ -5949,7 +6002,7 @@ if ($no_sourceview && defined($frames)) {
 if ($no_prefix && @dir_prefix) {
     lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
                     "option --prefix disabled because --no-prefix was ignored");
-    @dir_prefix = undef;
+    @dir_prefix = ();
 }
 
 @fileview_sortlist = ($SORT_FILE);
@@ -8606,12 +8659,11 @@ END_OF_HTML
                         if (!$main::use_legacyLabels &&
                             grep(/^$key$/, ("UNC", "LBC", "UIC")));
 
-                    # want to look in file details to build link to first
-                    #   line...
+                    # look in file details to build link to first line
                     if (!$main::no_sourceview &&
-                        defined($tableHref)       &&
-                        defined($fileDetails)     &&
-                        'D' ne substr($key, 0, 1) &&
+                        defined($tableHref)             &&
+                        defined($fileDetails)           &&
+                        !grep(/^$key$/, ('DUB', 'DCB')) &&
                         grep(/^$key$/, @SummaryInfo::tlaPriorityOrder)) {
                         my $line;
                         my $label =
@@ -9786,8 +9838,7 @@ sub buildDateSummaryTable($$$$$$$$$)
                 } elsif (!$main::no_sourceview &&
                          defined($fileDetail)           &&
                          defined($nextLocationCallback) &&
-                         $tla ne 'DCB'                  &&
-                         $tla ne 'DUB') {
+                         !grep(/^$tla$/, ('DUB', 'DCB'))) {
                     # no link for deleted lines (DUB, DCB) because there
                     # is no TLA for those categories at the location in
                     # the 'current' sourceview.  That location is just a
@@ -11481,7 +11532,8 @@ END_OF_HTML
 
         my $funcEntry = $differentialMap->{$func};
         my ($count, $tla) = @{$funcEntry->hit()};
-        next if 'D' eq substr($tla, 0, 1);    # don't display deleted functions
+        next
+            if grep(/^$tla$/, ('DUB', 'DCB')); # don't display deleted functions
         my $startline = $funcEntry->line() - $func_offset;
         my $name      = $func;
         my $countstyle;
@@ -11570,8 +11622,7 @@ END_OF_HTML
             foreach my $alias (@aliasList) {
                 my ($hit, $tla) = @{$aliases->{$alias}};
                 # don't display deleted functions
-                next
-                    if 'D' eq substr($tla, 0, 1);
+                next if grep(/^$tla$/, ('DUB', 'DCB'));    #
                 my $style = "coverFnAlias" . ($hit == 0 ? "Lo" : "Hi");
                 $tlaRow = "";
                 if ($showTlas) {

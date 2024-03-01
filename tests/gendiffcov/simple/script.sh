@@ -132,7 +132,7 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py names.data
-rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames
+rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete -db $COVER_DB
@@ -336,8 +336,8 @@ if [ 0 != $? ] ; then
 fi
 gzip -c baseline-filter.info > baseline-filter.info.gz
 #genhtml baseline.info --output-directory ./baseline
-echo genhtml $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter $IGNORE
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter $IGNORE
+echo genhtml $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter $IGNORE --missed
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter $IGNORE --missed
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline-filter failed"
     status=1
@@ -674,6 +674,21 @@ for summary in Branch ; do
     fi
 done
 
+
+# with no sourceview
+echo genhtml $DIFFCOV_OPTS --no-sourceview -branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nosource ./current.info $IGNORE $POPUP
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --no-sourceview --branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nosource ./current.info $GENHTML_PORT $IGNORE $POPUP
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml differential_nosource failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# should be no source directory..
+if [ -e differential_nosource/simple/test.cpp.gcov.html ] ; then
+    echo "expected no source..but found some"
+fi
 
 # check case that we have a diff file but no baseline
 echo genhtml $DIFFCOV_OPTS ./current.info --diff-file diff.txt -o ./diff_no_baseline $IGNORE

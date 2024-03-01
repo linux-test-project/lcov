@@ -279,15 +279,6 @@ if (defined($opt_external)) {
 
 my $begin = Time::HiRes::gettimeofday();
 
-if (!($lcovutil::lcov_capture || @add_tracefile) &&
-    scalar(@lcovutil::extractVersionScript) > 1) {
-    foreach my $e (@lcovutil::extractVersionScript) {
-        $e = "'$e'" if ($e =~ /\s/);
-    }
-    lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
-           "--version-script ignored except with --capture or --add-tracefile");
-}
-
 if ($initial && !$lcovutil::lcov_capture) {
     lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
                           "'--initial' is ignored except in '--capture' mode.");
@@ -604,7 +595,8 @@ sub check_options()
     }
 
     if ($prune_testcases && 0 == scalar(@add_tracefile)) {
-        die("--prune-tests has effect only when -a/--add-tracefile is specified"
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+            "--prune-tests has effect only when -a/--add-tracefile is specified"
         );
     }
 }

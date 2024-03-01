@@ -8,7 +8,7 @@ use lib "$FindBin::RealBin/../../../lib";    # build dir testcase
 use lib "$ENV{LCOV_HOME}/lib/lcov";          # install testcase
 use lcovutil;
 
-lcovutil::parseOptions({},{});
+lcovutil::parseOptions({}, {});
 
 foreach my $example (glob('expr*.c')) {
     print("checking conditional in $example\n");
@@ -52,6 +52,14 @@ foreach my $example (glob('*rivial*.c')) {
         die("failed to find trivial function in $example")
             unless $example =~ /^no/;
     }
+    my $info = $example;
+    $info =~ s/c$/info/g;
+    if (-f $info) {
+        lcovutil::parse_cov_filters('trivial');
+        my $trace = TraceFile->load($info, $file);
+        $trace->write_info_file($info . '.filtered');
+        lcovutil::parse_cov_filters();
+    }
 }
 
 # problematic brace filter example...
@@ -82,16 +90,17 @@ foreach my $example (glob('*brace*.c')) {
 
     #simple test for compiler directive filtering
     lcovutil::parse_cov_filters();    # reset filters
-    lcovutil::parse_cov_filters('directive');
+    lcovutil::parse_cov_filters('directive', 'brace');
     $reader = ReadCurrentSource->new('brace.c');
     my $directive = TraceFile->load('brace.info', $reader);
     $directive->write_info_file($info . '.directive');
     @counts = $directive->count_totals();
     my ($f3, $h3) = @{$counts[1]};
     print("$f3 directive-filtered lines $h3 hit\n");
-    die("failed to filter $info")
+    die("failed to filter $info: $lines -> $f3, $hit -> $h3")
         unless ($lines > $f3 &&
                 $hit > $h3);
 }
 
+print("passed\n");
 exit(0);

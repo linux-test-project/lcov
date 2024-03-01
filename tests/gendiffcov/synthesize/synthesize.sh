@@ -217,7 +217,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-COUNT1=`grep -c -i "warning: .*range.* unknown line .* there are only" range.log`
+COUNT1=`grep -c -i "warning: .*range.* unknown.* line .* there are only" range.log`
 if [ 1 != $COUNT1 ] ; then
     echo "Missing expected warning: expected 1 found $COUNT1"
     if [ 0 == $KEEP_GOING ] ; then
@@ -226,14 +226,14 @@ if [ 1 != $COUNT1 ] ; then
 fi
 
 echo lcov $LCOV_OPTS --ignore range -o range.info -a ./munged.info --filter branch --rc warn_once_per_file=0
-$COVER $LCOV_TOOL $LCOV_OPTS  --ignore range -o range.info -a ./munged.info --filter branch --rc warn_once_per_file=0 2>&1 | tee range2.log
+$COVER $LCOV_TOOL $LCOV_OPTS  --ignore range -o range.info -a ./munged.info --filter branch --rc warn_once_per_file=0 --comment 'insert a comment' 2>&1 | tee range2.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: lcov --ignore range2 failed"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
-COUNT2=`grep -c -i "warning: .*range.* unknown line .* there are only" range2.log`
+COUNT2=`grep -c -i "warning: .*range.* unknown.* line .* there are only" range2.log`
 if [ 2 != $COUNT2 ] ; then
     echo "Expected 2 messages found $COUNT2"
     if [ 0 == $KEEP_GOING ] ; then

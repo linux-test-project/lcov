@@ -15,7 +15,6 @@ use Cwd qw/abs_path getcwd/;
 use Storable qw(dclone);
 use Capture::Tiny;
 use Module::Load::Conditional qw(check_install);
-use Storable;
 use Digest::MD5 qw(md5_base64);
 use FindBin;
 use Getopt::Long;
@@ -417,6 +416,11 @@ our @opt_rc;        # list of command line RC overrides
 our %profileData;
 our $profile;       # the 'enable' flag/name of output file
 
+# need to defer any errors until after the options have been
+#  processed as user might have suppressed the error we were
+#  trying to emit
+my @deferred_rc_errors;    # ([err|warn, key, string])
+
 sub set_tool_name($)
 {
     $tool_name = shift;
@@ -456,12 +460,6 @@ sub system_no_output($@)
     return ($stdout, $stderr, $code);
 }
 
-sub is_folder_empty
-{
-    my $dirname = shift;
-    opendir(my $dh, $dirname) or die "Not a directory: $!";
-    return scalar(grep { $_ ne "." && $_ ne ".." } readdir($dh)) == 0;
-}
 #
 # info(printf_parameter)
 #
@@ -650,9 +648,12 @@ sub init_parallel_params()
         #debug("init: chdir back to $cwd\n");
         chdir($cwd);
         if ($@) {
-            lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
-                "package Memory::Process is required to control memory consumption during parallel operations: $@"
-            );
+            push(
+                @deferred_rc_errors,
+                [   1,
+                    $lcovutil::ERROR_PACKAGE,
+                    "package Memory::Process is required to control memory consumption during parallel operations: $@"
+                ]);
             $use_MemoryProcess = 0;
         }
     }
@@ -662,9 +663,12 @@ sub init_parallel_params()
     } elsif (defined($lcovutil::memoryPercentage)) {
         if ($lcovutil::memoryPercentage !~ /^\d+\.?\d*$/ ||
             $lcovutil::memoryPercentage <= 0) {
-            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                "memory_percentage '$lcovutil::memoryPercentage' is not a valid value"
-            );
+            push(
+                @deferred_rc_errors,
+                [   1,
+                    $lcovutil::ERROR_USAGE,
+                    "memory_percentage '$lcovutil::memoryPercentage' is not a valid value"
+                ]);
             $lcovutil::memoryPercentage = 100;
         }
         $lcovutil::maxMemory =
@@ -874,9 +878,11 @@ sub configure_callback
             # the first value in @_ is the script name
             $rtn = $class->new(@_);
         };
-        if ($@) {
+        if ($@ ||
+            !defined($rtn)) {
             lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
-                                    "unable to load perl module '$script': $@");
+                             "unable to create callback from module '$script'" .
+                                 (defined($@) ? ": $@" : ''));
         }
         shift(@INC);
     } else {
@@ -892,11 +898,6 @@ sub configure_callback
 # all valid key=value pairs found.
 #
 
-# need to defer any errors until after the options have been
-#  processed as user might have suppressed the error we were
-#  trying to emit
-my @deferred_rc_errors;    # ([err|warn, key, string])
-
 sub read_config($)
 {
     my $filename = $_[0];
@@ -907,7 +908,8 @@ sub read_config($)
 
     info(1, "read_config: $filename\n");
     if (!open(HANDLE, "<", $filename)) {
-        warn("cannot read configuration file $filename: $!\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                              "cannot read configuration file '$filename': $!");
         return undef;
     }
     VAR: while (<HANDLE>) {
@@ -1346,9 +1348,9 @@ sub parseOptions
         if ($rc_no_func_coverage);
     $lcovutil::br_coverage = 0
         if ($rc_no_branch_coverage);
-    if (defined($rc_no_checksum)) {
-        $lcovutil::verify_checksum = ($rc_no_checksum ? 0 : 1);
-    }
+
+    $lcovutil::verify_checksum = 0
+        if (defined($rc_no_checksum));
 
     foreach my $cb ([\$versionCallback, \@lcovutil::extractVersionScript],
                     [\$resolveCallback, \@lcovutil::resolveCallback]) {
@@ -1419,9 +1421,8 @@ sub transform_pattern($)
 
     $pattern =~ s/\*/\(\.\*\)/g;
     $pattern =~ s/\?/\(\.\)/g;
-    if ($lcovutil::case_insensitive) {
-        $pattern = "/$pattern/i";
-    }
+    $pattern = "/$pattern/i"
+        if ($lcovutil::case_insensitive);
     return qr($pattern);
 }
 
@@ -1464,11 +1465,10 @@ sub munge_file_patterns
             if ($lcovutil::case_insensitive) {
                 for (my $i = length($pat) - 1; $i >= 0; --$i) {
                     my $char = substr($pat, $i, 1);
-                    if ($char eq 'i') {
-                        next PAT;
-                    } elsif ($char =~ /[\/#!@%]/) {
-                        last;
-                    }
+                    next PAT
+                        if ($char eq 'i');
+                    last    # didn't see the 'i' character
+                        if ($char =~ /[\/#!@%]/);
                 }
                 lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
                     "--$flag pattern '$pat' does not seem to be case insensitive - but you asked for case insensitive matching"
@@ -2079,8 +2079,7 @@ sub parse_cov_filters(@)
     # first, mark that all known filters are disabled
     foreach my $item (keys(%COVERAGE_FILTERS)) {
         my $id = $COVERAGE_FILTERS{$item};
-        $cov_filter[$id] = undef
-            unless defined($cov_filter[$id]);
+        $cov_filter[$id] = undef;
     }
 
     return if (!@filters);
@@ -2724,11 +2723,13 @@ sub select
 {
     my ($self, $lineData, $annotateData, $filename, $lineNo) = @_;
 
-    my @params = (
-               'select',
-               JsonSupport::encode($lineData),
-               defined($annotateData) ? JsonSupport::encode($annotateData) : '',
-               $filename, $lineNo);
+    my @params = ('select',
+                  defined($lineData) ?
+                      JsonSupport::encode($lineData->to_list()) : '',
+                  defined($annotateData) ?
+                      JsonSupport::encode($annotateData->to_list()) : '',
+                  $filename,
+                  $lineNo);
     return $self->call(@params);
 }
 
@@ -2982,7 +2983,7 @@ sub resolveCallback
             lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
                                       "resolve($filename) failed$context: $@");
         }
-        # look up particular path most once...
+        # look up particular path at most once...
         $lcovutil::resolveCache{$filename} = $path if $path;
         my $cost = Time::HiRes::gettimeofday() - $start;
         $path = $filename unless $path;
@@ -5601,7 +5602,7 @@ sub _eraseFunction
                 lcovutil::info(2,
                             "exclude DA in FN '$name' on $source_file:$line\n");
             }
-            if ($branchData->remove($line, 1)) {
+            if (defined($branchData) && $branchData->remove($line, 1)) {
                 lcovutil::info(2,
                           "exclude BRDA in FN '$name' on $source_file:$line\n");
             }

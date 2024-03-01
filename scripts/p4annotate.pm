@@ -84,7 +84,7 @@ sub new
     ) {
         print(STDERR "usage: $exe [--log logfile] [--verify] filename\n");
         exit($help ? 0 : 1) if $script eq $0;
-        return 1;
+        return undef;
     }
 
     my @notset;
