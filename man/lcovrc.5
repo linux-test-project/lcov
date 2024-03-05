@@ -13,7 +13,12 @@ code coverage tool (see
 .br
 
 The system\-wide configuration file is located at
-.IR /etc/lcovrc .
+.IR $LCOV_HOME/etc/lcovrc .
+This is typically either
+.IR /etc/lcovrc
+or
+.IR /usr/local/etc/lcovrc
+but may be wherever you have installed the lcov package.
 To change settings for a single user, place a customized copy of this file at
 location
 .IR ~/.lcovrc .
@@ -2618,7 +2623,7 @@ Default is '0':  case sensitive matching.
 .SH FILES
 
 .TP
-.I /etc/lcovrc
+.I $LCOV_HOME/etc/lcovrc
 The system\-wide
 .B lcov
 configuration file.

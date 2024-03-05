@@ -1263,12 +1263,13 @@ sub apply_rc_params($)
             $set_value |= apply_config(\%rcHash, $config, \%new_opt_rc);
         }
         return $set_value;
-    } elsif (defined($ENV{"HOME"}) && (-r $ENV{"HOME"} . "/.lcovrc")) {
-        $config = read_config($ENV{"HOME"} . "/.lcovrc");
-    } elsif (-r "/etc/lcovrc") {
-        $config = read_config("/etc/lcovrc");
-    } elsif (-r "/usr/local/etc/lcovrc") {
-        $config = read_config("/usr/local/etc/lcovrc");
+    } elsif (exists($ENV{"HOME"}) &&
+             -r File::Spec->catfile($ENV{"HOME"}, '.lcovrc')) {
+        $config = read_config(File::Spec->catfile($ENV{"HOME"}, '.lcovrc'));
+    } elsif (exists($ENV{"LCOV_HOME"}) &&
+             -r File::Spec->catfile($ENV{"LCOV_HOME"}, 'etc', 'lcovrc')) {
+        $config = read_config(
+                       File::Spec->catfile($ENV{"LCOV_HOME"}, 'etc', 'lcovrc'));
     }
 
     if ($config) {
