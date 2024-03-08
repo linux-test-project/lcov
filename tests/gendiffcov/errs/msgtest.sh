@@ -112,6 +112,8 @@ GET_VERSION=$SCRIPTS_DIR/getp4version
 SELECT_SCRIPT=$SCRIPTS_DIR/select.pm
 CRITERIA_SCRIPT=$SCRIPTS_DIR/criteria.pm
 ANNOTATE_SCRIPT=$SCRIPTS_DIR/p4annotate.pm
+GITBLAME_SCRIPT=$SCRIPTS_DIR/gitblame.pm
+GITVERSION_SCRIPT=$SCRIPTS_DIR/gitversion.pm
 
 
 # filter out the compiler-generated _GLOBAL__sub_... symbol
@@ -120,7 +122,7 @@ LCOV_OPTS="$LCOV_BASE"
 DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --highlight --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt
-rm -rf select criteria annotate empty unused_src
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -315,9 +317,13 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-for arg in "--select-script $SELECT_SCRIPT" \
-               "--criteria-script $CRITERIA_SCRIPT" \
+for arg in "--select-script $SELECT_SCRIPT,--range,0:10" \
+               "--criteria-script $CRITERIA_SCRIPT,--signoff" \
                "--annotate-script $ANNOTATE_SCRIPT" \
+               "--annotate-script $GITBLAME_SCRIPT,mediatek.com,--p4" \
+               "--annotate-script $GITBLAME_SCRIPT,--p4" \
+               "--annotate-script $GITBLAME_SCRIPT" \
+               " --ignore version --version-script $GITVERSION_SCRIPT,--md5,--p4" \
            ; do
     echo genhtml $DIFCOV_OPTS initial.info -o scriptErr ${arg},-x
     $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o scriptErr ${arg},-x 2>&1 | tee script_err.log
@@ -330,6 +336,15 @@ for arg in "--select-script $SELECT_SCRIPT" \
     grep "unable to create callback from" script_err.log
     if [ 0 != $? ] ; then
         echo "ERROR: missing script message"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    # run again  without error
+    echo genhtml $DIFCOV_OPTS initial.info -o scriptFixed ${arg}
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o scriptFixed ${arg} --ignore annotate 2>&1 | tee script_err.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        echo "ERROR: genhtml scriptFixed failed"
         if [ 0 == $KEEP_GOING ] ; then
             exit 1
         fi

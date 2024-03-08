@@ -47,7 +47,8 @@ use JSON;
 my $obj = criteria->new($0, @ARGV);
 
 my $signoff;
-if (!GetOptions('signoff' => \$signoff)) {
+if (!defined($obj) ||
+    !GetOptions('signoff' => \$signoff)) {
     print(STDERR "usage: name type json-string [--signoff]\n");
     exit(1) if caller;
     return undef;

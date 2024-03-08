@@ -63,18 +63,20 @@ sub new
     my $prefix;
     my @args = @_;
     my @abbrev;
-    my $exe = basename($script ? $script : $0);
+    my $exe        = basename($script ? $script : $0);
+    my $standalone = $script eq $0;
     my $help;
     if (!GetOptionsFromArray(\@_,
                              ("p4"       => \$mapP4,
                               "prefix:s" => \$prefix,
                               'abbrev:s' => \@abbrev,
                               'help'     => \$help)) ||
+        (scalar(@_) >= 2) ||
         $help
     ) {
         print(STDERR
               "usage: $exe [--p4] [--abbrev regexp]* [domain] pathname\n");
-        exit($help ? 0 : 1) if ($script eq $0);
+        exit(scalar(@_) >= 2 && $help ? 0 : 1) if $standalone;
         return undef;
     }
     my $internal_domain = shift;

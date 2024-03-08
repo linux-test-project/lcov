@@ -2642,8 +2642,25 @@ sub _categorizeLineCov
         my $linedata = $lineDataMap->{$line};
         my $tla;
         if ($linedata->type() eq "insert") {
+            if (!$linedata->in_curr()) {
+                # can get here if the 'diff' file is wrong with respect to
+                # baseline vs. current coverage data - e.g., showing that
+                # an unchanged line has a difference
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                    "$filename:$line: 'diff' data claims this line is inserted but it is not in 'current' coverage data"
+                );
+                next;
+            }
             $tla = ($linedata->curr_count() > 0) ? "GNC" : "UNC";
         } elsif ($linedata->type() eq "delete") {
+            if (!$linedata->in_base()) {
+                # similarly:  can get here if the diff vs baseline/current data
+                # is inconsistent.
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                    "$filename:$line: 'diff' data claims this line is deleted but it is not in 'baseline' coverage data"
+                );
+                next;
+            }
             $tla = ($linedata->base_count() > 0) ? "DCB" : "DUB";
         } else {
             $linedata->type() eq "equal" or
@@ -2700,8 +2717,8 @@ sub _categorizeBranchCov
         my $data;
         if (!exists($lineDataMap->{$line})) {
             # we expect the associated line to also have line coverage data
-            lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
-                   "line $line of $filename has branchcov but no linecov data");
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                      "line $filename:$line has branchcov but no linecov data");
             # maybe should skip this branch if no line data - rather
             #  than building fake data.
             $data = LineData->new($type);
@@ -2746,7 +2763,8 @@ sub _categorizeBranchCov
         my @baseBlocks = defined($base) ? $base->blocks() : ();
 
         if ($type eq 'insert') {
-            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+            # can get here if diff data vs baseline/current is not consistent
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                 "baseline branch data should not be defined for inserted line $filename:$line"
             ) if defined($base);
 
@@ -2759,7 +2777,8 @@ sub _categorizeBranchCov
                 }
             }
         } elsif ($type eq 'delete') {
-            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+            # similarly: get here if diff data vs baseline/current is not consistent
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                 "current branch data should not be defined for deleted line $filename:$line"
             ) if defined($curr);
 
@@ -2916,8 +2935,8 @@ sub _categorizeFunctionCov
         if (!defined($base)) {
             # either this line was inserted or the line hasn't changed but
             #   wasn't recognized as a function before (e.g., unused template)
-            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                "unexpected undef baseline function data for deleted $filename:$line"
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                "$filename:$line: unexpected undef baseline function data for deleted $name"
             ) if $type eq 'delete';
             my $hit = $curr->hit();
             my $tla = ((0 == $hit) ? ($type eq 'insert' ? 'UNC' : 'UIC') :
@@ -2931,8 +2950,8 @@ sub _categorizeFunctionCov
                 $categorized->addAliasDifferential($alias, [$hit, $tla]);
             }
         } elsif (!defined($curr)) {
-            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                "unexpected undef current function data for inserted $filename:$line"
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                "$filename:$line: unexpected undef current function data for inserted $name"
             ) if $type eq 'insert';
             my $hit = $base->hit();
             my $tla = ((0 == $hit) ? ($type eq 'delete' ? 'DUB' : 'EUB') :

@@ -73,8 +73,9 @@ sub new
     my $script = shift;
 
     my (@range, @tla, @owner, @sha);
-    my @args = @_;
-    my $exe  = basename($script ? $script : $0);
+    my @args       = @_;
+    my $exe        = basename($script ? $script : $0);
+    my $standalone = $script eq $0;
     my $help;
     if (!GetOptionsFromArray(\@_,
                              ("range:s"  => \@range,
@@ -83,6 +84,7 @@ sub new
                               'sha|cl:s' => \@sha,
                               'help'     => \$help)) ||
         $help ||
+        (!$standalone && 0 != scalar(@_)) ||
         0 == scalar(@args)    # expect at least one selection  criteria
     ) {
         print(STDERR <<EOF);
@@ -96,7 +98,7 @@ usage: $exe
 Line is selected (return true) if any of the criteria match
 EOF
 
-        exit($help ? 0 : 1) if ($script eq $0);
+        exit($help && 0 == scalar(@_) ? 0 : 1) if $standalone;
         return undef;
     }
     # precompile:
@@ -137,29 +139,23 @@ sub select
         # for a contiguous region of context lines (e.g., which are part
         # of some SHA) which are not code and thus have no data
         my $tla = $lineData->tla();
-        return 1 if grep(/$tla/, @{$self->[TLA]});
+        return 1 if grep({ $tla eq $_ } @{$self->[TLA]});
     }
 
     if (defined($annotateData)) {
         my $age = $annotateData->age();
-        foreach my $a (@{$self->[AGE]}) {
-            return 1
-                if ($age >= $a->[0] &&
-                    $age <= $a->[1]);
-        }
+        return 1
+            if grep({ $age >= $_->[0] && $age <= $_->[1] } @{$self->[AGE]});
+
         my $commit = $annotateData->commit();
-        if (defined($commit) &&
-            '' ne $commit) {
+        # match at head of commit ID string
+        return 1
+            if (defined($commit) &&
+                '' ne $commit &&
+                grep({ $commit =~ /^$_/ } @{$self->[SHA]}));
 
-            foreach my $sha (@{$self->[SHA]}) {
-                # match at head of commit ID string
-                return 1 if $commit =~ /^$sha/;
-            }
-        }
-
-        foreach my $re (@{$self->[OWNER]}) {
-            return 1 if $annotateData->full_name() =~ $re;
-        }
+        my $fullname = $annotateData->full_name();
+        return 1 if grep({ $fullname =~ $_ } @{$self->[OWNER]});
     }
     lcovutil::info(1,
                    "drop "

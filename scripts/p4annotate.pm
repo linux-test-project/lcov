@@ -69,8 +69,9 @@ sub new
     my $script = shift;    # this should be 'me'
                            #other arguments are as passed...
     my $logfile;
-    my $verify = 0;    # if set, check that we merged local changes correctly
-    my $exe    = basename($script ? $script : $0);
+    my $verify     = 0;   # if set, check that we merged local changes correctly
+    my $exe        = basename($script ? $script : $0);
+    my $standalone = $0 eq $script;
 
     if (exists($ENV{LOG_P4ANNOTATE})) {
         $logfile = $ENV{LOG_P4ANNOTATE};
@@ -80,10 +81,11 @@ sub new
                              ("verify" => \$verify,
                               "log=s"  => \$logfile,
                               'help'   => \$help)) ||
+        (!$standalone && scalar(@_)) ||
         $help
     ) {
         print(STDERR "usage: $exe [--log logfile] [--verify] filename\n");
-        exit($help ? 0 : 1) if $script eq $0;
+        exit(scalar(@_) == 0 && $help ? 0 : 1) if $standalone;
         return undef;
     }
 

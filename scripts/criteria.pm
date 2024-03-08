@@ -49,13 +49,18 @@ use constant {SIGNOFF => 0,};
 
 sub new
 {
-    my $class   = shift;
-    my $signoff = 0;
-    my $script  = shift;
+    my $class      = shift;
+    my $signoff    = 0;
+    my $script     = shift;
+    my $standalone = $script eq $0;
+    my @options    = @_;
 
-    if (!GetOptionsFromArray(\@_, ('signoff' => \$signoff))) {
-        print(STDERR "usage: name type json-string [--signoff]\n");
-        exit(1) if ($script eq $0);
+    if (!GetOptionsFromArray(\@_, ('signoff' => \$signoff)) ||
+        (!$standalone && @_)) {
+        print(STDERR "Error: unexpected option:\n  " .
+              join(' ', @options) .
+              "\nusage: name type json-string [--signoff]\n");
+        exit(1) if $standalone;
         return undef;
     }
 

@@ -2519,7 +2519,10 @@ Unexpected syntax found in .info file.
 .IP inconsistent: 3
 Files have been moved or repository history presented by
 .B \-\-diff\-file
-data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' and 'annotate' scripts.
+data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' data compared to the 'baseline' and 'current' coverage data (e.g., using different source versions to collect the data but incorrectly annotating those differences), or by inconsistent treatment in the 'annotate' script.
+Consider using a
+.B \-\-version\-script
+to guard against version mismatches.
 .PP
 
 .IP internal: 3

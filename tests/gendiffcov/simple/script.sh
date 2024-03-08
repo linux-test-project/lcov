@@ -132,7 +132,7 @@ DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp -
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py names.data
-rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source
+rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete -db $COVER_DB
@@ -905,44 +905,71 @@ for errs in 'criteria_callback_levels=dir,a' 'criteria_callback_data=foo' ; do
 done
 
 
-# test 'coverage criteria' callback
-#  we expect to fail - and to see error message - it coverage criteria not met
-# ask for date and owner data - even though the callback doesn't use it
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA -o $outdir ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria ./current.info $GENHTML_PORT $IGNORE > criteria.log 2> criteria.err
-if [ 0 == $? ] ; then
-    echo "ERROR: genhtml criteria should have failed but didn't"
-    status=1
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+# test 'coverage criteria' callback - both script and module
+for mod in '' '.pm' ; do
+    #  we expect to fail - and to see error message - it coverage criteria not met
+    # ask for date and owner data - even though the callback doesn't use it
+    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA$mod -o criteria$mod ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
+    $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA$mod --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria$mod ./current.info $GENHTML_PORT $IGNORE > criteria$mod.log 2> criteria$mod.err
+    if [ 0 == $? ] ; then
+        echo "ERROR: genhtml criteria should have failed but didn't"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
 
-if [[ $OPTS =~ "show-details" ]] ; then
-    found=0
-else
-    found=1
-fi
-grep "Failed coverage criteria" criteria.log
-# expect to find the string (0 return val) if flag is present
-if [ 0 != $? ] ;then
-    echo "ERROR: 'criteria fail message is missing"
-    status=1
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+    # signoff should pass...
+    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA$mod --criteria --signoff -o criteria_signoff$mod ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
+    $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA$mod --criteria --signoff --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria_signoff$mod ./current.info $GENHTML_PORT $IGNORE > criteria_signoff$mod.log 2> criteria_signoff$mod.err
+    if [ 0 != $? ] ; then
+        echo "ERROR: genhtml criteria signoff should have passed but didn't"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
-for l in criteria.log criteria.err ; do
-  grep "UNC + LBC + UIC != 0" $l
-  # expect to find the string (0 return val) if flag is present
-  if [ 0 != $? ] ;then
-      echo "ERROR: 'criteria string is missing from $l"
-      status=1
-      if [ 0 == $KEEP_GOING ] ; then
-          exit 1
-      fi
-  fi
+
+    if [[ $OPTS =~ "show-details" ]] ; then
+        found=0
+    else
+        found=1
+    fi
+    grep "Failed coverage criteria" criteria$mod.log
+    # expect to find the string (0 return val) if flag is present
+    if [ 0 != $? ] ;then
+        echo "ERROR: 'criteria fail message not matched"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    for suffix in '' '_signoff' ; do
+        if [ 'x' == "x$suffix" ] ; then
+            SIGNOFF_ERR=0
+        else
+            # we don't expect to see error, if signoff
+            SIGNOFF_ERR=1
+        fi
+        for l in criteria$suffix$mod.log criteria$suffix$mod.err ; do
+            FOUND=0
+            if [[ $l =~ "err" ]] ; then
+                # don't expect to find message in stderr, if signoff
+                FOUND=$SIGNOFF_ERR
+            fi
+            grep "UNC + LBC + UIC != 0" $l
+            # expect to find the string (0 return val) if flag is present
+            if [ $FOUND != $? ] ;then
+                echo "ERROR: 'criteria string not matching in  $l"
+                status=1
+                if [ 0 == $KEEP_GOING ] ; then
+                    exit 1
+                fi
+            fi
+        done
+    done
 done
+
 
 # test 'coverage criteria' callback
 #  we expect to fail - and to see error message - it coverage criteria not met
