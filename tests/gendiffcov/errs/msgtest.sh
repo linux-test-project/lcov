@@ -110,6 +110,8 @@ else
 fi
 GET_VERSION=$SCRIPTS_DIR/getp4version
 SELECT_SCRIPT=$SCRIPTS_DIR/select.pm
+CRITERIA_SCRIPT=$SCRIPTS_DIR/criteria.pm
+ANNOTATE_SCRIPT=$SCRIPTS_DIR/p4annotate.pm
 
 
 # filter out the compiler-generated _GLOBAL__sub_... symbol
@@ -312,6 +314,27 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+for arg in "--select-script $SELECT_SCRIPT" \
+               "--criteria-script $CRITERIA_SCRIPT" \
+               "--annotate-script $ANNOTATE_SCRIPT" \
+           ; do
+    echo genhtml $DIFCOV_OPTS initial.info -o scriptErr ${arg},-x
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o scriptErr ${arg},-x 2>&1 | tee script_err.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+        echo "ERROR: genhtml scriptErr passed by accident"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    grep "unable to create callback from" script_err.log
+    if [ 0 != $? ] ; then
+        echo "ERROR: missing script message"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
 
 echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --rc compute_file_version=1
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh  --rc compute_file_version=1 2>&1 | tee select_scr.log

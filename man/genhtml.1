@@ -532,25 +532,20 @@ if the source file is not found by the callback.
 .RE
 
 .IP 2. 3
-If an option is specified only once, the argument specifies the full command
-line that
-.B genhtml
-passes to a shell interpreter to run the script.
+The option may be specified as a
+.I split_char
+separated string (see
+.B man lcovrc(5)
+) - which is divied into words.  The resulting command line is passed
+to a shell interpreter to run the script.
 This includes the script path followed by optional additional parameters
 separated by spaces. Care must be taken to provide proper quoting if script
 path or any parameter contains spaces or shell special characters.
-.br
-If your callback command contains spaces which are not option separator, then
-the callback and arguments must be specified as described in
-.B 3.,
-below.
 .PP
 
 .IP 3. 3
-If an option is specified multiple times, the first invocation specifies the
-script path and any further invocation specifies one additional parameter.
-In this case, genhtml takes care of quoting of spaces contained in
-script location and additional parameters.
+If an option is specified multiple times, all of the parameters are
+split as described above, then concatentated to form the command line.
 .br
 .PP
 
@@ -576,7 +571,13 @@ results in the same callback as
 genhtml --annotate-script "/bin/script.sh full" ...
 .br
 
-Note that the former is preferred.
+or
+
+.br
+genhtml --annotate-script /bin/script.sh,full ...
+.br
+
+Note that the first form is preferred.
 
 .RE
 
@@ -599,10 +600,17 @@ genhtml --annotate-script
 .br
         --annotate-script "full" ...
 .br
+
+or
+.br
+genhtml --annotate-script
+.I /bin/myMoodule.pm,full
+.br
+
 .br
 .RE
 
-results in
+result in
 .B genhtml
 executing
 .br

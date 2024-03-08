@@ -323,6 +323,8 @@ if (0 == scalar(@gcov_tool)) {
     # not specified - use gcov by default - expected to be in user's path
     push(@gcov_tool, 'gcov');
 } else {
+    @gcov_tool =
+        split($lcovutil::split_char, join($lcovutil::split_char, @gcov_tool));
     my $tool = $gcov_tool[0];
     my (undef, $dir, $file) = splitpath($tool);
 

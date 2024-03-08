@@ -584,11 +584,20 @@ In that case, your callback will be executed as:
 Note that the second and subsequent arguments are quoted when passed to
 the shell, in order to handle parameters which contain spaces.
 
+The
+.B \-\-gcov\-tool
+argument may be a
+.I split_char
+separated string - see
+.B man(4) lcovrc.
+
 A common use for this option is to enable LLVM:
 .br
 
 .RS
 .BR "geninfo \-\-gcov-tool " "llvm-cov " "\-\-gcov-tool " "gcov ..."
+.br
+.BR "geninfo \-\-gcov-tool " "llvm-cov,gcov ..."
 .RE
 .br
 

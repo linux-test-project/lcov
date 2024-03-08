@@ -864,7 +864,8 @@ sub do_mangle_check
 
 sub configure_callback
 {
-    my $script = $_[0];
+    my @args   = split($lcovutil::split_char, join($lcovutil::split_char, @_));
+    my $script = $args[0];
     my $rtn;
     if ($script =~ /\.pm$/) {
         my $dir     = File::Basename::dirname($script);
@@ -876,7 +877,7 @@ sub configure_callback
             require $package;
             #$package->import(qw(new));
             # the first value in @_ is the script name
-            $rtn = $class->new(@_);
+            $rtn = $class->new(@args);
         };
         if ($@ ||
             !defined($rtn)) {
@@ -887,7 +888,7 @@ sub configure_callback
         shift(@INC);
     } else {
         # not module
-        $rtn = ScriptCaller->new(@_);
+        $rtn = ScriptCaller->new(@args);
     }
     return $rtn;
 }
