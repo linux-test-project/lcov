@@ -82,6 +82,7 @@ use File::Copy;
 use File::Path;
 use File::Spec;
 use File::Temp;
+use Scalar::Util qw/looks_like_number/;
 use Digest::MD5 qw(md5_base64);
 use Cwd qw/abs_path realpath cwd/;
 use DateTime;
@@ -981,11 +982,13 @@ sub branchCovCount
     if ($group eq "age") {
         my $a   = $branch->[AGE];
         my $bin = SummaryInfo::findAgeBin($age);
+        # LCOV_EXCL_START
         unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "unexpected key '$key' for bin '$bin'");
             return;
         }
+        # LCOV_EXCL_STOP
         $a->[$bin]->{$key} += $delta;
         return $a->[$bin]->{$key};
     }
@@ -1015,11 +1018,13 @@ sub functionCovCount
     if ($group eq "age") {
         my $a   = $func->[AGE];
         my $bin = SummaryInfo::findAgeBin($age);
+        # LCOV_EXCL_START
         unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "unexpected key '$key' for bin '$bin'");
             return;
         }
+        # LCOV_EXCL_STOP
         $a->[$bin]->{$key} += $delta;
         return $a->[$bin]->{$key};
     }
@@ -2242,11 +2247,12 @@ sub _mergeBranchData
 
         my $current = $branch->[$loc];
         foreach my $branchId ($current->blocks()) {
+            # LCOV_EXCL_START
             if (!$branchData->hasBlock($branchId)) {
                 # don't know how to get here...but someone on the internet
                 # managed to do it - so we need to handle the error
                 my $which = $loc == DATA_BASELINE ? 'baseline' : 'current';
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                         $filename . ':' . $current->line() .
                                             ": '$which' line " .
                                             $self->lineNo($which) .
@@ -2256,21 +2262,24 @@ sub _mergeBranchData
                 );
                 next;
             }
+            # LCOV_EXCL_STOP
 
             my $c = $current->getBlock($branchId);
             my $d = $branchData->getBlock($branchId);
             # handle case of inconsistent branch data
             my $nc = scalar(@$c);
             my $nd = scalar(@$d);
+            # LCOV_EXCL_START
             if ($nc != $nd) {
                 #  similarly: this should not happen - but it might
                 my $which = $loc == DATA_BASELINE ? 'baseline' : 'current';
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                     $filename . ':' . $current->line() .
                         ": '$which' line " . $self->lineNo($which) .
                         " branch $branchId contains $nc elements but merge data contains $nd."
                 );
             }
+            # LCOV_EXCL_STOP
             for (my $i = ($nc > $nd ? $nd : $nc) - 1; $i >= 0; --$i) {
                 my $br = $d->[$i];
                 $c->[$i]->merge($br);
@@ -2680,12 +2689,14 @@ sub _categorizeBranchCov
     #     a high probability event?
     foreach my $line ($branchCurrent->keylist()) {
         my $type = $linemap->type($filename, $linemap->NEW, $line);
+        # LCOV_EXCL_START
         if ($type eq 'delete') {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                 "'current' line $filename:$line should not be marked 'delete'");
             delete($branchCurrent->{$line});
             next;
         }
+        # LCOV_EXCL_STOP
         my $data;
         if (!exists($lineDataMap->{$line})) {
             # we expect the associated line to also have line coverage data
@@ -2735,9 +2746,10 @@ sub _categorizeBranchCov
         my @baseBlocks = defined($base) ? $base->blocks() : ();
 
         if ($type eq 'insert') {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                 "baseline branch data should not be defined for inserted line $filename:$line"
             ) if defined($base);
+
             foreach my $branchId (@currBlocks) {
                 my $block = $categorized->addBlock($branchId);
                 foreach my $br (@{$curr->getBlock($branchId)}) {
@@ -2747,9 +2759,10 @@ sub _categorizeBranchCov
                 }
             }
         } elsif ($type eq 'delete') {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                 "current branch data should not be defined for deleted line $filename:$line"
             ) if defined($curr);
+
             foreach my $branchId (@baseBlocks) {
                 my $block = $categorized->addBlock($branchId);
                 foreach my $br (@{$base->getBlock($branchId)}) {
@@ -2759,7 +2772,7 @@ sub _categorizeBranchCov
                 }
             }
         } else {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                      "unexpected branch coverage type $type at $filename:$line")
                 if $type ne 'equal';
 
@@ -2848,17 +2861,16 @@ sub _categorizeFunctionCov
         my $line = $func->line();
         my $type = $linemap->type($filename, $linemap->NEW, $line);
         $funcCovLines{$line} = 1;
-        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+        lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                  "'current' line $filename:$line should not be marked 'delete'")
             if $type eq 'delete';
-
         my $data;
         if (!exists($lineDataMap->{$line})) {
             $data = LineData->new($type);
             $lineDataMap->{$line} = $data;
         } else {
             $data = $lineDataMap->{$line};
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "type mismatch " . $data->type() .
                                           " -> $type for $filename:$line")
                 unless $data->type() eq $type;
@@ -2904,7 +2916,7 @@ sub _categorizeFunctionCov
         if (!defined($base)) {
             # either this line was inserted or the line hasn't changed but
             #   wasn't recognized as a function before (e.g., unused template)
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                 "unexpected undef baseline function data for deleted $filename:$line"
             ) if $type eq 'delete';
             my $hit = $curr->hit();
@@ -2919,7 +2931,7 @@ sub _categorizeFunctionCov
                 $categorized->addAliasDifferential($alias, [$hit, $tla]);
             }
         } elsif (!defined($curr)) {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                 "unexpected undef current function data for inserted $filename:$line"
             ) if $type eq 'insert';
             my $hit = $base->hit();
@@ -2934,7 +2946,7 @@ sub _categorizeFunctionCov
                 $categorized->addAliasDifferential($alias, [$hit, $tla]);
             }
         } else {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                    "unexpected function coverage type $type at $filename:$line")
                 if $type ne 'equal';
             # if we know end lines for this function, then check if there
@@ -3422,14 +3434,15 @@ sub _read_udiff
                     );
                     last;
                 }
+                # LCOV_EXCL_START
                 if (exists($self->[LINEMAP]->{$key})) {
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                    lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                         "$diff_file:$.:  $key 'unchanged' entry found but diff records exist"
                             . ($file eq $key ? '' : " (substituted '$file')"));
                     # message ignored - delete the diff records
                     delete($self->[LINEMAP]->{$key});
                 }
+                # LCOV_EXCL_STOP
                 $self->[UNCHANGED]->{$key} = 1;
                 last;
             };
@@ -3467,9 +3480,10 @@ sub _read_udiff
                 $filename = $notNull ? $key : undef;
 
                 if ($filename) {
+                    # LCOV_EXCL_START
                     if (exists($self->[UNCHANGED]->{$key})) {
                         lcovutil::ignorable_error(
-                            $lcovutil::ERROR_INCONSISTENT_DATA,
+                            $lcovutil::ERROR_INTERNAL,
                             "$diff_file:$.: $filename marked unchanged but diff record found"
                                 .
                                 ($file_new eq $key ? '' :
@@ -3477,6 +3491,7 @@ sub _read_udiff
                         # OK - error ignored...remove the 'unchanged' marker
                         delete($self->[UNCHANGED]->{$key});
                     }
+                    # LCOV_EXCL_STOP
                     $self->[LINEMAP]->{$key} = [];
                 }
                 if ($notNull) {
@@ -4031,12 +4046,14 @@ sub _countBranchTlaData
         my $diff = $differentialData->getBlock($branchId);
         foreach my $b (@$diff) {
             my $tla = $b->[1];
+            # LCOV_EXCL_START
             unless (defined($tla)) {
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                           "undef TLA for branch $branchId of " . $self->path() .
                               ":$line - lineTLA:$lineTla taken:" . $b->[0]);
                 next;
             }
+            # LCOV_EXCL_STOP
             $fileSummary->[SummaryInfo::BRANCH_DATA]->[SummaryInfo::DATA]
                 ->{$tla} += 1;
             # keep track of all the branch TLAs found on this line...
@@ -4197,12 +4214,14 @@ sub _accountFunction
 {
     my ($fileSummary, $tla, $src_age) = @_;
 
+    # LCOV_EXCL_START
     unless (defined($tla)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+        lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                   "undef function TLA for age '$src_age' of " .
                                       $fileSummary->name());
         return 1;    # error
     }
+    # LCOV_EXCL_STOP
 
     $fileSummary->[SummaryInfo::FUNCTION_DATA]->[SummaryInfo::DATA]->{$tla} +=
         1;
@@ -4230,8 +4249,9 @@ sub _countFunctionTlaData
         defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
     my $h         = $func->hit();
     my $mergedTla = $h->[1];
+    # LCOV_EXCL_START
     if (!defined($mergedTla)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+        lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                   "undef TLA for function '" . $func->name() .
                                       "' hit " . $h->[0] . " at line " .
                                       $line . " (" . $lineData->tla() .
@@ -4242,6 +4262,7 @@ sub _countFunctionTlaData
         $h->[1] = $mergedTla;
         #return;
     }
+    # LCOV_EXCL_STOP
 
     if (!grep(/^$mergedTla$/, ('DUB', 'DCB'))) {
         # deleted lines don't have owner data...
@@ -4262,8 +4283,9 @@ sub _countFunctionTlaData
         foreach my $alias (keys %$aliases) {
             my $data = $aliases->{$alias};
             my $tla  = $data->[1];
+            # LCOV_EXCL_START
             if (!defined($tla)) {
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                     "undef TLA for alias:'$alias' hit:" .
                         $data->[0] . " of function '" . $func->name() .
                         "' hit " . $h->[0] . " at line " . $line . " (" .
@@ -4272,6 +4294,7 @@ sub _countFunctionTlaData
                 $tla = $data->[0] == 0 ? 'UNC' : 'GNC';
                 $data->[1] = $tla;
             }
+            # LCOV_EXCL_STOP
             _accountFunction($fileSummary, $tla, $src_age);
         }
     }
@@ -5529,9 +5552,13 @@ sub merge_child($$$)
                 my $name =
                     $childSummary->type() eq 'top' ? "" : $childSummary->name();
                 $SummaryInfo::coverageCriteria{$name} = $criteria;
-                $SummaryInfo::coverageCriteriaStatus = $criteria->[1]
-                    if ($criteria->[1] != 0 ||
-                        0 != scalar(@{$criteria->[2]}));
+		$criteria->[1] = 0 if $criteria->[1] eq '';
+		my $v = $criteria->[1];
+                die('unexpected criteria data \'' .
+                    join(' ', @$criteria) . '\'')
+                    unless (Scalar::Util::looks_like_number($v));
+                $SummaryInfo::coverageCriteriaStatus = 
+		  ($v != 0 || 0 != scalar(@{$criteria->[2]})) ? $v : 0;
             }
         };
         if ($@) {
@@ -6099,7 +6126,8 @@ if (0 == $exit_status && @SummaryInfo::coverageCriteriaScript) {
                            keys(%SummaryInfo::coverageCriteria))
     ) {
         my $criteria = $SummaryInfo::coverageCriteria{$name};
-        next if $criteria->[1] == 0 && 0 == scalar(@{$criteria->[2]});  # passed
+	my $v = $criteria->[1];
+        next if (!$v || $v == 0) && 0 == scalar(@{$criteria->[2]});  # passed
 
         my $msg = $criteria->[0];
         if ($criteria->[0] ne 'top') {
