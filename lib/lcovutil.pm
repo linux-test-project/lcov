@@ -3454,21 +3454,12 @@ sub merge
 {
     # return 1 if something changed, 0 if nothing new covered or discovered
     my ($self, $that, $filename, $line) = @_;
-    if ($self->exprString() ne $that->exprString()) {
-        my $loc = defined($filename) ? "\"$filename\":$line: " : '';
-        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-                                  "${loc}mismatched expressions for id " .
-                                      $self->id() . ", " . $that->id() .
-                                      ": '" . $self->exprString() .
-                                      "' -> '" . $that->exprString() . "'");
-        # else - ignore the issue and merge data even though the expressions
-        #  look different
-        # To enable a consistent result, keep the one which is alphabetically
-        # first
-        if ($that->exprString() le $self->exprString()) {
-            $self->[EXPR] = $that->[EXPR];
-        }
-    }
+    # should have called 'iscompatible' first
+    die('attempt to merge incompatible expressions for id' .
+        $self->id() . ', ' . $that->id() .
+        ": '" . $self->exprString() . "' -> '" . $that->exprString() . "'")
+        if ($self->exprString() ne $that->exprString());
+
     if ($self->is_exception() != $that->is_exception()) {
         my $loc = defined($filename) ? "\"$filename\":$line: " : '';
         lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
@@ -4040,57 +4031,6 @@ sub difference
         }
     }
     return $changed;
-}
-
-sub cloneWithRename
-{
-    my ($self, $conv) = @_;
-
-    my $newData = FunctionMap->new();
-    foreach my $key ($self->keylist()) {
-        my $data    = $self->findKey($key);
-        my $aliases = $data->aliases();
-        foreach my $alias (keys %$aliases) {
-            my $cn  = $conv->{$alias};
-            my $hit = $aliases->{$alias};
-
-            # Abort if two functions on different lines map to the
-            # same demangled name.
-            die("Demangled function name $cn maps to different lines (" .
-                $newData->findName($cn)->line() .
-                " vs " . $data->line() . ") in " . $newData->file())
-                if (defined($newData->findName($cn)) &&
-                    $newData->findName($cn)->line() != $data->line());
-            $newData->define_function($cn, $data->file(), $data->line(),
-                                      $data->end_line());
-            $newData->add_count($cn, $hit);
-        }
-    }
-    return $newData;
-}
-
-sub insert
-{
-    my ($self, $entry) = @_;
-    die("expected FunctionEntry - " . ref($entry))
-        unless 'FunctionEntry' eq ref($entry);
-    my ($locationMap, $nameMap) = @$self;
-    my $key = $entry->file() . ":" . $entry->line();
-    #die("duplicate entry \@$key")
-    #  if exists($locationMap->{$key});
-    if (exists($locationMap->{$key})) {
-        my $current = $locationMap->{$key};
-        print("DUP:  " . $current->name() . " -> " . $entry->name() .
-              "\n" . $current->file() . ":" . $current->line() .
-              " -> " . $entry->file() . $entry->line() . "\n");
-        die("duplicate entry \@$key");
-    }
-    $locationMap->{$key} = $entry;
-    foreach my $alias (keys %{$entry->aliases()}) {
-        die("duplicate alias '$alias'")
-            if (exists($nameMap->{$alias}));
-        $nameMap->{$alias} = $entry;
-    }
 }
 
 sub remove
@@ -4803,31 +4743,6 @@ sub get_info($)
             $testfncdata, $testbrdata, $sumbrcount, $lines_found,
             $lines_hit, $fn_found, $fn_hit, $br_found,
             $br_hit);
-}
-
-#
-# rename_functions(info, conv)
-#
-# Rename all function names in TraceInfo according to CONV: OLD_NAME -> NEW_NAME.
-# In case two functions demangle to the same name, assume that they are
-# different object code implementations for the same source function.
-#
-
-sub rename_functions($$)
-{
-    my ($self, $conv, $filename) = @_;
-
-    my $newData = $self->func()->cloneWithRename($conv);
-    $self->[FUNCTION_DATA]->[0] = $newData;
-
-    # testfncdata: test name -> testfnccount
-    # testfnccount: function name -> execution count
-    my $testfncdata = $self->testfnc();
-    foreach my $tn ($testfncdata->keylist()) {
-        my $testfnccount    = $testfncdata->value($tn);
-        my $newtestfnccount = $testfnccount->cloneWithRename($conv);
-        $testfncdata->replace($tn, $newtestfnccount);
-    }
 }
 
 sub _merge_checksums
@@ -6825,11 +6740,17 @@ sub _read_info
                 my $lineNo   = $1;
                 my $fnName   = $4;
                 my $end_line = $3;
-                if ($lineNo <= 0) {
+                if ($lineNo <= 0 ||
+                    (defined($end_line) && $end_line <= 0)) {
                     lcovutil::ignorable_error(
                         $lcovutil::ERROR_INCONSISTENT_DATA,
-                        "\"$tracefile\":$.: unexpected line number '$lineNo' in .info file record '$_'"
-                    );
+                        "\"$tracefile\":$.: unexpected function line '$lineNo' in .info file record '$_'"
+                    ) if $lineNo <= 0;
+                    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        "\"$tracefile\":$.: unexpected function end line '$end_line' in .info file record '$_'"
+                    ) if defined($end_line) && $end_line <= 0;
+
                     last;
                 }
                 # the function may already be defined by another testcase
@@ -7190,23 +7111,6 @@ sub write_info($$$)
             print(INFO_HANDLE "LH:$hit\n");
             print(INFO_HANDLE "end_of_record\n");
         }
-    }
-}
-
-#
-# rename_functions(info, conv)
-#
-# Rename all function names in TraceFile according to CONV: OLD_NAME -> NEW_NAME.
-# In case two functions demangle to the same name, assume that they are
-# different object code implementations for the same source function.
-#
-
-sub rename_functions($$)
-{
-    my ($self, $conv) = @_;
-
-    foreach my $filename ($self->files()) {
-        my $data = $self->data($filename)->rename_functions($conv, $filename);
     }
 }
 

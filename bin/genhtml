@@ -3389,12 +3389,6 @@ sub show_map
     return $self;
 }
 
-sub strip_directories
-{
-    my $path = shift;
-    return $path;
-}
-
 sub _read_udiff
 {
     my $self      = shift;
