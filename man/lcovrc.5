@@ -2418,8 +2418,8 @@ Lines which are not selected but fall within
 .I num_context_lines
 of a selected line are also included in the report.  See below.
 
-Note that selection is fundamentally intended to show regions of code with soem surrounding context.  It might not do what you expect if there is no code - e.g., if the region of interest has been compiled out via compiler or exclusion directives.
-For example: when selecting based on SHA or changelist ID, an inserted comment will not be selected unless it is
+Note that selection is fundamentally intended to show regions of code with some surrounding context.  It might not do what you expect if there is no code - e.g., if the region of interest has been compiled out via compiler or exclusion directives.
+For example: when selecting based on SHA or changelist ID, an inserted comment will not be selected unless it is within
 .I num_context_lines
 of an inserted or changed line of code.
 

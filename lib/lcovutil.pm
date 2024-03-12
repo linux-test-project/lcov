@@ -29,7 +29,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      append_tempdir create_temp_dir temp_cleanup folder_is_empty $tmp_dir $preserve_intermediates
      summarize_messages define_errors
      parse_ignore_errors ignorable_error ignorable_warning
-     is_ignored message_count
+     is_ignored message_count explain_once
      die_handler warn_handler abort_handler
 
      $maxParallelism $maxMemory init_parallel_params current_process_size
@@ -1658,6 +1658,32 @@ sub is_ignored($)
     return ($code < scalar(@ignore) && $ignore[$code]);
 }
 
+our %explainOnce;    # append explanation only once
+
+sub explain_once
+{
+    # NOTE:  in parallel execution, the explanations may appear more than
+    #   once - e.g., when two or more child processes generate them
+    #   simultaneously.
+    #   They will eventually update the parent process state such that
+    #   subseqent children won't report the issues.
+    my $key = shift;
+    if (!exists($explainOnce{$key})) {
+        $explainOnce{$key} = 1;
+        my $msg = '';
+        # each element is either a string or a pair of [string, predicate]
+        foreach my $e (@_) {
+            if ('ARRAY' eq ref($e)) {
+                $msg .= $e->[0] if defined($e->[1]) && $e->[1];
+            } else {
+                $msg .= $e;
+            }
+        }
+        return $msg;
+    }
+    return '';
+}
+
 our %warnOnlyOnce;
 our $deferWarnings = 0;
 # if 'stop_on_error' is false, then certain errors should be emitted at most once
@@ -1696,11 +1722,14 @@ sub merge_deferred_warnings
         while (my ($key, $m) = each(%$d)) {
             if (!(exists($warnOnlyOnce{$type}) &&
                   exists($warnOnlyOnce{$type}{$key}))) {
-                my ($msg, $isError) = @$m;
-                if ($isError) {
-                    lcovutil::ignorable_error($type, $msg);
-                } else {
-                    lcovutil::ignorable_warning($type, $msg);
+                if ('ARRAY' eq ref($m)) {
+                    # this is a
+                    my ($msg, $isError) = @$m;
+                    if ($isError) {
+                        lcovutil::ignorable_error($type, $msg);
+                    } else {
+                        lcovutil::ignorable_warning($type, $msg);
+                    }
                 }
                 $warnOnlyOnce{$type}{$key} = 1;
             }
@@ -1768,7 +1797,8 @@ sub compute_update
                \%message_types,
                $ReadCurrentSource::searchPath->current_count(),
                \%lcovutil::profileData,
-               \%lcovutil::warnOnlyOnce);
+               \%lcovutil::warnOnlyOnce,
+               \%lcovutil::explainOnce);
 
     foreach my $patType (\@lcovutil::exclude_file_patterns,
                          \@lcovutil::include_file_patterns,
@@ -1825,6 +1855,10 @@ sub update_state
     lcovutil::merge_child_profile($profile);
     my $warnOnce = shift;
     lcovutil::merge_deferred_warnings($warnOnce);
+    my $explainOnce = shift;
+    while (my ($key, $v) = each(%$explainOnce)) {
+        $lcovutil::explainOnce{$key} = $v;
+    }
 
     foreach my $patType (\@lcovutil::exclude_file_patterns,
                          \@lcovutil::include_file_patterns,
@@ -1844,13 +1878,15 @@ sub update_state
 sub warnSuppress($$)
 {
     my ($code, $errName) = @_;
-    if ($message_count[$code] == ($suppressAfter + 1)) {
-        my $explain =
-            $lcovutil::verbose ||
-            $message_count[$ERROR_COUNT] == 0 ?
+
+    if ($ignore[$code] <= 1 &&    # don't warn if already suppressed
+        $message_count[$code] == ($suppressAfter + 1)
+    ) {
+        # explain once per error type, if verbose - else only once
+        my $explain = explain_once(
+            'error_count' . ($lcovutil::verbose ? $errName : ''),
             "\n\tTo increase or decrease this limit use '--rc max_message_count=value'."
-            :
-            '';
+        );
         ignorable_warning($ERROR_COUNT,
             "max_message_count=$suppressAfter reached for '$errName' messages: no more will be reported.$explain"
         );
@@ -1979,13 +2015,12 @@ sub report_fork_failure
             "$failedAttempts consecutive fork() failures:  consider reduced parallelism or increase the max_fork_fails limit in your lcovrc"
         );
     }
-    my $explain = '';
-    if ($message_count[$ERROR_FORK] == 0 &&
-        $ignore[$code] == 0) {
-        $explain =
-            "\n\tUse '$tool_name --ignore_errors " .
-            $ERROR_NAME{$ERROR_FORK} . "' to bypass error and retry.";
-    }
+    my $explain = explain_once('fork_fail',
+                               ["\n\tUse '$tool_name --ignore_errors " .
+                                    $ERROR_NAME{$ERROR_FORK} .
+                                    "' to bypass error and retry.",
+                                $ignore[$code] == 0
+                               ]);
     lcovutil::ignorable_error($lcovutil::ERROR_FORK,
                   "fork() syscall failed while trying to $when: $code$explain");
     # if errors were ignored, then we wait for a while (in parent)
@@ -2001,12 +2036,16 @@ sub report_exit_status
     my $signal  = $exitstatus & 0xFF;
     my $explain = "$prefix returned non-zero exit status $status" .
         MessageContext::context();
-    $explain =
-        "$prefix died died due to signal $signal (SIG" .
-        (split(' ', $Config{sig_name}))[$signal] .
-        ')' . MessageContext::context() .
-        ': possibly killed by OS due to out-of-memory - see --memory and --parallel options for throttling'
-        if $signal;
+    if ($signal) {
+        $explain =
+            "$prefix died died due to signal $signal (SIG" .
+            (split(' ', $Config{sig_name}))[$signal] .
+            ')' . MessageContext::context() .
+            ': possibly killed by OS due to out-of-memory';
+        $explain .=
+            lcovutil::explain_once('out_of_memory',
+                       ' - see --memory and --parallel options for throttling');
+    }
     ignorable_error($errType, "$message: $explain$suffix");
 }
 
@@ -2026,20 +2065,17 @@ sub report_parallel_error
                        " (try removing the '--parallel' option)");
 }
 
-my $explainFormatOnce;
-
 sub report_format_error($$$$)
 {
     my ($errType, $countType, $count, $obj) = @_;
     my $context = MessageContext::context();
-    my $explain = '';
-    if ($lcovutil::ERROR_NEGATIVE == $errType &&
-        !$explainFormatOnce &&
-        'geninfo' eq $lcovutil::tool_name) {
-        $explainFormatOnce = 1;    # don't say this again
-        $explain =
-            "\n\tPerhaps you need to compile with '-fprofile-update=atomic'.";
-    }
+    my $explain =
+        explain_once(
+             'err_negative',
+             ["\n\tPerhaps you need to compile with '-fprofile-update=atomic'.",
+              ($lcovutil::ERROR_NEGATIVE == $errType &&
+                   'geninfo' eq $lcovutil::tool_name)
+             ]);
     my $errStr =
         $lcovutil::ERROR_NEGATIVE == $errType ? 'negative' :
         ($lcovutil::ERROR_FORMAT == $errType ? 'non-integer' : 'excessive');
@@ -3631,10 +3667,14 @@ sub set_end_line
 {
     my ($self, $line) = @_;
     if ($line < $self->line()) {
+        my $suffix =
+            lcovutil::explain_once('derive_end_line',
+                      "  See lcovrc man entry for 'derive_function_end_line'.");
         lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-            '"' . $self->file() . '":' . $self->line() . ': function ' .
-                $self->name() . " end line $line less than start line." .
-                "  Cannot derive function end line.  See lcovrc man entry for 'derive_function_end_line'."
+                                 '"' . $self->file() . '":' . $self->line() .
+                                     ': function ' . $self->name() .
+                                     " end line $line less than start line." .
+                                     "  Cannot derive function end line.$suffix"
         );
         return;
     }
@@ -4990,7 +5030,7 @@ sub parseLines
             ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[0];
             ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[1];
             push(@excluded, 3);    #everything excluded
-            lcovutil::info(        #2,
+            lcovutil::info(2,
                             "exclude '#$1' directive on $filename:$line\n");
             next;
         }
@@ -5115,11 +5155,13 @@ sub isOutOfRange
             if ($lcovutil::verbose ||
                 0 == lcovutil::message_count($lcovutil::ERROR_RANGE)) {
                 # only print verbose addition on first message
-                $msg .=
-                    "\n  Issue can be caused by code changes/version mismatch: see the \"--version-script script_file\" discussion in the genhtml man page."
-                    if ($lcovutil::tool_name ne 'geninfo');
-                $msg .=
-                    "\n  Use '$lcovutil::tool_name --filter range' to remove out-of-range lines.";
+                $msg .= lcovutil::explain_once(
+                    'version_script',
+                    [   "\n  Issue can be caused by code changes/version mismatch: see the \"--version-script script_file\" discussion in the genhtml man page.",
+                        $lcovutil::tool_name ne 'geninfo'
+                    ],
+                    "\n  Use '$lcovutil::tool_name --filter range' to remove out-of-range lines."
+                );
             }
             # some versions of gcov seem to make up lines that do not exist -
             # this appears to be related to macros on last line in file
@@ -5143,21 +5185,23 @@ sub isExcluded
         # "--version-script callback" option can be used to detect this
         my $key = $self->filename();
         $key .= $lineNo unless ($lcovutil::warn_once_per_file);
+        my $suffix = lcovutil::explain_once(
+            'version-script',
+            [   "\n  Issue can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page.",
+                $lcovutil::verbose ||
+                    lcovutil::message_count($lcovutil::ERROR_RANGE) == 0
+            ]);
         lcovutil::store_deferred_message(
-            $lcovutil::ERROR_RANGE,
-            1, $key,
-            "unknown line '$lineNo' in " . $self->filename()
-                .
-                (defined($self->[EXCLUDE]) ?
-                     (" there are only " .
-                      scalar(@{$self->[EXCLUDE]}) . " lines in the file.") :
-                     "") .
-                (
-                ($lcovutil::verbose ||
-                     lcovutil::message_count($lcovutil::ERROR_RANGE) == 0) ?
-                    "\n  Issue can be caused by code changes/version mismatch; see the \"--version-script script_file\" discussion in the genhtml man page."
-                :
-                    '')) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
+              $lcovutil::ERROR_RANGE,
+              1, $key,
+              "unknown line '$lineNo' in " . $self->filename()
+                  .
+                  (
+                  defined($self->[EXCLUDE]) ?
+                      (" there are only " .
+                       scalar(@{$self->[EXCLUDE]}) . " lines in the file.") :
+                      "") .
+                  $suffix) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
         return 0;    # even though out of range - this is not excluded by filter
     }
     return 1
@@ -6023,19 +6067,16 @@ sub _mergeParallelChunk
     $lcovutil::profileData{filt_chunk}{$chunkId} = $to - $forkAt;
 }
 
-my $didUnsupportedBeginEndLineWarning;
-
 sub _updateModifiedFile
 {
     my ($self, $name, $traceFile, $state) = @_;
     $self->[FILES]->{$name} = $traceFile;
 
     if ($state->[0]->[1] != 0 &&
-        !defined($didUnsupportedBeginEndLineWarning)) {
+        lcovutil::warn_once('compiler_version', 1)) {
         lcovutil::ignorable_error($lcovutil::ERROR_UNSUPPORTED,
-            "Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer.   See lcovrc man entry for 'derive_function_end_line'."
+            "Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer.  See lcovrc man entry for 'derive_function_end_line'."
         );
-        $didUnsupportedBeginEndLineWarning = 1;
     }
 }
 
@@ -6377,11 +6418,15 @@ sub applyFilters
                         $currentLine = shift @lines;
                     } else {
                         if (!defined($end)) {
+                            my $suffix =
+                                lcovutil::explain_once('derive_end_line',
+                                "  See lcovrc man entry for 'derive_function_end_line'."
+                                );
                             lcovutil::ignorable_error(
                                 $lcovutil::ERROR_INCONSISTENT_DATA,
                                 "\"$name\":$first:  function " . $func->name() .
-                                    " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line.  See lcovrc man entry for 'derive_function_end_line'."
-                            );
+                                    " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
+                                    . $suffix);
                         }
                         next FUNC;
                     }
@@ -6405,22 +6450,29 @@ sub applyFilters
                             if (@lines) {
                                 $currentLine = $lines[-1];
                             } else {
+                                my $suffix = lcovutil::explain_once('derive_end_line',
+                                    "  See lcovrc man entry for 'derive_function_end_line'."
+                                    :
+                                );
                                 lcovutil::ignorable_error(
                                     $lcovutil::ERROR_INCONSISTENT_DATA,
                                     "\"$name\":$first:  function " .
                                         $func->name() .
-                                        ": last line in file is not last line of function.  See lcovrc man entry for 'derive_function_end_line'."
+                                        ": last line in file is not last line of function.$suffix"
                                 );
                                 next FUNC;
                             }
                         }
                     } elsif ($currentLine < $first) {
                         # we ran out of lines in the data...check for inconsistency
+                        my $suffix =
+                            lcovutil::explain_once('derive_end_line',
+                              "  See lcovrc man entry for 'derive_function_end_line'.");
                         lcovutil::ignorable_error(
                             $lcovutil::ERROR_INCONSISTENT_DATA,
                             "\"$name\":$first:  function " . $func->name() .
-                                " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line.  See lcovrc man entry for 'derive_function_end_line'."
-                        );
+                                " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
+                                . $suffix);
 
                         # last FUNC; # quit looking here - all the other functions after this one will have same issue
                         next FUNC;    # warn about them all
@@ -6434,13 +6486,15 @@ sub applyFilters
                 #  but we also might not have line data
                 #  - see .../tests/lcov/extract with gcc/4.8
                 if (!defined($func->end_line())) {
+                    my $suffix =
+                        lcovutil::explain_once('derive_end_line',
+                              "  See lcovrc man entry for 'derive_function_end_line'.");
+
                     lcovutil::ignorable_error(
-                     $lcovutil::ERROR_INCONSISTENT_DATA,
-                     '"' . $func->filename() . '":' . $func->line() .
-                         ': failed to set end line for function ' .
-                         $func->name() .
-                         ".  See lcovrc man entry for 'derive_function_end_line'."
-                    );
+                                $lcovutil::ERROR_INCONSISTENT_DATA,
+                                '"' . $func->filename() . '":' . $func->line() .
+                                    ': failed to set end line for function ' .
+                                    $func->name() . '.' . $suffix);
                     next FUNC;
                 }
 

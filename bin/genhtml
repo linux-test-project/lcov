@@ -3337,16 +3337,23 @@ sub check_path_consistency
                 # @todo could print line numbers in baseline, current .info files and
                 #   in diff file ..
                 if (lcovutil::warn_once($lcovutil::ERROR_MISMATCH, $f)) {
-                    lcovutil::ignorable_warning($lcovutil::ERROR_MISMATCH,
-                        "source file '$f' (in $type .info file" .
-                            ($missed{$f} == 3 ? "s" : "") .
-                            ") has same basename as 'diff' " .
-                            ($single ? 'entry ' : "entries:\n\t") . "'" .
-                            join("'\n\t", @unused) .
-                            "' - but a different path." .
-                            ($single ? "  " : "\n\t") .
-                            "Possible pathname mismatch?  Perhaps see \"--elide-path-mismatch\" and/or \"--substitute\" options in 'man $lcovutil::tool_name'"
-                    );
+                    my $suffix = lcovutil::explain_once('elide-path-mismatch',
+                        '  Perhaps see "--elide-path-mismatch" and/or "--substitute" options in \'man '
+                            . $lcovutil::tool_name . '\'');
+                    lcovutil::ignorable_warning(
+                                       $lcovutil::ERROR_MISMATCH,
+                                       "source file '$f' (in $type .info file" .
+                                           ($missed{$f} == 3 ? "s" : "") .
+                                           ") has same basename as 'diff' "
+                                           .
+                                           ($single ? 'entry ' : "entries:\n\t"
+                                           ) .
+                                           "'" .
+                                           join("'\n\t", @unused) .
+                                           "' - but a different path." .
+                                           ($single ? "  " : "\n\t") .
+                                           'Possible pathname mismatch?' .
+                                           $suffix);
                 }
                 if ($main::elide_path_mismatch &&
                     $missed{$f} == 3 &&
@@ -4670,8 +4677,6 @@ sub nextBranchInOwnerBin
     return undef;
 }
 
-my %annotateWarnings;    # warn only once per file
-
 sub _computeAge
 {
     my ($when, $path) = @_;
@@ -4686,13 +4691,12 @@ sub _computeAge
         DateTime->now();
     my $then = lcovutil::parse_w3cdtf($when);
     if ($then > $now) {
-        unless (exists($annotateWarnings{$path})) {
+        if (lcovutil::warn_once($lcovutil::ERROR_INCONSISTENT_DATA, $path)) {
             # issue annotation warning at most once per file
             my $data =
                 exists($ENV{SOURCE_DATE_EPOCH}) ?
                 "'SOURCE_DATE_EPOCH=$ENV{SOURCE_DATE_EPOCH}'" :
                 "'now'";
-            $annotateWarnings{$path} = $now;
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                 "File \"$path\": $data ($now) is older than annotate time '$when'"
             );
@@ -4716,10 +4720,11 @@ sub _load
     if (!defined($repo_path)) {
         if (!defined($annotateCallback) &&
             !$main::synthesizeMissingFile) {
+            my $suffix =
+                lcovutil::explain_once('synthesize',
+                           ' (see --synthesize-missing option to work around)');
             lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                           "\"" . $self->path() . "\" does not exist: $!" .
-                               " (see --synthesize-missing option to work around)"
-            );
+                      "\"" . $self->path() . "\" does not exist: $!" . $suffix);
         }
         $repo_path = $self->path();
     }
@@ -4733,9 +4738,13 @@ sub _load
                 lcovutil::checkVersionMatch($repo_path, $version,
                                             $currentVersion, 'load');
             } else {
+                my $suffix = lcovutil::explain_once('missingVersionMsg',
+                    "\n\tSee the 'compute_file_version' section in man lcovrc(5)."
+                );
                 lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
                     "'$repo_path': computed '$version' but version not defined in 'current' data file "
-                        . $main::info_filenames[0]);
+                        . $main::info_filenames[0]
+                        . $suffix);
             }
         } elsif (defined($currentVersion)) {
             lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
@@ -5571,13 +5580,13 @@ sub merge_child($$$)
                 my $name =
                     $childSummary->type() eq 'top' ? "" : $childSummary->name();
                 $SummaryInfo::coverageCriteria{$name} = $criteria;
-		$criteria->[1] = 0 if $criteria->[1] eq '';
-		my $v = $criteria->[1];
+                $criteria->[1] = 0 if $criteria->[1] eq '';
+                my $v = $criteria->[1];
                 die('unexpected criteria data \'' .
                     join(' ', @$criteria) . '\'')
                     unless (Scalar::Util::looks_like_number($v));
-                $SummaryInfo::coverageCriteriaStatus = 
-		  ($v != 0 || 0 != scalar(@{$criteria->[2]})) ? $v : 0;
+                $SummaryInfo::coverageCriteriaStatus =
+                    ($v != 0 || 0 != scalar(@{$criteria->[2]})) ? $v : 0;
             }
         };
         if ($@) {
@@ -6145,8 +6154,8 @@ if (0 == $exit_status && @SummaryInfo::coverageCriteriaScript) {
                            keys(%SummaryInfo::coverageCriteria))
     ) {
         my $criteria = $SummaryInfo::coverageCriteria{$name};
-	my $v = $criteria->[1];
-        next if (!$v || $v == 0) && 0 == scalar(@{$criteria->[2]});  # passed
+        my $v        = $criteria->[1];
+        next if (!$v || $v == 0) && 0 == scalar(@{$criteria->[2]});    # passed
 
         my $msg = $criteria->[0];
         if ($criteria->[0] ne 'top') {
