@@ -97,6 +97,7 @@ if [ "${VER[0]}" -lt 5 ] ; then
 fi
 
 rm -f  *.log *.json dumper*
+rm -rf emptyDir
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -241,6 +242,56 @@ for f in exceptionBranch ; do
         fi
     fi
 done
+
+mkdir -p emptyDir
+
+echo lcov $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info
+$COVER $LCOV_TOOL $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info 2>&1 | tee emptyDir.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "failed to notice empty dir"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit $status
+    fi
+fi
+grep 'no files matching' emptyDir.log
+if [ 0 != $? ] ; then
+    echo "did not find expected empty dir message"
+fi
+echo lcov $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info --ignore empty
+$COVER $LCOV_TOOL $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info --ignore empty 2>&1 | tee emptyDir2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "failed to ignore empty dir"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit $status
+    fi
+fi
+
+# trigger error from unreadable directory
+chmod ugo-rx emptyDir
+echo lcov $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info
+$COVER $LCOV_TOOL $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info 2>&1 | tee noRead.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "failed to notice unreadable"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit $status
+    fi
+fi
+grep 'error in "find' noRead.log
+if [ 0 != $? ] ; then
+    echo "did not find expected unreadable dir message"
+fi
+echo lcov $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info --ignore utility,empty
+$COVER $LCOV_TOOL $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info --ignore utility,empty 2>&1 | tee noRead2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "failed to ignore unreadable dir"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit $status
+    fi
+fi
 
 
 if [ 0 == $status ] ; then

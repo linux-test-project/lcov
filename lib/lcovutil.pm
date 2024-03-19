@@ -311,6 +311,8 @@ our %languageExtensions = ('c'      => 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx',
                            'python' => 'py',
                            'java'   => 'java');
 
+our $info_file_pattern = '*.info';
+
 # don't look more than 10 lines ahead when filtering (default)
 our $source_filter_lookahead = 10;
 # by default, don't treat expressions containing bitwise operators '|', '&', '~'
@@ -1079,6 +1081,7 @@ my %rc_common = (
              "perl_file_extensions"   => \$perlExtensions,
              "python_file_extensions" => \$pythonExtensions,
              "java_file_extensions"   => \$javaExtensions,
+             'info_file_pattern'      => \$info_file_pattern,
              "filter_lookahead"       => \$lcovutil::source_filter_lookahead,
              "filter_bitwise_conditional" =>
         \$lcovutil::source_filter_bitwise_are_conditional,
@@ -7127,6 +7130,7 @@ our $segmentIdx = 0;
 sub find_from_glob
 {
     my @merge;
+    die("no files specified") unless (@_);
     foreach my $pattern (@_) {
 
         if (-f $pattern) {
@@ -7138,11 +7142,32 @@ sub find_from_glob
             unless $^O =~ /Win/;
 
         my @files = glob($pattern);   # perl returns files in ASCII sorted order
+
         lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
                                   "no files matching pattern $pattern")
             unless scalar(@files);
-        foreach my $f (@files) {
-            if (!(-r $f || -f $f)) {
+        for (my $i = 0; $i <= $#files; ++$i) {
+            my $f = $files[$i];
+            if (-d $f) {
+                my $cmd =
+                    "find '$f' -name '$lcovutil::info_file_pattern' -type f";
+                my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+                    system($cmd);
+                };
+                # can fail due to unreadable entry - but might still
+                #  have returned data to process
+                lcovutil::ignorable_error($lcovutil::ERROR_UTILITY,
+                                          "error in \"$cmd\": $stderr")
+                    if $code;
+                my @found = split(' ', $stdout);
+                lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                    "no files matching '$lcovutil::info_file_pattern' found in $f"
+                ) unless (@found);
+                push(@files, @found);
+                next;
+            }
+
+            unless (-r $f || -f $f) {
                 lcovutil::ignorable_error($lcovutil::ERROR_MISSING,
                      "'$f' found from pattern '$pattern' is not a readable file"
                 );
@@ -7151,6 +7176,10 @@ sub find_from_glob
             push(@merge, $f);
         }
     }
+    lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                        "no matching file found in '['" . join(', ', @_) . "]'")
+        unless (@merge);
+
     return @merge;
 }
 

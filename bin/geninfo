@@ -942,11 +942,15 @@ sub find_files
             lcovutil::info("Scanning $directory for $ext files ...\n");
 
             my $now = Time::HiRes::gettimeofday();
-            my @found =
-                `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>$lcovutil::devnull`;
+            my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+                system(
+                    "find '$directory' $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l"
+                );
+            };
             lcovutil::ignorable_error($lcovutil::ERROR_UTILITY,
-                                      "error in 'find \"$directory\" ...': $!")
-                if ($?);
+                                  "error in 'find \"$directory\" ...': $stderr")
+                if ($code);
+
             my $time = Time::HiRes::gettimeofday() - $now;
             if (exists($lcovutil::profileData{find}) &&
                 exists($lcovutil::profileData{find}{$directory})) {
@@ -954,7 +958,7 @@ sub find_files
             } else {
                 $lcovutil::profileData{find}{$directory} = $time;
             }
-            chomp(@found);
+            my @found = split(' ', $stdout);
             if (!@found) {
                 if (!defined($processGcno) || $processGcno != 2) {
                     $self->[2]->{$directory} = [

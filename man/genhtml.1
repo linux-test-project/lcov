@@ -938,6 +938,14 @@ The coverage data files specified by
 .I baseline\-file\-pattern
 is read and used as the baseline for classifying the change in coverage represented by the coverage counts in
 .IR tracefile\-patterns .
+If
+.I baseline\-file\-pattern
+is a directory, then genhtml will search the directory for all files ending in '.info'.
+See the
+.I info_file_extension
+section in
+.B man(5) lcovrc
+for how to change this pattern.
 
 In general, you should specify a diff file in unified diff format via
 .B \-\-diff\-file

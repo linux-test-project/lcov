@@ -198,6 +198,11 @@ max_message_count = 100
 .br
 #warn_once_per_file = 1
 
+# extension associated with lcov trce files
+.br
+#info_file_pattern = *.info
+.br
+
 # list of file extensions which should be treated as C/C++ code
 .br
 # (comma-separated list)
@@ -796,6 +801,14 @@ If not specified, the default set is 'v,vh,sv,vhdl?'.
 There is no command line option equivalent.
 .br
 This option is used by genhtml and lcov.
+
+.PP
+
+.BR info_file_pattern " ="
+.IR str
+.IP
+Specify a glob-match pattern associated with lcov trace files (suitable as an argument to 'find'.
+If not specified, the default is '*.info'.
 
 .PP
 
