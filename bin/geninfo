@@ -107,6 +107,7 @@ our @gcov_tool;
 
 our $GCOV_VERSION_8_0_0 = 0x80000;
 our $GCOV_VERSION_4_7_0 = 0x40700;
+our $GCOV_VERSION_4_2_0 = 0x40200;    # llvm/11
 
 # Compatibility mode values
 our $COMPAT_VALUE_OFF  = 0;
@@ -494,7 +495,7 @@ if (!@data_directory) {
     @data_directory = @dirs;
 }
 
-if ($gcov_version < $GCOV_VERSION_4_7_0) {
+if ($gcov_version < $GCOV_VERSION_4_2_0) {
     die("Your toolchain version is too old and is no longer supported by lcov.  Please upgrade - or use an older lcov release."
     );
 }
