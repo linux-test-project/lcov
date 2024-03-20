@@ -2144,6 +2144,13 @@ sub parse_cov_filters(@)
         $cov_filter[$FILTER_LINE_CLOSE_BRACE] = [0, 0];
         $cov_filter[$FILTER_BLANK_LINE]       = [0, 0];
     }
+    if ((defined($cov_filter[$FILTER_BRANCH_NO_COND]) ||
+         defined($cov_filter[$FILTER_EXCLUDE_BRANCH])) &&
+        !$br_coverage
+    ) {
+        lcovutil::ignorable_warning($ERROR_USAGE,
+                       "branch filter enabled but branch coverage not enabled");
+    }
 }
 
 sub summarize_cov_filters

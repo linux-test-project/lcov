@@ -131,7 +131,7 @@ LCOV_OPTS="$LCOV_BASE"
 DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --highlight --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -526,6 +526,57 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+# inconsistent setting of branch filtering without enabling branch coverage
+echo genhtml --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent --rc treat_warning_as_error=1
+$COVER $GENHTML_TOOL --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent --rc treat_warning_as_error=1 2>&1 | tee inconsistent.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml inconsistent warning-as-error passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep 'ERROR: (usage) branch filter enabled but branch coverage not enabled' inconsistent.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing inconsistency message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# when we treat warning as error, but ignore the message type
+echo genhtml --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent --rc treat_warning_as_error=1 --ignore usage
+$COVER $GENHTML_TOOL --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent --rc treat_warning_as_error=1 --ignore usage 2>&1 | tee inconsistent.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml inconsistent warning-as-error passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep 'WARNING: (usage) branch filter enabled but branch coverage not enabled' inconsistent.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing inconsistency message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+echo genhtml --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent
+$COVER $GENHTML_TOOL --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent 2>&1 | tee inconsistent2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml inconsistent warning-as-error failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep 'WARNING: (usage) branch filter enabled but branch coverage not enabled' inconsistent2.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing inconsistency message 2"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
                 
 echo "Tests passed"
 
