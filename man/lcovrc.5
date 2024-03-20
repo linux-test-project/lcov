@@ -182,7 +182,7 @@ genhtml_med_limit = 75
 max_message_count = 100
 
 .br
-# If set, do not stop when an 'ignorable error' occurs - try
+# If nonzero, do not stop when an 'ignorable error' occurs - try
 .br
 #  to generate a result, however flawed.  This is equivalent to
 .br
@@ -192,7 +192,17 @@ max_message_count = 100
 .br
 #stop_on_error = 1
 
-# If set to non-zero, only issue particluar warning once per file
+.br
+# If nonzero, treat warnings as error
+.br
+# note that ignored messages will still appear as warnings
+.br
+# Default is 0
+.br
+#treat_warning_as_error = 1
+
+.br
+# If set to non-zero, only issue particular warning once per file
 .br
 # Default is 1
 .br
@@ -977,6 +987,22 @@ option is also used, then those messages will be treated as warnings rather than
 
 This option is used by genhtml, lcov, and geninfo.
 
+
+.PP
+
+.BR treat_warning_as_error " = "
+.IR 0|1
+.IP
+If set to 1, tell the tools that messages which are normally treated as
+warnings (
+.I e.g.,
+certain usage messages) should be treated as errors.
+
+Note that ignored messages will still appear as warnings:  see the
+.I ignore_errors
+entry, above.
+
+This option is used by genhtml, lcov, and geninfo.
 
 .PP
 

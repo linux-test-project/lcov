@@ -932,7 +932,11 @@ sub find_files
     }
     foreach my $directory (@_) {
         unless (-e $directory) {
-            # hold error until the end of processing...
+            # hold error until the end of processing - we might be looking
+            #  for both .gcno and .gcda files - and don't want to generate
+            #   the same 'no such directory' message twice.  Nor do we want
+            #  to produce an error if only one type of file is in this
+            # directory
             $self->[2]->{$directory} = [$lcovutil::ERROR_USAGE,
                                         "no such file or directory '$directory'"
             ];
@@ -961,6 +965,7 @@ sub find_files
             my @found = split(' ', $stdout);
             if (!@found) {
                 if (!defined($processGcno) || $processGcno != 2) {
+                    # delay message: might be a file of other type here
                     $self->[2]->{$directory} = [
                                              $lcovutil::ERROR_EMPTY,
                                              "no $ext files found in $directory"
@@ -969,6 +974,7 @@ sub find_files
 
                 next;
             }
+            # we found something here - remove the pending error message, if any
             delete($self->[2]->{$directory})
                 ;    # if exists($self->[2]->{$directory});
             lcovutil::info("Found %d %s files in %s\n",

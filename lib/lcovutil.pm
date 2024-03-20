@@ -186,7 +186,8 @@ my @lcovErrs = (["annotate", \$ERROR_ANNOTATE_SCRIPT],
 our %lcovErrors;
 
 our $stop_on_error;                # attempt to keep going
-our $warn_once_per_file = 1;
+our $treat_warning_as_error = 0;
+our $warn_once_per_file     = 1;
 our $excessive_count_threshold;    # default not set: don't check
 
 our $br_coverage   = 0;    # If set, generate branch coverage statistics
@@ -1075,6 +1076,7 @@ my %rc_common = (
              "ignore_errors"          => \@rc_ignore,
              "max_message_count"      => \$lcovutil::suppressAfter,
              'stop_on_error'          => \$lcovutil::stop_on_error,
+             'treat_warning_as_error' => \$lcovutil::treat_warning_as_error,
              'warn_once_per_file'     => \$lcovutil::warn_once_per_file,
              "rtl_file_extensions"    => \$rtlExtensions,
              "c_file_extensions"      => \$cExtensions,
@@ -1969,6 +1971,10 @@ sub ignorable_error($$;$)
 sub ignorable_warning($$;$)
 {
     my ($code, $msg, $quiet) = @_;
+    if ($lcovutil::treat_warning_as_error) {
+        ignorable_error($code, $msg, $quiet);
+        return;
+    }
     die("undefined error code for '$msg'") unless defined($code);
 
     my $errName = "code_$code";
