@@ -577,7 +577,25 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-                
+
+# use jan1 1970 as epoch
+echo SOURCE_DATE_EPOCH=0 genhtml $DIFFCOV_OPTS initial.info -o epoch
+SOURCE_DATE_EPOCH=0 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT -o epoch 2>&1 | tee epoch.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: missed epoch error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR: \(inconsistent\) .+ 'SOURCE_DATE_EPOCH=0' .+ is older than annotate time" epoch.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing epoch"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
 echo "Tests passed"
 
 if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ] ; then
