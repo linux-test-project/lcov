@@ -97,7 +97,7 @@ fi
 git -C . rev-parse > /dev/null 2>&1
 if [ 0 == $? ] ; then
     # this is git
-    VERSION="--version-script ${SCRIPT_DIR}/gitversion.pm"
+    VERSION="--version-script ${SCRIPT_DIR}/gitversion"
     ANNOTATE="--annotate-script ${SCRIPT_DIR}/gitblame.pm"
 else
     VERSION="--version-script ${SCRIPT_DIR}/getp4version"
@@ -436,20 +436,20 @@ REGION_BR=`grep -c -E '^BRDA:' region.info`
 BRANCH_REGION_DA=`grep -c -E '^DA:' branch_region.info`
 BRANCH_REGION_BR=`grep -c -E '^BRDA:' branch_region.info`
 
-if [ $REGION_BR != $BRANCH_REGION_BR ] ; then
-    echo "wrong branch region branch count $BR -> $BRNCH_BREGION_BR"
+if [ "$REGION_BR" != "$BRANCH_REGION_BR" ] ; then
+    echo "wrong branch region branch count $REGION_BR -> $BRANCH_REGION_BR"
     exit 1
 fi
-if [ $DA != $BRANCH_REGION_DA ] ; then
+if [ "$DA" != "$BRANCH_REGION_DA" ] ; then
     echo "wrong branch region line count $DA -> $BRANCH_REGION_DA"
     exit 1
 fi
 
-if [ $BR -le $_REGION_BR ] ; then
-    echo "wrongregion branch count $BR -> $BREGION_BR"
+if [ "$BR" -le "$REGION_BR" ] ; then
+    echo "wrong region branch count $BR -> $REGION_BR"
     exit 1
 fi
-if [ $DA -le $REGION_DA ] ; then
+if [ "$DA" -le "$REGION_DA" ] ; then
     echo "wrong region line count $DA -> $REGION_DA"
     exit 1
 fi

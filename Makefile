@@ -66,7 +66,7 @@ FILES   := README Makefile lcovrc \
 DIST_CONTENT := CONTRIBUTING COPYING README Makefile lcovrc \
 	bin example lib man rpm scripts tests
 
-EXES = lcov genhtml geninfo genpng gendesc perl2lcov py2lcov
+EXES = lcov genhtml geninfo genpng gendesc perl2lcov py2lcov xml2lcov xml2lcovutil.py
 # there may be both public and non-public user scripts - so lets not show
 #   any of their names
 SCRIPTS = $(shell ls scripts | grep -v -E '([\#\~]|\.orig|\.bak|\.BAK)' )

@@ -29,11 +29,14 @@
 # to generate Python coverage data.
 #
 #
-# arguably, should do this in Perl so we can use the lcovutil module
+# arguably, should do this in Perl so we could use the lcovutil module utilities
+# In the meantime:  suggested use model is to translate the python XML using this
+# utility, then read it back into lcov for additonal processing.
 #
 # @todo figure out/enhance Coverage.py to characterize branch expressions
-# @todo perhaps this should be integrated into the Coverage.py module itself
-#
+# @todo perhaps this should be integrated into the Coverage.py module itself.
+#       This might no longer be a good idea as XML translation is no longer limited
+#       to the Coverage.py module.
 
 import os
 import os.path
@@ -46,335 +49,18 @@ import subprocess
 import copy
 import base64
 import hashlib
-
-def line_hash(line: str) -> str:
-    """Produce a hash of a source line for use in the LCOV file."""
-    hashed = hashlib.md5(line.encode("utf-8")).digest()
-    return base64.b64encode(hashed).decode("ascii").rstrip("=")
-
-
-class ProcessFile:
-    def __init__(self, scriptArgs):
-        self._args = scriptArgs
-
-        if scriptArgs.input:
-            if not scriptArgs.keepGoing:
-                print("--input is deprecated - please use 'py2lcov ... %s" % (scriptArgs.input))
-            scriptArgs.inputs.append(scriptArgs.input);
-
-        self._excludePatterns = scriptArgs.excludePatterns.split(',') if scriptArgs.excludePatterns else None
-        self._versionScript = scriptArgs.version.split(',') if scriptArgs.version else None
-
-        if not scriptArgs.inputs:
-            # no input file - see if COVERAGE_FILE environment variable is set
-            try:
-                scriptArgs.inputs.append(os.environ['COVERAGE_FILE'])
-                print("reading input from default COVERAGE_FILE '%s'" % scriptArgs.inputs[0])
-            except:
-                print("Error:  no input files")
-                sys.exit(1)
-
-        self._outf = open(scriptArgs.output, 'w')
-        self._outf.write("TN:%s\n" % scriptArgs.testName)
-
-        for f in scriptArgs.inputs:
-            base, ext = os.path.splitext(f)
-            if ext == '.xml':
-                self.process_xml_file(f)
-                continue
-
-            # assume that anything not ending in .xml is a Coverage.py data file
-            xml = base + '.xml'
-            suffix = 1
-            while os.path.exists(xml):
-                xml = base + '.xml%d' % suffix
-                suffix += 1
-            cmd = 'COVERAGE_FILE=%s coverage xml -o %s' % (f, xml)
-            try:
-                #x = subprocess.run(cmd, capture_output=True, shell=True, check=True)
-                x = subprocess.run(cmd, shell=True, check=True, stdout=True, stderr=True)
-            except subprocess.CalledProcessError as err:
-                print("Error:  error during XML conversion of %s: %s" % (
-                    f, str(err)));
-                if not self._args.keepGoing:
-                    sys.exit(1)
-                continue
-            self.process_xml_file(xml)
-            os.unlink(xml)
-
-        self._outf.close()
-
-    def process_xml_file(self, xml_file):
-
-        tree = ET.parse(xml_file)
-        root = tree.getroot()
-        source_paths = []
-
-        try:
-            if(root[0].tag == 'sources'):
-                for source in root[0]:
-                    source_paths.append(source.text)
-                    if self._args.verbose:
-                        print("source: " + source.text)
-            else:
-                print("Error: parse xml fail: no 'sources'")
-                sys.exit(1)
-            if(root[1].tag == 'packages'):
-                if (self._args.verbose):
-                    print("packages: " + str(root[1].attrib))
-            else:
-                print("Error: parse xml fail: no 'packages'")
-                sys.exit(1)
-        except Exception as err:
-            print("Error: parse xml fail: %s" % (str(err)))
-            if not self._args.keepGoing:
-                sys.exit(1)
-            return
-
-        if(len(source_paths) > 1):
-            print("Error: %s: Only support single source path" %(xml_file))
-            if not self._args.keepGoing:
-                sys.exit(1)
-            return
-
-        elif (len(source_paths) == 0):
-            source_path = ''
-        else:
-            source_path = source_paths[0]
-
-        for package in root[1]:
-            # name="." means current directory
-            # name=".folder1.folder2" means external module or directory
-            # name="abc" means internal module or directory
-            isExternal = (package.attrib['name'].startswith('.') and package.attrib['name'] != '.')
-            for classes in package:
-                for fileNode in classes:
-                    if self._args.excludePatterns and any([fnmatch.fnmatchcase(fileNode.attrib['filename'], ef) for ef in self._excludePatterns]):
-                        if self._args.verbose:
-                            print("%s is excluded" % fileNode.attrib['filename'])
-                        continue
-                    name = fileNode.attrib['filename'] if isExternal else os.path.join(source_path, fileNode.attrib['filename'])
-                    self._outf.write("SF:%s\n" % name)
-                    if self._versionScript:
-                        cmd = copy.deepcopy(self._versionScript)
-                        cmd.append(name)
-                        try:
-                            version = subprocess.check_output(cmd)
-                            self._outf.write("VER:%s\n" % version.strip().decode('UTF-8'))
-                        except Exception as err:
-                            print("Error: no version for %s: %s" %(
-                                name, str(err)))
-                            if not self._args.keepGoing:
-                                sys.exit(-1)
-
-                    self.process_file(fileNode, name)
-                    self._outf.write("end_of_record\n")
-
-    def process_file(self, fileNode, filename):
-
-        lines = None
-        if self._args.deriveFunctions:
-            try:
-                with open(filename, 'r') as f:
-                    lines = f.read().split('\n')
-            except:
-                print("cannot open %s - some features disabled" % (filename));
-                if not self._args.keepGoing:
-                    sys.exit(1)
-
-        def count(indent):
-            count = 0
-            for c in indent:
-                if c == ' ':
-                    count += 1
-                else:
-                    assert(c == '\t') # shouldn't be anything but space or tab
-                    count += self._args.tabWidth
-            return count
-
-        def buildFunction(functions, objStack, currentObj, lastLine):
-            if currentObj and prevLine:
-                currentObj['end'] = lastLine # last line
-                prefix = ''
-                sep = ''
-                for e in objStack:
-                    prefix += sep + e['name']
-                    sep = "::" if e['type'] == 'class' else '.'
-                if currentObj['type'] == 'def':
-                    fullname = prefix + sep + currentObj['name']
-                    # function might be unreachable dead code
-                    try:
-                        hit = currentObj['hit']
-                    except:
-                        hit = 0
-                    functions.append({'name'  : fullname,
-                                      'start' : currentObj['start'],
-                                      'end'   : currentObj['end'],
-                                      'hit'   : hit})
-
-        # just collect the function/class name - ignore the params
-        parseLine = re.compile('(\s*)((def|class)\s*([^\( \t]+))?')
-        #parseLine = re.compile('(\s*)((def|class)\s*([^:]+)(:|$))?')
-        for node in fileNode:
-            if node.tag != 'lines':
-                continue
-            # Keep track of current function/class scope - which we use to find
-            #   the first and last executable lines in each function,
-            # Want to keep track of the function end line - so we can use lcov
-            # function exclusions.
-            #   currentObj:
-            #    type:   'class' or 'def'
-            #    name:   as appears in regexp
-            #    indent: indent count of 'def' or 'class' statement
-            #    start:  line of item (where 'def' or 'class' is found
-            #    end:    last line of function
-            #    hit:    whether first line of function is hit or not
-            currentObj = None # {type name startIndent lineNo first end start}
-            objStack = []
-            functions = [] # list of [functionName startLine endLine hitcout]
-            prevLine = None
-            totals = { 'line' : [0, 0, 'LF', 'LH'],
-                       'branch' : [0, 0, 'BRF', 'BRH'],
-                       'function' : [0, 0, 'FNF', 'FNH'],
-            }
-            # need to save the statement data and print later because Coverage.py
-            # has an odd interpretation of the execution status of the function
-            # decl line.
-            #   - C/C++ mark it executed if the line is entered - so it
-            #     is an analog of function coverage.
-            #   - Coverage.py appears to mark it executed when the containing
-            #     scope is executed (i.e., when a lazy interpret might compile
-            #     the function).
-            # However, we want to mark the decl executed only if the function
-            # is executed - and we decide that the function is executed if first
-            # line in the function is hit.
-            #   - as a result, after seeing all the functions, we want to go back
-            #     and mark the function decl line as 'not hit' if we decided that
-            #     the function itself is not executed.
-            lineData = {}
-            for line in node:
-                lineNo = int(line.attrib['number'])
-                hit = int(line.attrib["hits"])
-                lineData[lineNo] = hit;
-
-                totals['line'][0] += 1
-                if hit:
-                    totals['line'][1] += 1
-                if lines:
-                    if lineNo <= len(lines):
-                        m = parseLine.search(lines[lineNo-1])
-                        if m:
-                            indent = count(m.group(1))
-                            #print(lines[lineNo-1])
-                            while currentObj and indent <= currentObj['indent']:
-                                # lower indent - so this is a new object
-                                #print("build " + currentObj['name'])
-                                buildFunction(functions, objStack,
-                                              currentObj, prevLine)
-
-                                try:
-                                    currentObj = objStack.pop()
-                                except IndexError as err:
-                                    currentObj = None
-                                    break
-
-                            if m.group(2):
-                                if currentObj:
-                                    objStack.append(currentObj)
-                                objtype = m.group(3)
-                                name = m.group(4).rstrip()
-                                if (-1 != name.find('(') and
-                                    ')' != name[-1]):
-                                    name += '...)'
-                                currentObj = { 'type':   objtype,
-                                               'name':   name,
-                                               'indent': indent,
-                                               'start':  lineNo,
-                                }
-                            else:
-                                # just a line - may be the first executable
-                                #   line in some function:
-                                if currentObj and not 'hit' in currentObj:
-                                    currentObj['hit'] = hit
-                                    # mark that function decl line is not
-                                    #  hit if the function is not hit
-                                    if 0 == hit:
-                                        assert(currentObj['start'] in lineData)
-                                        lineData[currentObj['start']] = 0
-
-                        prevLine = lineNo
-                    else:
-                        print('"%s":%d: Error: out of range: file contains %d lines' % (
-                            filename, lineNo, len(lines)))
-                        if not self._args.keepGoing:
-                            sys.exit(1)
-
-                if "branch" in line.attrib:
-                    assert(line.attrib["branch"] == "true") # always true from xmlreport.py
-                    assert('condition-coverage' in line.attrib) # always true from xmlreport.py
-                    m = re.match(r'\d+\% \((\d+)/(\d+)\)', line.attrib['condition-coverage'])
-                    assert(m)
-                    taken = int(m.group(1))
-                    total = int(m.group(2))
-                    # no information of which clause is taken or not
-                    # set taken conditions start from 0 and followed by
-                    #  non-taken conditions
-                    # taken conditions
-                    for cond in range(0,taken):
-                        self._outf.write("BRDA:%d,0,%d,1\n" % (lineNo, cond))
-                        totals['branch'][0] += 1
-                        totals['branch'][1] += 1
-                    # non-taken conditions
-                    for cond in range(taken, total):
-                        totals['branch'][0] += 1
-                        self._outf.write("BRDA:%d,0,%d,0\n" % (lineNo, cond))
-
-            # and build all the pending functions
-            #  these were still open when we hit the end of file - e.g., because
-            #  they are last elements in some package file and there are no
-            #  no executable lines after the function decl.
-            # There may be more than one function in the stack, if the last
-            # object is nested.
-            while currentObj:
-                buildFunction(functions, objStack, currentObj, prevLine)
-
-                try:
-                    currentObj = objStack.pop()
-                except IndexError as err:
-                    currentObj = None
-                    break
-
-            # print the LCOV function data
-            for f in functions:
-                totals['function'][0] += 1
-                if f['hit']:
-                    totals['function'][1] += 1
-                self._outf.write("FN:%(start)d,%(end)d,%(name)s\nFNDA:%(hit)d,%(name)s\n" % f)
-            # print the LCOV line data.
-            for lineNo in sorted(lineData.keys()):
-                checksum = ''
-                if self._args.checksum:
-                    try:
-                        checksum = ',' + line_hash(lines[lineNo])
-                    except IndexError as err:
-                        print('"%s":%d: unable to compute checksum for missing line' % (filename, lineNo))
-                        if not self._args.keepGoing:
-                            raise(err)
-
-                self._outf.write("DA:%d,%d%s\n" % (lineNo, lineData[lineNo], checksum));
-
-            # print the LCOV totals - not used by lcov, but maybe somebody does
-            for key in totals:
-                d = totals[key]
-                if d[0] == 0:
-                    continue
-                self._outf.write("%s:%d\n" % (d[2], d[0]))
-                self._outf.write("%s:%d\n" % (d[3], d[1]))
+import pdb
+from xml2lcovutil import ProcessFile
 
 def main():
     usageString="""py2lcov: Translate Python coverage data to LCOV .info format.
 Please also see https://coverage.readthedocs.io
 
+Note that xml2lcov does not implement the full suite of LCOV features
+(e.g., filtering, substitutions, etc.).
+Please generate the translated LCOV format file and then read the data
+back in to lcov to use any of those features.
+%(usage)s
 Example:
    $ export PYCOV_DATA=path/to/pydata
 
@@ -391,8 +77,16 @@ Example:
      # also include version information in the generated coverage data.
    $ py2lcov -o pydata.info ${PYCOV_DATA}
 
+    # apply some filtering
+   $ lcov -a pydata.info -o filtered.info --filter branch,blank
+
      # and use genhtml to produce an HTML coverage report:
    $ genhtml -o html_report pydata.info ....
+     # the filtered result.
+   $ genhtml -o html_filtered filtered.info ....
+     # use differential coverage to see exactly what filtering did
+   $ genhtml -o html_differential --baseline-file mydata.info filtered.info ...
+
 
    Deprecated feature:
    For backward compatibility, py2lcov also supports translation to LCOV
@@ -406,15 +100,18 @@ Example:
        # then translate XML to LCOV format:
      $ py2lcov -i pydata.xml -o pydata.info --version-script myCovScript
 
-"""
+   """ % {
+       'usage' : ProcessFile.usageNote,
+       }
+
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=usageString)
 
     parser.add_argument('-i', '--input', dest='input', default=None,
                         help="DEPRECATED: specify the input xml file from coverage.py")
-    parser.add_argument('-o', '--output', dest='output', default='lcov.info',
-                        help="specify the out LCOV .info file, default(lcov.info)")
+    parser.add_argument('-o', '--output', dest='output', default='py2lcov.info',
+                        help="specify the out LCOV .info file, default: py2lcov.info")
     parser.add_argument('-t', '--test-name', '--testname', dest='testName', default='',
                         help="specify the test name for the TN: entry in LCOV .info file")
     parser.add_argument('-e', '--exclude', dest='excludePatterns', default='',
@@ -436,13 +133,54 @@ Example:
     parser.add_argument('inputs', nargs='*',
                         help="list of python coverage data input files - expected to be XML or Python .dat format")
 
-    try:
-        args = parser.parse_args()
-    except IOError as err:
-        print(str(err))
-        sys.exit(2)
+    args = parser.parse_args()
 
+    if args.input:
+        if not args.keepGoing:
+            print("--input is deprecated - please use 'py2lcov ... %s" % (args.input))
+        args.inputs.append(args.input);
+
+
+    if not args.inputs:
+        # no input file - see if COVERAGE_FILE environment variable is set
+        try:
+            args.inputs.append(os.environ['COVERAGE_FILE'])
+            print("reading input from default COVERAGE_FILE '%s'" % args.inputs[0])
+        except:
+            print("Error:  no input files")
+            sys.exit(1)
+
+    args.outf = open(args.output, 'w')
+
+    args.isPython = True
     p = ProcessFile(args)
+
+    for f in args.inputs:
+        base, ext = os.path.splitext(f)
+        if ext == '.xml':
+            p.process_xml_file(f)
+            continue
+
+        # assume that anything not ending in .xml is a Coverage.py data file
+        xml = base + '.xml'
+        suffix = 1
+        while os.path.exists(xml):
+            xml = base + '.xml%d' % suffix
+            suffix += 1
+        cmd = 'COVERAGE_FILE=%s coverage xml -o %s' % (f, xml)
+        try:
+            #x = subprocess.run(cmd, capture_output=True, shell=True, check=True)
+            x = subprocess.run(cmd, shell=True, check=True, stdout=True, stderr=True)
+        except subprocess.CalledProcessError as err:
+            print("Error:  error during XML conversion of %s: %s" % (
+                f, str(err)));
+            if not args.keepGoing:
+                sys.exit(1)
+            continue
+        p.process_xml_file(xml)
+        os.unlink(xml)
+
+    args.outf.close()
 
 
 if __name__ == '__main__':
