@@ -60,8 +60,11 @@ SHARE_INST_DIR := $(DESTDIR)$(SHARE_DIR)
 SCRIPT_INST_DIR := $(SHARE_INST_DIR)/support-scripts
 
 TMP_DIR := $(shell mktemp -d)
-FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
-	   $(wildcard rpm/*) lcovrc
+FILES   := README Makefile lcovrc \
+	   $(wildcard bin/*) $(wildcard example/*) $(wildcard lib/*) \
+	   $(wildcard man/*) $(wildcard rpm/*) $(wildcard scripts/*)
+DIST_CONTENT := CONTRIBUTING COPYING README Makefile lcovrc \
+	bin example lib man rpm scripts tests
 
 EXES = lcov genhtml geninfo genpng gendesc perl2lcov py2lcov
 # there may be both public and non-public user scripts - so lets not show
@@ -103,8 +106,8 @@ info:
 
 clean:
 	$(call echocmd,"  CLEAN   lcov")
-	rm -f lcov-*.tar.gz
-	rm -f lcov-*.rpm
+	$(RM) -f lcov-*.tar.gz lcov-*.rpm
+	$(RM) -rf ./bin/__pycache__
 	$(MAKE) -C example -s clean
 	$(MAKE) -C tests -s clean
 	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
@@ -192,10 +195,10 @@ dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
 
 lcov-$(VERSION).tar.gz: $(FILES)
 	$(call echocmd,"  DIST    lcov-$(VERSION).tar.gz")
+	$(RM) -rf $(TMP_DIR)/lcov-$(VERSION)
 	mkdir -p $(TMP_DIR)/lcov-$(VERSION)
-	cp -r . $(TMP_DIR)/lcov-$(VERSION)
-	rm -rf $(TMP_DIR)/lcov-$(VERSION)/.git
-	bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
+	cp -r $(DIST_CONTENT) $(TMP_DIR)/lcov-$(VERSION)
+	./bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
 	$(MAKE) -s -C $(TMP_DIR)/lcov-$(VERSION) clean >/dev/null
 	cd $(TMP_DIR)/lcov-$(VERSION) ; \
 	$(FIX) --version $(VERSION) --release $(RELEASE) \
@@ -203,7 +206,7 @@ lcov-$(VERSION).tar.gz: $(FILES)
 	       $(patsubst %,bin/%,$(EXES)) $(patsubst %,scripts/%,$(SCRIPTS)) \
 	       $(patsubst %,lib/%,$(LIBS)) \
 	       $(patsubst %,man/%,$(notdir $(MANPAGES))) README rpm/lcov.spec
-	bin/get_changes.sh > $(TMP_DIR)/lcov-$(VERSION)/CHANGES
+	./bin/get_changes.sh > $(TMP_DIR)/lcov-$(VERSION)/CHANGES || true
 	cd $(TMP_DIR) ; \
 	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION) \
 	    --owner root --group root
@@ -255,7 +258,7 @@ check:
 	  echo "*** Run once, force parallel ***" ;                         \
 	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C tests check LCOV_HOME=`pwd` ; \
 	  echo "*** Run again, no force ***" ;                              \
-	fi 
+	fi
 	@$(MAKE) -s -C tests check LCOV_HOME=`pwd`
 	@if [ "x$(COVERAGE)" != 'x' ] ; then       \
 	  $(MAKE) -s -C tests report ;             \
