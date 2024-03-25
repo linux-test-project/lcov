@@ -7407,7 +7407,9 @@ sub merge
             ++$idx;
         }
         lcovutil::info("Using " .
-                   scalar(@segments) . " segments of $testsPerSegment tests\n");
+                   scalar(@segments) . ' segment' . (scalar(@segments) > 1 ? 's' : '') .
+		   " of $testsPerSegment test" . ($testsPerSegment > 1 ? 's' : '') .
+		   "\n");
         $lcovutil::profileData{config} = {}
             unless exists($lcovutil::profileData{config});
         $lcovutil::profileData{config}{segments} = scalar(@segments);
