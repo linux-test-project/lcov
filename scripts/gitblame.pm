@@ -135,12 +135,15 @@ sub annotate
                     s/\015$//;
 
                     if ($line =~
-                        m/^(\S+)[^(]+\(<([^>]+)>\s+([-0-9]+\s+[0-9:]+\s+[-+0-9]+)\s+([0-9]+)\) (.*)$/
+                        m/^(\S+)[^(]+\(<([^>]*)>\s+([-0-9]+\s+[0-9:]+\s+[-+0-9]+)\s+([0-9]+)\) (.*)$/
                     ) {
                         my $commit = $1;
-                        my $owner  = $2;
+                        my $owner  = $2;    # apparently, this can be empty
                         my $when   = $3;
                         my $text   = $5;
+
+                        # found empty name in .../clang/include/AST/StmtOpenMP.h
+                        $owner = 'unknown@nowhere.com' unless $owner;
 
                         if ($self->[P4]) {
                             if (!exists($changelists{$commit})) {
@@ -195,13 +198,17 @@ sub annotate
                         #  so use it as a delimiter
                         push(@lines,
                              [$text, $owner, $fullname, $when, $commit]);
-                        die("no uniform match$context")
-                            if defined($matched) && !$matched;
+                        # expect all lines to eitehr match the git blame regexp
+                        # or none of them to match
+                        die("$basename has both matching and not matching lines$context"
+                        ) if defined($matched) && !$matched;
                         $matched = 1;
                     } else {
                         push(@lines, [$line, "NONE", undef, "NONE", "NONE"]);
-                        die("no uniform match$context")
-                            if defined($matched) && $matched;
+                        # expect all lines to eitehr match the git blame regexp
+                        # or none of them to match
+                        die("$basename has both not matching and matching lines$context"
+                        ) if defined($matched) && $matched;
                         $matched = 0;
                     }
                 }
