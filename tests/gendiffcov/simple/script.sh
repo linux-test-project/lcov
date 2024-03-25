@@ -114,10 +114,12 @@ git -C . rev-parse > /dev/null 2>&1
 if [ 0 == $? ] ; then
     # this is git
     GET_VERSION=${SCRIPT_DIR}/gitversion.pm
-    P4ANNOTATE=${SCRIPT_DIR}/gitblame.pm
+    GET_VERSION_EXE=${SCRIPT_DIR}/gitversion
+    ANNOTATE=${SCRIPT_DIR}/gitblame.pm
 else
     GET_VERSION=${SCRIPT_DIR}/getp4version
-    P4ANNOTATE=${SCRIPT_DIR}/p4annotate.pm
+    GET_VERSION_EXE=${SCRIPT_DIR}/getp4version
+    ANNOTATE=${SCRIPT_DIR}/p4annotate.pm
 fi
 CRITERIA=${SCRIPT_DIR}/criteria
 SELECT=${SCRIPT_DIR}/select.pm
@@ -257,7 +259,7 @@ if [ 0 != $? ] ; then
 fi
 # run again with version script options passed in string
 # test filter with differing version
-$COVER $LCOV_TOOL $EXTRA_GCOV_OPTS --branch-coverage --version-script "$GET_VERSION --md5 --allow-missing" $PARALLEL $PROFILE --output filt2.info --filter branch,line -a baseline2.info $IGNORE
+$COVER $LCOV_TOOL $EXTRA_GCOV_OPTS --branch-coverage --version-script "$GET_VERSION_EXE --md5 --allow-missing" $PARALLEL $PROFILE --output filt2.info --filter branch,line -a baseline2.info $IGNORE
 if [ 0 == $? ] ; then
     echo "ERROR: filter with mismatched version did not fail"
     status=1
@@ -272,7 +274,7 @@ if [ -e filt2.info ] ; then
         exit 1
     fi
 fi
-$COVER $LCOV_TOOL $EXTRA_GCOV_OPTS --branch-coverage --version-script "$GET_VERSION --md5 --allow-missing" $PARALLEL $PROFILE --output filt2.info --filter branch,line -a baseline2.info $IGNORE --ignore version
+$COVER $LCOV_TOOL $EXTRA_GCOV_OPTS --branch-coverage --version-script "$GET_VERSION_EXE --md5 --allow-missing" $PARALLEL $PROFILE --output filt2.info --filter branch,line -a baseline2.info $IGNORE --ignore version
 if [ 0 != $? ] ; then
     echo "ERROR: ignore error filter with combined opts and mismatched version failed"
     status=1
@@ -1304,19 +1306,19 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-echo genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE annotate.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE annotate.info
+echo genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $ANNOTATE annotate.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./annotate --annotate $ANNOTATE annotate.info
 if [ 0 == $? ] ; then
-    echo "ERROR: p4annotate with no annotation"
+    echo "ERROR: annotate with no annotation"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
-echo genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./annotate --annotate $P4ANNOTATE --ignore annotate annotate.info
+echo genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $ANNOTATE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./annotate --annotate $ANNOTATE --ignore annotate annotate.info
 if [ 0 != $? ] ; then
-    echo "ERROR: p4annotate with no annotation ignore did not pass"
+    echo "ERROR: annotate with no annotation ignore did not pass"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -1379,7 +1381,7 @@ if [ "x$COVER" != "x" ] ; then
     if [ 0 != $LOCAL_COVERAGE ] ; then
         cover $COVER_DB
         ${LCOV_HOME}/bin/perl2lcov -o perlcov.info --testname simple --version-script $GET_VERSION $COVER_DB
-        ${LCOV_HOME}/bin/genhtml -o html_report perlcov.info pycov.info --branch --flat --show-navigation --show-proportion --version-script $GET_VERSION --annotate-script $P4ANNOTATE --parallel --ignore empty,usage
+        ${LCOV_HOME}/bin/genhtml -o html_report perlcov.info pycov.info --branch --flat --show-navigation --show-proportion --version-script $GET_VERSION --annotate-script $ANNOTATE --parallel --ignore empty,usage
         echo "see HTML report 'html_report'"
     else
         echo cp pycov.info $COVER_DB/spreadsheet.info

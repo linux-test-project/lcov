@@ -108,12 +108,21 @@ if [ -f $LCOV_HOME/scripts/getp4version ] ; then
 else
     SCRIPTS_DIR=$LCOV_HOME/share/lcov/support-scripts
 fi
-GET_VERSION=$SCRIPTS_DIR/getp4version
 SELECT_SCRIPT=$SCRIPTS_DIR/select.pm
 CRITERIA_SCRIPT=$SCRIPTS_DIR/criteria.pm
-ANNOTATE_SCRIPT=$SCRIPTS_DIR/p4annotate.pm
 GITBLAME_SCRIPT=$SCRIPTS_DIR/gitblame.pm
 GITVERSION_SCRIPT=$SCRIPTS_DIR/gitversion.pm
+
+# is this git or P4?
+git -C . rev-parse > /dev/null 2>&1
+if [ 0 == $? ] ; then
+    # this is git
+    VERSION_SCRIPT=${SCRIPTS_DIR}/gitversion.pm
+    ANNOTATE_SCRIPT=${SCRIPTS_DIR}/gitblame.pm
+else
+    VERSION_SCRIPT=${SCRIPTS_DIR}/getp4version
+    ANNOTATE_SCRIPT=${SCRIPTS_DIR}/p4annotate.pm
+fi
 
 
 # filter out the compiler-generated _GLOBAL__sub_... symbol
@@ -374,8 +383,8 @@ if [ 0 != $? ] ; then
 fi
 # and again, as a differential report with annotation
 NOW=`date`
-echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $SCRIPTS_DIR/p4annotate --baseline-file initial.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $SCRIPTS_DIR/p4annotate --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix 2>&1 | tee select_scr.log
+echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT --baseline-file initial.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix 2>&1 | tee select_scr.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml select failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -385,8 +394,8 @@ fi
 
 # differntial report with empty diff file
 touch diff.txt
-echo genhtml $DIFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $SCRIPTS_DIR/p4annotate --baseline-file initial.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $SCRIPTS_DIR/p4annotate --baseline-file initial.info 2>&1 | tee empty_diff.log
+echo genhtml $DIFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCTIPT --baseline-file initial.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info 2>&1 | tee empty_diff.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml select failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -465,8 +474,10 @@ if [ 0 != $? ] ; then
 fi
 
 # resolve
-echo lcov $LCOV_OPTS --summary initial.info --rc case_insensitive=1 --resolve ./genError.pm
-$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --rc case_insensitive=1 --resolve ./genError.pm 2>&1 | tee resolve_err.log
+# apply substitution to ensure that the file is not found so the resolve callback
+# is called
+echo lcov $LCOV_OPTS --summary initial.info --rc case_insensitive=1 --filter branch --resolve ./genError.pm --substitute s/test.cpp/noSuchFile.cpp/i
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --rc case_insensitive=1 --filter branch --resolve ./genError.pm --substitute s/test.cpp/noSuchFile.cpp/i 2>&1 | tee resolve_err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: lcov --summary resolve"
     if [ 0 == $KEEP_GOING ] ; then
