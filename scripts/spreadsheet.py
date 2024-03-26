@@ -44,7 +44,7 @@ class GenerateSpreadsheet(object):
         geninfoSpecialKeys = ('total', 'parallel', 'filter', 'write')
 
         # keys related to filtering
-        filterKeys = ('filt_chunk', 'filt_queue',  'filt_child', 'filt_proc', 'filt_undump', 'filt_merge')
+        filterKeys = ('filt_chunk', 'filt_queue',  'filt_child', 'filt_proc', 'filt_undump', 'filt_merge', 'derive_end')
         if args.verbose:
             geninfoKeys.extend(['read', 'translate'])
 

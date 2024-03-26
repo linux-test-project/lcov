@@ -746,8 +746,9 @@ sub merge_child_profile($)
                     if (exists($lcovutil::profileData{$key}{$f})
                         &&
                         grep(/^$key$/,
-                             (   'version', 'parse', 'append', 'total',
-                                 'resolve'))
+                             (   'version', 'parse',
+                                 'append', 'total',
+                                 'resolve', 'derive_end'))
                     ) {
                         $lcovutil::profileData{$key}{$f} += $t;
                     } else {
@@ -1325,7 +1326,7 @@ sub parseOptions
                     [\@opt_ignore_errors, \@rc_ignore],
                     [\@lcovutil::exclude_file_patterns, \@rc_exclude_patterns],
                     [\@lcovutil::include_file_patterns, \@rc_include_patterns],
-                    [\@lcovutil::subst_file_patterns, \@rc_subst_patterns],
+                    [\@lcovutil::file_subst_patterns, \@rc_subst_patterns],
                     [\@lcovutil::omit_line_patterns, \@rc_omit_patterns],
                     [\@lcovutil::exclude_function_patterns, \@rc_erase_patterns
                     ],
@@ -4961,8 +4962,7 @@ sub parseLines
             ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[0];
             ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[1];
             push(@excluded, 3);    #everything excluded
-            lcovutil::info(2,
-                            "exclude '#$1' directive on $filename:$line\n");
+            lcovutil::info(2, "exclude '#$1' directive on $filename:$line\n");
             next;
         }
 
@@ -5660,9 +5660,152 @@ sub _eraseFunctions
     return $modified;
 }
 
+sub _deriveFunctionEndLines
+{
+    my $traceInfo = shift;
+    my $modified  = 0;
+
+    my $start = Time::HiRes::gettimeofday();
+    my @lines = sort { $a <=> $b } $traceInfo->sum()->keylist();
+    # sort functions by start line number
+    # ignore lambdas - which we don't process correctly at the moment
+    #   (would need to do syntactic search for the end line)
+    my @functions = sort { $a->line() <=> $b->line() }
+        grep({ !$_->isLambda() } $traceInfo->func()->valuelist());
+
+    my $currentLine = @lines ? shift(@lines) : 0;
+    my $funcData    = $traceInfo->testfnc();
+    FUNC: while (@functions) {
+        my $func  = shift(@functions);
+        my $first = $func->line();
+        my $end   = $func->end_line();
+        while ($first < $currentLine) {
+            if (@lines) {
+                $currentLine = shift @lines;
+            } else {
+                if (!defined($end)) {
+                    my $suffix =
+                        lcovutil::explain_once('derive_end_line',
+                        "  See lcovrc man entry for 'derive_function_end_line'."
+                        );
+                    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        '"' . $traceInfo->filename() .
+                            "\":$first:  function " . $func->name() .
+                            " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
+                            . $suffix);
+                }
+                next FUNC;
+            }
+        }
+        if (!defined($end)) {
+            # where is the next function?  Find the last 'line' coverpoint
+            #   less than the start line of that function..
+            if (@lines) {
+                # if there are no more lines in this file - then everything
+                # must be ending on the last line we saw
+                if (@functions) {
+                    my $next_func = $functions[0];
+                    my $start     = $next_func->line();
+                    while (@lines &&
+                           $lines[0] < $start) {
+                        $currentLine = shift @lines;
+                    }
+                } else {
+                    # last line in the file must be the last line
+                    #  of this function
+                    if (@lines) {
+                        $currentLine = $lines[-1];
+                    } else {
+                        my $suffix = lcovutil::explain_once('derive_end_line',
+                            "  See lcovrc man entry for 'derive_function_end_line'."
+                            );
+                        lcovutil::ignorable_error(
+                            $lcovutil::ERROR_INCONSISTENT_DATA,
+                            '"' . $traceInfo->filenname() .
+                                "\":$first:  function " . $func->name() .
+                                ": last line in file is not last line of function.$suffix"
+                        );
+                        next FUNC;
+                    }
+                }
+            } elsif ($currentLine < $first) {
+                # we ran out of lines in the data...check for inconsistency
+                my $suffix =
+                    lcovutil::explain_once('derive_end_line',
+                      "  See lcovrc man entry for 'derive_function_end_line'.");
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                    '"' . $traceInfo->filename() .
+                        "\":$first:  function " . $func->name() .
+                        " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
+                        . $suffix);
+
+                # last FUNC; # quit looking here - all the other functions after this one will have same issue
+                next FUNC;    # warn about them all
+            }
+            lcovutil::info(1,
+                           '"' . $traceInfo->filename() .
+                               "\":$currentLine: assign end_line " .
+                               $func->name() . "\n");
+            $func->set_end_line($currentLine);
+            $modified = 1;
+        }
+        # we may not have set the end line above due to inconsistency
+        #  but we also might not have line data
+        #  - see .../tests/lcov/extract with gcc/4.8
+        if (!defined($func->end_line())) {
+            my $suffix =
+                lcovutil::explain_once('derive_end_line',
+                      "  See lcovrc man entry for 'derive_function_end_line'.");
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                '"' . $func->filename() . '":' . $func->line() .
+                                    ': failed to set end line for function ' .
+                                    $func->name() . '.' . $suffix);
+            next FUNC;
+        }
+
+        # now look for this function in each testcase -
+        #  set the same endline (if not already set)
+        my $key = $func->file() . ':' . $first;
+        foreach my $tn ($funcData->keylist()) {
+            my $d = $funcData->value($tn);
+            my $f = $d->findKey($key);
+            if (defined($f)) {
+                if (!defined($f->end_line())) {
+                    $f->set_end_line($func->end_line());
+                    $modified = 1;
+                } else {
+                    if ($f->end_line() != $func->end_line()) {
+                        lcovutil::ignorable_error(
+                                       $lcovutil::ERROR_INCONSISTENT_DATA,
+                                       '"' . $func->file() .
+                                           '":' . $first . ': function \'' .
+                                           $func->name() . ' last line is ' .
+                                           $func->end_line() . ' but is ' .
+                                           $f->end_line() . " in testcase '$tn'"
+                        );
+                    }
+                }
+            }
+        }    #foreach testcase
+    }    # for each function
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{derive_end}{$traceInfo->filename()} = $end - $start;
+    return $modified;
+}
+
 sub _filterFile
 {
-    my ($traceInfo, $source_file, $srcReader, $state) = @_;
+    my ($traceInfo, $source_file, $actions, $srcReader, $state) = @_;
+
+    my $modified = 0;
+
+    if (0 != ($actions & DID_DERIVE)) {
+        $modified = _deriveFunctionEndLines($traceInfo);
+        if (0 == ($actions & DID_FILTER)) {
+            return [$traceInfo, $modified];
+        }
+    }
     my $region           = $cov_filter[$FILTER_EXCLUDE_REGION];
     my $branch_region    = $cov_filter[$FILTER_EXCLUDE_BRANCH];
     my $range            = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
@@ -5696,7 +5839,6 @@ sub _filterFile
         return ($traceInfo, 0);
     }
 
-    my $modified = 0;
     if (defined($lcovutil::func_coverage) &&
         !$state->[0]->[1] &&
         (0 != scalar(@lcovutil::exclude_function_patterns) ||
@@ -6306,6 +6448,12 @@ sub applyFilters
     # due to differences in #ifdefs when the corresponding tests were compiled.
     my @filter_workList;
 
+    my $computeEndLine =
+        (0 == ($self->[STATE] & DID_DERIVE) &&
+         defined($lcovutil::derive_function_end_line) &&
+         $lcovutil::derive_function_end_line != 0 &&
+         defined($lcovutil::func_coverage));
+
     foreach my $name ($self->files()) {
         my $traceInfo = $self->data($name);
         die("expected TraceInfo, got '" . ref($traceInfo) . "'")
@@ -6323,136 +6471,17 @@ sub applyFilters
         # Jacoco pretends to report function end line - but it appears
         #   to be the last line executed - not the actual last line of
         #   the function - so broken/completely useless.
-        DERIVE:
-        if (0 == ($self->[STATE] & DID_DERIVE)           &&
-            defined($lcovutil::derive_function_end_line) &&
-            $lcovutil::derive_function_end_line != 0     &&
-            defined($lcovutil::func_coverage)            &&
-            ($lcovutil::derive_end_line_all_files ||
+        my $actions = 0;
+        if ($computeEndLine &&
+            ($lcovutil::derive_function_end_line_all_files ||
                 is_language('c|java|perl', $source_file))
         ) {
-            my @lines = sort { $a <=> $b } $traceInfo->sum()->keylist();
-            # sort functions by start line number
-            # ignore lambdas - which we don't process correctly at the moment
-            #   (would need to do syntactic search for the end line)
-            my @functions = sort { $a->line() <=> $b->line() }
-                grep({ !$_->isLambda() } $traceInfo->func()->valuelist());
-
-            my $currentLine = @lines ? shift(@lines) : 0;
-            my $funcData    = $traceInfo->testfnc();
-            FUNC: while (@functions) {
-                my $func  = shift(@functions);
-                my $first = $func->line();
-                my $end   = $func->end_line();
-                while ($first < $currentLine) {
-                    if (@lines) {
-                        $currentLine = shift @lines;
-                    } else {
-                        if (!defined($end)) {
-                            my $suffix =
-                                lcovutil::explain_once('derive_end_line',
-                                "  See lcovrc man entry for 'derive_function_end_line'."
-                                );
-                            lcovutil::ignorable_error(
-                                $lcovutil::ERROR_INCONSISTENT_DATA,
-                                "\"$name\":$first:  function " . $func->name() .
-                                    " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
-                                    . $suffix);
-                        }
-                        next FUNC;
-                    }
-                }
-                if (!defined($end)) {
-                    # where is the next function?  Find the last 'line' coverpoint
-                    #   less than the start line of that function..
-                    if (@lines) {
-                        # if there are no more lines in this file - then everything
-                        # must be ending on the last line we saw
-                        if (@functions) {
-                            my $next_func = $functions[0];
-                            my $start     = $next_func->line();
-                            while (@lines &&
-                                   $lines[0] < $start) {
-                                $currentLine = shift @lines;
-                            }
-                        } else {
-                            # last line in the file must be the last line
-                            #  of this function
-                            if (@lines) {
-                                $currentLine = $lines[-1];
-                            } else {
-                                my $suffix = lcovutil::explain_once('derive_end_line',
-                                    "  See lcovrc man entry for 'derive_function_end_line'."
-                                    :
-                                );
-                                lcovutil::ignorable_error(
-                                    $lcovutil::ERROR_INCONSISTENT_DATA,
-                                    "\"$name\":$first:  function " .
-                                        $func->name() .
-                                        ": last line in file is not last line of function.$suffix"
-                                );
-                                next FUNC;
-                            }
-                        }
-                    } elsif ($currentLine < $first) {
-                        # we ran out of lines in the data...check for inconsistency
-                        my $suffix =
-                            lcovutil::explain_once('derive_end_line',
-                              "  See lcovrc man entry for 'derive_function_end_line'.");
-                        lcovutil::ignorable_error(
-                            $lcovutil::ERROR_INCONSISTENT_DATA,
-                            "\"$name\":$first:  function " . $func->name() .
-                                " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
-                                . $suffix);
-
-                        # last FUNC; # quit looking here - all the other functions after this one will have same issue
-                        next FUNC;    # warn about them all
-                    }
-                    lcovutil::info(1,
-                                   "\"$name\":$currentLine: assign end_line " .
-                                       $func->name() . "\n");
-                    $func->set_end_line($currentLine);
-                }
-                # we may not have set the end line above due to inconsistency
-                #  but we also might not have line data
-                #  - see .../tests/lcov/extract with gcc/4.8
-                if (!defined($func->end_line())) {
-                    my $suffix =
-                        lcovutil::explain_once('derive_end_line',
-                              "  See lcovrc man entry for 'derive_function_end_line'.");
-
-                    lcovutil::ignorable_error(
-                                $lcovutil::ERROR_INCONSISTENT_DATA,
-                                '"' . $func->filename() . '":' . $func->line() .
-                                    ': failed to set end line for function ' .
-                                    $func->name() . '.' . $suffix);
-                    next FUNC;
-                }
-
-                # now look for this function in each testcase -
-                #  set the same endline (if not already set)
-                my $key = $func->file() . ':' . $first;
-                foreach my $tn ($funcData->keylist()) {
-                    my $d = $funcData->value($tn);
-                    my $f = $d->findKey($key);
-                    if (defined($f)) {
-                        if (!defined($f->end_line())) {
-                            $f->set_end_line($func->end_line());
-                        } else {
-                            if ($f->end_line() != $func->end_line()) {
-                                lcovutil::ignorable_error(
-                                       $lcovutil::ERROR_INCONSISTENT_DATA,
-                                       '"' . $func->file() .
-                                           '":' . $first . ': function \'' .
-                                           $func->name() . ' last line is ' .
-                                           $func->end_line() . ' but is ' .
-                                           $f->end_line() . " in testcase '$tn'"
-                                );
-                            }
-                        }
-                    }
-                }    #foreach testcase
-            }    # for each function
+            # try to derive end lines if at least one is unknown.
+            #   can't compute for lambdas because we can't distinguish
+            #   the last line reliably.
+            $actions = DID_DERIVE
+                if grep({ !($_->isLambda() || defined($_->end_line())) }
+                        $traceInfo->func()->valuelist());
         }
 
         # munge the source file name, if requested
@@ -6460,15 +6489,20 @@ sub applyFilters
         #    lcovutil::subst_file_name($source_file) . "'")
         #  unless ($source_file eq lcovutil::subst_file_name($source_file));
 
-        next
-            unless (
-                  (defined($lcovutil::func_coverage) &&
-                   (0 != scalar(@lcovutil::exclude_function_patterns) ||
-                    defined($lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION]))
-                  ) ||
-                  (is_language('c|perl|python|java', $source_file) &&
-                   lcovutil::is_filter_enabled()));
-        push(@filter_workList, [$traceInfo, $name]);
+        if ((defined($lcovutil::func_coverage) &&
+             (0 != scalar(@lcovutil::exclude_function_patterns) ||
+                 defined($lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION]))) ||
+            (is_language('c|perl|python|java', $source_file) &&
+                lcovutil::is_filter_enabled())
+        ) {
+            # we are forking anyway - so also compute end lines there
+            $actions |= DID_FILTER;
+            push(@filter_workList, [$traceInfo, $name, $actions]);
+        } elsif (0 != $actions) {
+            # all we are doing is deriving function end lines - which doesn't
+            # take long enough to be worth forking
+            TraceFile::_deriveFunctionEndLines($traceInfo);
+        }
     }    # foreach file
     $self->[STATE] |= DID_DERIVE;
 
@@ -7353,9 +7387,10 @@ sub merge
             ++$idx;
         }
         lcovutil::info("Using " .
-                   scalar(@segments) . ' segment' . (scalar(@segments) > 1 ? 's' : '') .
-		   " of $testsPerSegment test" . ($testsPerSegment > 1 ? 's' : '') .
-		   "\n");
+                       scalar(@segments) .
+                       ' segment' . (scalar(@segments) > 1 ? 's' : '') .
+                       " of $testsPerSegment test" .
+                       ($testsPerSegment > 1 ? 's' : '') . "\n");
         $lcovutil::profileData{config} = {}
             unless exists($lcovutil::profileData{config});
         $lcovutil::profileData{config}{segments} = scalar(@segments);
