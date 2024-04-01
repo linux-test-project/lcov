@@ -4215,18 +4215,20 @@ sub removeExceptionBranches
                 push(@replace, $br);
             }
         }
-        if (0 == scalar(@replace)) {
-            lcovutil::info(2, "$line: remove exception block $block_id\n");
-
-            $blockData->removeBlock($block_id, $brdata);
-        } else {
+        # If there is only one branch left - then this is not a conditional
+        # perhaps that should be a separate 'orphan' filter
+        if (2 > scalar(@replace)) {
+            lcovutil::info(2,
+                           "$line: remove " .
+                               (1 == scalar(@replace) ? 'orphan ' : '') .
+                               "exception block $block_id\n");
+            $brdata->removeBlock($block_id, $self);
+        } elsif ($modified) {
             @$blockData = @replace;
         }
     }
-    # If there is only one branch left - then this is not a conditional
-    if (2 > scalar($brdata->blocks())) {
-        lcovutil::info(2, "$line: lone block\n")
-            if 1 == scalar($brdata->blocks());
+    if (0 == scalar($brdata->blocks())) {
+        lcovutil::info(2, "$line: no branches remain\n");
         $self->remove($line);
         $modified = 1;
     }
@@ -5719,7 +5721,7 @@ sub _deriveFunctionEndLines
                     } else {
                         my $suffix = lcovutil::explain_once('derive_end_line',
                             "  See lcovrc man entry for 'derive_function_end_line'."
-                            );
+                        );
                         lcovutil::ignorable_error(
                             $lcovutil::ERROR_INCONSISTENT_DATA,
                             '"' . $traceInfo->filenname() .
