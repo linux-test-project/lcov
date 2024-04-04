@@ -140,7 +140,7 @@ These perl packages include:
 If your system is missing any of these, then you may be able to install them
 via:
 
-   $ perl -MCPAN -e 'install "packageName"'
+   $ perl -MCPAN -e 'install(<packageName>)'
 
 You will very likely need superuser access to be able to install Perl
 modules.
