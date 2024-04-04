@@ -3679,10 +3679,11 @@ sub set_end_line
             lcovutil::explain_once('derive_end_line',
                       "  See lcovrc man entry for 'derive_function_end_line'.");
         lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                 '"' . $self->file() . '":' . $self->line() .
-                                     ': function ' . $self->name() .
-                                     " end line $line less than start line." .
-                                     "  Cannot derive function end line.$suffix"
+                                '"' . $self->file() . '":' . $self->line() .
+                                    ': function ' . $self->name() .
+                                    " end line $line less than start line " .
+                                    $self->line() .
+                                    ".  Cannot derive function end line.$suffix"
         );
         return;
     }
