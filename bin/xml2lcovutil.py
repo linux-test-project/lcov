@@ -129,13 +129,13 @@ This is a problem in at least 2 ways:
                     if self._args.verbose:
                         print("source: " + source.text)
             else:
-                print("Error: parse xml fail: no 'sources' in $s" %(xml_file))
+                print("Error: parse xml fail: no 'sources' in %s" %(xml_file))
                 sys.exit(1)
             if(root[1].tag == 'packages'):
                 if (self._args.verbose):
                     print("packages: " + str(root[1].attrib))
             else:
-                print("Error: parse xml fail: no 'packages' in $s" %(xml_file))
+                print("Error: parse xml fail: no 'packages' in %s" %(xml_file))
                 sys.exit(1)
         except Exception as err:
             print("Error: parse xml fail in %s: %s" % (xml_file, str(err)))
