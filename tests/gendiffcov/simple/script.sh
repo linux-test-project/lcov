@@ -172,7 +172,7 @@ echo `which lcov`
 # old version of gcc has inconsistent line/function data
 IFS='.' read -r -a VER <<< `gcc -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
-    IGNORE="--ignore inconsistent"
+    IGNORE="--ignore inconsistent,category"
 fi
 if [ "${VER[0]}" -lt 9 ] ; then
     DERIVE='--rc derive_function_end_line=1'

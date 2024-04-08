@@ -218,6 +218,53 @@ else
     echo "no exceptions identified - so nothing to do"
 fi
 
+# test some filtering options
+$COVER $LCOV_TOOL $LCOV_OPTS -o filtExceptOrphan.info -a example.data --filter exception,orphan 2>&1 | tee exceptOrphanFilter.log
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from execpt/orphan filering"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+$COVER $LCOV_TOOL $LCOV_OPTS -o filtExcept.info -a example.data --filter exception 2>&1 | tee exceptFilter.log
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from except filering"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+$COVER $LCOV_TOOL $LCOV_OPTS -o filtOrphan.info -a example.data --filter orphan 2>&1 | tee orphanFilter.log
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from orphan filering"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+N=`grep -c BRDA: example.data`
+E=`grep -c BRDA: filtExcept.info`
+O=`grep -c BRDA: filtOrphan.info`
+EO=`grep -c BRDA: filtExceptOrphan.info`
+
+# strict ordering
+if [ "$N" -le "$EO" ] ; then
+    echo "exception/orphan count"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+if [ "$E" -le "$EO" ] || [ "$E" -ge "$N" ] ; then
+    echo "exception $E <-> exception/orphan $EO N $N count"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+if [ "$O" -le "$EO" ] || [ "$O" -ge "$N" ] ; then
+    echo "N: $N exception $E orphan $O  <-> exception/orphan $EO count"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
 echo "Tests passed"
 
 if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ]; then

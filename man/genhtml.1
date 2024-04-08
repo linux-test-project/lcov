@@ -2533,6 +2533,14 @@ The patch file specified by the
 argument does not contain any differences.  This may be OK if there were no source code changes between 'baseline' and 'current' (e.g., the only change was to modify a Makefile) - or may indicate an unsupported file format.
 .PP
 
+.IP exception: 3
+Exclude branches related to C++ exception handling from branch coverage.
+Whether C++ exception branches are identified and removed is dependent on your compiler/toolchain correctly marking them in the generated coverage data.
+See the
+.I no_exception_branch
+section of
+.B man lcovrc(5).
+
 .IP excessive: 3
 your coverage data contains a suspiciously large 'hit' count which is unlikely
 to be correct - possibly indicating a bug in your toolchain.
@@ -2609,6 +2617,14 @@ Note that negative counts may be caused by a known GCC bug - see
 
 and try compiling with "-fprofile-update=atomic". You will need to recompile, re-run your tests, and re-capture coverage data.
 .PP
+
+.IP orphan: 3
+Remove branches which appear by themselves -
+.I i.e.,
+the branch has only one destination and so cannot be a conditional.
+.br
+These occur most frequently as a result of exception branch filtering.
+
 
 .IP package: 3
 A required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.

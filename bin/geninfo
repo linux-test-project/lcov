@@ -2213,12 +2213,8 @@ sub read_gcov_file($$$)
         } elsif (/^branch\s+(\d+)\s+taken\s+(\d+)(?:\s+\(([^)]*)\))?/) {
             next
                 if (!$lcovutil::br_coverage ||
-                    $exclude_line           ||
-                    $exclude_branch         ||
-                    (($exclude_exception_branch ||
-                      $lcovutil::exclude_exception_branch) &&
-                     defined($3) &&
-                     ($3 eq "throw")));
+                    $exclude_line ||
+                    $exclude_branch);
             # $1 is block ID, $2 is hit count
             my $count = $2;
             my $br    = BranchBlock->new($branchId, $count, undef,
@@ -2607,7 +2603,6 @@ sub intermediate_json_to_info($)
                 #  the closing brace of the function...
                 $branch_num = 0;
                 $unexec     = (defined($unexec) && $unexec && $count == 0);
-                my %branchRenumber;
 
                 for my $b (@$branches) {
                     my $brcount      = $b->{"count"};
@@ -2615,32 +2610,15 @@ sub intermediate_json_to_info($)
                     # need to keep track of whether compiler thinks this
                     #  branch is an exception - so we can skip it later.
 
-                    if (
-                        !( $is_exception && $lcovutil::exclude_exception_branch)
-                    ) {
-                        if (!defined($brcount) || $unexec) {
-                            $brcount = "-";
-                        }
-                        my $entry =
-                            BranchBlock->new($branch_num, $brcount, undef,
-                                  defined($is_exception) && $is_exception != 0);
-                        if (exists($branchRenumber{$branch_num})) {
-                            $branchRenumber{$branch_num}->merge($entry);
-                        } else {
-                            $branchRenumber{$branch_num} = $entry;
-                        }
-                        ++$branch_num;
+                    if (!defined($brcount) || $unexec) {
+                        $brcount = "-";
                     }
-                }
-                my $id = 0;
-                foreach my $b (sort { $a <=> $b } keys(%branchRenumber)) {
-                    my $br = $branchRenumber{$b};
-                    my $newBr =
-                        BranchBlock->new($id, $br->data(), undef,
-                                         $br->is_exception());
+                    my $entry =
+                        BranchBlock->new($branch_num, $brcount, undef,
+                                  defined($is_exception) && $is_exception != 0);
                     # "block" is always zero for intermediate JSON data
-                    $branchMap->append($line, 0, $newBr, $filename);
-                    ++$id;
+                    $branchMap->append($line, 0, $entry, $filename);
+                    ++$branch_num;
                 }
             }
         }
