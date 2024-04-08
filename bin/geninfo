@@ -271,6 +271,7 @@ if (!lcovutil::parseOptions(\%lcovutil::geninfo_rc_opts, \%geninfo_opts)) {
 $buildDirSearchPath =
     SearchPath->new('build directory',
                  @build_directory ? @build_directory : @lcovutil::rc_build_dir);
+@gcov_tool = @lcovutil::rc_gcov_tool unless @gcov_tool;
 
 # Check regexp
 if (defined($lcovutil::rc_adjust_src_path)) {
