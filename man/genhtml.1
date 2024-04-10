@@ -532,21 +532,25 @@ if the source file is not found by the callback.
 .RE
 
 .IP 2. 3
-The option may be specified as a
+The option may be specified as a single
 .I split_char
-separated string (see
+separated string which is divied into words (see
 .B man lcovrc(5)
-) - which is divied into words.  The resulting command line is passed
-to a shell interpreter to run the script.
-This includes the script path followed by optional additional parameters
+), or as a list of arguments.
+The resulting command line is passed
+to a shell interpreter to be executed.
+The command line includes the script path followed by optional additional parameters
 separated by spaces. Care must be taken to provide proper quoting if script
 path or any parameter contains spaces or shell special characters.
 .PP
 
 .IP 3. 3
-If an option is specified multiple times, all of the parameters are
-split as described above, then concatentated to form the command line.
+If an option is specified multiple times, then the parameters are
+.I not
+split, but are simply concatentated to form the command line - see the examples, below.
 .br
+For simplicity and ease of understanding:  your command line should
+pass all arguments individually, or all as a comma-separated list - not a mix of the two.
 .PP
 
 .IP 4. 3
@@ -562,19 +566,19 @@ Example:
 .RS
 genhtml --annotate-script /bin/script.sh
 .br
-        --annotate-script "full" ...
+        --annotate-script arg0 ...
 .br
 
 results in the same callback as
 
 .br
-genhtml --annotate-script "/bin/script.sh full" ...
+genhtml --annotate-script "/bin/script.sh arg0" ...
 .br
 
 or
 
 .br
-genhtml --annotate-script /bin/script.sh,full ...
+genhtml --annotate-script /bin/script.sh,arg0 ...
 .br
 
 Note that the first form is preferred.
@@ -587,7 +591,7 @@ callback executes the command line:
 .br
 
 .RS
-/bin/script.sh "full"
+/bin/script.sh arg0
 .I source_file_name
 .RE
 .br
@@ -598,13 +602,13 @@ Similarly
 genhtml --annotate-script
 .I /bin/myMoodule.pm
 .br
-        --annotate-script "full" ...
+        --annotate-script arg0 --annotate-script arg1 ...
 .br
 
 or
 .br
 genhtml --annotate-script
-.I /bin/myMoodule.pm,full
+.I /bin/myMoodule.pm,arg0,arg1
 .br
 
 .br
@@ -616,10 +620,14 @@ executing
 .br
 
 .RS
-$annotateCallback = myModule->new("full");
+$annotateCallback = myModule->new(arg0, arg1);
 .RE
 
-to initialize the class object, and then to execute
+to initialize the class object -
+.I arg0
+and 
+.I arg1
+passed as strings - and then to execute
 
 .RS
 ($status, $arrayRef) = $annotateCallback(
@@ -628,6 +636,35 @@ to initialize the class object, and then to execute
 .RE
 
 to retrieve the annotation information.
+
+In contrast, the command
+.br
+.RS
+genhtml --annotate-script
+.I /bin/myMoodule.pm
+.br
+        --annotate-script arg0,arg1 ...
+.RE
+would result in
+.B genhtml
+initializing the callback object via
+.br
+
+.RS
+$annotateCallback = myModule->new("arg0,arg1");
+.RE
+where "arg0,arg1" is passed as single comma-separated string.
+
+Similarly, the command
+.br
+.RS
+genhtml --annotate-script
+.I /bin/myMoodule.pm,arg0
+.br
+        --annotate-script arg1 ...
+.RE
+would very likely result in an error when genhtml tries to find
+a script called "/bin/mymodule.pm,arg0".
 
 
 Note that multiple instances of each script may execute simultaneously if the

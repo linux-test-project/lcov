@@ -868,7 +868,12 @@ sub do_mangle_check
 
 sub configure_callback
 {
-    my @args   = split($lcovutil::split_char, join($lcovutil::split_char, @_));
+    # if there is just one argument, then assume it might be a
+    # concatentation - otherwise, just use straight.
+    my @args =
+        1 == scalar(@_) ?
+        split($lcovutil::split_char, join($lcovutil::split_char, @_)) :
+        @_;
     my $script = $args[0];
     my $rtn;
     if ($script =~ /\.pm$/) {
