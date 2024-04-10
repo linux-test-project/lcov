@@ -4036,10 +4036,11 @@ sub _countBranchTlaData
     my %foundBranchTlas;
     my ($src_age, $developer, $srcLine);
     my $lineTla = $lineData->tla();
+    $srcLine = $self->line($line);
+    $srcLine->branchElem($differentialData);
     if (@SourceFile::annotateScript &&
         !grep(/^$lineTla$/, ('DUB', 'DCB'))) {
         # deleted lines don't have owner data...
-        $srcLine = $self->line($line);
         if (!defined($srcLine)) {
             lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                       "no data for 'branch' line:$line, file:" . $self->path());
@@ -4048,7 +4049,6 @@ sub _countBranchTlaData
             #   library - then we might not have file history for it.
             $src_age   = $srcLine->age();
             $developer = $srcLine->owner();
-            $srcLine->branchElem($differentialData);
 
             if (defined($developer)) {
                 my $shash = $self->[BRANCH_OWNERS];
@@ -4081,8 +4081,8 @@ sub _countBranchTlaData
                 $foundBranchTlas{$tla} = 1;
                 $self->[BRANCH_CATEGORIES]->{$tla} = []
                     unless exists($self->[BRANCH_CATEGORIES]->{$tla});
-                push(@{$self->[BRANCH_CATEGORIES]->{$tla}}, $line);
             }
+            push(@{$self->[BRANCH_CATEGORIES]->{$tla}}, $line);
 
             next
                 if (0 == ($SummaryInfo::tlaLocation{$tla} & 0x1));
@@ -4092,7 +4092,11 @@ sub _countBranchTlaData
             # and the age...
             #lcovutil::info("$l: $tla" . $lineData->in_curr() . "\n");
 
-            next unless defined($srcLine) && defined($src_age);
+            unless (defined($srcLine) && defined($src_age)) {
+                # just count totals
+                $fileSummary->branchCovCount($tla, 'noGroup', undef, 1);
+                next;
+            }
 
             # increment count of branches of this age we found for this TLA
             $fileSummary->branchCovCount($tla, "age", $src_age, 1);
@@ -9364,8 +9368,8 @@ sub write_source_line(*$$$$)
         # '$result' is used to generate the PNG frame
         info(2,
              "    $bucket: line=$line " .
-                 (defined($count) ? "count= $count " : "") . 'curr=' .
-                 (defined($curr_count) ? $curr_count : '-') . 'base=' .
+                 (defined($count) ? "count= $count " : "") . ' curr=' .
+                 (defined($curr_count) ? $curr_count : '-') . ' base=' .
                  (defined($base_count) ? $base_count : '-') . "\n");
     }
     $result .= ":" . $source;
