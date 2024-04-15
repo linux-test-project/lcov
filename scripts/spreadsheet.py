@@ -561,7 +561,11 @@ class GenerateSpreadsheet(object):
                 # process:  time to generate data and write HTML for file
                 # synth:  generate file content (no file found)
                 # source:
-                genhtmlKeys = ('total', 'child', 'annotate', 'synth', 'categorize', 'source', 'check_version', 'html')
+                genhtmlKeys = ['total']
+                for k in ('child', 'startDelay', 'mergeDelay', 'merge', 'annotate', 'synth', 'categorize', 'load', 'source', 'filter', 'check_version', 'html'):
+                    if k in data:
+                        genhtmlKeys.append(k)
+
                 col = 3
                 for k in genhtmlKeys:
                     sheet.write_string(row, col, k)
@@ -588,6 +592,7 @@ class GenerateSpreadsheet(object):
                 sawData['total'] = 0
                 def printDataRow(name):
                     col = 4
+                    nonlocal row
                     for k in genhtmlKeys[1:]:
                         if (k in data and
                             name in data[k]):
@@ -603,17 +608,22 @@ class GenerateSpreadsheet(object):
 
                 def visitScope(f, dirname):
                     pth, name = os.path.split(f)
-                    if None != dirname or pth != dirname:
-                        return
+                    if None != dirname and pth != dirname:
+                        return 0
+                    nonlocal row
                     sheet.write_string(row, 2, name)
                     sheet.write_number(row, 3, fileData[f], twoDecimal)
                     sawData['total'] += 1
                     printDataRow(f)
                     row += 1
+                    return 1
 
-                try:
-                    dirData = data['dir']
-                except:
+                #pdb.set_trace()
+                for d in ('dir', 'directory'):
+                    if d in data:
+                        dirData = data[d]
+                        break
+                else:
                     # hack - 'flat' report doesn't have directory data
                     for f in sorted(fileData.keys()):
                       visitScope(f, None)
@@ -628,9 +638,14 @@ class GenerateSpreadsheet(object):
                     row += 1
 
                     start = row
-
+                    if '/' == dirname[-1]:
+                        dirname = dirname[:-1]
                     for f in sorted(fileData.keys()):
                       visitScope(f, dirname)
+                    if 0 == row-start:
+                        print("error: no files in %s" %(dirname))
+                    elif args.verbose:
+                        print("found %d files in %s" %(row-start, dirname))
 
                 insertStats(genhtmlKeys, sawData, sumRow, avgRow, devRow, begin,
                            row-1, 3)

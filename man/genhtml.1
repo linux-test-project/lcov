@@ -181,6 +181,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .br
 .RB [ \-\-save ]
 .br
+.RB [ \-\-serialize
+.IR serialize_output_file ]
+.br
 .IR tracefile_pattern(s)
 .RE
 .SH DESCRIPTION
@@ -958,6 +961,8 @@ The corresponding summary table is found on the 'directory' page of the default 
 ), or on the parent directory page of the 'hierarchical' report (see
 .I genhtml \-\-hierarchical ...
 ).
+
+Note that this option may significantly increase memory consumption.
 
 .RE
 .BI "\-b " baseline\-file\-pattern
@@ -2832,6 +2837,19 @@ to
 output\-directory.
 
 Keeping copies of the input data files may help to debug any issues or to regenerate report files later.
+
+.RE
+
+.BI "\-\-serialize " file_name
+.RS
+Save coverage database to
+.I file_name.
+
+The file is in Perl "Storable" format.
+
+Note that this option may significantly increase
+.I genhtml
+memory requirements, as a great deal of data must be retained.
 
 .RE
 

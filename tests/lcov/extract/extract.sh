@@ -383,12 +383,10 @@ if [ $EXCL_LINE_BRANCHES != $EXCL_BRANCHES ] ; then
     fi
 fi
 
-
-
 # check to see if "--omit-lines" works properly...
-$COVER $CAPTURE . $LCOV_OPTS --no-external --omit-lines '\s+std::string str.+' -o omit.info
+$COVER $CAPTURE . $LCOV_OPTS --no-external --omit-lines '\s+std::string str.+' -o omit.info 2>&1 | tee omitLines.log
 
-if [ 0 != $? ] ; then
+if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  unexpected error code from lcov --omit"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1

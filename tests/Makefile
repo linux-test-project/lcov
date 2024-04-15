@@ -27,7 +27,7 @@ report:
 	  if [ -f $(PYCOV_DB) ] ; then \
 	    $(BINDIR)/py2lcov -o pycov.info $(PYCOV_DB) --version-script $(VERSION_SCRIPT) ; \
 	  fi ; \
-	  $(BINDIR)/genhtml --parallel -o $(HTML_RPT) perlcov.info pycov.info --show-navigation --flat --branch --show-proportion --version-script $(VERSION_SCRIPT) --annotate-script $(ANNOTATE_SCRIPT) --ignore empty,inconsistent ; \
+	  $(BINDIR)/genhtml --parallel -o $(HTML_RPT) perlcov.info pycov.info --show-navigation --flat --branch --show-proportion --version-script $(VERSION_SCRIPT) --annotate-script $(ANNOTATE_SCRIPT) --ignore empty,inconsistent --save --title 'LCOV regression tests' ; \
 	  cp p*cov.info $(HTML_RPT) ; \
 	  echo "Wrote HTML report to ${HTML_RPT}" ; \
 	fi

@@ -94,6 +94,7 @@ use Storable qw(dclone);
 use FindBin;
 use Time::HiRes;    # for profiling
 use Storable;
+use POSIX;
 
 use lib "$FindBin::RealBin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
@@ -119,6 +120,19 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
 # Global constants
 our $title = "LCOV - differential code coverage report";
 lcovutil::set_tool_name(basename($0));
+
+our $debugScheduler = 0;
+
+# if false, then keep track of only enough information to be able to
+# produce a valid HTML report.
+#   - Do not keep track of everything - say, to enable serialize/deserialize
+#     of the complete coverage DB.
+#   - In practice: this means to throw away the 'FileDetails' structure after
+#     the source file HTML has been constructed.  'FileDetails' is the lion's
+#     share of the memory footprint.
+# This has the effect of reducing memory footprint and improving parallel
+# performance.
+our $buildSerializableDatabase = 0;
 
 # Specify coverage rate limits (in %) for classifying file entries
 # HI:   $hi_limit <= rate <= 100          graph color: green
@@ -2628,14 +2642,15 @@ sub _categorizeLineCov
         my $val = $lineCovCurrent->value($line);
         $linedata->lineNo("current", $line);
         $linedata->curr_count($val);
+        $linedata->tla($val == 0 ? 'UNC' : 'GNC')
+            if (!defined($lineCovBase));
     }
+    return unless (defined($lineCovBase));
 
-    if (defined($lineCovBase)) {
-        foreach my $bline ($lineCovBase->keylist()) {
-            my $linedata = $self->_findLineData($linemap, $filename, $bline);
-            my $val      = $lineCovBase->value($bline);
-            $linedata->base_count($val);
-        }
+    foreach my $bline ($lineCovBase->keylist()) {
+        my $linedata = $self->_findLineData($linemap, $filename, $bline);
+        my $val      = $lineCovBase->value($bline);
+        $linedata->base_count($val);
     }
 
     foreach my $line (keys %$lineDataMap) {
@@ -2686,6 +2701,19 @@ sub _categorizeLineCov
     }
 }
 
+sub _cloneBranchEntry
+{
+    my ($cloneInto, $cloneFrom, $missTla, $hitTla) = @_;
+    foreach my $branchId ($cloneFrom->blocks()) {
+        my $block = $cloneInto->addBlock($branchId);
+        foreach my $br (@{$cloneFrom->getBlock($branchId)}) {
+            my $count = $br->count();
+            my $tla   = (0 == $count) ? $missTla : $hitTla;
+            push(@$block, [$br, $tla, [undef, $count]]);
+        }
+    }
+}
+
 # categorize branch coverage numbers
 sub _categorizeBranchCov
 {
@@ -2732,25 +2760,32 @@ sub _categorizeBranchCov
         # append this branch data for the line
         my $currBranchData = $branchCurrent->value($line);
         $data->current_branch($currBranchData, $filename);
+        if (!defined($branchBaseline)) {
+            my $categorized = BranchEntry->new($line);
+            $data->differential_branch($categorized);
+            _cloneBranchEntry($categorized, $currBranchData, 'UNC', 'GNC');
+        }
     }    # foreach line in 'current' branch data
 
+    return unless defined($branchBaseline);
+
     # now look through the baseline to find matching data
-    if (defined($branchBaseline)) {
-        foreach my $base_line ($branchBaseline->keylist()) {
-            my $data = $self->_findLineData($linemap, $filename, $base_line);
-            my $curr_line = $data->lineNo('current');
-            my $type      = $data->type();
-            if ($type ne 'delete') {
-                $branchCovLines{$curr_line} = 1;
-            } else {
-                # the line has been deleted...just record the data
-                my $deleteKey = "<<<" . $base_line;
-            }
-            my $baseBranchData = $branchBaseline->value($base_line);
-            $data->baseline_branch($baseBranchData, $filename);
-        }    # foreach line in baseline data
-    }
-    # now go through all the branch data for each line, and categorize everything
+
+    foreach my $base_line ($branchBaseline->keylist()) {
+        my $data      = $self->_findLineData($linemap, $filename, $base_line);
+        my $curr_line = $data->lineNo('current');
+        my $type      = $data->type();
+        if ($type ne 'delete') {
+            $branchCovLines{$curr_line} = 1;
+        } else {
+            # the line has been deleted...just record the data
+            my $deleteKey = "<<<" . $base_line;
+        }
+        my $baseBranchData = $branchBaseline->value($base_line);
+        $data->baseline_branch($baseBranchData, $filename);
+    }    # foreach line in baseline data
+
+    # go through all the branch data for each line, and categorize everything
     foreach my $line (keys(%branchCovLines)) {
         my $data        = $self->lineMap()->{$line};
         my $type        = $data->type();
@@ -2768,28 +2803,14 @@ sub _categorizeBranchCov
                 "baseline branch data should not be defined for inserted line $filename:$line"
             ) if defined($base);
 
-            foreach my $branchId (@currBlocks) {
-                my $block = $categorized->addBlock($branchId);
-                foreach my $br (@{$curr->getBlock($branchId)}) {
-                    my $count = $br->count();
-                    my $tla   = (0 == $count) ? 'UNC' : 'GNC';
-                    push(@$block, [$br, $tla, [undef, $count]]);
-                }
-            }
+            _cloneBranchEntry($categorized, $curr, 'UNC', 'GNC');
         } elsif ($type eq 'delete') {
             # similarly: get here if diff data vs baseline/current is not consistent
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                 "current branch data should not be defined for deleted line $filename:$line"
             ) if defined($curr);
 
-            foreach my $branchId (@baseBlocks) {
-                my $block = $categorized->addBlock($branchId);
-                foreach my $br (@{$base->getBlock($branchId)}) {
-                    my $count = $br->count();
-                    my $tla   = (0 == $count) ? 'DUB' : 'DCB';
-                    push(@$block, [$br, $tla, [$count, undef]]);
-                }
-            }
+            _cloneBranchEntry($categorized, $base, 'DUB', 'DCB');
         } else {
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                      "unexpected branch coverage type $type at $filename:$line")
@@ -2857,6 +2878,21 @@ sub _categorizeBranchCov
     }
 }
 
+sub _cloneFunctionEntry
+{
+    my ($cloneInto, $cloneFrom, $missTla, $hitTla) = @_;
+
+    my $hit = $cloneFrom->hit();
+    my $tla = (0 == $hit) ? $missTla : $hitTla;
+    $cloneInto->setCountDifferential([$hit, $tla]);
+    my $aliases = $cloneFrom->aliases();
+    foreach my $alias (keys %$aliases) {
+        $hit = $aliases->{$alias};
+        $tla = (0 == $hit) ? $missTla : $hitTla;
+        $cloneInto->addAliasDifferential($alias, [$hit, $tla]);
+    }
+}
+
 sub _categorizeFunctionCov
 {
     my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
@@ -2898,38 +2934,53 @@ sub _categorizeFunctionCov
         $data->lineNo("current", $line);
         # function data for the line
         $data->current_function($func);
-    }    # foreach function in current data
-    if (defined($funcBase)) {
-        # now look through the baseline to find matching data
-        foreach my $key ($funcBase->keylist()) {
-            my $func = $funcBase->findKey($key);
-            my $line = $func->line();
-            my $data = $self->_findLineData($linemap, $filename, $line);
+        if (!defined($funcBase)) {
+            my $name = $func->name();
+            my $categorized =
+                FunctionEntry->new($name, $funcCurrent,
+                                   $line, $func->end_line());
+            $differentialMap->{$name} = $categorized;
+            $data->differential_function($categorized);
 
-            my $type      = $data->type();
-            my $curr_line = $data->lineNo('current');
-            if ($type ne 'delete') {
-                $funcCovLines{$curr_line} = 1;
-            } else {
-                # the line has been deleted...just record the data
-                my $deleteKey = "<<<" . $line;
-                $funcCovLines{$deleteKey} = 1;
-            }
-            $data->baseline_function($func);
-        }    # foreach function in baseline data
-    }
-    # now go through function data for each line and categorize...
+            _cloneFunctionEntry($categorized, $func, 'UNC', 'GNC');
+        }
+    }    # foreach function in current data
+
+    return unless (defined($funcBase));
+
+    # look through the baseline to find matching data
+    foreach my $key ($funcBase->keylist()) {
+        my $func = $funcBase->findKey($key);
+        my $line = $func->line();
+        my $data = $self->_findLineData($linemap, $filename, $line);
+
+        my $type      = $data->type();
+        my $curr_line = $data->lineNo('current');
+        if ($type ne 'delete') {
+            $funcCovLines{$curr_line} = 1;
+        } else {
+            # the line has been deleted...just record the data
+            my $deleteKey = "<<<" . $line;
+            $funcCovLines{$deleteKey} = 1;
+        }
+        $data->baseline_function($func);
+    }    # foreach function in baseline data
+
+    # go through function data for each line and categorize...
     foreach my $line (keys %funcCovLines) {
         my $data = $lineDataMap->{$line};
         my $type = $data->type();
         my $curr = $data->current_function();
         my $base = $data->baseline_function();
-        my $name = defined($curr) ? $curr->name() : $base->name();
-        my $categorized =
-            FunctionEntry->new($name, $filename, $line,
-                               defined($curr) ? $curr->end_line() : undef);
+        my $categorized;
+        if (defined($curr)) {
+            $categorized = $curr->cloneWithEndLine(1);  # also copy the end lien
+        } else {
+            $categorized = $base->cloneWithEndLine(0)
+                ;    # not in current - don't copy end line
+        }
+        my $name = $categorized->name();
         $differentialMap->{$name} = $categorized;
-
         $data->differential_function($categorized);
 
         if (!defined($base)) {
@@ -2938,32 +2989,16 @@ sub _categorizeFunctionCov
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                 "$filename:$line: unexpected undef baseline function data for deleted $name"
             ) if $type eq 'delete';
-            my $hit = $curr->hit();
-            my $tla = ((0 == $hit) ? ($type eq 'insert' ? 'UNC' : 'UIC') :
-                           ($type eq 'insert' ? 'GNC' : 'GIC'));
-            $categorized->setCountDifferential([$hit, $tla]);
-            my $aliases = $curr->aliases();
-            foreach my $alias (keys %$aliases) {
-                $hit = $aliases->{$alias};
-                $tla = ((0 == $hit) ? ($type eq 'insert' ? 'UNC' : 'UIC') :
-                            ($type eq 'insert' ? 'GNC' : 'GIC'));
-                $categorized->addAliasDifferential($alias, [$hit, $tla]);
-            }
+            _cloneFunctionEntry($categorized, $curr,
+                                $type eq 'insert' ? 'UNC' : 'UIC',
+                                $type eq 'insert' ? 'GNC' : 'GIC');
         } elsif (!defined($curr)) {
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                 "$filename:$line: unexpected undef current function data for inserted $name"
             ) if $type eq 'insert';
-            my $hit = $base->hit();
-            my $tla = ((0 == $hit) ? ($type eq 'delete' ? 'DUB' : 'EUB') :
-                           ($type eq 'delete' ? 'DCB' : 'ECB'));
-            $categorized->setCountDifferential([$hit, $tla]);
-            my $aliases = $base->aliases();
-            foreach my $alias (keys %$aliases) {
-                $hit = $aliases->{$alias};
-                $tla = ((0 == $hit) ? ($type eq 'delete' ? 'DUB' : 'EUB') :
-                            ($type eq 'delete' ? 'DCB' : 'ECB'));
-                $categorized->addAliasDifferential($alias, [$hit, $tla]);
-            }
+            _cloneFunctionEntry($categorized, $base,
+                                $type eq 'delete' ? 'DUB' : 'EUB',
+                                $type eq 'delete' ? 'DCB' : 'ECB');
         } else {
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                    "unexpected function coverage type $type at $filename:$line")
@@ -4028,6 +4063,40 @@ sub new
     return $self;
 }
 
+sub simplify
+{
+    my $self = shift;
+    # retain only the information required to populate the hyperlinks in
+    #   the parent 'diretory details' table
+    # This struct can be huge, for a large, complicated file
+    $self->[INTERESTING_LINES] = undef;
+    # retain only first entry in each author/age bin
+    my %keep;
+    foreach
+        my $bin (LINE_OWNERS, LINE_CATEGORIES, BRANCH_OWNERS, BRANCH_CATEGORIES)
+    {
+        while (my ($key, $list) = each(%{$self->[$bin]})) {
+            if ('ARRAY' eq ref($list)) {
+                # retain only the first entry
+                splice(@$list, 1);
+                $keep{$list->[0]} = 1;
+            } else {
+                die("unexpected type") unless 'HASH' eq ref($list);
+                while (my ($tla, $l) = each(%$list)) {
+                    # retain only the first entry
+                    splice(@$l, 1);
+                    $keep{$l->[0]} = 1;
+                }
+            }
+        }
+    }
+    for (my $l = $self->num_lines(); $l > 0; --$l) {
+        if (!exists($keep{$l})) {
+            $self->[LINES]->[$l - 1] = undef;
+        }
+    }
+}
+
 sub _countBranchTlaData
 {
     my ($self, $line, $lineData, $fileSummary) = @_;
@@ -4037,14 +4106,14 @@ sub _countBranchTlaData
     my ($src_age, $developer, $srcLine);
     my $lineTla = $lineData->tla();
     $srcLine = $self->line($line);
-    $srcLine->branchElem($differentialData);
-    if (@SourceFile::annotateScript &&
-        !grep(/^$lineTla$/, ('DUB', 'DCB'))) {
-        # deleted lines don't have owner data...
-        if (!defined($srcLine)) {
-            lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
+    if (!defined($srcLine)) {
+        lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                       "no data for 'branch' line:$line, file:" . $self->path());
-        } else {
+    } else {
+        $srcLine->branchElem($differentialData);
+        if (@SourceFile::annotateScript &&
+            !grep(/^$lineTla$/, ('DUB', 'DCB'))) {
+            # deleted lines don't have owner data...
             # if this line is not in the project (e.g., from some 3rd party
             #   library - then we might not have file history for it.
             $src_age   = $srcLine->age();
@@ -4824,6 +4893,9 @@ sub _load
     # Check if file exists and is readable
     my $begin = Time::HiRes::gettimeofday();
     if (!-r $path) {
+        # perhaps this error should be ignorable: if the source is not
+        #  found and the 'source' error is ignored, then synthesize
+        # Note that we can't extract version data from synthesized code.
         if ($main::synthesizeMissingFile ||
             # don't complain if we weren't going to do anything with the file -
             # not generating source view and not checking versions or annotating
@@ -5041,9 +5113,17 @@ sub count
 
 package GenHtml;
 
-our $WORKLIST_IDX  = 1;
-our $PENDING_IDX   = 2;
-our $CHILDDATA_IDX = 3;
+use constant {
+              TOP              => 0,
+              WORKLIST         => 1,
+              PENDING          => 2,
+              JOBS             => 3,
+              CHILD_DATA       => 4,
+              RETRY_COUNT      => 5,
+              TMPDIR           => 6,
+              DELAY_TIMER      => 7,
+              CURRENT_PARALLEL => 8,
+};
 
 sub new
 {
@@ -5054,16 +5134,20 @@ sub new
            {}, # %pending; # map of name->list of as-yet incomplete dependencies
                # This task can be scheduled as soon as its last dependency
                #  is complete.
+           [], # jobs which are to be scheduled for execution
            {}, # childData - for callback
+           {}, # jobID -> fail count for this job
            File::Temp->newdir("genhtml_XXXX",
                               DIR     => $lcovutil::tmp_dir,
-                              CLEANUP => 1)
+                              CLEANUP => 1),
+           0,    # delay timer
+           0     # current count of parallel jobs
     ];
     bless $self, $class;
 
-    lcovutil::info(1, "Writing temporary data to " . $self->[4] . "\n");
-    my $pending           = $self->[$PENDING_IDX];
-    my $worklist          = $self->[$WORKLIST_IDX];
+    lcovutil::info(1, "Writing temporary data to " . $self->[TMPDIR] . "\n");
+    my $pending           = $self->[PENDING];
+    my $worklist          = $self->[WORKLIST];
     my $top_level_summary = $self->[0];
     # no parent data for top-level
     my $toplevelPerTestData =
@@ -5080,7 +5164,8 @@ sub new
                       {}
     ];
 
-    foreach my $f ($current_data->files()) {
+    # sort the worklist so segment will tend to contain files from the same directory
+    foreach my $f (sort $current_data->files()) {
         my $traceInfo = $current_data->data($f);
         my $filename  = ReadCurrentSource::resolve_path($traceInfo->filename());
         my ($vol, $parentDir, $file) = File::Spec->splitpath($filename);
@@ -5197,6 +5282,9 @@ sub new
             $dir = $d;
         }
     }
+    $lcovutil::profileData{mergeDelayTimer} = $self->[DELAY_TIMER];
+    printf("overall delay: %0.3fs\n", $self->[DELAY_TIMER])
+        if $main::debugScheduler;
     return $self;
 }
 
@@ -5220,16 +5308,19 @@ sub completed_dependency
     # return 0 when last dependency is removed
     my ($self, $parent, $name) = @_;
 
-    my $pending = $self->[$PENDING_IDX];
+    my $pending = $self->[PENDING];
     die("missing pending '$parent'")
         unless exists($pending->{$parent});
     my $pendingParent = $pending->{$parent};
     die("missing pending entry for $name (in $parent")
         unless exists($pendingParent->[1]->{$name});
     delete($pendingParent->[1]->{$name});
+    print("completed $name -> $parent " . scalar(%{$pendingParent->[1]}) . "\n")
+        if $main::debugScheduler > 1;
+
     if (!%{$pendingParent->[1]}) {
         # no more dependencies - schedule this one
-        push(@{$self->[$WORKLIST_IDX]}, $pendingParent->[0]);
+        push(@{$self->[WORKLIST]}, $pendingParent->[0]);
         delete($pending->{$parent});
     }
 }
@@ -5295,237 +5386,447 @@ sub compute_one
                                   ".", "", undef, $perTestData);
     }
     $summary->checkCoverageCriteria();
+    if ('file' eq $type &&
+        1 < $lcovutil::maxParallelism &&
+        !($main::buildSerializableDatabase || $main::show_details)) {
+
+        if ($main::no_sourceview ||
+            $main::frames ||
+            !$main::show_tla) {
+            $summary->[SummaryInfo::FILE_DETAILS] = undef;
+        } elsif ($main::show_tla) {
+            # just store the location fo the first coverpoint in each display
+            #   group - rather than returning the whole detail structure?
+            $summary->[SummaryInfo::FILE_DETAILS]->simplify();
+        }
+    }
+
     return $perTestData;
+}
+
+sub _waitChild
+{
+    my ($self, $waitForPending, $noHang) = @_;
+
+    my $currentSize = 0;
+    my $consumption = 0;
+    if (0 != $lcovutil::maxMemory) {
+        $currentSize = lcovutil::current_process_size();
+        $consumption = ($self->[CURRENT_PARALLEL] + 1) * $currentSize;
+    }
+
+    my $reaped = 0;
+    if ($waitForPending ||
+        $self->[CURRENT_PARALLEL] >= $lcovutil::maxParallelism ||
+        ($self->[CURRENT_PARALLEL] > 1 && $consumption > $lcovutil::maxMemory)
+    ) {
+
+        my $children = $self->[CHILD_DATA];
+
+        # wait here for child:
+        #   - while we are oversubscribed
+        #       - too many parallel jobs or
+        #       - consuming too much memory), OR
+        #   - if the worklist is empty but there are pending jobs
+        #       - the pending jobs will be put onto the worklist when
+        #         their dependency finishes
+        my $worklist = $self->[WORKLIST];
+        my $pending  = $self->[PENDING];
+        lcovutil::info(1,
+            "memory constraint ($consumption > $lcovutil::maxMemory violated: waiting."
+                . (scalar(@$worklist) + scalar(keys(%$pending)))
+                . " remaining\n")
+            if ($consumption > $lcovutil::maxMemory);
+        my $start = Time::HiRes::gettimeofday();
+        my $child = wait();
+        my $end   = Time::HiRes::gettimeofday();
+        $self->[DELAY_TIMER] += $end - $start;
+        return 0 unless $child > 0;
+        my $childstatus = $?;
+
+        unless (exists($children->{$child})) {
+            lcovutil::report_unknown_child($child);
+            return $reaped;
+        }
+        $self->merge_child($child, $childstatus);
+
+        $reaped += 1;
+    }
+    if ($noHang) {
+        while (1) {
+            my $start = Time::HiRes::gettimeofday();
+            my $child = waitpid(-1, POSIX::WNOHANG);
+            if (0 < $child) {
+                my $end = Time::HiRes::gettimeofday();
+                $self->[DELAY_TIMER] += $end - $start;
+                my $childstatus = $?;
+                my $children    = $self->[CHILD_DATA];
+                unless (exists($children->{$child})) {
+                    lcovutil::report_unknown_child($child);
+                    next;
+                }
+                $self->merge_child($child, $childstatus);
+                $reaped += 1;
+            } else {
+                last;
+            }
+        }
+    }
+    print("reaped $reaped current:", $self->[CURRENT_PARALLEL],
+          " jobs:", scalar(@{$self->[JOBS]}),
+          " work:", scalar(@{$self->[WORKLIST]}),
+          " pending:", scalar(%{$self->[PENDING]}),
+          "\n") if ($main::debugScheduler && $reaped);
+
+    return $reaped;
+}
+
+sub _reschedule
+{
+    my ($self, $jobID, $jobs) = @_;
+    # clean up
+    foreach my $task (@$jobs) {
+        my $selfSummary = $task->[1];
+        $selfSummary->unsetDirs();    # reset state
+    }
+    push(@{$self->[JOBS]}, [$jobs, $jobID]);    # put job back
+    print(" reschedule $jobID current:",
+          $self->[CURRENT_PARALLEL],
+          " jobs: ", scalar(@{$self->[JOBS]}), "\n")
+        if $main::debugScheduler;
+}
+
+sub _report_fail_and_reschedule
+{
+    my ($self, $jobId, $jobs, $childPid, $reason) = @_;
+    my $counts = $self->[RETRY_COUNT];
+    if (exists($counts->{$jobId})) {
+        $counts->{$jobId} += 1;
+    } else {
+        $counts->{$jobId} = 1;
+    }
+    lcovutil::report_fork_failure("compute job $jobId (child $childPid)",
+                                  $reason, 0, $counts->{$jobId});
+    $self->_reschedule($jobId, $jobs);
+}
+
+sub _process_child
+{
+    my ($self, $jobs, $jobId, $startTime) = @_;
+
+    # clear the profile data - we want just my contribution
+    my $childStart   = Time::HiRes::gettimeofday();
+    my $tmp          = '' . $self->[TMPDIR];
+    my $stdout_file  = File::Spec->catfile($tmp, "genhtml_$$.log");
+    my $stderr_file  = File::Spec->catfile($tmp, "genhtml_$$.err");
+    my $currentState = lcovutil::initial_state();
+    # clear counters so we store count only what we saw in the child
+    $SourceFile::annotatedFiles = 0;
+    $SourceFile::totalFiles     = 0;
+
+    my $status = 0;
+    my @rtnData;
+    my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+
+        foreach my $t (@$jobs) {
+            my ($task, $sSummary, $rel_dir, $full_dir_path, $base_dir,
+                $trunc_dir)
+                = @$t;
+            my @taskData;
+            push(@rtnData, \@taskData);
+
+            my ($type, $data, $short_path, $path, $parentData) = @$task;
+            my ($selfSummary, $perTestData, $name) = @$data;
+            die("inconsistent")
+                unless $selfSummary == $sSummary;
+            my ($parentSummary, $parentPerTestData, $parentPath);
+            ($parentSummary, $parentPerTestData, $parentPath) =
+                @{$parentData->[0]->[1]}
+                unless 'top' eq $type;
+
+            eval {
+                my $thisTestData =
+                    compute_one($type, $name, $selfSummary, $parentSummary,
+                                $perTestData, $rel_dir, $base_dir, $trunc_dir);
+
+                # clear the parent pointer that we hacked into place.  Don't want that
+                #   extra data returned by dumper.
+                $selfSummary->[SummaryInfo::PARENT]  = undef;
+                $selfSummary->[SummaryInfo::SOURCES] = {}
+                    if $selfSummary->type() ne 'file';
+                my $objname =
+                    $selfSummary->type() eq 'top' ? "" : $selfSummary->name();
+                my $criteria = $SummaryInfo::coverageCriteria{$objname}
+                    if exists($SummaryInfo::coverageCriteria{$objname});
+
+                push(@taskData,
+                     $thisTestData, $parentPerTestData,
+                     $selfSummary, $criteria);
+            };    # eval
+            if ($@) {
+                $status = 1;
+                print(STDERR $@);
+                # @todo maybe this should be an ignorable error
+                next;
+            }
+
+        }    # foreach
+    };    # end capture
+          # print stdout and stderr ...
+    foreach my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
+        next
+            unless ($d->[1]);    # only print if there is something to print
+        my $f = InOutFile->out($d->[0]);
+        my $h = $f->hdl();
+        print($h $d->[1]);
+    }
+
+    my $file     = File::Spec->catfile($tmp, "dumper_$$");
+    my $childEnd = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{child}{$jobId} = $childEnd - $childStart;
+    my $data;
+    eval {
+        $data = Storable::store([\@rtnData,
+                                 [$SourceFile::annotatedFiles,
+                                  $SourceFile::totalFiles
+                                 ],
+                                 lcovutil::compute_update($currentState),
+                                 [$childStart, $childEnd]
+                                ],
+                                $file);
+        my $done = Time::HiRes::gettimeofday();
+        printf("  %d: dump %d %d jobs %0.3fs %0.3fMb %s\n",
+               $jobId, $$, scalar(@$jobs),
+               $done - $childEnd,
+               (-f $file ? (-s $file) : 0) / (1024 * 1024),
+               DateTime->now())
+            if ($main::debugScheduler);
+    };
+    if ($@ || !defined($data)) {
+        lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                  "Job $jobId: child $$ serialize failed" . ($@ ? ": $@" : ''));
+        $status = 1;
+    }
+    return $status;
+}
+
+sub _segment_worklist
+{
+    my ($self, $segmentID) = @_;
+    my $worklist = $self->[WORKLIST];
+
+    my $nTasks = scalar(@$worklist);
+    # how many cores are available?
+    my $nCores = $lcovutil::maxParallelism - $self->[CURRENT_PARALLEL];
+    # let's distribute them evenly
+    #   could be more sophisticated and look at the compute time used
+    #   by each of those tasks previously - then balance the expected load
+    my $tasksPerCore =
+        $lcovutil::maxParallelism > 1 ? ($nTasks + $nCores - 1) / $nCores :
+        1;
+    $tasksPerCore = $lcovutil::max_tasks_per_core
+        if ($tasksPerCore > $lcovutil::max_tasks_per_core);
+    while (@$worklist &&
+           scalar(@{$self->[JOBS]}) <= $nCores) {
+        my @jobs;
+        push(@{$self->[JOBS]}, [\@jobs, $segmentID++]);
+        foreach my $task (splice(@$worklist, 0, $tasksPerCore)) {
+
+            my ($type, $data, $short_path, $path, $parentData) = @$task;
+            my ($selfSummary, $perTestData, $name) = @$data;
+            #main::info("$type: $name\n");
+            # break initialization into 2 statements - see
+            # https://stackoverflow.com/questions/26676488/why-is-the-variable-not-available
+            my ($parentSummary, $parentPerTestData, $parentPath);
+            ($parentSummary, $parentPerTestData, $parentPath) =
+                @{$parentData->[0]->[1]}
+                unless 'top' eq $type;
+
+            my $rel_dir;
+            my $full_dir_path;
+            if ($type eq 'file') {
+                $rel_dir =
+                    File::Spec->catdir(@{$short_path}[0 .. $#$short_path - 1]);
+                die("file error for " . File::Spec->catdir(@$short_path))
+                    if '' eq $rel_dir;
+                $full_dir_path = File::Spec->catdir(@{$path}[0 .. $#$path - 1]);
+            } elsif ($type eq 'dir') {
+                $rel_dir       = File::Spec->catdir(@$short_path);
+                $full_dir_path = File::Spec->catdir(@$path);
+            } else {
+                $rel_dir       = '.';
+                $full_dir_path = '.';
+            }
+
+            my $p = File::Spec->catdir($main::output_directory, $rel_dir);
+            File::Path::make_path($p) unless -d $p;
+            my $base_dir  = main::get_relative_base_path($rel_dir);
+            my $trunc_dir = ($rel_dir eq '') ? 'root' : $rel_dir;
+
+            push(@jobs,
+                 [$task, $selfSummary, $rel_dir,
+                  $full_dir_path, $base_dir, $trunc_dir
+                 ]);
+        }    # foreach task assigned to this core
+    }
+    return $segmentID;
 }
 
 sub compute
 {
     my $self = shift;
 
-    my $currentParallel = 0;
-    my $worklist        = $self->[$WORKLIST_IDX];
-    my $pending         = $self->[$PENDING_IDX];
-    my $children        = $self->[$CHILDDATA_IDX];
-    my $failedAttempts  = 0;
-    WORK: while (@$worklist ||
-                 %$pending) {
+    my $worklist       = $self->[WORKLIST];
+    my $pending        = $self->[PENDING];
+    my $joblist        = $self->[JOBS];
+    my $children       = $self->[CHILD_DATA];
+    my $failedAttempts = 0;
+    my $segmentID      = 0;
+
+    WORK:
+    while ($self->[CURRENT_PARALLEL] ||
+           @$joblist  ||
+           @$worklist ||
+           %$pending) {
 
         if (1 < $lcovutil::maxParallelism) {
-
-            my $currentSize = 0;
-            my $consumption = 0;
-            if (0 != $lcovutil::maxMemory) {
-                $currentSize = lcovutil::current_process_size();
-                $consumption = ($currentParallel + 1) * $currentSize;
-            }
-
-            if ($currentParallel >= $lcovutil::maxParallelism ||
-                ($currentParallel > 1 && $consumption > $lcovutil::maxMemory)
-                ||
-                (0 == @$worklist && %$pending)
-            ) {
-                # wait here for child:
-                #   - while we are oversubscribed
-                #       - too many parallel jobs or
-                #       - consuming too much memory), OR
-                #   - if the worklist is empty but there are pending jobs
-                #       - the pending jobs will be put onto the worklist when
-                #         their dependency finishes
-                # Should not be able to get here unless $currentParallel > 0:
-                # some tasks are running
-                lcovutil::info(1,
-                    "memory constraint ($consumption > $lcovutil::maxMemory violated: waiting."
-                        . (scalar(@$worklist) + scalar(keys(%$pending)))
-                        . " remaining\n")
-                    if ($consumption > $lcovutil::maxMemory);
-                my $child       = wait();
-                my $childstatus = $?;
-                unless (exists($children->{$child})) {
-                    lcovutil::report_unknown_child($child);
-                    next WORK;
-                }
-                --$currentParallel;
-                $self->merge_child($child, $childstatus);
+            # wait here for child:
+            #   - while we are oversubscribed
+            #       - too many parallel jobs or
+            #       - consuming too much memory), OR
+            #   - if the worklist is empty and there are no jobs ready to
+            #     go (these are jobs which failed and were reschedule - e.g.,
+            #     due to out-of-memory).
+            #     There are two possibilities:
+            #       - there are pending jobs:
+            #         they will be put on the worklist when their dependency
+            #         finishes (at least one of those dependencies must be
+            #         running now - we could go check that...)
+            #       - there are no pending jobs:  so there must be just
+            #         one remaining top-level job currently running -
+            #         when it finishes, we are done.
+            # Also do a nonblocking wait here to collect any children that
+            #   have finished - so we have a better chance to parallelize
+            #   more/have more tasks that we can dispatch
+            print(" currentParallel:",
+                  $self->[CURRENT_PARALLEL],
+                  " pending:", scalar(%$pending), "\n")
+                if ($main::debugScheduler > 1 ||
+                    ($main::debugScheduler &&
+                     0 == scalar(@$worklist) &&
+                     0 == scalar(@$joblist)));
+            if ($self->_waitChild(
+                            0 == scalar(@$worklist) && 0 == scalar(@$joblist), 1
+            )) {
+                # reaped at least one child process
                 next WORK;
             }
         }
-        die("unexpected empty worklist??") unless @$worklist;
-        my $task = pop(@$worklist);
-        my ($type, $data, $short_path, $path, $parentData) = @$task;
-        my ($selfSummary, $perTestData, $name) = @$data;
-        #main::info("$type: $name\n");
-        # break initialization into 2 statements - see
-        # https://stackoverflow.com/questions/26676488/why-is-the-variable-not-available
-        my ($parentSummary, $parentPerTestData, $parentPath);
-        ($parentSummary, $parentPerTestData, $parentPath) =
-            @{$parentData->[0]->[1]}
-            unless 'top' eq $type;
+        die("unexpected empty worklist??") unless (@$worklist || @$joblist);
+        # schedule a few items from the worklist if we can..
+        $segmentID = $self->_segment_worklist($segmentID);
 
-        my $start = Time::HiRes::gettimeofday();
-
-        my $rel_dir;
-        my $full_dir_path;
-        if ($type eq 'file') {
-            $rel_dir =
-                File::Spec->catdir(@{$short_path}[0 .. $#$short_path - 1]);
-            die("file error for " . File::Spec->catdir(@$short_path))
-                if '' eq $rel_dir;
-            $full_dir_path =
-                File::Spec->catdir(@{$path}[0 .. $#$path - 1]);
-        } elsif ($type eq 'dir') {
-            $rel_dir       = File::Spec->catdir(@$short_path);
-            $full_dir_path = File::Spec->catdir(@$path);
-        } else {
-            $rel_dir       = '.';
-            $full_dir_path = '.';
-        }
-        # keep track of where this data is stored - need it later for
-        #  top-level 'flat' view
-        $selfSummary->relativeDir($rel_dir);
-        $selfSummary->fullDir($full_dir_path);
-
-        my $p = File::Spec->catdir($main::output_directory, $rel_dir);
-        File::Path::make_path($p) unless -d $p;
-        my $base_dir  = main::get_relative_base_path($rel_dir);
-        my $trunc_dir = ($rel_dir eq '') ? 'root' : $rel_dir;
-
-        if (1 < $lcovutil::maxParallelism) {
-            $lcovutil::deferWarnings = 1;
-            my $annotateCount = $SourceFile::annotatedFiles;
-            my $totalCount    = $SourceFile::totalFiles;
-            my $pid           = fork();
-            if (!defined($pid)) {
-                # fork failed
-                ++$failedAttempts;
-                lcovutil::report_fork_failure("process $name",
-                                              $!, $failedAttempts);
-                $selfSummary->unsetDirs();    # reset state
-                push(@$worklist, $task);      # put job back
-                next;
+        while (@$joblist) {
+            if (1 < $lcovutil::maxParallelism) {
+                # need to wait here if insufficient resources
+                #  (only wait until resource available - pending and
+                #  worklist are managed above)
+                my $reaped = $self->_waitChild(0);
+                die("unexpected reap count $reaped") if $reaped > 1;
             }
-            $failedAttempts = 0;
-            if (0 == $pid) {
-                # I'm the child
-                # clear the profile data - we want just my contribution
-                my $childStart   = Time::HiRes::gettimeofday();
-                my $tmp          = '' . $self->[4];
-                my $stdout_file  = File::Spec->catfile($tmp, "genhtml_$$.log");
-                my $stderr_file  = File::Spec->catfile($tmp, "genhtml_$$.err");
-                my $currentState = lcovutil::initial_state();
-                my $status       = 0;
-                my $criteria;
-                my $thisTestData;
-                my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+            my $d = pop(@$joblist);
+            my ($jobs, $jobId) = @$d;
 
-                    eval {
-                        $thisTestData =
-                            compute_one($type, $name,
-                                        $selfSummary, $parentSummary,
-                                        $perTestData, $rel_dir,
-                                        $base_dir, $trunc_dir);
+            my $start = Time::HiRes::gettimeofday();
+            foreach my $task (@$jobs) {
+                # keep track of where this data is stored - need it later for
+                #  top-level 'flat' view
+                my $selfSummary = $task->[1];
+                my $relDir      = $task->[2];
+                my $fullDir     = $task->[3];
+                $selfSummary->relativeDir($relDir);
+                $selfSummary->fullDir($fullDir);
+            }
 
-                        # clear the parent pointer that we hacked into place.  Don't want that
-                        #   extra data returned by dumper.
-                        $selfSummary->[SummaryInfo::PARENT]  = undef;
-                        $selfSummary->[SummaryInfo::SOURCES] = {}
-                            if $selfSummary->type() ne 'file';
-                        my $name =
-                            $selfSummary->type() eq 'top' ? "" :
-                            $selfSummary->name();
-                        $criteria = $SummaryInfo::coverageCriteria{$name}
-                            if exists($SummaryInfo::coverageCriteria{$name});
-                    };
-                    if ($@) {
-                        $status = 1;
-                        print(STDERR $@);
-                    }
-                };    # end capture
-                      # print stdout and stderr ...
-                foreach
-                    my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
-                    next
-                        unless ($d->[1])
-                        ;    # only print if there is something to print
-                    my $f = InOutFile->out($d->[0]);
-                    my $h = $f->hdl();
-                    print($h $d->[1]);
+            # distribute this job to parallel execution unless there is
+            #   nothing else running.  In that case, we won't continue
+            #   until this job is finished - so might as well do it
+            #   locally and not incur parallelism overhead.
+            if (1 < $lcovutil::maxParallelism &&
+                ($self->[CURRENT_PARALLEL] > 0 ||
+                    0 != scalar(@$joblist) ||
+                    scalar(@$jobs) > 1)
+            ) {
+                $lcovutil::profileData{nJobs}{$jobId} = scalar(@$jobs);
+
+                $lcovutil::deferWarnings = 1;
+                my $pid = fork();
+                if (!defined($pid)) {
+                    # fork failed
+                    ++$failedAttempts;
+                    # report_fork_failure sleeps a bit if it doesn't error out
+                    lcovutil::report_fork_failure("process segment $jobId",
+                                                  $!, $failedAttempts);
+                    # put job back into schedule
+                    $self->_reschedule($jobId, $jobs);
+                    next;
                 }
-
-                my $file = File::Spec->catfile($tmp, "dumper_$$");
-
-                my $childEnd = Time::HiRes::gettimeofday();
-                $lcovutil::profileData{child}{$name} = $childEnd - $childStart;
-                eval {
-                    Storable::store(
-                                 [$thisTestData,
-                                  $parentPerTestData,
-                                  $selfSummary,
-                                  $criteria,
-                                  [$SourceFile::annotatedFiles - $annotateCount,
-                                   $SourceFile::totalFiles - $totalCount
-                                  ],
-                                  lcovutil::compute_update($currentState)
-                                 ],
-                                 $file);
-                };
-                if ($@) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                                              "Child $$ serialize failed: $!");
+                # fork succeeded - so reset 'consecutive fails' counter
+                $failedAttempts = 0;
+                if (0 == $pid) {
+                    # I'm the child
+                    my $status = $self->_process_child($jobs, $jobId, $start);
+                    exit($status);
+                } else {
+                    $children->{$pid} = [$jobs, $jobId, $start];
+                    ++$self->[CURRENT_PARALLEL];
+                    print("forked $jobId current: ",
+                          $self->[CURRENT_PARALLEL],
+                          " jobs:", scalar(@$joblist), "\n")
+                        if $main::debugScheduler;
                 }
-                exit($status);
             } else {
-                $children->{$pid} = [$selfSummary, $name, $parentData, $start];
-                ++$currentParallel;
+                #not parallel
+                lcovutil::info(1, "serial execution of task $jobId\n")
+                    if ($lcovutil::maxParallelism > 1);
+                die("unexpected distribution") unless 1 == scalar(@$jobs);
+                my ($task, $sSummary, $rel_dir, $full_dir_path,
+                    $base_dir, $trunc_dir)
+                    = @{$jobs->[0]};
+
+                my ($type, $data, $short_path, $path, $parentData) = @$task;
+                my ($selfSummary, $perTestData, $name) = @$data;
+                die("inconsistent") unless $selfSummary == $sSummary;
+                my ($parentSummary, $parentPerTestData, $parentPath);
+                ($parentSummary, $parentPerTestData, $parentPath) =
+                    @{$parentData->[0]->[1]}
+                    unless 'top' eq $type;
+
+                my $thisTestData =
+                    compute_one($type, $name, $selfSummary, $parentSummary,
+                                $perTestData, $rel_dir, $base_dir, $trunc_dir);
+
+                $self->merge_one($parentPerTestData, $name,
+                                 $thisTestData, $selfSummary,
+                                 $parentSummary, $parentPath);
+                my $end = Time::HiRes::gettimeofday();
+                $lcovutil::profileData{$type}{$name} = $end - $start;
             }
-        } else {
-            #not parallel
-
-            my $thisTestData =
-                compute_one($type, $name, $selfSummary, $parentSummary,
-                            $perTestData, $rel_dir, $base_dir, $trunc_dir);
-
-            $self->merge_one($parentPerTestData, $name, $thisTestData,
-                             $selfSummary, $parentSummary, $parentPath);
-            my $end = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{$type}{$name} = $end - $start;
-        }
-    }    # foreach
-
-    while ($currentParallel != 0) {
-        my $child       = wait();
-        my $childstatus = $?;
-        unless (exists($children->{$child})) {
-            lcovutil::report_unknown_child($child);
-            next;
-        }
-        --$currentParallel;
-        my ($summary, $fullname, $parentSummary, $parentPath, $now) =
-            @{$children->{$child}};
-        if ($summary->type() ne 'top') {
-            # tail processing should see only the top-level object -
-            #  all other objects should have dependencies which would cause
-            #  them to be processed in the loop above
-            die("did not expect to get here.." .
-                $summary->type() . " $currentParallel");
-        }
-        $self->merge_child($child, $childstatus);
-    }
+        }    # while (job list not empty)
+    }    # while (work remains)
 }
 
 sub merge_child($$$)
 {
+    my $mergeStart = Time::HiRes::gettimeofday();
     my ($self, $childPid, $childstatus) = @_;
-    my $children = $self->[$CHILDDATA_IDX];
+    my $children = $self->[CHILD_DATA];
 
-    my ($childSummary, $fullname, $parentData, $start) =
-        @{$children->{$childPid}};
+    --$self->[CURRENT_PARALLEL];
+    my ($jobs, $jobId, $start) = @{$children->{$childPid}};
     delete($children->{$childPid});
-    my $type = $childSummary->type();
-    my ($parentSummary, $parentPerTestData, $parentPath);
-    ($parentSummary, $parentPerTestData, $parentPath) = @{$parentData->[0]->[1]}
-        unless $type eq 'top';
 
-    my $tmp      = '' . $self->[4];
+    my $tmp      = '' . $self->[TMPDIR];
     my $dumpfile = File::Spec->catfile($tmp, "dumper_$childPid");
     my $childLog = File::Spec->catfile($tmp, "genhtml_$childPid.log");
     my $childErr = File::Spec->catfile($tmp, "genhtml_$childPid.err");
@@ -5543,49 +5844,81 @@ sub merge_child($$$)
         } else {
             $f = "unable to open $f: $!";
             if (0 == $childstatus) {
-                lcovutil::report_parallel_error('lcov',
+                lcovutil::report_parallel_error('genhtml',
                                     $lcovutil::ERROR_PARALLEL, $childPid, 0, $f,
                                     keys(%$children));
             }
         }
     }
+    my $signal = $childstatus & 0xFF;
     print(STDOUT $childLog)
-        if (0 != $childstatus ||
-            $lcovutil::verbose);
+        if ((0 != $childstatus &&
+             $signal != POSIX::SIGKILL &&
+             $lcovutil::max_fork_fails != 0) ||
+            $lcovutil::verbose >= 0);
     print(STDERR $childErr);
 
     # now undump the data ...
-    my $data = Storable::retrieve($dumpfile)
-        if -f $dumpfile;
-    if (defined($data)) {
+    my $dStart = Time::HiRes::gettimeofday();
+    my $dumped = Storable::retrieve($dumpfile)
+        if (-f $dumpfile && 0 == $childstatus);
+    my $dEnd = Time::HiRes::gettimeofday();
+    printf("  %d restore %d: %0.3fs %s (parallel %d)\n",
+           $jobId, $childPid, $dEnd - $dStart,
+           DateTime->now(), $self->[CURRENT_PARALLEL])
+        if $main::debugScheduler;
+
+    if (defined($dumped)) {
         eval {
-            my ($perTest, $pPerTestData, $summary, $criteria, $countData,
-                $update)
-                = @$data;
-            die("unexpected restored count data")
-                if (($type eq 'file' && $countData->[1] != 1) ||
-                    ($type ne 'file' &&
-                     $countData->[1] != 0));
+            my ($jobData, $countData, $update, $otherData) = @$dumped;
+
+            die("error processing child")
+                if (scalar(@$jobData) != scalar(@$jobs));
 
             $SourceFile::annotatedFiles += $countData->[0];
             $SourceFile::totalFiles     += $countData->[1];
             lcovutil::update_state(@$update);
-            $childSummary->copyGuts($summary);
-            $self->merge_one($parentPerTestData, $fullname, $perTest,
-                             $childSummary, $parentSummary, $parentPath, 1);
-            # and save the deserialized criteria data
-            if (defined($criteria)) {
-                my $name =
-                    $childSummary->type() eq 'top' ? "" : $childSummary->name();
-                $SummaryInfo::coverageCriteria{$name} = $criteria;
-                $criteria->[1] = 0 if $criteria->[1] eq '';
-                my $v = $criteria->[1];
-                die('unexpected criteria data \'' .
-                    join(' ', @$criteria) . '\'')
-                    unless (Scalar::Util::looks_like_number($v));
-                $SummaryInfo::coverageCriteriaStatus =
-                    ($v != 0 || 0 != scalar(@{$criteria->[2]})) ? $v : 0;
-            }
+
+            $lcovutil::profileData{startDelay}{$jobId} =
+                $otherData->[0] - $start;
+            $lcovutil::profileData{mergeDelay}{$jobId} =
+                $mergeStart - $otherData->[1];
+
+            foreach my $t (@$jobs) {
+                my $task = $t->[0];
+                my ($type, $data, $short_path, $fullname, $parentData) = @$task;
+                my ($childSummary, $perTestData, $name) = @$data;
+                my ($parentSummary, $parentPerTestData, $parentPath);
+                ($parentSummary, $parentPerTestData, $parentPath) =
+                    @{$parentData->[0]->[1]}
+                    unless 'top' eq $type;
+
+                my $taskData = shift(@$jobData);
+                # there was an error while processing the child
+                die("error processing child " . scalar(@$taskData))
+                    if (scalar(@$taskData) != 4);
+
+                my ($thisTestData, $pPerTestData, $summary, $criteria) =
+                    @$taskData;
+                $childSummary->copyGuts($summary);
+                $self->merge_one($parentPerTestData, $name, $thisTestData,
+                                 $childSummary, $parentSummary, $parentPath, 1);
+
+                # and save the deserialized criteria data
+                if (defined($criteria)) {
+                    my $name =
+                        $childSummary->type() eq 'top' ? "" :
+                        $childSummary->name();
+                    $SummaryInfo::coverageCriteria{$name} = $criteria;
+                    $criteria->[1] = 0 if $criteria->[1] eq '';
+                    my $v = $criteria->[1];
+                    die('unexpected criteria data \'' .
+                        join(' ', @$criteria) . '\'')
+                        unless (Scalar::Util::looks_like_number($v));
+                    $SummaryInfo::coverageCriteriaStatus =
+                        ($v != 0 || 0 != scalar(@{$criteria->[2]})) ? $v : 0;
+                }
+            }    # foreach job
         };
         if ($@) {
             $childstatus = 1 << 8 unless $childstatus;
@@ -5596,13 +5929,26 @@ sub merge_child($$$)
                              keys(%$children));
         }
     }
-    if (0 != $childstatus) {
-        lcovutil::report_parallel_error('genhtml', $lcovutil::ERROR_CHILD,
-                       $childPid, $childstatus, "error during child processing",
-                       keys(%$children));
+    if (!-f $dumpfile) {
+        $self->_report_fail_and_reschedule($jobId, $jobs, $childPid,
+                                         "serialized data $dumpfile not found");
+    } elsif (!defined($dumped) || $childstatus != 0) {
+        my $signal = $childstatus & 0xFF;
+        if (POSIX::SIGKILL == $signal) {
+            $self->_report_fail_and_reschedule($jobId, $jobs, $childPid,
+                                "killed by OS - possibly due to out-of-memory");
+        } else {
+            #print("stdout: $childLog\nstderr: $childErr\n");
+            my $msg = "compute job $jobId";
+            $msg .= ": unable to deserialize $dumpfile"
+                unless defined($dumped);
+            lcovutil::report_parallel_error('genhtml', $lcovutil::ERROR_CHILD,
+                               $childPid, $childstatus, $msg, keys(%$children));
+        }
     }
     my $end = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{$type}{$fullname} = $end - $start;
+    $lcovutil::profileData{segment}{$jobId}       = $end - $start;
+    $lcovutil::profileData{merge_segment}{$jobId} = $end - $mergeStart;
 
     unlink $dumpfile
         if -f $dumpfile;
@@ -5769,6 +6115,7 @@ my %genhtml_rc_opts = (
                'genhtml_date_bins' => \@rc_date_bins,);
 
 my $save;
+my $serialize;
 my %genhtml_options = (
                  "output-directory|o=s" => \$output_directory,
                  "header-title=s"       => \$header_title,
@@ -5805,6 +6152,8 @@ my %genhtml_options = (
                  "highlight"         => \$highlight,
                  "legend"            => \$legend,
                  'save'              => \$save,
+                 'serialize=s'       => \$serialize,
+                 'scheduler+'        => \$debugScheduler,
                  "html-prolog=s"     => \$html_prolog_file,
                  "html-epilog=s"     => \$html_epilog_file,
                  "html-extension=s"  => \$html_ext,
@@ -5824,6 +6173,8 @@ if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
+
+$buildSerializableDatabase = 1 if $serialize;
 
 # Copy related values if not specified
 $ln_hi_limit  = $hi_limit if (!defined($ln_hi_limit));
@@ -6051,10 +6402,16 @@ $html_prolog = get_html_prolog($html_prolog_file);
 $html_epilog = get_html_epilog($html_epilog_file);
 
 # Issue a warning if --no-sourceview is enabled together with --frames
-if ($no_sourceview && defined($frames)) {
-    lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+if (defined($frames)) {
+    if ($no_sourceview) {
+        lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
              "option --frames disabled because --no-sourceview was specified.");
-    $frames = undef;
+        $frames = undef;
+    } elsif ($show_tla) {
+        lcovutil::info(
+            "Note:  file table to source location navigation hyperlinks are disabled when --frames is enabled\n"
+        );
+    }
 }
 
 # Issue a warning if --no-prefix is enabled together with --prefix
@@ -6101,7 +6458,7 @@ if ($save && $output_directory)
         next unless defined($from);
         my $to = File::Spec->catfile($output_directory,
                                      File::Basename::basename($from));
-        File::Copy::copy($from, $to);
+        File::Copy::copy($from, $to) unless -f $to;
     }
 }
 
@@ -6176,6 +6533,16 @@ if (0 == $exit_status && @SummaryInfo::coverageCriteriaScript) {
     # fail for signal or status
     $exit_status = (($SummaryInfo::coverageCriteriaStatus & 0xFF) |
                     ($SummaryInfo::coverageCriteriaStatus >> 8));
+}
+
+if ($serialize) {
+    #my $f = File::Spec->catfile($output_directory, 'coverage.dat');
+    my $data;
+    eval { $data = Storable::store($top, $serialize); };
+    if ($@ || !defined($data)) {
+        print("unable to serialize coverage data", $@ ? ": $@" : '');
+        $exit_status = 1;
+    }
 }
 
 lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'));
@@ -6745,10 +7112,9 @@ sub process_file($$$$$)
         if $lcovutil::br_coverage && $br_found != 0;
     info($r . "\n");
 
-    my $fileHasNoBaselineInfo = (
-                                !defined($fileBase) || ($fileBase->is_empty() &&
-                                                $main::treatNewFileAsBaseline &&
-                                                @main::base_filenames));
+    my $fileHasNoBaselineInfo = $main::treatNewFileAsBaseline &&
+        (!defined($fileBase) ||
+         ($fileBase->is_empty() && @main::base_filenames));
     # if this file is older than the baseline and there is no associated
     #   baseline data - then it appears to have been added to the build
     #   recently
@@ -6763,6 +7129,8 @@ sub process_file($$$$$)
     #     source code is older than baseline file
     my $srcfile = SourceFile->new($filename, $fileSummary, $fileCovInfo,
                                   $sumcount, $fileHasNoBaselineInfo);
+    my $endSrc = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{source}{$filename} = $endSrc - $then;
     if ($srcfile->is_empty()) {
         return;
     }
@@ -8575,7 +8943,10 @@ sub write_file_table_entry(*$$@)
     }
 
     my $tableHref;
-    if (defined($file_link)) {
+    if (defined($file_link) &&
+        !$main::no_sourceview &&
+        $main::show_tla       &&
+        defined($fileDetails)) {
         if ($main::frames) {
             # href to anchor in frame doesn't seem to work in either firefox
             #   or chrome.  However, this seems like the right syntax.
@@ -8720,9 +9091,8 @@ END_OF_HTML
                             grep(/^$key$/, ("UNC", "LBC", "UIC")));
 
                     # look in file details to build link to first line
-                    if (!$main::no_sourceview &&
-                        defined($tableHref)             &&
-                        defined($fileDetails)           &&
+                    # '$tableHref is undef unless the data we need is available
+                    if (defined($tableHref) &&
                         !grep(/^$key$/, ('DUB', 'DCB')) &&
                         grep(/^$key$/, @SummaryInfo::tlaPriorityOrder)) {
                         my $line;
@@ -8730,6 +9100,9 @@ END_OF_HTML
                             $main::use_legacyLabels ?
                             $SummaryInfo::tlaToLegacySrcLabel{$key} :
                             $key;
+                        # need to keep $fileDetails object so we know the
+                        #  'first location in ...' for hyperlink from the
+                        #  file table to the line in the file
                         my $title = "\"Go to first $label " .
                             SummaryInfo::type2str($covType) . ' ';
                         if ('fileOrDir' eq $page_type) {
@@ -9316,7 +9689,7 @@ sub write_source_line(*$$$$)
         #   line - right before the count.
         $tla = $cbdata->tla($bucket, $line);
         my $class = "tla$bucket";
-        if ($tla =~ /$bucket/) {
+        if ($main::show_tla && $tla =~ /$bucket/) {
             # maybe we want to link only the uncovered code categories?
             my $next = $sourceDetail->nextTlaGroup($bucket, $line);
             $tlaIsHref = 1;
@@ -9380,27 +9753,29 @@ sub write_source_line(*$$$$)
     }
     $result .= ":" . $source;
 
-    my $tooltip  = $SourceFile::annotateTooltip;
-    my $lineData = $sourceDetail->line($line);
-    my $commitId = $lineData->commit();
-    if ($tooltip ne '' &&
-        defined($commitId) &&
-        $commitId ne 'NONE') {
-        my $date = $lineData->date();
-        $date =~ s/(T.+)$//;    # just the year/month/day part
-        foreach my $p (['%U', $lineData->owner()],
-                       ['%F', $lineData->full_name()],
-                       ['%D', $lineData->date()],
-                       ['%d', $date],
-                       ['%A', $lineData->age()],
-                       ['%C', $commitId],
-                       ['%l', $line],
-        ) {
-            $tooltip =~ s/$p->[0]/$p->[1]/g;
+    my $tooltip =
+        @SourceFile::annotateScript ? $SourceFile::annotateTooltip : '';
+    if ($tooltip ne '') {
+        my $lineData = $sourceDetail->line($line);
+        my $commitId = $lineData->commit();
+        if (defined($commitId) &&
+            $commitId ne 'NONE') {
+            my $date = $lineData->date();
+            $date =~ s/(T.+)$//;    # just the year/month/day part
+            foreach my $p (['%U', $lineData->owner()],
+                           ['%F', $lineData->full_name()],
+                           ['%D', $lineData->date()],
+                           ['%d', $date],
+                           ['%A', $lineData->age()],
+                           ['%C', $commitId],
+                           ['%l', $line],
+            ) {
+                $tooltip =~ s/$p->[0]/$p->[1]/g;
+            }
+            $tooltip = " title=\"$tooltip\"";
+        } else {
+            $tooltip = '';
         }
-        $tooltip = " title=\"$tooltip\"";
-    } else {
-        $tooltip = '';
     }
     # Write out a line number navigation anchor every $nav_resolution
     # lines if necessary
@@ -9485,8 +9860,9 @@ sub write_source_line(*$$$$)
             #   date bin has not changed from the previous line)
             my $tlaChanged = defined($bucket) && $prevData[0] ne $bucket;
 
-            my $needOwnerHref = ($tlaChanged ||
-                              (defined($bucket) && $prevData[1] ne $src_owner));
+            my $needOwnerHref = @SourceFile::annotateScript &&
+                ($tlaChanged ||
+                 (defined($bucket) && $prevData[1] ne $src_owner));
 
             my $newBin = SummaryInfo::findAgeBin($src_age);
             defined($prevData[2]) || $line == 1 or

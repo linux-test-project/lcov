@@ -2264,12 +2264,12 @@ sub get_hash_reverse($)
 # apply_diff_to_funcdata(funcdata, line_hash)
 #
 
-sub apply_diff_to_funcdata($$)
+sub apply_diff_to_funcdata($$$)
 {
-    my ($funcdata, $linedata) = @_;
+    my ($filename, $funcdata, $linedata) = @_;
     my $last_new  = get_hash_max($linedata);
     my $last_old  = $linedata->{$last_new};
-    my $result    = FunctionMap->new();
+    my $result    = FunctionMap->new($filename);
     my $line_diff = get_hash_reverse($linedata);
 
     foreach my $key ($funcdata->keylist()) {
@@ -2291,7 +2291,7 @@ sub apply_diff_to_funcdata($$)
         }
         my $aliases = $func->aliases();
         foreach my $alias (keys %$aliases) {
-            $result->define_function($alias, $func->file(), $line, $end_line);
+            $result->define_function($alias, $line, $end_line);
             $result->add_count($alias, $aliases->{$alias});
         }
     }
@@ -2556,8 +2556,8 @@ sub diff()
             # Move function call count data to new testname
             $testfncdata->replace($diffname,
                                   apply_diff_to_funcdata(
-                                                 $testfncdata->value($testname),
-                                                 $line_hash));
+                                      $filename, $testfncdata->value($testname),
+                                      $line_hash));
             $testfncdata->remove($testname);
             # Move branch count data to new testname
             $testbrdata->replace($diffname, $testbrdata->value($testname));
@@ -2566,7 +2566,7 @@ sub diff()
         # Convert summary of test data
         $sumcount = apply_diff($sumcount, $line_hash);
         # Convert function data
-        $funcdata = apply_diff_to_funcdata($funcdata, $line_hash);
+        $funcdata = apply_diff_to_funcdata($filename, $funcdata, $line_hash);
         # Convert branch coverage data
         $sumbrcount = apply_diff($sumbrcount, $line_hash);
         # Update found/hit numbers

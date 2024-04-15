@@ -2217,8 +2217,19 @@ Tells genhtml, lcov, or geninfo the number of consecutive fork() failures
 to ignore during
 .I \-\-parallel
 execution before giving up.
+Note that genhtml/lcov/geninfo fail and stop immediately unless the
+.I fork
+error message ignored - either via the
+.I ignore_errors
+directive (above), the
+.I \-\-ignore\-errors
+command line option, or if
+.I stop_on_error
+is disabled or the
+.I \-\-keep-going
+command line option is used.
 
-The default is 5.
+The default fork failure maximum is 5.
 
 .PP
 
@@ -2229,6 +2240,16 @@ Tells genhtml, lcov, or geninfo how long to wait after a fork() failure
 before retrying.
 
 The default is 10 (seconds).
+
+.PP
+
+.BR max_tasks_per_core " ="
+.IR integer
+.IP
+This is the maximum number of files that genhtml will handle in a single
+child process during parallel execution.
+
+The default is 20.
 
 .PP
 

@@ -129,7 +129,8 @@ SELECT=${SCRIPT_DIR}/select.pm
 
 
 LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PARALLEL $PROFILE"
-DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PROFILE $PARALLEL"
+DIFFCOV_NOFRAME_OPTS=" $PROFILE --function-coverage --branch-coverage --highlight --demangle-cpp --prefix $PARENT --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PARALLEL"
+DIFFCOV_OPTS="$DIFFCOV_NOFRAME_OPTS --frame"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
@@ -315,8 +316,8 @@ fi
 gzip -c baseline_nobranch.info > baseline_nobranch.info.gz
 #genhtml baseline.info --output-directory ./baseline
 
-echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline $IGNORE --rc memory_percentage=50
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline.info --output-directory ./baseline --save $IGNORE --rc memory_percentage=50
+echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline.info --output-directory ./baseline --save $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline failed"
     status=1
@@ -324,6 +325,14 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+if [ ! -f ./baseline/coverage.dat ] ; then
+    echo "ERROR: no serialzied data found"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 # expect not to see differential categories...
 
 echo lcov $LCOV_OPTS --filter branch,line --capture --directory . --output-file baseline-filter.info $IGNORE
@@ -481,11 +490,12 @@ diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > dif
 # change the default annotation tooltip so grep commands looking for
 #  owner table entries doesn't match accidentally
 #  No spaces to avoid escaping quote substitutions
+#  No frames - so directory table link to first TLA in file are shown
 POPUP='--rc genhtml_annotate_tooltip=mytooltip'
 for opt in "" --dark-mode --flat ; do
   outDir=./noncode_differential$opt
-  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $IGNORE $POPUP
-  $COVER $GENHTML_TOOL $DIFFCOV_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT --save $IGNORE $POPUP
+  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $IGNORE $POPUP
+  $COVER $GENHTML_TOOL $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT --save $IGNORE $POPUP
   if [ 0 != $? ] ; then
       echo "ERROR: genhtml $outdir failed (1)"
       status=1
@@ -493,6 +503,25 @@ for opt in "" --dark-mode --flat ; do
           exit 1
       fi
   fi
+
+  #look for navigation links in index.html files
+  if [ -f $outDir/simple/index.html ] ; then
+      indexDir=$outDir/simple
+  else
+      # flat view - so the navigation links should be at top level
+      indexDir=$outDir
+  fi
+  for f in $indexDir/index.html ; do
+      grep -E 'href=.*#L[0-9]+.*Go to first ' $f
+      if [ 0 != $? ] ; then
+          status=1
+          echo "ERROR:  no navigation links in $f"
+          if [ 0 == $KEEP_GOING ] ; then
+              exit 1
+          fi
+      fi
+  done
+
   # expect to see non-code owners 'rupert.psmith' and 'pelham.wodehouse' in file annotations
   FILE=`find $outDir -name test.cpp.gcov.html`
   for owner in rupert.psmith pelham.wodehouse ; do
@@ -531,8 +560,8 @@ for opt in "" --dark-mode --flat ; do
 done
 
 # check that this works with test names
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $IGNORE --description names.data
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT $IGNORE --description names.data
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $IGNORE --description names.data --serialize differential_named/coverage.dat
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT $IGNORE --description names.data --serialize differential_named/coverage.dat
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential testname failed"
     status=1
@@ -1066,8 +1095,8 @@ fi
 
 # test '--show-navigation' option
 # need "--ignore-unused for gcc/10.2.0 - which doesn't see code in its c++ headers
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' ./current.info $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' $GENHTML_PORT ./current.info $IGNORE > navigation.log 2> navigation.err
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NOFRAME_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' ./current.info $IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_NOFRAME_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' $GENHTML_PORT ./current.info $IGNORE > navigation.log 2> navigation.err
 
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml --show-navigation failed"
@@ -1086,6 +1115,17 @@ if [[ $HIT != '3' || $MISS != '2' ]] ; then
         exit 1
     fi
 fi
+#look for navigation links in index.html files
+for f in navigation/simple/index.html ; do
+    grep -E 'href=.*#L[0-9]+.*Go to first ' $f
+    if [ 0 != $? ] ; then
+        status=1
+        echo "ERROR:  no navigation links in $f"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
 # look for unexpected naming in HTML
 for tla in GNC UNC ; do
     grep "next $tla in" ./navigation/simple/test.cpp.gcov.html

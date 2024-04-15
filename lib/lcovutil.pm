@@ -20,6 +20,7 @@ use FindBin;
 use Getopt::Long;
 use DateTime;
 use Config;
+use POSIX;
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
@@ -232,9 +233,10 @@ our $max_fork_fails    = 5;     # consecutive failures
 our $fork_fail_timeout = 10;    # how long to wait, in seconds
 our $maxMemory;                 # zero indicates no memory limit to parallelism
 our $memoryPercentage;
-our $in_child_process = 0;
+our $in_child_process   = 0;
+our $max_tasks_per_core = 20;    # maybe default to 0?
 
-our $lcov_filter_parallel = 1;    # enable by default
+our $lcov_filter_parallel = 1;   # enable by default
 our $lcov_filter_chunk_size;
 
 sub default_info_impl(@);
@@ -1110,6 +1112,7 @@ my %rc_common = (
              "memory"                  => \$lcovutil::maxMemory,
              "memory_percentage"       => \$lcovutil::memoryPercentage,
              "max_fork_fails"          => \$lcovutil::max_fork_fails,
+             "max_tasks_per_core"      => \$lcovutil::max_tasks_per_core,
              "fork_fail_timeout"       => \$lcovutil::fork_fail_timeout,
              'source_directory'        => \@rc_source_directories,
 
@@ -1677,11 +1680,12 @@ sub message_count($)
 sub is_ignored($)
 {
     my $code = shift;
-
-    return ($code < scalar(@ignore) && $ignore[$code]);
+    die("invalid error code $code")
+        unless 0 <= $code && $code < scalar(@ignore);
+    return $ignore[$code];
 }
 
-our %explainOnce;    # append explanation only once
+our %explainOnce;    # append explanation to first error/warning message (only)
 
 sub explain_once
 {
@@ -2036,20 +2040,23 @@ sub report_unknown_child
 
 sub report_fork_failure
 {
-    my ($when, $code, $failedAttempts) = @_;
+    my ($when, $errcode, $failedAttempts) = @_;
     if ($failedAttempts > $lcovutil::max_fork_fails) {
         lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-            "$failedAttempts consecutive fork() failures:  consider reduced parallelism or increase the max_fork_fails limit in your lcovrc"
+            "$failedAttempts consecutive fork() failures:  consider reduced parallelism or increase the max_fork_fails limit.  See man(5) lcovrc."
         );
     }
     my $explain = explain_once('fork_fail',
                                ["\n\tUse '$tool_name --ignore_errors " .
                                     $ERROR_NAME{$ERROR_FORK} .
                                     "' to bypass error and retry.",
-                                $ignore[$code] == 0
+                                $ignore[$lcovutil::ERROR_FORK] == 0
                                ]);
+    my $retry =
+        lcovutil::is_ignored($lcovutil::ERROR_FORK) ? ' (retrying)' : '';
     lcovutil::ignorable_error($lcovutil::ERROR_FORK,
-                  "fork() syscall failed while trying to $when: $code$explain");
+                              "fork() syscall failed while trying to $when: " .
+                                  $errcode . $retry . $explain);
     # if errors were ignored, then we wait for a while (in parent)
     #  before re-trying.
     sleep($lcovutil::fork_fail_timeout);
@@ -2058,10 +2065,11 @@ sub report_fork_failure
 sub report_exit_status
 {
     my ($errType, $message, $exitstatus, $prefix, $suffix) = @_;
-    die("expected to be called for a failure") unless $exitstatus;
-    my $status  = $exitstatus >> 8;
-    my $signal  = $exitstatus & 0xFF;
-    my $explain = "$prefix returned non-zero exit status $status" .
+    my $status = $exitstatus >> 8;
+    my $signal = $exitstatus & 0xFF;
+    my $explain =
+        "$prefix " .
+        ($exitstatus ? "returned non-zero exit status $status" : 'failed') .
         MessageContext::context();
     if ($signal) {
         $explain =
@@ -2080,7 +2088,7 @@ sub report_parallel_error
 {
     my $operation   = shift;
     my $errno       = shift;
-    my $id          = shift;
+    my $pid         = shift;
     my $childstatus = shift;
     my $msg         = shift;
     # kill all my remaining children so user doesn't see unexpected console
@@ -2088,7 +2096,7 @@ sub report_parallel_error
     #  temp directory has been deleted, and so forth)
     kill(9, @_) if @_ && !is_ignored($errno);
     report_exit_status($errno, "$operation: '$msg'",
-                       $childstatus, "child $id",
+                       $childstatus, "child $pid",
                        " (try removing the '--parallel' option)");
 }
 
@@ -3617,7 +3625,7 @@ package FunctionEntry;
 use constant {
               NAME    => 0,
               ALIASES => 1,
-              FILE    => 2,
+              MAP     => 2,
               FIRST   => 3,    # start line
               COUNT   => 4,
               LAST    => 5,
@@ -3625,12 +3633,21 @@ use constant {
 
 sub new
 {
-    my ($class, $name, $filename, $startLine, $endLine) = @_;
+    my ($class, $name, $map, $startLine, $endLine) = @_;
+    die("unexpected type " . ref($map)) unless 'FunctionMap' eq ref($map);
     my %aliases = ($name => 0);    # not hit, yet
-    my $self    = [$name, \%aliases, $filename, $startLine, 0, $endLine];
+    my $self    = [$name, \%aliases, $map, $startLine, 0, $endLine];
 
     bless $self, $class;
     return $self;
+}
+
+sub cloneWithEndLine
+{
+    my ($self, $withEnd) = @_;
+    return
+        FunctionEntry->new($self->[NAME], $self->[MAP], $self->[FIRST],
+                           $withEnd ? $self->[LAST] : undef);
 }
 
 sub name
@@ -3642,7 +3659,7 @@ sub name
 sub filename
 {
     my $self = shift;
-    return $self->[FILE];
+    return $self->[MAP]->filename();
 }
 
 sub hit
@@ -3686,7 +3703,7 @@ sub numAliases
 sub file
 {
     my $self = shift;
-    return $self->[FILE];
+    return $self->[MAP]->filename();
 }
 
 sub line
@@ -3841,11 +3858,17 @@ sub findMyBranches
 
 package FunctionMap;
 
-sub new
+sub new($$)
 {
-    my $class = shift;
-    my $self  = [{}, {}];    # [locationMap, nameMap]
+    my ($class, $filename) = @_;
+    my $self = [{}, {}, $filename];    # [locationMap, nameMap]
     bless $self, $class;
+}
+
+sub filename
+{
+    my $self = shift;
+    return $self->[2];
 }
 
 sub keylist
@@ -3871,31 +3894,31 @@ sub list_functions
 
 sub define_function
 {
-    my ($self, $fnName, $filename, $start_line, $end_line) = @_;
-    #lcovutil::info("define: $fnName $filename:$start_line->$end_line\n");
+    my ($self, $fnName, $start_line, $end_line) = @_;
+    #lcovutil::info("define: $fnName " . $self->$filename() . ":$start_line->$end_line\n");
     # could check that function ranges within file are non-overlapping
-
     my ($locationMap, $nameMap) = @$self;
 
-    my $key = $filename . ":" . $start_line;
     my $data;
-    if (exists($locationMap->{$key})) {
-        $data = $locationMap->{$key};
-        lcovutil::ignorable_error(
-                    $lcovutil::ERROR_INCONSISTENT_DATA,
-                    "mismatched end line for $fnName at $filename:$start_line: "
-                        .
-                        (
-                        defined($data->end_line()) ? $data->end_line() : 'undef'
-                        ) .
-                        " -> " . (defined($end_line) ? $end_line : 'undef'))
+    if (exists($locationMap->{$start_line})) {
+        $data = $locationMap->{$start_line};
+        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                  "mismatched end line for $fnName at " .
+                                      $self->filename() . ":$start_line: "
+                                      .
+                                      (defined($data->end_line()) ?
+                                           $data->end_line() : 'undef') .
+                                      " -> "
+                                      .
+                                      (defined($end_line) ? $end_line : 'undef')
+            )
             unless ((defined($end_line) &&
                      defined($data->end_line()) &&
                      $end_line == $data->end_line()) ||
                     (!defined($end_line) && !defined($data->end_line())));
     } else {
-        $data = FunctionEntry->new($fnName, $filename, $start_line, $end_line);
-        $locationMap->{$key} = $data;
+        $data = FunctionEntry->new($fnName, $self, $start_line, $end_line);
+        $locationMap->{$start_line} = $data;
     }
     if (!exists($nameMap->{$fnName})) {
         $nameMap->{$fnName} = $data;
@@ -3913,7 +3936,7 @@ sub findName
 
 sub findKey
 {
-    my ($self, $key) = @_;
+    my ($self, $key) = @_;    # key is the start line of the function
     my $locationMap = $self->[0];
     return exists($locationMap->{$key}) ? $locationMap->{$key} : undef;
 }
@@ -3986,14 +4009,16 @@ sub union
         my $thisData;
         if (!exists($myData->{$key})) {
             $thisData =
-                $self->define_function($thatData->name(), $thatData->file(),
-                                       $thatData->line(), $thatData->end_line()
-                );
+                $self->define_function($thatData->name(),
+                                      $thatData->line(), $thatData->end_line());
             $changed = 1;    # something new...
         } else {
             $thisData = $myData->{$key};
-            if ($thisData->line() != $thatData->line() ||
-                $thisData->file() ne $thatData->file()) {
+            if (!($thisData->line() == $thatData->line()
+                  && ($thisData->file() eq $thatData->file() ||
+                      ($lcovutil::case_insensitive &&
+                        lc($thisData->file()) eq lc($thatData->file())))
+            )) {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                                "function data mismatch at " .
                                    $thatData->file() . ":" . $thatData->line());
@@ -4002,7 +4027,7 @@ sub union
         }
         # merge in all the new aliases
         while (my ($alias, $count) = each(%{$thatData->aliases()})) {
-            $self->define_function($alias, $thisData->file(), $thisData->line(),
+            $self->define_function($alias, $thisData->line(),
                                    $thisData->end_line())
                 unless ($self->findName($alias));
             if ($thisData->addAlias($alias, $count)) {
@@ -4087,7 +4112,7 @@ sub remove
     die("expected FunctionEntry - " . ref($entry))
         unless 'FunctionEntry' eq ref($entry);
     my ($locationMap, $nameMap) = @$self;
-    my $key = $entry->file() . ":" . $entry->line();
+    my $key = $entry->line();
     foreach my $alias (keys %{$entry->aliases()}) {
         delete($nameMap->{$alias});
     }
@@ -4124,6 +4149,7 @@ sub removeBranches
             if (defined($filter) && $br->is_exception()) {
                 --$branches->[CountData::FOUND];
                 --$branches->[CountData::HIT] if 0 != $br->count();
+                #lcovutil::info($srcReader->fileanme() . ": $line: remove exception branch\n");
                 $modified = 1;
                 ++$count;
             } else {
@@ -4133,11 +4159,16 @@ sub removeBranches
         if ($count) {
             @$blockData = @replace;
             ++$filter->[0] if $isMasterData;
+            lcovutil::info(2,
+                           "$line: remove $count exception branch" .
+                               (1 == $count ? '' : 'es') . "\n")
+                if $isMasterData;
             $filter->[1] += $count;
         }
         # If there is only one branch left - then this is not a conditional
         if (0 == scalar(@replace)) {
             lcovutil::info(2, "$line: remove exception block $block_id\n");
+            lcovutil::info("$line: remove exception block $block_id\n");
             $brdata->removeBlock($block_id, $branches);
         } elsif (1 == scalar(@replace) &&
                  defined($self->[1])) {    # filter orphan
@@ -4627,7 +4658,7 @@ sub new
 
     # function: [FunctionMap:  function_name->FunctionEntry,
     #            tescase_name -> FucntionMap ]
-    $self->[FUNCTION_DATA] = [FunctionMap->new(), MapData->new()];
+    $self->[FUNCTION_DATA] = [FunctionMap->new($filename), MapData->new()];
 
     return $self;
 }
@@ -4766,7 +4797,7 @@ sub testfnc
     }
 
     if (!$data->mapped($testname)) {
-        $data->append_if_unset($testname, FunctionMap->new());
+        $data->append_if_unset($testname, FunctionMap->new($self->filename()));
     }
 
     return $data->value($testname);
@@ -5452,7 +5483,8 @@ sub serialize
 {
     my ($self, $filename) = @_;
 
-    Storable::store($self, $filename);
+    my $data = Storable::store($self, $filename);
+    die("serialize failed") unless defined($data);
 }
 
 sub deserialize
@@ -5881,7 +5913,7 @@ sub _deriveFunctionEndLines
 
         # now look for this function in each testcase -
         #  set the same endline (if not already set)
-        my $key = $func->file() . ':' . $first;
+        my $key = $first;
         foreach my $tn ($funcData->keylist()) {
             my $d = $funcData->value($tn);
             my $f = $d->findKey($key);
@@ -6160,7 +6192,9 @@ sub _filterFile
 sub _mergeParallelChunk
 {
     # called from parent
-    my ($self, $tmp, $child, $children, $childstatus, $store) = @_;
+    my ($self, $tmp, $child, $children, $childstatus, $store, $worklist,
+        $childRetryCounts)
+        = @_;
 
     my ($chunk, $forkAt, $chunkId) = @{$children->{$child}};
     my $dumped   = File::Spec->catfile($tmp, "dumper_$child");
@@ -6188,65 +6222,72 @@ sub _mergeParallelChunk
             }
         }
     }
+    my $signal = $childstatus & 0xFF;
     print(STDOUT $childLog)
-        if ($childstatus != 0 ||
-            $lcovutil::verbose > 1);
+        if ((0 != $childstatus &&
+             $signal != POSIX::SIGKILL &&
+             $lcovutil::max_fork_fails != 0) ||
+            $lcovutil::verbose);
     print(STDERR $childErr);
-    if (-f $dumped) {
-        my $data = Storable::retrieve($dumped);
-        if (defined($data)) {
-            my ($updates, $save, $state, $childFinish, $update) = @$data;
+    my $data = Storable::retrieve($dumped)
+        if (-f $dumped && $childstatus == 0);
+    if (defined($data)) {
+        my ($updates, $save, $state, $childFinish, $update) = @$data;
 
-            lcovutil::update_state(@$update);
-            #my $childCpuTime = $lcovutil::profileData{filt_child}{$chunkId};
-            #$totalFilterCpuTime    += $childCpuTime;
-            #$intervalFilterCpuTime += $childCpuTime;
+        lcovutil::update_state(@$update);
+        #my $childCpuTime = $lcovutil::profileData{filt_child}{$chunkId};
+        #$totalFilterCpuTime    += $childCpuTime;
+        #$intervalFilterCpuTime += $childCpuTime;
 
-            my $now = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{filt_undump}{$chunkId} = $now - $start;
+        my $now = Time::HiRes::gettimeofday();
+        $lcovutil::profileData{filt_undump}{$chunkId} = $now - $start;
 
-            foreach my $patType (@{$store->[0]}) {
-                my $svType = shift(@{$save->[0]});
-                foreach my $p (@$patType) {
-                    $p->[-1] += shift(@$svType);
-                }
+        foreach my $patType (@{$store->[0]}) {
+            my $svType = shift(@{$save->[0]});
+            foreach my $p (@$patType) {
+                $p->[-1] += shift(@$svType);
             }
-            for (my $i = scalar(@{$store->[1]}) - 1; $i >= 0; --$i) {
-                $store->[1]->[$i]->[-2] += $save->[1]->[$i]->[0];
-                $store->[1]->[$i]->[-1] += $save->[1]->[$i]->[1];
+        }
+        for (my $i = scalar(@{$store->[1]}) - 1; $i >= 0; --$i) {
+            $store->[1]->[$i]->[-2] += $save->[1]->[$i]->[0];
+            $store->[1]->[$i]->[-1] += $save->[1]->[$i]->[1];
+        }
+        foreach my $d (@$updates) {
+            $self->_updateModifiedFile(@$d, $state);
+        }
+
+        my $final = Time::HiRes::gettimeofday();
+        $lcovutil::profileData{filt_merge}{$chunkId} = $final - $now;
+        $lcovutil::profileData{filt_queue}{$chunkId} = $start - $childFinish;
+
+        #$intervalMonitor->checkUpdate($processedFiles);
+
+    } else {
+        if (!-f $dumped ||
+            POSIX::SIGKILL == $signal) {
+
+            if (exists($childRetryCounts->{$chunkId})) {
+                $childRetryCounts->{$chunkId} += 1;
+            } else {
+                $childRetryCounts->{$chunkId} = 1;
             }
-            foreach my $d (@$updates) {
-                $self->_updateModifiedFile(@$d, $state);
-            }
-
-            my $final = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{filt_merge}{$chunkId} = $final - $now;
-            $lcovutil::profileData{filt_queue}{$chunkId} =
-                $start - $childFinish;
-
-            #$intervalMonitor->checkUpdate($processedFiles);
-
+            lcovutil::report_fork_failure(
+                           "filter segment $chunkId",
+                           (POSIX::SIGKILL == $signal ?
+                                "killed by OS - possibly due to out-of-memory" :
+                                "serialized data $dumped not found"),
+                           $childRetryCounts->{$chunkId});
+            push(@$worklist, $chunk);
         } else {
             lcovutil::report_parallel_error('filter',
-                                          $ERROR_PARALLEL, $child, $childstatus,
-                                          "unable to deserialize $dumped: $@",
-                                          , keys(%$children));
-        }
-    } else {
-        lcovutil::report_parallel_error('filter',
                                         $ERROR_PARALLEL, $child, $childstatus,
-                                        "serialized data '$dumped' not present",
-                                        , keys(%$children));
+                                        "unable to filter segment $chunkId: $@",
+                                        keys(%$children));
+        }
     }
-
     foreach my $f ($dumped) {
         unlink $f
             if -f $f;
-    }
-    if ($childstatus != 0) {
-        lcovutil::report_parallel_error('filter', $ERROR_CHILD, $child,
-                                $childstatus, "ignoring data in chunk $chunkId",
-                                keys(%$children));
     }
     my $to = Time::HiRes::gettimeofday();
     $lcovutil::profileData{filt_chunk}{$chunkId} = $to - $forkAt;
@@ -6348,16 +6389,16 @@ sub _processParallelChunk
     my $then  = Time::HiRes::gettimeofday();
     $lcovutil::profileData{filt_proc}{$chunkId}  = $then - $forkAt;
     $lcovutil::profileData{filt_child}{$chunkId} = $end - $start;
-
+    my $data;
     eval {
-        Storable::store([\@updates, $save, $state, $then,
-                         lcovutil::compute_update($currentState)
-                        ],
-                        $dumpf);
+        $data = Storable::store([\@updates, $save, $state, $then,
+                                 lcovutil::compute_update($currentState)
+                                ],
+                                $dumpf);
     };
-    if ($@) {
+    if ($@ || !defined($data)) {
         lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                                  "Child $$ serialize failed: $@");
+                              "Child $$ serialize failed" . ($@ ? ": $@" : ''));
     }
     return $status;
 }
@@ -6451,98 +6492,104 @@ sub _processFilterWorklist
             $parallel > 1);
 
     my $failedAttempts = 0;
-    CHUNK: foreach my $d (@$workList) {
-        ++$processedChunks;
-        # save current counts...
-        $state[0]->[1] = 0;
-        if (ref($d->[0]) eq 'TraceInfo') {
-            # serial processing...
-            my ($data, $modified) = _filterFile(@$d, $srcReader, \@state);
-            $self->_updateModifiedFile($d->[1], $data, \@state)
-                if $modified;
-        } else {
-
-            my $currentSize = 0;
-            if (0 != $lcovutil::maxMemory) {
-                $currentSize = lcovutil::current_process_size();
-            }
-            while ($currentParallel >= $lcovutil::maxParallelism ||
-                   ($currentParallel > 1 &&
-                    (($currentParallel + 1) * $currentSize) >
-                    $lcovutil::maxMemory)
-            ) {
-                lcovutil::info(1,
-                    "memory constraint ($currentParallel + 1) * $currentSize > $lcovutil::maxMemory violated: waiting.  "
-                        . (scalar(@$workList) - $processedChunks + 1)
-                        . " remaining\n")
-                    if ((($currentParallel + 1) * $currentSize) >
-                        $lcovutil::maxMemory);
-                my $child       = wait();
-                my $childstatus = $?;
-                unless (exists($children{$child})) {
-                    lcovutil::report_unknown_child($child);
-                    next;
-                }
-                eval {
-                    $self->_mergeParallelChunk($tmp, $child, \%children,
-                                               $childstatus, \@save);
-                };
-                if ($@) {
-                    $childstatus = 1 << 8 unless $childstatus;
-                    lcovutil::report_parallel_error('filter',
-                              $lcovutil::ERROR_CHILD, $child, $childstatus, $@);
-                }
-                --$currentParallel;
-            }
-
-            # parallel processing...
-            $lcovutil::deferWarnings = 1;
-            my $now = Time::HiRes::gettimeofday();
-            my $pid = fork();
-            if (!defined($pid)) {
-                # fork failed
-                ++$failedAttempts;
-                lcovutil::report_fork_failure('process filter chunk',
-                                              $!, $failedAttempts);
-                --$processedChunks;
-                push(@$workList, $d);
-                next CHUNK;
-            }
-            $failedAttempts = 0;
-            if (0 == $pid) {
-                # I'm the child
-                my $status =
-                    _processParallelChunk($tmp, $d, $srcReader, \@save,
-                                          \@state, $now, $masterChunkID);
-                exit($status);    # normal return
+    my %childRetryCounts;
+    do {
+        CHUNK: while (@$workList) {
+            my $d = pop(@$workList);
+            ++$processedChunks;
+            # save current counts...
+            $state[0]->[1] = 0;
+            if (ref($d->[0]) eq 'TraceInfo') {
+                # serial processing...
+                my ($data, $modified) = _filterFile(@$d, $srcReader, \@state);
+                $self->_updateModifiedFile($d->[1], $data, \@state)
+                    if $modified;
             } else {
-                # parent
-                $children{$pid} = [$d, $now, $masterChunkID];
-                lcovutil::debug(1, "fork:$pid ID $masterChunkID\n");
-                ++$currentParallel;
-            }
-            ++$masterChunkID;
-        }
-    }    # foreach
-    while ($currentParallel != 0) {
-        my $child       = wait();
-        my $childstatus = $?;
-        unless (exists($children{$child})) {
-            lcovutil::report_unknown_child($child);
-            next;
-        }
-        --$currentParallel;
-        eval {
-            $self->_mergeParallelChunk($tmp, $child, \%children, $childstatus,
-                                       \@save);
-        };
-        if ($@) {
-            $childstatus = 1 << 8 unless $childstatus;
-            lcovutil::report_parallel_error('filter', $lcovutil::ERROR_CHILD,
-                                            $child, $childstatus, $@);
-        }
 
-    }
+                my $currentSize = 0;
+                if (0 != $lcovutil::maxMemory) {
+                    $currentSize = lcovutil::current_process_size();
+                }
+                while ($currentParallel >= $lcovutil::maxParallelism ||
+                       ($currentParallel > 1 &&
+                        (($currentParallel + 1) * $currentSize) >
+                        $lcovutil::maxMemory)
+                ) {
+                    lcovutil::info(1,
+                        "memory constraint ($currentParallel + 1) * $currentSize > $lcovutil::maxMemory violated: waiting.  "
+                            . (scalar(@$workList) - $processedChunks + 1)
+                            . " remaining\n")
+                        if ((($currentParallel + 1) * $currentSize) >
+                            $lcovutil::maxMemory);
+                    my $child       = wait();
+                    my $childstatus = $?;
+                    unless (exists($children{$child})) {
+                        lcovutil::report_unknown_child($child);
+                        next;
+                    }
+                    eval {
+                        $self->_mergeParallelChunk($tmp, $child, \%children,
+                                                $childstatus, \@save, $workList,
+                                                \%childRetryCounts);
+                    };
+                    if ($@) {
+                        $childstatus = 1 << 8 unless $childstatus;
+                        lcovutil::report_parallel_error('filter',
+                              $lcovutil::ERROR_CHILD, $child, $childstatus, $@);
+                    }
+                    --$currentParallel;
+                }
+
+                # parallel processing...
+                $lcovutil::deferWarnings = 1;
+                my $now = Time::HiRes::gettimeofday();
+                my $pid = fork();
+                if (!defined($pid)) {
+                    # fork failed
+                    ++$failedAttempts;
+                    lcovutil::report_fork_failure('process filter chunk',
+                                                  $!, $failedAttempts);
+                    --$processedChunks;
+                    push(@$workList, $d);
+                    next CHUNK;
+                }
+                $failedAttempts = 0;
+                if (0 == $pid) {
+                    # I'm the child
+                    my $status =
+                        _processParallelChunk($tmp, $d, $srcReader, \@save,
+                                              \@state, $now, $masterChunkID);
+                    exit($status);    # normal return
+                } else {
+                    # parent
+                    $children{$pid} = [$d, $now, $masterChunkID];
+                    lcovutil::debug(1, "fork:$pid ID $masterChunkID\n");
+                    ++$currentParallel;
+                }
+                ++$masterChunkID;
+            }
+
+        }    # while (each segment in worklist)
+        while ($currentParallel != 0) {
+            my $child       = wait();
+            my $childstatus = $?;
+            unless (exists($children{$child})) {
+                lcovutil::report_unknown_child($child);
+                next;
+            }
+            --$currentParallel;
+            eval {
+                $self->_mergeParallelChunk($tmp, $child, \%children,
+                           $childstatus, \@save, $workList, \%childRetryCounts);
+            };
+            if ($@) {
+                $childstatus = 1 << 8 unless $childstatus;
+                lcovutil::report_parallel_error('filter',
+                              $lcovutil::ERROR_CHILD, $child, $childstatus, $@);
+            }
+
+        }
+    } while (@$workList);    # outer do/while - to catch spaceouts
     lcovutil::info("Finished filter file processing\n");
 }
 
@@ -6787,7 +6834,8 @@ sub _read_info
             $fileData->location($tracefile, $.);
             ($testdata, $sumcount, $funcdata, $checkdata,
              $testfncdata, $testbrdata, $sumbrcount) = $fileData->get_info();
-            $functionMap = defined($testname) ? FunctionMap->new() : $funcdata;
+            $functionMap =
+                defined($testname) ? FunctionMap->new($filename) : $funcdata;
 
             if (defined($testname)) {
                 $testcount    = $fileData->test($testname);
@@ -6922,7 +6970,7 @@ sub _read_info
                 }
                 # the function may already be defined by another testcase
                 #  (for the same file)
-                $functionMap->define_function($fnName, $filename, $lineNo,
+                $functionMap->define_function($fnName, $lineNo,
                                               $end_line ? $end_line : undef)
                     unless defined($functionMap->findName($fnName));
 
@@ -7396,14 +7444,15 @@ sub _process_segment($$$)
                     my $funcEntry = $funcData->findKey($funcKey);
                     if (0 != $funcEntry->hit()) {
                         # function is hit in this file
-                        $function_mapping->{$funcKey} = [$funcEntry->name(), []]
-                            unless exists($function_mapping->{$funcKey});
+                        my $key = $funcEntry->file() . ":$funcKey";
+                        $function_mapping->{$key} = [$funcEntry->name(), []]
+                            unless exists($function_mapping->{$key});
                         die("mismatched function name for " .
                             $funcEntry->name() .
                             " at $funcKey in $tracefile")
                             unless $funcEntry->name() eq
-                            $function_mapping->{$funcKey}->[0];
-                        push(@{$function_mapping->{$funcKey}->[1]}, $tracefile);
+                            $function_mapping->{$key}->[0];
+                        push(@{$function_mapping->{$key}->[1]}, $tracefile);
                     }
                 }
             }
@@ -7520,83 +7569,91 @@ sub merge
         my @pending;
         my $patterns;
         my $failedAttempts = 0;
-        while (my $segment = pop(@segments)) {
-            $lcovutil::deferWarnings = 1;
-            my $now = Time::HiRes::gettimeofday();
-            my $pid = fork();
-            if (!defined($pid)) {
-                ++$failedAttempts;
-                lcovutil::report_fork_failure('process segment',
-                                              $!, $failedAttempts);
-                push(@segments, $segment);
-                next;
-            }
-            $failedAttempts = 0;
+        my %childRetryCounts;
+        do {
+            while (my $segment = pop(@segments)) {
+                $lcovutil::deferWarnings = 1;
+                my $now = Time::HiRes::gettimeofday();
+                my $pid = fork();
+                if (!defined($pid)) {
+                    ++$failedAttempts;
+                    lcovutil::report_fork_failure('process segment',
+                                                  $!, $failedAttempts);
+                    push(@segments, $segment);
+                    next;
+                }
+                $failedAttempts = 0;
 
-            if (0 == $pid) {
-                # I'm the child
-                my $stdout_file = File::Spec->catfile($tempDir, "lcov_$$.log");
-                my $stderr_file = File::Spec->catfile($tempDir, "lcov_$$.err");
+                if (0 == $pid) {
+                    # I'm the child
+                    my $stdout_file =
+                        File::Spec->catfile($tempDir, "lcov_$$.log");
+                    my $stderr_file =
+                        File::Spec->catfile($tempDir, "lcov_$$.err");
 
-                my $currentState = lcovutil::initial_state();
-                my $status       = 0;
-                my @interesting;
-                my ($stdout, $stderr, $code) = Capture::Tiny::capture {
-                    eval {
-                        @interesting =
-                            _process_segment($total_trace,
-                                             $readSourceFile, $segment);
+                    my $currentState = lcovutil::initial_state();
+                    my $status       = 0;
+                    my @interesting;
+                    my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+                        eval {
+                            @interesting =
+                                _process_segment($total_trace,
+                                                 $readSourceFile, $segment);
+                        };
+                        if ($@) {
+                            print(STDERR $@);
+                            $status = 1;
+                        }
+
+                        my $then = Time::HiRes::gettimeofday();
+                        $lcovutil::profileData{$segmentIdx}{total} =
+                            $then - $now;
                     };
-                    if ($@) {
-                        print(STDERR $@);
-                        $status = 1;
+                    # print stdout and stderr ...
+                    foreach
+                        my $d ([$stdout_file, $stdout], [$stderr_file, $stderr])
+                    {
+                        next
+                            unless ($d->[1])
+                            ;    # only print if there is something to print
+                        my $f = InOutFile->out($d->[0]);
+                        my $h = $f->hdl();
+                        print($h $d->[1]);
                     }
-
-                    my $then = Time::HiRes::gettimeofday();
-                    $lcovutil::profileData{$segmentIdx}{total} = $then - $now;
-                };
-                # print stdout and stderr ...
-                foreach
-                    my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
-                    next
-                        unless ($d->[1])
-                        ;    # only print if there is something to print
-                    my $f = InOutFile->out($d->[0]);
-                    my $h = $f->hdl();
-                    print($h $d->[1]);
+                    my $file = File::Spec->catfile($tempDir, "dumper_$$");
+                    my $data;
+                    eval {
+                        $data =
+                            Storable::store(
+                                        [$total_trace,
+                                         \@interesting,
+                                         $function_mapping,
+                                         lcovutil::compute_update($currentState)
+                                        ],
+                                        $file);
+                    };
+                    if ($@ || !defined($data)) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                              "Child $$ serialize failed" . ($@ ? ": $@" : ''));
+                    }
+                    exit($status);
+                } else {
+                    $children{$pid} = [$now, $segmentIdx, $segment];
+                    push(@pending, $segment);
                 }
-
-                my $file = File::Spec->catfile($tempDir, "dumper_$$");
-                eval {
-                    Storable::store([$total_trace,
-                                     \@interesting,
-                                     $function_mapping,
-                                     lcovutil::compute_update($currentState)
-                                    ],
-                                    $file);
-                };
-                if ($@) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                                              "Child $$ serialize failed: $!");
+                $segmentIdx++;
+            }
+            # now wait for all the children to finish...
+            foreach (@pending) {
+                my $child       = wait();
+                my $now         = Time::HiRes::gettimeofday();
+                my $childstatus = $? >> 8;
+                unless (exists($children{$child})) {
+                    lcovutil::report_unknown_child($child);
+                    next;
                 }
-                exit($status);
-            } else {
-                $children{$pid} = [$now, $segmentIdx];
-                push(@pending, $segment);
-            }
-            $segmentIdx++;
-        }
-        # now wait for all the children to finish...
-        foreach (@pending) {
-            my $child       = wait();
-            my $now         = Time::HiRes::gettimeofday();
-            my $childstatus = $? >> 8;
-            unless (exists($children{$child})) {
-                lcovutil::report_unknown_child($child);
-                next;
-            }
-            my ($start, $idx) = @{$children{$child}};
-            lcovutil::info(
+                my ($start, $idx, $segment) = @{$children{$child}};
+                lcovutil::info(
                           1,
                           "Merging segment $idx, status $childstatus"
                               .
@@ -7605,105 +7662,133 @@ sub merge
                                   (' mem:' . lcovutil::current_process_size()) :
                                   '') .
                               "\n");
-            my $dumpfile = File::Spec->catfile($tempDir, "dumper_$child");
-            my $childLog = File::Spec->catfile($tempDir, "lcov_$child.log");
-            my $childErr = File::Spec->catfile($tempDir, "lcov_$child.err");
+                my $dumpfile = File::Spec->catfile($tempDir, "dumper_$child");
+                my $childLog = File::Spec->catfile($tempDir, "lcov_$child.log");
+                my $childErr = File::Spec->catfile($tempDir, "lcov_$child.err");
 
-            foreach my $f ($childLog, $childErr) {
-                if (!-f $f) {
-                    $f = '';    # there was no output
-                    next;
-                }
-                if (open(RESTORE, "<", $f)) {
-                    # slurp into a string and eval..
-                    my $str = do { local $/; <RESTORE> };    # slurp whole thing
-                    close(RESTORE) or die("unable to close $f: $!\n");
-                    unlink $f
-                        unless ($str && $lcovutil::preserve_intermediates);
-                    $f = $str;
-                } else {
-                    $f = "unable to open $f: $!";
-                    if (0 == $childstatus) {
-                        lcovutil::report_parallel_error('aggregate',
-                               $ERROR_PARALLEL, $child, 0, $f, keys(%children));
+                foreach my $f ($childLog, $childErr) {
+                    if (!-f $f) {
+                        $f = '';    # there was no output
+                        next;
                     }
-                }
-            }
-            print(STDOUT $childLog)
-                if ($childstatus != 0 ||
-                    $lcovutil::verbose);
-            print(STDERR $childErr);
-
-            # undump the data
-            my $data = Storable::retrieve($dumpfile) if -f $dumpfile;
-            if (defined($data)) {
-                eval {
-                    my ($current, $changed, $func_map, $update) = @$data;
-                    my $then = Time::HiRes::gettimeofday();
-                    $lcovutil::profileData{$idx}{undump} = $then - $now;
-                    lcovutil::update_state(@$update);
-                    if ($function_mapping) {
-                        if (!defined($func_map)) {
-                            lcovutil::report_parallel_error(
-                                'aggregate',
-                                $ERROR_PARALLEL,
-                                $child,
-                                0,
-                                "segment $idx returned empty function data",
-                                keys(%children));
-                            next;
-                        }
-                        while (my ($key, $data) = each(%$func_map)) {
-                            $function_mapping->{$key} = [$data->[0], []]
-                                unless exists($function_mapping->{$key});
-                            die("mismatched function name '" .
-                                $data->[0] . "' at $key")
-                                unless (
-                                  $data->[0] eq $function_mapping->{$key}->[0]);
-                            push(@{$function_mapping->{$key}->[1]},
-                                 @{$data->[1]});
-                        }
+                    if (open(RESTORE, "<", $f)) {
+                        # slurp into a string and eval..
+                        my $str =
+                            do { local $/; <RESTORE> };    # slurp whole thing
+                        close(RESTORE) or die("unable to close $f: $!\n");
+                        unlink $f
+                            unless ($str && $lcovutil::preserve_intermediates);
+                        $f = $str;
                     } else {
-                        if (!defined($current)) {
-                            lcovutil::report_parallel_error(
-                                'aggregate',
-                                $ERROR_PARALLEL,
-                                $child,
-                                0,
-                                "segment $idx returned empty trace data",
-                                keys(%children));
-                            next;
-                        }
-                        if ($total_trace->merge_tracefile(
-                                                      $current, TraceInfo::UNION
-                        )) {
-                            # something in this segment improved coverage...so save
-                            #   the effective input files from this one
-                            push(@effective, @$changed);
+                        $f = "unable to open $f: $!";
+                        if (0 == $childstatus) {
+                            lcovutil::report_parallel_error('aggregate',
+                                                 $ERROR_PARALLEL, $child, 0, $f,
+                                                 keys(%children));
                         }
                     }
-                };    # end eval
-                if ($@) {
-                    $childstatus = 1 << 8 unless $childstatus;
-                    lcovutil::report_parallel_error(
-                              'aggregate',
-                              $ERROR_PARALLEL,
-                              $child,
-                              $childstatus,
-                              "unable to deserialize segment $idx $dumpfile:$@",
-                              keys(%children));
                 }
+                my $signal = $childstatus & 0xFF;
+
+                print(STDOUT $childLog)
+                    if ((0 != $childstatus &&
+                         $signal != POSIX::SIGKILL &&
+                         $lcovutil::max_fork_fails != 0) ||
+                        $lcovutil::verbose);
+                print(STDERR $childErr);
+
+                # undump the data
+                my $data = Storable::retrieve($dumpfile)
+                    if (-f $dumpfile && 0 == $childstatus);
+                if (defined($data)) {
+                    eval {
+                        my ($current, $changed, $func_map, $update) = @$data;
+                        my $then = Time::HiRes::gettimeofday();
+                        $lcovutil::profileData{$idx}{undump} = $then - $now;
+                        lcovutil::update_state(@$update);
+                        if ($function_mapping) {
+                            if (!defined($func_map)) {
+                                lcovutil::report_parallel_error(
+                                    'aggregate',
+                                    $ERROR_PARALLEL,
+                                    $child,
+                                    0,
+                                    "segment $idx returned empty function data",
+                                    keys(%children));
+                                next;
+                            }
+                            while (my ($key, $data) = each(%$func_map)) {
+                                $function_mapping->{$key} = [$data->[0], []]
+                                    unless exists($function_mapping->{$key});
+                                die("mismatched function name '" .
+                                    $data->[0] . "' at $key")
+                                    unless ($data->[0] eq
+                                            $function_mapping->{$key}->[0]);
+                                push(@{$function_mapping->{$key}->[1]},
+                                     @{$data->[1]});
+                            }
+                        } else {
+                            if (!defined($current)) {
+                                lcovutil::report_parallel_error(
+                                    'aggregate',
+                                    $ERROR_PARALLEL,
+                                    $child,
+                                    0,
+                                    "segment $idx returned empty trace data",
+                                    keys(%children));
+                                next;
+                            }
+                            if ($total_trace->merge_tracefile(
+                                                      $current, TraceInfo::UNION
+                            )) {
+                                # something in this segment improved coverage...so save
+                                #   the effective input files from this one
+                                push(@effective, @$changed);
+                            }
+                        }
+                    };    # end eval
+                    if ($@) {
+                        $childstatus = 1 << 8 unless $childstatus;
+                        lcovutil::report_parallel_error(
+                            'aggregate',
+                            $ERROR_PARALLEL,
+                            $child,
+                            $childstatus,
+                            "unable to deserialize segment $idx $dumpfile:$@",
+                            keys(%children));
+                    }
+                }
+                if (!defined($data) || 0 != $childstatus) {
+                    if (!-f $dumpfile ||
+                        POSIX::SIGKILL == $signal) {
+
+                        if (exists($childRetryCounts{$idx})) {
+                            $childRetryCounts{$idx} += 1;
+                        } else {
+                            $childRetryCounts{$idx} = 1;
+                        }
+                        lcovutil::report_fork_failure(
+                             "aggregate segment $idx",
+                             (POSIX::SIGKILL == $signal ?
+                                  "killed by OS - possibly due to out-of-memory"
+                              :
+                                  "serialized data $dumpfile not found"),
+                             $childRetryCounts{$idx});
+                        push(@segments, $segment);
+                    } else {
+
+                        lcovutil::report_parallel_error('aggregate',
+                                             $ERROR_CHILD, $child, $childstatus,
+                                             "while processing segment $idx",
+                                             keys(%children));
+                    }
+                }
+                my $end = Time::HiRes::gettimeofday();
+                $lcovutil::profileData{$idx}{merge} = $end - $start;
+                unlink $dumpfile
+                    if -f $dumpfile;
             }
-            if (0 != $childstatus) {
-                lcovutil::report_parallel_error('aggregate', $ERROR_CHILD,
-                          $child, $childstatus, "while processing segment $idx",
-                          keys(%children));
-            }
-            my $end = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{$idx}{merge} = $end - $start;
-            unlink $dumpfile
-                if -f $dumpfile;
-        }
+        } while (@segments);
     } else {
         # sequential
         @effective = _process_segment($total_trace, $readSourceFile, \@_);
