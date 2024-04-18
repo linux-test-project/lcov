@@ -89,6 +89,16 @@ fi
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
+rm -rf *.txt* *.json dumper* report lambda *.gcda *.gcno *.info
+
+if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
+    cover -delete
+fi
+
+if [[ 1 == "$CLEAN_ONLY" ]] ; then
+    exit 0
+fi
+
 LCOV_OPTS="--branch $PARALLEL $PROFILE"
 # gcc/4.8.5 (and possibly other old versions) generate inconsistent line/function data
 IFS='.' read -r -a VER <<< `gcc -dumpversion`
@@ -98,17 +108,7 @@ if [ "${VER[0]}" -lt 5 ] ; then
     FILTER='--filter branch'
 
     # gcc older than 5 doesn't support lambda
-    echo "Compiler version it too old - skipping lambda test"
-    exit 0
-fi
-
-rm -rf *.txt* *.json dumper* report lambda *.gcda *.gcno *.info
-
-if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
-    cover -delete
-fi
-
-if [[ 1 == $CLEAN_ONLY ]] ; then
+    echo "Compiler version is too old - skipping lambda test"
     exit 0
 fi
 
