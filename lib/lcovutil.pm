@@ -242,50 +242,50 @@ sub default_info_impl(@);
 our $info_callback = \&default_info_impl;
 
 # filter classes that may be requested
-# don't report BRDA data for line which seems to have no conditionals
+# don't report BRDA data for line which seem to have no conditionals
 #   These may be from C++ exception handling (for example) - and are not
 #   interesting to users.
-our $FILTER_BRANCH_NO_COND = 0;
+our $FILTER_BRANCH_NO_COND;
 # don't report line coverage for closing brace of a function
 #   or basic block, if the immediate predecessor line has the same count.
-our $FILTER_LINE_CLOSE_BRACE = 1;
+our $FILTER_LINE_CLOSE_BRACE;
 # merge functions which appear on same file/line - guess that that
 #   they are all the same
-our $FILTER_FUNCTION_ALIAS = 2;
+our $FILTER_FUNCTION_ALIAS;
 # region between LCOV EXCL_START/STOP
-our $FILTER_EXCLUDE_REGION = 3;
+our $FILTER_EXCLUDE_REGION;
 # region between LCOV EXCL_BR_START/STOP
-our $FILTER_EXCLUDE_BRANCH = 4;
+our $FILTER_EXCLUDE_BRANCH;
 # empty line
-our $FILTER_BLANK_LINE = 5;
-# empty line, out of range line
-our $FILTER_LINE_RANGE = 6;
+our $FILTER_BLANK_LINE;
+# out of range line - beyond end of file
+our $FILTER_LINE_RANGE;
 # backward compatibility: empty line, close brace
-our $FILTER_LINE = 7;
+our $FILTER_LINE;
 # remove functions which have only a single line
-our $FILTER_TRIVIAL_FUNCTION = 8;
+our $FILTER_TRIVIAL_FUNCTION;
 # remove compiler directive lines which llvm-cov seems to generate
-our $FILTER_DIRECTIVE = 9;
-# remove missing file
-our $FILTER_MISSING_FILE = 10;
+our $FILTER_DIRECTIVE;
+# remove missing source file
+our $FILTER_MISSING_FILE;
 # remove branches marked as related to exceptions
-our $FILTER_EXCEPTION_BRANCH = 11;
+our $FILTER_EXCEPTION_BRANCH;
 # remove lone branch in block - it can't be an actual conditional
-our $FILTER_ORPHAN_BRANCH = 12;
+our $FILTER_ORPHAN_BRANCH;
 
-our %COVERAGE_FILTERS = ("branch"        => $FILTER_BRANCH_NO_COND,
-                         'brace'         => $FILTER_LINE_CLOSE_BRACE,
-                         'blank'         => $FILTER_BLANK_LINE,
-                         'directive'     => $FILTER_DIRECTIVE,
-                         'range'         => $FILTER_LINE_RANGE,
-                         'line'          => $FILTER_LINE,
-                         'function'      => $FILTER_FUNCTION_ALIAS,
-                         'missing'       => $FILTER_MISSING_FILE,
-                         'region'        => $FILTER_EXCLUDE_REGION,
-                         'branch_region' => $FILTER_EXCLUDE_BRANCH,
-                         'exception'     => $FILTER_EXCEPTION_BRANCH,
-                         'orphan'        => $FILTER_ORPHAN_BRANCH,
-                         "trivial"       => $FILTER_TRIVIAL_FUNCTION,);
+our %COVERAGE_FILTERS = ("branch"        => \$FILTER_BRANCH_NO_COND,
+                         'brace'         => \$FILTER_LINE_CLOSE_BRACE,
+                         'blank'         => \$FILTER_BLANK_LINE,
+                         'directive'     => \$FILTER_DIRECTIVE,
+                         'range'         => \$FILTER_LINE_RANGE,
+                         'line'          => \$FILTER_LINE,
+                         'function'      => \$FILTER_FUNCTION_ALIAS,
+                         'missing'       => \$FILTER_MISSING_FILE,
+                         'region'        => \$FILTER_EXCLUDE_REGION,
+                         'branch_region' => \$FILTER_EXCLUDE_BRANCH,
+                         'exception'     => \$FILTER_EXCEPTION_BRANCH,
+                         'orphan'        => \$FILTER_ORPHAN_BRANCH,
+                         "trivial"       => \$FILTER_TRIVIAL_FUNCTION,);
 our @cov_filter;    # 'undef' if filter is not enabled,
                     # [line_count, coverpoint_count] histogram if
                     #   filter is enabled: number of applications
@@ -2137,15 +2137,21 @@ sub is_filter_enabled
             0 != scalar(@lcovutil::exclude_function_patterns));
 }
 
+sub init_filters
+{
+    # initialize filter index numbers and mark that all filters are disabled.
+    my $idx = 0;
+    foreach my $item (sort keys(%COVERAGE_FILTERS)) {
+        my $ref = $COVERAGE_FILTERS{$item};
+        $COVERAGE_FILTERS{$item} = $idx;
+        $$ref                    = $idx;
+        $cov_filter[$idx++]      = undef;
+    }
+}
+
 sub parse_cov_filters(@)
 {
     my @filters = split($split_char, join($split_char, @_));
-
-    # first, mark that all known filters are disabled
-    foreach my $item (keys(%COVERAGE_FILTERS)) {
-        my $id = $COVERAGE_FILTERS{$item};
-        $cov_filter[$id] = undef;
-    }
 
     return if (!@filters);
 
@@ -7718,5 +7724,6 @@ sub merge
 # call the common initialization functions
 
 lcovutil::define_errors();
+lcovutil::init_filters();
 
 1;
