@@ -23,7 +23,7 @@ report:
 	$(SPREADSHEET_TOOL) -o report.xlsx `find . -name "*.json"`
 	if [ "x$(COVERAGE)" != 'x' ] ; then \
 	  cover $(COVER_DB) ; \
-	  $(BINDIR)/perl2lcov -o perlcov.info $(COVER_DB) --version-script $(VERSION_SCRIPT) --exclude 'genError.pm' --exclude 'filter.pl' --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b' --ignore unsupported --filter region ; \
+	  $(BINDIR)/perl2lcov -o perlcov.info $(COVER_DB) --version-script $(VERSION_SCRIPT) --exclude 'genError.pm' --exclude 'filter.pl' --exclude 'brokenCallback.pm' --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b' --ignore unsupported --filter region ; \
 	  if [ -f $(PYCOV_DB) ] ; then \
 	    $(BINDIR)/py2lcov -o pycov.info $(PYCOV_DB) --version-script $(VERSION_SCRIPT) ; \
 	  fi ; \

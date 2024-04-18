@@ -625,7 +625,7 @@ $annotateCallback = myModule->new(arg0, arg1);
 
 to initialize the class object -
 .I arg0
-and 
+and
 .I arg1
 passed as strings - and then to execute
 
@@ -2588,8 +2588,17 @@ function execution count (FNDA:...) but no function declaration (FN:...).
 .PP
 
 .IP missing: 3
-File does not exist or is not readable.
-.PP
+remove all coverpoints associated with source files which are not found or are not readable.
+This is equivalent to adding a
+.I \-\-exclude <name>
+pattern for each file which is not found.
+.br
+If a
+.I \-\-resolve\-script
+callback is specified, then the file is considered missing if it is not
+locally visible and the callback
+returns "" (empty string) or 'undef' - otherwise not missing.
+.br
 
 .IP negative: 3
 negative 'hit' count found.

@@ -50,6 +50,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH $FILTER_LINE
      $FILTER_LINE_CLOSE_BRACE $FILTER_BLANK_LINE $FILTER_LINE_RANGE
      $FILTER_TRIVIAL_FUNCTION $FILTER_DIRECTIVE
+     $FILTER_MISSING_FILE
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
      $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
@@ -264,6 +265,8 @@ our $FILTER_LINE = 7;
 our $FILTER_TRIVIAL_FUNCTION = 8;
 # remove compiler directive lines which llvm-cov seems to generate
 our $FILTER_DIRECTIVE = 9;
+# remove missing file
+our $FILTER_MISSING_FILE = 10;
 
 our %COVERAGE_FILTERS = ("branch"        => $FILTER_BRANCH_NO_COND,
                          'brace'         => $FILTER_LINE_CLOSE_BRACE,
@@ -272,6 +275,7 @@ our %COVERAGE_FILTERS = ("branch"        => $FILTER_BRANCH_NO_COND,
                          'range'         => $FILTER_LINE_RANGE,
                          'line'          => $FILTER_LINE,
                          'function'      => $FILTER_FUNCTION_ALIAS,
+                         'missing'       => $FILTER_MISSING_FILE,
                          'region'        => $FILTER_EXCLUDE_REGION,
                          'branch_region' => $FILTER_EXCLUDE_BRANCH,
                          "trivial"       => $FILTER_TRIVIAL_FUNCTION,);
@@ -3029,7 +3033,7 @@ sub resolve
 
 sub resolveCallback
 {
-    my ($filename, $applySubstitutions) = @_;
+    my ($filename, $applySubstitutions, $returnCbValue) = @_;
     $filename = lcovutil::subst_file_name($filename) if $applySubstitutions;
 
     if ($lcovutil::resolveCallback) {
@@ -3046,7 +3050,9 @@ sub resolveCallback
         # look up particular path at most once...
         $lcovutil::resolveCache{$filename} = $path if $path;
         my $cost = Time::HiRes::gettimeofday() - $start;
-        $path = $filename unless $path;
+        if (!$returnCbValue) {
+            $path = $filename unless $path;
+        }
         if (exists($lcovutil::profileData{resolve}) &&
             exists($lcovutil::profileData{resolve}{$path})) {
             # might see multiple aliases for the same source file
@@ -5440,6 +5446,25 @@ sub skipCurrentFile
 {
     my $filename = shift;
 
+    my $filt = $lcovutil::cov_filter[$lcovutil::FILTER_MISSING_FILE];
+    if ($filt) {
+        my $missing = !-r $filename;
+        if ($missing &&
+            $lcovutil::resolveCallback) {
+
+            my $path = SearchPath::resolveCallback($filename, 0, 1);
+            $missing = !defined($path) || '' eq $path;
+        }
+
+        if ($missing) {
+            lcovutil::info(
+                   "Excluding \"$filename\": does not exist/is not readable\n");
+            ++$filt->[0];
+            ++$filt->[1];
+            return 1;
+        }
+    }
+
     # check whether this file should be excluded or not...
     foreach my $p (@lcovutil::exclude_file_patterns) {
         my $pattern = $p->[0];
@@ -6463,13 +6488,18 @@ sub applyFilters
          defined($lcovutil::func_coverage));
 
     foreach my $name ($self->files()) {
+
         my $traceInfo = $self->data($name);
         die("expected TraceInfo, got '" . ref($traceInfo) . "'")
             unless ('TraceInfo' eq ref($traceInfo));
         my $source_file = $traceInfo->filename();
+        if (TraceFile::skipCurrentFile($source_file)) {
+            $self->remove($source_file);
+            next;
+        }
         if (lcovutil::is_external($source_file)) {
             lcovutil::info("excluding 'external' file '$source_file'\n");
-            delete($self->[FILES]->{$source_file});
+            $self->remove($source_file);
             next;
         }
         # derive function end line for C/C++ and java code if requested

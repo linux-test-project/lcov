@@ -3446,7 +3446,7 @@ sub _read_udiff
                 $key = lc($key) if $lcovutil::case_insensitive;
                 if (exists($self->[UNCHANGED]->{$key})) {
                     # unchanged entry flag value should be 1
-                    die("$diff_file:$.:  %key already in linemap - marked unchanged"
+                    die("$diff_file:$.:  $key already in linemap - marked unchanged"
                             . ($file eq $key ? '' : " (substituted '$file')"))
                         unless $self->[UNCHANGED]->{$key};
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
@@ -4837,7 +4837,7 @@ sub _load
             return $self;
         }
         die($self->path() .
-                " is not readable or doesn't exist. See the '--substitute' and '--synthesize-missing' $lcovutil::tool_name options for methods to fix the missing path or ignore the problem."
+                " is not readable or doesn't exist. See the '--substitute', '--filter missing' and '--synthesize-missing' $lcovutil::tool_name options for methods to fix the path or ignore the problem."
         );
     }
     $self->_bare_load($path);
@@ -5867,6 +5867,12 @@ foreach my $data (['criteria_callback_levels', \@criteriaCallbackLevels,
             join(", ", @$valid) . ")")
             unless grep(/^$x$/, @$valid);
     }
+}
+
+if (defined($lcovutil::stop_on_error) &&
+    !$lcovutil::stop_on_error) {
+    # in the spirit of "don't stop" - don't worry about missing files.
+    $synthesizeMissingFile = 1;
 }
 
 # Merge sort options

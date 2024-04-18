@@ -135,6 +135,7 @@ fi
 if [ "${VER[0]}" -lt 8 ] ; then
     # cannot generate branch data unless 'intermediate'
     IGNORE_USAGE="--ignore usage"
+    DERIVE_END='--rc derive_function_end_line=0'
 fi
 $COVER $CAPTURE . $LCOV_OPTS --initial -o initial.info $IGNORE_EMPTY $IGNORE_USAGE
 if [ 0 != $? ] ; then
@@ -592,6 +593,75 @@ if [ 0 != $? ] ; then
 fi
 
 chmod -R ug+rxw separate
+
+# try filtering missing files
+sed -e s/extract.cpp/notfound.cpp/ external.info > missing_file.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing.info -a missing_file.info --filter missing $DERIVE_END
+if [ 0 != $? ] ; then
+    echo "filter missing failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E 'SF:.*notfound.cpp' removeMissingb.info
+if [ 0 == $? ] ; then
+    echo "expected to remove missing file"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,live,missing $DERIVE_END
+if [ 0 != $? ] ; then
+    echo "filter missing callback failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E 'SF:.*notfound.cpp' removeMissing_cb.info
+if [ 0 == $? ] ; then
+    echo "expected to remove missing file"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb2.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,live,present --ignore source $DERIVE_END
+if [ 0 != $? ] ; then
+    echo "filter missing callback failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E 'SF:.*notfound.cpp' removeMissing_cb2.info
+if [ 0 != $? ] ; then
+    echo "expected to keep file"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb3.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,die --ignore callback $DERIVE_END 2>&1 | tee removeMissing.log
+if [ ${PIPESTATUS[0]} != $? ] ; then
+    echo "filter missing callback failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E 'SF:.*notfound.cpp' removeMissing_cb3.info
+if [ 0 == $? ] ; then
+    echo "expected to remove file"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E 'resolve.*failed' removeMissing.log
+if [ 0 != $? ] ; then
+    echo "expected to find messages"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
 
 
 echo "Tests passed"
