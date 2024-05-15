@@ -1156,6 +1156,30 @@ sub selected
     return $rtn;
 }
 
+sub tlaSummary
+{
+    my ($self, $t) = @_;
+    my $type;
+    if ($t eq 'line') {
+        $type = LINE_DATA;
+    } elsif ($t eq 'function') {
+        $type = FUNCTION_DATA;
+    } else {
+        die("unknown type $t") unless 'branch' eq $t;
+        $type = BRANCH_DATA;
+    }
+    my $str = '';
+    my $sep = '';
+    my $d   = $self->[$type]->[DATA];
+    foreach my $tla (@tlaPriorityOrder) {
+        my $count = $d->{$tla};
+        next if $count == 0;
+        $str .= $sep . $tla . ':' . $count;
+        $sep = ' ';
+    }
+    return $str;
+}
+
 sub checkCoverageCriteria
 {
     my $self = shift;
@@ -2407,7 +2431,7 @@ use constant {
 
 sub new
 {
-    my ($class, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
+    my ($class, $filename, $base_data, $current_data, $diffMap, $verbose) = @_;
 
     # [hash of lineNumber -> LineData struct, optional FunctionMap]
     my $self = [
@@ -2419,19 +2443,19 @@ sub new
     ];
     bless $self, $class;
 
-    $linemap->show_map($filename)
+    $diffMap->show_map($filename)
         if ((defined($verbose) && $verbose) ||
             (defined($lcovutil::verbose) && $lcovutil::verbose > 1));
 
     # line coverage categorization includes date- and owner- bins in
     #   the vanilla case when there is no baseline.
     $self->_categorizeLineCov($filename, $base_data, $current_data,
-                              $linemap, $verbose);
+                              $diffMap, $verbose);
     $self->_categorizeBranchCov($filename, $base_data, $current_data,
-                                $linemap, $verbose)
+                                $diffMap, $verbose)
         if ($lcovutil::br_coverage);
     $self->_categorizeFunctionCov($filename, $base_data, $current_data,
-                                  $linemap, $verbose)
+                                  $diffMap, $verbose)
         if ($lcovutil::func_coverage);
 
     while (my ($lineNo, $deleted) = each(%{$self->[DELETED_LINE_LEADER]})) {
@@ -2551,10 +2575,10 @@ sub _categorize
 
 sub _findLineData
 {
-    my ($self, $linemap, $filename, $base_lineNo) = @_;
+    my ($self, $diffMap, $filename, $base_lineNo) = @_;
     my $current_lineNo =
-        $linemap->lookup($filename, $linemap->OLD, $base_lineNo);
-    my $type = $linemap->type($filename, $linemap->OLD, $base_lineNo);
+        $diffMap->lookup($filename, $diffMap->OLD, $base_lineNo);
+    my $type = $diffMap->type($filename, $diffMap->OLD, $base_lineNo);
 
     my $lineDataMap = $self->lineMap();
     my $linedata;
@@ -2582,8 +2606,8 @@ sub _findLineData
             # this way, we can know the extents of the deleted region
             my $c;
             for (my $i = $base_lineNo - 1; $i > 0; --$i) {
-                if ('delete' ne $linemap->type($filename, $linemap->OLD, $i)) {
-                    $c = $linemap->lookup($filename, $linemap->OLD, $i);
+                if ('delete' ne $diffMap->type($filename, $diffMap->OLD, $i)) {
+                    $c = $diffMap->lookup($filename, $diffMap->OLD, $i);
                     last;
                 }
             }
@@ -2593,7 +2617,7 @@ sub _findLineData
                 $c = 1;
                 die("$filename:1: incorrectly marked 'delete'")
                     if (
-                      'delete' eq $linemap->type($filename, $linemap->OLD, $c));
+                      'delete' eq $diffMap->type($filename, $diffMap->OLD, $c));
             }
             die("$filename:  no current block for deleted line $base_lineNo")
                 unless defined($c);
@@ -2615,9 +2639,12 @@ sub _findLineData
 # categorize line coverage numbers
 sub _categorizeLineCov
 {
-    my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
+    my ($self, $filename, $base_data, $current_data, $diffMap, $verbose) = @_;
     my $lineDataMap = $self->lineMap();
 
+    if ($verbose) {
+        print("categorize lines $filename\n");
+    }
     # $lineCovBase, $lineCovCurrent are CountData objects
     my $lineCovBase    = $base_data->sum() if defined($base_data);
     my $lineCovCurrent = $current_data->sum();
@@ -2628,10 +2655,10 @@ sub _categorizeLineCov
     #  (This observation is also true for branch and function
     #  coverages.)
     foreach my $line ($lineCovCurrent->keylist()) {
-        my $type = $linemap->type($filename, $linemap->NEW, $line);
-        $type ne 'delete' or
-            die("'current' line $filename:$line should not be marked 'delete'");
-        # next if ($type ne "delete");
+        my $type = $diffMap->type($filename, $diffMap->NEW, $line);
+        die("'current' line $filename:$line should not be marked 'delete'")
+            unless $type ne 'delete';
+
         my $linedata;
         if (!exists($lineDataMap->{$line})) {
             $linedata = LineData->new($type);
@@ -2648,12 +2675,24 @@ sub _categorizeLineCov
     return unless (defined($lineCovBase));
 
     foreach my $bline ($lineCovBase->keylist()) {
-        my $linedata = $self->_findLineData($linemap, $filename, $bline);
+        my $linedata = $self->_findLineData($diffMap, $filename, $bline);
         my $val      = $lineCovBase->value($bline);
         $linedata->base_count($val);
     }
-
-    foreach my $line (keys %$lineDataMap) {
+    if ($verbose) {
+        print("  line data map:\n");
+        foreach my $line (sort keys %$lineDataMap) {
+            my $data = $lineDataMap->{$line};
+            print("    $line: ",
+                  $data->type(),
+                  ' curr:',
+                  $data->in_curr() ? $data->lineNo('current') : '-',
+                  ' base:',
+                  $data->in_base() ? $data->lineNo('base') : '-',
+                  "\n");
+        }
+    }
+    foreach my $line (sort keys %$lineDataMap) {
         my $linedata = $lineDataMap->{$line};
         my $tla;
         if ($linedata->type() eq "insert") {
@@ -2667,6 +2706,7 @@ sub _categorizeLineCov
                 next;
             }
             $tla = ($linedata->curr_count() > 0) ? "GNC" : "UNC";
+            print("  insert $line $tla\n") if ($verbose);
         } elsif ($linedata->type() eq "delete") {
             if (!$linedata->in_base()) {
                 # similarly:  can get here if the diff vs baseline/current data
@@ -2677,10 +2717,10 @@ sub _categorizeLineCov
                 next;
             }
             $tla = ($linedata->base_count() > 0) ? "DCB" : "DUB";
+            print("  delete $line $tla\n") if ($verbose);
         } else {
-            $linedata->type() eq "equal" or
-                die(
-                "FileCoverageInfo:: deleted segment line=$line file=$filename");
+            die("FileCoverageInfo:: deleted segment line=$line file=$filename")
+                unless $linedata->type() eq "equal";
 
             if ($linedata->in_base() && $linedata->in_curr()) {
                 $tla =
@@ -2689,13 +2729,15 @@ sub _categorizeLineCov
                 $tla = ($linedata->base_count() > 0) ? "ECB" : "EUB";
                 $linedata->tla($tla);
             } else {
-                $linedata->in_curr() or
-                    die(
-                    "FileCoverageInfo:: non-executed line line=$line file=$filename"
-                    );
+                die("FileCoverageInfo:: non-executed line line=$line file=$filename"
+                ) unless $linedata->in_curr();
 
                 $tla = ($linedata->curr_count() > 0) ? "GIC" : "UIC";
             }
+            print("  equal $line $tla in:" .
+                  ($linedata->in_base() ? ' base' : '') .
+                  ($linedata->in_curr() ? ' curr' : '') . "\n")
+                if ($verbose);
         }
         $linedata->tla($tla);
     }
@@ -2717,7 +2759,7 @@ sub _cloneBranchEntry
 # categorize branch coverage numbers
 sub _categorizeBranchCov
 {
-    my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
+    my ($self, $filename, $base_data, $current_data, $diffMap, $verbose) = @_;
     my $lineDataMap = $self->lineMap();
 
     my $branchBaseline = $base_data->sumbr() if defined($base_data);
@@ -2733,7 +2775,7 @@ sub _categorizeBranchCov
     #     Or because we did something bad and no longer reach what had been
     #     a high probability event?
     foreach my $line ($branchCurrent->keylist()) {
-        my $type = $linemap->type($filename, $linemap->NEW, $line);
+        my $type = $diffMap->type($filename, $diffMap->NEW, $line);
         # LCOV_EXCL_START
         if ($type eq 'delete') {
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
@@ -2772,7 +2814,7 @@ sub _categorizeBranchCov
     # now look through the baseline to find matching data
 
     foreach my $base_line ($branchBaseline->keylist()) {
-        my $data      = $self->_findLineData($linemap, $filename, $base_line);
+        my $data      = $self->_findLineData($diffMap, $filename, $base_line);
         my $curr_line = $data->lineNo('current');
         my $type      = $data->type();
         if ($type ne 'delete') {
@@ -2895,8 +2937,8 @@ sub _cloneFunctionEntry
 
 sub _categorizeFunctionCov
 {
-    my ($self, $filename, $base_data, $current_data, $linemap, $verbose) = @_;
-    !defined($self->functionMap()) or die("map should not be defined yet");
+    my ($self, $filename, $base_data, $current_data, $diffMap, $verbose) = @_;
+    die("map should not be defined yet") unless !defined($self->functionMap());
     my $differentialMap = {};
     push(@$self, $differentialMap);
     my $lineDataMap = $self->lineMap();
@@ -2914,7 +2956,7 @@ sub _categorizeFunctionCov
     foreach my $key ($funcCurrent->keylist()) {
         my $func = $funcCurrent->findKey($key);
         my $line = $func->line();
-        my $type = $linemap->type($filename, $linemap->NEW, $line);
+        my $type = $diffMap->type($filename, $diffMap->NEW, $line);
         $funcCovLines{$line} = 1;
         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                  "'current' line $filename:$line should not be marked 'delete'")
@@ -2952,7 +2994,7 @@ sub _categorizeFunctionCov
     foreach my $key ($funcBase->keylist()) {
         my $func = $funcBase->findKey($key);
         my $line = $func->line();
-        my $data = $self->_findLineData($linemap, $filename, $line);
+        my $data = $self->_findLineData($diffMap, $filename, $line);
 
         my $type      = $data->type();
         my $curr_line = $data->lineNo('current');
@@ -3017,7 +3059,7 @@ sub _categorizeFunctionCov
                 $changed = 0;
                 for (my $line = $curr->line(); $line <= $end_line; ++$line) {
                     # data for this line
-                    my $type = $linemap->type($filename, $linemap->NEW, $line);
+                    my $type = $diffMap->type($filename, $diffMap->NEW, $line);
 
                     # claim a change if:
                     #   - line is new and is source code, OR
@@ -3031,7 +3073,7 @@ sub _categorizeFunctionCov
                     } else {
                         # line is same
                         my $bline =
-                            $linemap->lookup($filename, $linemap->NEW, $line);
+                            $diffMap->lookup($filename, $diffMap->NEW, $line);
                         if (defined($lineCovBase->value($bline)) ^
                             defined($lineCovCurrent->value($line))) {
                             $changed = 1;
@@ -3047,7 +3089,7 @@ sub _categorizeFunctionCov
                          ++$bline) {
                         # data for this line
                         my $type =
-                            $linemap->type($filename, $linemap->OLD, $bline);
+                            $diffMap->type($filename, $diffMap->OLD, $bline);
                         # claim a change if line is deleted and was code
                         #  before.
                         # note that we already checked unchanged lines, above
@@ -3133,7 +3175,7 @@ sub _categorizeFunctionCov
     }
 }
 
-package LineMap;
+package DiffMap;
 
 use constant {
               LINEMAP => 0,
@@ -3174,6 +3216,18 @@ sub load
     $self->_read_udiff($path);
 
     return $self;
+}
+
+sub empty
+{
+    my $self = shift;
+    return !scalar(%{$self->[LINEMAP]});
+}
+
+sub containsFile
+{
+    my ($self, $file) = @_;
+    return exists($self->[LINEMAP]->{$file});
 }
 
 sub lookup
@@ -3238,11 +3292,11 @@ sub type
         $prev  = pop @candidates;
     }
     if (!defined($chunk)) {
-        warn "LineMap::type(): got undef chunk at $file, $vers, $line\n";
+        warn "DiffMap::type(): got undef chunk at $file, $vers, $line\n";
         return "undef chunk";
     }
     if (!defined($chunk->[TYPE])) {
-        warn "LineMap::type(): got undef type at $file, $vers, $line\n";
+        warn "DiffMap::type(): got undef type at $file, $vers, $line\n";
         return "undef type";
     }
     return $chunk->[TYPE];
@@ -3276,10 +3330,7 @@ sub dump_map
             "[deleted]";
         printf("In $file (was: $currfile):\n");
         foreach my $chunk (@{$self->[LINEMAP]->{$file}}) {
-            printf("  %6s\t[%d:%d]\t[%d:%d]\n",
-                   $chunk->[TYPE], $chunk->[OLD]->[_START],
-                   $chunk->[OLD]->[_END], $chunk->[NEW]->[_START],
-                   $chunk->[NEW]->[_END]);
+            _printChunk($chunk);
         }
     }
     return $self;
@@ -3372,9 +3423,13 @@ sub check_path_consistency
                 # @todo could print line numbers in baseline, current .info files and
                 #   in diff file ..
                 if (lcovutil::warn_once($lcovutil::ERROR_MISMATCH, $f)) {
-                    my $suffix = lcovutil::explain_once('elide-path-mismatch',
+                    my $suffix =
+                        $main::elide_path_mismatch ?
+                        lcovutil::explain_once(
+                        'elide-path-mismatch',
                         '  Perhaps see "--elide-path-mismatch" and/or "--substitute" options in \'man '
-                            . $lcovutil::tool_name . '\'');
+                            . $lcovutil::tool_name . '\'') :
+                        ' (elided)';
                     lcovutil::ignorable_warning(
                                        $lcovutil::ERROR_MISMATCH,
                                        "source file '$f' (in $type .info file" .
@@ -3404,6 +3459,26 @@ sub check_path_consistency
     return $ok;
 }
 
+sub _printChunk
+{
+    my $chunk = shift;
+    printf("  %6s\t[%d:%d]\t[%d:%d]\n",
+           $chunk->[TYPE], $chunk->[OLD]->[_START],
+           $chunk->[OLD]->[_END], $chunk->[NEW]->[_START],
+           $chunk->[NEW]->[_END]);
+}
+
+sub _newChunk
+{
+    my ($type, $baseline_start, $current_start) = @_;
+    # new chunk starts and ends on the same line - until we see more lines and
+    #   extend either the old or new range
+    return [[$baseline_start, $baseline_start],
+            [$current_start, $current_start],
+            $type
+    ];
+}
+
 sub show_map
 {
     my ($self, $file) = @_;
@@ -3416,10 +3491,7 @@ sub show_map
         "[deleted]";
     printf("In $file (was: $currfile):\n");
     foreach my $chunk (@{$self->[LINEMAP]->{$file}}) {
-        printf("  %6s\t[%d:%d]\t[%d:%d]\n",
-               $chunk->[TYPE], $chunk->[OLD]->[_START],
-               $chunk->[OLD]->[_END], $chunk->[NEW]->[_START],
-               $chunk->[NEW]->[_END]);
+        _printChunk($chunk);
     }
     return $self;
 }
@@ -3452,6 +3524,7 @@ sub _read_udiff
     my $time =
         '[1-9]{1}[0-9]{3}\-[0-9]{2}\-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]*)?( .[0-9]+)?';
     # Parse diff file line by line
+    my $verbose = 0;
     while (<$diffHdl>) {
         chomp($_);
         s/\r//g;
@@ -3489,6 +3562,9 @@ sub _read_udiff
                     );
                     last;
                 }
+                $verbose = (defined($main::verboseScopeRegexp) &&
+                            $key =~ m/$main::verboseScopeRegexp/);
+                print("  $key: unchanged\n") if $verbose;
                 # LCOV_EXCL_START
                 if (exists($self->[LINEMAP]->{$key})) {
                     lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
@@ -3518,7 +3594,6 @@ sub _read_udiff
                 $file_old = ReadCurrentSource::resolve_path($file_old, 1);
                 $file_old = lc($file_old) if $lcovutil::case_insensitive;
                 $self->[LOCATION]->[OLD]->{$file_old} = $.;
-                #$in_block = 0;
                 last;
             };
             # Filename of new file:
@@ -3549,17 +3624,17 @@ sub _read_udiff
                     # LCOV_EXCL_STOP
                     $self->[LINEMAP]->{$key} = [];
                 }
+                $verbose = (defined($main::verboseScopeRegexp) &&
+                            $key =~ m/$main::verboseScopeRegexp/);
+                print("file $key\n") if $verbose;
                 if ($notNull) {
                     $self->[FILEMAP]->{$key} = $file_old;
                     # keep track of location where this file was found
                     $self->[LOCATION]->[NEW]->{$key} =
                         $.;    # record original name too.. $file_new
                 }
-                $chunk = [[1, 1],    # old [start,end]
-                          [1, 1],    # new [start,end]
-                          'equal'    # type
-                ];
-
+                # new file - chunk starts here
+                $chunk = _newChunk('equal', 1, 1);
                 last;
             };
             # Start of diff block:
@@ -3570,17 +3645,12 @@ sub _read_udiff
                     if ($chunk->[TYPE] ne "equal") {
                         if ($filename) {
                             push(@{$self->[LINEMAP]->{$filename}}, $chunk);
+                            _printChunk($chunk) if ($verbose);
                         }
-                        my $oldchunk = $chunk;
-                        $chunk = [
-                                  [$oldchunk->[OLD]->[_END] + 1,
-                                   $oldchunk->[OLD]->[_END] + 1
-                                  ],
-                                  [$oldchunk->[NEW]->[_END] + 1,
-                                   $oldchunk->[NEW]->[_END] + 1
-                                  ],
-                                  'equal'    # type
-                        ];
+                        $chunk =
+                            _newChunk('equal',
+                                      $chunk->[OLD]->[_END] + 1,
+                                      $chunk->[NEW]->[_END] + 1);
                     }
                 }
                 # "END" will be incremented on content lines
@@ -3600,17 +3670,12 @@ sub _read_udiff
                 if ($chunk->[TYPE] ne "equal") {
                     if ($filename) {
                         push(@{$self->[LINEMAP]->{$filename}}, $chunk);
+                        _printChunk($chunk) if ($verbose);
                     }
-                    my $oldchunk = $chunk;
-                    $chunk = [
-                              [$oldchunk->[OLD]->[_END] + 1,
-                               $oldchunk->[OLD]->[_END] + 1
-                              ],
-                              [$oldchunk->[NEW]->[_END] + 1,
-                               $oldchunk->[NEW]->[_END] + 1
-                              ],
-                              'equal'    # type
-                    ];
+                    # next chunk starts right after current one
+                    $chunk = _newChunk('equal',
+                                       $chunk->[OLD]->[_END] + 1,
+                                       $chunk->[NEW]->[_END] + 1);
                 } else {
                     $chunk->[NEW]->[_END] += 1;
                     $chunk->[OLD]->[_END] += 1;
@@ -3626,19 +3691,12 @@ sub _read_udiff
                 if ($chunk->[TYPE] ne "delete") {
                     if ($filename) {
                         push(@{$self->[LINEMAP]->{$filename}}, $chunk);
+                        _printChunk($chunk) if ($verbose);
                     }
-                    my $oldchunk = $chunk;
-                    $chunk = [
-                              [$oldchunk->[OLD]->[_END] + 1,
-                               $oldchunk->[OLD]->[_END] + 1
-                              ],
-                              [$oldchunk->[NEW]->[_END],
-                               $oldchunk->[NEW]->[_END]
-                              ],
-                              'delete'    # type
-                    ];
+                    $chunk = _newChunk('delete',
+                                       $chunk->[OLD]->[_END] + 1,
+                                       $chunk->[NEW]->[_END]);
                 } else {
-                    #$chunk->[OLD]->[_START] += 1;
                     $chunk->[OLD]->[_END] += 1;
                 }
                 last;
@@ -3652,19 +3710,12 @@ sub _read_udiff
                 if ($chunk->[TYPE] ne "insert") {
                     if ($filename) {
                         push(@{$self->[LINEMAP]->{$filename}}, $chunk);
+                        _printChunk($chunk) if ($verbose);
                     }
-                    my $oldchunk = $chunk;
-                    $chunk = [
-                              [$oldchunk->[OLD]->[_END],
-                               $oldchunk->[OLD]->[_END]
-                              ],
-                              [$oldchunk->[NEW]->[_END] + 1,
-                               $oldchunk->[NEW]->[_END] + 1
-                              ],
-                              'insert'    # type
-                    ];
+                    $chunk = _newChunk('insert',
+                                       $chunk->[OLD]->[_END],
+                                       $chunk->[NEW]->[_END] + 1);
                 } else {
-                    #$chunk->{new}->{start} += 1;
                     $chunk->[NEW]->[_END] += 1;
                 }
                 last;
@@ -3677,17 +3728,11 @@ sub _read_udiff
                 if ($chunk->[TYPE] ne "equal") {
                     if ($filename) {
                         push(@{$self->[LINEMAP]->{$filename}}, $chunk);
+                        _printChunk($chunk) if ($verbose);
                     }
-                    my $oldchunk = $chunk;
-                    $chunk = [
-                              [$oldchunk->[OLD]->[_END] + 1,
-                               $oldchunk->[OLD]->[_END] + 1
-                              ],
-                              [$oldchunk->[NEW]->[_END] + 1,
-                               $oldchunk->[NEW]->[_END] + 1
-                              ],
-                              'equal'    # type
-                    ];
+                    $chunk = _newChunk('equal',
+                                       $chunk->[OLD]->[_END] + 1,
+                                       $chunk->[NEW]->[_END] + 1);
                 } else {
                     $chunk->[NEW]->[_END] += 1;
                     $chunk->[OLD]->[_END] += 1;
@@ -3700,9 +3745,10 @@ sub _read_udiff
     # Add final diff file section to resulting hash
     if ($filename) {
         push(@{$self->[LINEMAP]->{$filename}}, $chunk);
+        _printChunk($chunk) if ($verbose);
     }
 
-    if (scalar(keys %{$self->[LINEMAP]}) == 0) {
+    if ($self->empty()) {
         # this is probably OK - there are no differences between 'baseline' and current.
         lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
             "'diff' data file $diff_file contains no differences (this may be OK, if there are no difference between 'baseline' and 'current').\n"
@@ -5851,6 +5897,7 @@ sub merge_child($$$)
         }
     }
     my $signal = $childstatus & 0xFF;
+    # non-parallel execution prints stuff to stdout - so we should too
     print(STDOUT $childLog)
         if ((0 != $childstatus &&
              $signal != POSIX::SIGKILL &&
@@ -5967,7 +6014,7 @@ our $current_data;
 #   - constructed in GenHtml (if needed)
 our $base_data;
 # Instance containing all data from diff file
-our $diff_data = LineMap->new();
+our $diff_data = DiffMap->new();
 our @opt_dir_prefix;    # Array of prefixes to remove from all sub directories
 our @dir_prefix;
 our %test_description;    # Hash containing test descriptions if available
@@ -6047,6 +6094,9 @@ our $rc_desc_html = 0;      # lcovrc: genhtml_desc_html
 
 our $cwd = cwd();           # Current working directory
 
+# for debugging
+our $verboseScopeRegexp;    # dump categorization processing if match
+
 #
 # Code entry point
 #
@@ -6112,7 +6162,8 @@ my %genhtml_rc_opts = (
                'criteria_callback_levels'    => \@criteriaCallbackLevels,
                "select_script"               => \@rc_select_script,
                'num_context_lines' => \$InInterestingRegion::num_context_lines,
-               'genhtml_date_bins' => \@rc_date_bins,);
+               'genhtml_date_bins' => \@rc_date_bins,
+               'scope_regexp'      => \$verboseScopeRegexp,);
 
 my $save;
 my $serialize;
@@ -6960,6 +7011,22 @@ sub write_summary_pages($$$$$$$$)
         return;
     }
 
+    if ($main::show_tla) {
+        info('Processing '
+                 .
+                 ($summaryType == 1 ? ('directory: ' . $summary->name()) :
+                      'top level:') .
+                 "\n");
+        my $sep = $summaryType == 1 ? $summary->name() : '';
+        foreach my $t ('line',
+                       $main::br_coverage ? 'branch' : undef,
+                       $main::func_coverage ? 'function' : undef) {
+            my $s = $summary->tlaSummary($t) if defined($t);
+            next unless $s;
+            info("  $t: $s\n");
+        }
+    }
+
     my $start = Time::HiRes::gettimeofday();
     my @summaryBins;
     push(@summaryBins, 'owner') if defined($main::show_ownerBins);
@@ -7067,7 +7134,12 @@ sub process_file($$$$$)
     my ($fileSummary, $parent_dir_summary, $trunc_dir, $rel_dir, $filename) =
         @_;
     my $trunc_name = apply_prefix($filename, @dir_prefix);
-    info("Processing file $trunc_name\n");
+    info("Processing file $trunc_name"
+             .
+             (($main::diff_filename && !$diff_data->containsFile($filename)) ?
+                  ' (no source code changes)' :
+                  '') .
+             "\n");
 
     my $base_name = basename($filename);
     my $base_dir  = get_relative_base_path($rel_dir);
@@ -7099,9 +7171,12 @@ sub process_file($$$$$)
     # build coverage differential categories
     my $now = Time::HiRes::gettimeofday();
     my $fileCovInfo =
-        FileCoverageInfo->new($filename, $fileBase, $fileCurrent, $diff_data
-                                  #, scalar($filename =~ /vcsapi_type/ # verbose
-        );
+        FileCoverageInfo->new($filename,
+                              $fileBase,
+                              $fileCurrent,
+                              $diff_data,
+                              defined($main::verboseScopeRegexp) &&
+                                  $filename =~ m/$main::verboseScopeRegexp/);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{categorize}{$filename} = $then - $now;
 
@@ -7131,6 +7206,19 @@ sub process_file($$$$$)
                                   $sumcount, $fileHasNoBaselineInfo);
     my $endSrc = Time::HiRes::gettimeofday();
     $lcovutil::profileData{source}{$filename} = $endSrc - $then;
+
+    if (@main::base_filenames) {
+        # summarize the bin data if we had baseline data for comparison
+        foreach my $t (['line', $lines_found],
+                       ['branch', $lcovutil::br_coverage ? $br_found : 0],
+                       ['function', $lcovutil::func_coverage ? $fn_found : 0]
+        ) {
+            next if 0 == $t->[1];
+            info('    ' .
+                 $t->[0] . ': ' . $fileSummary->tlaSummary($t->[0]) . "\n");
+        }
+    }
+
     if ($srcfile->is_empty()) {
         return;
     }

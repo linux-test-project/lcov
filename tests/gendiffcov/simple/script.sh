@@ -782,8 +782,8 @@ for summary in ownership ; do
     fi
 done
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info $GENHTML_PORT $IGNORE
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info $IGNORE --rc scope_regexp='test.cpp'
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info $GENHTML_PORT $IGNORE --rc scope_regexp='test.cpp'
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml no_annotation failed"
     status=1

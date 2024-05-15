@@ -564,7 +564,7 @@ sub _msg_handler
 {
     my ($msg, $error) = @_;
 
-    if (!($debug || exists($ENV{LCOV_SHOW_LOCATION}))) {
+    if (!($debug || $verbose > 0 || exists($ENV{LCOV_SHOW_LOCATION}))) {
         $msg =~ s/ at \S+ line \d+\.$//;
     }
     # Enforce consistent "WARNING/ERROR:" message prefix
@@ -807,12 +807,11 @@ sub save_profile($)
         $lcovutil::profileData{config}{version}     = $lcovutil::lcov_version;
         $lcovutil::profileData{config}{tool_dir}    = $lcovutil::tool_dir;
         $lcovutil::profileData{config}{url}         = $lcovutil::lcov_url;
-        $lcovutil::profileData{config}{date}        = `date`;
-        $lcovutil::profileData{config}{uname}       = `uname -a`;
-        foreach my $k ('date', 'uname') {
-            chomp($lcovutil::profileData{config}{$k});
+        foreach my $t ('date', 'uname -a', 'hostname') {
+            my $v = `$t`;
+            chomp($v);
+            $lcovutil::profileData{config}{(split(' ', $t))[0]} = $v;
         }
-
         my $save = $maxParallelism;
         count_cores();
         $lcovutil::profileData{config}{cores} = $maxParallelism;
