@@ -199,9 +199,6 @@ our $gcov_version_string;
 our $graph_file_extension = '.gcno';
 our $data_file_extension  = '.gcda';
 our @data_directory;
-# root of directory where .gcno files can be found -directory name,
-# if .gcda and .gcno not in same place
-my @build_directory;
 our $buildDirSearchPath;
 our $test_name = "";
 our $help;
@@ -250,7 +247,6 @@ $ENV{"LC_ALL"} = "C";
 my %geninfo_opts = ("test-name|t=s"       => \$test_name,
                     "output-filename|o=s" => \$output_filename,
                     "base-directory|b=s"  => \$base_directory,
-                    "build-directory=s"   => \@build_directory,
                     "follow|f"            => \$follow,
                     "compat-libtool"      => \$lcovutil::opt_compat_libtool,
                     "no-compat-libtool"   => \$opt_no_compat_libtool,
@@ -271,8 +267,7 @@ if (!lcovutil::parseOptions(\%lcovutil::geninfo_rc_opts, \%geninfo_opts)) {
 }
 
 $buildDirSearchPath =
-    SearchPath->new('build directory',
-                 @build_directory ? @build_directory : @lcovutil::rc_build_dir);
+    SearchPath->new('build directory', @lcovutil::build_directory);
 @gcov_tool = @lcovutil::rc_gcov_tool unless @gcov_tool;
 
 # Check regexp
@@ -594,8 +589,8 @@ if (0 == $exit_code) {
         # print warnings
         lcovutil::warn_file_patterns();
         $buildDirSearchPath->warn_unused(
-                                        @build_directory ? '--build-directory' :
-                                            'build_directory = ');
+                              @lcovutil::build_directory ? '--build-directory' :
+                                  'build_directory = ');
         ReadCurrentSource::warn_sourcedir_patterns();
     };
     if ($@) {

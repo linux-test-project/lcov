@@ -2210,8 +2210,9 @@ sub lineNo
             unless $which eq "base";
         $loc = LINENO_BASE;
     }
-    die("inconsistent $which line location $loc: " .
-        $self->[$loc] . " -> $lineNo")
+    lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                              "inconsistent $which line location $loc: " .
+                                  $self->[$loc] . " -> $lineNo")
         if (defined($lineNo) &&
             defined($self->[$loc]) &&
             $self->[$loc] != $lineNo);
@@ -3185,6 +3186,7 @@ use constant {
               DIFF_FILENAME => 2,
               LOCATION      => 3,
               UNCHANGED     => 4,
+              ALIASES       => 5,
 
               OLD  => 0,
               NEW  => 1,
@@ -3212,9 +3214,47 @@ sub new
 
 sub load
 {
-    my ($self, $path) = @_;
+    my ($self, $path, $info, $buildDirs) = @_;
     $self->_read_udiff($path);
 
+    if (@$buildDirs) {
+        # find list of soft links in [buildDirs] which point to files in $info
+        my @stack = @$buildDirs;
+        my %alias;
+        while (@stack) {
+            my $dir = pop(@stack);
+            die("unexpected non-directory '$dir'") unless -d $dir;
+            $dir = File::Spec->catdir($main::cwd, $dir)
+                unless File::Spec->file_name_is_absolute($dir);
+
+            opendir(my $dh, $dir) or die("can't open directory $dir: $!");
+            while (my $entry = readdir($dh)) {
+                next if $entry eq '.' || $entry eq '..';
+                my $path = File::Spec->catfile($dir, $entry);
+                if (-d $path) {
+                    push(@stack, $path);
+                } elsif (-l $path) {
+                    my $l = Cwd::realpath($path);
+                    $alias{$path} = $l if (-f $l);
+                    # really, this should be a file...
+                    die("unexpected soft link $path to directory")
+                        unless -f $l;
+                }
+                # else just ignore file entry
+            }
+        }
+        # now look through list of filenames in the current .info file, and see
+        #  if any match the soft links found above
+        foreach my $f ($info->files()) {
+            my $path = $f;
+            $path = File::Spec->catfile($main::cwd, $f)
+                unless File::Spec->file_name_is_absolute($f);
+            if (exists($alias{$path})) {
+                #lcovutil::info("found alias $alias{$path} of $f\n");
+                $self->[ALIASES]->{$path} = $alias{$path};
+            }
+        }
+    }
     return $self;
 }
 
@@ -3224,9 +3264,18 @@ sub empty
     return !scalar(%{$self->[LINEMAP]});
 }
 
+sub findName
+{
+    my ($self, $file) = @_;
+    my $f = $lcovutil::case_insensitive ? lc($file) : $file;
+    $f = $self->[ALIASES]->{$f} if exists($self->[ALIASES]->{$f});
+    return $f;
+}
+
 sub containsFile
 {
     my ($self, $file) = @_;
+    $file = $self->findName($file);
     return exists($self->[LINEMAP]->{$file});
 }
 
@@ -3234,7 +3283,7 @@ sub lookup
 {
     my ($self, $file, $vers, $line) = @_;
 
-    $file = lc($file) if $lcovutil::case_insensitive;
+    $file = $self->findName($file);
 
     if (!exists($self->[LINEMAP]->{$file})) {
         #mapping is identity when no diff was read
@@ -3261,7 +3310,7 @@ sub type
 {
     my ($self, $file, $vers, $line) = @_;
 
-    $file = lc($file) if $lcovutil::case_insensitive;
+    $file = $self->findName($file);
 
     if (!defined($self->[LINEMAP]->{$file})) {
         #mapping is identity when no diff was read
@@ -3307,7 +3356,7 @@ sub baseline_file_name
     # file may have been moved between baseline and current...
     my ($self, $current_name) = @_;
 
-    my $key = $lcovutil::case_insensitive ? lc($current_name) : $current_name;
+    my $key = $self->findName($current_name);
     if (exists($self->[FILEMAP]->{$key})) {
         return $self->[FILEMAP]->{$key};
     }
@@ -3363,22 +3412,28 @@ sub check_path_consistency
     my %missed;
     foreach my $curr ($current->files()) {
         my $b = File::Basename::basename($curr);
-        if (exists($diffMap{$curr})) {
-            $diffMap{$curr} |= 1;    # used in current
-            $diffBaseMap{$b}->[1]->{$curr} = 0
-                unless exists($diffBaseMap{$b}->[1]->{$curr});
-            ++$diffBaseMap{$b}->[1]->{$curr};
+        if ($self->containsFile($curr)) {
+            my $alias =
+                exists($self->[ALIASES]->{$curr}) ? $self->[ALIASES]->{$curr} :
+                $curr;
+            $diffMap{$alias} |= 1;    # used in current
+            $diffBaseMap{$b}->[1]->{$alias} = 0
+                unless exists($diffBaseMap{$b}->[1]->{$alias});
+            ++$diffBaseMap{$b}->[1]->{$alias};
         } else {
-            $missed{$curr} = 1;      # in current but not in diff
+            $missed{$curr} = 1;       # in current but not in diff
         }
     }
     foreach my $base ($baseline->files()) {
         my $b = File::Basename::basename($base);
-        if (exists($diffMap{$base})) {
-            $diffMap{$base} |= 2;    # used in baseline
-            $diffBaseMap{$b}->[1]->{$base} = 0
-                unless exists($diffBaseMap{$b}->[1]->{$base});
-            ++$diffBaseMap{$b}->[1]->{$base};
+        if ($self->containsFile($base)) {
+            my $alias =
+                exists($self->[ALIASES]->{$base}) ? $self->[ALIASES]->{$base} :
+                $base;
+            $diffMap{$alias} |= 2;    # used in baseline
+            $diffBaseMap{$b}->[1]->{$alias} = 0
+                unless exists($diffBaseMap{$b}->[1]->{$alias});
+            ++$diffBaseMap{$b}->[1]->{$alias};
         } else {
             # in baseline but not in diff
             if (exists($missed{$base})) {
@@ -3424,12 +3479,11 @@ sub check_path_consistency
                 #   in diff file ..
                 if (lcovutil::warn_once($lcovutil::ERROR_MISMATCH, $f)) {
                     my $suffix =
-                        $main::elide_path_mismatch ?
+                        $main::elide_path_mismatch ? ' (elided)' :
                         lcovutil::explain_once(
                         'elide-path-mismatch',
-                        '  Perhaps see "--elide-path-mismatch" and/or "--substitute" options in \'man '
-                            . $lcovutil::tool_name . '\'') :
-                        ' (elided)';
+                        '  Perhaps see "--elide-path-mismatch", "--substitute" and "--build-directory" options in \'man '
+                            . $lcovutil::tool_name . '\'');
                     lcovutil::ignorable_warning(
                                        $lcovutil::ERROR_MISMATCH,
                                        "source file '$f' (in $type .info file" .
@@ -3483,13 +3537,12 @@ sub show_map
 {
     my ($self, $file) = @_;
 
-    if (!defined($self->[FILEMAP]->{$file})) {
-        return $self;
-    }
+    $file = $self->findName($file);
+    return $self unless exists($self->[FILEMAP]->{$file});
     my $currfile =
         defined($self->[FILEMAP]->{$file}) ? $self->[FILEMAP]->{$file} :
         "[deleted]";
-    printf("In $file (was: $currfile):\n");
+    print("In $file" . ($currfile ne $file ? " (was: $currfile)" : '') . ":\n");
     foreach my $chunk (@{$self->[LINEMAP]->{$file}}) {
         _printChunk($chunk);
     }
@@ -3524,7 +3577,8 @@ sub _read_udiff
     my $time =
         '[1-9]{1}[0-9]{3}\-[0-9]{2}\-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]*)?( .[0-9]+)?';
     # Parse diff file line by line
-    my $verbose = 0;
+    my $verbose  = 0;
+    my $diffRoot = $main::cwd;    # default root
     while (<$diffHdl>) {
         chomp($_);
         s/\r//g;
@@ -3537,6 +3591,11 @@ sub _read_udiff
             $line =~ s/\Q$1\E$//;
         }
         foreach ($line) {
+            /^Git Root: (.+)$/ && do {
+                $diffRoot = $1;
+                last;
+            };
+
             # Filename of unchanged file:
             # === <filename>
             /^=== (.+)$/ && do    # note: filename may contain whitespace
@@ -3548,7 +3607,7 @@ sub _read_udiff
                     push(@{$self->[LINEMAP]->{$filename}}, $chunk);
                     undef $filename;
                 }
-                my $file = File::Spec->rel2abs($1, $main::cwd);
+                my $file = File::Spec->rel2abs($1, $diffRoot);
                 $file = lcovutil::strip_directories($file, $main::strip);
                 my $key = ReadCurrentSource::resolve_path($file, 1);
                 $key = lc($key) if $lcovutil::case_insensitive;
@@ -3588,7 +3647,7 @@ sub _read_udiff
                     push(@{$self->[LINEMAP]->{$filename}}, $chunk);
                     undef $filename;
                 }
-                $file_old = File::Spec->rel2abs($1, $main::cwd);
+                $file_old = File::Spec->rel2abs($1, $diffRoot);
                 $file_old =
                     lcovutil::strip_directories($file_old, $main::strip);
                 $file_old = ReadCurrentSource::resolve_path($file_old, 1);
@@ -3600,7 +3659,7 @@ sub _read_udiff
             # +++ <filename>
             /^\+\+\+ (.+)$/ && do {
                 # Add last file to resulting hash
-                $file_new = File::Spec->rel2abs($1, $main::cwd);
+                $file_new = File::Spec->rel2abs($1, $diffRoot);
                 $file_new =
                     lcovutil::strip_directories($file_new, $main::strip);
                 my $key = ReadCurrentSource::resolve_path($file_new, 1);
@@ -6795,7 +6854,8 @@ sub gen_html()
     if ($diff_filename) {
         $now = Time::HiRes::gettimeofday();
         info("Reading diff file $diff_filename\n");
-        $diff_data->load($diff_filename);
+        $diff_data->load($diff_filename, $current_data,
+                         \@lcovutil::build_directory);
         $then = Time::HiRes::gettimeofday();
         $lcovutil::profileData{parse_diff} = $then - $now;
     }
@@ -7136,8 +7196,8 @@ sub process_file($$$$$)
     my $trunc_name = apply_prefix($filename, @dir_prefix);
     info("Processing file $trunc_name"
              .
-             (($main::diff_filename && !$diff_data->containsFile($filename)) ?
-                  ' (no source code changes)' :
+             (($main::diff_filename && $diff_data->containsFile($filename)) ?
+                  ' (source code changed)' :
                   '') .
              "\n");
 

@@ -134,8 +134,8 @@ DIFFCOV_OPTS="$DIFFCOV_NOFRAME_OPTS --frame"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
-rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py names.data
-rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source
+rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py names.data linked.cpp linked_diff.txt
+rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source linked linked_err linked_elide linked_dir
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete -db $COVER_DB
@@ -564,6 +564,76 @@ echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline_name.info
 $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT $IGNORE --description names.data --serialize differential_named/coverage.dat
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential testname failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+# test --build-dir option, using linked build
+cp test.cpp linked.cpp
+mkdir -p linked/build
+(cd linked/build ; ln -s ../../linked.cpp )
+for f in baseline current ; do
+  cat ${f}.info | sed -e 's/test.cpp/linked\/build\/linked.cpp/' > linked_${f}.info
+done
+cat diff.txt | sed -e s/test.cpp/linked.cpp/ > linked_diff.txt
+
+# note:  ignroe version mismatch because copying file changed the
+#  date - and so will cause a mismatch
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_err ./linked_current.info $IGNORE --ignore version
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_err ./linked_current.info $IGNORE --ignore version 2>&1 | tee linked.log
+# should fail to find source files
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "expected genhtml to fail with linked build"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# check error message
+grep "possible path inconsistency" linked.log
+if [ 0 != $? ] ; then
+    echo "failed to find expected mismatch message"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# run again eliding mismatches..
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_elide ./linked_current.info $IGNORE --ignore version --elide-path
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_elide ./linked_current.info $IGNORE --elide-path --ignore version
+# should pass
+if [ 0 != $? ] ; then
+    echo "expected genhtml --elide to pass"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ ! -f linked_elide/simple/linked/build/linked.cpp.gcov.html ] ; then
+    echo "expected linked/elide output not found"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# run again with build dir
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_dir ./linked_current.info $IGNORE --build-dir linked --ignore version --rc scope_regexp=linked
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_dir ./linked_current.info $IGNORE --build-dir linked --ignore version --rc scope_regexp=linked
+# should pass
+if [ 0 != $? ] ; then
+    echo "expected genhtml --build-dir to pass"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ ! -f linked_elide/simple/linked/build/linked.cpp.gcov.html ] ; then
+    echo "expected linked/elide output not found"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1

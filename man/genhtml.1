@@ -47,6 +47,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .IR prefix ]
 .RB [ \-\-no\-prefix ]
 .br
+.RB [ \-\-build\-directory
+.IR directory ]
+.br
 .RB [ \-\-source\-directory
 .IR dirname ]
 .br
@@ -1075,7 +1078,9 @@ diff [optional header strings]
 
 in the p4diff/gitdiff output as this knowledge will help to suppress spurious 'path mismatch' warnings.  See the
 .B \-\-elide\-path\-mismatch
-option, below.
+and
+.B \-\-build\-directory
+entries, below.
 
 In general, you will specify
 .B \-\-baseline\-file
@@ -1376,7 +1381,7 @@ above for general calling conventions and script requirements.
 
 .I script
 is run with the following command line for each source code file,
-leaf-directory, and top-level coverage results:
+leaf\-directory, and top-level coverage results:
 
 .RS
 .B script
@@ -1766,7 +1771,9 @@ there is only one unmatched unified\-diff\-file entry with that basename.
 
 See the
 .B \-\-diff\-file
-discussion above for a discussion of how to avoid spurious warnings and/or incorrect matches.
+and
+.B \-\-build\-directory
+entries for a discussion of how to avoid spurious warnings and/or incorrect matches.
 
 .RE
 .BI "\-\-synthesize\-missing"
@@ -2185,6 +2192,32 @@ to jump out of their sockets :)
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_css_file .
+
+.RE
+.BI "\-\-build\-directory " dirname
+.RS
+To support 'linked build directory' structures, add 'dirname' to the list of
+places to search for soft links to source files -
+.I e.g.,
+to handle the case that the links point to source files which are held in your
+revision control system, and appear in the
+.I \-\-diff\-file
+data.  In this use case, paths in the coverage data very likely refer to the
+structure seen by the compiler during the build - so resolving them back to
+the corresponding revsion-controlled source structure is likely to be successful.
+.br
+
+Look in
+.I dirname
+for file paths which appear in
+.IR tracefile
+\- possibly after substitutions have been applied \-
+which are soft links.
+Both the original file path and the path to the linked file will resolve to the same
+.I \-\-diff\-file entry.
+
+This option can be specified multiple times, to add more directories to the search path.
+
 
 .RE
 .BI "\-\-source\-directory " dirname

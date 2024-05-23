@@ -87,7 +87,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
 
      @extractVersionScript $verify_checksum $compute_file_version
 
-     is_external @internal_dirs $opt_no_external
+     is_external @internal_dirs $opt_no_external @build_directory
      rate get_overall_line $default_precision check_precision
 
      system_no_output $devnull $dirseparator
@@ -199,6 +199,11 @@ our $func_coverage = 1;    # If set, generate function coverage statistics
 # for external file filtering
 our @internal_dirs;
 our $opt_no_external;
+
+# Where code was built/where .gcno files can be found
+# (if .gcno files are in a different place than the .gcda files)
+# also used by genhtml to match diff file entries to .info file
+our @build_directory;
 
 # filename substitutions
 our @file_subst_patterns;
@@ -794,7 +799,8 @@ sub save_cmd_line($$)
             $cmd .= $arg;
         }
     }
-    $lcovutil::profileData{config}{cmdLine} = $cmd;
+    $lcovutil::profileData{config}{cmdLine}  = $cmd;
+    $lcovutil::profileData{config}{buildDir} = Cwd::getcwd();
 }
 
 sub save_profile($)
@@ -1041,9 +1047,10 @@ sub apply_config($$$)
 my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
     @rc_include_patterns, @rc_subst_patterns, @rc_omit_patterns,
     @rc_erase_patterns, @rc_version_script, @unsupported_config,
-    @rc_source_directories, %unsupported_rc, $keepGoing,
-    @rc_resolveCallback, $help, $rc_no_branch_coverage,
-    $rc_no_func_coverage, $rc_no_checksum, $version);
+    @rc_source_directories, @rc_build_dir, %unsupported_rc,
+    $keepGoing, @rc_resolveCallback, $help,
+    $rc_no_branch_coverage, $rc_no_func_coverage, $rc_no_checksum,
+    $version);
 my $quiet = 0;
 my $tempdirname;
 
@@ -1114,6 +1121,7 @@ my %rc_common = (
              "max_tasks_per_core"      => \$lcovutil::max_tasks_per_core,
              "fork_fail_timeout"       => \$lcovutil::fork_fail_timeout,
              'source_directory'        => \@rc_source_directories,
+             'build_directory'         => \@rc_build_dir,
 
              "no_exception_branch"   => \$lcovutil::exclude_exception_branch,
              'filter'                => \@rc_filter,
@@ -1143,7 +1151,6 @@ my %rc_common = (
 our $defaultChunkSize;    # for performance tweaking
 our $defaultInterval;     # for performance tweaking
 our @rc_gcov_tool;
-our @rc_build_dir;
 our $geninfo_adjust_testname;
 our $opt_external;
 our $opt_compat_libtool;
@@ -1170,8 +1177,7 @@ our %geninfo_rc_opts = (
           "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
           'geninfo_chunk_size'          => \$defaultChunkSize,
           'geninfo_interval_update'     => \$defaultInterval,
-          'geninfo_capture_all'         => \$geninfo_captureAll,
-          'build_directory'             => \@rc_build_dir);
+          'geninfo_capture_all'         => \$geninfo_captureAll);
 
 our %argCommon = ("tempdir=s"        => \$tempdirname,
                   "version-script=s" => \@lcovutil::extractVersionScript,
@@ -1191,6 +1197,7 @@ our %argCommon = ("tempdir=s"        => \$tempdirname,
 
                   'source-directory=s' =>
                       \@ReadCurrentSource::source_directories,
+                  'build-directory=s' => \@lcovutil::build_directory,
 
                   'resolve-script=s'  => \@lcovutil::resolveCallback,
                   "filter=s"          => \@opt_filter,
@@ -1352,6 +1359,7 @@ sub parseOptions
                     [\@ReadCurrentSource::source_directories,
                      \@rc_source_directories
                     ],
+                    [\@lcovutil::build_directory, \@rc_build_dir],
                     [\@lcovutil::resolveCallback, \@rc_resolveCallback]
     ) {
         @{$rc->[0]} = @{$rc->[1]} unless (@{$rc->[0]});
@@ -3777,6 +3785,18 @@ sub addAlias
     }
     $self->[COUNT] += $count;
     return $changed;
+}
+
+sub merge
+{
+    my ($self, $that) = @_;
+    lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                              $self->name() . " has different location than " .
+                                  $that->name() . " during merge")
+        if ($self->line() != $self->line());
+    while (my ($name, $count) = each(%{$that->[ALIASES]})) {
+        $self->addAlias($name, $count);
+    }
 }
 
 sub removeAliases
