@@ -174,6 +174,8 @@ foreach my $db (@ARGV) {
 
         foreach my $criteria ($f->items) {
             my $c = $f->criterion($criteria);
+            # some types we don't use
+            next if (grep(/^$criteria$/, ('pod', 'time', 'path')));
             if ($criteria eq 'branch') {
                 $branches = $c;
             } elsif ($criteria eq 'condition') {
@@ -196,7 +198,8 @@ foreach my $db (@ARGV) {
             } elsif ($criteria eq 'statement') {
                 $stmts = $c;
             } else {
-                die("unexpected data type '$criteria'");
+                lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
+                                          "unexpected data type '$criteria'");
             }
         }
         if (!defined($stmts)) {
@@ -216,11 +219,16 @@ foreach my $db (@ARGV) {
 
         # run through data to verify that there are no branch, function, or
         #  conditional coverpoints where there is no line data
-        foreach my $c ($branches, $conditions, $subroutines) {
-            next unless defined($c);
-            foreach my $line ($c->items) {
-                defined($stmts->location($line)) or
-                    die("found coverpoint on $line but no lineCov there");
+        foreach my $c (['branch', $branches],
+                       ['condition', $conditions],
+                       ['subroutine', $subroutines]
+        ) {
+            next unless defined($c->[1]);
+            foreach my $line ($c->[1]->items) {
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                   'found ' . $c->[0] .
+                                       " coverpoint on $line but no lineCov there"
+                ) unless defined($stmts->location($line));
             }
         }
 
