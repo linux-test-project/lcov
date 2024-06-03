@@ -45,7 +45,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $br_coverage $func_coverage
      @cpp_demangle do_mangle_check $demangle_cpp_cmd
      $cpp_demangle_tool $cpp_demangle_params
-     count_totals print_overall_rate
+     get_overall_line rate
 
      $FILTER_BRANCH_NO_COND $FILTER_FUNCTION_ALIAS
      $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH $FILTER_LINE
@@ -88,7 +88,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      @extractVersionScript $verify_checksum $compute_file_version
 
      is_external @internal_dirs $opt_no_external @build_directory
-     rate get_overall_line $default_precision check_precision
+     $default_precision check_precision
 
      system_no_output $devnull $dirseparator
 
@@ -243,6 +243,9 @@ our $max_tasks_per_core = 20;    # maybe default to 0?
 
 our $lcov_filter_parallel = 1;   # enable by default
 our $lcov_filter_chunk_size;
+
+our $fail_under_lines;
+our $fail_under_branches;
 
 sub default_info_impl(@);
 
@@ -1049,8 +1052,8 @@ my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
     @rc_erase_patterns, @rc_version_script, @unsupported_config,
     @rc_source_directories, @rc_build_dir, %unsupported_rc,
     $keepGoing, @rc_resolveCallback, $help,
-    $rc_no_branch_coverage, $rc_no_func_coverage, $rc_no_checksum,
-    $version);
+    @rc_criteria_script, $rc_no_branch_coverage, $rc_no_func_coverage,
+    $rc_no_checksum, $version);
 my $quiet = 0;
 my $tempdirname;
 
@@ -1073,7 +1076,9 @@ my %deprecated_rc = ("genhtml_demangle_cpp"        => "demangle_cpp",
                      "lcov_branch_coverage"        => "branch_coverage",
                      "lcov_function_coverage"      => "function_coverage",
                      "genhtml_function_coverage"   => "function_coverage",
-                     "genhtml_branch_coverage"     => "branch_coverage",);
+                     "genhtml_branch_coverage"     => "branch_coverage",
+                     'genhtml_criteria_script'     => 'criteria_script',
+                     "lcov_fail_under_lines"       => 'fail_under_lines',);
 
 my ($cExtensions, $rtlExtensions, $javaExtensions,
     $perlExtensions, $pythonExtensions);
@@ -1123,15 +1128,21 @@ my %rc_common = (
              'source_directory'        => \@rc_source_directories,
              'build_directory'         => \@rc_build_dir,
 
-             "no_exception_branch"   => \$lcovutil::exclude_exception_branch,
-             'filter'                => \@rc_filter,
-             'exclude'               => \@rc_exclude_patterns,
-             'include'               => \@rc_include_patterns,
-             'substitute'            => \@rc_subst_patterns,
-             'omit_lines'            => \@rc_omit_patterns,
-             'erase_functions'       => \@rc_erase_patterns,
-             "version_script"        => \@rc_version_script,
-             'resolve_script'        => \@rc_resolveCallback,
+             "no_exception_branch"    => \$lcovutil::exclude_exception_branch,
+             'filter'                 => \@rc_filter,
+             'exclude'                => \@rc_exclude_patterns,
+             'include'                => \@rc_include_patterns,
+             'substitute'             => \@rc_subst_patterns,
+             'omit_lines'             => \@rc_omit_patterns,
+             'erase_functions'        => \@rc_erase_patterns,
+             "version_script"         => \@rc_version_script,
+             'resolve_script'         => \@rc_resolveCallback,
+             'criteria_callback_data' =>
+                 \@CoverageCriteria::criteriaCallbackTypes,
+             'criteria_callback_levels' =>
+                 \@CoverageCriteria::criteriaCallbackLevels,
+             'criteria_script' => \@rc_criteria_script,
+
              "checksum"              => \$lcovutil::verify_checksum,
              'compute_file_version'  => \$lcovutil::compute_file_version,
              "case_insensitive"      => \$lcovutil::case_insensitive,
@@ -1144,6 +1155,9 @@ my %rc_common = (
              "demangle_cpp"              => \@lcovutil::cpp_demangle,
              'excessive_count_threshold' => \$excessive_count_threshold,
 
+             ,
+             "fail_under_lines"       => \$fail_under_lines,
+             "fail_under_branches"    => \$fail_under_branches,
              'lcov_filter_parallel'   => \$lcovutil::lcov_filter_parallel,
              'lcov_filter_chunk_size' => \$lcovutil::lcov_filter_chunk_size,);
 
@@ -1179,23 +1193,28 @@ our %geninfo_rc_opts = (
           'geninfo_interval_update'     => \$defaultInterval,
           'geninfo_capture_all'         => \$geninfo_captureAll);
 
-our %argCommon = ("tempdir=s"        => \$tempdirname,
-                  "version-script=s" => \@lcovutil::extractVersionScript,
-                  "checksum"         => \$lcovutil::verify_checksum,
-                  "no-checksum"      => \$rc_no_checksum,
-                  "quiet|q+"         => \$quiet,
-                  "verbose|v+"       => \$lcovutil::verbose,
-                  "debug+"           => \$lcovutil::debug,
-                  "help|h|?"         => \$help,
-                  "version"          => \$version,
-                  'comment=s'        => \@comments,
+our %argCommon = ("tempdir=s"         => \$tempdirname,
+                  "version-script=s"  => \@lcovutil::extractVersionScript,
+                  "criteria-script=s" =>
+                      \@CoverageCriteria::coverageCriteriaScript,
+
+                  "checksum"    => \$lcovutil::verify_checksum,
+                  "no-checksum" => \$rc_no_checksum,
+                  "quiet|q+"    => \$quiet,
+                  "verbose|v+"  => \$lcovutil::verbose,
+                  "debug+"      => \$lcovutil::debug,
+                  "help|h|?"    => \$help,
+                  "version"     => \$version,
+                  'comment=s'   => \@comments,
 
                   "function-coverage"    => \$lcovutil::func_coverage,
                   "branch-coverage"      => \$lcovutil::br_coverage,
                   "no-function-coverage" => \$rc_no_func_coverage,
                   "no-branch-coverage"   => \$rc_no_branch_coverage,
 
-                  'source-directory=s' =>
+                  "fail-under-lines=s"    => \$fail_under_lines,
+                  "fail-under-branches=s" => \$fail_under_branches,
+                  'source-directory=s'    =>
                       \@ReadCurrentSource::source_directories,
                   'build-directory=s' => \@lcovutil::build_directory,
 
@@ -1356,6 +1375,9 @@ sub parseOptions
                     [\@lcovutil::exclude_function_patterns, \@rc_erase_patterns
                     ],
                     [\@lcovutil::extractVersionScript, \@rc_version_script],
+                    [\@CoverageCriteria::coverageCriteriaScript,
+                     \@rc_criteria_script
+                    ],
                     [\@ReadCurrentSource::source_directories,
                      \@rc_source_directories
                     ],
@@ -1387,9 +1409,31 @@ sub parseOptions
         if (defined($rc_no_checksum));
 
     foreach my $cb ([\$versionCallback, \@lcovutil::extractVersionScript],
-                    [\$resolveCallback, \@lcovutil::resolveCallback]) {
+                    [\$resolveCallback, \@lcovutil::resolveCallback],
+                    [\$CoverageCriteria::criteriaCallback,
+                     \@CoverageCriteria::coverageCriteriaScript
+                    ],
+    ) {
         ${$cb->[0]} = lcovutil::configure_callback(@{$cb->[1]})
             if (@{$cb->[1]});
+    }
+    # perhaps warn that date/owner and directory are only supported by genhtml?
+    foreach my $data (['criteria_callback_levels',
+                       \@CoverageCriteria::criteriaCallbackLevels,
+                       ['top', 'directory', 'file']
+                      ],
+                      ['criteria_callback_data',
+                       \@CoverageCriteria::criteriaCallbackTypes,
+                       ['date', 'owner']
+                      ]
+    ) {
+        my ($rc, $user, $valid) = @$data;
+        @$user = split(',', join(',', @$user));
+        foreach my $x (@$user) {
+            die("invalid '$rc' value \"$x\" - expected (" .
+                join(", ", @$valid) . ")")
+                unless grep(/^$x$/, @$valid);
+        }
     }
 
     if (!$lcov_capture) {
@@ -2395,7 +2439,7 @@ sub get_overall_line($$$)
     my $plural =
         ($found == 1) ? "" : (('ch' eq substr($name, -2, 2)) ? 'es' : 's');
 
-    return rate($hit, $found, "% ($hit of $found $name$plural)");
+    return lcovutil::rate($hit, $found, "% ($hit of $found $name$plural)");
 }
 
 # Make sure precision is within valid range [1:4]
@@ -2590,27 +2634,93 @@ sub parse_w3cdtf($)
                       time_zone  => $tz,);
 }
 
-#
-# print_overall_rate($countDat, ln_do, fn_do, br_do)
-#
-# Print overall coverage rates for the specified coverage types.
-#   $countDat is the array returned by 'TraceFile->count_totals()'
+package CoverageCriteria;
 
-sub print_overall_rate($$$$)
+our @coverageCriteriaScript;
+our $criteriaCallback;
+our %coverageCriteria;              # hash of name->(type, success 0/1, string)
+our $coverageCriteriaStatus = 0;    # set to non-zero if we see any errors
+our @criteriaCallbackTypes;         # include date, owner bin info
+our @criteriaCallbackLevels;        # call back at (top, directory, file) levels
+
+sub executeCallback
 {
-    my ($counts, $ln_do, $fn_do, $br_do) = @_;
+    my ($type, $name, $data) = @_;
 
-    info("Summary coverage rate:\n");
-    info("  source files: %d\n", $counts->[0]);
-    info("  lines.......: %s\n",
-         get_overall_line($counts->[1]->[0], $counts->[1]->[1], "line"))
-        if ($ln_do);
-    info("  functions...: %s\n",
-         get_overall_line($counts->[3]->[0], $counts->[3]->[1], "function"))
-        if ($fn_do);
-    info("  branches....: %s\n",
-         get_overall_line($counts->[2]->[0], $counts->[2]->[1], "branch"))
-        if ($br_do);
+    my ($status, $msgs);
+    eval {
+        ($status, $msgs) =
+            $criteriaCallback->check_criteria($name, $type, $data);
+    };
+    if ($@) {
+        my $context = MessageContext::context();
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                  "check_criteria failed$context: $@");
+        $status = 2;
+        $msgs   = [$@];
+    }
+
+    $coverageCriteria{$name} = [$type, $status, $msgs]
+        if (0 != $status ||
+            (defined $msgs &&
+             0 != scalar(@$msgs)));
+    $coverageCriteriaStatus = $status
+        if $status != 0;
+}
+
+sub check_failUnder
+{
+    my $info = shift;
+    my $msg  = $info->check_fail_under_criteria();
+    if ($msg) {
+        $coverageCriteriaStatus |= 1;
+        $coverageCriteria{'top'} = ['top', 1, [$msg]];
+    }
+}
+
+sub summarize
+{
+    # print the criteria summary to stdout:
+    #   all criteria fails + any non-empty messages
+    # In addition:  print fails to stderr
+    # This way:  Jenkins script can log failure if stderr is not empty
+    my $leader = '';
+    if ($coverageCriteriaStatus != 0) {
+        print("Failed coverage criteria:\n");
+    } else {
+        $leader = "Coverage criteria:\n";
+    }
+    # sort to print top-level report first, then directories, then files.
+    foreach my $name (sort({
+                               my $da = $coverageCriteria{$a};
+                               my $db = $coverageCriteria{$b};
+                               my $ta = $da->[0];
+                               my $tb = $db->[0];
+                               return -1 if ($ta eq 'top');
+                               return 1 if ($tb eq 'top');
+                               if ($ta ne $tb) {
+                                   return $ta eq 'file' ? 1 : -1;
+                               }
+                               $a cmp $b
+                           }
+                           keys(%coverageCriteria))
+    ) {
+        my $criteria = $coverageCriteria{$name};
+        my $v        = $criteria->[1];
+        next if (!$v || $v == 0) && 0 == scalar(@{$criteria->[2]});    # passed
+
+        my $msg = $criteria->[0];
+        if ($criteria->[0] ne 'top') {
+            $msg .= " \"" . $name . "\"";
+        }
+        $msg .= ": \"" . join(' ', @{$criteria->[2]}) . "\"\n";
+        print($leader);
+        $leader = '';
+        print("  " . $msg);
+        if (0 != $criteria->[1]) {
+            print(STDERR $msg);
+        }
+    }
 }
 
 package MessageContext;
@@ -4877,13 +4987,12 @@ sub set_info($$$$$$$$)
 }
 
 #
-# get_info_entry(hash_ref)
+# get_info(hash_ref)
 #
 # Retrieve data from an entry of the structure generated by TraceFile::_read_info().
 # Return a list of references to hashes:
 # (test data hash ref, sum count hash ref, funcdata hash ref, checkdata hash
-#  ref, testfncdata hash ref hash ref, lines found, lines hit,
-#  functions found, functions hit)
+#  ref, testfncdata hash ref, testbranchdata hash ref, branch summary hash ref)
 #
 
 sub get_info($)
@@ -4894,17 +5003,8 @@ sub get_info($)
     my ($sumbrcount, $testbrdata)     = @{$self->[BRANCH_DATA]};
     my $checkdata_ref = $self->[CHECKSUM];
 
-    my $lines_found = $self->found();
-    my $lines_hit   = $self->hit();
-    my $fn_found    = $self->f_found();
-    my $fn_hit      = $self->f_hit();
-    my $br_found    = $self->b_found();
-    my $br_hit      = $self->b_hit();
-
     return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
-            $testfncdata, $testbrdata, $sumbrcount, $lines_found,
-            $lines_hit, $fn_found, $fn_hit, $br_found,
-            $br_hit);
+            $testfncdata, $testbrdata, $sumbrcount);
 }
 
 sub _merge_checksums
@@ -5560,19 +5660,129 @@ sub count_totals
     my @data = (0, [0, 0], [0, 0], [0, 0]);
     foreach my $filename ($self->files()) {
         my $entry = $self->data($filename);
-        my ($ln_found, $ln_hit, $fn_found, $fn_hit, $br_found, $br_hit);
-        (undef, undef, undef, undef, undef,
-         undef, undef, $ln_found, $ln_hit, $fn_found,
-         $fn_hit, $br_found, $br_hit) = $entry->get_info();
         ++$data[0];
-        $data[1]->[0] += $ln_found;
-        $data[1]->[1] += $ln_hit;
-        $data[2]->[0] += $br_found;
-        $data[2]->[1] += $br_hit;
-        $data[3]->[0] += $fn_found;
-        $data[3]->[1] += $fn_hit;
+        $data[1]->[0] += $entry->found();      # lines
+        $data[1]->[1] += $entry->hit();
+        $data[2]->[0] += $entry->b_found();    # branch
+        $data[2]->[1] += $entry->b_hit();
+        $data[3]->[0] += $entry->f_found();    # function
+        $data[3]->[1] += $entry->f_hit();
     }
     return @data;
+}
+
+sub check_fail_under_criteria
+{
+    my ($self, $type) = @_;
+    my @types;
+    if (!defined($type)) {
+        push(@types, 'line');
+        push(@types, 'branch') if $lcovutil::br_coverage;
+    } else {
+        push(@types, $type);
+    }
+
+    foreach my $t (@types) {
+        my ($rate, $plural, $idx);
+        if ($t eq 'line') {
+            next unless defined($lcovutil::fail_under_lines);
+            $rate   = $lcovutil::fail_under_lines;
+            $idx    = 1;                             # lines
+            $plural = 'lines';
+        } else {
+            next unless defined($lcovutil::fail_under_branches);
+            $rate   = $lcovutil::fail_under_branches;
+            $idx    = 2;
+            $plural = 'branches';
+        }
+        next if $rate <= 0;
+        my @counts = $self->count_totals();
+        my ($found, $hit) = @{$counts[$idx]};
+        if ($found == 0) {
+            lcovutil::info(1, "No $plural found\n");
+            return "No $plural found";
+        }
+        my $actual_rate   = ($hit / $found);
+        my $expected_rate = $rate / 100;
+        if ($actual_rate < $expected_rate) {
+            my $msg = sprintf("Failed '$t' coverage criteria: %0.2f < %0.2f",
+                              $actual_rate, $expected_rate);
+            lcovutil::info("$msg\n");
+            return $msg;
+        }
+    }
+    return 0;
+}
+
+sub checkCoverageCriteria
+{
+    my $self = shift;
+
+    CoverageCriteria::check_failUnder($self);
+
+    return unless defined($CoverageCriteria::criteriaCallback);
+
+    my $perFile = 0 == scalar(@CoverageCriteria::criteriaCallbackLevels) ||
+        grep(/file/, @CoverageCriteria::criteriaCallbackLevels);
+    my %total = ('line' => {
+                            'found' => 0,
+                            'hit'   => 0
+                 },
+                 'branch' => {
+                              'found' => 0,
+                              'hit'   => 0
+                 },
+                 'function' => {
+                                'found' => 0,
+                                'hit'   => 0
+                 });
+    my %data;
+    foreach my $filename ($self->files()) {
+        my $entry = $self->data($filename);
+        my @data = ($entry->found(), $entry->hit(),
+                    $entry->b_found(), $entry->b_hit(),
+                    $entry->f_found(), $entry->f_hit());
+        my $idx = 0;
+        foreach my $t ('line', 'branch', 'function') {
+            foreach my $x ('found', 'hit') {
+                $data{$t}->{$t} = $data[$idx] if $perFile;
+                $total{$t}->{$x} += $data[$idx++];
+            }
+        }
+        if ($perFile) {
+            CoverageCriteria::executeCallback('file', $filename, \%data);
+        }
+    }
+    CoverageCriteria::executeCallback('top', 'top', \%total);
+}
+
+#
+# print_summary(fn_do, br_do)
+#
+# Print overall coverage rates for the specified coverage types.
+#   $countDat is the array returned by 'TraceFile->count_totals()'
+
+sub print_summary
+{
+    my ($self, $fn_do, $br_do) = @_;
+
+    $br_do = $lcovutil::br_coverage   unless defined($br_do);
+    $fn_do = $lcovutil::func_coverage unless defined($fn_do);
+    my @counts = $self->count_totals();
+    lcovutil::info("Summary coverage rate:\n");
+    lcovutil::info("  source files: %d\n", $counts[0]);
+    lcovutil::info("  lines.......: %s\n",
+                   lcovutil::get_overall_line(
+                                        $counts[1]->[0], $counts[1]->[1], "line"
+                   ));
+    lcovutil::info("  functions...: %s\n",
+                   lcovutil::get_overall_line(
+                                    $counts[3]->[0], $counts[3]->[1], "function"
+                   )) if ($fn_do);
+    lcovutil::info("  branches....: %s\n",
+                   lcovutil::get_overall_line(
+                                      $counts[2]->[0], $counts[2]->[1], "branch"
+                   )) if ($br_do);
 }
 
 sub skipCurrentFile
@@ -7197,9 +7407,8 @@ sub write_info($$$)
             unless ('TraceInfo' eq ref($entry));
 
         my ($testdata, $sumcount, $funcdata, $checkdata,
-            $testfncdata, $testbrdata, $sumbrcount, $found,
-            $hit, $f_found, $f_hit, $br_found,
-            $br_hit) = $entry->get_info();
+            $testfncdata, $testbrdata, $sumbrcount) = $entry->get_info();
+        my ($found, $hit, $f_found, $f_hit, $br_found, $br_hit);
 
         # munge the source file name, if requested
         $source_file = ReadCurrentSource::resolve_path($source_file, 1);

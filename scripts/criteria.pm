@@ -43,7 +43,7 @@ use JSON;
 use Getopt::Long qw(GetOptionsFromArray);
 
 our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw(new extract_version compare_version usage);
+our @EXPORT_OK = qw(new);
 
 use constant {SIGNOFF => 0,};
 

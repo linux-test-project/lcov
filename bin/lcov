@@ -92,7 +92,6 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  $ERROR_PARALLEL report_parallel_error
                  system_no_output
                  rate get_overall_line
-                 count_totals print_overall_rate
 
                  parseOptions
                  strip_directories transform_pattern
@@ -137,7 +136,6 @@ sub my_info(@);
 set_info_callback(\&my_info);
 sub create_temp_dir();
 sub setup_gkv();
-sub check_rates($$);
 sub lcov_geninfo(@);
 sub create_package($$$;$);
 sub summary();
@@ -161,10 +159,9 @@ our $strip;               # If set, strip leading directories when applying diff
 our $cwd = Cwd::getcwd(); # Current working directory
 our $data_stdout;         # If set, indicates that data is written to stdout
 our $follow;              # If set, indicates that find shall follow links
-our $diff_path            = ""; # Path removed from tracefile when applying diff
-our $opt_fail_under_lines = 0;
-our $base_directory;     # Base directory (cwd of gcc during compilation)
-our $compat_libtool;     # If set, indicates that libtool mode is to be enabled
+our $diff_path = "";      # Path removed from tracefile when applying diff
+our $base_directory;      # Base directory (cwd of gcc during compilation)
+our $compat_libtool;      # If set, indicates that libtool mode is to be enabled
 our $no_compat_libtool;  # If set, indicates that libtool mode is to be disabled
 
 our @gcov_tool;
@@ -202,8 +199,7 @@ our @cmdArgs = @ARGV;
 my %lcov_rc_params = ("lcov_gcov_dir"          => \$gcov_dir,
                       "lcov_list_full_path"    => \$opt_list_full_path,
                       "lcov_list_width"        => \$opt_list_width,
-                      "lcov_list_truncate_max" => \$opt_list_truncate_max,
-                      "lcov_fail_under_lines"  => \$opt_fail_under_lines,);
+                      "lcov_list_truncate_max" => \$opt_list_truncate_max);
 
 my %lcov_options = ("directory|d|di=s"     => \@directory,
                     "add-tracefile|a=s"    => \@add_tracefile,
@@ -225,22 +221,21 @@ my %lcov_options = ("directory|d|di=s"     => \@directory,
                     "no-compat-libtool"    => \$no_compat_libtool,
                     "gcov-tool=s"          => \@gcov_tool,
 
-                    "initial|i"          => \$initial,
-                    "all"                => \$captureAll,
-                    "no-recursion"       => \$no_recursion,
-                    "to-package=s"       => \$to_package,
-                    "from-package=s"     => \$from_package,
-                    "no-markers"         => \$no_markers,
-                    "derive-func-data"   => \$opt_derive_func_data,
-                    "list-full-path"     => \$opt_list_full_path,
-                    "no-list-full-path"  => \$opt_no_list_full_path,
-                    "external"           => \$opt_external,
-                    "no-external"        => \$lcovutil::opt_no_external,
-                    "summary=s"          => \@opt_summary,
-                    "compat=s"           => \$opt_compat,
-                    "fail-under-lines=s" => \$opt_fail_under_lines,
-                    "prune-tests"        => \$prune_testcases,
-                    "map-functions"      => \$AggregateTraces::function_mapping,
+                    "initial|i"         => \$initial,
+                    "all"               => \$captureAll,
+                    "no-recursion"      => \$no_recursion,
+                    "to-package=s"      => \$to_package,
+                    "from-package=s"    => \$from_package,
+                    "no-markers"        => \$no_markers,
+                    "derive-func-data"  => \$opt_derive_func_data,
+                    "list-full-path"    => \$opt_list_full_path,
+                    "no-list-full-path" => \$opt_no_list_full_path,
+                    "external"          => \$opt_external,
+                    "no-external"       => \$lcovutil::opt_no_external,
+                    "summary=s"         => \@opt_summary,
+                    "compat=s"          => \$opt_compat,
+                    "prune-tests"       => \$prune_testcases,
+                    "map-functions"     => \$AggregateTraces::function_mapping,
 
                     'intersect=s' => \@intersect,
                     'subtract=s'  => \@difference,);
@@ -428,12 +423,10 @@ if (0 == $exit_code) {
         # the numbers do not reflect coverpoints in 'erased' functions.
         #  the issue is that we filter them out in the write operation - but
         #  we don't bother to read it back
-        my @counts = $trace->count_totals();
-        lcovutil::print_overall_rate(\@counts, 1, $lcovutil::func_coverage,
-                                     $lcovutil::br_coverage);
-        # check for failed coverage criteria
-        $exit_code = check_rates($counts[1]->[0],    # lines foune
-                                 $counts[1]->[1]);    # lines hit
+        $trace->print_summary();
+        $trace->checkCoverageCriteria();
+        $exit_code = 1 if $CoverageCriteria::coverageCriteriaStatus;
+        CoverageCriteria::summarize();
     } else {
         info("Done.\n") if (!$list && !$lcovutil::lcov_capture);
     }
@@ -969,6 +962,8 @@ sub lcov_geninfo(@)
     push(@param, '--memory', $lcovutil::maxMemory)
         if defined($lcovutil::maxMemory);
     push(@param, "--branch-coverage") if $lcovutil::br_coverage;
+    push(@param, '--fail-under-lines', $lcovutil::fail_under_lines)
+        if defined($lcovutil::fail_under_lines);
     # windows
     #  Kind of hacky to fork another script here.
     #  Probably better/cleaner to move the 'geninfo' functionality into
@@ -1916,9 +1911,8 @@ sub list()
             $print_filename = shorten_filename($print_filename, $strlen);
         }
 
-        (undef, undef, undef, undef, undef,
-         undef, undef, $found, $hit, $fn_found,
-         $fn_hit, $br_found, $br_hit) = $entry->get_info();
+        ($found, $hit, $br_found, $br_hit, $fn_found, $fn_hit) =
+            $entry->get_info();
 
         # Assume zero count if there is no function data for this file
         if (!defined($fn_found) || !defined($fn_hit)) {
@@ -2690,35 +2684,5 @@ sub setup_gkv()
         die("could not find gcov kernel data at $gcov_dir\n");
     } else {
         die("no gcov kernel data found\n");
-    }
-}
-
-#
-# check_rates(ln_found, ln_hit)
-#
-# Check line coverage if it meets a specified threshold.
-#
-
-sub check_rates($$)
-{
-    my ($ln_found, $ln_hit) = @_;
-
-    if ($opt_fail_under_lines <= 0) {
-        return 0;
-    }
-
-    if ($ln_found == 0) {
-        lcovutil: info(1, "No lines found\n");
-        return 1;
-    }
-
-    my $actual_rate   = ($ln_hit / $ln_found);
-    my $expected_rate = $opt_fail_under_lines / 100;
-    if ($actual_rate >= $expected_rate) {
-        return 0;
-    } else {
-        lcovutil: info(1, "Failed coverage criteria: %0.2f < %0.2f\n",
-                       $actual_rate, $expected_rate);
-        return 1;
     }
 }

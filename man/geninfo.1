@@ -94,7 +94,19 @@ geninfo \- Generate tracefiles from GCOV coverage data files
 .RB [ \-\-omit\-lines
 .IR regexp_pattern ]
 .br
+.RB [ \-\-fail\-under\-branches
+.IR percentage ]
+.br
+.RB [ \-\-fail\-under\-lines
+.IR percentage ]
+.br
 .RB [ \-\-forget\-test\-names ]
+.br
+.RB [ \-\-criteria\-script
+.IR script_file  ]
+.br
+.RB [ \-\-resolve\-script
+.IR script_file  ]
 .br
 .RB [ \-\-version\-script
 .IR script_file  ]
@@ -914,6 +926,18 @@ lcovrc option.   See man
 
 .RE
 
+.BI "\-\-fail-under-lines "
+.I percentage
+.br
+.RS
+Use this option to tell geninfo to exit with a status of 1 if the total
+line coverage is less than
+.I percentage.
+See
+.B man lcov(1)
+for more details.
+.RE
+
 .BI "\-\-preserve "
 .RS
 Preserve intermediate data files (e.g., for debugging).
@@ -1011,19 +1035,23 @@ one tracefile will be created for each processed .gcda file.
 .RE
 
 .RE
-.B \-\-version\-script
+.B \-\-criteria\-script
 .I script
 .br
 .RS
+
 Use
 .I script
-to get a source file's version ID from revision control when
-extracting data. The ID is used for error checking when merging .info files.
+to test for coverage acceptance criteria.
+
+See the genhtml man page for more details on the criteria script.
+Note that geninfo does not keep track of date and owner information (see the
+.I \-\-annotate\-script
+entry in the genhtml man page) - so this information is not passed to the geninfo callback.
+
 .br
 
-See the genhtml man page for more details on the version script.
 .RE
-
 .B \-\-resolve\-script
 .I script
 .br
@@ -1043,6 +1071,20 @@ config file option. See man
 .B lcovrc(5)
 for details.
 .RE
+
+.RE
+.B \-\-version\-script
+.I script
+.br
+.RS
+Use
+.I script
+to get a source file's version ID from revision control when
+extracting data. The ID is used for error checking when merging .info files.
+.br
+
+See the genhtml man page for more details on the version script.
+
 
 .B \-v
 .br

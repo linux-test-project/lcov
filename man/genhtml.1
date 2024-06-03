@@ -1,5 +1,5 @@
 \" Define path to scripts
-.ds scriptdir bin
+.ds scriptdir scripts
 
 \" Define project URL
 .ds lcovurl https://github.com/linux\-test\-project/lcov
@@ -127,6 +127,12 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .IR script  ]
 .br
 .RB [ \-\-checksum ]
+.br
+.RB [ \-\-fail\-under\-branches
+.IR percentage ]
+.br
+.RB [ \-\-fail\-under\-lines
+.IR percentage ]
 .br
 .RB [ \-\-new\-file\-as\-baseline ]
 .br
@@ -1713,6 +1719,31 @@ Note that this option is somewhat subsumed by the
 option - which does something similar, but at the 'whole file' level.
 
 .RE
+.B \-\-fail\-under\-branches
+.I percentage
+.br
+.RS
+Use this option to tell genhtml to exit with a status of 1 if the total
+branch coverage is less than
+.I percentage.
+See
+.B man lcov(1)
+for more details.
+
+.RE
+.B \-\-fail\-under\-lines
+.I percentage
+.br
+.RS
+Use this option to tell genhtml to exit with a status of 1 if the total
+line coverage is less than
+.I percentage.
+See
+.B man lcov(1)
+for more details.
+
+
+.RE
 .B \-\-new\-file\-as\-baseline
 .RS
 By default, when code is identified on source lines in the 'current' data which were not identified as code in the 'baseline' data, but the source text has not changed, their coverpoints are categorized as "included code":
@@ -2945,6 +2976,21 @@ that provides annotation data via git.
 Sample script written as Perl module for use with
 .B --criteria-script
 that implements a check for "UNC + LBC + UIC == 0".
+.br
+.RE
+
+.I \*[scriptdir]/threshold.pm
+.RS
+Sample script written as Perl module to check for miminum acceptable
+line and/or branch and/or function coverage.
+For example, the
+.RS
+.I "genhtml --fail_under_lines 75 ..."
+.RE
+feature can instead be realized by
+.RS
+.I "genhtml --criteria-script \*[scriptdir]/threshold.pm,--line,75 ..."
+.RE
 .br
 .RE
 

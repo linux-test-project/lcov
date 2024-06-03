@@ -80,6 +80,10 @@ For example:
     # write Perl line, branch, condition, and subroutine coverage data to
     #  'myPerlDB' in the current directory
   \$ perl -MDevel::Cover=-db,./myPerlDB,-coverage,statement,branch,condition,subroutine,-silent,1 myScript.pl
+    # OR: write all the coverage types that Perl knows about to 'myPerlDB2' -
+    #   note that perl2lcov will ignore types it does not understand/does not use
+    #   (pod, time, and path)
+  \$ perl -MDevel::Cover=-db,./myPerlDB2,-silent,1 myScript.pl
     # run 'cover' from the Devel::Cover installation - to extract runtime
     #   data into a usable form.  This will also generate an HTML report
     #   in 'myCoverDB'
@@ -173,9 +177,9 @@ foreach my $db (@ARGV) {
         my @packageExtents;
 
         foreach my $criteria ($f->items) {
-            my $c = $f->criterion($criteria);
             # some types we don't use
             next if (grep(/^$criteria$/, ('pod', 'time', 'path')));
+            my $c = $f->criterion($criteria);
             if ($criteria eq 'branch') {
                 $branches = $c;
             } elsif ($criteria eq 'condition') {
@@ -350,8 +354,12 @@ $info->applyFilters();
 $info->add_comments(@lcovutil::comments);
 $info->write_info_file($output_file, $lcovutil::verify_checksum);
 
+$info->checkCoverageCriteria();
+CoverageCriteria::summarize();
+my $exit_code = 0 != $CoverageCriteria::coverageCriteriaStatus;
+
 lcovutil::warn_file_patterns();
 lcovutil::summarize_cov_filters();
 lcovutil::summarize_messages(1);    # silent if no messages
 
-exit 0;
+exit $exit_code;

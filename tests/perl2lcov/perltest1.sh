@@ -89,7 +89,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
-rm -rf *.xml *.dat *.info *.json cover_one perl2lcov_report cover_genhtml
+rm -rf *.xml *.dat *.info *.json cover_one perl2lcov_report cover_genhtml *.log
 
 if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ]; then
     cover -delete

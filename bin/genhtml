@@ -286,13 +286,6 @@ sub gen_png($$$$$@);
 
 package SummaryInfo;
 
-our @coverageCriteriaScript;
-our $criteriaCallback;
-our %coverageCriteria;              # hash of name->(type, success 0/1, string)
-our $coverageCriteriaStatus = 0;    # set to non-zero if we see any errors
-our @criteriaCallbackTypes;         # include date, owner bin info
-our @criteriaCallbackLevels;        # call back at (top, directory, file) levels
-
 our @selectCallbackScript;
 our $selectCallback;
 our @cleanDirectoryList;
@@ -1184,10 +1177,15 @@ sub checkCoverageCriteria
 {
     my $self = shift;
     my $type = $self->type();
+
+    if ($type eq 'top') {
+        # simplistic top-level criteria..
+        CoverageCriteria::check_failUnder($main::current_data);
+    }
     return
-        unless ($criteriaCallback &&
-                (0 == scalar(@criteriaCallbackLevels) ||
-                 grep(/$type/, @criteriaCallbackLevels)));
+        unless ($CoverageCriteria::criteriaCallback &&
+                (0 == scalar(@CoverageCriteria::criteriaCallbackLevels) ||
+                 grep(/$type/, @CoverageCriteria::criteriaCallbackLevels)));
 
     my $start = Time::HiRes::gettimeofday();
     my %data;
@@ -1205,7 +1203,7 @@ sub checkCoverageCriteria
             }
         }
     }
-    if (grep(/^date$/, @criteriaCallbackTypes)) {
+    if (grep(/^date$/, @CoverageCriteria::criteriaCallbackTypes)) {
         foreach my $t (LINE_DATA, FUNCTION_DATA, BRANCH_DATA) {
             my $key = type2str($t);
 
@@ -1232,7 +1230,7 @@ sub checkCoverageCriteria
             }
         }
     }
-    if (grep(/^owner$/, @criteriaCallbackTypes)) {
+    if (grep(/^owner$/, @CoverageCriteria::criteriaCallbackTypes)) {
         foreach my $t (LINE_DATA, BRANCH_DATA) {
             my $key = type2str($t);
             next unless exists($self->[$t]->[OWNERS]);
@@ -1256,39 +1254,15 @@ sub checkCoverageCriteria
             }
         }
     }
+    my $name = $self->type() eq 'top' ? 'top' : $self->name();
     my $cmd =
-        join(' ', @coverageCriteriaScript) .
-        ' \'' . ($self->type() eq 'top' ? 'top' : $self->name()) .
-        '\' ' . $self->type() . ' \'json_encoded_data\'';
+        join(' ', @CoverageCriteria::coverageCriteriaScript) .
+        ' \'' . $name . '\' ' . $self->type() . ' \'json_encoded_data\'';
     # command:  script name (top|dir|file) jsonString args..
     lcovutil::info(1, "criteria: '$cmd'\n");
-    my ($status, $msgs);
-    eval {
-        ($status, $msgs) =
-            $criteriaCallback->check_criteria(
-                                 $self->type() eq 'top' ? 'top' : $self->name(),
-                                 $self->type(), \%data);
-    };
-    if ($@) {
-        my $context = MessageContext::context();
-        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                                  "check_criteria failed$context: $@");
-        $status = 2;
-        $msgs   = [$@];
-    }
-
-    my $name = $self->type() eq 'top' ? "" : $self->name();
-    $coverageCriteria{$name} = [$self->type(), $status, $msgs]
-        if (0 != $status ||
-            (defined $msgs &&
-             0 != scalar(@$msgs)));
-    $coverageCriteriaStatus = $status
-        if $status != 0;
+    CoverageCriteria::executeCallback($self->type(), $name, \%data);
     my $end = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{criteria}{
-        $self->type() eq 'top' ? 'top' :
-            $self->name()
-    } = $end - $start;
+    $lcovutil::profileData{criteria}{$name} = $end - $start;
 }
 
 package OwnerDetailCallback;
@@ -3178,6 +3152,9 @@ sub _categorizeFunctionCov
 
 package DiffMap;
 
+# @todo Could convert this use use a callback API - similar to annotate, etc.
+#  that would be more consistent and might execute faster.
+
 use constant {
               LINEMAP => 0,
               FILEMAP => 1,
@@ -4172,29 +4149,49 @@ sub simplify
 {
     my $self = shift;
     # retain only the information required to populate the hyperlinks in
-    #   the parent 'diretory details' table
+    #   the parent 'directory details' table
     # This struct can be huge, for a large, complicated file
     $self->[INTERESTING_LINES] = undef;
-    # retain only first entry in each author/age bin
+
     my %keep;
+    # keep the first line in each date bin..
+    for (my $bin = 0; $bin <= $#ageGroupHeader; ++$bin) {
+        foreach my $tla (keys %{$self->[LINE_CATEGORIES]}) {
+            # at least for the moment, skip deleted lines
+            next if grep(/$tla/, ('DUB', 'DCB'));
+            my $line = $self->nextInDateBin($bin, $tla);
+            $keep{$line} = 1 if defined($line);
+        }
+        next unless $main::br_coverage;
+        foreach my $tla (keys %{$self->[BRANCH_CATEGORIES]}) {
+            next if grep(/$tla/, ('DUB', 'DCB'));
+            my $line = $self->nextBranchInDateBin($bin, $tla);
+            $keep{$line} = 1 if defined($line);
+        }
+    }
+
+    # retain first location of each TLA (globally) and each TLA for each owner
     foreach
         my $bin (LINE_OWNERS, LINE_CATEGORIES, BRANCH_OWNERS, BRANCH_CATEGORIES)
     {
         while (my ($key, $list) = each(%{$self->[$bin]})) {
             if ('ARRAY' eq ref($list)) {
-                # retain only the first entry
-                splice(@$list, 1);
+                next if grep(/$key/, ('DUB', 'DCB'));
+                # retain the first entry and any interesting entries
                 $keep{$list->[0]} = 1;
+                @$list = grep(exists($keep{$_}), @$list);
             } else {
                 die("unexpected type") unless 'HASH' eq ref($list);
                 while (my ($tla, $l) = each(%$list)) {
-                    # retain only the first entry
-                    splice(@$l, 1);
+                    next if grep(/$tla/, ('DUB', 'DCB'));
+                    # retain the first entry
                     $keep{$l->[0]} = 1;
+                    @$l = grep(exists($keep{$_}), @$l);
                 }
             }
         }
     }
+    # throw away everything we aren't interested in
     for (my $l = $self->num_lines(); $l > 0; --$l) {
         if (!exists($keep{$l})) {
             $self->[LINES]->[$l - 1] = undef;
@@ -5661,8 +5658,8 @@ sub _process_child
                     if $selfSummary->type() ne 'file';
                 my $objname =
                     $selfSummary->type() eq 'top' ? "" : $selfSummary->name();
-                my $criteria = $SummaryInfo::coverageCriteria{$objname}
-                    if exists($SummaryInfo::coverageCriteria{$objname});
+                my $criteria = $CoverageCriteria::coverageCriteria{$objname}
+                    if exists($CoverageCriteria::coverageCriteria{$objname});
 
                 push(@taskData,
                      $thisTestData, $parentPerTestData,
@@ -6015,13 +6012,13 @@ sub merge_child($$$)
                     my $name =
                         $childSummary->type() eq 'top' ? "" :
                         $childSummary->name();
-                    $SummaryInfo::coverageCriteria{$name} = $criteria;
+                    $CoverageCriteria::coverageCriteria{$name} = $criteria;
                     $criteria->[1] = 0 if $criteria->[1] eq '';
                     my $v = $criteria->[1];
                     die('unexpected criteria data \'' .
                         join(' ', @$criteria) . '\'')
                         unless (Scalar::Util::looks_like_number($v));
-                    $SummaryInfo::coverageCriteriaStatus =
+                    $CoverageCriteria::coverageCriteriaStatus =
                         ($v != 0 || 0 != scalar(@{$criteria->[2]})) ? $v : 0;
                 }
             }    # foreach job
@@ -6167,7 +6164,7 @@ STDERR->autoflush;
 STDOUT->autoflush;
 
 my @datebins;
-my (@rc_date_bins, @rc_annotate_script, @rc_criteria_script, @rc_select_script);
+my (@rc_date_bins, @rc_annotate_script, @rc_select_script);
 
 my %genhtml_rc_opts = (
                "genhtml_css_file"           => \$css_filename,
@@ -6216,9 +6213,6 @@ my %genhtml_rc_opts = (
                "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
                'genhtml_annotate_script'     => \@rc_annotate_script,
                'genhtml_annotate_tooltip'    => \$SourceFile::annotateTooltip,
-               'genhtml_criteria_script'     => \@rc_criteria_script,
-               'criteria_callback_data'      => \@criteriaCallbackTypes,
-               'criteria_callback_levels'    => \@criteriaCallbackLevels,
                "select_script"               => \@rc_select_script,
                'num_context_lines' => \$InInterestingRegion::num_context_lines,
                'genhtml_date_bins' => \@rc_date_bins,
@@ -6226,58 +6220,56 @@ my %genhtml_rc_opts = (
 
 my $save;
 my $serialize;
-my %genhtml_options = (
-                 "output-directory|o=s" => \$output_directory,
-                 "header-title=s"       => \$header_title,
-                 "footer=s"             => \$footer,
-                 "title|t=s"            => \$test_title,
-                 "description-file|d=s" => \$desc_filename,
-                 "keep-descriptions|k"  => \$keep_descriptions,
-                 "css-file|c=s"         => \$css_filename,
-                 "baseline-file|b=s"    => \@base_filenames,
-                 "baseline-title=s"     => \$baseline_title,
-                 "baseline-date=s"      => \$baseline_date,
-                 "current-date=s"       => \$current_date,
-                 "diff-file=s"          => \$diff_filename,
-                 "annotate-script=s"    => \@SourceFile::annotateScript,
-                 "criteria-script=s" => \@SummaryInfo::coverageCriteriaScript,
-                 "select-script=s"   => \@selectCallbackScript,
-                 "new-file-as-baseline" => \$treatNewFileAsBaseline,
-                 'elide-path-mismatch'  => \$elide_path_mismatch,
-                 'synthesize-missing'   => \$synthesizeMissingFile,
-                 # if 'show-owners' is set: generate the owner table
-                 #    if it is passed a value: show all the owners,
-                 #    regardless of whether they have uncovered code or not
-                 'show-owners:s'     => \$show_ownerBins,
-                 'show-noncode'      => \$show_nonCodeOwners,
-                 'show-zero-columns' => \$show_zeroTlaColumns,
-                 'simplified-colors' => \$show_simplifiedColors,
-                 "date-bins=s"       => \@datebins,
-                 "prefix|p=s"        => \@opt_dir_prefix,
-                 "num-spaces=i"      => \$tab_size,
-                 "no-prefix"         => \$no_prefix,
-                 "no-sourceview"     => \$no_sourceview,
-                 "show-details|s"    => \$show_details,
-                 "frames|f"          => \$frames,
-                 "highlight"         => \$highlight,
-                 "legend"            => \$legend,
-                 'save'              => \$save,
-                 'serialize=s'       => \$serialize,
-                 'scheduler+'        => \$debugScheduler,
-                 "html-prolog=s"     => \$html_prolog_file,
-                 "html-epilog=s"     => \$html_epilog_file,
-                 "html-extension=s"  => \$html_ext,
-                 "html-gzip"         => \$html_gzip,
-                 "hierarchical"      => \$hierarchical,
-                 "flat"              => \$flat,
-                 "sort"              => \$sort,
-                 "no-sort"           => \$no_sort,
-                 "precision=i"       => \$lcovutil::default_precision,
-                 "missed"            => \$opt_missed,
-                 "dark-mode"         => \$dark_mode,
-                 "show-navigation"   => \$show_tla,
-                 "show-proportion"   => \$show_functionProportions,
-                 "suppress-aliases"  => \$suppress_function_aliases,);
+my %genhtml_options = ("output-directory|o=s" => \$output_directory,
+                       "header-title=s"       => \$header_title,
+                       "footer=s"             => \$footer,
+                       "title|t=s"            => \$test_title,
+                       "description-file|d=s" => \$desc_filename,
+                       "keep-descriptions|k"  => \$keep_descriptions,
+                       "css-file|c=s"         => \$css_filename,
+                       "baseline-file|b=s"    => \@base_filenames,
+                       "baseline-title=s"     => \$baseline_title,
+                       "baseline-date=s"      => \$baseline_date,
+                       "current-date=s"       => \$current_date,
+                       "diff-file=s"          => \$diff_filename,
+                       "annotate-script=s"    => \@SourceFile::annotateScript,
+                       "select-script=s"      => \@selectCallbackScript,
+                       "new-file-as-baseline" => \$treatNewFileAsBaseline,
+                       'elide-path-mismatch'  => \$elide_path_mismatch,
+                       'synthesize-missing'   => \$synthesizeMissingFile,
+                       # if 'show-owners' is set: generate the owner table
+                       #    if it is passed a value: show all the owners,
+                       #    regardless of whether they have uncovered code or not
+                       'show-owners:s'     => \$show_ownerBins,
+                       'show-noncode'      => \$show_nonCodeOwners,
+                       'show-zero-columns' => \$show_zeroTlaColumns,
+                       'simplified-colors' => \$show_simplifiedColors,
+                       "date-bins=s"       => \@datebins,
+                       "prefix|p=s"        => \@opt_dir_prefix,
+                       "num-spaces=i"      => \$tab_size,
+                       "no-prefix"         => \$no_prefix,
+                       "no-sourceview"     => \$no_sourceview,
+                       "show-details|s"    => \$show_details,
+                       "frames|f"          => \$frames,
+                       "highlight"         => \$highlight,
+                       "legend"            => \$legend,
+                       'save'              => \$save,
+                       'serialize=s'       => \$serialize,
+                       'scheduler+'        => \$debugScheduler,
+                       "html-prolog=s"     => \$html_prolog_file,
+                       "html-epilog=s"     => \$html_epilog_file,
+                       "html-extension=s"  => \$html_ext,
+                       "html-gzip"         => \$html_gzip,
+                       "hierarchical"      => \$hierarchical,
+                       "flat"              => \$flat,
+                       "sort"              => \$sort,
+                       "no-sort"           => \$no_sort,
+                       "precision=i"       => \$lcovutil::default_precision,
+                       "missed"            => \$opt_missed,
+                       "dark-mode"         => \$dark_mode,
+                       "show-navigation"   => \$show_tla,
+                       "show-proportion"   => \$show_functionProportions,
+                       "suppress-aliases"  => \$suppress_function_aliases,);
 # Parse command line options
 if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
@@ -6297,7 +6289,6 @@ $frames       = undef unless (defined($frames) && $frames);
 
 foreach my $rc ([\@datebins, \@rc_date_bins],
                 [\@SourceFile::annotateScript, \@rc_annotate_script],
-                [\@SummaryInfo::coverageCriteriaScript, \@rc_criteria_script],
                 [\@selectCallbackScript, \@rc_select_script]
 
 ) {
@@ -6305,29 +6296,9 @@ foreach my $rc ([\@datebins, \@rc_date_bins],
 }
 
 foreach my $cb ([\$SourceFile::annotateCallback, \@SourceFile::annotateScript],
-                [\$SummaryInfo::criteriaCallback,
-                 \@SummaryInfo::coverageCriteriaScript
-                ],
-                [\$selectCallback, \@selectCallbackScript]
-) {
+                [\$selectCallback, \@selectCallbackScript]) {
     ${$cb->[0]} = lcovutil::configure_callback(@{$cb->[1]})
         if scalar(@{$cb->[1]});
-}
-
-foreach my $data (['criteria_callback_levels', \@criteriaCallbackLevels,
-                   ['top', 'directory', 'file']
-                  ],
-                  ['criteria_callback_data', \@criteriaCallbackTypes,
-                   ['date', 'owner']
-                  ]
-) {
-    my ($rc, $user, $valid) = @$data;
-    @$user = split(',', join(',', @$user));
-    foreach my $x (@$user) {
-        die("invalid '$rc' value \"$x\" - expected (" .
-            join(", ", @$valid) . ")")
-            unless grep(/^$x$/, @$valid);
-    }
 }
 
 if (defined($lcovutil::stop_on_error) &&
@@ -6598,51 +6569,14 @@ if (0 == $exit_status) {
 }
 
 # now check the coverage criteria (if any)
-if (0 == $exit_status && @SummaryInfo::coverageCriteriaScript) {
-    # print the criteria summary to stdout:
-    #   all criteria fails + any non-empty messages
-    # In addition:  print fails to stderr
-    # This way:  Jenkins script can log failure if stderr is not empty
-    my $leader = '';
-    if ($SummaryInfo::coverageCriteriaStatus != 0) {
-        print("Failed coverage criteria:\n");
-    } else {
-        $leader = "Coverage criteria:\n";
-    }
-    # sort to print top-level report first, then directories, then files.
-    foreach my $name (sort({
-                               my $da = $SummaryInfo::coverageCriteria{$a};
-                               my $db = $SummaryInfo::coverageCriteria{$b};
-                               my $ta = $da->[0];
-                               my $tb = $db->[0];
-                               return -1 if ($ta eq 'top');
-                               return 1 if ($tb eq 'top');
-                               if ($ta ne $tb) {
-                                   return $ta eq 'file' ? 1 : -1;
-                               }
-                               $a cmp $b
-                           }
-                           keys(%SummaryInfo::coverageCriteria))
-    ) {
-        my $criteria = $SummaryInfo::coverageCriteria{$name};
-        my $v        = $criteria->[1];
-        next if (!$v || $v == 0) && 0 == scalar(@{$criteria->[2]});    # passed
-
-        my $msg = $criteria->[0];
-        if ($criteria->[0] ne 'top') {
-            $msg .= " \"" . $name . "\"";
-        }
-        $msg .= ": \"" . join(' ', @{$criteria->[2]}) . "\"\n";
-        print($leader);
-        $leader = '';
-        print("  " . $msg);
-        if (0 != $criteria->[1]) {
-            print(STDERR $msg);
-        }
-    }
+if (0 == $exit_status &&
+    ($CoverageCriteria::coverageCriteriaStatus ||
+        @CoverageCriteria::coverageCriteriaScript)
+) {
+    CoverageCriteria::summarize();
     # fail for signal or status
-    $exit_status = (($SummaryInfo::coverageCriteriaStatus & 0xFF) |
-                    ($SummaryInfo::coverageCriteriaStatus >> 8));
+    $exit_status = (($CoverageCriteria::coverageCriteriaStatus & 0xFF) |
+                    ($CoverageCriteria::coverageCriteriaStatus >> 8));
 }
 
 if ($serialize) {
@@ -6950,9 +6884,8 @@ sub gen_html()
 
     # add quotes to args - so string concat works if there are embedded spaces, etc
     foreach my $s (\@SourceFile::annotateScript,
-                   \@SummaryInfo::coverageCriteriaScript,
-                   \@lcovutil::extractVersionScript
-    ) {
+                   \@CoverageCriteria::coverageCriteriaScript,
+                   \@lcovutil::extractVersionScript) {
         my $count = scalar(@$s);
         next unless $count > 1;
         foreach my $e (@$s) {
@@ -7207,17 +7140,20 @@ sub process_file($$$$$)
     my $pagetitle;
     local *HTML_HANDLE;
 
-    my ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-        $testbrdata, $sumbrcount, $lines_found, $lines_hit, $fn_found,
-        $fn_hit, $br_found, $br_hit
-    ) = $current_data->data($filename)->get_info();
+    my $fileData = $current_data->data($filename);    # TraceInfo struct
+    my ($testdata, $sumcount, $funcdata, $checkdata,
+        $testfncdata, $testbrdata, $sumbrcount) = $fileData->get_info();
+
+    my ($lines_found, $lines_hit, $br_found, $br_hit, $fn_found, $fn_hit) = (
+                                       $fileData->found(), $fileData->hit(),
+                                       $fileData->b_found(), $fileData->b_hit(),
+                                       $fileData->f_found(), $fileData->f_hit()
+    );
 
     $fileSummary->l_found($lines_found);
     $fileSummary->l_hit($lines_hit);
-
     $fileSummary->f_found($fn_found);
     $fileSummary->f_hit($fn_hit);
-
     $fileSummary->b_found($br_found);
     $fileSummary->b_hit($br_hit);
 
@@ -9095,14 +9031,12 @@ sub write_file_table_entry(*$$@)
         !$main::no_sourceview &&
         $main::show_tla       &&
         defined($fileDetails)) {
-        if ($main::frames) {
-            # href to anchor in frame doesn't seem to work in either firefox
-            #   or chrome.  However, this seems like the right syntax.
-            $tableHref = "href=\"$file_link#L__LINE__\" target=\"source\""
-                if 0;
-        } else {
-            $tableHref = "href=\"$file_link#L__LINE__\"";
-        }
+
+        $tableHref = "href=\"$file_link#L__LINE__\"";
+        # href to anchor in frame doesn't seem to work in either firefox
+        #   or chrome.  However, this seems like the right syntax.
+        $tableHref = undef    # $tableHref . ' target="source"'
+            if $main::frames;
     }
     # First column: name
     my $nameClass =
@@ -9238,6 +9172,7 @@ END_OF_HTML
                         if (!$main::use_legacyLabels &&
                             grep(/^$key$/, ("UNC", "LBC", "UIC")));
 
+                    my $column = '';
                     # look in file details to build link to first line
                     # '$tableHref is undef unless the data we need is available
                     if (defined($tableHref) &&
@@ -9261,6 +9196,7 @@ END_OF_HTML
                                 if $covType == SummaryInfo::BRANCH_DATA;
                         } elsif ('owner' eq $page_type) {
                             my $owner = $summary->owner();
+                            $column = $owner;
                             $title .= "in '$owner' bin ";
                             $line = $fileDetails->nextInOwnerBin($owner, $key)
                                 if $covType == SummaryInfo::LINE_DATA;
@@ -9269,6 +9205,7 @@ END_OF_HTML
                                 if $covType == SummaryInfo::BRANCH_DATA;
                         } elsif ('date' eq $page_type) {
                             my $agebin = $summary->bin();
+                            $column = $agebin;
                             $title .=
                                 "in '$SummaryInfo::ageGroupHeader[$agebin]' bin ";
                             $line = $fileDetails->nextInDateBin($agebin, $key)
@@ -9293,6 +9230,18 @@ END_OF_HTML
                                 $v .= "class=\"tlaBg$key\" ";
                             }
                             $v .= "title=$title>$count</a>";
+                        } elsif ($covType != SummaryInfo::FUNCTION_DATA &&
+                                 (defined($tableHref) ||
+                                  (defined($file_link) &&
+                                    defined($fileDetails) &&
+                                    $main::show_tla &&
+                                    !$main::no_sourceview))
+                        ) {
+                            #debugging:  why is link missing?
+                            die("undefined line for $page_type $column type $key $covType"
+                                    .
+                                    (defined($tableHref) ? '' : ' missing href')
+                            );
                         }
                     }
                 }    # if count nonzero

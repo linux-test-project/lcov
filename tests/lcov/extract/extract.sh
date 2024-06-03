@@ -69,6 +69,11 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
        fi
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
+if [ -d $LCOV_HOME/scripts ] ; then
+    SCRIPTS=$LCOV_HOME/scripts
+else
+    SCRIPTS=$LCOV_HOME/share/lcov/support-scripts
+fi
 
 if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
     echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
@@ -198,6 +203,89 @@ if [ $COUNT == '1' ] ; then
     echo "expected at least 2 files in external.info - found $COUNT"
     exit 1
 fi
+
+# callback tests
+echo $COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branch,65,--function,100
+$COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branch,65,--function,100 2>&1 | tee callback_fail.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected criteria fail from lcov --capture - but not found"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -i 'failed coverage criteria' callback_fail.log
+if [ 0 != $? ] ; then
+    echo "Error:  didn't find expected criteria message"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+echo $COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,20
+$COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,20
+if [ 0 != $? ] ; then
+    echo "Error:  expected criteria pass from lcov --capture - but failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+echo $COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branch,65,--function,100
+$COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branch,65,--function,100 2>&1 | tee callback_fail2.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected criteria fail from lcov --aggregate - but not found"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -i 'failed coverage criteria' callback_fail2.log
+if [ 0 != $? ] ; then
+    echo "Error:  didn't find second expected criteria message"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+$COVER $LCOV_TOOL $LCOV_OPTS -o aggregate2.info -a callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,20
+if [ 0 != $? ] ; then
+    echo "Error:  expected criteria pass from lcov --aggregate - but failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# error check for typo in command line - "--branchy"
+echo $COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branchy,65,--function,100
+$COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branchy,65,--function,100 2>&1 | tee callback_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected criteria config fail from lcov --capture"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -i 'Error: unexpected option' callback_err.log
+if [ 0 != $? ] ; then
+    echo "Error:  didn't find expected criteria config message"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+#bad value - not numeric
+echo $COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branch,x,--function,100
+$COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branch,x,--function,100 2>&1 | tee callback_err2.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected another criteria config fail from lcov --capture"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -i 'unexpected branch threshold' callback_err2.log
+if [ 0 != $? ] ; then
+    echo "Error:  didn't find expected criteria config message 2"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
 
 $COVER $CAPTURE . $LCOV_OPTS --no-external -o internal.info
 

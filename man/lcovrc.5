@@ -78,7 +78,7 @@ if specified on the command line and in the lcovrc file, the value specified on 
 The value from the RC file is ignored.
 .IP "     *"
 Scalar options include:
-.RI 'genhtml_criteria_script " = " ...'
+.RI 'criteria_script " = " ...'
 ,
 .RI 'genhtml_annotate_script " = " ...'
 ,
@@ -538,11 +538,18 @@ function_coverage = 1
 branch_coverage = 0
 .br
 
-# Ask LCOV to return non-zero exit code if line coverage is
+# Ask lcov/genhtml/geninfo to return non-zero exit code if branch coverage is
 .br
 # below specified threshold percentage.
 .br
-lcov_fail_under_lines = 97.5
+fail_under_branches = 75.0
+.br
+
+# Ask lcov/genhtml/geninfo to return non-zero exit code if line coverage is
+.br
+# below specified threshold percentage.
+.br
+#fail_under_lines = 97.5
 .br
 
 # Specify JSON module to use, or choose best available if
@@ -2136,13 +2143,28 @@ Default is 'LCOV_EXCL_EXECEPTION_BR_STOP'.
 
 .PP
 
-.BR lcov_fail_under_lines " ="
+.BR fail_under_branches " ="
 .I percentage
 .IP
-Specify line coverage threshold to lcov.  If the line coverage is below this threshold, lcov will generate all the normal result files and messages, but will return a non-zero exit code.
+Specify branch coverage threshold:  if the branch coverage is below this threshold, lcov/genhtml/geninfo will generate all the normal result files and messages, but will return a non-zero exit code.
 .br
 
-This option is equivalent to the \-\-fail\-under\-lines lcov command line argument.
+This option is equivalent to the \-\-fail\-under\-branches lcov/genhtml/geninfo command line argument.  See
+.B man lcov(1)
+for more detailes.
+
+.br
+The default is 0 (no threshold).
+
+.PP
+
+.BR fail_under_lines " ="
+.I percentage
+.IP
+Specify line coverage threshold to lcov.  If the line coverage is below this threshold, lcov/genhtml/geninfo will generate all the normal result files and messages, but will return a non-zero exit code.
+.br
+
+This option is equivalent to the \-\-fail\-under\-lines lcov/genhtml/geninfo command line argument.
 
 .br
 The default is 0 (no threshold).
@@ -2314,10 +2336,12 @@ source line number.
 .PP
 
 
-.BR genhtml_criteria_script " ="
-.IR path_to_executable | parameter
+.BR criteria_script " ="
+.IR path_to_executable_or_module | parameter
 .IP
-This option is equivalent to the "genhtml \-\-criteria\-script" option.
+This option is equivalent to the
+.I \-\-criteria\-script
+option of genhtml/lcov/geninfo
 
 This option can be used multiple times in the lcovrc file to specify both a criteria script and additional options which are passed to the script.
 
@@ -2331,6 +2355,9 @@ See the genhtml man page for details.
 This option is used to tell genhtml whether you want date and/or owner summary
 data passed back to your criteria callback.
 Note that summary data is always passed.
+
+Note that lcov and geninfo do not record date or owner data - and so do not pass
+it to the callback.
 
 This option can be used multiple times in the lcovrc file to specify both date and owner data should be returned, or you can specify both in a  comma-separated list.
 Date and/or owner data will be returned if and only if your genhtml command

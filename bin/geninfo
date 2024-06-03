@@ -95,7 +95,6 @@ use lcovutil qw (define_errors parse_ignore_errors
                  parseOptions
                  @comments
                  $maxParallelism init_parallel_params $maxMemory
-                 count_totals print_overall_rate
                 );
 
 if ($^O eq "msys") {
@@ -546,6 +545,10 @@ if ($initial && $lcovutil::br_coverage && !$intermediate) {
     );
 }
 
+lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                "--fail_under_lines not supported unless output file specified")
+    if (defined($lcovutil::fail_under_lines) && !$single_file);
+
 # where to write parallel child data
 my $tempFileDir =
     defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
@@ -588,9 +591,7 @@ if (0 == $exit_code) {
         $lcovutil::profileData{emit} = $then - $now;
         if (defined($trace_data)) {
             info("Finished .info-file creation\n");
-            my @counts = $trace_data->count_totals();
-            lcovutil::print_overall_rate(\@counts, 1, $lcovutil::func_coverage,
-                                         $lcovutil::br_coverage)
+            $trace_data->print_summary()
                 if ($lcovutil::verbose >= 0);
         }
         summarize_cov_filters();
@@ -607,6 +608,13 @@ if (0 == $exit_code) {
         print(STDERR $@);
         $exit_code = 1;
     }
+}
+if (0 == $exit_code &&
+    $single_file) {
+
+    $trace_data->checkCoverageCriteria();
+    CoverageCriteria::summarize();
+    $exit_code = 1 if $CoverageCriteria::coverageCriteriaStatus;
 }
 summarize_messages();
 my $end = Time::HiRes::gettimeofday();

@@ -135,7 +135,7 @@ DIFFCOV_OPTS="$DIFFCOV_NOFRAME_OPTS --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py names.data linked.cpp linked_diff.txt
-rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source linked linked_err linked_elide linked_dir
+rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source linked linked_err linked_elide linked_dir failUnder
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete -db $COVER_DB
@@ -291,6 +291,41 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+# test the 'fail under' flag
+echo $LCOV_TOOL $LCOV_OPTS --output failUnder.info $IGNORE --capture -d . --ignore version --fail-under-lines 70
+$COVER $LCOV_TOOL $LCOV_OPTS --output failUnder.info $IGNORE --capture -d . --ignore version --fail-under-lines 70
+if [ 0 == $? ] ; then
+    echo "ERROR: did not fail with low coverage"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ ! -f failUnder.info ] ; then
+    echo "ERROR: did not write info file when failing"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+echo genhtml $DIFFCOV_OPTS $IGNORE failUnder.info --output-directory ./failUnder --fail-under-lines 70
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS $IGNORE failUnder.info --output-directory ./failUnder --fail-under-lines 70
+if [ 0 == $? ] ; then
+    echo "ERROR: genhtml did not fail with low coverage"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ ! -f failUnder/index.html ] ; then
+    echo "ERROR: did not write HTML when failing"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 # run genhtml with mismatched version
 echo genhtml $DIFFCOV_OPTS baseline2.info --output-directory ./mismatched

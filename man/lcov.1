@@ -68,10 +68,13 @@ Capture coverage data tracefile (from compiler-generated data):
 .RB [ \-\-compat
 .IR  mode =on|off|auto]
 .br
-.RB [ \-\-version\-script
+.RB [ \-\-criteria\-script
 .IR script_file ]
 .br
-.RB [ \-\-resolv-\-script
+.RB [ \-\-resolve-\-script
+.IR script_file ]
+.br
+.RB [ \-\-version\-script
 .IR script_file ]
 .br
 .RB [ \-\-comment
@@ -262,12 +265,6 @@ Summarize tracefile content:
 .B lcov
 .BR \-\-summary
 .I tracefile
-.RS 4
-.br
-.RB [ \-\-fail-under-lines
-.IR percentage ]
-.br
-.RE
 .RE
 
 Print version or help message and exit:
@@ -330,6 +327,12 @@ Common lcov options - supported by all the above use cases:
 .br
 .RB [ \-\-omit\-lines
 .IR regexp_pattern ]
+.br
+.RB [ \-\-fail\-under\-branches
+.IR percentage ]
+.br
+.RB [ \-\-fail\-under\-lines
+.IR percentage ]
 .br
 .RE
 .RE
@@ -1018,18 +1021,19 @@ will emit the list of functions and associated tracefiles rather than combined t
 .br
 
 .RE
-.B \-\-version\-script
+.B \-\-criteria\-script
 .I script
 .br
 .RS
 
 Use
 .I script
-to get a source file's version ID from revision control when
-extracting data and to compare version IDs for the purpose of error checking when merging .info files.
-.br
+to test for coverage acceptance criteria.
 
-See the genhtml man page for more details on the version script.
+See the genhtml man page for more details on the criteria script.
+Note that lcov does not keep track of date and owner information (see the
+.I \-\-annotate\-script
+entry in the genhtml man page) - so this information is not passed to the lcov callback.
 
 .br
 
@@ -1051,6 +1055,22 @@ config file option. See man
 .B lcovrc(5)
 for details.
 .RE
+
+.RE
+.B \-\-version\-script
+.I script
+.br
+.RS
+
+Use
+.I script
+to get a source file's version ID from revision control when
+extracting data and to compare version IDs for the purpose of error checking when merging .info files.
+.br
+
+See the genhtml man page for more details on the version script.
+
+.br
 
 .B \-\-comment
 .I comment_string
@@ -1671,12 +1691,22 @@ Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
 specified at a time.
 .RE
 
-.B \-\-fail-under-lines
+.B \-\-fail\-under\-branches
 .I percentage
 .br
 .RS
-Use this option together with \-\-summary to tell lcov to exit with a status of 1 if the total
-line coverage is less than percentage.
+Use this option to tell lcov to exit with a status of 1 if the total
+branch coverage is less than
+.I percentage.
+.RE
+
+.B \-\-fail\-under\-lines
+.I percentage
+.br
+.RS
+Use this option to tell lcov to exit with a status of 1 if the total
+line coverage is less than
+.I percentage.
 .RE
 
 .B \-t
