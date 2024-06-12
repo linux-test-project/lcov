@@ -116,9 +116,9 @@ fi
 LCOV_BASE="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
 VERSION_OPTS="--version-script $GET_VERSION"
 LCOV_OPTS="$LCOV_BASE $VERSION_OPTS"
-DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
-#DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
-#DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
+DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
+#DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame"
+#DIFFCOV_OPTS='--function-coverage --branch-coverage --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx *.diff *.txt template *gcov
 rm -rf baseline_*call_current*call alias* no_alias*

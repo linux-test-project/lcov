@@ -922,76 +922,6 @@ sub configure_callback
     }
     return $rtn;
 }
-#
-# read_config(filename)
-#
-# Read configuration file FILENAME and return a reference to a hash containing
-# all valid key=value pairs found.
-#
-
-sub read_config($)
-{
-    my $filename = $_[0];
-    my %result;
-    my $key;
-    my $value;
-    local *HANDLE;
-
-    info(1, "read_config: $filename\n");
-    if (!open(HANDLE, "<", $filename)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                              "cannot read configuration file '$filename': $!");
-        return undef;
-    }
-    VAR: while (<HANDLE>) {
-        chomp;
-        # Skip comments
-        s/#.*//;
-        # Remove leading blanks
-        s/^\s+//;
-        # Remove trailing blanks
-        s/\s+$//;
-        next unless length;
-        ($key, $value) = split(/\s*=\s*/, $_, 2);
-        # is this an environment variable?
-        while (defined($value) &&
-               $value =~ /\$ENV\{([^}]+)\}/) {
-            my $varname = $1;
-            if (!exists($ENV{$varname})) {
-                push(
-                    @deferred_rc_errors,
-                    [   1,
-                        $lcovutil::ERROR_USAGE,
-                        "\"$filename\": $.:  variable '$key' uses environment variable '$varname' - which is not set (ignoring '$_')."
-                    ]);
-                next VAR;
-            }
-            $value =~ s/^\$ENV\{$varname\}/$ENV{$varname}/g;
-        }
-        if (defined($key) && defined($value)) {
-            info(2, "  set: $key = $value\n");
-            if (exists($result{$key})) {
-                if ('ARRAY' eq ref($result{$key})) {
-                    push(@{$result{$key}}, $value);
-                } else {
-                    $result{$key} = [$result{$key}, $value];
-                }
-            } else {
-                $result{$key} = $value;
-            }
-        } else {
-            my $context = MessageContext::context();
-            push(
-                @deferred_rc_errors,
-                [   1,
-                    $lcovutil::ERROR_FORMAT,
-                    "\"$filename\": $.: malformed configuration file statement '$_':  expected \"key = value\"/"
-                ]);
-        }
-    }
-    close(HANDLE) or die("unable to close $filename: $!\n");
-    return \%result;
-}
 
 #
 # apply_config(REF, ref)
@@ -1030,14 +960,13 @@ sub _set_config($$$)
     }
 }
 
-sub apply_config($$$)
+sub apply_config($$)
 {
-    my ($ref, $config, $rc_overrides) = @_;
+    my ($ref, $config) = @_;
     my $set_value = 0;
     foreach (keys(%{$ref})) {
         # if sufficiently verbose, could mention that key is ignored
-        next if ((exists($rc_overrides->{$_})) ||
-                 !exists($config->{$_}));
+        next unless exists($config->{$_});
         my $v = $config->{$_};
         $set_value = 1;
         _set_config($ref, $_, $v);    # write into options
@@ -1078,7 +1007,8 @@ my %deprecated_rc = ("genhtml_demangle_cpp"        => "demangle_cpp",
                      "genhtml_function_coverage"   => "function_coverage",
                      "genhtml_branch_coverage"     => "branch_coverage",
                      'genhtml_criteria_script'     => 'criteria_script',
-                     "lcov_fail_under_lines"       => 'fail_under_lines',);
+                     "lcov_fail_under_lines"       => 'fail_under_lines',
+                     'genhtml_highlight'           => undef,);
 
 my ($cExtensions, $rtlExtensions, $javaExtensions,
     $perlExtensions, $pythonExtensions);
@@ -1236,6 +1166,99 @@ our %argCommon = ("tempdir=s"         => \$tempdirname,
                   "forget-test-names" => \$TraceFile::ignore_testcase_name,
                   "preserve"          => \$lcovutil::preserve_intermediates,);
 
+sub warnDeprecated
+{
+    my ($key, $replacement) = @_;
+    my $opt_used = defined($replacement);
+    my $suffix =
+        $opt_used ?
+        ".  Consider using '$replacement'. instead.  (Backward-compatible support will be removed in the future.)"
+        :
+        ' and ignored.';
+
+    push(@deferred_rc_errors,
+         [0, $lcovutil::ERROR_DEPRECATED,
+          "RC option '$key' is deprecated$suffix"
+         ]);
+    return $opt_used;
+}
+
+#
+# read_config(filename)
+#
+# Read configuration file FILENAME and return a reference to a hash containing
+# all valid key=value pairs found.
+#
+
+sub read_config($)
+{
+    my $filename = shift;
+    my %result;
+    my $key;
+    my $value;
+    local *HANDLE;
+
+    info(1, "read_config: $filename\n");
+    if (!open(HANDLE, "<", $filename)) {
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                              "cannot read configuration file '$filename': $!");
+        return undef;
+    }
+    VAR: while (<HANDLE>) {
+        chomp;
+        # Skip comments
+        s/#.*//;
+        # Remove leading blanks
+        s/^\s+//;
+        # Remove trailing blanks
+        s/\s+$//;
+        next unless length;
+        ($key, $value) = split(/\s*=\s*/, $_, 2);
+        # is this an environment variable?
+        while (defined($value) &&
+               $value =~ /\$ENV\{([^}]+)\}/) {
+            my $varname = $1;
+            if (!exists($ENV{$varname})) {
+                push(
+                    @deferred_rc_errors,
+                    [   1,
+                        $lcovutil::ERROR_USAGE,
+                        "\"$filename\": $.:  variable '$key' uses environment variable '$varname' - which is not set (ignoring '$_')."
+                    ]);
+                next VAR;
+            }
+            $value =~ s/^\$ENV\{$varname\}/$ENV{$varname}/g;
+        }
+        if (defined($key) &&
+            exists($deprecated_rc{$key})) {
+            next unless warnDeprecated($key, $deprecated_rc{$key});
+            $key = $deprecated_rc{$key};
+        }
+        if (defined($key) && defined($value)) {
+            info(2, "  set: $key = $value\n");
+            if (exists($result{$key})) {
+                if ('ARRAY' eq ref($result{$key})) {
+                    push(@{$result{$key}}, $value);
+                } else {
+                    $result{$key} = [$result{$key}, $value];
+                }
+            } else {
+                $result{$key} = $value;
+            }
+        } else {
+            my $context = MessageContext::context();
+            push(
+                @deferred_rc_errors,
+                [   1,
+                    $lcovutil::ERROR_FORMAT,
+                    "\"$filename\": $.: malformed configuration file statement '$_':  expected \"key = value\"/"
+                ]);
+        }
+    }
+    close(HANDLE) or die("unable to close $filename: $!\n");
+    return \%result;
+}
+
 # common utility used by genhtml, geninfo, lcov to clean up RC options,
 #  check for various possible system-wide RC files, and apply the result
 # return 1 if we set something
@@ -1260,8 +1283,26 @@ sub apply_rc_params($)
     Getopt::Long::Configure("default");
 
     my $set_value = 0;
-    my %new_opt_rc;
 
+    if (0 != scalar(@opt_config_files)) {
+        foreach my $f (@opt_config_files) {
+            my $cfg = read_config($f);
+            $set_value |= apply_config(\%rcHash, $cfg);
+        }
+    } else {
+        foreach my $v (['HOME', '.lcovrc'], ['LCOV_HOME', 'etc', 'lcovrc']) {
+            next unless exists($ENV{$v->[0]});
+            my $f = File::Spec->catfile($ENV{$v->[0]}, splice(@$v, 1));
+            if (-r $f) {
+                my $config = read_config($f);
+                # Copy configuration file and --rc values to variables
+                $set_value |= apply_config(\%rcHash, $config);
+                last;
+            }
+        }
+    }
+
+    my $first;
     foreach my $v (@opt_rc) {
         my $index = index($v, '=');
         if ($index == -1) {
@@ -1284,48 +1325,18 @@ sub apply_rc_params($)
             next;
         }
         info(1, "apply --rc overrides\n")
-            unless $set_value;
+            unless defined($first);
+        $first = 1;
         # can't complain about deprecated uses here because the user
         #  might have suppressed that message - but we haven't looked at
         #  the suppressions in the parameter list yet.
-        push(
-            @deferred_rc_errors,
-            [   0,
-                $lcovutil::ERROR_DEPRECATED,
-                "RC option '$key' is deprecated.  Consider using '" .
-                    $deprecated_rc{$key} .
-                    "'. instead.  (Backward-compatible support will be removed in the future"
-            ]) if (exists($deprecated_rc{$key}));
+        if (exists($deprecated_rc{$key})) {
+            next unless warnDeprecated($key, $deprecated_rc{$key});
+        }
         # strip spaces
         $value =~ s/^\s+|\s+$//g;
         _set_config(\%rcHash, $key, $value);
         $set_value = 1;
-        # record override of this one - so we skip the value from the
-        #  config file
-        $new_opt_rc{$key} = $value;
-        $new_opt_rc{$deprecated_rc{$key}} = $value
-            if (exists($deprecated_rc{$key}));
-    }
-    my $config;    # did we see a config file or not?
-                   # Read configuration file if available
-    if (0 != scalar(@opt_config_files)) {
-        foreach my $f (@opt_config_files) {
-            $config = read_config($f);
-            $set_value |= apply_config(\%rcHash, $config, \%new_opt_rc);
-        }
-        return $set_value;
-    } elsif (exists($ENV{"HOME"}) &&
-             -r File::Spec->catfile($ENV{"HOME"}, '.lcovrc')) {
-        $config = read_config(File::Spec->catfile($ENV{"HOME"}, '.lcovrc'));
-    } elsif (exists($ENV{"LCOV_HOME"}) &&
-             -r File::Spec->catfile($ENV{"LCOV_HOME"}, 'etc', 'lcovrc')) {
-        $config = read_config(
-                       File::Spec->catfile($ENV{"LCOV_HOME"}, 'etc', 'lcovrc'));
-    }
-
-    if ($config) {
-        # Copy configuration file and --rc values to variables
-        $set_value |= apply_config(\%rcHash, $config, \%new_opt_rc);
     }
     foreach my $d (['rtl', $rtlExtensions],
                    ['c', $cExtensions],

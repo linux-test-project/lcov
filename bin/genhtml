@@ -6128,7 +6128,6 @@ our $keep_descriptions; # If set, do not remove unused test case descriptions
 our $suppress_function_aliases;    # if set, don't show list of collapsed
                                    # function aliases
 our $no_sourceview;     # If set, do not create a source code view for each file
-our $highlight;         # If set, highlight lines covered by converted data only
 our $legend;            # If set, include legend in output
 our $tab_size = 8;      # Number of spaces to use in place of tab
 our $html_prolog_file;  # Custom HTML prolog file (up to and including <body>)
@@ -6146,12 +6145,13 @@ our @fileview_prefixes = ("");
 our @funcview_sortlist;
 our @rate_name    = ("Lo", "Med", "Hi");
 our @rate_png     = ("ruby.png", "amber.png", "emerald.png");
-our $rc_desc_html = 0;      # lcovrc: genhtml_desc_html
+our $rc_desc_html = 0;        # lcovrc: genhtml_desc_html
+our $deprecated_highlight;    # ignored former option
 
-our $cwd = cwd();           # Current working directory
+our $cwd = cwd();             # Current working directory
 
 # for debugging
-our $verboseScopeRegexp;    # dump categorization processing if match
+our $verboseScopeRegexp;      # dump categorization processing if match
 
 #
 # Code entry point
@@ -6178,7 +6178,6 @@ my %genhtml_rc_opts = (
                "genhtml_no_prefix"          => \$no_prefix,
                "genhtml_no_source"          => \$no_sourceview,
                "genhtml_num_spaces"         => \$tab_size,
-               "genhtml_highlight"          => \$highlight,
                "genhtml_frames"             => \$frames,
                "genhtml_legend"             => \$legend,
                "genhtml_html_prolog"        => \$html_prolog_file,
@@ -6251,7 +6250,7 @@ my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        "no-sourceview"     => \$no_sourceview,
                        "show-details|s"    => \$show_details,
                        "frames|f"          => \$frames,
-                       "highlight"         => \$highlight,
+                       "highlight"         => \$deprecated_highlight,
                        "legend"            => \$legend,
                        'save'              => \$save,
                        'serialize=s'       => \$serialize,
@@ -6276,6 +6275,9 @@ if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options)) {
     exit(1);
 }
 
+lcovutil::ignorable_error($lcovutil::ERROR_DEPRECATED,
+                          "option '--highlight' has been removed.")
+    if ($deprecated_highlight);
 $buildSerializableDatabase = 1 if $serialize;
 
 # Copy related values if not specified
@@ -6676,7 +6678,6 @@ HTML OUTPUT
       --footer FOOTER               Footer at bottom of each HTML page
       --no-sourceview               Do not create source code view
       --num-spaces NUM              Replace tabs with NUM spaces in source view
-      --highlight                   Highlight lines with converted-only data
       --legend                      Include color legend in HTML output
       --html-prolog FILE            Use FILE as HTML prolog for generated pages
       --html-epilog FILE            Use FILE as HTML epilog for generated pages

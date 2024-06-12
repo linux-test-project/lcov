@@ -129,10 +129,10 @@ SELECT=${SCRIPT_DIR}/select.pm
 
 
 LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PARALLEL $PROFILE"
-DIFFCOV_NOFRAME_OPTS=" $PROFILE --function-coverage --branch-coverage --highlight --demangle-cpp --prefix $PARENT --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PARALLEL"
+DIFFCOV_NOFRAME_OPTS=" $PROFILE --function-coverage --branch-coverage --demangle-cpp --prefix $PARENT --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PARALLEL"
 DIFFCOV_OPTS="$DIFFCOV_NOFRAME_OPTS --frame"
-#DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
-#DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
+#DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame"
+#DIFFCOV_OPTS='--function-coverage --branch-coverage --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py names.data linked.cpp linked_diff.txt
 rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source linked linked_err linked_elide linked_dir failUnder

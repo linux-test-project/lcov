@@ -103,7 +103,7 @@ PARENT=`(cd .. ; pwd)`
 
 
 LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE"
-DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT $PROFILE $PARALLEL"
+DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT $PROFILE $PARALLEL"
 
 rm -f *.cpp *.gcno *.gcda a.out *.info *.log *.json dumper* *.annotated annotate.sh
 rm -rf ./vanilla ./annotated annotateErr ./range ./filter ./cover_db

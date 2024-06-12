@@ -134,10 +134,6 @@ genhtml_no_source = 0
 # option of genhtml)
 genhtml_num_spaces = 8
 
-# Highlight lines with converted-only data if non-zero (same as --highlight
-# option of genhtml)
-genhtml_highlight = 0
-
 # Include color legend in HTML output if non-zero (same as --legend option of
 # genhtml)
 genhtml_legend = 0

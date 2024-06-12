@@ -128,10 +128,10 @@ fi
 # filter out the compiler-generated _GLOBAL__sub_... symbol
 LCOV_BASE="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
 LCOV_OPTS="$LCOV_BASE"
-DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --highlight --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
+DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -595,6 +595,40 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# deprecated messages
+echo genhtml $DIFFCOV_OPTS initial.info -o highlight --highlight
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT --highlight -o highlight 2>&1 | tee highlight.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: missed decprecated error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR: \(deprecated\) .*option .+ has been removed" highlight.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing highlight message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+mkdir -p etc
+echo "genhtml_highlight = 1" > etc/lcovrc
+echo genhtml $DIFFCOV_OPTS initial.info -o highlight --config-file LCOV_HOME/etc/lcovrc
+LCOV_HOME=. $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT -o highlight 2>&1 | tee highlight2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: deprecated error was fatal"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "WARNING: \(deprecated\) .+ deprecated and ignored" highlight2.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing decrecated message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 
 echo "Tests passed"
 
