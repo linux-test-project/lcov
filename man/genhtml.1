@@ -1978,6 +1978,16 @@ sections of man
 .B lcovrc(5)
 for a description of the default associations and how they can be changed.
 
+Most filters need the source code; filters are not applied if the source file is not available.  Similarly, for each source file, if the version recorded in the coverage data (the '.info' file)
+does not match the version found on the filesystem, then a
+.I version
+error is reported.  If the
+.I version
+error is ignored, then filtering is not applied to the mismatched file.
+See the
+.I \-\-version\-script
+for more information.
+
 .I filters
 can be a comma\-separated list of the following keywords:
 
@@ -2021,9 +2031,24 @@ These lines are sometimes included by
 when LLVM profile data is translated to LCOV format.
 .PP
 
+.IP exception: 3
+Exclude branches related to C++ exception handling from branch coverage.
+Whether C++ exception branches are identified and removed is dependent on your compiler/toolchain correctly marking them in the generated coverage data.
+See the
+.I no_exception_branch
+section of
+.B man lcovrc(5).
+
 .IP line: 3
 alias for "\-\-filter brace,blank".
 .PP
+
+.IP orphan: 3
+Remove branches which appear by themselves -
+.I i.e.,
+the branch has only one destination and so cannot be a conditional.
+.br
+These occur most frequently as a result of exception branch filtering.
 
 .IP range: 3
 Ignore line and branch coverpoints on lines which are out-of range/whose line number is beyond the end of the source file.  These appear to be gcov artifacts caused by a macro instantiation on the last line of the file.
@@ -2571,14 +2596,6 @@ The patch file specified by the
 argument does not contain any differences.  This may be OK if there were no source code changes between 'baseline' and 'current' (e.g., the only change was to modify a Makefile) - or may indicate an unsupported file format.
 .PP
 
-.IP exception: 3
-Exclude branches related to C++ exception handling from branch coverage.
-Whether C++ exception branches are identified and removed is dependent on your compiler/toolchain correctly marking them in the generated coverage data.
-See the
-.I no_exception_branch
-section of
-.B man lcovrc(5).
-
 .IP excessive: 3
 your coverage data contains a suspiciously large 'hit' count which is unlikely
 to be correct - possibly indicating a bug in your toolchain.
@@ -2655,13 +2672,6 @@ Note that negative counts may be caused by a known GCC bug - see
 
 and try compiling with "-fprofile-update=atomic". You will need to recompile, re-run your tests, and re-capture coverage data.
 .PP
-
-.IP orphan: 3
-Remove branches which appear by themselves -
-.I i.e.,
-the branch has only one destination and so cannot be a conditional.
-.br
-These occur most frequently as a result of exception branch filtering.
 
 
 .IP package: 3

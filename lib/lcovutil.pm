@@ -6001,7 +6001,8 @@ sub _filterFile
         !lcovutil::checkVersionMatch($source_file, $traceInfo->version(),
                                      $fileVersion, 'filter')
     ) {
-        lcovutil::info(1, 'skip filtering due to version mismatch\n');
+        lcovutil::info(1,
+                      '$source_file: skip filtering due to version mismatch\n');
         return ($traceInfo, 0);
     }
 
@@ -6666,11 +6667,6 @@ sub applyFilters
                 if grep({ !($_->isLambda() || defined($_->end_line())) }
                         $traceInfo->func()->valuelist());
         }
-
-        # munge the source file name, if requested
-        #die("unexpected path substitution for '$source_file': '" .
-        #    lcovutil::subst_file_name($source_file) . "'")
-        #  unless ($source_file eq lcovutil::subst_file_name($source_file));
 
         if ((defined($lcovutil::func_coverage) &&
              (0 != scalar(@lcovutil::exclude_function_patterns) ||
