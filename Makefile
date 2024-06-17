@@ -230,6 +230,7 @@ rpms: lcov-$(VERSION).tar.gz
 		lcov-$(VERSION)/rpm/lcov.spec \
 	)
 	rpmbuild --define '_topdir $(TMP_DIR)' --define '_buildhost localhost' \
+		 --define "_target_os linux" \
 		 --undefine vendor --undefine packager \
 		 -ba $(TMP_DIR)/BUILD/lcov-$(VERSION)/rpm/lcov.spec --quiet
 	mv $(TMP_DIR)/RPMS/noarch/lcov-$(VERSION)-$(RELEASE).noarch.rpm .

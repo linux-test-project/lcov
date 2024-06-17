@@ -1,6 +1,6 @@
 Summary: A graphical code coverage front-end
 Name: lcov
-Version: 2.0
+Version: 2.2
 Release: 1
 License: GPLv2+
 Group: Development/Tools
@@ -20,6 +20,8 @@ Prefix: /etc
 # lcov Perl modules are not intended for use by other packages
 %define __requires_exclude ^perl\\(lcovutil\\)$|^perl\\((criteria)\\)$|^perl\\((annotateutil)\\)$|^perl\\((gitblame)\\)$|^perl\\((gitversion)\\)$|^perl\\((select)\\)$|^perl\\((p4annotate)\\)
 %define __provides_exclude ^perl.*$
+
+%define _binaries_in_noarch_packages_terminate_build 0
 
 %description
 LCOV is a set of command line tools that can be used to collect, process, and
