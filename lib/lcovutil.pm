@@ -4138,113 +4138,6 @@ sub remove
     delete($locationMap->{$key});
 }
 
-package FilterBranchExceptions;
-
-sub new
-{
-    my $class = shift;
-    my $self = [$lcovutil::cov_filter[$lcovutil::FILTER_EXCEPTION_BRANCH],
-                $lcovutil::cov_filter[$lcovutil::FILTER_ORPHAN_BRANCH],
-                $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION],
-                $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH]
-    ];
-    bless $self, $class;
-    return grep({ defined($_) } @$self) ? $self : undef;
-}
-
-sub removeBranches
-{
-    my ($self, $line, $branches, $filter, $isMasterData) = @_;
-
-    my $brdata = $branches->value($line);
-    return 0 unless defined($brdata);
-
-    my $modified = 0;
-    my $count    = 0;
-    foreach my $block_id ($brdata->blocks()) {
-        my $blockData = $brdata->getBlock($block_id);
-        my @replace;
-        foreach my $br (@$blockData) {
-            if (defined($filter) && $br->is_exception()) {
-                --$branches->[CountData::FOUND];
-                --$branches->[CountData::HIT] if 0 != $br->count();
-                #lcovutil::info($srcReader->fileanme() . ": $line: remove exception branch\n");
-                $modified = 1;
-                ++$count;
-            } else {
-                push(@replace, $br);
-            }
-        }
-        if ($count) {
-            @$blockData = @replace;
-            ++$filter->[0] if $isMasterData;
-            lcovutil::info(2,
-                           "$line: remove $count exception branch" .
-                               (1 == $count ? '' : 'es') . "\n")
-                if $isMasterData;
-            $filter->[1] += $count;
-        }
-        # If there is only one branch left - then this is not a conditional
-        if (0 == scalar(@replace)) {
-            lcovutil::info(2, "$line: remove exception block $block_id\n");
-            lcovutil::info("$line: remove exception block $block_id\n");
-            $brdata->removeBlock($block_id, $branches);
-        } elsif (1 == scalar(@replace) &&
-                 defined($self->[1])) {    # filter orphan
-            lcovutil::info(2,
-                           "$line: remove orphan exception block $block_id\n");
-            $brdata->removeBlock($block_id, $branches);
-
-            ++$self->[1]->[0]
-                if $isMasterData;
-            ++$self->[1]->[1];
-        }
-    }
-    if (0 == scalar($brdata->blocks())) {
-        lcovutil::info(2, "$line: no branches remain\n");
-        $branches->remove($line);
-        $modified = 1;
-    }
-    return $modified;
-}
-
-sub applyFilter
-{
-    my ($self, $filter, $line, $branches, $perTestBranches) = @_;
-    my $modified = $self->removeBranches($line, $branches, $filter, 1);
-    foreach my $tn ($perTestBranches->keylist()) {
-        # want to remove matching branches everytwhere - so we don't want short-circuit evaluation
-        my $m = $self->removeBranches($line, $perTestBranches->value($tn),
-                                      $filter, 0);
-        $modified ||= $m;
-    }
-    return $modified;
-}
-
-sub filter
-{
-    my ($self, $line, $srcReader, $branches, $perTestBranches) = @_;
-
-    if ($srcReader->isExcluded($line, 4)) {
-        # exception branch excluded..
-        if (defined($self->[2])) {    # exclude region
-            return
-                $self->applyFilter($self->[2], $line, $branches,
-                                   $perTestBranches);
-        } elsif (defined($self->[3])) {    # exclude branches
-            return
-                $self->applyFilter($self->[3], $line, $branches,
-                                   $perTestBranches);
-        }
-    }
-    # apply if filtering exceptions, orphans, or both
-    if (defined($self->[0]) || defined($self->[1])) {
-        return $self->applyFilter($self->[0], $line, $branches,
-                                  $perTestBranches);
-    }
-    return 0;
-}
-
 package BranchData;
 
 use constant {
@@ -4631,6 +4524,113 @@ sub get_found_and_hit
     my $self = shift;
 
     return ($self->[FOUND], $self->[HIT]);
+}
+
+package FilterBranchExceptions;
+
+sub new
+{
+    my $class = shift;
+    my $self = [$lcovutil::cov_filter[$lcovutil::FILTER_EXCEPTION_BRANCH],
+                $lcovutil::cov_filter[$lcovutil::FILTER_ORPHAN_BRANCH],
+                $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION],
+                $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH]
+    ];
+    bless $self, $class;
+    return grep({ defined($_) } @$self) ? $self : undef;
+}
+
+sub removeBranches
+{
+    my ($self, $line, $branches, $filter, $isMasterData) = @_;
+
+    my $brdata = $branches->value($line);
+    return 0 unless defined($brdata);
+
+    my $modified = 0;
+    my $count    = 0;
+    foreach my $block_id ($brdata->blocks()) {
+        my $blockData = $brdata->getBlock($block_id);
+        my @replace;
+        foreach my $br (@$blockData) {
+            if (defined($filter) && $br->is_exception()) {
+                --$branches->[BranchData::FOUND];
+                --$branches->[BranchData::HIT] if 0 != $br->count();
+                #lcovutil::info($srcReader->fileanme() . ": $line: remove exception branch\n");
+                $modified = 1;
+                ++$count;
+            } else {
+                push(@replace, $br);
+            }
+        }
+        if ($count) {
+            @$blockData = @replace;
+            ++$filter->[0] if $isMasterData;
+            lcovutil::info(2,
+                           "$line: remove $count exception branch" .
+                               (1 == $count ? '' : 'es') . "\n")
+                if $isMasterData;
+            $filter->[1] += $count;
+        }
+        # If there is only one branch left - then this is not a conditional
+        if (0 == scalar(@replace)) {
+            lcovutil::info(2, "$line: remove exception block $block_id\n");
+            lcovutil::info("$line: remove exception block $block_id\n");
+            $brdata->removeBlock($block_id, $branches);
+        } elsif (1 == scalar(@replace) &&
+                 defined($self->[1])) {    # filter orphan
+            lcovutil::info(2,
+                           "$line: remove orphan exception block $block_id\n");
+            $brdata->removeBlock($block_id, $branches);
+
+            ++$self->[1]->[0]
+                if $isMasterData;
+            ++$self->[1]->[1];
+        }
+    }
+    if (0 == scalar($brdata->blocks())) {
+        lcovutil::info(2, "$line: no branches remain\n");
+        $branches->remove($line);
+        $modified = 1;
+    }
+    return $modified;
+}
+
+sub applyFilter
+{
+    my ($self, $filter, $line, $branches, $perTestBranches) = @_;
+    my $modified = $self->removeBranches($line, $branches, $filter, 1);
+    foreach my $tn ($perTestBranches->keylist()) {
+        # want to remove matching branches everytwhere - so we don't want short-circuit evaluation
+        my $m = $self->removeBranches($line, $perTestBranches->value($tn),
+                                      $filter, 0);
+        $modified ||= $m;
+    }
+    return $modified;
+}
+
+sub filter
+{
+    my ($self, $line, $srcReader, $branches, $perTestBranches) = @_;
+
+    if ($srcReader->isExcluded($line, 4)) {
+        # exception branch excluded..
+        if (defined($self->[2])) {    # exclude region
+            return
+                $self->applyFilter($self->[2], $line, $branches,
+                                   $perTestBranches);
+        } elsif (defined($self->[3])) {    # exclude branches
+            return
+                $self->applyFilter($self->[3], $line, $branches,
+                                   $perTestBranches);
+        }
+    }
+    # apply if filtering exceptions, orphans, or both
+    if (defined($self->[0]) || defined($self->[1])) {
+        return $self->applyFilter($self->[0], $line, $branches,
+                                  $perTestBranches);
+    }
+    return 0;
 }
 
 package TraceInfo;
@@ -6133,7 +6133,7 @@ sub _filterFile
                     # exclude exception branches here
                     my $m =
                         $filterExceptionBranches->filter($line, $srcReader,
-                                                     $testbrcount, $testbrdata);
+                                                      $sumbrcount, $testbrdata);
                     $modified ||= $m;
                 }
             }    # foreach line

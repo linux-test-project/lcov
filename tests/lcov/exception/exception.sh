@@ -96,7 +96,7 @@ LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
 IFS='.' read -r -a VER <<< `gcc -dumpversion`
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.*
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -164,9 +164,8 @@ if [ $EXCEPTIONS != '0' ] ; then
 
     # when run without 'no markers", then we should remove exception
     #  branches in the marked region
-    $COVER $CAPTURE $LCOV_OPTS -o filter.info --include '*/exception.cpp'
-
-    if [ 0 != $? ] ; then
+    $COVER $CAPTURE $LCOV_OPTS -o filter.info --include '*/exception.cpp' | tee noFilter.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
         echo "Error:  unexpected error code from lcov extract filter"
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
@@ -221,11 +220,22 @@ fi
 # test some filtering options
 $COVER $LCOV_TOOL $LCOV_OPTS -o filtExceptOrphan.info -a example.data --filter exception,orphan 2>&1 | tee exceptOrphanFilter.log
 if [ 0 != $? ] ; then
-    echo "Error:  unexpected error code from execpt/orphan filering"
+    echo "Error:  unexpected error code from execpt/orphan filtering"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
 fi
+BRANCH_RPT=`grep branches... exceptOrphanFilter.log`
+$COVER $LCOV_TOOL $LCOV_OPTS --summary filtExceptOrphan.info | tee summaryFilt.log
+SUMMARY_RPT=`grep branches... summaryFilt.log`
+if [ "$BRANCH_RPT" != "$SUMMARY_RPT" ] ; then
+    echo "Error:  extract '$BRANCH_RPT' and summary '$SUMMARY_RPT' reports are different"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+
 $COVER $LCOV_TOOL $LCOV_OPTS -o filtExcept.info -a example.data --filter exception 2>&1 | tee exceptFilter.log
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from except filering"
