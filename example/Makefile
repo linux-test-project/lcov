@@ -147,7 +147,9 @@ test_differential:
 	@git init $(REPO) ;
 	@(cd $(REPO) ; \
 	cp -f $(EG_SRCDIR)/*.h $(EG_SRCDIR)/example.c . ; \
-	mkdir methods ; cp -f $(EG_SRCDIR)/methods/{iterate,gauss}.c methods ; \
+	mkdir methods ; \
+	cp -f $(EG_SRCDIR)/methods/gauss.c methods ; \
+	cp -f $(EG_SRCDIR)/methods/iterate.c methods ; \
 	find . \( -name '*.h' -o -name '*.c' \) -exec git add {} \; ; \
 	git commit -m baseline ; git tag baseline )
 	@echo "Build example and run some tests"
@@ -165,7 +167,8 @@ test_differential:
 	@(cd $(REPO) ; \
 	cp -f $(EG_SRCDIR)/example_mod.c example.c ; \
 	cp -f $(EG_SRCDIR)/methods/iterate_mod.c methods/iterate.c ; \
-	git add example.c methods/iterate.c ; git commit -m current ; \
+	git add example.c methods/iterate.c ; \
+	git commit -m current ; \
 	git tag current )
 
 	@echo "Step 4: Rebuild and run tests (fewer tests this time)"
