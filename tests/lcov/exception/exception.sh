@@ -96,7 +96,7 @@ LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
 IFS='.' read -r -a VER <<< `gcc -dumpversion`
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log precidence.rc
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -218,6 +218,64 @@ else
 fi
 
 # test some filtering options
+$COVER $CAPTURE $LCOV_OPTS -o vanilla.info --ignore inconsistent
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from vanilla capture-external"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+VANILLA_LINES=`grep -c '^DA:' vanialla.info`
+
+$COVER $CAPTURE $LCOV_OPTS -o no_external.info --no-external
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from capture no-external"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+NO_EXTERNAL_LINES=`grep -c '^DA:' no_external.info`
+
+if [ "$NO_EXTERNAL_LINES" -ge "$VANILLA_LINES" ] ; then
+   echo "Error: no_external had no effect"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $CAPTURE $LCOV_OPTS -o external_0.info --rc geninfo_external=0
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from geninfo_external=0"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+diff no_external.info external_0.info
+if [ $? != 0 ] ; then
+    echo "geninfo_external=0 didn't work"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+EXTERNAL_0_LINES=`grep -c '^DA:' external_0.info`
+echo "geninfo_external = 0" > precidence.rc
+$COVER $CAPTURE $LCOV_OPTS -o external_1.info --rc geninfo_external=1 --config-file precidence.rc --ignore inconsistent
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from geninfo_external=1"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+diff vanilla.info external_1.info
+if [ $? != 0 ] ; then
+    echo "geninfo_external=1 didn't work"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+
 $COVER $LCOV_TOOL $LCOV_OPTS -o filtExceptOrphan.info -a example.data --filter exception,orphan 2>&1 | tee exceptOrphanFilter.log
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from execpt/orphan filtering"

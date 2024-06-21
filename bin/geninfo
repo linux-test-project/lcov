@@ -308,7 +308,7 @@ if (defined($opt_no_compat_libtool)) {
 }
 
 if (defined($lcovutil::opt_external)) {
-    $lcovutil::opt_no_external = 0;
+    $lcovutil::opt_no_external = !$lcovutil::opt_external;
     $lcovutil::opt_external    = undef;
 }
 
