@@ -4,6 +4,8 @@
 # To change settings for a single user, place a customized copy of this file
 # at location ~/.lcovrc
 #
+# Note that this example script does not include all configuration options
+# see 'man lcovrc(5) for a complete list and usage description.
 
 # Specify an external style sheet file (same as --css-file option of genhtml)
 #genhtml_css_file = gcov.css
@@ -73,6 +75,11 @@ max_message_count = 100
 # Default is 1
 #warn_once_per_file = 1
 
+# extension associated with lcov trace files - glob match pattern
+# used as argument to 'find' - to find coverage files contained in
+# a directory argument
+#info_file_pattern = *.info
+
 # List of file extensions which should be treated as RTL code (e.g., Verilog)
 # Comma-separated list.  Default is "v,vh,sv,vhd?"
 #rtl_file_extensions = v,vh,sv,vhd?
@@ -80,6 +87,15 @@ max_message_count = 100
 # list of file extensions which should be treated as C/C++ code
 # (comma-separated list)
 #c_file_extensions = h,c,i,C,H,I,cpp,hpp,icc,cc,hh,cxx,hxx
+
+# list of file extensions which should be treated as Java code
+#java_file_extensions = java
+
+# list of file extensions which should be treated as perl code
+#perl_file_extensions = pl,pm
+
+# list of file extensions which should be treated as python code
+#python_file_extensions = py
 
 # maximum number of lines to look at, when filtering bogus branch expressions
 #filter_lookahead = 5
@@ -198,6 +214,10 @@ genhtml_desc_html=0
 # Maximum size of function (number lines) which will be checked by '--filter trivial'
 #trivial_function_threshold = 5
 
+# Set threshold for hit count which tool should deem likely to indicate
+# a toolchain bug (corrupt coverage data)
+# excessive_count_theshold = number
+
 # Demangle C++ symbols
 # Call multiple times to specify command and command line arguments
 #  ('-Xlinker'-like behaviour)
@@ -226,6 +246,10 @@ genhtml_desc_html=0
 # Specify whether to capture coverage data for external source files (can
 # be overridden by the --external and --no-external options of geninfo/lcov)
 #geninfo_external = 1
+
+# Specify whether to capture coverage data from compile-time data files
+# which have no corresponding runtime data.
+#geninfo_capture_all = 1
 
 # Enable libtool compatibility mode if non-zero (same as --compat-libtool option
 # of geninfo if non-zero, same as --no-compat-libtool if zero)
@@ -316,7 +340,7 @@ branch_coverage = 0
 #  %l:  line number
 #genhtml_annotate_tooltip = Commit ID: %C by %F on %D
 
-# specify coverage criteria script for genhtml
+# specify coverage criteria script for genhtml/lcov/geninfo
 #criteria_script = path_to_my_executable_or_module
 
 # specify whether you want date and/or owner information passed to your criteria
@@ -326,10 +350,32 @@ branch_coverage = 0
 # specify when the criteria callback will be executed
 #criteria_callback_levels = top,directory,file
 
+# specify callback to decide whether particular source line should be
+# included or suppresses
+# select_script = path_to_exe | callback_parameter
+
+# specify number of lines of context to include around each selected
+#  source line
+# num_context_lines = 5
+
 # specify age cutpoints for genhtml date bins
 # can call option multiple times or use comma-separted list (or both)
 #genhtml_date_bins = 7
 #genhtml_date_bins = 30,180
+
+# if enabled, show 'author' coverpoint summary table in page headers
+# if not 'all', then show only authors who are responsible for coverpoints
+# which are not hit
+#genhtml_show_owner_table = 0 | 1 | all
+
+# if enabled, show author of non-code source lines (e.g., comments)
+# in 'source' detail column
+#genhtml_show_noncode_owners = 0 | 1
+
+# if enabled, generate fake source code for missing files and out-of-range
+# lines
+#genhtml_synthesize_missing = 0 | 1
+
 
 # ask geninfo/lcov/genhtml to include only certain files (glob match pattern)
 # call multiple times to specify multiple patterns
@@ -371,6 +417,10 @@ branch_coverage = 0
 # specify path to version identification script
 #version_script = path_to_my_executable
 
+# tell the tool to genenerate missing file version information when
+# readind coverage DB file
+# compute_file_version = 0 | 1
+
 # specify path to file pathname resolution script
 #resolve_script = path_to_my_executable
 
@@ -390,11 +440,15 @@ lcov_json_module = auto
 # giving up
 # max_fork_fails = 5
 
+# Throtting control:  the maximum number of files that genhtml will
+# handle in a single (parallel) thread
+# max_tasks_per_core = 20
+
 # Seconds to wait after failing to fork() before retrying
 # fork_fail_timeout = 10
 
-# Specify a percentage of system memory to use as maximum during parallel
-# processing.
+# Throttling control:  specify a percentage of system memory to use as
+# maximum during parallel processing.
 # Do not fork if estimated memory consumption exceeds the maximum.
 # this value is used only if the maximum memory is not set.
 # default: not set

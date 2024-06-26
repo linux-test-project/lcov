@@ -798,6 +798,15 @@ for details.
 
 
 .SH OPTIONS
+
+In general, (almost) all
+.B genhtml
+options can also be specified in your personal, group, project, or site
+configuration file - see man
+.B lcovrc(5)
+for details.
+
+
 .B \-h
 .br
 .B \-\-help
@@ -1820,6 +1829,14 @@ and the commit ID is
 .I synthesized.
 These names and ages will appear in your HTML reports.
 
+.br
+This option is equivalent config file
+.I genhtml_synthesize_missing
+parameter; see man
+.B lcovrc(5)
+for details.
+
+
 .RE
 .BI "\-\-date\-bins " day[,day,...]
 .RS
@@ -1843,6 +1860,14 @@ Please note: if the
 .I all
 option is not specified, the summary table will contain "Total" rows for all date/owner bins which are not empty - but there will be no secondary "File/Directory" entries for elements which have no "missed" coverpoints.
 
+.br
+This option is equivalent config file
+.I genhtml_show_owner_table
+parameter; see man
+.B lcovrc(5)
+for details.
+
+
 .RE
 .BI "\-\-show\-noncode "
 .RS
@@ -1851,6 +1876,14 @@ By default, the source code detail view does not show owner or date annotations 
 option is used, then the source code view will show annotations for both code and non\-code lines.
 This argument has no effect if there is no
 .I source\-annotation\-script .
+
+.br
+This option is equivalent config file
+.I genhtml_show_noncode_owners
+parameter; see man
+.B lcovrc(5)
+for details.
+
 
 .RE
 .BI "\-\-show\-zero\-columns "

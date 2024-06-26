@@ -132,6 +132,15 @@ For a complete set of list options, see the documentation of each configuration 
 .PP
 
 .B Example configuration:
+
+Note that this example does not include all possible configuration
+options.
+.br
+In general:  (almost) all command line options can be specified in
+the configuration file instead, whereas some configuration file options
+have no command line equivalent.
+
+See the OPTIONS section below for details.
 .IP
 #
 .br
@@ -208,7 +217,12 @@ max_message_count = 100
 .br
 #warn_once_per_file = 1
 
-# extension associated with lcov trce files
+.br
+# extension associated with lcov trace files - glob match pattern
+.br
+# used as argument to 'find' - to find coverage files contained in
+.br
+# a directory argument
 .br
 #info_file_pattern = *.info
 .br
@@ -225,6 +239,20 @@ max_message_count = 100
 # (e.g., Verilog) (comma-separated list)
 .br
 #rtl_file_extensions = v,vh,sv
+.br
+
+# list of file extensions which should be treated as Java code
+.br
+#java_file_extensions = java
+
+# list of file extensions which should be treated as perl code
+.br
+#perl_file_extensions = pl,pm
+.br
+
+# list of file extensions which should be treated as python code
+.br
+#python_file_extensions = py
 .br
 
 # maximum number of lines to look at, when filtering bogus branch expressions
@@ -381,6 +409,13 @@ genhtml_desc_html=0
 # Maximum size of function (number lines) which will be checked by '--filter trivial'
 .br
 #trivial_function_threshold = 5
+.br
+
+# Set threshold for hit count which tool should deem likely to indicate
+.br
+# a toolchain bug (corrupt coverage data)
+.br
+# excessive_count_theshold = number
 .br
 
 # Demangle C++ symbols
@@ -586,9 +621,9 @@ lcov_json_module = auto
 .br
 
 .br
-# Specify a percentage of system memory to use as maximum during parallel
+# Throttling control:  specify a percentage of system memory to use as
 .br
-# processing.
+maximum during parallel processing.
 .br
 # Do not fork if estimated memory consumption exceeds the maximum.
 .br
@@ -1293,6 +1328,32 @@ This option is equivalent to using the \-\-show\-navigation command line option 
 Default is 0.
 .PP
 
+.BR genhtml_show_owner_table " ="
+.IR 0 | 1 | all
+.IP
+If non\-zero, equivalent to the genhtml
+.I \-\-shwow\-owners
+flag: see man
+.B genhtml(1)
+for details.
+.br
+
+Default is 0.
+.PP
+
+.BR genhtml_show_noncode_owners " ="
+.IR 0 | 1
+.IP
+If non\-zero, equivalent to the genhtml
+.I \-\-shwow\-noncode
+flag: see man
+.B genhtml(1)
+for details.
+.br
+
+Default is 0.
+.PP
+
 .BR genhtml_show_function_proportion " ="
 .IR 0 | 1
 .IP
@@ -1302,6 +1363,19 @@ If nonzero, add column to "function coverage detail" table to show the proportio
 
 This option is equivalent to using the \-\-show\-proportion command line option of
 .BR genhtml .
+.br
+
+Default is 0.
+.PP
+
+.BR genhtml_synthesize_missing " ="
+.IR 0 | 1
+.IP
+If non\-zero, equivalent to the genhtml
+.I \-\-synthesize\-missing
+flag: see man
+.B genhtml(1)
+for details.
 .br
 
 Default is 0.
@@ -2156,10 +2230,15 @@ The default is 0 (no threshold).
 .IP
 If set, tells genhtml, lcov, or geninfo to generate some execution
 time/profile data which can be used to motivate future optimizations.
-The default is unset no data generated.
+
+If
+.I filename
+is empty, then the profile is written to the default location chosen by the application.
 
 .br
 This option is used by genhtml, lcov, and geninfo.
+
+The default is unset: no data generated.
 
 .PP
 
