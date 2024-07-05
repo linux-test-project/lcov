@@ -418,7 +418,10 @@ push(@gcov_tool, '-i') if $intermediate;
 # Determine compatibility modes
 parse_compat_modes($lcovutil::geninfo_opt_compat);
 
-push(@lcovutil::opt_filter, "region", "branch_region") unless $no_markers;
+unless ($no_markers) {
+  push(@lcovutil::opt_filter, "region");
+  push(@lcovutil::opt_filter, "branch_region") if $br_coverage;
+}
 parse_cov_filters(@lcovutil::opt_filter);
 
 # Make sure test names only contain valid characters
@@ -515,11 +518,16 @@ foreach my $entry (@data_directory, $base_directory) {
     #   include/exclude patterns
     my $p = solve_relative_path($cwd, $entry);
     push(@lcovutil::internal_dirs, $p)
-        unless (grep {$p eq $_ } @lcovutil::internal_dirs);
+        unless
+        grep($p eq $_ || ($lcovutil::case_insensitive && lc($p) eq lc($_)),
+             @lcovutil::internal_dirs);
     if (!file_name_is_absolute($entry) &&
         $entry ne $p) {
         push(@lcovutil::internal_dirs, $entry)
-            unless (grep {$entry eq $_} @lcovutil::internal_dirs);
+            unless grep($entry eq $_ ||
+                            ($lcovutil::case_insensitive &&
+                             lc($entry) eq lc($_)),
+                        @lcovutil::internal_dirs);
     }
 }
 if (@lcovutil::internal_dirs) {
