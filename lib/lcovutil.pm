@@ -5304,7 +5304,7 @@ sub getLine
 {
     my ($self, $line) = @_;
 
-    return $self->[SOURCE]->[$line - 1];
+    return $self->isOutOfRange($line) ? undef : $self->[SOURCE]->[$line - 1];
 }
 
 sub isOutOfRange
@@ -5469,6 +5469,7 @@ sub containsConditional
             last;
         }
         $src = $self->getLine($next);
+        $src = '' unless defined($src);
     }
     return $foundCond;
 }
@@ -5481,6 +5482,7 @@ sub containsTrivialFunction
     my $text = '';
     for (my $line = $start; $line <= $end; ++$line) {
         my $src = $self->getLine($line);
+        $src = '' unless defined($src);
         chomp($src);
         $src =~ s/\s+$//;     # whitespace
         $src =~ s#//.*$##;    # remove end-of-line comments
@@ -7142,7 +7144,10 @@ sub _read_info
                     if ($verify_checksum) {
                         if (defined($checksum)) {
                             my $content = $readSourceCallback->getLine($line);
-                            my $chk     = Digest::MD5::md5_base64($content);
+                            my $chk =
+                                defined($content) ?
+                                Digest::MD5::md5_base64($content) :
+                                0;
                             if ($chk ne $checksum) {
                                 lcovutil::ignorable_error(
                                     $lcovutil::ERROR_VERSION,
@@ -7548,7 +7553,10 @@ sub write_info($$$)
                     } elsif (defined($srcReader) &&
                              $srcReader->notEmpty()) {
                         my $content = $srcReader->getLine($line);
-                        $chk = Digest::MD5::md5_base64($content);
+                        $chk =
+                            defined($content) ?
+                            Digest::MD5::md5_base64($content) :
+                            0;
                     }
                     $chk = ',' . $chk if ($chk);
                 }
