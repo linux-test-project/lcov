@@ -61,7 +61,7 @@ use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
 use File::Temp;
 use File::Copy qw(copy move);
 use File::Path;
-use Cwd qw/abs_path getcwd/;
+use Cwd qw/abs_path getcwd realpath/;
 use Time::HiRes;    # for profiling
 use Capture::Tiny;
 use FindBin;
@@ -157,6 +157,7 @@ sub match_filename($@);
 sub solve_ambiguous_match($$$);
 sub split_filename($);
 sub solve_relative_path($$);
+sub compute_internal_directories(@);
 sub read_gcov_header($);
 sub read_gcov_file($$$);
 sub my_info(@);
@@ -206,7 +207,6 @@ our $single_file;          # Write result into single merged file or not
 our $files_created = 0;    # Number of output files created
 our $base_directory;
 our $version;
-our $follow;
 our $opt_no_compat_libtool;
 our $initial;
 our $no_recursion = 0;
@@ -246,7 +246,7 @@ $ENV{"LC_ALL"} = "C";
 my %geninfo_opts = ("test-name|t=s"       => \$test_name,
                     "output-filename|o=s" => \$output_filename,
                     "base-directory|b=s"  => \$base_directory,
-                    "follow|f"            => \$follow,
+                    "follow|f"            => \$lcovutil::opt_follow,
                     "compat-libtool"      => \$lcovutil::opt_compat_libtool,
                     "no-compat-libtool"   => \$opt_no_compat_libtool,
                     "gcov-tool=s"         => \@gcov_tool,
@@ -418,8 +418,8 @@ push(@gcov_tool, '-i') if $intermediate;
 parse_compat_modes($lcovutil::geninfo_opt_compat);
 
 unless ($no_markers) {
-  push(@lcovutil::opt_filter, "region");
-  push(@lcovutil::opt_filter, "branch_region") if $br_coverage;
+    push(@lcovutil::opt_filter, "region");
+    push(@lcovutil::opt_filter, "branch_region") if $br_coverage;
 }
 parse_cov_filters(@lcovutil::opt_filter);
 
@@ -439,13 +439,6 @@ if ($lcovutil::geninfo_adjust_testname) {
 if ($base_directory) {
     $base_directory = solve_relative_path($cwd, $base_directory);
     push(@ReadCurrentSource::source_directories, $base_directory);
-}
-
-# Check for follow option
-if ($follow) {
-    $follow = "-follow";
-} else {
-    $follow = "";
 }
 
 # Determine checksum mode - normalize to boolean
@@ -510,34 +503,7 @@ $output_filename = catfile($cwd, $output_filename)
         !file_name_is_absolute($output_filename));
 
 # Build list of directories to identify external files
-foreach my $entry (@data_directory, $base_directory) {
-    next if (!defined($entry));
-    # do not apply substitution patterns to the dir name -
-    #   if user really wants that, they can specify a substitution and/or
-    #   include/exclude patterns
-    my $p = solve_relative_path($cwd, $entry);
-    push(@lcovutil::internal_dirs, $p)
-        unless
-        grep($p eq $_ || ($lcovutil::case_insensitive && lc($p) eq lc($_)),
-             @lcovutil::internal_dirs);
-    if (!file_name_is_absolute($entry) &&
-        $entry ne $p) {
-        push(@lcovutil::internal_dirs, $entry)
-            unless grep($entry eq $_ ||
-                            ($lcovutil::case_insensitive &&
-                             lc($entry) eq lc($_)),
-                        @lcovutil::internal_dirs);
-    }
-}
-if (@lcovutil::internal_dirs) {
-    lcovutil::info("Recording 'internal' directories:\n\t" .
-                   join("\n\t", @lcovutil::internal_dirs) . "\n");
-}
-
-# Function is_external() requires all internal_dirs to end with a slash
-foreach my $dir (@lcovutil::internal_dirs) {
-    $dir =~ s#$lcovutil::dirseparator*$#$lcovutil::dirseparator#;
-}
+compute_internal_directories(@data_directory, $base_directory);
 
 if ($initial && $lcovutil::br_coverage && !$intermediate) {
     lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
@@ -959,7 +925,8 @@ sub find_files
         if (-d $directory) {
             lcovutil::info("Scanning $directory for $ext files ...\n");
 
-            my $now = Time::HiRes::gettimeofday();
+            my $now    = Time::HiRes::gettimeofday();
+            my $follow = $lcovutil::opt_follow ? '-follow' : '';
             my ($stdout, $stderr, $code) = Capture::Tiny::capture {
                 system(
                     "find '$directory' $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l"
@@ -1954,6 +1921,80 @@ sub process_dafile($$$$)
     }
 
     return $traceFile;
+}
+
+#
+# compute_internal_directories(list)
+#
+# Walk directory tree to find set of 'internal' directories
+#   - soft links within the 'internal' tree which point to directories outside
+#     the tree cause those target directories to be considered 'internal' if
+#     the "--follow" flag is specified - else, 'external'
+#
+
+sub compute_internal_directories(@)
+{
+    my @dirstack;
+    foreach my $entry (@_) {
+        next unless (defined($entry));
+        # do not apply substitution patterns to the dir name -
+        #   if user really wants that, they can specify a substitution and/or
+        #   include/exclude patterns
+        my $p = solve_relative_path($cwd, $entry);
+        push(@dirstack, $p)
+            if $lcovutil::opt_follow && !grep($p eq $_, @dirstack);
+        push(@lcovutil::internal_dirs, $p)
+            unless
+            grep($p eq $_ || ($lcovutil::case_insensitive && lc($p) eq lc($_)),
+                 @lcovutil::internal_dirs);
+        if (!file_name_is_absolute($entry) &&
+            $entry ne $p) {
+            push(@lcovutil::internal_dirs, $entry)
+                unless grep($entry eq $_ || ($lcovutil::case_insensitive &&
+                                             lc($entry) eq lc($_)),
+                            @lcovutil::internal_dirs);
+        }
+    }
+
+    my %visited;
+    while (@dirstack) {
+        my $top = pop(@dirstack);
+        if (-l $top) {
+            my $t = Cwd::realpath($top);
+            die("expected directory found '$t'") unless -d $t;
+            unless (exists($visited{$t})) {
+                lcovutil::info("internal: target '$t' of link '$top'\n");
+                $visited{$t} = $top;
+                push(@dirstack, $t);
+                push(@lcovutil::internal_dirs, $t)
+                    if lcovutil::is_external($t);
+            }
+            next;
+        }
+        opendir(my $dh, $top) or die("can't open directory: $!");
+        while (my $e = readdir($dh)) {
+            next if $e eq '.' || $e eq '..';
+            my $p = File::Spec->catfile($top, $e);
+            if (-l $p) {
+                my $l = Cwd::realpath($p);
+                push(@dirstack, $p) if (-d $l);
+            } elsif (-d $p) {
+                push(@dirstack, $p) unless exists($visited{$p});
+                $visited{$p} = $top;
+            }
+        }    # while
+        closedir($dh);
+    }
+
+    if (@lcovutil::internal_dirs) {
+        lcovutil::info("Recording 'internal' directories:\n\t" .
+                       join("\n\t", @lcovutil::internal_dirs) . "\n");
+    }
+
+    # Function is_external() requires all internal_dirs to end with a slash
+    foreach my $dir (@lcovutil::internal_dirs) {
+        $dir =~ s#$lcovutil::dirseparator*$#$lcovutil::dirseparator#;
+    }
 }
 
 #
@@ -3392,6 +3433,9 @@ sub adjust_source_filenames($$$)
 
         # Apply adjustment
         $filename = ReadCurrentSource::resolve_path($filename, 1);
+        if ($lcovutil::opt_follow && $lcovutil::opt_follow_file_links) {
+            $filename = Cwd::realpath($filename);
+        }
 
         if ($filename ne $old_filename) {
             $hash->{$filename} = delete($hash->{$old_filename});

@@ -565,14 +565,34 @@ Specify whether to capture coverage data for external source files.
 
 External source files are files which are not located in one of the directories
 specified by
-.I directory
+.I \-\-directory
 or
-.BR \-\-base\-directory .
+.I \-\-base\-directory.
 Use
-.B \-\-external
-to include external source files while capturing coverage data or
-.B \-\-no\-external
-to ignore this data.
+.I \-\-external
+to include
+coverpoints in external source files while capturing coverage data or
+.I \-\-no\-external
+to exclude them.
+If your
+.I \-\-directory
+or
+.I \-\-base\-directory
+path contains a soft link, then actual target directory is not considered to be
+"internal" unless the
+.I \-\-follow
+option is used.
+
+The
+.I \-\-no\-external
+option is somewhat of a blunt instrument;  the
+.I \-\-exclude
+and
+.I \-\-include
+options provide finer grained control over which coverage data is and is not
+included if your project structure is complex and/or
+.I \-\-no\-external
+does not do what you want.
 
 Data for external source files is
 .B included
@@ -583,7 +603,15 @@ by default.
 .br
 .B \-\-follow
 .RS
-Follow links when searching .gcda files.
+Follow links when searching .gcda files, as well as to decide whether a
+particular (symbolically linked) source directory is "internal" to the project or not - see the
+.I \-\-no\-external
+option, above, for more inforamtion.
+The
+.I \-\-follow command line option is equivalent to the
+.I geninfo_follow_symlinks
+config file option.  See man
+.B lcovrc(5) for more information.
 .RE
 
 .B \-\-gcov\-tool
@@ -1073,9 +1101,18 @@ patterns and searching the
 .I \-\-source\-directory
 or
 .I \-\-build\-directory
-list.  This option is equivalent to the
+list.
+
+This option is equivalent to the
 .B resolve_script
-config file option. See man
+config file option.
+.br
+In addition, the
+.I geninfo_follow_path_links
+config file option can be used to resolve source paths to their actual
+target.
+
+See man
 .B lcovrc(5)
 for details.
 .RE

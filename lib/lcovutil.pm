@@ -1092,11 +1092,13 @@ my %rc_common = (
              'lcov_filter_chunk_size' => \$lcovutil::lcov_filter_chunk_size,);
 
 # lcov needs to know the options which might get passed to geninfo in --capture mode
-our $defaultChunkSize;    # for performance tweaking
-our $defaultInterval;     # for performance tweaking
+our $defaultChunkSize;      # for performance tweaking
+our $defaultInterval;       # for performance tweaking
 our @rc_gcov_tool;
 our $geninfo_adjust_testname;
 our $opt_external;
+our $opt_follow            = 0;
+our $opt_follow_file_links = 0;
 our $opt_compat_libtool;
 our $opt_gcov_all_blocks          = 1;
 our $opt_adjust_unexecuted_blocks = 0;
@@ -1112,6 +1114,8 @@ our %geninfo_rc_opts = (
           "geninfo_checksum"            => \$lcovutil::verify_checksum,
           "geninfo_compat_libtool"      => \$opt_compat_libtool,
           "geninfo_external"            => \$opt_external,
+          "geninfo_follow_symlinks"     => \$opt_follow,
+          "geninfo_follow_file_links"   => \$opt_follow_file_links,
           "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
           "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
           "geninfo_compat"              => \$geninfo_opt_compat,

@@ -939,9 +939,35 @@ overrides the previous value - and thus teams must coordinate.
 Specify whether to capture coverage data for external source files.
 
 External source files are files which are not located in one of the directories
-specified by \-\-directory or \-\-base\-directory. Use \-\-external to include
-external source files while capturing coverage data or \-\-no\-external to
-ignore this data.
+specified by
+.I \-\-directory
+or
+.I \-\-base\-directory.
+Use
+.I \-\-external
+to include
+coverpoints in external source files while capturing coverage data or
+.I \-\-no\-external
+to exclude them.
+If your
+.I \-\-directory
+or
+.I \-\-base\-directory
+path contains a soft link, then actual target directory is not considered to be
+"internal" unless the
+.I \-\-follow
+option is used.
+
+The
+.I \-\-no\-external
+option is somewhat of a blunt instrument;  the
+.I \-\-exclude
+and
+.I \-\-include
+options provide finer grained control over which coverage data is and is not
+included if your project structure is complex and/or
+.I \-\-no\-external
+does not do what you want.
 
 Data for external source files is
 .B included

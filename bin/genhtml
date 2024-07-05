@@ -3219,6 +3219,7 @@ sub load
                 }
                 # else just ignore file entry
             }
+            closedir($dh);
         }
         # now look through list of filenames in the current .info file, and see
         #  if any match the soft links found above

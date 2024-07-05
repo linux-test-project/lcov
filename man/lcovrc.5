@@ -1663,6 +1663,13 @@ External source files are files which are not located in one of the directories
 (including sub-directories)
 specified by the \-\-directory or \-\-base\-directory options of
 .BR lcov / geninfo .
+Also see the
+.I \-\-follow
+option and the
+.I geninfo_follow_symlinks
+and
+.I geninfo_follow_file_links
+for additional path controls.
 
 Default is 1.
 .PP
@@ -1679,6 +1686,52 @@ flag description in
 for more information.
 
 Default is 0:  do not process bare compile-time data files.
+.PP
+
+.BR geninfo_external " ="
+.IR 0 | 1
+.IP
+If non\-zero, capture coverage data for external source files.
+
+External source files are files which are not located in one of the directories
+(including sub-directories)
+specified by the \-\-directory or \-\-base\-directory options of
+.BR lcov / geninfo .
+Also see the
+.I \-\-follow
+option and the
+.I geninfo_follow_file_links
+for additional path controls.
+
+Default is 1.
+.PP
+
+.BR geninfo_follow_symlinks " ="
+.IR 0 | 1
+.IP
+Equivalent to the lcov/geninfo
+.I \-\-follow
+command line option.
+See man
+.B geninfo(1)
+for details.
+
+Default is 0:  do not modify follow symbolic links.
+.PP
+
+.BR geninfo_follow_file_links " ="
+.IR 0 | 1
+.IP
+If non\-zero and the lcov/geninfo
+.I \-\-follow
+command line option is specified, then source file pathnames which contain
+symlinks are resolved to their actual target.
+Note that the parent directory of the link target may be considered 'external'
+and thus be removed by the
+.I \-\-no\-external
+flag.
+
+Default is 0:  do not modify pathnames.
 .PP
 
 
