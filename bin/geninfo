@@ -515,16 +515,16 @@ foreach my $entry (@data_directory, $base_directory) {
     #   include/exclude patterns
     my $p = solve_relative_path($cwd, $entry);
     push(@lcovutil::internal_dirs, $p)
-        unless grep($p, @lcovutil::internal_dirs);
+        unless (grep {$p eq $_ } @lcovutil::internal_dirs);
     if (!file_name_is_absolute($entry) &&
         $entry ne $p) {
         push(@lcovutil::internal_dirs, $entry)
-            unless grep($entry, @lcovutil::internal_dirs);
+            unless (grep {$entry eq $_} @lcovutil::internal_dirs);
     }
 }
 if (@lcovutil::internal_dirs) {
     lcovutil::info("Recording 'internal' directories:\n\t" .
-                   join("\n\t", @internal_dirs) . "\n");
+                   join("\n\t", @lcovutil::internal_dirs) . "\n");
 }
 
 # Function is_external() requires all internal_dirs to end with a slash
