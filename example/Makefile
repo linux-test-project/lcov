@@ -182,7 +182,7 @@ test_differential:
 	 $(LCOV) --capture -o current.info -d . --version-script $(SCRIPTDIR)/gitversion.pm )
 	@echo "Compute source diffs"
 	(cd $(REPO) ;                                       \
-	$(SCRIPTDIR)/gitdiff . `git rev-list -n 1 baseline` \
+	$(SCRIPTDIR)/gitdiff -b . `git rev-list -n 1 baseline` \
 	  `git rev-list -n 1 current` > udiff.txt )
 
 	@echo "Step 6: Generate differential coverage report"

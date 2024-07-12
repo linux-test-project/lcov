@@ -38,23 +38,26 @@ my @exclude_patterns;
 my @include_patterns;
 my $suppress_unchanged;
 my $prefix = '';
+my $ignore_whitespace;
 
 if (!GetOptions("exclude=s"    => \@exclude_patterns,
                 "include=s"    => \@include_patterns,
                 'no-unchanged' => \$suppress_unchanged,
                 'prefix=s'     => \$prefix,
+                'b|blank'      => \$ignore_whitespace,
                 'verbose+'     => \$verbose) ||
     (2 != scalar(@ARGV) &&
         3 != scalar(@ARGV))
 ) {
     print(STDERR
-            "usage: [(--exclude|include) regexp[,regexp]] [dir] base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n"
+            "usage: [(--exclude|include) regexp[,regexp]] [-b] [dir] base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n"
     );
     exit(1);
 }
 
-@exclude_patterns = split(',', join(',', @exclude_patterns));
-@include_patterns = split(',', join(',', @include_patterns));
+@exclude_patterns  = split(',', join(',', @exclude_patterns));
+@include_patterns  = split(',', join(',', @include_patterns));
+$ignore_whitespace = '-b' if $ignore_whitespace;
 
 if ($verbose) {
     print(STDERR join(' ', @ARGV));
@@ -76,10 +79,10 @@ if (3 == scalar(@ARGV)) {
 my $base_sha    = shift @ARGV;
 my $current_sha = shift @ARGV;
 
-$cmd = "git diff $base_sha $current_sha";
+$cmd = "git diff $ignore_whitespace $base_sha $current_sha";
 
-die("failed to exec git diff: $!")
-    unless (open(HANDLE, "-|", "git diff $base_sha $current_sha"));
+open(HANDLE, "-|", $cmd) or
+    die("failed to exec git diff: $!");
 
 my $includeCurrentFile;
 my %allFiles;
