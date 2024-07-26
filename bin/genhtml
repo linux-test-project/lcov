@@ -2624,6 +2624,41 @@ sub _categorizeLineCov
     my $lineCovBase    = $base_data->sum() if defined($base_data);
     my $lineCovCurrent = $current_data->sum();
 
+    # walk the branch coverpoints to check for data consistency:
+    #  - we expect a line coverpoint in every location which has branches
+    #  - if not found, the generate message and/or create a fake coverpoint
+    # LLVM seems to like to generate inconsistent data.
+    my $branchCurrent = $current_data->sumbr();
+    foreach my $line ($branchCurrent->keylist()) {
+        my $type = $diffMap->type($filename, $diffMap->NEW, $line);
+        # LCOV_EXCL_START
+        if ($type eq 'delete') {
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                "'current' line $filename:$line should not be marked 'delete'");
+            delete($branchCurrent->{$line});
+            next;
+        }
+        # LCOV_EXCL_STOP
+        next if defined($lineCovCurrent->value($line));
+
+        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                      "line $filename:$line has branchcov but no linecov data");
+        # maybe should skip this branch if no line data - rather
+        #  than building fake line data.
+        my $hit        = 0;    # hit if any of the associated branches are hit
+        my $branchData = $branchCurrent->value($line);
+        BLOCKS: foreach my $block ($branchData->blocks()) {
+            my $b = $branchData->getBlock($block);
+            foreach my $expr (@$b) {
+                if ($expr->count() != 0) {
+                    $hit = 1;
+                    last BLOCKS;
+                }
+            }
+        }
+        $lineCovCurrent->append($line, $hit);
+    }
+
     # it is sufficient to just walk the 'global' (merged) line
     #  coverage dataset because we only care/we only show total
     #  coverage - not changed coverage per testcase.
@@ -2750,27 +2785,11 @@ sub _categorizeBranchCov
     #     Or because we did something bad and no longer reach what had been
     #     a high probability event?
     foreach my $line ($branchCurrent->keylist()) {
-        my $type = $diffMap->type($filename, $diffMap->NEW, $line);
-        # LCOV_EXCL_START
-        if ($type eq 'delete') {
-            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                "'current' line $filename:$line should not be marked 'delete'");
-            delete($branchCurrent->{$line});
-            next;
-        }
-        # LCOV_EXCL_STOP
-        my $data;
-        if (!exists($lineDataMap->{$line})) {
-            # we expect the associated line to also have line coverage data
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                      "line $filename:$line has branchcov but no linecov data");
-            # maybe should skip this branch if no line data - rather
-            #  than building fake data.
-            $data = LineData->new($type);
-            $lineDataMap->{$line} = $data;
-        } else {
-            $data = $lineDataMap->{$line};
-        }
+        # should have been caught or fixed, above
+        die("line $filename:$line has branchcov but no linecov data")
+            unless exists($lineDataMap->{$line});
+        my $data = $lineDataMap->{$line};
+
         $branchCovLines{$line} = 1;
         # we expect that the line number matches...
         $data->lineNo("current", $line);

@@ -152,6 +152,9 @@ fi
 
 # add an out-of-range line to the coverage data
 perl munge.pl current.info > munged.info
+# remove a line which has a branch:  create branch with no corresponding line
+#   LLVM seems to generate this kind of inconsistent data, at times
+perl munge2.pl current.info > munged2.info
 
 echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info 2>&1 | tee err.log
@@ -208,6 +211,40 @@ for dir in annotated vanilla ; do
        fi
    fi
 done
+
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr2 ./munged2.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr2 ./munged2.info 2>&1 | tee err2.log
+if [ 0 == ${[PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml did not return error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR.*? has branchcov but no linecov data" err2.log
+if [ 0 != $? ] ; then
+    echo "did not find expected inconsistent error message in err2.log"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated2 --ignore inconsistent ./munged2.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated2 ./munged2.info --ignore inconsistent 2>&1 | tee annotate2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml annotated failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "WARNING.*? has branchcov but no linecov data" annotate2.log
+if [ 0 != $? ] ; then
+    echo "did not find expected inconsistent error message in annotate2.log"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 echo lcov $LCOV_OPTS --ignore range -o range.info -a ./munged.info --filter branch
 $COVER $LCOV_TOOL $LCOV_OPTS  --ignore range -o range.info -a ./munged.info --filter branch 2>&1 | tee range.log
