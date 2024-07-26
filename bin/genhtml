@@ -6756,7 +6756,8 @@ sub print_overall_rate($$$$$)
     # use source file count from current - we don;t care about files
     #  that were deleted and are in baseline
     info(-1, "  source files: %d\n", scalar($currentTrace->files()));
-    my $width = length("source files");
+    my $width  = length("source files");
+    my $indent = '     ';
     for my $type (@types) {
         my $name   = SummaryInfo::type2str($type);
         my $plural = "ch" eq substr($name, -2, 2) ? "es" : "s";
@@ -6775,7 +6776,8 @@ sub print_overall_rate($$$$$)
                     $main::use_legacyLabels ?
                     $SummaryInfo::tlaToLegacySrcLabel{$tla} :
                     $tla;
-                info(-1, "       $label...: $v\n");
+                my $f = '.' x ($width - (length($indent) + length($label)));
+                info(-1, "  $indent$label$f: $v\n");
             }
         }
     }

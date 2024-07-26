@@ -2260,16 +2260,21 @@ sub summarize_cov_filters
 {
     # use verbosity level -1:  so print unless user says "-q -q"...really quiet
 
+    my $leader = "Filter suppressions:\n";
     for my $key (keys(%COVERAGE_FILTERS)) {
         my $id = $COVERAGE_FILTERS{$key};
         next unless defined($lcovutil::cov_filter[$id]);
         my $histogram = $lcovutil::cov_filter[$id];
         next if 0 == $histogram->[0];
+        my $points = '';
+        if ($histogram->[0] != $histogram->[1]) {
+            $points = '    ' . $histogram->[1] . ' coverpoint' .
+                ($histogram->[1] > 1 ? 's' : '') . "\n";
+        }
         info(-1,
-             "Filter suppressions '$key':\n    " . $histogram->[0] .
-                 " instance" . ($histogram->[0] > 1 ? "s" : "") .
-                 "\n    " . $histogram->[1] . " coverpoint" .
-                 ($histogram->[1] > 1 ? "s" : "") . "\n");
+             "$leader  $key:\n    " . $histogram->[0] . " instance" .
+                 ($histogram->[0] > 1 ? "s" : "") . "\n" . $points);
+        $leader = '';
     }
     foreach my $q (['omit-lines', 'line', \@omit_line_patterns],
                  ['erase-functions', 'function', \@exclude_function_patterns]) {
