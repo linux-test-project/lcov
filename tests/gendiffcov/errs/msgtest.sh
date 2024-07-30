@@ -6,7 +6,8 @@ COVER=
 UPDATE=0
 PARALLEL='--parallel 0'
 PROFILE="--profile"
-CXX='g++'
+CC="${CC:-gcc}"
+CXX="${CXX:-g++}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -154,7 +155,7 @@ ${CXX} --coverage test.cpp
 ./a.out
 
 # old version of gcc has inconsistent line/function data
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     # can't get branch coverpoints in 'initial' mode, with ancient GCC
     IGNORE="--ignore usage"

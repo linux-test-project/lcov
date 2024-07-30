@@ -6,6 +6,7 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+CC="${CC:-gcc}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -94,7 +95,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="$PARALLEL $PROFILE"
 # gcc/4.8.5 (and possibly other old versions) generate inconsistent line/function data
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent"
 fi
@@ -118,8 +119,8 @@ mkdir a b
 echo 'int a (int x) { return x + 1; }' > a/a.c
 echo 'int b (int x) { return x + 2;}' > b/b.c
 
-( cd a ; gcc -c --coverage a.c -o a.o )
-( cd b ; gcc -c --coverage b.c -o b.o )
+( cd a ; ${CC} -c --coverage a.c -o a.o )
+( cd b ; ${CC} -c --coverage b.c -o b.o )
 
 $COVER $LCOV_TOOL -o out.info --capture --initial --no-external -d a -d b
 if [ 0 != $? ] ; then
@@ -155,7 +156,7 @@ fi
 
 # old version of gcc doesn't encode path into .gcno file
 #  so the case-insensitive compare is not required.
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -ge 9 ] ; then
     rm -rf B
     mv b B

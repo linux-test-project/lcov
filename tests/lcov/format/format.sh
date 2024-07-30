@@ -8,6 +8,8 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+CC="${CC:-gcc}"
+CXX="${CXX:-g++}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -92,7 +94,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--branch $PARALLEL $PROFILE"
 # gcc/4.8.5 (and possibly other old versions) generate inconsistent line/function data
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent"
     # and filter exception branches to avoid spurious differences for old compiler
@@ -109,8 +111,8 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
-if ! type g++ >/dev/null 2>&1 ; then
-        echo "Missing tool: g++" >&2
+if ! type ${CXX} >/dev/null 2>&1 ; then
+        echo "Missing tool: ${CXX}" >&2
         exit 2
 fi
 

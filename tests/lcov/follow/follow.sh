@@ -6,6 +6,7 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+CC="${CC:-gcc}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -94,7 +95,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="$PARALLEL $PROFILE"
 # gcc/4.8.5 (and possibly other old versions) generate inconsistent line/function data
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent"
 fi
@@ -120,8 +121,8 @@ ln -s src src2
 echo 'int a (int x) { return x + 1; }' > src/a.c
 echo 'int b (int x) { return x + 2; }' > src/b.c
 
-gcc -c --coverage src/a.c -o src/a.o
-gcc -c --coverage src2/b.c -o src/b.o
+${CC} -c --coverage src/a.c -o src/a.o
+${CC} -c --coverage src2/b.c -o src/b.o
 
 $COVER $LCOV_TOOL -o out2.info --capture --initial --no-external -d src --follow --rc geninfo_follow_file_links=1
 if [ 0 != $? ] ; then
