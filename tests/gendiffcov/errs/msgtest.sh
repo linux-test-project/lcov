@@ -113,6 +113,7 @@ SELECT_SCRIPT=$SCRIPTS_DIR/select.pm
 CRITERIA_SCRIPT=$SCRIPTS_DIR/criteria.pm
 GITBLAME_SCRIPT=$SCRIPTS_DIR/gitblame.pm
 GITVERSION_SCRIPT=$SCRIPTS_DIR/gitversion.pm
+P4VERSION_SCRIPT=$SCRIPTS_DIR/P4version.pm
 
 # is this git or P4?
 git -C . rev-parse > /dev/null 2>&1
@@ -132,7 +133,7 @@ LCOV_OPTS="$LCOV_BASE"
 DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -361,6 +362,23 @@ for arg in "--select-script $SELECT_SCRIPT,--range,0:10" \
     fi
 done
 
+echo genhtml $DIFCOV_OPTS initial.info -o p4err --version-script $P4VERSION_SCRIPT,-x
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o p4err --version-script $P4VERSION_SCRIPT,-x 2>&1 | tee p4err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml select passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "unable to create callback from" p4err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing script message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
 echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --rc compute_file_version=1
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh  --rc compute_file_version=1 2>&1 | tee select_scr.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
@@ -384,21 +402,68 @@ if [ 0 != $? ] ; then
 fi
 # and again, as a differential report with annotation
 NOW=`date`
-echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT --baseline-file initial.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix 2>&1 | tee select_scr.log
+rm -rf mycache
+echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix 2>&1 | tee select_scr.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
-    echo "ERROR: genhtml select failed"
+    echo "ERROR: genhtml cache failed"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
+if [ ! -d mycache ] ; then
+    echo "did not create 'mycache'"
+fi
+
+#break the cached data - cause corruption error
+for i in `find mycache -type f` ; do
+    echo $i
+    echo xyz > $i
+done
+# have to ingore version mismatch becaure p4annotate also computes version
+echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --ignore version
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --ignore version 2>&1 | tee cacheFail.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml corrupt deserialize failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep -E "corrupt.*unable to deserialize" cacheFail.log
+if [ 0 != $? ] ; then
+    echo "ERROR: failed to file cache corruption"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# make cache file unreadable
+find mycache -type f -exec chmod ugo-r {} \;
+echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix 2>&1 | tee cacheFail2.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml unreadable cache failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep -E "callback.*can't open" cacheFail2.log
+if [ 0 != $? ] ; then
+    echo "ERROR: failed to file cache error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 # differntial report with empty diff file
 touch diff.txt
 echo genhtml $DIFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCTIPT --baseline-file initial.info
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info 2>&1 | tee empty_diff.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
-    echo "ERROR: genhtml select failed"
+    echo "ERROR: genhtml did not fail empty diff eheck"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi

@@ -2537,9 +2537,10 @@ sub extractFileVersion
 
 sub checkVersionMatch
 {
-    my ($filename, $me, $you, $reason) = @_;
+    my ($filename, $me, $you, $reason, $silent) = @_;
 
-    return 1 if $me eq $you;    # simple string compare
+    return 1
+        if defined($me) && defined($you) && $me eq $you; # simple string compare
 
     if ($versionCallback) {
         # work harder
@@ -2559,9 +2560,11 @@ sub checkVersionMatch
     lcovutil::ignorable_error($ERROR_VERSION,
                           (defined($reason) ? ($reason . ' ') : '') .
                               "$filename: revision control version mismatch: " .
-                              (defined($me) ? $me : 'undef') . ' <- ' .
-                              (defined($you) ? $you : 'undef'));
-    return 0;
+                              (defined($me) ? $me : 'undef') .
+                              ' <- ' . (defined($you) ? $you : 'undef'))
+        unless $silent;
+    # claim mismatch unless $me and $you are both undef
+    return !(defined($me) || defined($you));
 }
 
 #

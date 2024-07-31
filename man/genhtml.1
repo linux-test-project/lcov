@@ -2972,11 +2972,17 @@ The system\-wide configuration file.
 The per\-user configuration file.
 .RE
 
+Sample
+.I  \-\-diff\-file
+data creation scripts:
+.RS
+
 .I \*[scriptdir]/p4udiff
 .RS
 Sample script for use with
 .B --diff-file
-that creates a unified diff file via Perforce.
+that creates a unified diff file via
+.B Perforce.
 .br
 .RE
 
@@ -2984,15 +2990,23 @@ that creates a unified diff file via Perforce.
 .RS
 Sample script for use with
 .B --diff-file
-that creates a unified diff file via git.
+that creates a unified diff file via
+.B git.
 .br
 .RE
+.RE
 
+Sample
+.I \-\-annotate\-script
+callback Perl modules:
+
+.RS
 .I \*[scriptdir]/p4annotate.pm
 .RS
 Sample script written as Perl module for use with
 .B --annotate-script
-that provides annotation data via Perforce.
+that provides annotation data via
+.B Perforce.
 .br
 .RE
 
@@ -3003,6 +3017,12 @@ Sample script written as Perl module for use with
 that provides annotation data via git.
 .br
 .RE
+.RE
+
+Sample
+.I \-\-criteria\-script
+callback Perl modules:
+.RS
 
 .I \*[scriptdir]/criteria.pm
 .RS
@@ -3026,12 +3046,27 @@ feature can instead be realized by
 .RE
 .br
 .RE
+.RE
+
+Sample
+.I \-\-version\-script
+callback Perl modules and scripts:
+.RS
 
 .I \*[scriptdir]/getp4version
 .RS
 Sample script for use with
-.B --version-script
-that obtains version IDs via Perforce.
+.B \-\-version\-script
+that obtains version IDs via
+.B Perforce.
+.br
+.RE
+
+.I \*[scriptdir]/P4version.pm
+.RS
+A perl module with similar functionality to
+.B getp4version
+but higher performance.
 .br
 .RE
 
@@ -3041,6 +3076,24 @@ Sample script for use with
 .B --version-script
 that uses md5hash as version IDs.
 .br
+.RE
+
+.I \*[scriptdir]/gitversion.pm
+.RS
+A perl module with for use with
+.B \-\-version\-script
+which retrieves version IDs from
+.B git.
+.br
+.RE
+
+.I \*[scriptdir]/batchGitVersion.pm
+.RS
+A perl module with similar functionality to
+.B gitversion.pm
+but higher performance.
+.br
+.RE
 .RE
 
 

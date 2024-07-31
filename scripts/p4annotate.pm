@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-#   Copyright (c) MediaTek USA Inc., 2020-2023
+#   Copyright (c) MediaTek USA Inc., 2020-2024
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -22,8 +22,25 @@
 #   This script runs "p4 annotate" for the specified file and formats the result
 #   to match the diffcov(1) 'annotate' callback specification:
 #      use p4annotate;
-#      my $callback = p4annotate->new([--md5] [--log logfile] [--verify]);
+#      my $callback = p4annotate->new([--log logfile] [--cache cache_dir] [--verify]);
 #      $callback->annotate(filename);
+#
+#   If the '--cache' flag is used:
+#     Goal is to improve runtime performance by not calling GIT if file is
+#     unchanged and previous result is available.
+#       - First look into the provided cache before calling GIT.
+#         Hope to find that we already have data for the file we wanted.
+#       - If we do call GIT - then store the result back into cache.
+#     Note that this callback uses the `--version-script' (if specified)
+#     to extract and compare file versions.
+#     Also note that ignoring "version" errors will disable version checking
+#     of cached files - and may result in out-of-sync annotated file data.
+#
+#   The '--verify' flag tells the tool to do some additional consistency
+#   checking whe merging local edits into the annoted file.
+#
+#   The '--log' flag specifies a file where the tool writes various annotation-
+#   related log messages.
 #
 #   This utility is implemented so that it can be loaded as a Perl module such
 #   that the callback can be executed without incurring an additional process
@@ -31,7 +48,7 @@
 #   farm environment.
 #
 #   It can also be called directly, as
-#       p4annotate [--md5] [--log logfild] [--verify] filename
+#       p4annotate [--log logfile] [--verify] filename
 
 package p4annotate;
 
@@ -40,16 +57,18 @@ use File::Basename;
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
 use Fcntl qw(:flock);
-use annotateutil qw(get_modify_time not_in_repo call_annotate);
+use annotateutil qw(get_modify_time not_in_repo call_annotate
+                    resolve_cache_dir find_in_cache store_in_cache);
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(new);
 
 use constant {
-              LOG     => 0,
-              VERIFY  => 1,
-              LOGFILE => 2,
-              SCRIPT  => 3,
+              SCRIPT  => 0,
+              CACHE   => 1,
+              VERIFY  => 2,
+              LOGFILE => 3,
+              LOG     => 4,
 };
 
 sub printlog
@@ -69,6 +88,7 @@ sub new
     my $script = shift;    # this should be 'me'
                            #other arguments are as passed...
     my $logfile;
+    my $cache_dir;
     my $verify     = 0;   # if set, check that we merged local changes correctly
     my $exe        = basename($script ? $script : $0);
     my $standalone = $0 eq $script;
@@ -78,13 +98,17 @@ sub new
     }
     my $help;
     if (!GetOptionsFromArray(\@_,
-                             ("verify" => \$verify,
-                              "log=s"  => \$logfile,
-                              'help'   => \$help)) ||
+                             ("verify"  => \$verify,
+                              "log=s"   => \$logfile,
+                              'cache:s' => \$cache_dir,
+                              'help'    => \$help)) ||
         (!$standalone && scalar(@_)) ||
         $help
     ) {
-        print(STDERR "usage: $exe [--log logfile] [--verify] filename\n");
+        print(STDERR ($help ? '' : ("unexpected arg: $script " . join(@_, ' '))
+              ),
+              "usage: $exe [--log logfile] [--cache dir] [--verify] filename\n"
+        );
         exit(scalar(@_) == 0 && $help ? 0 : 1) if $standalone;
         return undef;
     }
@@ -98,9 +122,9 @@ sub new
             (1 < scalar(@notset) ? 's' : '') . ' ' .
             join(' ', @notset) . " to be set.");
     }
+    $cache_dir = resolve_cache_dir($cache_dir);
 
-    my $self = [$logfile, $verify];
-    $self->[SCRIPT] = $exe;
+    my $self = [$exe, $cache_dir, $verify];
     bless $self, $class;
     if ($logfile) {
         open(LOGFILE, ">>", $logfile) or
@@ -117,6 +141,14 @@ sub annotate
 {
     my ($self, $pathname) = @_;
     defined($pathname) or die("expected filename");
+
+    my ($cache_path, $version);
+    if ($self->[CACHE]) {
+        my $lines;
+        ($cache_path, $version, $lines) =
+            find_in_cache($self->[CACHE], $pathname);
+        return (0, $lines) if defined($lines);    # cache hit
+    }
 
     if (-e $pathname && -l $pathname) {
         $pathname = File::Spec->catfile(File::Basename::dirname($pathname),
@@ -273,6 +305,10 @@ sub annotate
             }
             close(HANDLE) or die("unable to close p4 annotate pipe: $!\n");
             $status = $?;
+        }
+        if ($self->[CACHE] &&
+            0 == $status) {
+            store_in_cache($cache_path, $pathname, $version, \@lines);
         }
     } else {
         $self->printlog("  $pathname not in P4\n");

@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-#   Copyright (c) MediaTek USA Inc., 2022-2023
+#   Copyright (c) MediaTek USA Inc., 2022-2024
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -46,7 +46,7 @@ use Cwd qw(abs_path);
 use File::Basename qw(dirname basename);
 use Getopt::Long qw(GetOptionsFromArray);
 
-use annotateutil qw(get_modify_time not_in_repo compute_md5);
+use annotateutil qw(get_modify_time compute_md5);
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(new extract_version compare_version usage);
@@ -92,7 +92,7 @@ sub new
                              '--local-change'  => \$local_change,
                              '--help'          => \$help) ||
         $help ||
-        $compare && scalar(@ARGV) != 3
+        $compare && scalar(@_) != 3
     ) {
         usage($script);
         exit(defined($help) ? 0 : 1) if ($script eq $0);
@@ -167,7 +167,7 @@ sub extract_version
         }
     }
     if (!$version) {
-        # not in P4 - just print the modify time, so we have a prayer of
+        # not in git - just print the modify time, so we have a prayer of
         #  noticing file differences
         $version = get_modify_time($pathname);
         $version .= ' md5:' . compute_md5($pathname)

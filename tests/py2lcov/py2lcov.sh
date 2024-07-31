@@ -91,17 +91,18 @@ if [ -f $LCOV_HOME/scripts/getp4version ] ; then
 else
     # running test from lcov install
     SCRIPT_DIR=$LCOV_HOME/share/lcov/support-scripts
-    MD5_OPT='--version-script --md5'
+    MD5_OPT=',--md5'
 fi
 # is this git or P4?
 git -C . rev-parse > /dev/null 2>&1
 if [ 0 == $? ] ; then
     # this is git
-    VERSION="--version-script ${SCRIPT_DIR}/gitversion"
-    ANNOTATE="--annotate-script ${SCRIPT_DIR}/gitblame.pm"
+    VERSION="--version-script ${SCRIPT_DIR}/gitversion${MD5_OPT)}"
+    ANNOTATE="--annotate-script ${SCRIPT_DIR}/gitblame.pm,--cache,my_cache"
 else
-    VERSION="--version-script ${SCRIPT_DIR}/getp4version"
-    ANNOTATE="--annotate-script ${SCRIPT_DIR}/p4annotate.pm"
+    VERSION="--version-script ${SCRIPT_DIR}/P4version.pm,--local-edit${MD5_OPT}"
+    ANNOTATE="--annotate-script ${SCRIPT_DIR}/p4annotate.pm,--cache,./my_cache"
+    DEPOT=",."
 fi
 
 
@@ -129,7 +130,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
-rm -rf *.xml* *.dat *.info *.json __pycache__ help.txt *.pyc
+rm -rf *.xml* *.dat *.info *.json __pycache__ help.txt *.pyc my_cache rpt1 rpt2
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -196,6 +197,15 @@ for d in \
     fi
 done
 
+# should be valid data to generate HTML
+$GENHTML_TOOL -o rpt1 $VERSION $ANNOTATE functions.info
+if [ 0 != $? ] ; then
+    echo "genhtml failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 # legacy mode:  run with intermediate XML file
 COVERAGE_FILE=./functions.dat coverage xml -o functions.xml
@@ -240,6 +250,16 @@ for l in `grep -E '^DA:' checksum.info` ; do
         fi
     fi
 done
+
+# should be valid data to generate HTML
+$GENHTML_TOOL -o rpt2 $VERSION$DEPOT $ANNOTATE functions.info checksum.info
+if [ 0 != $? ] ; then
+    echo "genhtml 2 failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 # run without generating function data:
 eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat -o no_functions.info $VERSION --no-function

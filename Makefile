@@ -262,6 +262,7 @@ check:
 	fi
 	@$(MAKE) -s -C tests check LCOV_HOME=`pwd`
 	@if [ "x$(COVERAGE)" != 'x' ] ; then       \
+	  $(MAKE) -s -C example LCOV_HOME=`pwd`;   \
 	  $(MAKE) -s -C tests report ;             \
 	fi
 

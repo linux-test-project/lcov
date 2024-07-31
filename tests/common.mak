@@ -33,7 +33,7 @@ ANNOTATE_SCRIPT=$(SCRIPTDIR)/gitblame.pm
 VERSION_SCRIPT=$(SCRIPTDIR)/gitversion.pm
 else
 ANNOTATE_SCRIPT=$(SCRIPTDIR)/p4annotate.pm
-VERSION_SCRIPT=$(SCRIPTDIR)/getp4version
+VERSION_SCRIPT=$(SCRIPTDIR)/P4version.pm,--local-edit,$(ROOT_DIR)
 endif
 
 ifneq ($(COVER_DB),)

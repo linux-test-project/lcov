@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-#   Copyright (c) MediaTek USA Inc., 2020-2023
+#   Copyright (c) MediaTek USA Inc., 2020-2024
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -17,10 +17,21 @@
 #   <http://www.gnu.org/licenses/>.
 #
 #
-# gitblame [--p4] [--prefix path] [--abbrev regexp] [domain] pathname
+# gitblame [--p4] [--prefix path] [--abbrev regexp] [--cache dir] [domain] pathname
 #
 #   This script runs "git blame" for the specified file and formats the result
 #   to match the diffcov(1) age/ownership annotation specification.
+#
+#   If the '--cache' flag is used:
+#     Goal is to improve runtime performance by not calling GIT if file is
+#     unchanged and previous result is available.
+#       - First look into the provided cache before calling GIT.
+#         Hope to find that we already have data for the file we wanted.
+#       - If we do call GIT - then store the result back into cache.
+#     Note that this callback uses the `--version-script' (if specified)
+#     to extract and compare file versions.
+#     Also note that ignoring "version" errors will disable version checking
+#     of cached files - and may result in out-of-sync annotated file data.
 #
 #   If the '--p4' flag is used:
 #     we assume that the GIT repo is cloned from Perforce - and look for
@@ -37,12 +48,15 @@
 #     which are used to compute the user name abbreviation that are applied.
 
 package gitblame;
+
 use strict;
 use File::Basename qw(dirname basename);
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
+use Cwd qw(abs_path);
 
-use annotateutil qw(not_in_repo);
+use annotateutil qw(not_in_repo
+                    resolve_cache_dir find_in_cache store_in_cache);
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(new);
@@ -52,6 +66,7 @@ use constant {
               ABBREV => 1,
               PREFIX => 2,
               SCRIPT => 3,
+              CACHE  => 4,
 };
 
 sub new
@@ -60,22 +75,26 @@ sub new
     my $script = shift;
 
     my $mapP4;
+    my $cache_dir;
     my $prefix;
     my @args = @_;
     my @abbrev;
     my $exe        = basename($script ? $script : $0);
     my $standalone = $script eq $0;
     my $help;
+
     if (!GetOptionsFromArray(\@_,
                              ("p4"       => \$mapP4,
                               "prefix:s" => \$prefix,
                               'abbrev:s' => \@abbrev,
+                              'cache:s'  => \$cache_dir,
                               'help'     => \$help)) ||
         (scalar(@_) >= 2) ||
         $help
     ) {
         print(STDERR
-              "usage: $exe [--p4] [--abbrev regexp]* [domain] pathname\n");
+                "usage: $exe [--p4] [--abbrev regexp]* [--cache dir] [domain] pathname\n"
+        );
         exit(scalar(@_) >= 2 && $help ? 0 : 1) if $standalone;
         return undef;
     }
@@ -85,9 +104,10 @@ sub new
         push(@abbrev, 's/^([^@]+)\@.+$/External/');
         # else leave domain in place
     }
+    $cache_dir = resolve_cache_dir($cache_dir);
     my @prefix;
     push(@prefix, $prefix) if $prefix;
-    my $self = [$mapP4, \@abbrev, \@prefix, $exe];
+    my $self = [$mapP4, \@abbrev, \@prefix, $exe, $cache_dir];
     return bless $self, $class;
 }
 
@@ -95,6 +115,13 @@ sub annotate
 {
     my ($self, $file) = @_;
 
+    # do we have a cached version of this file?
+    my ($cachepath, $version);
+    if ($self->[CACHE]) {
+        my $lines;
+        ($cachepath, $version, $lines) = find_in_cache($self->[CACHE], $file);
+        return (0, $lines) if defined($lines);    # cache hit
+    }
     my $pathname = File::Spec->catfile(@{$self->[PREFIX]}, $file);
     # if running as module, then context might be available
     my $context = '';
@@ -220,6 +247,10 @@ sub annotate
                 #        die("git blame died from signal ", ($? & 0x7F), "\n");
                 #    die("git blame exited with error ", ($? >> 8), "\n");
                 #}
+                if (0 == $status &&
+                    defined($cachepath)) {
+                    store_in_cache($cachepath, $file, $version, \@lines);
+                }
                 return ($status, \@lines);
             }
         }
