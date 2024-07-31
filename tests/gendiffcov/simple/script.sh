@@ -6,7 +6,6 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
-CXX='g++'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
 
@@ -171,7 +170,7 @@ ${CXX} --coverage test.cpp
 echo `which gcov`
 echo `which lcov`
 # old version of gcc has inconsistent line/function data
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent,category"
 fi

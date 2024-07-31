@@ -68,7 +68,8 @@ LCOVRC       := $(TOPDIR)lcovrc
 
 # Specify size for artificial info files (small, medium, large)
 SIZE         := small
-CC           := gcc
+export CC    ?= gcc
+export CXX   ?= g++
 
 export LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/lcov
 export GENHTML_TOOL := $(EXEC_COVER) $(BINDIR)/genhtml

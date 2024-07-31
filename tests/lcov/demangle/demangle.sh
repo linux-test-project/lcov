@@ -6,6 +6,7 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+CXX="${CXX:-g++}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -93,8 +94,8 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
-if ! type g++ >/dev/null 2>&1 ; then
-        echo "Missing tool: g++" >&2
+if ! type ${CXX} >/dev/null 2>&1 ; then
+        echo "Missing tool: ${CXX}" >&2
         exit 2
 fi
 
@@ -105,7 +106,7 @@ if [ 'x' == "x$GENHTML_TOOL" ] ; then
 fi
 
 
-g++ -std=c++1y --coverage demangle.cpp
+${CXX} -std=c++1y --coverage demangle.cpp
 ./a.out 1
 
 $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info

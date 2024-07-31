@@ -94,7 +94,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log precidence.rc
 
@@ -106,12 +106,12 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
-if ! type g++ >/dev/null 2>&1 ; then
-        echo "Missing tool: g++" >&2
+if ! type ${CXX} >/dev/null 2>&1 ; then
+        echo "Missing tool: ${CXX}" >&2
         exit 2
 fi
 
-g++ -std=c++1y --coverage exception.cpp
+${CXX} -std=c++1y --coverage exception.cpp
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error from gcc"
     exit 1
