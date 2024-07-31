@@ -105,7 +105,7 @@ LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE"
 DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT $PROFILE $PARALLEL"
 
 rm -f *.cpp *.gcno *.gcda a.out *.info *.log *.json dumper* *.annotated annotate.sh
-rm -rf ./vanilla ./annotated annotateErr ./range ./filter ./cover_db
+rm -rf ./vanilla ./annotated ./annotateErr ./annotated2 ./annotateErr2 ./range ./filter ./cover_db
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
