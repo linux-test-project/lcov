@@ -5485,6 +5485,8 @@ sub compute_one
         $rel_dir, $base_dir, $trunc_dir)
         = @_;
 
+    my $start = Time::HiRes::gettimeofday();
+
     if ('file' eq $type) {
         my ($testdata, $testfncdata, $testbrdata) =
             main::process_file($summary, $parentSummary,
@@ -5522,6 +5524,8 @@ sub compute_one
             $summary->[SummaryInfo::FILE_DETAILS]->simplify();
         }
     }
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{file}{$name} = $end - $start;
 
     return $perTestData;
 }

@@ -139,11 +139,12 @@ class GenerateSpreadsheet(object):
                 col += 1
                 if key in ('order',):
                     continue
+                if key not in sawData:
+                    continue
+                    
                 f = xl_rowcol_to_cell(beginRow, col)
                 t = xl_rowcol_to_cell(endRow, col)
 
-                if key not in sawData:
-                    continue
                 sum = "+SUM(%(from)s:%(to)s)" % {
                     "from" : f,
                     "to": t
@@ -561,8 +562,16 @@ class GenerateSpreadsheet(object):
                 # process:  time to generate data and write HTML for file
                 # synth:  generate file content (no file found)
                 # source:
-                genhtmlKeys = ['total']
-                for k in ('child', 'startDelay', 'mergeDelay', 'merge', 'annotate', 'synth', 'categorize', 'load', 'source', 'filter', 'check_version', 'html'):
+                genhtmlKeys = ['  '] # placeholder key
+                # these keys are computed for segments
+                genhtml_chunkyKeys = ['child', 'startDelay', 'mergeDelay',
+                                      'merge_segment', 'segment']
+                filter_keys = ['filt_undump', 'filt_merge', 'filt_queue', 'filt_chunk']
+
+                perObj_keys = ['file', 'source', 'categorize', 'annotate', 'check_version',
+                               'html', 'load', 'criteria', 'synth']
+
+                for k in perObj_keys:
                     if k in data:
                         genhtmlKeys.append(k)
 
@@ -583,13 +592,16 @@ class GenerateSpreadsheet(object):
 
                 #print(" ".join(data.keys()))
                 try:
-                    fileData = data['file']
+                    if 'file' in data:
+                        scopeList = data['file'].keys()
+                    else:
+                        scopeList = data['html'].keys()
                 except:
                     print("%s:  incomplete data - skipping" % (name))
                     continue
                 begin = row
                 sawData = {}
-                sawData['total'] = 0
+                #sawData['total'] = 0
                 def printDataRow(name):
                     col = 4
                     nonlocal row
@@ -606,55 +618,34 @@ class GenerateSpreadsheet(object):
                                 print("%s: failed to write %s" %(name, data[k][name]))
                         col += 1
 
-                def visitScope(f, dirname):
-                    pth, name = os.path.split(f)
-                    if None != dirname and pth != dirname:
-                        return 0
+                def visitScope(f):
                     nonlocal row
-                    sheet.write_string(row, 2, name)
-                    sheet.write_number(row, 3, fileData[f], twoDecimal)
-                    sawData['total'] += 1
+                    if '' == f:
+                        sheet.write_string(row, 1, 'top')
+                    else:
+                        pth, name = os.path.split(f)
+                        if name == '':
+                            # this is a directory..
+                            sheet.write_string(row, 0, 'directory')
+                            sheet.write_string(row, 1, pth)
+                        else:
+                            sheet.write_string(row, 3, name)
+                    # there really is no 'total' data for any file or directory
                     printDataRow(f)
                     row += 1
                     return 1
 
-                #pdb.set_trace()
-                for d in ('dir', 'directory'):
-                    if d in data:
-                        dirData = data[d]
-                        break
-                else:
-                    # hack - 'flat' report doesn't have directory data
-                    for f in sorted(fileData.keys()):
-                      visitScope(f, None)
-                    dirData = {}
-
-                for dirname in sorted(dirData.keys()):
-                    sheet.write_string(row, 0, "directory")
-                    sheet.write_string(row, 1, dirname)
-                    sheet.write_number(row, 3, dirData[dirname], twoDecimal)
-                    #pdb.set_trace()
-                    printDataRow(dirname)
-                    row += 1
-
-                    start = row
-                    if '/' == dirname[-1]:
-                        dirname = dirname[:-1]
-                    for f in sorted(fileData.keys()):
-                      visitScope(f, dirname)
-                    if 0 == row-start:
-                        print("error: no files in %s" %(dirname))
-                    elif args.verbose:
-                        print("found %d files in %s" %(row-start, dirname))
+                for f in sorted(scopeList):
+                    visitScope(f)
 
                 insertStats(genhtmlKeys, sawData, sumRow, avgRow, devRow, begin,
-                           row-1, 3)
+                            row-1, 3)
 
                 overallParallelism = "+%(from)s/%(total)s" % {
-                    'from': xl_rowcol_to_cell(sumRow, 3),
+                    'from': xl_rowcol_to_cell(sumRow, 4),
                     'total': total,
                     }
-                sheet.write_formula(totalRow,2, overallParallelism, twoDecimal);
+                sheet.write_formula(totalRow, 2, overallParallelism, twoDecimal);
                 continue
 
             for k in data:
