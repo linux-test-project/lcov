@@ -103,15 +103,37 @@ This is a problem in at least 2 ways:
 
         self._excludePatterns = scriptArgs.excludePatterns.split(',') if scriptArgs.excludePatterns else None
         self._versionScript = scriptArgs.version.split(',') if scriptArgs.version else None
+        if self._versionScript and self._versionScript[0][-3:] == ".pm":
+            # hard to handle Perl module in python - so we hack it
+            self._vesionModule = self._versionScript
+            self._versionScript = None
 
+        self._outf = open(scriptArgs.output, "w")
         try:
             self._isPython = scriptArgs.isPython
         except:
             self._isPython = False
 
-        self._outf = scriptArgs.outf
-
         self._outf.write("TN:%s\n" % scriptArgs.testName)
+
+    def close(self):
+
+        self._outf.close()
+
+        if self._args.version and None == self._versionScript:
+            cmd = "%(lcov)s -a %(info)s -o %(info)s --version-script '%(vers)s' %(checksum)s--rc compute_file_version=1" % {
+                'lcov': os.path.join(os.path.split(sys.argv[0])[0], 'lcov'),
+                'checksum': "--checksum " if self._args.checksum else '',
+                'info': self._args.output,
+                'vers' : self._args.version,
+            }
+            try:
+                x = subprocess.run(cmd, shell=True, check=True, stdout=True, stderr=True)
+            except subprocess.CalledProcessError as err:
+                print("Error during lcov version append operation: %s" % (
+                    str(err)))
+                if not self._args.keepGoing:
+                    sys.exit(1);
 
 
     def process_xml_file(self, xml_file):
@@ -438,7 +460,7 @@ This is a problem in at least 2 ways:
                 checksum = ''
                 if self._args.checksum:
                     try:
-                        checksum = ',' + line_hash(sourceCode[lineNo])
+                        checksum = ',' + line_hash(sourceCode[lineNo-1])
                     except IndexError as err:
                         print('"%s":%d: unable to compute checksum for missing line' % (filename, lineNo))
                         if not self._args.keepGoing:

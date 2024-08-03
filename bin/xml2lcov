@@ -98,14 +98,12 @@ Example:
        print("Error:  no input files")
        sys.exit(1)
 
-    args.outf = open(args.output, 'w')
-
     p = ProcessFile(args)
 
     for f in args.inputs:
         p.process_xml_file(f)
 
-    args.outf.close()
+    p.close()
 
 
 if __name__ == '__main__':

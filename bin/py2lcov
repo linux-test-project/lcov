@@ -150,8 +150,6 @@ Example:
             print("Error:  no input files")
             sys.exit(1)
 
-    args.outf = open(args.output, 'w')
-
     args.isPython = True
     p = ProcessFile(args)
 
@@ -180,7 +178,7 @@ Example:
         p.process_xml_file(xml)
         os.unlink(xml)
 
-    args.outf.close()
+    p.close()
 
 
 if __name__ == '__main__':
