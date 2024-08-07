@@ -9051,7 +9051,12 @@ sub write_file_table_entry(*$$@)
         if ($primary_key eq 'owner') {
             $anchor = '<a id="N' . escape_id($name) . '">NAME</a>';
         } elsif ($primary_key eq 'date') {
-            my $bin = $SummaryInfo::ageHeaderToBin{$name};
+            die("unexpected bin")
+                unless (!$is_secondary &&
+                        exists($SummaryInfo::ageHeaderToBin{$name})) ||
+                (defined($cbData) && $cbData <= $#SummaryInfo::ageGroupHeader);
+            my $bin =
+                $is_secondary ? $cbData : $SummaryInfo::ageHeaderToBin{$name};
             $anchor = "<a id=\"B$bin\">NAME</a>";
         }
     }

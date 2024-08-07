@@ -51,7 +51,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
      $FILTER_EXCLUDE_REGION $FILTER_EXCLUDE_BRANCH $FILTER_LINE
      $FILTER_LINE_CLOSE_BRACE $FILTER_BLANK_LINE $FILTER_LINE_RANGE
      $FILTER_TRIVIAL_FUNCTION $FILTER_DIRECTIVE
-     $FILTER_MISSING_FILE
+     $FILTER_MISSING_FILE $FILTER_INITIALIZER_LIST
      $FILTER_EXCEPTION_BRANCH $FILTER_ORPHAN_BRANCH
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
@@ -272,6 +272,8 @@ our $FILTER_BLANK_LINE;
 our $FILTER_LINE_RANGE;
 # backward compatibility: empty line, close brace
 our $FILTER_LINE;
+# filter initializer list-like stuff
+our $FILTER_INITIALIZER_LIST;
 # remove functions which have only a single line
 our $FILTER_TRIVIAL_FUNCTION;
 # remove compiler directive lines which llvm-cov seems to generate
@@ -289,6 +291,7 @@ our %COVERAGE_FILTERS = ("branch"        => \$FILTER_BRANCH_NO_COND,
                          'directive'     => \$FILTER_DIRECTIVE,
                          'range'         => \$FILTER_LINE_RANGE,
                          'line'          => \$FILTER_LINE,
+                         'initializer'   => \$FILTER_INITIALIZER_LIST,
                          'function'      => \$FILTER_FUNCTION_ALIAS,
                          'missing'       => \$FILTER_MISSING_FILE,
                          'region'        => \$FILTER_EXCLUDE_REGION,
@@ -2234,13 +2237,13 @@ sub parse_cov_filters(@)
             unless exists($COVERAGE_FILTERS{lc($item)});
         my $item_id = $COVERAGE_FILTERS{lc($item)};
 
-        $cov_filter[$item_id] = [0, 0];
+        $cov_filter[$item_id] = [$item, 0, 0];
     }
     if ($cov_filter[$FILTER_LINE]) {
         # when line filtering is enabled, turn on brace and blank filtering as well
         #  (backward compatibility)
-        $cov_filter[$FILTER_LINE_CLOSE_BRACE] = [0, 0];
-        $cov_filter[$FILTER_BLANK_LINE]       = [0, 0];
+        $cov_filter[$FILTER_LINE_CLOSE_BRACE] = ['brace', 0, 0];
+        $cov_filter[$FILTER_BLANK_LINE]       = ['blank', 0, 0];
     }
     if ((defined($cov_filter[$FILTER_BRANCH_NO_COND]) ||
          defined($cov_filter[$FILTER_EXCLUDE_BRANCH])) &&
@@ -2251,8 +2254,8 @@ sub parse_cov_filters(@)
     }
     if ($cov_filter[$FILTER_BRANCH_NO_COND]) {
         # turn on exception and orphan filtering too
-        $cov_filter[$FILTER_EXCEPTION_BRANCH] = [0, 0];
-        $cov_filter[$FILTER_ORPHAN_BRANCH]    = [0, 0];
+        $cov_filter[$FILTER_EXCEPTION_BRANCH] = ['exception', 0, 0];
+        $cov_filter[$FILTER_ORPHAN_BRANCH]    = ['orphan', 0, 0];
     }
 }
 
@@ -2265,15 +2268,15 @@ sub summarize_cov_filters
         my $id = $COVERAGE_FILTERS{$key};
         next unless defined($lcovutil::cov_filter[$id]);
         my $histogram = $lcovutil::cov_filter[$id];
-        next if 0 == $histogram->[0];
+        next if 0 == $histogram->[-2];
         my $points = '';
-        if ($histogram->[0] != $histogram->[1]) {
-            $points = '    ' . $histogram->[1] . ' coverpoint' .
-                ($histogram->[1] > 1 ? 's' : '') . "\n";
+        if ($histogram->[-2] != $histogram->[-1]) {
+            $points = '    ' . $histogram->[-1] . ' coverpoint' .
+                ($histogram->[-1] > 1 ? 's' : '') . "\n";
         }
         info(-1,
-             "$leader  $key:\n    " . $histogram->[0] . " instance" .
-                 ($histogram->[0] > 1 ? "s" : "") . "\n" . $points);
+             "$leader  $key:\n    " . $histogram->[-2] . " instance" .
+                 ($histogram->[-2] > 1 ? "s" : "") . "\n" . $points);
         $leader = '';
     }
     foreach my $q (['omit-lines', 'line', \@omit_line_patterns],
@@ -3220,12 +3223,13 @@ sub resolveCallback
         if (!$returnCbValue) {
             $path = $filename unless $path;
         }
+        my $p = $path ? $path : $filename;
         if (exists($lcovutil::profileData{resolve}) &&
-            exists($lcovutil::profileData{resolve}{$path})) {
+            exists($lcovutil::profileData{resolve}{$p})) {
             # might see multiple aliases for the same source file
-            $lcovutil::profileData{resolve}{$path} += $cost;
+            $lcovutil::profileData{resolve}{$p} += $cost;
         } else {
-            $lcovutil::profileData{resolve}{$path} = $cost;
+            $lcovutil::profileData{resolve}{$p} = $cost;
         }
         return $path;
     }
@@ -4698,12 +4702,12 @@ sub removeBranches
         }
         if ($count) {
             @$blockData = @replace;
-            ++$filter->[0] if $isMasterData;
+            ++$filter->[-2] if $isMasterData;
             lcovutil::info(2,
                            "$line: remove $count exception branch" .
                                (1 == $count ? '' : 'es') . "\n")
                 if $isMasterData;
-            $filter->[1] += $count;
+            $filter->[-1] += $count;
         }
         # If there is only one branch left - then this is not a conditional
         if (0 == scalar(@replace)) {
@@ -4716,9 +4720,9 @@ sub removeBranches
                            "$line: remove orphan exception block $block_id\n");
             $brdata->removeBlock($block_id, $branches);
 
-            ++$self->[1]->[0]
+            ++$self->[1]->[-2]
                 if $isMasterData;
-            ++$self->[1]->[1];
+            ++$self->[1]->[-1];
         }
     }
     if (0 == scalar($brdata->blocks())) {
@@ -5228,8 +5232,8 @@ sub parseLines
         s/\r//;    # remove carriage return
         if (defined($exclude_directives) &&
             $_ =~ $exclude_directives) {
-            ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[0];
-            ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[1];
+            ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[-2];
+            ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[-1];
             push(@excluded, 3);    #everything excluded
             lcovutil::info(2, "exclude '#$1' directive on $filename:$line\n");
             next;
@@ -5340,8 +5344,8 @@ sub isOutOfRange
                                $self->filename() . " (" .
                                scalar(@{$self->[EXCLUDE]}) .
                                " lines in file)\n");
-            ++$filt->[0];    # applied in 1 location
-            ++$filt->[1];    # one coverpoint suppressed
+            ++$filt->[-2];    # applied in 1 location
+            ++$filt->[-1];    # one coverpoint suppressed
             return 1;
         }
         my $key = $self->filename();
@@ -5441,6 +5445,32 @@ sub isBlank
     return ($code =~ /^\s*$/);
 }
 
+sub is_initializerList
+{
+    my ($self, $line) = @_;
+    return 0 unless defined($self->[SOURCE]) && $line < $self->numLines();
+    my $code      = '';
+    my $l         = $line;
+    my $foundExpr = 0;
+    while ($l < $self->numLines()) {
+        my $src = $self->getLine($l);
+        # append to string until we find close brace...then look for next one...
+        $code = removeComments($code . $src);
+        # believe that initialization expressions are either numeric or C strings
+        while ($code =~
+            s/\s+("[^"]*"|0x[0-9a-fA-F]+|[-+]?[0-9]+((\.[0-9]+)([eE][-+][0-9]+)?)?)\s*,?//
+        ) {
+            $foundExpr = 1;
+        }
+        # remove matching {} brace pairs - assume a sub-object initializer
+        $code             =~ s/\s*{\s*,?\s*}\s*,?\s*//;
+        last if $code     =~ /[};]/;   # unmatched close or looks like statement
+        last unless $code =~ /^\s*([{}]\s*)*$/;
+        ++$l;
+    }
+    return $foundExpr ? $l - $line : 0;    # return number of consecutive lines
+}
+
 sub containsConditional
 {
     my ($self, $line) = @_;
@@ -5457,8 +5487,6 @@ sub containsConditional
     for (my $next = $line + 1;
          defined($src) && ($next - $line) < $lcovutil::source_filter_lookahead;
          ++$next) {
-
-        $src = lcovutil::filterStringsAndComments($src);
 
         $src = lcovutil::simplifyCode($src);
 
@@ -5827,8 +5855,8 @@ sub skipCurrentFile
         if ($missing) {
             lcovutil::info(
                    "Excluding \"$filename\": does not exist/is not readable\n");
-            ++$filt->[0];
-            ++$filt->[1];
+            ++$filt->[-2];
+            ++$filt->[-1];
             return 1;
         }
     }
@@ -6020,14 +6048,14 @@ sub _eraseFunctions
             # remove single-line functions which has no body
             # Only count what we removed from the top level/master list -
             #   - otherwise, we double count for every testcase.
-            ++$removeTrivial->[0] if $isMasterList;
+            ++$removeTrivial->[-2] if $isMasterList;
             foreach my $alias (keys %{$fcn->aliases()}) {
                 lcovutil::info(1,
                       "\"$source_file\":$end_line: filter trivial FN $alias\n");
                 _eraseFunction($fcn, $alias, $end_line,
                                $source_file, $functionMap, $lineData,
                                $branchData, $checksum);
-                ++$removeTrivial->[1] if $isMasterList;
+                ++$removeTrivial->[-1] if $isMasterList;
             }
             $modified = 1;
             next FUNC;
@@ -6217,6 +6245,8 @@ sub _filterFile
     my $blank_histogram          = $cov_filter[$FILTER_BLANK_LINE];
     my $function_alias_histogram = $cov_filter[$FILTER_FUNCTION_ALIAS];
     my $trivial_histogram        = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
+    my $filter_initializer_list  = $cov_filter[$FILTER_INITIALIZER_LIST]
+        if (is_language('c', $source_file));
 
     my $context = MessageContext->new("filtering $source_file");
     if (lcovutil::is_filter_enabled()) {
@@ -6300,10 +6330,10 @@ sub _filterFile
                     lcovutil::info(1,
                                    "filter FN " . $data->name() .
                                        ' ' . $data->file() . ":$line\n");
-                    ++$range->[0];    # one location where this applied
+                    ++$range->[-2];    # one location where this applied
                 } elsif ($region && $srcReader->isExcluded($line)) {
                     $remove = 1;
-                    $region->[0] += scalar(keys %{$data->aliases()});
+                    $region->[-2] += scalar(keys %{$data->aliases()});
                 }
                 if ($remove) {
                     #remove this function from everywhere
@@ -6348,8 +6378,8 @@ sub _filterFile
                 }
                 if ($remove) {
                     my $brdata = $testbrcount->value($line);
-                    ++$remove->[0];    # one line where we skip
-                    $remove->[1] += ($brdata->totals())[0];
+                    ++$remove->[-2];    # one line where we skip
+                    $remove->[-1] += ($brdata->totals())[0];
                     lcovutil::info(2,
                                    "filter BRDA '"
                                        .
@@ -6376,59 +6406,90 @@ sub _filterFile
         }    # if branch_coverage
              # Line related data
         next
-            unless $region   ||
-            $range           ||
-            $brace_histogram ||
-            $branch_histogram;
+            unless $region    ||
+            $range            ||
+            $brace_histogram  ||
+            $branch_histogram ||
+            $filter_initializer_list;
 
+        my %initializerListRange;
         foreach my $line ($testcount->keylist()) {
             # don't suppresss if this line has associated branch data
             next if (defined($sumbrcount->value($line)));
 
-            my $outOfRange = $srcReader->isOutOfRange($line, 'line');
-            my $excluded   = $srcReader->isExcluded($line)
-                unless $outOfRange;
+            my $is_initializer;
+            my $is_filtered = undef;
+            if (exists($initializerListRange{$line})) {
+                $is_initializer = 1;
+                $is_filtered    = $filter_initializer_list;
+                delete $initializerListRange{$line};
+            } elsif ($filter_initializer_list) {
+                # check if this line looks like a complete statement (balanced
+                #   parens, ending with semicolon, etc -
+                #   or whether subsequent lines are required for completion.
+                #   If those subsequent lines have associated coverpoints,
+                #   then those points should be filtered out (see issue #1222)
+                my $count = $srcReader->is_initializerList($line);
+                if (0 != $count) {
+                    $is_initializer = 1;
+                    $is_filtered    = $filter_initializer_list;
+                    for (my $l = $line + $count - 1; $l > $line; --$l) {
+                        # record start of range
+                        $initializerListRange{$l} = $line;
+                    }
+                }
+            }
+
+            my $outOfRange = $srcReader->isOutOfRange($line, 'line')
+                unless $is_filtered;
+            $is_filtered = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE]
+                if !defined($is_filtered) &&
+                defined($outOfRange) &&
+                $outOfRange;
+            my $excluded = $srcReader->isExcluded($line)
+                unless $is_filtered;
+            $is_filtered =
+                $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]
+                if !defined($is_filtered) && defined($excluded) && $excluded;
             my $l_hit = $testcount->value($line);
             my $isCloseBrace =
                 ($brace_histogram &&
                  $srcReader->suppressCloseBrace($line, $l_hit, $testcount))
-                unless $outOfRange ||
-                $excluded;
+                unless $is_filtered;
+            $is_filtered = $brace_histogram
+                if !defined($is_filtered) &&
+                defined($isCloseBrace) &&
+                $isCloseBrace;
             my $isBlank =
                 ($blank_histogram &&
                  ($lcovutil::filter_blank_aggressive || $l_hit == 0) &&
                  $srcReader->isBlank($line))
-                unless $outOfRange ||
-                $excluded;
-            next
-                unless $outOfRange ||
-                $excluded          ||
-                $isCloseBrace      ||
-                $isBlank;
+                unless $is_filtered;
+            $is_filtered = $blank_histogram
+                if !defined($is_filtered) && defined($isBlank) && $isBlank;
+
+            next unless $is_filtered;
 
             $modified = 1;
             lcovutil::info(2,
-                           "filter DA "
+                           'filter DA (' . $is_filtered->[0] . ') '
                                .
                                ($line < $srcReader->numLines() ?
                                     ("'" . $srcReader->getLine($line) . "'") :
                                     "") .
                                " $source_file:$line\n");
 
-            if (defined($isCloseBrace) && $isCloseBrace) {
-                # one location where this applied
-                ++$brace_histogram->[0];
-                ++$brace_histogram->[1];    # one coverpoint suppressed
-            } elsif (defined($isBlank) && $isBlank) {
-                # one location where this applied
-                ++$blank_histogram->[0];
-                ++$blank_histogram->[1];    # one coverpoint suppressed
+            unless ((defined($outOfRange) && $outOfRange) ||
+                    (defined($excluded) && $excluded)) {
+                # some filters already counted...
+                ++$is_filtered->[-2];    # one location where this applied
+                ++$is_filtered->[-1];    # one coverpoint suppressed
             }
 
             # now remove everywhere
             foreach my $tn ($testdata->keylist()) {
                 my $d = $testdata->value($tn);
-                $d->remove($line, 1);       # remove if present
+                $d->remove($line, 1);    # remove if present
             }
             $sumcount->remove($line);
             if (exists($checkdata->{$line})) {
@@ -6438,8 +6499,8 @@ sub _filterFile
     }    #foreach test
          # count the number of function aliases..
     if ($function_alias_histogram) {
-        $function_alias_histogram->[0] += $funcdata->numFunc(1);
-        $function_alias_histogram->[1] += $funcdata->numFunc(0);
+        $function_alias_histogram->[-2] += $funcdata->numFunc(1);
+        $function_alias_histogram->[-1] += $funcdata->numFunc(0);
     }
     return ($traceInfo, $modified);
 }
