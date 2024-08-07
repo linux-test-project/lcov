@@ -23,7 +23,7 @@ use Config;
 use POSIX;
 
 our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
+our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      @temp_dirs set_tool_name
      info warn_once set_info_callback init_verbose_flag $verbose
      debug $debug
@@ -87,6 +87,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url
 
      @extractVersionScript $verify_checksum $compute_file_version
 
+     configure_callback cleanup_callbacks
+
      is_external @internal_dirs $opt_no_external @build_directory
      $default_precision check_precision
 
@@ -102,9 +104,11 @@ our %message_types;
 our $suppressAfter = 100;    # stop warning after this number of messages
 our %ERROR_ID;
 our %ERROR_NAME;
-our $tool_dir     = "$FindBin::RealBin";
-our $tool_name    = basename($0);          # import from lcovutil module
-our $lcov_version = 'LCOV version ' . `"$tool_dir"/get_version.sh --full`;
+our $tool_dir  = "$FindBin::RealBin";
+our $tool_name = basename($0);          # import from lcovutil module
+our $VERSION   = `"$tool_dir"/get_version.sh --full`;
+chomp($VERSION);
+our $lcov_version = 'LCOV version ' . $VERSION;
 our $lcov_url     = "https://github.com//linux-test-project/lcov";
 our @temp_dirs;
 our $tmp_dir = '/tmp';          # where to put temporary/intermediate files
@@ -204,6 +208,8 @@ our $opt_no_external;
 # (if .gcno files are in a different place than the .gcda files)
 # also used by genhtml to match diff file entries to .info file
 our @build_directory;
+
+our @configured_callbacks;
 
 # filename substitutions
 our @file_subst_patterns;
@@ -828,6 +834,7 @@ sub save_profile($)
         count_cores();
         $lcovutil::profileData{config}{cores} = $maxParallelism;
         $maxParallelism = $save;
+
         my $json = JsonSupport::encode(\%lcovutil::profileData);
 
         if ('' ne $lcovutil::profile) {
@@ -894,12 +901,12 @@ sub configure_callback
 {
     # if there is just one argument, then assume it might be a
     # concatentation - otherwise, just use straight.
+    my $cb = shift;
     my @args =
         1 == scalar(@_) ?
         split($lcovutil::split_char, join($lcovutil::split_char, @_)) :
         @_;
     my $script = $args[0];
-    my $rtn;
     if ($script =~ /\.pm$/) {
         my $dir     = File::Basename::dirname($script);
         my $package = File::Basename::basename($script);
@@ -910,10 +917,10 @@ sub configure_callback
             require $package;
             #$package->import(qw(new));
             # the first value in @_ is the script name
-            $rtn = $class->new(@args);
+            $$cb = $class->new(@args);
         };
         if ($@ ||
-            !defined($rtn)) {
+            !defined($$cb)) {
             lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
                              "unable to create callback from module '$script'" .
                                  (defined($@) ? ": $@" : ''));
@@ -921,9 +928,30 @@ sub configure_callback
         shift(@INC);
     } else {
         # not module
-        $rtn = ScriptCaller->new(@args);
+        $$cb = ScriptCaller->new(@args);
     }
-    return $rtn;
+    push(@configured_callbacks, $cb);
+}
+
+sub cleanup_callbacks
+{
+    if ($lcovutil::contextCallback) {
+        my $ctx;
+        eval { $ctx = $lcovutil::contextCallback->context(); };
+        if ($@) {
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                      "context callback '" .
+                                          $lcovutil::contextCallback[0] .
+                                          " ...' failed: $@");
+        } else {
+            die('unexpect context callback result: expected hash ref')
+                unless 'HASH' eq ref($ctx);
+            $lcovutil::profileData{context} = $ctx;
+        }
+    }
+    foreach my $cb (@configured_callbacks) {
+        undef $$cb;
+    }
 }
 
 #
@@ -983,9 +1011,9 @@ my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
     @rc_include_patterns, @rc_subst_patterns, @rc_omit_patterns,
     @rc_erase_patterns, @rc_version_script, @unsupported_config,
     @rc_source_directories, @rc_build_dir, %unsupported_rc,
-    $keepGoing, @rc_resolveCallback, $help,
-    @rc_criteria_script, $rc_no_branch_coverage, $rc_no_func_coverage,
-    $rc_no_checksum, $version);
+    $keepGoing, $help, @rc_resolveCallback,
+    @rc_criteria_script, @rc_contextCallback, $rc_no_branch_coverage,
+    $rc_no_func_coverage, $rc_no_checksum, $version);
 my $quiet = 0;
 my $tempdirname;
 
@@ -1432,7 +1460,7 @@ sub parseOptions
                      \@CoverageCriteria::coverageCriteriaScript
                     ],
     ) {
-        ${$cb->[0]} = lcovutil::configure_callback(@{$cb->[1]})
+        lcovutil::configure_callback($cb->[0], @{$cb->[1]})
             if (@{$cb->[1]});
     }
     # perhaps warn that date/owner and directory are only supported by genhtml?

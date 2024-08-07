@@ -313,6 +313,9 @@ Common lcov options - supported by all the above use cases:
 .RB [ \-\-rc
 .IR keyword = value ]
 .br
+.RB [ \-\-profile
+.IR [ profile\-file ] ]
+.br
 .RB [ \-\-include
 .IR glob_pattern ]
 .br
@@ -658,6 +661,22 @@ with different configuration file options in parallel.
 Note that this option must be specified in full - abbreviations are not supported.
 
 .RE
+
+.B \-\-profile
+.I [ profile\-data\-file ]
+.br
+.RS
+Tell the tool to keep track of performance and other configuration data.
+If the optional
+.I profile\-data\-file
+is not specified, then the profile data is written to a file named with the same
+basename as the
+.I \-\-output\-filename, with suffix
+.I ".json"
+appended.
+
+.RE
+
 
 .B \-\-convert\-filenames
 .br

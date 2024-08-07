@@ -96,7 +96,7 @@ sub update_perl($)
         die("$0: Missing option --release\n") if (!defined($opt_release));
 
         $source =~
-            s/^(our\s+\$lcov_version\s*=).*$/$1 "LCOV version $opt_version-$opt_release";/mg;
+            s/^(our\s+\$VERSION\s*=).*$/$1 "$opt_version-$opt_release";/mg;
     }
 
     if ($opt_fixinterp && defined($path) && $path ne "") {

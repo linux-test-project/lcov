@@ -586,6 +586,8 @@ summarize_messages();
 my $end = Time::HiRes::gettimeofday();
 $lcovutil::profileData{total} = $end - $start;
 
+lcovutil::cleanup_callbacks();
+
 lcovutil::save_profile(
      (defined($output_filename) && '-' ne $output_filename) ? $output_filename :
          "geninfo");

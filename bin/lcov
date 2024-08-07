@@ -441,9 +441,11 @@ if (0 == $exit_code) {
 my $end = Time::HiRes::gettimeofday();
 $lcovutil::profileData{total} = $end - $begin;
 
-# if we executed 'geninfo' - then we saved the profile data from that process
-lcovutil::save_profile($output_filename ? $output_filename : "lcov")
-    unless $lcovutil::lcov_capture;
+unless ($lcovutil::lcov_capture) {
+    # if we executed 'geninfo' - then we saved the profile data from that process
+    lcovutil::cleanup_callbacks();
+    lcovutil::save_profile($output_filename ? $output_filename : "lcov");
+}
 
 # exit with non-zero status if --keep-going and some errors detected
 $exit_code = 1
@@ -838,9 +840,6 @@ sub lcov_geninfo(@)
     if ($follow) {
         push(@param, "--follow");
     }
-    foreach my $param (@lcovutil::cpp_demangle) {
-        push(@param, "--demangle-cpp", $param);
-    }
     if ($lcovutil::verbose != 0) {
         if ($lcovutil::verbose < 0) {
             for (my $i = $lcovutil::verbose; $i < 0; ++$i) {
@@ -855,9 +854,6 @@ sub lcov_geninfo(@)
     if (defined($verify_checksum)) {
         push(@param, $verify_checksum ? '--checksum' : '--no-checksum');
     }
-    foreach my $b (@lcovutil::build_directory) {
-        push(@param, "--build-directory", $b);
-    }
     foreach my $s (@ReadCurrentSource::source_directories) {
         # a bit of a hack:  we pushed the --base-directory argument onto
         #  the source list - and we need to make sure that we only pass
@@ -869,9 +865,6 @@ sub lcov_geninfo(@)
         push(@param, "--no-compat-libtool");
     } elsif ($compat_libtool) {
         push(@param, "--compat-libtool");
-    }
-    foreach my $arg (@gcov_tool) {
-        push(@param, "--gcov-tool", $arg);
     }
     if (defined($lcovutil::stop_on_error) && $lcovutil::stop_on_error == 0) {
         push(@param, "--keep-going");
@@ -889,9 +882,6 @@ sub lcov_geninfo(@)
         # pass only the 'ignore' options that geninfo understands
         push(@param, "--ignore-errors", $_)
             if exists($lcovutil::lcovErrors{$_});
-    }
-    foreach (@lcovutil::opt_filter) {
-        push(@param, "--filter", $_);
     }
     if ($no_recursion) {
         push(@param, "--no-recursion");
@@ -913,43 +903,14 @@ sub lcov_geninfo(@)
     }
     if (defined($opt_external) && $opt_external) {
         push(@param, "--external");
-    }
-    if (defined($lcovutil::opt_no_external) && $lcovutil::opt_no_external) {
+    } elsif (defined($lcovutil::opt_no_external) && $lcovutil::opt_no_external)
+    {
         push(@param, "--no-external");
     }
     if (defined($opt_compat)) {
         push(@param, "--compat", $opt_compat);
     }
-    foreach my $key (@lcovutil::opt_rc) {
-        push(@param, "--rc", $key);
-    }
-    foreach my $f (@lcovutil::opt_config_files) {
-        push(@param, "--config-file", $f);
-    }
-    foreach (@lcovutil::include_file_patterns) {
-        push(@param, "--include", $_);
-    }
-    foreach (@lcovutil::exclude_file_patterns) {
-        push(@param, "--exclude", $_);
-    }
-    foreach my $seg (@lcovutil::extractVersionScript) {
-        push(@param, "--version-script", $seg);
-    }
-    foreach my $seg (@lcovutil::resolveCallback) {
-        push(@param, "--resolve-script", $seg);
-    }
-    foreach (@lcovutil::file_subst_patterns) {
-        push(@param, "--substitute", $_);
-    }
-    foreach (@lcovutil::omit_line_patterns) {
-        push(@param, "--omit-lines", $_);
-    }
-    foreach (@lcovutil::exclude_function_patterns) {
-        push(@param, "--erase-functions", $_);
-    }
-    foreach (@lcovutil::comments) {
-        push(@param, "--comment", $_);
-    }
+
     if (defined($lcovutil::profile)) {
         push(@param, '--profile');
         push(@param, $lcovutil::profile)
@@ -964,6 +925,33 @@ sub lcov_geninfo(@)
     push(@param, "--branch-coverage") if $lcovutil::br_coverage;
     push(@param, '--fail-under-lines', $lcovutil::fail_under_lines)
         if defined($lcovutil::fail_under_lines);
+
+    foreach my $listOpt (['--comment', \@lcovutil::comments],
+                         ['--config-file', \@lcovutil::opt_config_files],
+                         ['--rc', \@lcovutil::opt_rc],
+                         ['--build-directory', \@lcovutil::build_directory],
+                         ['--gcov-tool', \@gcov_tool],
+                         ['--demangle-cpp', \@lcovutil::cpp_demangle],
+                         ['--include', \@lcovutil::include_file_patterns],
+                         ['--exclude', \@lcovutil::exclude_file_patterns],
+                         ['--criteria-script',
+                          \@CoverageCriteria::coverageCriteriaScript
+                         ],
+                         ['--version-script', \@lcovutil::extractVersionScript],
+                         ['--resolve-script', \@lcovutil::resolveCallback],
+                         ['--substitute', \@lcovutil::file_subst_patterns],
+                         ['--omit-lines', \@lcovutil::omit_line_patterns],
+                         ['--erase-functions',
+                          \@lcovutil::exclude_function_patterns
+                         ],
+                         ['--filter', \@lcovutil::opt_filter],
+    ) {
+        my ($opt, $l) = @$listOpt;
+        foreach my $v (@$l) {
+            push(@param, $opt, $v);
+        }
+    }
+
     # windows
     #  Kind of hacky to fork another script here.
     #  Probably better/cleaner to move the 'geninfo' functionality into

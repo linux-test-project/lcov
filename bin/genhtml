@@ -6326,7 +6326,7 @@ foreach my $rc ([\@datebins, \@rc_date_bins],
 
 foreach my $cb ([\$SourceFile::annotateCallback, \@SourceFile::annotateScript],
                 [\$selectCallback, \@selectCallbackScript]) {
-    ${$cb->[0]} = lcovutil::configure_callback(@{$cb->[1]})
+    lcovutil::configure_callback($cb->[0], @{$cb->[1]})
         if scalar(@{$cb->[1]});
 }
 
@@ -6618,6 +6618,7 @@ if ($serialize) {
     }
 }
 
+lcovutil::cleanup_callbacks();
 lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'));
 # exit with non-zero status if --keep-going and some errors detected
 $exit_status = 1
