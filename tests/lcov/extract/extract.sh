@@ -92,7 +92,7 @@ if [ 'x' == "x$GENHTML_TOOL" ] ; then
 fi
 
 #use geninfo for capture - so we can collect coverage info
-CAPTURE=$GENINFO_TOOL 
+CAPTURE=$GENINFO_TOOL
 #CAPTURE="$LCOV_TOOL --capture --directory"
 
 ROOT=`pwd`
@@ -287,6 +287,95 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+# context callbacks...
+echo $CAPTURE . $LCOV_OPTS --all -o context.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context $SCRIPTS/context.pm
+$COVER $CAPTURE . $LCOV_OPTS --all -o context.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context $SCRIPTS/context.pm
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from lcov --capture --context"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+grep -E "\"user\":\"$USER\"" context.info.json
+if [ 0 != $? ] ; then
+    echo "Error:  did not find expected context field"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep user context.info
+if [ 0 == $? ] ; then
+    echo "Error:  did not expect to find context field in info"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+echo $CAPTURE . $LCOV_OPTS --all -o context_comment.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context $SCRIPTS/context.pm,--comment
+$COVER $CAPTURE . $LCOV_OPTS --all -o context_comment.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context $SCRIPTS/context.pm,--comment
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from lcov --capture --context"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+grep -E "\"user\":\"$USER\"" context.info.json
+if [ 0 != $? ] ; then
+    echo "Error:  did not find expected context field"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E "#.*user:.+$USER" context_comment.info
+if [ 0 != $? ] ; then
+    echo "Error:  did not find context data in comment field"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+
+# check error...
+$COVER $LCOV_TOOL -d . $LCOV_OPTS --all -o err.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context $SCRIPTS/context.pm --context tooManyArgs
+if [ 0 == $? ] ; then
+    echo "Error:  expected error lcov --capture --context ..."
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# call a context shellscript...
+echo $CAPTURE . $LCOV_OPTS --all -o context2.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context ./testContext.sh
+$COVER $CAPTURE . $LCOV_OPTS --all -o context2.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context ./testContext.sh
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code from lcov --capture --context shellscript"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# call a context shellscript which fails...
+echo $CAPTURE . $LCOV_OPTS --all -o context3.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context ./testContext.sh --context die
+$COVER $CAPTURE . $LCOV_OPTS --all -o context3.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context ./testContext.sh --context die
+if [ 0 == $? ] ; then
+    echo "Error:  expected error code from lcov --capture --context shellscript"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+echo $CAPTURE . $LCOV_OPTS --all -o context4.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context ./testContext.sh --context arg --ignore callback
+$COVER $CAPTURE . $LCOV_OPTS --all -o context4.info $IGNORE $IGNORE_EMPTY $IGNORE_USAGE --context ./testContext.sh --context arg --ignore callback
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error code: ignore not applied"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
 
 
 $COVER $CAPTURE . $LCOV_OPTS --no-external -o internal.info

@@ -118,6 +118,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-annotate\-script
 .IR script ]
 .br
+.RB [ \-\-context\-script
+.IR script ]
+.br
 .RB [ \-\-criteria\-script
 .IR script ]
 .br
@@ -400,6 +403,8 @@ following options:
 .RS
 .B \-\-annotate\-script
 .br
+.B \-\-context\-script
+.br
 .B \-\-criteria\-script
 .br
 .B \-\-resolve\-script
@@ -502,6 +507,39 @@ See example implementations
 and
 .I $LCOV_HOME/share/lcov/support-scripts/p4annotate.pm.
 .RE
+
+.IP context\-script
+.I $hash = $callback_obj->context();
+.br
+.br
+
+where
+.I $hash
+is a reference to a hask of key/value pairs which are meaningful to you.
+This data is stored in the
+.I profile
+database.  See the 'profile' section in man
+.B lcovrc(5)
+for more information.
+
+If your callback is not a perl module - for example, is a shellscript - then it should return a string such that the first word on each line is the key and the remainder is the associated data.  If a key is repeated, then the corresponding data strings are concatentated, separated by newline.
+
+If you want to record only system information, then a shell callback is likely sufficient.  If you want to record any tool-specific/internal information, then you will need to implement a perl module so that your callback will be able to access the information.
+Note that the constructor of your
+.I context-script
+callback (or of any callback) can perform any additional actions which
+are required - for example, to write additional files, to query or set
+tool-specific information,
+.I etc.
+For example, the example implementation, below, has an option to append
+comments to the generated .info file.
+
+
+See the example implementation
+.I $LCOV_HOME/share/lcov/support-scripts/context.pm.
+.RE
+
+
 
 .IP criteria\-script
 .I ($status, $array) = $callback_obj->check_criteria($obj_name, $type, $json);

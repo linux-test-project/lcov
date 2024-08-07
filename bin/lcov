@@ -934,6 +934,7 @@ sub lcov_geninfo(@)
                          ['--demangle-cpp', \@lcovutil::cpp_demangle],
                          ['--include', \@lcovutil::include_file_patterns],
                          ['--exclude', \@lcovutil::exclude_file_patterns],
+                         ['--context-script', \@lcovutil::contextCallback],
                          ['--criteria-script',
                           \@CoverageCriteria::coverageCriteriaScript
                          ],

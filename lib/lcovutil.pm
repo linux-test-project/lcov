@@ -211,6 +211,10 @@ our @build_directory;
 
 our @configured_callbacks;
 
+# optional callback to keep track of whatever user decides is important
+our @contextCallback;
+our $contextCallback;
+
 # filename substitutions
 our @file_subst_patterns;
 # resolve callback
@@ -1096,6 +1100,7 @@ my %rc_common = (
              'substitute'             => \@rc_subst_patterns,
              'omit_lines'             => \@rc_omit_patterns,
              'erase_functions'        => \@rc_erase_patterns,
+             'context_script'         => \@rc_contextCallback,
              "version_script"         => \@rc_version_script,
              'resolve_script'         => \@rc_resolveCallback,
              'criteria_callback_data' =>
@@ -1184,6 +1189,7 @@ our %argCommon = ("tempdir=s"         => \$tempdirname,
                   'build-directory=s' => \@lcovutil::build_directory,
 
                   'resolve-script=s'  => \@lcovutil::resolveCallback,
+                  'context-script=s'  => \@lcovutil::contextCallback,
                   "filter=s"          => \@opt_filter,
                   "demangle-cpp:s"    => \@lcovutil::cpp_demangle,
                   "ignore-errors=s"   => \@opt_ignore_errors,
@@ -1428,7 +1434,8 @@ sub parseOptions
                      \@rc_source_directories
                     ],
                     [\@lcovutil::build_directory, \@rc_build_dir],
-                    [\@lcovutil::resolveCallback, \@rc_resolveCallback]
+                    [\@lcovutil::resolveCallback, \@rc_resolveCallback],
+                    [\@lcovutil::contextCallback, \@rc_contextCallback],
     ) {
         @{$rc->[0]} = @{$rc->[1]} unless (@{$rc->[0]});
     }
@@ -1459,6 +1466,7 @@ sub parseOptions
                     [\$CoverageCriteria::criteriaCallback,
                      \@CoverageCriteria::coverageCriteriaScript
                     ],
+                    [\$contextCallback, \@lcovutil::contextCallback],
     ) {
         lcovutil::configure_callback($cb->[0], @{$cb->[1]})
             if (@{$cb->[1]});
@@ -1481,6 +1489,9 @@ sub parseOptions
                 unless grep(/^$x$/, @$valid);
         }
     }
+    # context only gets grabbed/stored with '--profile'
+    $lcovutil::profile = ''
+        if ($contextCallback && !defined($lcovutil::profile));
 
     if (!$lcov_capture) {
         if ($lcovutil::compute_file_version &&
@@ -2892,6 +2903,29 @@ sub pipe
     my $self   = shift;
     my $reason = shift;
     return PipeHelper->new($reason, @$self, @_);
+}
+
+sub context
+{
+    my $self = shift;
+    lcovutil::info(1, 'context ' . join(' ', @$self) . "\n");
+    my $iter = $self->pipe('context');
+    return unless defined($iter);
+    my %context;
+    while (my $line = $iter->next()) {
+        chomp($line);
+        $line =~ s/\r//g;    # remove CR from line-end
+                             # first word on line is the key..
+        my ($key, $value) = split(/ +/, $line, 2);
+        if (exists($context{key})) {
+            $context{key} .= "\n" . $value;
+        } else {
+            $context{key} = $value;
+        }
+    }
+    my $status = $iter->close(1);    # check error return
+
+    return \%context;
 }
 
 sub extract_version

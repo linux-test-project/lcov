@@ -68,6 +68,9 @@ Capture coverage data tracefile (from compiler-generated data):
 .RB [ \-\-compat
 .IR  mode =on|off|auto]
 .br
+.RB [ \-\-context\-script
+.IR script_file ]
+.br
 .RB [ \-\-criteria\-script
 .IR script_file ]
 .br
@@ -1069,6 +1072,21 @@ This option must be specified together with
 When specified,
 .B lcov
 will emit the list of functions and associated tracefiles rather than combined tracefile data.
+.br
+
+.RE
+.B \-\-context\-script
+.I script
+.br
+.RS
+
+Use
+.I script
+to collect additional tool execution context information - to aid in
+infrastructure debugging and/or tracking.
+
+See the genhtml man page for more details on the context script.
+
 .br
 
 .RE

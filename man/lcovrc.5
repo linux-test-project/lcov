@@ -2451,6 +2451,21 @@ source line number.
 .PP
 
 
+.BR context_script " ="
+.IR path_to_executable_or_module | parameter
+.IP
+This option is equivalent to the
+.I \-\-context\-script
+option of genhtml/lcov/geninfo
+
+This option can be used multiple times in the lcovrc file to specify both a criteria script and additional options which are passed to the script.
+
+See the genhtml man page for details.
+
+.PP
+
+
+
 .BR criteria_script " ="
 .IR path_to_executable_or_module | parameter
 .IP

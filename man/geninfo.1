@@ -105,6 +105,9 @@ geninfo \- Generate tracefiles from GCOV coverage data files
 .br
 .RB [ \-\-forget\-test\-names ]
 .br
+.RB [ \-\-context\-script
+.IR script_file  ]
+.br
 .RB [ \-\-criteria\-script
 .IR script_file  ]
 .br
@@ -1088,6 +1091,21 @@ If you want to have all data written to a single file (for easier
 handling), use this option to specify the respective filename. By default,
 one tracefile will be created for each processed .gcda file.
 .RE
+
+.RE
+.B \-\-context\-script
+.I script
+.br
+.RS
+
+Use
+.I script
+to collect additional tool execution context information - to aid in
+infrastructure debugging and/or tracking.
+
+See the genhtml man page for more details on the context script.
+
+.br
 
 .RE
 .B \-\-criteria\-script
