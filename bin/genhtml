@@ -3183,6 +3183,7 @@ use constant {
               LOCATION      => 3,
               UNCHANGED     => 4,
               ALIASES       => 5,
+              DIFF_ROOT     => 6,
 
               OLD  => 0,
               NEW  => 1,
@@ -3266,6 +3267,25 @@ sub findName
     my ($self, $file) = @_;
     my $f = $lcovutil::case_insensitive ? lc($file) : $file;
     $f = $self->[ALIASES]->{$f} if exists($self->[ALIASES]->{$f});
+
+    if (File::Spec->file_name_is_absolute($f) &&
+        !exists($self->[LINEMAP]->{$f})) {
+        my $p =
+            $lcovutil::case_insensitive ?
+            lc($self->[DIFF_ROOT]) :
+            $self->[DIFF_ROOT];
+        $p .= $lcovutil::dirseparator;
+        my $l = length($p);
+        my $s = substr($f, $l);
+        if (length($f) > $l &&
+            $p eq substr($f, 0, $l)) {
+            if (exists($self->[LINEMAP]->{$s})) {
+                $f = $s;
+            } elsif (exists($self->[ALIASES]->{$s})) {
+                $f = $self->[ALIASES]->{$s};
+            }
+        }
+    }
     return $f;
 }
 
@@ -3574,8 +3594,7 @@ sub _read_udiff
     my $time =
         '[1-9]{1}[0-9]{3}\-[0-9]{2}\-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]*)?( .[0-9]+)?';
     # Parse diff file line by line
-    my $verbose  = 0;
-    my $diffRoot = $main::cwd;    # default root
+    my $verbose = 0;
     while (<$diffHdl>) {
         chomp($_);
         s/\r//g;
@@ -3589,7 +3608,7 @@ sub _read_udiff
         }
         foreach ($line) {
             /^Git Root: (.+)$/ && do {
-                $diffRoot = $1;
+                $self->[DIFF_ROOT] = $1;
                 last;
             };
 
@@ -3604,7 +3623,7 @@ sub _read_udiff
                     push(@{$self->[LINEMAP]->{$filename}}, $chunk);
                     undef $filename;
                 }
-                my $file = File::Spec->rel2abs($1, $diffRoot);
+                my $file = $1;
                 $file = lcovutil::strip_directories($file, $main::strip);
                 my $key = ReadCurrentSource::resolve_path($file, 1);
                 $key = lc($key) if $lcovutil::case_insensitive;
@@ -3644,7 +3663,7 @@ sub _read_udiff
                     push(@{$self->[LINEMAP]->{$filename}}, $chunk);
                     undef $filename;
                 }
-                $file_old = File::Spec->rel2abs($1, $diffRoot);
+                $file_old = $1;
                 $file_old =
                     lcovutil::strip_directories($file_old, $main::strip);
                 $file_old = ReadCurrentSource::resolve_path($file_old, 1);
@@ -3656,7 +3675,7 @@ sub _read_udiff
             # +++ <filename>
             /^\+\+\+ (.+)$/ && do {
                 # Add last file to resulting hash
-                $file_new = File::Spec->rel2abs($1, $diffRoot);
+                $file_new = $1;
                 $file_new =
                     lcovutil::strip_directories($file_new, $main::strip);
                 my $key = ReadCurrentSource::resolve_path($file_new, 1);
@@ -3803,6 +3822,9 @@ sub _read_udiff
         push(@{$self->[LINEMAP]->{$filename}}, $chunk);
         _printChunk($chunk) if ($verbose);
     }
+
+    # default root
+    $self->[DIFF_ROOT] = $main::cwd unless defined($self->[DIFF_ROOT]);
 
     if ($self->empty()) {
         # this is probably OK - there are no differences between 'baseline' and current.
