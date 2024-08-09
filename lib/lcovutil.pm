@@ -5194,7 +5194,8 @@ sub new
 {
     my ($class, $filename) = @_;
 
-    my $self = [];
+    # additional layer of indirection so derived class can hold its own data
+    my $self = [[]];
     bless $self, $class;
 
     $self->open($filename) if defined($filename);
@@ -5204,8 +5205,9 @@ sub new
 sub close
 {
     my $self = shift;
-    while (scalar(@$self)) {
-        pop(@$self);
+    my $data = $self->[0];
+    while (scalar(@$data)) {
+        pop(@$data);
     }
 }
 
@@ -5229,9 +5231,10 @@ sub warn_sourcedir_patterns
             @source_directories ? '--source-directory' : 'source_directory = ');
 }
 
-sub open
+sub _load
 {
     my ($self, $filename, $version) = @_;
+    my $data = $self->[0];
 
     $version = "" unless defined($version);
     my $path = resolve_path($filename);
@@ -5239,24 +5242,34 @@ sub open
         lcovutil::info(1,
                        "read $version$filename" .
                            ($path ne $filename ? " (at $path)" : '') . "\n");
-        $self->[PATH] = $path;
+        $data->[PATH] = $path;
         my @sourceLines = <SRC>;
         CORE::close(SRC) or die("unable to close $filename: $!\n");
-        $self->[FILENAME] = $filename;
-        $self->parseLines($filename, \@sourceLines);
+        $data->[FILENAME] = $filename;
+        return \@sourceLines;
     } else {
         lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
                                   "unable to open $filename: $!\n");
         $self->close();
         return undef;
     }
-    return $self;
+}
+
+sub open
+{
+    my ($self, $filename, $version) = @_;
+
+    my $srcLines = $self->_load($filename, $version);
+    if (defined($srcLines)) {
+        return $self->parseLines($filename, $srcLines);
+    }
+    return undef;
 }
 
 sub path
 {
     my $self = shift;
-    return $self->[PATH];
+    return $self->[0]->[PATH];
 }
 
 sub parseLines
@@ -5356,40 +5369,45 @@ sub parseLines
         "$filename: unmatched $lcovutil::EXCL_EXCEPTION_BR_START at line $exclude_exception_region - saw EOF while looking for matching $lcovutil::EXCL_EXCEPTION_BR_STOP"
     ) if $exclude_exception_region;
 
-    $self->[FILENAME] = $filename;
-    $self->[SOURCE]   = $sourceLines;
-    $self->[EXCLUDE]  = \@excluded;
+    my $data = $self->[0];
+    $data->[FILENAME] = $filename;
+    $data->[SOURCE]   = $sourceLines;
+    $data->[EXCLUDE]  = \@excluded;
+    return $self;
 }
 
 sub notEmpty
 {
     my $self = shift;
-    return 0 != scalar(@$self);
+    return 0 != scalar(@{$self->[0]});
 }
 
 sub filename
 {
-    return $_[0]->[FILENAME];
+    return $_[0]->[0]->[FILENAME];
 }
 
 sub numLines
 {
     my $self = shift;
-    return scalar(@{$self->[SOURCE]});
+    return scalar(@{$self->[0]->[SOURCE]});
 }
 
 sub getLine
 {
     my ($self, $line) = @_;
 
-    return $self->isOutOfRange($line) ? undef : $self->[SOURCE]->[$line - 1];
+    return $self->isOutOfRange($line) ?
+        undef :
+        $self->[0]->[SOURCE]->[$line - 1];
 }
 
 sub isOutOfRange
 {
     my ($self, $lineNo, $context) = @_;
-    if (defined($self->[EXCLUDE]) &&
-        scalar(@{$self->[EXCLUDE]}) < $lineNo) {
+    my $data = $self->[0];
+    if (defined($data->[EXCLUDE]) &&
+        scalar(@{$data->[EXCLUDE]}) < $lineNo) {
 
         # Can happen due to version mismatches:  data extracted with
         #   version N of the file, then generating HTML with version M
@@ -5404,7 +5422,7 @@ sub isOutOfRange
             lcovutil::info(2,
                            "filter out-of-range $c $lineNo in " .
                                $self->filename() . " (" .
-                               scalar(@{$self->[EXCLUDE]}) .
+                               scalar(@{$data->[EXCLUDE]}) .
                                " lines in file)\n");
             ++$filt->[-2];    # applied in 1 location
             ++$filt->[-1];    # one coverpoint suppressed
@@ -5417,7 +5435,7 @@ sub isOutOfRange
             my $msg =
                 "unknown $c '$lineNo' in " .
                 $self->filename() . ": there are only " .
-                scalar(@{$self->[EXCLUDE]}) . " lines in the file.";
+                scalar(@{$data->[EXCLUDE]}) . " lines in the file.";
             if ($lcovutil::verbose ||
                 0 == lcovutil::message_count($lcovutil::ERROR_RANGE)) {
                 # only print verbose addition on first message
@@ -5444,8 +5462,9 @@ sub isOutOfRange
 sub isExcluded
 {
     my ($self, $lineNo, $branch) = @_;
-    if (!defined($self->[EXCLUDE]) ||
-        scalar(@{$self->[EXCLUDE]}) < $lineNo) {
+    my $data = $self->[0];
+    if (!defined($data->[EXCLUDE]) ||
+        scalar(@{$data->[EXCLUDE]}) < $lineNo) {
         # this can happen due to version mismatches:  data extracted with
         # version N of the file, then generating HTML with version M
         # "--version-script callback" option can be used to detect this
@@ -5463,17 +5482,17 @@ sub isExcluded
               "unknown line '$lineNo' in " . $self->filename()
                   .
                   (
-                  defined($self->[EXCLUDE]) ?
+                  defined($data->[EXCLUDE]) ?
                       (" there are only " .
-                       scalar(@{$self->[EXCLUDE]}) . " lines in the file.") :
+                       scalar(@{$data->[EXCLUDE]}) . " lines in the file.") :
                       "") .
                   $suffix) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
         return 0;    # even though out of range - this is not excluded by filter
     }
     return 1
         if ($branch &&
-            0 != ($self->[EXCLUDE]->[$lineNo - 1] & $branch));
-    return 0 != ($self->[EXCLUDE]->[$lineNo - 1] & 1);
+            0 != ($data->[EXCLUDE]->[$lineNo - 1] & $branch));
+    return 0 != ($data->[EXCLUDE]->[$lineNo - 1] & 1);
 }
 
 sub removeComments
@@ -5510,7 +5529,7 @@ sub isBlank
 sub is_initializerList
 {
     my ($self, $line) = @_;
-    return 0 unless defined($self->[SOURCE]) && $line < $self->numLines();
+    return 0 unless defined($self->[0]->[SOURCE]) && $line < $self->numLines();
     my $code      = '';
     my $l         = $line;
     my $foundExpr = 0;
@@ -5700,7 +5719,7 @@ sub load
 
     $self->_read_info($tracefile, $readSource, $verify_checksum);
 
-    $self->applyFilters();
+    $self->applyFilters($readSource);
     return $self;
 }
 
@@ -6290,7 +6309,6 @@ sub _filterFile
     my ($traceInfo, $source_file, $actions, $srcReader, $state) = @_;
 
     my $modified = 0;
-
     if (0 != ($actions & DID_DERIVE)) {
         $modified = _deriveFunctionEndLines($traceInfo);
         if (0 == ($actions & DID_FILTER)) {
@@ -6787,7 +6805,7 @@ our $masterChunkID = 0;
 
 sub _processFilterWorklist
 {
-    my ($self, $fileList) = @_;
+    my ($self, $srcReader, $fileList) = @_;
 
     my $chunkSize;
     my $parallel = $lcovutil::lcov_filter_parallel;
@@ -6849,8 +6867,7 @@ sub _processFilterWorklist
         }
     }
 
-    my $srcReader = ReadCurrentSource->new();
-    my @state     = (['saw_unsupported_end_line', 0],);
+    my @state = (['saw_unsupported_end_line', 0],);
     # keep track of patterns application counts before we fork children
     my @pats = grep { @$_ }
         (\@lcovutil::exclude_function_patterns, \@lcovutil::omit_line_patterns);
@@ -6973,7 +6990,12 @@ sub _processFilterWorklist
 
 sub applyFilters
 {
-    my $self = shift;
+    my $self      = shift;
+    my $srcReader = shift;
+
+    $srcReader = ReadCurrentSource->new()
+        unless defined($srcReader);
+
     my $mask = DID_FILTER;
     $mask |= DID_DERIVE
         if (defined($lcovutil::derive_function_end_line) &&
@@ -7045,7 +7067,7 @@ sub applyFilters
 
     if (@filter_workList) {
         lcovutil::info("Apply filtering..\n");
-        $self->_processFilterWorklist(\@filter_workList);
+        $self->_processFilterWorklist($srcReader, \@filter_workList);
         # keep track - so we don't do this again
         $self->[STATE] |= DID_FILTER;
     }
@@ -7873,6 +7895,17 @@ sub _process_segment($$$)
 
 sub merge
 {
+    my $readSourceFile;
+    my $t = ref($_[0]);
+    if (!defined($_[0]) || '' eq $t) {
+        # backward compatiblity - arg is undefined or is a filename
+        $readSourceFile = ReadCurrentSource->new();
+        shift unless defined($_[0]);
+    } else {
+        $readSourceFile = shift;
+        die("unexpected arg $t")
+            unless grep(/^$t$/, ('ReadCurrentSource', 'ReadBaselineSource'));
+    }
     my $nTests = scalar(@_);
     if (1 < $nTests) {
         lcovutil::info("Combining tracefiles.\n");
@@ -7890,8 +7923,7 @@ sub merge
     #   off for file read and only re-enable when we write the data back out
     my $save_filters = lcovutil::disable_cov_filters();
 
-    my $total_trace    = TraceFile->new();
-    my $readSourceFile = ReadCurrentSource->new();
+    my $total_trace = TraceFile->new();
     if (!(defined($lcovutil::maxParallelism) && defined($lcovutil::maxMemory)
     )) {
         lcovutil::init_parallel_params();
@@ -8205,7 +8237,7 @@ sub merge
     #...and turn any enabled filters back on...
     lcovutil::reenable_cov_filters($save_filters);
     # filters had been disabled - need to explicitly exclude function bodies
-    $total_trace->applyFilters();
+    $total_trace->applyFilters($readSourceFile);
 
     return ($total_trace, \@effective);
 }

@@ -1551,7 +1551,8 @@ sub add_traces()
     my @merge = AggregateTraces::find_from_glob(@add_tracefile);
     info(".. found " . scalar(@merge) . " files to aggregate.\n");
 
-    my ($total_trace, $effective) = AggregateTraces::merge(@merge);
+    my ($total_trace, $effective) =
+        AggregateTraces::merge(ReadCurrentSource->new(), @merge);
 
     if ($AggregateTraces::function_mapping) {
         return;
@@ -1587,8 +1588,9 @@ sub merge_traces($$)
          ' file' . (1 == scalar(@merge) ? '' : 's') . ' to ' .
          ($op == TraceInfo::INTERSECT ? 'intersect' : 'subtract') . ".\n");
 
-    my ($base)  = AggregateTraces::merge(@data);
-    my ($merge) = AggregateTraces::merge(@merge);
+    my $srcReader = ReadCurrentSource->new();
+    my ($base)    = AggregateTraces::merge($srcReader, @data);
+    my ($merge)   = AggregateTraces::merge($srcReader, @merge);
 
     my $interesting = $base->merge_tracefile($merge, $op);
     # write the result
@@ -2591,7 +2593,8 @@ sub summary()
     my @merge = AggregateTraces::find_from_glob(@opt_summary);
     info(1, "Summarize " . scalar(@merge) . " files...\n");
 
-    my ($total, $effective) = AggregateTraces::merge(@merge);
+    my ($total, $effective) =
+        AggregateTraces::merge(ReadCurrentSource->new(), @merge);
     return $total;
 }
 

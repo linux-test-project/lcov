@@ -1098,6 +1098,32 @@ and
 .IR tracefile(s) .
 .br
 
+
+Note:
+
+.IP - 3
+if filters are applied during the creation of a differential coverage report,
+(see the
+,I \-\-filter
+section, below), then those filters will be applied to the
+.I baseline coverage data
+(see the
+.I \-\-baseline\-file
+section, above) as well as to the
+.I current coverage data.
+It is important that the
+.I diff-file
+accurately reflect all source code changes so that the baseline coverage data can be correctly filtered.
+.PP
+
+.IP - 3
+Best practice is to use a
+.I \-\-version\-script
+callback to verify that source versions match before source-based filtering is applied.
+.PP
+
+It is almost always a better idea to filter at capture or aggregate time - not at report generation.
+
 A suitable
 .I diff\-file
 can be generated using the command:

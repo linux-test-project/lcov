@@ -1961,124 +1961,32 @@ sub nextDate
 
 package ReadBaselineSource;
 
+use base 'ReadCurrentSource';
+
 sub new
 {
     my ($class, $diffData) = @_;
 
-    my $self = [$diffData, ReadCurrentSource->new()];
-    bless $self, $class;
+    my $self = $class->SUPER::new();
+    push(@$self, $diffData);
+
     return $self;
 }
 
 sub open
 {
     my ($self, $filename) = @_;
+    my $diffmap = $self->[1];
+    if (defined($diffmap) && $diffmap->containsFile($filename)) {
+        # if there are any diffs, then need to load the current source, then
+        #   walk the diff to insert and remove changed lines
 
-    $self->[1]->open($filename, "baseline ");
-    $self->[1]->notEmpty() or
-        die("unable to read baseline '$filename'");
-    $self->[2] = $filename;
-}
-
-sub close
-{
-    my $self = shift;
-    $self->[1]->close();
-}
-
-sub notEmpty
-{
-    my $self = shift;
-    return $self->[1]->notEmpty();
-}
-
-sub isOutOfRange
-{
-    my $self = shift;
-    return $self->[1]->isOutOfRange(@_);
-}
-
-sub isExcluded
-{
-    my $self = shift;
-    return $self->[1]->isExcluded(@_);
-}
-
-sub filename
-{
-    return $_[0]->[2];
-}
-
-sub getLine
-{
-    my ($self, $line) = @_;
-    my ($map, $reader, $filename) = @$self;
-    my $type = $map->type($filename, $map->OLD, $line);
-    if ($type ne 'delete') {
-        my $currLine = $map->lookup($filename, $map->OLD, $line);
-        return $reader->getLine($currLine);
-    } else {
-        # deleted line...we don't really care what it looked like
-        #  return empty - so the line gets treated as not conditional
-        return undef;
+        my $currentSrc = $self->_load($filename, 'baseline');
+        my $src        = $diffmap->recreateBaseline($filename, $currentSrc);
+        return $self->parseLines($filename, $src);
     }
-}
-
-sub isCharacter
-{
-    my $self = shift;
-    return $self->[1]->isCharacter(@_);
-}
-
-sub isCloseBrace
-{
-    my ($self, $line) = @_;
-    my ($map, $reader, $filename) = @$self;
-    my $type = $map->type($filename, $map->OLD, $line);
-    if ($type ne 'delete') {
-        my $currLine = $map->lookup($filename, $map->OLD, $line);
-        return $reader->isCloseBrace($currLine);
-    } else {
-        return 0;
-    }
-}
-
-sub containsConditional
-{
-    my ($self, $line) = @_;
-    my ($map, $reader, $filename) = @$self;
-    my $type = $map->type($filename, $map->OLD, $line);
-    if ($type ne 'delete') {
-        my $currLine = $map->lookup($filename, $map->OLD, $line);
-        return $reader->containsConditional($currLine);
-    } else {
-        return 1;    # we don't know - so just go with what gcov said
-    }
-}
-
-sub containsTrivialFunction
-{
-    my ($self, $line) = @_;
-    my ($map, $reader, $filename) = @$self;
-    my $type = $map->type($filename, $map->OLD, $line);
-    if ($type ne 'delete') {
-        my $currLine = $map->lookup($filename, $map->OLD, $line);
-        return $reader->containsTrivialFunction($currLine);
-    } else {
-        return 0;    # we don't know - assume not
-    }
-}
-
-sub suppressCloseBrace
-{
-    my $self = shift;
-    return $self->[1]->isCharacter(@_);
-}
-
-sub isBlank
-{
-    my $self = shift;
-    return $self->[1]->isBlank(@_);
+    # else no diff data here - just read the file
+    return ReadCurrentSource::open($self, $filename, 'baseline');
 }
 
 package LineData;
@@ -3176,15 +3084,16 @@ package DiffMap;
 #  that would be more consistent and might execute faster.
 
 use constant {
-              LINEMAP => 0,
-              FILEMAP => 1,
+              LINEMAP  => 0,
+              FILEMAP  => 1,
+              BASELINE => 2,
               # keep track of line number where file entry is found in diff file
               #   - use line number in error messages.
-              DIFF_FILENAME => 2,
-              LOCATION      => 3,
-              UNCHANGED     => 4,
-              ALIASES       => 5,
-              DIFF_ROOT     => 6,
+              DIFF_FILENAME => 3,
+              LOCATION      => 4,
+              UNCHANGED     => 5,
+              ALIASES       => 6,
+              DIFF_ROOT     => 7,
 
               OLD  => 0,
               NEW  => 1,
@@ -3199,6 +3108,7 @@ sub new
     my $class = shift;
     my $self = [{},          # linemap
                 {},          # filemap
+                {},          # baseline: filename -> baseline lineno -> text
                 undef,       # diff filename
                 [{}, {}],    # def location
                              # element 0: old filename -> line number where this
@@ -3295,6 +3205,32 @@ sub containsFile
     my ($self, $file) = @_;
     $file = $self->findName($file);
     return exists($self->[LINEMAP]->{$file});
+}
+
+sub recreateBaseline
+{
+    my ($self, $filename, $currentSrcLines) = @_;
+
+    my $diffs = $self->[LINEMAP]->{$self->findName($filename)};
+    die("no diff data for $filename") unless defined $diffs;
+
+    my $deleted = $self->[BASELINE]->{$self->findName($filename)};
+    my @lines;
+    foreach my $chunk (@$diffs) {
+        if ($chunk->[TYPE] eq 'equal') {
+            my ($from, $to) = @{$chunk->[NEW]};
+            push(@lines, @{$currentSrcLines}[($from - 1) .. ($to - 1)]);
+        } elsif ($chunk->[TYPE] eq 'delete') {
+            my $r = $chunk->[OLD];
+            for (my $i = $r->[_START]; $i <= $r->[_END]; ++$i) {
+                die("missing baseline line $i")
+                    unless defined($deleted) && exists($deleted->{$i});
+                push(@lines, $deleted->{$i});
+            }
+        }
+        # else 'insert':  nothing to do/those lines are not in baseline
+    }
+    return \@lines;
 }
 
 sub lookup
@@ -3760,20 +3696,31 @@ sub _read_udiff
             };
             # Line as seen in old file
             # <line starts with '-'>
-            /^-/ && do {
+            /^-(.*)$/ && do {
                 if ($old_block == 0 && $new_block == 0) {
                     last;
                 }
+                my $baseline_lineno = $chunk->[OLD]->[_END] + 1;
+                # really only need to keep track of baseline content if user
+                #   is planning on doing any filtering
+                my $lines;
+                if (exists($self->[BASELINE]->{$file_old})) {
+                    $lines = $self->[BASELINE]->{$file_old};
+                } else {
+                    $lines = {};
+                    $self->[BASELINE]->{$file_old} = $lines;
+                }
+                $lines->{$baseline_lineno} = $1;
+
                 if ($chunk->[TYPE] ne "delete") {
                     if ($filename) {
                         push(@{$self->[LINEMAP]->{$filename}}, $chunk);
                         _printChunk($chunk) if ($verbose);
                     }
-                    $chunk = _newChunk('delete',
-                                       $chunk->[OLD]->[_END] + 1,
+                    $chunk = _newChunk('delete', $baseline_lineno,
                                        $chunk->[NEW]->[_END]);
                 } else {
-                    $chunk->[OLD]->[_END] += 1;
+                    $chunk->[OLD]->[_END] = $baseline_lineno;
                 }
                 last;
             };
@@ -6824,11 +6771,11 @@ sub print_overall_rate($$$$$)
 sub gen_html()
 {
     # "Read
-    my $readSourceFile = ReadCurrentSource->new();
 
     # Read in all specified .info files
-    my $now = Time::HiRes::gettimeofday();
-    ($current_data) = AggregateTraces::merge(@info_filenames);
+    my $now            = Time::HiRes::gettimeofday();
+    my $readSourceFile = ReadCurrentSource->new();
+    ($current_data) = AggregateTraces::merge($readSourceFile, @info_filenames);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{parse_current} = $then - $now;
 
@@ -6854,7 +6801,7 @@ sub gen_html()
         # Read baseline file
 
         $now = Time::HiRes::gettimeofday();
-        ($base_data) = AggregateTraces::merge(@base_filenames);
+        ($base_data) = AggregateTraces::merge($readBaseSource, @base_filenames);
         info("Found %d baseline entries.\n", scalar($base_data->files()));
         $then = Time::HiRes::gettimeofday();
         $lcovutil::profileData{parse_baseline} = $then - $now;
