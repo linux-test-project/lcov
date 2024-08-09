@@ -227,6 +227,7 @@ sub print_usage(*);
 sub gen_html();
 sub html_create($$);
 sub process_file($$$$$);
+sub compute_title($$);
 sub get_prefix($@);
 sub shorten_prefix($);
 sub get_relative_base_path($);
@@ -6473,23 +6474,15 @@ if (!@info_filenames) {
 }
 
 # Generate a title if none is specified
-if (!$test_title) {
-    if (scalar(@info_filenames) == 1) {
-        # Only one filename specified, use it as title
-        $test_title = basename($info_filenames[0]);
-    } else {
-        # More than one filename specified, used default title
-        $test_title = "unnamed";
-    }
-}
+$test_title = compute_title(\@ARGV, \@info_filenames)
+    unless $test_title;
 
 if (@base_filenames) {
+    my @base_patterns = @base_filenames unless $baseline_title;
     @base_filenames = AggregateTraces::find_from_glob(@base_filenames);
 
-    if (!$baseline_title) {
-        # use name of first file
-        $baseline_title = basename($base_filenames[0]);
-    }
+    $baseline_title = compute_title(\@base_patterns, \@base_filenames)
+        unless $baseline_title;
     my $baseline_create;
 
     if ($baseline_date) {
@@ -7387,6 +7380,27 @@ sub process_file($$$$$)
     my $to = Time::HiRes::gettimeofday();
     $lcovutil::profileData{html}{$filename} = $to - $from;
     return ($testdata, $testfncdata, $testbrdata);
+}
+
+sub compute_title($$)
+{
+    my ($patterns, $info_files) = @_;
+
+    my $title;
+    if (1 == scalar(@$info_files)) {
+        # just one coverage DB file
+        $title = basename($info_files->[0]);
+    } elsif (1 == scalar(@$patterns)) {
+        # just one pattern...
+        $title = $patterns->[0];
+        $title = substr($title, length($main::cwd) + 1)
+            if (File::Spec->file_name_is_absolute($title) &&
+                length($main::cwd) < length($title) &&
+                $main::cwd eq substr($title, 0, length($main::cwd)));
+    } else {
+        $title = scalar(@$info_files) . ' coverage DB files';
+    }
+    return $title;
 }
 
 #
