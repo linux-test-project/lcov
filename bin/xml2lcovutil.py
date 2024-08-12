@@ -450,11 +450,14 @@ This is a problem in at least 2 ways:
                     break
 
             # print the LCOV function data
+            idx = 0
             for f in functions:
                 totals['function'][0] += 1
+                f['idx'] = idx
+                idx += 1
                 if f['hit']:
                     totals['function'][1] += 1
-                self._outf.write("FN:%(start)d,%(end)d,%(name)s\nFNDA:%(hit)d,%(name)s\n" % f)
+                self._outf.write("FNL:%(idx)d,%(start)d,%(end)d\nFNA:%(idx)d,%(hit)d,%(name)s\n" % f)
             # print the LCOV line data.
             for lineNo in sorted(lineData.keys()):
                 checksum = ''

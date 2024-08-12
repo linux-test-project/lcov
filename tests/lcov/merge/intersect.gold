@@ -1,7 +1,7 @@
 TN:
 SF:a.cpp
-FN:1,2,fcn
-FNDA:1,fcn
+FNL:0,1,2
+FNA:0,1,fcn
 FNF:1
 FNH:1
 BRDA:1,2,0,2

@@ -1309,8 +1309,8 @@ fi
 echo lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE $DERIVE
 $COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE $DERIVE
 if [ 0 == $? ] ; then
-    BASELINE_COUNT=`grep -c FN: baseline.info`
-    TRIVIAL_COUNT=`grep -c FN: trivial.info`
+    BASELINE_COUNT=`grep -c FNL: baseline.info`
+    TRIVIAL_COUNT=`grep -c FNL: trivial.info`
     # expect lower function count:  we should have removed 'static_initial...
     GENERATED=`grep -c _GLOBAL__ baseline.info`
     if [[ ( 0 != $GENERATED &&
@@ -1359,7 +1359,7 @@ if [ 0 != $? ] ; then
 fi
 
 # test function "coverpoint proportion" feature
-grep -E 'FN:[0-9]+,[0-9]+,.+' baseline.info
+grep -E 'FNL:[0-9]+,[0-9]+,[0-9]+' baseline.info
 NO_END_LINE=$?
 
 if [ $NO_END_LINE == 0 ] ; then

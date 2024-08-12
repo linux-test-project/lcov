@@ -97,6 +97,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .IR num ]
 .RB [ \-\-missed ]
 .br
+.RB [ \-\-merge\-aliases ]
+.br
 .RB [ \-\-suppress\-aliases ]
 .br
 .RB [ \-\-forget\-test\-names ]
@@ -2187,7 +2189,7 @@ whose body is empty/do not contain any statements.  Commonly, these include comp
 
 Note that the
 .I trivial
-filter requires function end line information - and so requires that you use a compiler veraion which is new enough to support begin/end line reports
+filter requires function end line information - and so requires that you use a compiler version which is new enough to support begin/end line reports
 (
 .I e.g.,
 gcc/9 or newer) or that you enable lcov/genhtml/geninfo to derive the information:
@@ -2923,6 +2925,28 @@ option
 .IR genhtml_precision .
 .RE
 
+.B \-\-merge\-aliases
+.RS
+Functions whose file/line is the same are considered to be aliases;
+.B genthml
+uses the shortest name in the list of aliases (fewest characters) as the leader.
+.br
+This option counts each alias group as a single object - so the 'function'
+count will be the number of distinct function groups rather than the total number
+of aliases of all functions - and displays them as groups in the 'function detail
+table.
+.br
+Note that this option has an effect only if
+.B "\-\-filter function"
+has been applied to the coverage DB.
+.br
+
+This parameter an be configured via the configuration file
+.IR merge_function_aliases
+option.  See
+.B man(5) lcovrc.
+
+
 .B \-\-suppress\-aliases
 .RS
 Suppress list of aliases in function detail table.
@@ -2935,14 +2959,14 @@ uses the shortest name in the list of aliases (fewest characters) as the leader.
 
 The number of aliases can be large, for example due to instantiated templates - which can make function coverage results difficult to read.  This option removes the list of aliases, making it easier to focus on the overall function coverage number, which is likely more interesting.
 
-Note that this option has an effect only when
-.B \-\-filter
-function is applied.
+Note that this option has an effect only if
+.B "\-\-filter function"
+has been applied to the coverage DB.
 
-This option can also be configured permanently using the configuration file
-option
-.IR suppress_function_aliases .
-.RE
+This parameter an be configured via the configuration file
+.IR merge_function_aliases
+option.  See
+.B man(5) lcovrc.
 
 
 .B \-\-forget\-test\-names

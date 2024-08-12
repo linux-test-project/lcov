@@ -1001,17 +1001,8 @@ package main;
 #   TN:<test name>
 #
 # For each source file name referenced in the data file, there is a section
-# containing source code and coverage data:
-#
-#   SF:<absolute path to the source file>
-#   FN:<line number of function start>,<function name> for each function
-#   DA:<line number>,<execution count> for each instrumented line
-#   LH:<number of lines with an execution count> greater than 0
-#   LF:<number of instrumented lines>
-#
-# Sections are separated by:
-#
-#   end_of_record
+# containing source code and coverage data.  See geninfo(1) man page for
+# more details.
 #
 # In addition to the main source code file there are sections for each
 # #included file containing executable code. Note that the absolute path

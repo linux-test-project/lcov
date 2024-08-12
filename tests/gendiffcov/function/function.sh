@@ -249,7 +249,7 @@ fi
 
 #check for end line markers - if present then check for whole-function
 #categorization
-grep -E 'FN:[0-9]+,[0-9]+,.+' baseline_call.info
+grep -E 'FNL:[0-9]+,[0-9]+,[0-9]+' baseline_call.info
 NO_END_LINE=$?
 
 if [ $NO_END_LINE == 0 ] ; then
@@ -303,9 +303,9 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-COUNT=`grep -c FN: template.info`
+COUNT=`grep -c FNA: template.info`
 if [ 4 != $COUNT ] ; then
-    echo "ERROR: expected 4 FNDA - found $COUNT"
+    echo "ERROR: expected 4 FNA - found $COUNT"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi

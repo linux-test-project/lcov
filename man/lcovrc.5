@@ -389,6 +389,11 @@ genhtml_desc_html=0
 #genhtml_missed=1
 .br
 
+# group function aliases in report - see '--merge' section in man(1) genhtml
+.br
+#merge_function_aliasess = 1
+.br
+
 # If set, suppress list of aliases in function detail table
 .br
 #suppress_function_aliases = 1
@@ -1481,6 +1486,17 @@ displaying coverage rates.
 
 Default is 1.
 .PP
+.BR merge_function_aliases " ="
+.IR  0 | 1
+.IP
+If non-zero, group function aliases in the function detail tabile.
+See man(1) genhtml.
+.br
+
+Default is 0.
+.PP
+
+.PP
 .BR genhtml_missed " ="
 .IR  0 | 1
 .IP
@@ -1495,6 +1511,11 @@ Default is 0.
 .IR  0 | 1
 .IP
 If non-zero, do not show aliases in the function detail table.
+.br
+If nonzero, implies that
+.B merge_function_aliases
+is enabled.
+.br
 See the genhtml man page for more details.
 .br
 

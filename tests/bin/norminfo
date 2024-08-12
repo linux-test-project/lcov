@@ -29,12 +29,26 @@ sub print_sorted($$$)
     my ($fd, $info, $multi) = @_;
     my (%fn, %fns, %fnda, %brda, %da);
     my ($fnf, $fnh, $brf, $brh, $lf, $lh);
+    my ($idx, $lineNo, $endLine);
 
     while (my $line = <$fd>) {
         $line =~ s/(^\s*|\s*$)//g;
 
         if ($line =~ /^end_of_record$/) {
             last;
+        } elsif ($line =~ /^FNL:(\d+),(\d+)(,(\d+))?$/) {
+            # generate backward-compatible data for the moment
+            $idx     = $1;
+            $lineNo  = $2;
+            $endLine = $4;
+        } elsif ($line =~ /^FNA:(\d+),([^,]+),(.+)$/) {
+            die("unexpected index $1 != $idx") unless $1 == $idx;
+            $idx = undef;
+            my $hit    = $2;
+            my $fnname = $3;
+            $fn{$lineNo}   = [$fnname, $endLine];
+            $fns{$fnname}  = $lineNo;
+            $fnda{$fnname} = int($hit * $multi);
         } elsif ($line =~ /^FN:(\d+),((\d+),)?(.*)$/) {
             my ($lineno, $fnname) = ($1, $4);
 

@@ -175,19 +175,19 @@ for line in 10 12 13 ; do
 done
 # look for expected location and function hit counts:
 for d in \
-    'FN:2,7,enter' \
-    'FNDA:1,enter' \
-    'FN:10,12,unusedFunc' \
-    'FNDA:0,unusedFunc' \
-    'FN:13,14,main.localfunc.nested1.nested2' \
-    'FNDA:0,main.localfunc.nested1.nested2' \
-    'FN:12,16,main.localfunc.nested1' \
-    'FNDA:0,main.localfunc.nested1' \
-    'FN:10,18,main.localfunc' \
-    'FNDA:0,main.localfunc' \
-    'FN:5,18,main' \
-    'FNDA:1,main' ; do
-
+    'FN functions.info' \
+    'FNL:0,10,12' \
+    'FNA:0,0,unusedFunc' \
+    'FNL:1,2,7' \
+    'FNA:1,1,enter' \
+    'FNL:0,10,18' \
+    'FNA:0,0,main.localfunc' \
+    'FNL:1,12,16' \
+    'FNA:1,0,main.localfunc.nested1' \
+    'FNL:2,13,14' \
+    'FNA:2,0,main.localfunc.nested1.nested2' \
+    'FNL:3,5,18' \
+    ; do
     grep $d functions.info
     if [ 0 != $? ] ; then
         echo "did not find expected function data $d"
@@ -270,7 +270,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-COUNT=`grep -c FNDA: no_function.info`
+COUNT=`grep -c FNL: no_function.info`
 if [ 0 != $COUNT ] ; then
     echo "--no-function flag had no effect"
     if [ 0 == $KEEP_GOING ] ; then

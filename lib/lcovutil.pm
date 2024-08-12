@@ -7161,6 +7161,7 @@ sub _read_info
     my $functionMap;
     my %excludedFunction;
     my $skipCurrentFile = 0;
+    my %fnIdxMap;
     while (<$infoHdl>) {
         chomp($_);
         my $line = $_;
@@ -7191,6 +7192,7 @@ sub _read_info
             # Retrieve data for new entry
             %nextBranchId     = ();
             %excludedFunction = ();
+            %fnIdxMap         = ();
 
             if ($verify_checksum) {
                 # unconditionally 'close' the current file - in case we don't
@@ -7361,6 +7363,32 @@ sub _read_info
                 # error checking is in the addAlias method
                 $functionMap->add_count($fnName, $hit);
 
+                last;
+            };
+
+            # new format...
+            /^FNL:(\d+),(\d+)(,(\d+))?$/ && do {
+                last if (!$lcovutil::func_coverage);
+                my $fnIndex  = $1;
+                my $lineNo   = $2;
+                my $end_line = $4;
+                die("unexpected duplicate index $fnIndex")
+                    if exists($fnIdxMap{$fnIndex});
+                $fnIdxMap{$fnIndex} = [$lineNo, $end_line];
+                last;
+            };
+
+            /^FNA:(\d+),([^,]+),(.+)$/ && do {
+                last if (!$lcovutil::func_coverage);
+                my $fnIndex = $1;
+                my $hit     = $2;
+                my $alias   = $3;
+                die("unknown index $fnIndex")
+                    unless exists($fnIdxMap{$fnIndex});
+                my ($lineNo, $end_line) = @{$fnIdxMap{$fnIndex}};
+                my $fn =
+                    $functionMap->define_function($alias, $lineNo, $end_line);
+                $fn->addAlias($alias, $hit);
                 last;
             };
 
@@ -7594,15 +7622,14 @@ sub write_info($$$)
                                  cmp $functionMap->findKey($b)->line() or
                                  $a cmp $b } $functionMap->keylist());
 
+                my $fnIndex = -1;
+                my $f_found = 0;
+                my $f_hit   = 0;
                 foreach my $key (@functionOrder) {
-                    my $data = $functionMap->findKey($key);
-                    my $line = $data->line();
-
+                    my $data    = $functionMap->findKey($key);
                     my $aliases = $data->aliases();
-                    my $endLine =
-                        defined($data->end_line()) ?
-                        ',' . $data->end_line() :
-                        '';
+                    my $line    = $data->line();
+
                     if ($line <= 0) {
                         my $alias = (sort keys %$aliases)[0];
                         lcovutil::ignorable_error(
@@ -7611,22 +7638,21 @@ sub write_info($$$)
                         );
                         next;
                     }
-                    foreach my $alias (sort keys %$aliases) {
-                        print(INFO_HANDLE "FN:$line$endLine,$alias\n");
-                    }
-                }
-                my $f_found = 0;
-                my $f_hit   = 0;
-                foreach my $key (@functionOrder) {
-                    my $data = $functionMap->findKey($key);
-                    my $line = $data->line();
-                    next unless $line > 0;
-                    my $aliases = $data->aliases();
+                    ++$fnIndex;
+                    my $endLine =
+                        defined($data->end_line()) ?
+                        ',' . $data->end_line() :
+                        '';
+                    # print function leader
+                    print(INFO_HANDLE "FNL:$fnIndex,$line$endLine\n");
+                    ++$f_found;
+                    my $counted = 0;
                     foreach my $alias (sort keys %$aliases) {
                         my $hit = $aliases->{$alias};
-                        ++$f_found;
-                        ++$f_hit if $hit > 0;
-                        print(INFO_HANDLE "FNDA:$hit,$alias\n");
+                        ++$f_hit if $hit > 0 && !$counted;
+                        $counted ||= $hit > 0;
+                        # print the alias
+                        print(INFO_HANDLE "FNA:$fnIndex,$hit,$alias\n");
                     }
                 }
                 print(INFO_HANDLE "FNF:$f_found\n");

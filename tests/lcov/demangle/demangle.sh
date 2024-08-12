@@ -120,7 +120,7 @@ if [ $COUNT != '0' ] ; then
     exit 1
 fi
 
-for k in FN FNDA ; do
+for k in FNA ; do
     # how many functions reported?
     grep $k: demangle.info
     COUNT=`grep -v __ demangle.info | grep -c $k:`
@@ -150,7 +150,7 @@ if [ $COUNT != '0' ] ; then
     exit 1
 fi
 
-for k in FN FNDA ; do
+for k in FNA ; do
     # how many functions reported?
     grep $k: vanilla.info
     COUNT=`grep -v __ demangle.info | grep -c $k: vanilla.info`
@@ -171,7 +171,7 @@ done
 
 # see if we can exclude a function - does the generated data contain
 #  function end line numbers?
-grep -E 'FN:[0-9]+,[0-9]+,.+' demangle.info
+grep -E 'FNL:[0-9]+,[0-9]+,[0-9]+' demangle.info
 if [ $? == 0 ] ; then
     echo "----------------------"
     echo "   compiler version support start/end reporting - testing erase"
@@ -185,7 +185,7 @@ if [ $? == 0 ] ; then
         fi
     fi
 
-    for type in DA FNDA FN ; do
+    for type in DA FNA ; do
         ORIG=`grep -c -E "^$type:" demangle.info`
         NOW=`grep -c -E "^$type:" exclude.info`
         if [ $ORIG -le $NOW ] ; then
@@ -203,7 +203,7 @@ if [ $? == 0 ] ; then
         exit 1
     fi
 
-    perl -pe 's/(FN:[0-9]+),[0-9]+,(.+)/$1,$2/' demangle.info > munged.info
+    perl -pe 's/(FNL:[0-9]+),([0-9]+),[0-9]+/$1,$2/' demangle.info > munged.info
     $COVER $LCOV_TOOL $LCOV_OPTS  --filter branch --demangle-cpp -a munged.info --erase-functions main -o munged_exclude.info --rc derive_function_end_line=0
     if [ $? == 0 ] ; then
         echo "lcov exclude with no function end lines passed"

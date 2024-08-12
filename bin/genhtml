@@ -4483,8 +4483,6 @@ sub _countFunctionTlaData
     my %foundFunctionTlas;
     my ($src_age, $developer, $srcLine);
 
-    my $merged =
-        defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
     my $h         = $func->hit();
     my $mergedTla = $h->[1];
     # LCOV_EXCL_START
@@ -4514,7 +4512,7 @@ sub _countFunctionTlaData
         }
     }
 
-    if ($merged) {
+    if ($main::merge_function_aliases) {
         _accountFunction($fileSummary, $mergedTla, $src_age);
     } else {
         my $aliases = $func->aliases();
@@ -5165,15 +5163,14 @@ sub new
     # $covtype:  'line' or 'branch'
     my ($class, $testcaseCounts, $fileDetails, $covtype) = @_;
 
-    my $merged =
-        defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
     my %tlaData;
     if ($covtype != SummaryInfo::FUNCTION_DATA) {
         $tlaData{found} = $testcaseCounts->found();
         $tlaData{hit}   = $testcaseCounts->hit();
     } else {
-        $tlaData{found} = $testcaseCounts->numFunc($merged);
-        $tlaData{hit}   = $testcaseCounts->numHit($merged);
+        $tlaData{found} =
+            $testcaseCounts->numFunc($main::merge_function_aliases);
+        $tlaData{hit} = $testcaseCounts->numHit($main::merge_function_aliases);
     }
     if ($main::show_tla &&
         defined($fileDetails)) {
@@ -5219,7 +5216,7 @@ sub new
                 my $lineData     = $fileDetails->line($line);
                 my $differential = $lineData->functionElem();
                 my @data;
-                if ($merged) {
+                if ($main::merge_function_aliases) {
                     push(@data, $differential->hit());
                 } else {
                     my $aliases = $differential->aliases();
@@ -6174,6 +6171,7 @@ our $frames;            # If set, use frames for source code view
 our $keep_descriptions; # If set, do not remove unused test case descriptions
 our $suppress_function_aliases;    # if set, don't show list of collapsed
                                    # function aliases
+our $merge_function_aliases;
 our $no_sourceview;     # If set, do not create a source code view for each file
 our $legend;            # If set, include legend in output
 our $tab_size = 8;      # Number of spaces to use in place of tab
@@ -6192,7 +6190,7 @@ our @fileview_prefixes = ("");
 our @funcview_sortlist;
 our @rate_name    = ("Lo", "Med", "Hi");
 our @rate_png     = ("ruby.png", "amber.png", "emerald.png");
-our $rc_desc_html = 0;        # lcovrc: genhtml_desc_html
+our $rc_desc_html = 0;      # lcovrc: genhtml_desc_html
 our $deprecated_highlight;    # ignored former option
 
 our $cwd = cwd();             # Current working directory
@@ -6248,6 +6246,8 @@ my %genhtml_rc_opts = (
                "genhtml_sort"                => \$sort,
                "genhtml_charset"             => \$charset,
                "genhtml_desc_html"           => \$rc_desc_html,
+               'merge_function_aliases'      => \$merge_function_aliases,
+               'suppress_function_aliases'   => \$suppress_function_aliases,
                "genhtml_missed"              => \$opt_missed,
                "genhtml_dark_mode"           => \$dark_mode,
                "genhtml_hierarchical"        => \$hierarchical,
@@ -6318,12 +6318,17 @@ my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        "dark-mode"         => \$dark_mode,
                        "show-navigation"   => \$show_tla,
                        "show-proportion"   => \$show_functionProportions,
+                       "merge-aliases"     => \$merge_function_aliases,
                        "suppress-aliases"  => \$suppress_function_aliases,);
 # Parse command line options
 if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
+
+$merge_function_aliases = 1
+    if ($suppress_function_aliases ||
+        defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]));
 
 lcovutil::ignorable_error($lcovutil::ERROR_DEPRECATED,
                           "option '--highlight' has been removed.")
@@ -12131,9 +12136,8 @@ sub write_function_table(*$$$$$$$$$$)
             </tr>
 END_OF_HTML
 
-    my $merged =
-        defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]);
-    foreach my $func (funcview_get_sorted($funcData, $type, $merged)) {
+    foreach my $func (
+         funcview_get_sorted($funcData, $type, $main::merge_function_aliases)) {
 
         my $funcEntry = $differentialMap->{$func};
         my ($count, $tla) = @{$funcEntry->hit()};

@@ -201,6 +201,9 @@ genhtml_desc_html=0
 # Show missed counts instead of hit counts
 #genhtml_missed=1
 
+# group function aliases in report - see '--merge' section in man(1) genhtml
+#merge_function_aliasess = 1
+
 # If set, suppress list of aliases in function detail table
 #suppress_function_aliases = 1
 

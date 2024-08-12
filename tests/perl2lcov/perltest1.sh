@@ -139,15 +139,18 @@ fi
 
 #should be 2 functions in namespace 1 and namespace 2
 for space in 'space1' 'space2' ; do
-    N=`grep FN: one.info | grep -c $space::`
+    N=`grep FNA: one.info | grep -c $space::`
     if [ 2 != "$N" ] ; then
         echo "wrong number of functions in $space"
         exit 1
     fi
 done
 # expect only one function in global namespace
-G=`grep FN: one.info | grep -v space`
-if [ "$G" != 'FN:6,8,global1' ] ; then
+#   rather than looking for known index '4' for this function, would be better
+#   to look for the name - then find index from name, then find location from index
+#   but this is easier and testcase is simple.
+G=`grep FNA: one.info | grep -v space`
+if [ "$G" != 'FNA:4,1,global1' ] ; then
     echo "wrong name/location for function in global namespace"
     exit 1
 fi

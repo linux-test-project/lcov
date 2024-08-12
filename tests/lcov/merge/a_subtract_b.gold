@@ -1,11 +1,11 @@
 TN:
 SF:a.cpp
-FN:1,2,alias
-FN:11,11,onlyA
-FN:3,3,noCommonAlias
-FNDA:2,alias
-FNDA:0,onlyA
-FNDA:1,noCommonAlias
+FNL:0,1,2
+FNA:0,2,alias
+FNL:1,11,11
+FNA:1,0,onlyA
+FNL:2,3,3
+FNA:2,1,noCommonAlias
 FNF:3
 FNH:2
 BRDA:1,1,0,1
