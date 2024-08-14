@@ -188,6 +188,10 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+cp baseline.info baseline_orig.info
+# make the version number look different so the new diff file
+#  consistency check will pass
+sed -i -E 's/VER:#1/VER:#2/' baseline.info
 gzip -c baseline.info > baseline.info.gz
 
 # check that we wrote the comment that was expected...
@@ -213,7 +217,7 @@ if [ 0 == $? ] ; then
 fi
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_name.info --test-name myTest $IGNORE
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_name.info.gz --test-name myTest $IGNORE
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_name.info --test-name myTest $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture with namefailed"
     status=1
@@ -221,6 +225,9 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+# make the version number look different so the new diff file
+#  consistency check will pass
+sed -i -E 's/VER:#1/VER:#2/' baseline_name.info
 
 # test merge with differing version
 sed -e 's/VER:/VER:x/g' < baseline.info > baseline2.info
@@ -347,11 +354,14 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+# make the version number look different so the new diff file
+#  consistency check will pass
+sed -i -E 's/VER:#1/VER:#2/' baseline_nobranch.info
 gzip -c baseline_nobranch.info > baseline_nobranch.info.gz
 #genhtml baseline.info --output-directory ./baseline
 
-echo genhtml $DIFFCOV_OPTS baseline.info --output-directory ./baseline $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline.info --output-directory ./baseline --save $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat
+echo genhtml $DIFFCOV_OPTS baseline_orig.info --output-directory ./baseline $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline_orig.info --output-directory ./baseline --save $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline failed"
     status=1
@@ -593,9 +603,10 @@ for opt in "" --dark-mode --flat ; do
 
 done
 
+
 # check that this works with test names
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $IGNORE --description names.data --serialize differential_named/coverage.dat
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline_name.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT $IGNORE --description names.data --serialize differential_named/coverage.dat
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline_name.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $IGNORE --description names.data --serialize differential_named/coverage.dat
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline_name.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT $IGNORE --description names.data --serialize differential_named/coverage.dat
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential testname failed"
     status=1
@@ -614,7 +625,7 @@ for f in baseline current ; do
 done
 cat diff.txt | sed -e s/test.cpp/linked.cpp/ > linked_diff.txt
 
-# note:  ignroe version mismatch because copying file changed the
+# note:  ignore version mismatch because copying file changed the
 #  date - and so will cause a mismatch
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_err ./linked_current.info $IGNORE --ignore version
 $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_err ./linked_current.info $IGNORE --ignore version 2>&1 | tee linked.log
@@ -626,8 +637,30 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
+# check for diff file inconsistency message
+grep -E 'version changed from .+ but file not found in' linked.log
+if [ 0 != $? ] ; then
+    echo "failed to find expected diff consistency message"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# run again - skipping that message - expect to hit path mismatch
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_err ./linked_current.info $IGNORE --ignore version,inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_err ./linked_current.info $IGNORE --ignore version,inconsistent 2>&1 | tee linked2.log
+# should fail to find source files
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "expected genhtml to fail with linked build (2)"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 # check error message
-grep "possible path inconsistency" linked.log
+grep "possible path inconsistency" linked2.log
 if [ 0 != $? ] ; then
     echo "failed to find expected mismatch message"
     status=1
@@ -637,8 +670,8 @@ if [ 0 != $? ] ; then
 fi
 
 # run again eliding mismatches..
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_elide ./linked_current.info $IGNORE --ignore version --elide-path
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_elide ./linked_current.info $IGNORE --elide-path --ignore version
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_elide ./linked_current.info $IGNORE --ignore version,inconsistent --elide-path
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_elide ./linked_current.info $IGNORE --elide-path --ignore version,inconsistent
 # should pass
 if [ 0 != $? ] ; then
     echo "expected genhtml --elide to pass"
@@ -656,8 +689,8 @@ if [ ! -f linked_elide/simple/linked/build/linked.cpp.gcov.html ] ; then
 fi
 
 # run again with build dir
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_dir ./linked_current.info $IGNORE --build-dir linked --ignore version --rc scope_regexp=linked
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_dir ./linked_current.info $IGNORE --build-dir linked --ignore version --rc scope_regexp=linked
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_dir ./linked_current.info $IGNORE --build-dir linked --ignore version,inconsistent --rc scope_regexp=linked
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./linked_baseline.info --diff-file linked_diff.txt -o linked_dir ./linked_current.info $IGNORE --build-dir linked --ignore version,inconsistent --rc scope_regexp=linked
 # should pass
 if [ 0 != $? ] ; then
     echo "expected genhtml --build-dir to pass"
@@ -841,10 +874,14 @@ rm -f test.cpp
 ln -s simple.cpp test.cpp
 diff -u simple2.cpp simple.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff_r.txt
 
+# make the version number look different so the new diff file
+#  consistency check will pass
+sed -E 's/VER:#1/VER:#2/' current.info > current_hacked.info
+
 # will get MD5 mismatch unless we have the simple.cpp and simple.cpp files
 # set up in the expected places
-echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz $IGNORE
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse ./baseline.info.gz $GENHTML_PORT $IGNORE
+echo genhtml $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse ./baseline_orig.info $IGNORE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse ./baseline_orig.info $GENHTML_PORT $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml branch failed"
     status=1
@@ -853,8 +890,11 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-echo genhtml $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz $IGNORE
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file ./current.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz $GENHTML_PORT $IGNORE
+# just ignore the new diff file/version ID mismatch message -
+# obviously, some of the inputs here are cobbled together rather than
+# entirely generated by the numbers. Kind of painful to re-create everything
+echo genhtml $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz $IGNORE --ignore inconsistent,version
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz $GENHTML_PORT $IGNORE --ignore inconsistent,version
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml reverse_nobranch failed"
     status=1
@@ -955,10 +995,11 @@ echo "now some error checking and issue workaround tests..."
 sed -e "s#/simple/test#/badPath/test#g" diff.txt > diff_broken.txt
 
 # now run genhtml - expect to see an error:
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE > err.log 2>&1
+# skip new diff/version inconsistency message
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE --ignore inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee err.log
 
-if [ 0 == $? ] ; then
+if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR:  expected error but didn't see it"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
@@ -977,10 +1018,10 @@ fi
 
 
 # now run genhtml - expect to see an warning:
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE > warn.log 2>&1
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee warn.log 
 
-if [ 0 != $? ] ; then
+if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR:  expected warning but didn't see it"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
@@ -998,10 +1039,10 @@ if [ 0 != $? ] ; then
 fi
 
 # now use the 'elide' feature to avoid the error
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE > elide.log 2>&1
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE --ignore inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee elide.log
 
-if [ 0 != $? ] ; then
+if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR:  expected success but didn't see it"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
@@ -1470,8 +1511,8 @@ if [ 0 != $? ] ; then
 fi
 
 # check nonexistent --rc option (note minus on '-memory_percentage')
-echo genhtml $DIFFCOV_OPTS --output-directory ./errOut --rc -memory_percentage=50 baseline.info $IGNORE
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./errOut --rc -memory_percentage=50 baseline.info $IGNORE
+echo genhtml $DIFFCOV_OPTS --output-directory ./errOut --rc -memory_percentage=50 baseline_orig.info $IGNORE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./errOut --rc -memory_percentage=50 baseline_orig.info $IGNORE
 if [ 0 == $? ] ; then
     echo "ERROR: incorrect RC option not caught"
     status=1
@@ -1481,8 +1522,8 @@ if [ 0 == $? ] ; then
 fi
 
 # check --rc formating
-echo genhtml $DIFFCOV_OPTS --output-directory ./errOut --rc memory_percentage baseline.info $IGNORE
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./errOut --rc memory_percentage baseline.info $IGNORE
+echo genhtml $DIFFCOV_OPTS --output-directory ./errOut --rc memory_percentage baseline_orig.info $IGNORE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./errOut --rc memory_percentage baseline_orig.info $IGNORE
 if [ 0 == $? ] ; then
     echo "ERROR: incorrect RC option not caught"
     status=1
@@ -1492,8 +1533,8 @@ if [ 0 == $? ] ; then
 fi
 
 # skip both errors
-echo genhtml $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc -memory_percentage=50 baseline.info --ignore usage
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc percent=5 baseline.info --ignore usage $IGNORE
+echo genhtml $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc percent=5 baseline_orig.info --ignore usage $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: didn't ignore errors"
     status=1

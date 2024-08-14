@@ -265,8 +265,8 @@ fi
 for base in baseline_call baseline_nocall ; do
     for curr in current_call current_nocall ; do
         OUT=${base}_${curr}
-        echo genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info
-        $COVER $GENHTML_TOOL -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --elide-path
+        echo genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --ignore inconsistent
+        $COVER $GENHTML_TOOL -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --elide-path --ignore inconsistent
         if [ $? != 0 ] ; then
             echo "genhtml $OUT failed"
             if [ 0 == $KEEP_GOING ] ; then

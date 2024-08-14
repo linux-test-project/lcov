@@ -6338,6 +6338,13 @@ sub _filterFile
     my $path = ReadCurrentSource::resolve_path($source_file);
     lcovutil::info(1, "extractVersion($path) for $source_file\n")
         if $path ne $source_file;
+    # Note:  this is checking the version of the 'current' file - even if
+    #   we are actually reading the baseline version.
+    #   - This is what we want, as the 'baseline read' is actually recovering/
+    #     recreating the baseline source fromthe current source and the diff.
+    #   - We already checked that the diff and the coverage DB baseline/current
+    #     version data is consistent - so filtering will be accurate as long as
+    #     we see the right 'current' source version.
     my $fileVersion = lcovutil::extractFileVersion($path)
         if $srcReader->notEmpty();
     if (defined($fileVersion) &&

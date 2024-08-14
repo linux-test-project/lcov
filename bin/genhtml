@@ -3339,6 +3339,51 @@ sub dump_map
     return $self;
 }
 
+sub check_version_match
+{
+    my ($self, $baseline, $current) = @_;
+    return unless $lcovutil::versionCallback;
+
+    # skip files which were dropped (no longer in project) or were
+    #  just added to the project (was not in the baseline - so we aren't
+    #  looking for differences.
+    foreach my $curr ($current->files()) {
+        next unless $baseline->file_exists($curr);
+        my $currData     = $current->data($curr);
+        my $curr_version = $currData->version();
+        my $baseData     = $baseline->data($curr);
+        my $base_version = $baseData->version();
+
+        # silently compare version...
+        my $versionMatch =
+            lcovutil::checkVersionMatch($curr, $base_version, $curr_version,
+                                        "diff entry compare", 1);
+        if ($self->containsFile($curr)) {
+            # file is in 'diff' data:  we expect the version to be different
+            #   between baseline/current
+            if ($versionMatch) {
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                               "File \"$curr\" appears in 'diff' data file '" .
+                                   $self->[DIFF_FILENAME] .
+                                   "' but 'baseline' and 'current' versions '" .
+                                   ($curr_version ? $curr_version : '<undef>') .
+                                   "' match");
+            }
+        } else {
+            # not in 'diff':  we expect the versions to be identical
+            if (!$versionMatch) {
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                              "File \"$curr\" version changed from '" .
+                                  ($base_version ? $base_version : '<undef') .
+                                  "' to '" .
+                                  ($curr_version ? $curr_version : '<undef>') .
+                                  "' but file not found in 'diff' data file '" .
+                                  $self->[DIFF_FILENAME] . "'.");
+            }
+        }
+    }
+}
+
 sub check_path_consistency
 {
     # check that paths which appear in diff also appear in baseline or current
@@ -3349,6 +3394,11 @@ sub check_path_consistency
     my ($self, $baseline, $current) = @_;
     (ref($baseline) eq 'TraceFile' && ref($current) eq 'TraceFile') or
         die("wrong arg types");
+
+    # check that files which are in both baseline and current and are NOT
+    # in the 'diff' data have the same version.
+    # That is:  files whose version differs should appear in the diff data
+    $self->check_version_match($baseline, $current);
 
     my %diffMap;
     my %diffBaseMap;
