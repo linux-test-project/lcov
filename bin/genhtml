@@ -4250,7 +4250,9 @@ sub _countBranchTlaData
     $srcLine = $self->line($line);
     if (!defined($srcLine)) {
         lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                      "no data for 'branch' line:$line, file:" . $self->path());
+                       "no data for 'branch' line:$line, file:" . $self->path())
+            if (!$lcovutil::warn_once_per_file ||
+            lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE, $self->path()));
     } else {
         $srcLine->branchElem($differentialData);
         if (@SourceFile::annotateScript &&
@@ -4390,7 +4392,10 @@ sub _countLineTlaData
 
         if (!defined($l)) {
             lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                     "no data for line:$line, TLA:$tla, file:" . $self->path());
+                      "no data for line:$line, TLA:$tla, file:" . $self->path())
+                if (!$lcovutil::warn_once_per_file ||
+                    lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                        $self->path()));
             return;
         }
         # set the TLA of this line...
@@ -4722,7 +4727,10 @@ sub nextInDateBin
             my $a = $self->line($line)->age();
             if (!defined($a)) {
                 lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                           "no age data for line:$line, file:" . $self->path());
+                            "no age data for line:$line, file:" . $self->path())
+                    if (!$lcovutil::warn_once_per_file ||
+                        lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                            $self->path()));
                 return undef;
             }
             last
@@ -4744,13 +4752,19 @@ sub nextInDateBin
         my $l = $self->line($line);
         if (!defined($l)) {
             lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                               "no data for line:$line, file:" . $self->path());
+                                "no data for line:$line, file:" . $self->path())
+                if (!$lcovutil::warn_once_per_file ||
+                    lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                        $self->path()));
             return undef;
         }
         my $a = $l->age();
         if (!defined($a)) {
             lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                           "no age data for line:$line, file:" . $self->path());
+                            "no age data for line:$line, file:" . $self->path())
+                if (!$lcovutil::warn_once_per_file ||
+                    lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                        $self->path()));
             return undef;
         }
         my $bin = SummaryInfo::findAgeBin($a);
@@ -4791,14 +4805,20 @@ sub nextInOwnerBin
             my $l = $self->line($line);
             if (!defined($l)) {
                 lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                               "no data for line:$line, file:" . $self->path());
+                                "no data for line:$line, file:" . $self->path())
+                    if (!$lcovutil::warn_once_per_file ||
+                        lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                            $self->path()));
                 return undef;
             }
             my $t = $l->tla();
             my $o = $l->owner();
             if (!defined($o)) {
                 lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                         "no owber data for line:$line, file:" . $self->path());
+                          "no owber data for line:$line, file:" . $self->path())
+                    if (!$lcovutil::warn_once_per_file ||
+                        lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                            $self->path()));
                 return undef;
             }
             last
@@ -4843,13 +4863,19 @@ sub nextBranchInDateBin
         my $l    = $self->line($line);
         if (!defined($l)) {
             lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                               "no data for line:$line, file:" . $self->path());
+                                "no data for line:$line, file:" . $self->path())
+                if (!$lcovutil::warn_once_per_file ||
+                    lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                        $self->path()));
             next;
         }
         my $a = $l->age();
         if (!defined($a)) {
             lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                           "no age data for line:$line, file:" . $self->path());
+                            "no age data for line:$line, file:" . $self->path())
+                if (!$lcovutil::warn_once_per_file ||
+                    lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                        $self->path()));
             return undef;
         }
         my $bin = SummaryInfo::findAgeBin($a);
