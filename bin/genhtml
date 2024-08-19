@@ -5828,7 +5828,7 @@ sub _segment_worklist
             }
 
             my $p = File::Spec->catdir($main::output_directory, $rel_dir);
-            File::Path::make_path($p) unless -d $p;
+            File::Path::make_path($p) unless -d $p || $main::no_html;
             my $base_dir  = main::get_relative_base_path($rel_dir);
             my $trunc_dir = ($rel_dir eq '') ? 'root' : $rel_dir;
 
@@ -6196,6 +6196,7 @@ our $suppress_function_aliases;    # if set, don't show list of collapsed
                                    # function aliases
 our $merge_function_aliases;
 our $no_sourceview;     # If set, do not create a source code view for each file
+our $no_html;           # don't generate HTML if set
 our $legend;            # If set, include legend in output
 our $tab_size = 8;      # Number of spaces to use in place of tab
 our $html_prolog_file;  # Custom HTML prolog file (up to and including <body>)
@@ -6321,6 +6322,7 @@ my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        "num-spaces=i"      => \$tab_size,
                        "no-prefix"         => \$no_prefix,
                        "no-sourceview"     => \$no_sourceview,
+                       'no-html'           => \$no_html,
                        "show-details|s"    => \$show_details,
                        "frames|f"          => \$frames,
                        "highlight"         => \$deprecated_highlight,
@@ -6357,6 +6359,7 @@ lcovutil::ignorable_error($lcovutil::ERROR_DEPRECATED,
                           "option '--highlight' has been removed.")
     if ($deprecated_highlight);
 $buildSerializableDatabase = 1 if $serialize;
+$no_sourceview             = 1 if $no_html;
 
 # Copy related values if not specified
 $ln_hi_limit  = $hi_limit if (!defined($ln_hi_limit));
@@ -6967,10 +6970,11 @@ sub gen_html()
         }
     }
 
-    info(1, "Writing .css and .png files.\n");
-    write_css_file();
-    write_png_files();
-
+    unless ($no_html) {
+        info(1, "Writing .css and .png files.\n");
+        write_css_file();
+        write_png_files();
+    }
     if ($html_gzip) {
         info(1, "Writing .htaccess file.\n");
         write_htaccess_file();
@@ -7072,6 +7076,7 @@ sub write_summary_pages($$$$$$$$)
             $summary->remove_source($c);
         }
     }
+    return if $main::no_html;
     if (0 == $summary->sources() && $summaryType == 1) {
         # remove empty directory
         push(@cleanDirectoryList, $rel_dir);

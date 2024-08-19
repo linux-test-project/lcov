@@ -54,6 +54,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .IR dirname ]
 .br
 .RB [ \-\-no\-source ]
+.RB [ \-\-no\-html ]
+.br
 .RB [ \-\-num\-spaces
 .IR num ]
 .RB [ \-\-highlight ]
@@ -2444,6 +2446,18 @@ Use this switch if you don't want to get a source code view for each file.
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_no_source .
+
+.RE
+.B \-\-no\-html
+.RS
+Do not create HTML report.
+
+Use this switch if you want some artifact of coverage report generation -
+.I e.g.,
+the coverage criteria check or the serialized coverage DB,
+.B etc.
+- but do not need teh coverage report HTML itself.
+
 
 .RE
 .BI "\-\-num\-spaces " spaces
