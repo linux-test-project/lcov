@@ -396,6 +396,9 @@ eval {
         $data_stdout = 0;
         list();
     } elsif ($diff) {
+        lcovutil::ignorable_error($lcovutil::ERROR_DEPRECATED,
+            '"lcov --diff ..." is deprecated and will be removed in a future release.  Please see the "differential coverage" section in the genhtml manua for a more flexible alternative.'
+        );
         if (scalar(@ARGV) != 1) {
             die("option --diff requires one additional argument!\n" .
                 "Use $tool_name --help to get usage information\n");

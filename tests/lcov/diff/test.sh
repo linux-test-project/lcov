@@ -49,7 +49,7 @@ make -C old || die "Failed to compile old source"
 make -C new || die "Failed to compile new source"
 diff -u $PWD/old/prog.c $PWD/new/prog.c > diff
 
-$LCOV --diff old/prog.info diff --convert-filenames -o patched.info -t bla || \
+$LCOV --diff old/prog.info diff --convert-filenames -o patched.info -t bla --ignore deprecated || \
         die "Failed to apply patch to coverage data file"
 norminfo new/prog.info > new_normalized.info
 norminfo patched.info > patched_normalized.info

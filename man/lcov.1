@@ -258,6 +258,8 @@ Generate new tracefile from existing tracefile, modifying line numbers as indica
 .IR path ]
 .br
 .RE
+.br
+.B NOTE:  the \-\-diff option is deprecated and will be removed in a subsequent release - see below.
 .RE
 
 
@@ -699,6 +701,14 @@ Convert coverage data in
 .I tracefile
 using source code diff file
 .IR difffile .
+
+.B NOTE THAT THIS FEATURE IS DEPRECATED AND WILL BE REMOVED IN A SUBSEQUENT RELEASE.
+The converted coverage data may be misleading at best and is incorrect at worst - for example, inserted or modified code may have changed the reachability of unchanged regions.
+Please see the
+.I "differential coverage"
+section in
+.B man(1) genhtml
+for a more robust conversion and comparison methodology.
 
 Use this option if you want to merge coverage data from different source code
 levels of a program, e.g. when you have data taken from an older version
