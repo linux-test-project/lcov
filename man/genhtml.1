@@ -1939,6 +1939,27 @@ parameter; see man
 .B lcovrc(5)
 for details.
 
+The lcovrc controls
+.I owner_table_entries
+and
+.I truncate_owner_table
+can be used to improve readability by limiting the number of authors who are displayed in the table
+when the author number is large.
+For example, if your configuration is:
+.RS
+.PP
+.I owner_table_entries = 5
+.IP
+.PP
+.I truncate_owner_table = top,directory
+.PP
+.RE
+then the owner table displayed at the top- and directory-levels will be truncated while the table shown at the 'file' level will display the full list.
+
+See man
+.B lcovrc(5)
+for details.
+
 
 .RE
 .BI "\-\-show\-noncode "

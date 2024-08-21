@@ -371,6 +371,15 @@ branch_coverage = 0
 # which are not hit
 #genhtml_show_owner_table = 0 | 1 | all
 
+# truncate owner table to show at most this many authors -
+#  subset will be those with the highest count of un-exercised code
+# owner_table_entries = 5
+
+# truncate the owner table at this level/these levels only
+#  possible values are 'file', 'directory', 'top' (without quotes)
+#  option may be specified multiple times and/or as a comma-separated list
+# truncate_owner_table = top,directory,file
+
 # if enabled, show author of non-code source lines (e.g., comments)
 # in 'source' detail column
 #genhtml_show_noncode_owners = 0 | 1

@@ -1346,6 +1346,62 @@ for details.
 Default is 0.
 .PP
 
+.BR owner_table_entries " ="
+.IR integer
+.IP
+This option is used to tell genhtml the number of 'owner' table entries to
+retain in the summary table (at the top of the page) if owner table truncation is requested.  Authors are sorted by quantity of un-exercised code - so elided entries will be smaller offenders: maximal offenders are retained.
+If the option is not set, then owner tables are not truncated.
+
+This option has no effect unless
+.I "genhtml \-\-show\-owners"
+is enabled.
+See the
+.I \-\-show-owners
+option in
+.B genhtml(1)
+for details.
+
+.br
+
+Default is not set (
+.I i.e.,
+do not truncate owner tables).
+.PP
+
+.BR truncate_owner_table " ="
+.IR comma_separated_list
+.IP
+This option is used to tell genhtml whether to truncate the 'owner' table
+at the top, directory, or file level.
+This option acts together with the
+.I owner_table_entries
+parameter to determine how many author entries are retained.
+
+This option has no effect unless
+.I "genhtml \-\-show\-owners"
+is enabled and and the
+.I owner_table_entries
+configuration is set.
+
+If this option is set multiple times in the lcovrc file, the values are
+combined to form the list of levels where truncation will occur.
+Similarly, if this option is not set and
+.I owner_table_entries
+is set, then the table will be truncated everywhere.
+
+See the
+.I \-\-show-owners
+option in
+.B genhtml(1)
+for details.
+.br
+
+Default is to not truncate the list.
+.PP
+
+
+
 .BR genhtml_show_noncode_owners " ="
 .IR 0 | 1
 .IP
@@ -2526,7 +2582,7 @@ See the genhtml man page for details.
 This option is used to tell genhtml whether criteria callbacks should occur
 at the top, directory, or file level.
 
-If this option is appears multiple times in the lcovrc file; the values are combined to form the list of report levels when your callback will be executed.
+If this option is appears multiple times in the lcovrc file, the values are combined to form the list of report levels when your callback will be executed.
 
 See the genhtml man page for details.
 

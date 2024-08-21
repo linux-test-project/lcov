@@ -258,12 +258,12 @@ sub write_html(*$);
 sub write_html_prolog(*$$);
 sub write_html_epilog(*$;$);
 
-sub write_header(*$$$$$);
+sub write_header(*$$$$$$);
 sub write_header_prolog(*$);
 sub write_header_line(*@);
 sub write_header_epilog(*$);
 
-sub write_file_table(*$$$$$);
+sub write_file_table(*$$$$$$);
 sub write_file_table_prolog(*$$$@);
 sub write_file_table_entry(*$$@);
 sub write_file_table_detail_entry(*$$$$@);
@@ -358,6 +358,9 @@ our @defaultCutpoints = (7, 30, 180);
 our @cutpoints;
 our @ageGroupHeader;
 our %ageHeaderToBin;
+
+our @truncateOwnerTableLevels;    # default: truncate everywhere if enabled
+our $ownerTableElements;          # default: do not truncate
 
 use constant {
               TYPE          => 0,
@@ -824,7 +827,7 @@ sub findOwnerList
     #        branchCovData = [missed, total] or undef if not enabled
     #        functionCov = [missed, total] or undef if not enabled
     #   - sorted in descending order number of missed lines
-    my ($self, $all) = @_;
+    my ($self, $callback_type, $truncate_me, $all) = @_;
 
     my @owners;
     foreach my $owner (keys(%{$self->[LINE_DATA]->[OWNERS]})) {
@@ -867,7 +870,22 @@ sub findOwnerList
                            $b->[1]->[1] <=> $a->[1]->[1] ||    # then total
                            $a->[0] cmp $b->[0]
     } @owners);    # then by name
-    return scalar(@owners) ? \@owners : undef;
+    my $truncated;
+    if ($truncate_me                          &&
+        defined($ownerTableElements)          &&
+        $ownerTableElements < scalar(@owners) &&
+        (0 == scalar(@truncateOwnerTableLevels) ||
+            grep(/$callback_type/, @truncateOwnerTableLevels))
+    ) {
+        # don't truncate the 'primary' key owner table
+
+        $truncated = (scalar(@owners) - $ownerTableElements);
+        #lcovutil::info("truncating $truncated elements in header table\n");
+        splice(@owners, $ownerTableElements);
+    } else {
+        $truncated = 0;
+    }
+    return (scalar(@owners) ? \@owners : undef, $truncated);
 }
 
 sub append
@@ -1481,12 +1499,12 @@ sub summary
 
 sub findOwnerList
 {
-    my ($self, $all) = @_;
+    my $self = shift;
     # return [ [owner, lineCovData, branchCovData]] for each owner
     #  where lineCovData = [missedCount, totalCount, callback]
     #        branchCovData = [missed, total, callback] or undef if not enabled
     #   - sorted in descending order number of missed lines
-    return $self->summary()->findOwnerList($all);
+    return $self->summary()->findOwnerList(@_);
 }
 
 sub dateDetailCallback
@@ -6288,6 +6306,8 @@ my %genhtml_rc_opts = (
                "select_script"               => \@rc_select_script,
                'num_context_lines' => \$InInterestingRegion::num_context_lines,
                'genhtml_date_bins' => \@rc_date_bins,
+               'truncate_owner_table'       => \@truncateOwnerTableLevels,
+               'owner_table_entries'        => \$ownerTableElements,
                'genhtml_synthesize_missing' => \$synthesizeMissingFile,
                'scope_regexp'               => \$verboseScopeRegexp,);
 
@@ -6424,6 +6444,24 @@ if (@SourceFile::annotateScript) {
         @datebins = sort(keys %uniqify);
     }
     SummaryInfo::setAgeGroups(@datebins);
+
+    if (defined($show_ownerBins)) {
+        @truncateOwnerTableLevels =
+            split($lcovutil::split_char,
+                  join($lcovutil::split_char, @truncateOwnerTableLevels));
+        foreach my $l (@truncateOwnerTableLevels) {
+            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                "Unknown 'truncate_owner_table' level '$l': should be 'top', 'directory', or 'file'."
+            ) unless grep(/^$l$/, ('top', 'directory', 'file'));
+        }
+
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+            "Unsupported value 'owner_table_entries = $ownerTableElements': expected positive integer."
+            )
+            unless (!defined($ownerTableElements) ||
+                    (Scalar::Util::looks_like_number($ownerTableElements) &&
+                     0 < $ownerTableElements));
+    }
 } else {
     $treatNewFileAsBaseline = undef;
     die("\"--show-owners\" option requires \"--annotate-script\" for revision control integration"
@@ -7028,9 +7066,9 @@ sub html_create($$)
 #sub write_dir_page($$$$$$$;$)
 sub write_dir_page
 {
-    my ($ctrls, $page_suffix, $title, $rel_dir, $base_dir, $trunc_dir,
-        $summary, $perTestcaseResult)
-        = @_;
+    my ($callback_type, $ctrls, $page_suffix,
+        $title, $rel_dir, $base_dir,
+        $trunc_dir, $summary, $perTestcaseResult) = @_;
 
     my $bin_prefix = $ctrls->[3];
     # Generate directory overview page including details
@@ -7044,10 +7082,11 @@ sub write_dir_page
     $title .= " - " if ($trunc_dir ne "");
     write_html_prolog(*HTML_HANDLE, $base_dir, "LCOV - $title$trunc_dir");
     my $activeTlaColsForType =
-        write_header(*HTML_HANDLE, $ctrls, $trunc_dir, $rel_dir, $summary,
-                     undef);
+        write_header(*HTML_HANDLE, $callback_type, $ctrls, $trunc_dir,
+                     $rel_dir, $summary, undef);
     if (0 != $summary->sources()) {
-        write_file_table(*HTML_HANDLE, $base_dir, $perTestcaseResult,
+        write_file_table(*HTML_HANDLE, $callback_type, $base_dir,
+                         $perTestcaseResult,
                          $summary, $ctrls, $activeTlaColsForType);
     } else {
         my $msg =
@@ -7069,6 +7108,7 @@ sub write_summary_pages($$$$$$$$)
     my ($name, $summaryType, $summary, $show_details,
         $rel_dir, $base_dir, $trunc_dir, $testhashes) = @_;
 
+    my $callback_type = $summaryType == 1 ? 'directory' : 'top';
     foreach my $c ($summary->sources()) {
         my $child = $summary->get_source($c);
         # filter this one out if no data
@@ -7143,7 +7183,7 @@ sub write_summary_pages($$$$$$$$)
     }
 
     foreach my $params (@dirPageCalls) {
-        write_dir_page(@$params);
+        write_dir_page($callback_type, @$params);
         last    # only write 'index.html' - not the sorted versions
             if ($summary->is_empty());
     }
@@ -7182,6 +7222,7 @@ sub write_function_page($$$$$$$$$$$$$)
         File::Spec->catfile($trunc_dir, $base_name) . " - functions";
     write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
     write_header(*HTML_HANDLE,
+                 'file',    # function table always written from 'file' level
                  [4, 'name', $sort_type,],
                  File::Spec->catfile($trunc_dir, $base_name),
                  File::Spec->catfile($rel_dir, $base_name),
@@ -7317,6 +7358,7 @@ sub process_file($$$$$)
             File::Spec->catfile($trunc_dir, $base_name);
         write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
         write_header(*HTML_HANDLE,
+                     'file',
                      [2, 'name', 0],
                      File::Spec->catfile($trunc_dir, $base_name),
                      File::Spec->catfile($rel_dir, $base_name),
@@ -7707,7 +7749,7 @@ sub write_description_file($$)
     html_create(*HTML_HANDLE, "descriptions.$html_ext");
 
     write_html_prolog(*HTML_HANDLE, "", "LCOV - test case descriptions");
-    write_header(*HTML_HANDLE, [3, 'name', 0], "", "", $summary, undef);
+    write_header(*HTML_HANDLE, 'top', [3, 'name', 0], "", "", $summary, undef);
 
     write_test_table_prolog(*HTML_HANDLE,
                             "Test case descriptions - alphabetical list");
@@ -10518,14 +10560,19 @@ sub buildDateSummaryTable($$$$$$$$$)
     return \@table;
 }
 
-sub buildOwnerSummaryTable($$$$$$$$$)
+sub buildOwnerSummaryTable($$$$$$$$$$)
 {
-    my ($ownerList, $summary, $covType,
-        $fileDetail, $nextLocationCallback, $title,
-        $detailLink, $numRows, $activeTlaList) = @_;
+    my ($ownerList, $num_truncated, $summary,
+        $covType, $fileDetail, $nextLocationCallback,
+        $title, $detailLink, $numRows,
+        $activeTlaList) = @_;
 
     $title .= " (containing " .
         ($main::show_ownerBins ? "" : "un-exercised ") . "code)";
+    $title .=
+        ":  $num_truncated author" .
+        ($num_truncated == 1 ? '' : 's') . ' truncated'
+        if $num_truncated;
 
     $title =
         "<a href=\"$detailLink\" title=\"Click to include ownership details in file table\">$title</a>"
@@ -10731,10 +10778,12 @@ sub build_html_path($$$$$)
 #        list of all TLA types if user has asked not to suppress all-zero
 #        columns)
 
-sub write_header(*$$$$$)
+sub write_header(*$$$$$$)
 {
     local *HTML_HANDLE = shift;
-    my ($ctrl, $trunc_name, $rel_filename, $summary, $fileDetail) = @_;
+    my ($callback_type, $ctrl, $trunc_name, $rel_filename, $summary,
+        $fileDetail)
+        = @_;
     my ($type, $primary_key, $sort_type, $bin_type) = @$ctrl;
     my $base_dir;
     my $view;
@@ -11174,14 +11223,18 @@ END_OF_HTML
         # first, make sure there is owner data here (ie., owner data
         #   was collected, or both that there is owner data and some
         #   owners have uncovered code)
-        my $ownerList = $summary->findOwnerList($main::show_ownerBins &&
-                                                $main::show_ownerBins eq 'all');
+        # This it the header table - so we want to truncate the owner
+        #   list if it is too long (and the user asked us to)
+        my ($ownerList, $truncated) =
+            $summary->findOwnerList($callback_type, 1,
+                       $main::show_ownerBins && $main::show_ownerBins eq 'all');
         if (defined($ownerList)) {
             my $ownerBinDetailPage = "index-owner.$html_ext"
                 if $type != $HDR_SOURCE;
 
             my $table =
                 buildOwnerSummaryTable($ownerList,
+                                       $truncated,
                                        $summary,
                                        SummaryInfo::LINE_DATA,
                                        $fileDetail,
@@ -11196,6 +11249,7 @@ END_OF_HTML
             if ($lcovutil::br_coverage) {
                 my $br_table =
                     buildOwnerSummaryTable($ownerList,
+                                           $truncated,
                                            $summary,
                                            SummaryInfo::BRANCH_DATA,
                                            $fileDetail,
@@ -11348,7 +11402,7 @@ sub get_br_code($$$$$$)
 }
 
 #
-# write_file_table(filehandle, base_dir, perTestcaseData,
+# write_file_table(filehandle, callback_type, base_dir, perTestcaseData,
 #                  parentSummary, ctrlSettings, activeTlaCols)
 #   ctrlSettings = [fileview, sort_type, details_type, sort_name]
 #   perTestcaseData = [testhash, testfnchash, testbrhash]
@@ -11370,14 +11424,15 @@ sub get_br_code($$$$$$)
 # otherwise.
 #
 
-sub write_file_table(*$$$$$)
+sub write_file_table(*$$$$$$)
 {
     local *HTML_HANDLE = $_[0];
-    my $base_dir        = $_[1];
-    my $perTestcaseData = $_[2];    # undef or [lineCov, funcCov, branchCov]
-    my $dirSummary      = $_[3];    # SummaryInfo object
-    my ($fileview, $primary_key, $sort_type, $bin_type) = @{$_[4]};
-    my $activeTlaCols = $_[5];
+    my $callback_type   = $_[1];
+    my $base_dir        = $_[2];
+    my $perTestcaseData = $_[3];    # undef or [lineCov, funcCov, branchCov]
+    my $dirSummary      = $_[4];    # SummaryInfo object
+    my ($fileview, $primary_key, $sort_type, $bin_type) = @{$_[5]};
+    my $activeTlaCols = $_[6];
     # $fileview == 0 if listing directories, 1 if listing files
     # $primary_key in ("name", "owner", "date"). If $primary_key is:
     #   - 'name': leftmost column is file/directory name -
@@ -11570,6 +11625,17 @@ sub write_file_table(*$$$$$)
         } else {
             @sorted = sort(keys(%owners));
         }
+        # don't truncate the 'owner detail table'
+        #  if user asked to see the page, then they want to be able to navigate
+        #  to all users
+        #if (defined($ownderTableElements) &&
+        #    $ownerTableElements < scalar(@sorted)) &&
+        #    (0 == scalar(@truncateOwnerTableLevels) ||
+        #     grep(/$callback_type/, @truncateOwnerTableLevels)))) {
+        #    # truncate owner list in header table
+        #    splice(@sorted, $ownerTableElements);
+        #}
+
         foreach my $owner (@sorted) {
             push(@tableRows,
                  FileOrDirectoryOwnerCallback->new($owner, $dirSummary));
@@ -11623,7 +11689,12 @@ sub write_file_table(*$$$$$)
                     # do I need an option to suppress the list of owners?
                     #  maybe too much information, in some circumstances?
                     # are there any non-empty owner tables here?
-                    my $ownerList = $primaryCb->findOwnerList($all);
+                    # If user explicitly asks to see the 'owner detail' page,
+                    #  then they must be interested in which code is written by
+                    #   each author - so we should not truncate the list
+                    my ($ownerList, $runcated) =
+                        $primaryCb->findOwnerList($callback_type, 0, $all);
+                    die("unexpected truncate count") unless $runcated == 0;
                     push(@secondaryRows, @$ownerList)
                         if defined($ownerList);
                 }

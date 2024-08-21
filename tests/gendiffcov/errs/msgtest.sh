@@ -420,7 +420,7 @@ for i in `find mycache -type f` ; do
     echo $i
     echo xyz > $i
 done
-# have to ingore version mismatch becaure p4annotate also computes version
+# have to ignore version mismatch becaure p4annotate also computes version
 echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --ignore version
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --ignore version 2>&1 | tee cacheFail.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
@@ -695,6 +695,18 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+for err in "--rc truncate_owner_table=top,x" "--rc owner_table_entries=abc" "--rc owner_table_entries=-1" ; do
+    echo genhtml $DIFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --show-owners
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix $err --show-owners
+    if [ 0 == $? ] ; then
+        echo "ERROR: genhtml $err unexpectedly passed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
 
 echo "Tests passed"
 

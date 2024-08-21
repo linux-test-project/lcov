@@ -601,6 +601,56 @@ for opt in "" --dark-mode --flat ; do
       done
   fi
 
+  outDir=./differential_subset$opt
+  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $IGNORE $POPUP --rc truncate_owner_table=top,directory --rc owner_table_entries=2 --include '*simple*'
+  $COVER $GENHTML_TOOL $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT --save $IGNORE $POPUP --rc truncate_owner_table=top,directory --include '*simple*' --rc owner_table_entries=2
+  if [ 0 != $? ] ; then
+      echo "ERROR: genhtml subset $outDir failed"
+      status=1
+      if [ 0 == $KEEP_GOING ] ; then
+          exit 1
+      fi
+  fi
+  # expect to see owners 'henry.cox' and 'roderick.glossop'
+  # but not augustus.finknottle - who should have been truncated
+  OUT='augustus.finknottle'
+  FILES=$outDir/index.html
+  if [ -d $outDir/simiple/index.html ] ; then
+      FILES="$FILES $outDir/simiple/index.html"
+  fi
+  for FILE in $FILES ; do
+      for owner in henry.cox roderick.glossop ; do
+          grep $owner $FILE
+          if [ 0 != $? ] ; then
+              echo "ERROR: did not find $owner in $outDir $FILE annotations"
+              status=1
+              if [ 0 == $KEEP_GOING ] ; then
+                  exit 1
+              fi
+          fi
+      done
+      # expect to see note about truncation in the table view
+      grep '2 authors truncated' $FILE
+      if [ 0 != $? ] ; then
+          echo "ERROR: did not find truncation count in $FILE"
+          status=1
+          if [ 0 == $KEEP_GOING ] ; then
+              exit 1
+          fi
+      fi
+
+      for owner in augustus.finknottle ; do
+          grep $owner $FILE
+          if [ 0 == $? ] ; then
+              echo "ERROR: unexpectedly found $owner in $outDir $FILEannotations"
+              status=1
+              if [ 0 == $KEEP_GOING ] ; then
+                  exit 1
+              fi
+          fi
+      done
+  done # for each index file
+
 done
 
 
@@ -1019,7 +1069,7 @@ fi
 
 # now run genhtml - expect to see an warning:
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee warn.log 
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee warn.log
 
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR:  expected warning but didn't see it"
