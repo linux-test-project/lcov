@@ -1346,6 +1346,17 @@ for details.
 Default is 0.
 .PP
 
+.BR compact_summary_tables " ="
+.IR 0 | 1
+.IP
+If non\-zero, suppress the 'Total' row in the 'date' and 'owner' summary table if there is only one element in the corresponding bin.
+.br
+When there are a large number of files with a single author, this can cut the summary table size by almost half.
+.br
+
+Default is 1 (enabled).
+.PP
+
 .BR owner_table_entries " ="
 .IR integer
 .IP

@@ -361,6 +361,7 @@ our %ageHeaderToBin;
 
 our @truncateOwnerTableLevels;    # default: truncate everywhere if enabled
 our $ownerTableElements;          # default: do not truncate
+our $compactSummaryTables = 1;    # on by default
 
 use constant {
               TYPE          => 0,
@@ -6308,6 +6309,7 @@ my %genhtml_rc_opts = (
                'genhtml_date_bins' => \@rc_date_bins,
                'truncate_owner_table'       => \@truncateOwnerTableLevels,
                'owner_table_entries'        => \$ownerTableElements,
+               'compact_summary_tables'     => \$compactSummaryTables,
                'genhtml_synthesize_missing' => \$synthesizeMissingFile,
                'scope_regexp'               => \$verboseScopeRegexp,);
 
@@ -8053,6 +8055,20 @@ sub write_css_file()
           font-style: italic;
           font-weight: bold;
         }
+        /* table footnote */
+        td.footnote
+        {
+          text-align: left;
+          padding-left: 100px;
+          padding-right: 10px;
+          background-color: #COLOR_08; /* light blue table background color */
+          /* dark blue table header color
+          background-color: #COLOR_03; */
+          white-space: nowrap;
+          font-family: sans-serif;
+          font-style: italic;
+          font-size:70%;
+        }
         /* "Line coverage date bins" leader */
         td.subTableHeader
         {
@@ -8988,6 +9004,7 @@ END_OF_HTML
     # Next row
     if ($primary_key eq "name") {
         my $spanType = defined($bin_heading) ? "colspan" : "rowspan";
+        ++$num_columns;
         write_html($handle, <<END_OF_HTML);
             </tr>
 
@@ -9007,6 +9024,7 @@ END_OF_HTML
             $t            = $file_heading;
             $file_heading = $viewType;
         }
+        $num_columns += 2;
         write_html($handle, <<END_OF_HTML);
             </tr>
 
@@ -9066,6 +9084,7 @@ END_OF_HTML
     write_html($handle, <<END_OF_HTML);
             </tr>
 END_OF_HTML
+    return $num_columns;
 }
 
 sub escape_id($)
@@ -9115,8 +9134,8 @@ sub write_file_table_entry(*$$@)
     }
     my $obj_name = $esc_name
         .
-        ($fileSummary->type() eq 'directory' ?
-             escape_html($lcovutil::dirseparator) :
+        ($fileSummary->type() eq 'directory' &&
+             $primary_key eq 'name' ? escape_html($lcovutil::dirseparator) :
              '');
     my $namecode = $obj_name;
     my $owner;
@@ -9126,14 +9145,51 @@ sub write_file_table_entry(*$$@)
     $full_path = escape_html($full_path);
 
     # Add link to source if provided
+    my $source_link;
+    my $suppressFileHref =
+        $main::no_sourceview && $fileSummary->type() eq 'file';
+    if ($is_secondary == 2) {
+        if (defined($page_link) &&
+            $page_link ne "") {
+            # could use $fileSummary->name() in the popup
+            $source_link =
+                $suppressFileHref ? $obj_name :
+                ("<a href=\"$page_link\" title=\"Click to go to " .
+                 $fileSummary->type() . " $full_path\">$obj_name</a>");
+        } elsif (defined($file_link) &&
+                 $file_link ne "") {
+            my $target = $file_link;
+            if ($main::flat) {
+                $target =
+                    File::Spec->catfile($fileSummary->relativeDir(), $target);
+            }
+            if ($fileSummary->type() eq 'directory') {
+                $target = File::Basename::dirname($target);
+                $target = File::Basename::basename($target)
+                    if ($main::hierarchical);
+            }
+            $target = escape_html($target);
+            $source_link =
+                $suppressFileHref ? $target :
+                (
+                "<a href=\"$file_link\" title=\"Click to go to $full_path source detail\">"
+                    . $target . "</a>");
+        } else {
+            $source_link = $fileSummary->name();
+            $source_link = File::Basename::basename($source_link)
+                if ($main::hierarchical);
+            $source_link = escape_html($source_link);
+        }
+    }
     my $anchor = 'NAME';
     if (!$is_secondary &&
         defined($page_link) &&
         $page_link ne "") {
         # could use $fileSummary->name() in the popup
         $namecode =
-            "<a href=\"$page_link\" title=\"Click to go to " .
-            $fileSummary->type() . " $full_path\">$obj_name</a>";
+            $suppressFileHref ? $obj_name :
+            ("<a href=\"$page_link\" title=\"Click to go to " .
+             $fileSummary->type() . " $full_path\">$obj_name</a>");
         $owner = "";
     } elsif ($is_secondary &&
              $primary_key ne 'name' &&
@@ -9144,8 +9200,10 @@ sub write_file_table_entry(*$$@)
                 File::Spec->catfile($fileSummary->relativeDir(), $file_link);
         }
         $namecode =
+            $suppressFileHref ? $obj_name :
+            (
             "<a href=\"$file_link\" title=\"Click to go to $full_path source detail\">"
-            . $obj_name . "</a>";
+                . $obj_name . "</a>");
     } elsif ($is_secondary &&
              $primary_key ne 'name' &&
              $name eq $filename) {
@@ -9154,22 +9212,26 @@ sub write_file_table_entry(*$$@)
         $namecode = $obj_name;
     } elsif (defined($primary_key)) {
         $namecode = $obj_name;
-        # we want the the HREF anchor on the column 1 entry -
-        #   the column 0 entry may span many rows - so navigation to that
-        #   entry (e.g., to find all the files in the "(7..30] days" bin)
-        #   may be rendered such that the first element in the bin is not
-        #   visible (you have to scroll up to see it).
-        # the fix is to put the anchor in the next column
-        if ($primary_key eq 'owner') {
-            $anchor = '<a id="N' . escape_id($name) . '">NAME</a>';
-        } elsif ($primary_key eq 'date') {
-            die("unexpected bin")
-                unless (!$is_secondary &&
-                        exists($SummaryInfo::ageHeaderToBin{$name})) ||
-                (defined($cbData) && $cbData <= $#SummaryInfo::ageGroupHeader);
-            my $bin =
-                $is_secondary ? $cbData : $SummaryInfo::ageHeaderToBin{$name};
-            $anchor = "<a id=\"B$bin\">NAME</a>";
+        if (!$suppressFileHref) {
+            # we want the the HREF anchor on the column 1 entry -
+            #   the column 0 entry may span many rows - so navigation to that
+            #   entry (e.g., to find all the files in the "(7..30] days" bin)
+            #   may be rendered such that the first element in the bin is not
+            #   visible (you have to scroll up to see it).
+            # the fix is to put the anchor in the next column
+            if ($primary_key eq 'owner') {
+                $anchor = '<a id="N' . escape_id($name) . '">NAME</a>';
+            } elsif ($primary_key eq 'date') {
+                die("unexpected bin")
+                    unless (!$is_secondary &&
+                            exists($SummaryInfo::ageHeaderToBin{$name})) ||
+                    (defined($cbData) &&
+                     $cbData <= $#SummaryInfo::ageGroupHeader);
+                my $bin =
+                    $is_secondary ? $cbData :
+                    $SummaryInfo::ageHeaderToBin{$name};
+                $anchor = "<a id=\"B$bin\">NAME</a>";
+            }
         }
     }
 
@@ -9207,9 +9269,11 @@ sub write_file_table_entry(*$$@)
             my $relDir = $fileSummary->relativeDir();
             die("relative directory not set") unless $relDir;
             $namecode =
-                "<a href=\"" .
-                File::Spec->catfile($relDir, "$filename.gcov.$html_ext") .
-                "\" title=\"Click to go to $esc_name source detail\">$obj_name</a>";
+                $suppressFileHref ? $obj_name :
+                ("<a href=\"" .
+                    File::Spec->catfile($relDir, "$filename.gcov.$html_ext") .
+                    "\" title=\"Click to go to $esc_name source detail\">$obj_name</a>"
+                );
         } else {
             # link to the entry in date/owner 'summary' table (keyed other way up)
             $namecode = "<a href=\"";
@@ -9241,11 +9305,58 @@ sub write_file_table_entry(*$$@)
                 "\" title=\"go to coverage summary for $help\">$obj_name</a>";
         }
     }
+    write_html($handle, "            <tr>\n");
+    my $elide_note = '';
+    if ($is_secondary == 2) {
+        die("unexpected cbData for $page_type, $primary_key, $name, " .
+            (defined($cbData) ? $cbData : 'undef'))
+            unless ($page_type eq 'owner' ||
+                    ($page_type eq 'date' &&
+                     ((defined($cbData) &&
+                       $cbData <= $#SummaryInfo::ageGroupHeader) ||
+                      (!defined($cbData) &&
+                        exists($SummaryInfo::ageHeaderToBin{$name})))));
+        my $entry;
+        if ($primary_key eq 'name') {
+            die("source_link undefined: "
+                    .
+                    (
+                    defined($fileSummary) ?
+                        (
+                        $fileSummary->type() . " $name:" . $fileSummary->name())
+                    :
+                        "")) unless defined($source_link);
+            $entry = $source_link;
+        } else {
+            # select the appropriate bin...
+            my $id =
+                defined($cbData) ?
+                ($page_type eq 'owner' ? $cbData :
+                     $SummaryInfo::ageGroupHeader[$cbData]) :
+                $name;
+            # need an anchor here - this is the destination of an HREF from
+            #  the header 'owner' or 'date' summary table
+            $entry = '<a id="';
+            if ($page_type eq 'owner') {
+                $entry .= 'N' . $id;
+            } else {
+                die("unexepected page type $page_type")
+                    unless $page_type eq 'date';
+                $entry .= 'B' . $SummaryInfo::ageHeaderToBin{$id};
+            }
+            $entry .= "\">$id</a>";
+        }
+        my $class =
+            $primary_key eq 'name' ?
+            ($fileSummary->type() eq 'directory' ? 'coverDirectory' :
+                 'coverFile') :
+            'ownerName';
+        write_html($handle, "              <td class=\"$class\">$entry</td>\n");
+        $elide_note = '<sup>&lowast;&lowast;</sup>';
+    }
     my $span = (1 == $rowspan) ? "" : " rowspan=$rowspan";
-    write_html($handle, <<END_OF_HTML);
-            <tr>
-              <td class="$nameClass"$span>$namecode</td>
-END_OF_HTML
+    write_html($handle,
+     "              <td class=\"$nameClass\"$span>$namecode$elide_note</td>\n");
 
     # no 'owner' column if the entire directory is not part of the project
     #  (i.e., no files in this directory are in the repo)
@@ -9255,7 +9366,7 @@ END_OF_HTML
             !$is_secondary)
     ) {
         $anchor =~ s/NAME/Total/;
-        $anchor .= "<sup>" . escape_html($asterisk) . "</sup>"
+        $anchor .= "<sup>$asterisk</sup>"
             if defined($asterisk);
         write_html($handle, <<END_OF_HTML);
               <td class="overallOwner">$anchor</td>
@@ -11487,6 +11598,8 @@ sub write_file_table(*$$$$$$)
                               $bin_type, $primary_key, $base_dir);
 
     my @head_columns;
+    my $includeFunctionColumns =
+        $lcovutil::func_coverage && 'owner' ne $primary_key;
 
     my @lineCovCols     = (["Rate", 2], "Total");
     my @branchCovCols   = ("Rate", "Total");
@@ -11502,7 +11615,7 @@ sub write_file_table(*$$$$$$)
         push(@visit, [SummaryInfo::BRANCH_DATA, \@branchCovCols])
             if $lcovutil::br_coverage;
         push(@visit, [SummaryInfo::FUNCTION_DATA, \@functionCovCols])
-            if $lcovutil::func_coverage;
+            if $includeFunctionColumns;
         foreach my $d (@visit) {
             my ($covtype, $cols) = @$d;
             foreach my $tla (@{$activeTlaCols->{$covtype}}) {
@@ -11523,7 +11636,7 @@ sub write_file_table(*$$$$$$)
     push(@head_columns, [$br_code, $#branchCovCols + 1, \@branchCovCols])
         if ($lcovutil::br_coverage);
     push(@head_columns, [$func_code, $#functionCovCols + 1, \@functionCovCols])
-        if ($lcovutil::func_coverage);
+        if $includeFunctionColumns;
 
     my $showBinDetail = undef;
     if ($bin_type eq '-date' &&
@@ -11535,9 +11648,10 @@ sub write_file_table(*$$$$$$)
              $dirSummary->hasOwnerInfo()) {
         $showBinDetail = 'owner';
     }
-    write_file_table_prolog(*HTML_HANDLE, $file_code,
-                            defined($showBinDetail) ? $showBinDetail : undef,
-                            $primary_key, @head_columns);
+    my $num_columns =
+        write_file_table_prolog(*HTML_HANDLE, $file_code,
+                               defined($showBinDetail) ? $showBinDetail : undef,
+                               $primary_key, @head_columns);
 
     my @tableRows;
     if ($primary_key eq 'name') {
@@ -11662,15 +11776,17 @@ sub write_file_table(*$$$$$$)
     }
 
     my $all = defined($main::show_ownerBins) && $main::show_ownerBins eq 'all';
-    my $useAsterisk = 0;
+    # show only the 'Total' row if all row entries are suppressed
+    #  because they have no un-exercised coverpoints
+    my $elideEmptyRows = 0;
     if ($primary_key eq 'owner') {
-        $useAsterisk = $main::show_ownerBins ne 'all';
+        $elideEmptyRows = $main::show_ownerBins ne 'all';
     } elsif ($primary_key eq 'date') {
-        $useAsterisk = 1;
+        $elideEmptyRows = 1;
     }
-    my $needAsterisk = 0;
-    my $asterisk_note =
-        "<sup>&lowast;</sup> 'Detail' entries with no 'missed' coverpoints are elided.";
+    my $suppressedEmptyRow = 0;
+    # if only one secondary entry, we don't need the 'Total' header
+    my $suppressedSecondaryHeader = 0;
 
     foreach my $primaryCb (@tableRows) {
 
@@ -11692,9 +11808,9 @@ sub write_file_table(*$$$$$$)
                     # If user explicitly asks to see the 'owner detail' page,
                     #  then they must be interested in which code is written by
                     #   each author - so we should not truncate the list
-                    my ($ownerList, $runcated) =
+                    my ($ownerList, $truncated) =
                         $primaryCb->findOwnerList($callback_type, 0, $all);
-                    die("unexpected truncate count") unless $runcated == 0;
+                    die("unexpected truncate count") unless $truncated == 0;
                     push(@secondaryRows, @$ownerList)
                         if defined($ownerList);
                 }
@@ -11791,34 +11907,40 @@ sub write_file_table(*$$$$$$)
                  ]);
         }
         # Function coverage
-        if ($lcovutil::func_coverage) {
+        if ($includeFunctionColumns) {
             # no 'owner' callbacks for function...
-            my $cbStruct = $primaryCb->totalCallback(SummaryInfo::FUNCTION_DATA)
-                if ('owner' ne $primary_key);
+            my $cbStruct =
+                $primaryCb->totalCallback(SummaryInfo::FUNCTION_DATA);
+
             push(@columns,
                  [$fn_found, $fn_hit, $fn_med_limit, $fn_hi_limit, 0,
                   $cbStruct, SummaryInfo::FUNCTION_DATA
                  ]);
         }
-        # pass 'dirSummary' to print method:  we omit the 'owner' column if
-        #  none of the files in this directory have any owner information
-        #  (i.e., none of them are found in the repo)
-        my $numRows = (1 + scalar(@secondaryRows));
-        my $asterisk;
-        if ($useAsterisk && 1 == $numRows) {
-            $asterisk     = '*';
-            $needAsterisk = 1;
+        my $elide_secondary_header =
+            $compactSummaryTables && (scalar(@secondaryRows) == 1);
+        $suppressedSecondaryHeader ||= $elide_secondary_header;
+        if (!$elide_secondary_header) {
+            # pass 'dirSummary' to print method:  we omit the 'owner' column if
+            #  none of the files in this directory have any owner information
+            #  (i.e., none of them are found in the repo)
+            my $numRows = (1 + scalar(@secondaryRows));
+            my $asterisk;
+            if ($elideEmptyRows && 1 == $numRows) {
+                $asterisk           = '&lowast;';
+                $suppressedEmptyRow = 1;
+            }
+            write_file_table_entry(*HTML_HANDLE,
+                                   $base_dir,
+                                   [$primaryCb->name(), \@tableCallbackData,
+                                    $activeTlaCols, $numRows,
+                                    $primary_key, 0,
+                                    $fileview, "fileOrDir",
+                                    $page_link, $dirSummary,
+                                    $showBinDetail, $asterisk
+                                   ],
+                                   @columns);
         }
-        write_file_table_entry(*HTML_HANDLE,
-                               $base_dir,
-                               [$primaryCb->name(), \@tableCallbackData,
-                                $activeTlaCols, $numRows,
-                                $primary_key, 0,
-                                $fileview, "fileOrDir",
-                                $page_link, $dirSummary,
-                                $showBinDetail, $asterisk
-                               ],
-                               @columns);
 
         # sort secondary rows...
         if ($sort_type == $SORT_FILE) {
@@ -11866,7 +11988,7 @@ sub write_file_table(*$$$$$$)
                       SummaryInfo::BRANCH_DATA
                      ]);
             }
-            if ($lcovutil::func_coverage) {
+            if ($includeFunctionColumns) {
                 my ($funcMissed, $funcTotal, $funcCallback) = @$func;
                 # need to compute the totals...
                 push(@ownerColData,
@@ -11884,10 +12006,14 @@ sub write_file_table(*$$$$$$)
             }
             write_file_table_entry(*HTML_HANDLE, $base_dir,
                                    # 'owner' page type - no span, no page link
-                                   [$name, $fileInfo,
-                                    $activeTlaCols, 1,
-                                    $primary_key, 1,
-                                    $fileview, $entry_type,
+                                   [$name,
+                                    $fileInfo,
+                                    $activeTlaCols,
+                                    1,
+                                    $primary_key,
+                                    1 + $elide_secondary_header,
+                                    $fileview,
+                                    $entry_type,
                                    ],
                                    @ownerColData);
         }
@@ -11958,11 +12084,27 @@ sub write_file_table(*$$$$$$)
                                $href, $showBinDetail, $activeTlaCols, @results);
         }
     }
+    foreach my $note (
+        [   $suppressedEmptyRow,
+            "<sup>&lowast;</sup> 'Detail' entries with no 'missed' coverpoints are elided."
+        ],
+        [   $suppressedSecondaryHeader,
+            '<sup>&lowast;&lowast;</sup> Bin \'Total\' header elided when bin contains only one entry.'
+        ],
+        [   !$includeFunctionColumns,
+            "Note:  'Function Coverage' columns elided as function owner is not identified."
+        ]
+    ) {
+        next unless $note->[0];
+        write_html(*HTML_HANDLE, <<END_OF_HTML);
+        <tr>
+          <td class="footnote" colspan=$num_columns>$note->[1]</td>
+         </tr>
+END_OF_HTML
+
+    }
 
     write_file_table_epilog(*HTML_HANDLE);
-    if ($needAsterisk) {
-        write_html(*HTML_HANDLE, "$asterisk_note\n");
-    }
 }
 
 #
