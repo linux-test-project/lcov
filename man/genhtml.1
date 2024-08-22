@@ -2798,12 +2798,43 @@ Unexpected syntax found in .info file.
 .PP
 
 .IP inconsistent: 3
+This error indicates that your coverage data is internally inconsistent:  it makes two or more mutually exclusive claims.  For example:
+.RS
+.IP \- 3
 Files have been moved or repository history presented by
 .B \-\-diff\-file
 data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' data compared to the 'baseline' and 'current' coverage data (e.g., using different source versions to collect the data but incorrectly annotating those differences), or by inconsistent treatment in the 'annotate' script.
 Consider using a
 .B \-\-version\-script
 to guard against version mismatches.
+.PP
+.IP \- 3
+Two or more
+.B gcov
+data files or
+.B lcov
+".info" files report different end lines for the same function.  This is likely due either to a gcc/gcov bug or to a source version mismatch.
+.br
+In this context, if the
+.I "inconsistent"
+error is ignored, then the tool will record the largest number as the function end line.
+.PP
+.IP \- 3
+Two or more
+.B gcov
+data files or
+.B lcov
+".info" files report different start lines for the same function.  This is likely due either to a gcc/gcov bug or to a source version mismatch.
+.br
+In this context, if the
+.I "inconsistent"
+error is ignored, then the tool will retain only the first function definition that it saw.
+.PP
+.PP \- 3
+Negative number or zero line number encounted.
+.br
+If the error is ignored, the offending record is skipped.
+.RE
 .PP
 
 .IP internal: 3

@@ -4120,20 +4120,27 @@ sub define_function
     my $data;
     if (exists($locationMap->{$start_line})) {
         $data = $locationMap->{$start_line};
-        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                  "mismatched end line for $fnName at " .
-                                      $self->filename() . ":$start_line: "
-                                      .
-                                      (defined($data->end_line()) ?
-                                           $data->end_line() : 'undef') .
-                                      " -> "
-                                      .
-                                      (defined($end_line) ? $end_line : 'undef')
-            )
-            unless ((defined($end_line) &&
-                     defined($data->end_line()) &&
-                     $end_line == $data->end_line()) ||
-                    (!defined($end_line) && !defined($data->end_line())));
+        unless ((defined($end_line) &&
+                 defined($data->end_line()) &&
+                 $end_line == $data->end_line()) ||
+                (!defined($end_line) && !defined($data->end_line()))
+        ) {
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                      "mismatched end line for $fnName at " .
+                                          $self->filename() . ":$start_line: "
+                                          .
+                                          (defined($data->end_line()) ?
+                                               $data->end_line() : 'undef') .
+                                          " -> "
+                                          .
+                                          (defined($end_line) ? $end_line :
+                                               'undef'));
+            # pick the highest end line if we didn't error out
+            $data->set_end_line($end_line)
+                if (defined($end_line) &&
+                    (!defined($data->end_line()) ||
+                     $end_line > $data->end_line()));
+        }
     } else {
         $data = FunctionEntry->new($fnName, $self, $start_line, $end_line);
         $locationMap->{$start_line} = $data;
