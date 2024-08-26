@@ -819,9 +819,9 @@ sub save_cmd_line($$)
     $lcovutil::profileData{config}{buildDir} = Cwd::getcwd();
 }
 
-sub save_profile($)
+sub save_profile($@)
 {
-    my ($dest) = @_;
+    my ($dest, $html) = @_;
 
     if (defined($lcovutil::profile)) {
         $lcovutil::profileData{config}{maxParallel} = $maxParallelism;
@@ -851,6 +851,34 @@ sub save_profile($)
             close(JSON) or die("unable to close $dest: $!\n");
         } else {
             warn("unable to open profile output $dest: '$!'\n");
+        }
+
+        # only generate the extra data if profile enabled
+        if ($html) {
+
+            my $leader =
+                '<object data="https://www.w3.org/TR/PNG/iso_8859-1.txt" width="300" height="200">'
+                . "\n";
+            my $tail = "</object>\n";
+
+            my $outDir = File::Basename::dirname($html);
+            open(CMD, '>', File::Spec->catfile($outDir, 'cmdline.html')) or
+                die("unable to create cmdline.html: $!");
+            print(CMD $leader, $lcovutil::profileData{config}{cmdLine},
+                  "\n", $tail);
+            close(CMD) or die("unable to close cmdline.html: $!");
+
+            # and the profile data
+            open(PROF, '>', $html) or die("unable to create $html: $!");
+            print(PROF $leader);
+
+            open(IN, '<', $dest) or die("unable to open $dest: $!");
+            while (<IN>) {
+                print(PROF $_);
+            }
+            close(IN) or die("unable to close $dest: $!");
+            print(PROF "\n", $tail);
+            close(PROF) or die("unable to close cmdline.html: $!");
         }
     }
 }

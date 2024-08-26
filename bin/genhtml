@@ -6705,7 +6705,9 @@ if ($serialize) {
 }
 
 lcovutil::cleanup_callbacks();
-lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'));
+lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'),
+                       File::Spec->catfile($output_directory, 'profile.html'));
+
 # exit with non-zero status if --keep-going and some errors detected
 $exit_status = 1
     if (0 == $exit_status && lcovutil::saw_error());
@@ -8926,7 +8928,7 @@ sub write_header_line(*@)
         $str .= $text
             if defined($text);
         $str .= "</td>\n";
-        # so 'str' looke like '<td width="value" colspan="value">whatever</td>'
+        # so 'str' looked like '<td width="value" colspan="value">whatever</td>'
         write_html($handle, $str);
     }
     write_html($handle, "          </tr>\n");    # then end the row
@@ -11056,6 +11058,24 @@ sub write_header(*$$$$$$)
         push(@row_left,
              [[undef, "headerItem", "Baseline Date:"],
               [undef, "headerValue", $baseline_date]
+             ]);
+    }
+    # if top-level page, link to command line and profile
+    if ($summary->type() eq 'top' &&
+        $bin_type eq ''        &&
+        $primary_key eq 'name' &&
+        defined($lcovutil::profile)) {
+
+        push(@row_left,
+             [[undef, 'headerItem', 'genhtml Process:'],
+              [undef, 'headerValue',
+               '<span><a href="cmdline.html">Command Line</a></span>'
+              ]
+             ],
+             [[undef, 'headerItem', ''],    #blank
+              [undef, 'headerValue',
+               '<span><a href="profile.html">Profile Data</a></span>'
+              ]
              ]);
     }
     if ($type != $HDR_SOURCE &&

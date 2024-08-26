@@ -1278,7 +1278,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-NAME=`(cd select2 ; ls *.html)`
+NAME=`(cd select2 ; ls *.html | grep -v -E '(cmdline|profile)')`
 if [ "index.html" != "$NAME" ] ; then
     echo "ERROR: expected to find only one HTML file"
     status=1
