@@ -6650,11 +6650,18 @@ if ($output_directory && !-d $output_directory) {
 
 if ($save && $output_directory)
 {    # save copy of .info and diff files: useful for debugging user cases later
-    foreach my $from (@base_filenames, $diff_filename, @info_filenames) {
-        next unless defined($from);
-        my $to = File::Spec->catfile($output_directory,
-                                     File::Basename::basename($from));
-        File::Copy::copy($from, $to) unless -f $to;
+    foreach my $d (['baseline_', @base_filenames],
+                   ['', $diff_filename],
+                   ['current_', @info_filenames]
+    ) {
+        my $prefix = shift @$d;
+        $prefix = '' unless @base_filenames;
+        foreach my $from (@$d) {
+            next unless defined($from);
+            my $to = File::Spec->catfile($output_directory,
+                                     $prefix . File::Basename::basename($from));
+            File::Copy::copy($from, $to) unless -f $to;
+        }
     }
 }
 
