@@ -258,7 +258,7 @@ sub write_html(*$);
 sub write_html_prolog(*$$);
 sub write_html_epilog(*$;$);
 
-sub write_header(*$$$$$$);
+sub write_header(*$$$$$$$);
 sub write_header_prolog(*$);
 sub write_header_line(*@);
 sub write_header_epilog(*$);
@@ -1453,7 +1453,8 @@ sub page_link
         $page_link =~ s/^$lcovutil::dirseparator//;
         $page_link .= $lcovutil::dirseparator . "index";
     }
-    return $page_link . '.' . $main::html_ext;
+    $page_link .= '.' . $main::html_ext;
+    return $lcovutil::case_insensitive ? lc($page_link) : $page_link;
 }
 
 sub data
@@ -1669,6 +1670,7 @@ sub secondaryElementFileData
             if $main::frames;
         $page_link .= $main::html_ext;
     }
+    $page_link = lc($page_link) if $lcovutil::case_insensitive;
     # pass owner in callback data
     my $sourceFile = $sourceSummary->fileDetails()
         if 'file' eq $sourceSummary->type();
@@ -1792,6 +1794,7 @@ sub secondaryElementFileData
             if $main::frames;
         $page_link .= $main::html_ext;
     }
+    $page_link = lc($page_link) if $lcovutil::case_insensitive;
     # pass bin index in callback data
     my $sourceFile = $sourceSummary->fileDetails()
         if 'file' eq $sourceSummary->type();
@@ -3206,9 +3209,9 @@ sub findName
             $self->[DIFF_ROOT];
         $p .= $lcovutil::dirseparator;
         my $l = length($p);
-        my $s = substr($f, $l);
         if (length($f) > $l &&
             $p eq substr($f, 0, $l)) {
+            my $s = substr($f, $l);
             if (exists($self->[LINEMAP]->{$s})) {
                 $f = $s;
             } elsif (exists($self->[ALIASES]->{$s})) {
@@ -5088,7 +5091,8 @@ sub _load
              0 == scalar(@lcovutil::extractVersionScript) &&
              !lcovutil::is_filter_enabled())
         ) {
-            $self->_synthesize($countdata);
+            $self->_synthesize($countdata,
+                               defined($SourceFile::annotateCallback));
             my $end = Time::HiRes::gettimeofday();
             $lcovutil::profileData{synth}{$self->path()} = $end - $begin;
             return $self;
@@ -5098,7 +5102,7 @@ sub _load
         );
     }
     $self->_bare_load($path);
-    $self->_synthesize($countdata);
+    $self->_synthesize($countdata, defined($SourceFile::annotateCallback));
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{load}{$self->path()} = $end - $begin;
     return $self;
@@ -5156,8 +5160,8 @@ sub _synthesize
             exists($ENV{SOURCE_DATE_EPOCH}) ?
             DateTime->from_epoch(epoch => $ENV{SOURCE_DATE_EPOCH}) :
             DateTime->now();
-        push(@fakeline, 'no.body',                # owner
-             'fake user',                         # full name
+        push(@fakeline, 's.n.thetic',             # owner
+             'faked synthetic user',              # full name
              $now,                                # when
              _computeAge($now, $self->path()),    # age
              'synthesized');    # commit ID
@@ -5845,7 +5849,7 @@ sub _segment_worklist
                 $rel_dir       = '.';
                 $full_dir_path = '.';
             }
-
+            $rel_dir = lc($rel_dir) if ($lcovutil::case_insensitive);
             my $p = File::Spec->catdir($main::output_directory, $rel_dir);
             File::Path::make_path($p) unless -d $p || $main::no_html;
             my $base_dir  = main::get_relative_base_path($rel_dir);
@@ -6315,6 +6319,7 @@ my %genhtml_rc_opts = (
 
 my $save;
 my $serialize;
+
 my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        "header-title=s"       => \$header_title,
                        "footer=s"             => \$footer,
@@ -7062,6 +7067,7 @@ sub html_create($$)
 {
     my $handle   = $_[0];
     my $filename = File::Spec->catfile($output_directory, $_[1]);
+    $filename = lc($filename) if $lcovutil::case_insensitive;
 
     if ($html_gzip) {
         open($handle, "|-", "gzip -c > $filename'") or
@@ -7094,7 +7100,7 @@ sub write_dir_page
     write_html_prolog(*HTML_HANDLE, $base_dir, "LCOV - $title$trunc_dir");
     my $activeTlaColsForType =
         write_header(*HTML_HANDLE, $callback_type, $ctrls, $trunc_dir,
-                     $rel_dir, $summary, undef);
+                     $rel_dir, $summary, undef, undef);
     if (0 != $summary->sources()) {
         write_file_table(*HTML_HANDLE, $callback_type, $base_dir,
                          $perTestcaseResult,
@@ -7152,15 +7158,33 @@ sub write_summary_pages($$$$$$$$)
 
     my $start = Time::HiRes::gettimeofday();
     my @summaryBins;
-    push(@summaryBins, 'owner') if defined($main::show_ownerBins);
+    if (defined($main::show_ownerBins)) {
+        if (0 != scalar($summary->owners(
+                                   $main::show_ownerBins, SummaryInfo::LINE_DATA
+            ))
+            ||
+            (   $lcovutil::br_coverage &&
+                0 != scalar($summary->owners(
+                                 $main::show_ownerBins, SummaryInfo::BRANCH_DATA
+                )))
+        ) {
+            # at least one owner will appear - so table will be referenced
+            push(@summaryBins, 'owner');
+        } else {
+            lcovutil::info(1,
+                   $summary->name() . " has no visible owners..eliding page\n");
+        }
+    }
     push(@summaryBins, 'date') if defined($main::show_dateBins);
 
+    my $singleSource = 1 == scalar($summary->sources());
     my @dirPageCalls;
     foreach my $sort_type (@main::fileview_sortlist) {
         my @ctrls = ($summaryType,    # 1 == 'list files'
                      "name",          # primary key
-                     $sort_type, "");
+                     $sort_type, "", $singleSource);
         my $sort_str = $main::fileview_sortname[$sort_type];
+        # 'fileview prefixes' is ('', '-date', '-owner)
         foreach my $bin_prefix (@main::fileview_prefixes) {
             # Generate directory overview page (without details)
             # no per-testcase data in this page...
@@ -7184,6 +7208,16 @@ sub write_summary_pages($$$$$$$$)
         }
         $ctrls[3] = "";    # no bin...
         foreach my $primary_key (@summaryBins) {
+            # we don't associate function owner - so we elide 'function' columns in the
+            #  'owner detail' pages - and thus won't create a sort-by-function link.
+            #  Don't generate the unreferenced page
+            next if $sort_type == $SORT_FUNC && $primary_key eq 'owner';
+            # we elide the 'line' sort links for date/owner page if there
+            #  is only one file
+            next
+                if $sort_type == $SORT_LINE &&
+                $primary_key ne 'name' &&
+                scalar($summary->sources()) < 2;
             $ctrls[1] = $primary_key;
             my @copy = @ctrls;
             push(@dirPageCalls,
@@ -7191,6 +7225,7 @@ sub write_summary_pages($$$$$$$$)
                   $test_title, $rel_dir, $base_dir, $trunc_dir, $summary
                  ]);
         }
+        last if $singleSource;
     }
 
     foreach my $params (@dirPageCalls) {
@@ -7204,13 +7239,12 @@ sub write_summary_pages($$$$$$$$)
 
 sub write_function_page($$$$$$$$$$$$$)
 {
+    # Generate function table for this file
     my ($fileCovInfo, $base_dir, $rel_dir, $trunc_dir, $base_name,
         $title, $sumcount, $funcdata, $testfncdata, $sumbrcount,
         $testbrdata, $sort_type, $summary) = @_;
-    my $pagetitle;
+    # $fileCovInfo is array [function hash, line hash, branch hash]
     my $filename;
-
-    # Generate function table for this file
     if ($sort_type == $main::SORT_FILE) {
         $filename = File::Spec->catfile($rel_dir, "$base_name.func.$html_ext");
     } elsif ($sort_type == $main::SORT_LINE) {
@@ -7224,12 +7258,14 @@ sub write_function_page($$$$$$$$$$$$$)
     } else {
         die("Unexpected sort $sort_type")
             unless ($sort_type == $main::SORT_MISSING_BRANCH);
+        # don't emit page if there are no branches in the file
+        return unless %{$fileCovInfo->[2]};
         # by declaration line number
         $filename =
             File::Spec->catfile($rel_dir, "$base_name.func-b.$html_ext");
     }
     html_create(*HTML_HANDLE, $filename);
-    $pagetitle = "LCOV - $title - " .
+    my $pagetitle = "LCOV - $title - " .
         File::Spec->catfile($trunc_dir, $base_name) . " - functions";
     write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
     write_header(*HTML_HANDLE,
@@ -7237,8 +7273,7 @@ sub write_function_page($$$$$$$$$$$$$)
                  [4, 'name', $sort_type,],
                  File::Spec->catfile($trunc_dir, $base_name),
                  File::Spec->catfile($rel_dir, $base_name),
-                 $summary,
-                 undef);
+                 $summary, undef, $funcdata->[0]);
     write_function_table(*HTML_HANDLE, $fileCovInfo,
                          "$base_name.gcov.$html_ext", $sumcount,
                          $funcdata, $testfncdata,
@@ -7363,6 +7398,21 @@ sub process_file($$$$$)
     # source code view
     if (!$no_sourceview) {
         # Generate source code view for this file
+        my $differentialFunctionMap;
+        if ($lcovutil::func_coverage) {
+            $differentialFunctionMap = $fileCovInfo->functionMap();
+            if ($SummaryInfo::selectCallback) {
+                # prune hash to remove functions which are outside the
+                #  selected region
+                my $lineCovMap = $fileCovInfo->lineMap();
+                my %tempMap;
+                while (my ($f, $fn) = each(%$differentialFunctionMap)) {
+                    my $line = $fn->line();
+                    $tempMap{$f} = $fn if exists($lineCovMap->{$line});
+                }
+                $differentialFunctionMap = \%tempMap;
+            }
+        }
         html_create(*HTML_HANDLE,
                     File::Spec->catfile($rel_dir, "$base_name.gcov.$html_ext"));
         $pagetitle = "LCOV - $test_title - " .
@@ -7374,7 +7424,8 @@ sub process_file($$$$$)
                      File::Spec->catfile($trunc_dir, $base_name),
                      File::Spec->catfile($rel_dir, $base_name),
                      $fileSummary,
-                     $srcfile);
+                     $srcfile,
+                     $differentialFunctionMap);
 
         @source = write_source(*HTML_HANDLE, $srcfile, $sumcount,
                                $checkdata, $fileCovInfo, $funcdata,
@@ -7387,13 +7438,12 @@ sub process_file($$$$$)
             # Create function tables
             my $lineCovMap = $fileCovInfo->lineMap();
             # simply map between function leader name and differential data
-            my $differentialMap = $fileCovInfo->functionMap();
             # compute number of hit/missed coverpoints in each function
             my %lineCov;
             my %branchCov;
             if ($main::show_functionProportions) {
-                while (my ($name, $funcEntry) = each(%$differentialMap)) {
-
+                while (my ($name, $funcEntry) = each(%$differentialFunctionMap))
+                {
                     my $lineData = $funcEntry->findMyLines($sumcount);
                     if (defined($lineData)) {
                         my $found = 0;
@@ -7422,13 +7472,24 @@ sub process_file($$$$$)
                     }
                 }
             }
-
-            foreach (@funcview_sortlist) {
-                write_function_page([$differentialMap, \%lineCov, \%branchCov],
-                                    $base_dir, $rel_dir, $trunc_dir,
-                                    $base_name, $test_title, $sumcount,
-                                    $funcdata, $testfncdata, $sumbrcount,
-                                    $testbrdata, $_, $fileSummary);
+            if (%$differentialFunctionMap) {
+                foreach (@funcview_sortlist) {
+                    write_function_page([$differentialFunctionMap, \%lineCov,
+                                         \%branchCov
+                                        ],
+                                        $base_dir,
+                                        $rel_dir,
+                                        $trunc_dir,
+                                        $base_name,
+                                        $test_title,
+                                        $sumcount,
+                                        $funcdata,
+                                        $testfncdata,
+                                        $sumbrcount,
+                                        $testbrdata,
+                                        $_,
+                                        $fileSummary);
+                }
             }
         }
 
@@ -7437,8 +7498,9 @@ sub process_file($$$$$)
             # Create overview png file
             my $simplified = defined($main::show_simplifiedColors) &&
                 $main::show_simplifiedColors;
-            gen_png(File::Spec->catfile($output_directory, $rel_dir,
-                                        "$base_name.gcov.png"),
+            my $png = File::Spec->catfile($rel_dir, "$base_name.gcov.png");
+            $png = lc($png) if $lcovutil::case_insensitive;
+            gen_png(File::Spec->catfile($output_directory, $png),
                     $main::show_tla && !$simplified,
                     $main::dark_mode,
                     $overview_width,
@@ -7760,7 +7822,8 @@ sub write_description_file($$)
     html_create(*HTML_HANDLE, "descriptions.$html_ext");
 
     write_html_prolog(*HTML_HANDLE, "", "LCOV - test case descriptions");
-    write_header(*HTML_HANDLE, 'top', [3, 'name', 0], "", "", $summary, undef);
+    write_header(*HTML_HANDLE, 'top', [3, 'name', 0],
+                 "", "", $summary, undef, undef);
 
     write_test_table_prolog(*HTML_HANDLE,
                             "Test case descriptions - alphabetical list");
@@ -9207,6 +9270,17 @@ sub write_file_table_entry(*$$@)
         if ($main::flat) {
             $file_link =
                 File::Spec->catfile($fileSummary->relativeDir(), $file_link);
+        } elsif ($main::hierarchical &&
+                 'directory' eq $fileSummary->type()) {
+            die("no parent for " . $fileSummary->name())
+                unless defined($fileSummary->parent());
+            my $pname = $fileSummary->parent()->name();
+            die("unexpected parent '$pname' in $file_link")
+                unless (length($pname) < length($file_link) &&
+                        $pname eq substr($file_link, 0, length($pname)));
+            $file_link = substr($file_link, length($pname) + 1);
+
+            #lcovutil::info("$filename: path is $file_link, base is '$base_dir' full path $full_path\n");
         }
         $namecode =
             $suppressFileHref ? $obj_name :
@@ -10541,13 +10615,13 @@ END_OF_HTML
     }
 
     # *************************************************************
-
+    my $f = $lcovutil::case_insensitive ? lc($_[2]) : $_[2];
     write_html($_[0], <<END_OF_HTML);
           </map>
 
           <center>
-          <a href="$_[2].gcov.$html_ext#top" target="source">Top</a><br><br>
-          <img src="$_[2].gcov.png" width=$overview_width height=$max_line alt="Overview" border=0 usemap="#overview">
+          <a href="$f.gcov.$html_ext" target="source">Top</a><br><br>
+          <img src="$f.gcov.png" width=$overview_width height=$max_line alt="Overview" border=0 usemap="#overview">
           </center>
         </body>
         </html>
@@ -10882,7 +10956,7 @@ sub build_html_path($$$$$)
 
 #
 # write_header(filehandle, ctrl, trunc_file_name, rel_file_name,
-#              summaryInfo, optionalFileDetailInfo))
+#              summaryInfo, optionalFileDetailInfo, optionalFunctionData))
 #  ctrl = (type, primary_key, sort_type, bin_type)
 #
 # Write a complete standard page header. TYPE may be (0, 1, 2, 3, 4)
@@ -10898,11 +10972,11 @@ sub build_html_path($$$$$)
 #        list of all TLA types if user has asked not to suppress all-zero
 #        columns)
 
-sub write_header(*$$$$$$)
+sub write_header(*$$$$$$$)
 {
     local *HTML_HANDLE = shift;
     my ($callback_type, $ctrl, $trunc_name, $rel_filename, $summary,
-        $fileDetail)
+        $fileDetail, $differentialFunctionMap)
         = @_;
     my ($type, $primary_key, $sort_type, $bin_type) = @$ctrl;
     my $base_dir;
@@ -11006,7 +11080,9 @@ sub write_header(*$$$$$$)
         }
 
         # Add function suffix
-        if ($lcovutil::func_coverage) {
+        if ($lcovutil::func_coverage &&
+            defined($differentialFunctionMap) &&
+            %$differentialFunctionMap) {
             $view .= "<span style=\"font-size: 80%;\">";
             if ($type == $HDR_SOURCE) {
                 my $suffix = $sort ? '-c' : '';
@@ -11069,19 +11145,20 @@ sub write_header(*$$$$$$)
     }
     # if top-level page, link to command line and profile
     if ($summary->type() eq 'top' &&
-        $bin_type eq ''        &&
-        $primary_key eq 'name' &&
+        $bin_type eq ''                &&
+        $primary_key eq 'name'         &&
+        $sort_type eq $main::SORT_FILE &&
         defined($lcovutil::profile)) {
 
         push(@row_left,
              [[undef, 'headerItem', 'genhtml Process:'],
               [undef, 'headerValue',
-               '<span><a href="cmdline.html">Command Line</a></span>'
+               '<span><a href="cmdline.html">command line</a></span>'
               ]
              ],
              [[undef, 'headerItem', ''],    #blank
               [undef, 'headerValue',
-               '<span><a href="profile.html">Profile Data</a></span>'
+               '<span><a href="profile.html">profile data</a></span>'
               ]
              ]);
     }
@@ -11314,8 +11391,8 @@ END_OF_HTML
     if ($show_dateBins) {
         # make a space in the table between before date bins
         my $dateBinDetailPage = "index-date.$html_ext"
-            if $type != $HDR_SOURCE;
-
+            if ($type != $HDR_SOURCE &&
+                $type != $HDR_FUNC);
         my $table =
             buildDateSummaryTable(
                         $summary, SummaryInfo::LINE_DATA,
@@ -11368,8 +11445,8 @@ END_OF_HTML
                        $main::show_ownerBins && $main::show_ownerBins eq 'all');
         if (defined($ownerList)) {
             my $ownerBinDetailPage = "index-owner.$html_ext"
-                if $type != $HDR_SOURCE;
-
+                if ($type != $HDR_SOURCE &&
+                    $type != $HDR_FUNC);
             my $table =
                 buildOwnerSummaryTable($ownerList,
                                        $truncated,
@@ -11469,25 +11546,21 @@ sub get_line_code($$$$$$$)
 {
     my ($type, $sort_type, $text, $sort_button, $bin_type, $primary_key, $base)
         = @_;
-    my $result = $text;
-    my $sort_link;
-    my $key = 'name' ne $primary_key ? "-bin_$primary_key" : "";
+    my $result    = $text;
+    my $key       = ('name' eq $primary_key) ? '' : "-bin_$primary_key";
+    my $sort_link = "index" . $key . $bin_type . "-sort-l.$html_ext"
+        if $sort_button;
 
     if ($type == $HEAD_NO_DETAIL) {
         # Just text
-        if ($sort_button) {
-            $sort_link = "index" . $key . $bin_type . "-sort-l.$html_ext";
-        }
     } elsif ($type == $HEAD_DETAIL_HIDDEN) {
         # Text + link to detail view
         my $help = "title=\"Click to go to per-testcase coverage details\"";
+        my $detail_link = 'index' . $key . $bin_type .
+            '-detail' . $fileview_sortname[$sort_type] . '.' . $html_ext;
         $result .=
-            " ( <a $help " . 'class="detail" href="index' .
-            $key . $bin_type . '-detail' . $fileview_sortname[$sort_type] .
-            '.' . $html_ext . '">show details</a> )';
-        if ($sort_button) {
-            $sort_link = "index" . $bin_type . "-sort-l.$html_ext";
-        }
+            " ( <a $help " .
+            'class="detail" href="' . $detail_link . '">show details</a> )';
     } else {
         # Text + link to standard view
         my $help = "title=\"Click to hide per-testcase coverage details\"";
@@ -11495,12 +11568,11 @@ sub get_line_code($$$$$$$)
             " ( <a $help " . 'class="detail" href="index' .
             $key . $bin_type . $fileview_sortname[$sort_type] .
             '.' . $html_ext . '">hide details</a> )';
-        if ($sort_button) {
-            $sort_link = "index" . $bin_type . "-detail-sort-l.$html_ext";
-        }
     }
     # Add sort button
     $result .= get_sort_code($sort_link, "line coverage", $base);
+    # we don't have a 'detail' bin page
+    $result =~ s/index-bin_(.+?)-detail((-sort-.)?\.)/index-$1$2/g;
 
     return $result;
 }
@@ -11607,21 +11679,23 @@ sub write_file_table(*$$$$$$)
         $show = $detailed ? $HEAD_DETAIL_SHOWN : $HEAD_DETAIL_HIDDEN;
     }
     my $file_col_title = ($fileview || $main::flat) ? 'File' : 'Directory';
+    # don't insert the 'sort' controls if there is just a single source file
+    my $use_sort_button = $sort && 1 < scalar($dirSummary->sources());
     my $file_code =
-        get_file_code($hide, $file_col_title, $sort && $sort_type != $SORT_FILE,
+        get_file_code($hide, $file_col_title,
+                      $use_sort_button && $sort_type != $SORT_FILE,
                       $bin_type, $primary_key, $base_dir);
-    my $line_code = get_line_code(
-                             $show, $sort_type,
-                             "Line Coverage", $sort && $sort_type != $SORT_LINE,
-                             $bin_type, $primary_key,
-                             $base_dir);
+    my $line_code = get_line_code($show, $sort_type,
+                                  "Line Coverage",
+                                  $use_sort_button && $sort_type != $SORT_LINE,
+                                  $bin_type, $primary_key, $base_dir);
     my $func_code = get_func_code($hide,
                                   "Function Coverage",
-                                  $sort && $sort_type != $SORT_FUNC,
+                                  $use_sort_button && $sort_type != $SORT_FUNC,
                                   $bin_type, $primary_key, $base_dir);
     my $br_code = get_br_code($hide,
                               "Branch Coverage",
-                              $sort && $sort_type != $SORT_BRANCH,
+                              $use_sort_button && $sort_type != $SORT_BRANCH,
                               $bin_type, $primary_key, $base_dir);
 
     my @head_columns;
@@ -12391,6 +12465,7 @@ sub write_function_table(*$$$$$$$$$$)
             if $lcovutil::br_coverage && %$funcBranchCovMap;
     }
 
+    die("no functions in file") unless (%$differentialMap);
     write_html(*HTML_HANDLE, <<END_OF_HTML);
           <center>
           <table cellpadding=1 cellspacing=1 border=0>
