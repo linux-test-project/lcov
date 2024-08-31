@@ -15,7 +15,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .br
 .RB [ \-q | \-\-quiet ]
 .RB [ \-v | \-\-verbose ]
-.RB [ \-\-debug ]
+.br
+.RB [ \-\-debug ] [ \-\-validate ]
 .br
 .RB [ \-s | \-\-show\-details ]
 .br
@@ -885,6 +886,14 @@ Decreased verbosity will suppress 'progress' messages for example - while error 
 .B \-\-debug
 .RS
 Increment 'debug messages' verbosity.  This is useful primarily to developers who want to enhance the lcov tool suite.
+
+.RE
+.B \-\-validate
+.RS
+Check the generated HTML to verify that there are no dead hyperlinks and no unused files in the output directory.
+The checks can also be enabled by setting environment variable
+.B LCOV_VALIDATE = 1.
+This option is primarily intended for use by developers who modify the HTML report.
 
 .RE
 .B \-\-flat

@@ -2727,6 +2727,133 @@ sub parse_w3cdtf($)
                       time_zone  => $tz,);
 }
 
+package HTML_fileData;
+
+use constant {
+              NAME    => 0,
+              PARENT  => 1,
+              HREFS   => 2,
+              ANCHORS => 3,
+};
+
+sub new
+{
+    my ($class, $parentDir, $filename) = @_;
+
+    my $self = [$parentDir, $filename, [], {}];
+
+    my $name = File::Spec->catfile($parentDir, $filename);
+
+    open(HTML, '<', $name) or die("unable to open $name: $!");
+    while (<HTML>) {
+        if (/<(a|span) .*id=\"([^\"]+)\"/) {
+            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                            "\"$name\":$.: duplicate anchor '$2' original at " .
+                                $self->[ANCHORS]->{$2} . '.')
+                if exists($self->[ANCHORS]->{$2});
+            $self->[ANCHORS]->{$2} = $.;
+        } elsif (/<a .*href=\"([^#\"]+)(#([^\"]+))?\"/) {
+            next if 'http' eq substr($1, 0, 4);
+            push(@{$self->[HREFS]}, [$., $1, $3]);    # lineNo, filename, anchor
+        } elsif (/<frame .*src=\"([^\"]+)\"/) {
+            push(@{$self->[HREFS]}, [$., $1, $3]);    # lineNo, filename, anchor
+        }
+    }
+    close(HTML) or die("unable to close $name: $!");
+
+    return bless $self, $class;
+}
+
+sub verifyAnchor
+{
+    my ($self, $anchor) = @_;
+
+    return exists($self->[ANCHORS]->{$anchor});
+}
+
+sub hrefs
+{
+    my $self = shift;
+    return $self->[HREFS];
+}
+
+package ValidateHTML;
+
+sub new
+{
+    my ($class, $topDir, $htmlExt) = @_;
+    my $self = {};
+
+    $htmlExt = '.html' unless defined($htmlExt);
+
+    my @dirstack = ($topDir);
+    my %visited;
+    while (@dirstack) {
+        my $top = pop(@dirstack);
+        die("unexpected link $top") if -l $top;
+        opendir(my $dh, $top) or die("can't open directory $top: $!");
+        while (my $e = readdir($dh)) {
+            next if $e eq '.' || $e eq '..';
+            my $p = File::Spec->catfile($top, $e);
+            die("unexpected link $p") if -l $p;
+            if (-d $p) {
+                die("already visited $p") if exists($visited{$p});
+                $visited{$p} = [$top, $e];
+                push(@dirstack, $p);
+            } elsif (-f $p &&
+                     $p =~ /.+$htmlExt$/) {
+                die("duplicate file $p??") if exists($self->{$p});
+                lcovutil::info(1, "schedule $p\n");
+                $self->{$p} = HTML_fileData->new($top, $e);
+            }
+        }
+        closedir($dh);
+    }
+    my %fileReferred;
+    while (my ($filename, $data) = each(%$self)) {
+        my $dir = File::Basename::dirname($filename);
+        lcovutil::info(1, "verify $filename:\n");
+        foreach my $href (@{$data->hrefs()}) {
+            my ($lineNo, $link, $anchor) = @$href;
+            my $path = File::Spec->catfile($dir, $link);
+            $path = File::Spec->abs2rel(Cwd::realpath($path), $main::cwd)
+                unless exists($self->{$path});
+            lcovutil::info(1,
+                       "  $lineNo: $link" . ($anchor ? "#$anchor" : '') . "\n");
+            unless (exists($self->{$path})) {
+                lcovutil::ignorable_error($lcovutil::ERROR_PATH,
+                           "\"$filename\":$lineNo: non-existent file '$link'.");
+                next;
+            }
+            if (exists($fileReferred{$path})) {
+                # keep only one use
+                push(@{$fileReferred{$path}}, $filename)
+                    if ($fileReferred{$path}->[-1] ne $filename);
+            } else {
+                $fileReferred{$path} = [$filename];
+            }
+
+            if (defined($anchor)) {
+                my $a = $self->{$path};
+                unless ($a->verifyAnchor($anchor)) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_PATH,
+                        "\"$filename\":$lineNo: \"$link#$anchor\" doesn't point to valid anchor."
+                    );
+                }
+            }
+        }
+    }
+
+    while (my ($filename, $data) = each(%$self)) {
+        lcovutil::ignorable_error($lcovutil::ERROR_UNUSED,
+                                  "HTML file \"$filename\" is not referenced.")
+            unless (exists($fileReferred{$filename}) ||
+                    ($topDir eq File::Basename::dirname($filename) &&
+                     "index$htmlExt" eq File::Basename::basename($filename)));
+    }
+    return bless $self, $class;
+}
+
 package CoverageCriteria;
 
 our @coverageCriteriaScript;

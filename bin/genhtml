@@ -6319,6 +6319,7 @@ my %genhtml_rc_opts = (
 
 my $save;
 my $serialize;
+my $validateHTML = exists($ENV{LCOV_VALIDATE});
 
 my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        "header-title=s"       => \$header_title,
@@ -6371,7 +6372,8 @@ my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        "show-navigation"   => \$show_tla,
                        "show-proportion"   => \$show_functionProportions,
                        "merge-aliases"     => \$merge_function_aliases,
-                       "suppress-aliases"  => \$suppress_function_aliases,);
+                       "suppress-aliases"  => \$suppress_function_aliases,
+                       'validate'          => \$validateHTML,);
 # Parse command line options
 if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
@@ -6719,6 +6721,10 @@ if ($serialize) {
 lcovutil::cleanup_callbacks();
 lcovutil::save_profile(File::Spec->catfile($output_directory, 'genhtml'),
                        File::Spec->catfile($output_directory, 'profile.html'));
+
+if (0 == $exit_status && $validateHTML) {
+    ValidateHTML->new($output_directory, '.' . $html_ext);
+}
 
 # exit with non-zero status if --keep-going and some errors detected
 $exit_status = 1
