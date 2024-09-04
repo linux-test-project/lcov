@@ -294,6 +294,7 @@ our $FILTER_MISSING_FILE;
 our $FILTER_EXCEPTION_BRANCH;
 # remove lone branch in block - it can't be an actual conditional
 our $FILTER_ORPHAN_BRANCH;
+our $FILTER_OMIT_PATTERNS;    # special/somewhat faked filter
 
 our %COVERAGE_FILTERS = ("branch"        => \$FILTER_BRANCH_NO_COND,
                          'brace'         => \$FILTER_LINE_CLOSE_BRACE,
@@ -2297,7 +2298,7 @@ sub parse_cov_filters(@)
 {
     my @filters = split($split_char, join($split_char, @_));
 
-    return if (!@filters);
+    goto final if (!@filters);
 
     foreach my $item (@filters) {
         die("unknown argument for --filter: '$item'\n")
@@ -2323,6 +2324,13 @@ sub parse_cov_filters(@)
         # turn on exception and orphan filtering too
         $cov_filter[$FILTER_EXCEPTION_BRANCH] = ['exception', 0, 0];
         $cov_filter[$FILTER_ORPHAN_BRANCH]    = ['orphan', 0, 0];
+    }
+    final:
+    if (@lcovutil::omit_line_patterns) {
+        $lcovutil::FILTER_OMIT_PATTERNS = scalar(@lcovutil::cov_filter);
+        push(@lcovutil::cov_filter, ['omit_lines', 0, 0]);
+        $lcovutil::COVERAGE_FILTERS{'omit_lines'} =
+            $lcovutil::FILTER_OMIT_PATTERNS;
     }
 }
 
@@ -5350,6 +5358,12 @@ use constant {
               PATH     => 1,
               SOURCE   => 2,
               EXCLUDE  => 3,
+
+              # reasons: (bitfield)
+              EXCLUDE_REGION        => 0x10,
+              EXCLUDE_BRANCH_REGION => 0x20,
+              EXCLUDE_DIRECTIVE     => 0x40,
+              OMIT_LINE             => 0x80,
 };
 
 sub new
@@ -5439,27 +5453,47 @@ sub parseLines
     my ($self, $filename, $sourceLines) = @_;
 
     my @excluded;
-    my $exclude_region           = 0;
-    my $exclude_br_region        = 0;
-    my $exclude_exception_region = 0;
-    my $line                     = 0;
-    my $excl_start               = qr($lcovutil::EXCL_START);
-    my $excl_stop                = qr($lcovutil::EXCL_STOP);
-    my $excl_line                = qr($lcovutil::EXCL_LINE);
-    my $excl_br_start            = qr($lcovutil::EXCL_BR_START);
-    my $excl_br_stop             = qr($lcovutil::EXCL_BR_STOP);
-    my $excl_br_line             = qr($lcovutil::EXCL_BR_LINE);
-    my $excl_ex_start            = qr($lcovutil::EXCL_EXCEPTION_BR_START);
-    my $excl_ex_stop             = qr($lcovutil::EXCL_EXCEPTION_BR_STOP);
-    my $excl_ex_line             = qr($lcovutil::EXCL_EXCEPTION_LINE);
+    my $exclude_region;
+    my $exclude_br_region;
+    my $exclude_exception_region;
+    my $line          = 0;
+    my $excl_start    = qr($lcovutil::EXCL_START);
+    my $excl_stop     = qr($lcovutil::EXCL_STOP);
+    my $excl_line     = qr($lcovutil::EXCL_LINE);
+    my $excl_br_start = qr($lcovutil::EXCL_BR_START);
+    my $excl_br_stop  = qr($lcovutil::EXCL_BR_STOP);
+    my $excl_br_line  = qr($lcovutil::EXCL_BR_LINE);
+    my $excl_ex_start = qr($lcovutil::EXCL_EXCEPTION_BR_START);
+    my $excl_ex_stop  = qr($lcovutil::EXCL_EXCEPTION_BR_STOP);
+    my $excl_ex_line  = qr($lcovutil::EXCL_EXCEPTION_LINE);
     # @todo:  if we had annotated data here, then we could whine at the
     #   author of the unmatched start, extra end, etc.
 
     my $exclude_directives =
-        qr/^\s*#\s*((else|endif)|((ifdef|if|elif|include|define|undef)\s+))/
+        qr/^\s*#\s*((else|endif)|((ifdef|ifndef|if|elif|include|define|undef)\s+))/
         if (TraceFile::is_language('c', $filename) &&
             defined($lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]));
 
+    my @excludes;
+    if (defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION])) {
+        push(@excludes,
+             [$excl_start, $excl_stop, \$exclude_region, 3 | EXCLUDE_REGION]);
+    } else {
+        $excl_line = undef;
+    }
+
+    if (defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])) {
+        push(@excludes,
+             [$excl_ex_start, $excl_ex_stop,
+              \$exclude_exception_region, 4 | EXCLUDE_BRANCH_REGION
+             ],
+             [$excl_br_start, $excl_br_stop,
+              \$exclude_br_region, 2 | EXCLUDE_BRANCH_REGION
+             ]);
+    } else {
+        $excl_br_line = undef;
+        $excl_ex_line = undef;
+    }
     LINES: foreach (@$sourceLines) {
         $line += 1;
         my $exclude_branch_line           = 0;
@@ -5469,47 +5503,43 @@ sub parseLines
         s/\r//;    # remove carriage return
         if (defined($exclude_directives) &&
             $_ =~ $exclude_directives) {
-            ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[-2];
-            ++$lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]->[-1];
-            push(@excluded, 3);    #everything excluded
-            lcovutil::info(2, "exclude '#$1' directive on $filename:$line\n");
+            push(@excluded, 3 | EXCLUDE_DIRECTIVE);    #everything excluded
+            lcovutil::info(2, "directive '#$1' on $filename:$line\n");
             next;
         }
 
-        foreach my $d ([$excl_start, $excl_stop, \$exclude_region],
-                       [$excl_br_start, $excl_br_stop, \$exclude_br_region],
-                       [$excl_ex_start, $excl_ex_stop,
-                        \$exclude_exception_region
-                       ]
-        ) {
-            my ($start, $stop, $ref) = @$d;
+        foreach my $d (@excludes) {
+            my ($start, $stop, $ref, $reason) = @$d;
             if ($_ =~ $start) {
                 lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                     "$filename: overlapping exclude directives. Found $start at line $line - but no matching $stop for $start at line "
-                        . $$ref)
+                        . $ref->[0])
                     if $$ref;
-                $$ref = $line;
+                $$ref = [$line, $reason];
                 last;
             } elsif ($_ =~ $stop) {
                 lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                     "$filename: found $stop directive at line $line without matching $start directive"
                 ) unless $$ref;
-                $$ref = 0;
+                $$ref = undef;
                 last;
             }
         }
-        if ($_ =~ $excl_line) {
-            push(@excluded, 3);    #everything excluded
+        if (defined($excl_line) &&
+            $_ =~ $excl_line) {
+            push(@excluded, 3 | EXCLUDE_REGION);    #everything excluded
             next;
-        } elsif ($_ =~ $excl_br_line) {
-            $exclude_branch_line = 2;
-        } elsif ($_ =~ $excl_ex_line) {
-            $exclude_branch_line = 4;
+        } elsif (defined($excl_br_line) &&
+                 $_ =~ $excl_br_line) {
+            $exclude_branch_line = 2 | EXCLUDE_BRANCH_REGION;
+        } elsif (defined($excl_ex_line) &&
+                 $_ =~ $excl_ex_line) {
+            $exclude_branch_line = 4 | EXCLUDE_BRANCH_REGION;
         } elsif (0 != scalar(@lcovutil::omit_line_patterns)) {
             foreach my $p (@lcovutil::omit_line_patterns) {
                 my $pat = $p->[0];
                 if ($_ =~ $pat) {
-                    push(@excluded, 3);    #everything excluded
+                    push(@excluded, 3 | OMIT_LINE);    #everything excluded
                      #lcovutil::info("'" . $p->[-2] . "' matched \"$_\", line \"$filename\":"$line\n");
                     ++$p->[-1];
                     next LINES;
@@ -5517,18 +5547,25 @@ sub parseLines
             }
         }
         push(@excluded,
-             ($exclude_region ? 1 : 0) | ($exclude_br_region ? 2 : 0) |
-                 ($exclude_exception_region ? 4 : 0) | $exclude_branch_line |
-                 $exclude_exception_branch_line);
+             ($exclude_region ? $exclude_region->[1] : 0) |
+                 ($exclude_br_region ? $exclude_br_region->[1] : 0) | (
+                  $exclude_exception_region ? $exclude_exception_region->[1] : 0
+                 ) | $exclude_branch_line | $exclude_exception_branch_line);
     }
     lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-        "$filename: unmatched $lcovutil::EXCL_START at line $exclude_region - saw EOF while looking for matching $lcovutil::EXCL_STOP"
+                  "$filename: unmatched $lcovutil::EXCL_START at line " .
+                      $exclude_region->[0] .
+                      " - saw EOF while looking for matching $lcovutil::EXCL_STOP"
     ) if $exclude_region;
     lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-        "$filename: unmatched $lcovutil::EXCL_BR_START at line $exclude_br_region - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP"
+               "$filename: unmatched $lcovutil::EXCL_BR_START at line " .
+                   $exclude_br_region->[0] .
+                   " - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP"
     ) if $exclude_br_region;
     lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-        "$filename: unmatched $lcovutil::EXCL_EXCEPTION_BR_START at line $exclude_exception_region - saw EOF while looking for matching $lcovutil::EXCL_EXCEPTION_BR_STOP"
+     "$filename: unmatched $lcovutil::EXCL_EXCEPTION_BR_START at line " .
+         $exclude_exception_region->[0] .
+         " - saw EOF while looking for matching $lcovutil::EXCL_EXCEPTION_BR_STOP"
     ) if $exclude_exception_region;
 
     my $data = $self->[0];
@@ -5619,6 +5656,16 @@ sub isOutOfRange
         #   ask us to filter it out.
     }
     return 0;
+}
+
+sub excludeReason
+{
+    my ($self, $lineNo) = @_;
+    my $data = $self->[0];
+    die("missing data at $lineNo")
+        unless (defined($data->[EXCLUDE]) &&
+                scalar(@{$data->[EXCLUDE]}) >= $lineNo);
+    return $data->[EXCLUDE]->[$lineNo - 1] & 0xFF0;
 }
 
 sub isExcluded
@@ -6489,6 +6536,9 @@ sub _filterFile
     my $trivial_histogram        = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
     my $filter_initializer_list  = $cov_filter[$FILTER_INITIALIZER_LIST]
         if (is_language('c', $source_file));
+    my $directive = $cov_filter[$FILTER_DIRECTIVE];
+    my $omit      = $cov_filter[$FILTER_OMIT_PATTERNS]
+        if defined($FILTER_OMIT_PATTERNS);
 
     my $context = MessageContext->new("filtering $source_file");
     if (lcovutil::is_filter_enabled()) {
@@ -6580,9 +6630,16 @@ sub _filterFile
                                    "filter FN " . $data->name() .
                                        ' ' . $data->file() . ":$line\n");
                     ++$range->[-2];    # one location where this applied
-                } elsif ($region && $srcReader->isExcluded($line)) {
+                } elsif ($srcReader->isExcluded($line)) {
                     $remove = 1;
-                    $region->[-2] += scalar(keys %{$data->aliases()});
+                    my $reason = $srcReader->excludeReason($line);
+                    foreach my $f ([ReadCurrentSource::EXCLUDE_REGION, $region],
+                                   [ReadCurrentSource::OMIT_LINE, $omit]) {
+                        if ($reason & $f->[0]) {
+                            $f->[1]->[-2] += scalar(keys %{$data->aliases()});
+                            last;
+                        }
+                    }
                 }
                 if ($remove) {
                     #remove this function from everywhere
@@ -6603,10 +6660,11 @@ sub _filterFile
         if ($lcovutil::br_coverage &&
             defined($testbrcount)  &&
             ($branch_histogram ||
-                $region        ||
-                $branch_region ||
-                $range         ||
-                $filterExceptionBranches)
+                $region                  ||
+                $branch_region           ||
+                $range                   ||
+                $filterExceptionBranches ||
+                $omit)
         ) {
             foreach my $line ($testbrcount->keylist()) {
                 # for counting: keep track filter which triggered exclusion -
@@ -6616,11 +6674,24 @@ sub _filterFile
                     # only counting line coverpoints that got excluded
                     die("inconsistent state") unless $range;
                     $remove = $range;
-                } elsif (($region || $branch_region) &&
-                         $srcReader->isExcluded($line, 2)) {
+                } elsif ($srcReader->isExcluded($line, 2)) {
                     # all branches here
-                    $remove = $region ? $region : $branch_region;
-                    die("inconsistent") unless $remove;
+                    my $reason = $srcReader->excludeReason($line);
+                    foreach my $f ([ReadCurrentSource::EXCLUDE_REGION, $region],
+                                   [ReadCurrentSource::OMIT_LINE, $omit],
+                                   [ReadCurrentSource::EXCLUDE_DIRECTIVE,
+                                    $directive
+                                   ],
+                                   [ReadCurrentSource::EXCLUDE_BRANCH_REGION,
+                                    $branch_region
+                                   ]
+                    ) {
+                        if ($reason & $f->[0]) {
+                            $remove = $f->[1];
+                            last;
+                        }
+                    }
+                    die("inconsistent reason $reason") unless $remove;
                 } elsif ($branch_histogram &&
                          !$srcReader->containsConditional($line)) {
                     $remove = $branch_histogram;
@@ -6659,6 +6730,8 @@ sub _filterFile
             $range            ||
             $brace_histogram  ||
             $branch_histogram ||
+            $directive        ||
+            $omit             ||
             $filter_initializer_list;
 
         my %initializerListRange;
@@ -6697,9 +6770,20 @@ sub _filterFile
                 $outOfRange;
             my $excluded = $srcReader->isExcluded($line)
                 unless $is_filtered;
-            $is_filtered =
-                $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION]
-                if !defined($is_filtered) && defined($excluded) && $excluded;
+            if (defined($excluded) && $excluded) {
+                my $reason = $srcReader->excludeReason($line);
+                foreach my $f ([ReadCurrentSource::EXCLUDE_REGION, $region],
+                               [ReadCurrentSource::OMIT_LINE, $omit],
+                               [ReadCurrentSource::EXCLUDE_DIRECTIVE,
+                                $directive
+                               ]
+                ) {
+                    if ($reason & $f->[0]) {
+                        $is_filtered = $f->[1];
+                        last;
+                    }
+                }
+            }
             my $l_hit = $testcount->value($line);
             my $isCloseBrace =
                 ($brace_histogram &&
@@ -6728,8 +6812,7 @@ sub _filterFile
                                     "") .
                                " $source_file:$line\n");
 
-            unless ((defined($outOfRange) && $outOfRange) ||
-                    (defined($excluded) && $excluded)) {
+            unless (defined($outOfRange) && $outOfRange) {
                 # some filters already counted...
                 ++$is_filtered->[-2];    # one location where this applied
                 ++$is_filtered->[-1];    # one coverpoint suppressed

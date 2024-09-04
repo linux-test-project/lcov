@@ -400,7 +400,7 @@ if [ "$NO_INITIAL_CAPTURE" != 1 ] ; then
     # does the result contain file 'uused'
     grep -E "SF:.+unused.c$" all_internal.info
     if [ $? != 0 ] ; then
-        echo "Error: did not find 'unused'"
+        echo "Error: did not find 'unused' 2"
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
@@ -409,7 +409,7 @@ if [ "$NO_INITIAL_CAPTURE" != 1 ] ; then
         # should have found the branch in 'unused.c'
         C=`grep -c BRDA: all_internal.info`
         if [ "$C" != 18 ] ; then
-            echo "Error: did not find 'unused'"
+            echo "Error: unexpected branch count in 'unused'"
             if [ $KEEP_GOING == 0 ] ; then
                 exit 1
             fi
@@ -556,7 +556,7 @@ fi
 EXCL_LINE_BRANCHES=`grep -c "^BRDA:" exclbrline.info`
 
 if [ $EXCL_LINE_BRANCHES != $EXCL_BRANCHES ] ; then
-    echo "did not honor br line marker override: expected $EXCL_BRANCHES foune $EXCL_LINE_BRANCHES"
+    echo "did not honor br line marker override: expected $EXCL_BRANCHES found $EXCL_LINE_BRANCHES"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
