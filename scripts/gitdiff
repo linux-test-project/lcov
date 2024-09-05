@@ -135,7 +135,7 @@ while (<HANDLE>) {
     my $path     = $prefix . $filename;
     if (!exists($allFiles{$path}) &&
         include_me($path, \@include_patterns, \@exclude_patterns)) {
-        printf("diff --git a/$filename b/$filename\n");
+        printf("diff --git $prefix$filename $prefix$filename\n");
         printf("=== $path\n");
     }
 }
