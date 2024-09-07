@@ -28,7 +28,8 @@ report:
 	       --exclude 'genError.pm' --exclude 'filter.pl'        \
                --exclude 'brokenCallback.pm'                        \
                --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b' \
-	       --ignore unsupported,unused --filter region ;        \
+	       --ignore unsupported,unused,inconsistent             \
+               --filter region ;                                    \
 	  if [ -f $(PYCOV_DB) ] ; then                              \
 	    $(BINDIR)/py2lcov -o pycov.info $(PYCOV_DB)             \
                  --version-script $(VERSION_SCRIPT) ;               \

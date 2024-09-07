@@ -295,6 +295,31 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 
+# data consistency errors:
+#  - function marked 'hit' but no contained lines are hit
+#  - function marked 'not hit' but some contained line is hit
+#  - line marked 'hit' but no contained braches have been evaluated
+#  - line marked 'not hit' but at least one contained branch has been evaluated
+for i in funcNoLine lineNoFunc branchNoLine lineNoBranch ; do
+
+    $COVER $LCOV_TOOL $LCOV_OPTS --summary $i.info 2>&1 | tee $i.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+        echo "failed to see error ${i}.log"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit $status
+        fi
+    fi
+    $COVER $LCOV_TOOL $LCOV_OPTS --summary $i.info 2>&1 --ignore inconsistent | tee ${i}2.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        echo "failed to ignore error ${i}2.log"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit $status
+        fi
+    fi
+done
+
 
 if [ 0 == $status ] ; then
     echo "Tests passed"

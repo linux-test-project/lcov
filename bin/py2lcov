@@ -56,6 +56,17 @@ def main():
     usageString="""py2lcov: Translate Python coverage data to LCOV .info format.
 Please also see https://coverage.readthedocs.io
 
+Note that the '--no-functions' argument may result in subtly inconsistent coverage
+data if a 'no-functions' coverage DB is merged with one which contains derived
+function data because the 'def myFunc(...)' line will acquire a 'hit' count
+of 1 because the python interpreter considers the 'def' to have been executed
+when the line is interpreted (i.e., when the function is defined).
+This will generate an 'inconsistent' error if the function is not executed in
+your tests becasue the (derived) function will have a zero hit count but the
+first line of the function has a non-zero count.
+Best practice is to either always specify '--no-functions' or never specify
+'--no-functions'.
+
 Note that xml2lcov does not implement the full suite of LCOV features
 (e.g., filtering, substitutions, etc.).
 Please generate the translated LCOV format file and then read the data

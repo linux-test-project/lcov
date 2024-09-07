@@ -3,9 +3,10 @@ SF:a.cpp
 DA:1,1
 #common line:  my count is zero and yours is nonzero        
 DA:2,1
-DA:3,0
+DA:3,1
 DA:4,-3
 DA:10,1.a0e+19
+DA:11,0
 DA:12,1.0e+19
 LF:4
 LH:3

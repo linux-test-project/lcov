@@ -80,7 +80,9 @@ if [ "$PRUNED" != "$FULLINFO" ] ; then
 fi
 
 # expect that all the additions did something...
-$COVER $LCOV_TOOL -o prune2 -a $PART1INFO -a $PART2INFO -a $FULLINFO --prune
+#  note that the generated data is inconsistent:  sometimes, function
+#  has zero hit count but some contained lines are hit
+$COVER $LCOV_TOOL -o prune2 -a $PART1INFO -a $PART2INFO -a $FULLINFO --prune --ignore inconsistent
 if [[ $? != 0 && $KEEP_GOING != 1 ]] ; then
     echo "lcov -prune2 failed"
     exit 1
@@ -93,7 +95,7 @@ if [ "$PRUNED2" != "$EXP" ] ; then
 fi
 
 # expect no effect from adding 'part1' or 'part2' after 'full'
-$COVER $LCOV_TOOL -o prune3 -a $FULLINFO -a $PART1INFO -a $PART2INFO --prune
+$COVER $LCOV_TOOL -o prune3 -a $FULLINFO -a $PART1INFO -a $PART2INFO --prune --ignore inconsistent
 if [[ $? != 0 && $KEEP_GOING != 1 ]] ; then
     echo "lcov -prune3 failed"
     exit 1

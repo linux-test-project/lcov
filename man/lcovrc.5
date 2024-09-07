@@ -1061,6 +1061,22 @@ This option is used by genhtml, lcov, and geninfo.
 
 .PP
 
+.BR check_data_consistency " = "
+.IR 0|1
+.IP
+If set to 1, tell the tools to execute certain data consistency checks -
+.I e.g.,
+that function with a non-zero hit count contains at least one line with a non-zero
+hit count - and vice versa.
+
+It may be useful to use this option to disable checking if you have inconsistent
+legacy data and have
+no way to correct or exclude it.
+
+Default is 1:  execute consistency checks.
+
+.PP
+
 .BR genhtml_line_field_width " ="
 .I number_of_characters
 .IP
@@ -1600,6 +1616,8 @@ and
 .I  \-\-show\-proportion
 options.
 
+Default is 1.
+
 This option is not required if you are using gcc/9 or newer; these versions report function begin/end lines directly.
 
 Note that end lines are derived only for C/C++ files unless the
@@ -1615,7 +1633,41 @@ See the
 .I demangle_cpp
 setting, above.
 
-Default is 1.
+For languages other than C/C++:  end-line derivation may compute the wrong
+value -
+.I e.g.,
+in cases where there are lines of code in global scope following
+some function definition.  In this case, lcov will incorrectly associate the
+following code with the preceding function.
+.br
+If this creates problems - for example, causes lcov to warn about inconsistent
+coveage data - then there are several possible workarounds:
+
+.RS
+.IP \- 3
+disable end-line derivation -
+.I e.g.,
+via
+.I "\-\-rc derive_function_end_line=0".
+.PP
+.IP \- 3
+exclude the offending code and/or then entire associated file.
+.PP
+.IP \- 3
+ignore the error message,
+.I e.g.,
+via the
+.I \-\-ignore\-errors
+command line option
+.PP
+.IP \- 3
+disable coverage DB consistency checks -
+.I e.g.,
+via
+.I "\-\-rc check_data_consistency=0".
+.PP
+.RE
+.
 .PP
 
 .BR derive_function_end_line_all_files " ="

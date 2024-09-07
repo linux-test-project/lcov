@@ -2839,7 +2839,32 @@ In this context, if the
 .I "inconsistent"
 error is ignored, then the tool will retain only the first function definition that it saw.
 .PP
-.PP \- 3
+.IP \- 3
+Mismatched function declaration/alias records encountered:
+.RS 3
+.IP "(backward compatible LCOV format)" 3
+function execution count record (
+.I FNDA
+) without matching function declaration record (
+.I FN
+).
+.PP
+.IP "(enhanced LCOV fomat)" 3
+function alias record (
+.I FNA
+) without matching function declaration record (
+.I FLN
+).
+.PP
+.RE
+.PP
+.IP \- 3
+branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match
+.PP
+
+
+.PP
+.IP \- 3
 Negative number or zero line number encounted.
 .br
 If the error is ignored, the offending record is skipped.
@@ -2851,16 +2876,9 @@ internal tool issue detected.  Please report this bug along with a testcase.
 .PP
 
 .IP mismatch: 3
-Inconsistent entries found in trace file:
+Incorrect or inconsistent information found in coverage data and/or source code - for example,
+the souce code contains overlapping exclusion directives.
 
-.RS 3
-.IP \(bu 3
-branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
-.PP
-.IP \(bu 3
-function execution count (FNDA:...) but no function declaration (FN:...).
-.PP
-.RE
 .PP
 
 .IP missing: 3

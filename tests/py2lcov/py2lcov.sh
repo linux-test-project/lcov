@@ -414,7 +414,7 @@ if [ 0 != $? ] ; then
 fi
 
 # aggregate the files - as a syntax check
-$COVER $LCOV_TOOL $LCOV_OPTS -o aggregate.info -a functions.info -a no_functions.info $VERSION
+$COVER $LCOV_TOOL $LCOV_OPTS -o aggregate.info -a functions.info -a no_functions.info $VERSION --ignore inconsistent
 if [ 0 != $? ] ; then
     echo "lcov aggregate failed"
     if [ 0 == $KEEP_GOING ] ; then

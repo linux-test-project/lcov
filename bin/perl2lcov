@@ -79,11 +79,11 @@ For example:
 
     # write Perl line, branch, condition, and subroutine coverage data to
     #  'myPerlDB' in the current directory
-  \$ perl -MDevel::Cover=-db,./myPerlDB,-coverage,statement,branch,condition,subroutine,-silent,1 myScript.pl
+  \$ perl -MDevel::Cover=-db,.\/myPerlDB,-coverage,statement,branch,condition,subroutine,-silent,1 myScript.pl
     # OR: write all the coverage types that Perl knows about to 'myPerlDB2' -
-    #   note that perl2lcov will ignore types it does not understand/does not use
-    #   (pod, time, and path)
-  \$ perl -MDevel::Cover=-db,./myPerlDB2,-silent,1 myScript.pl
+    #   note that perl2lcov will ignore types it does not understand/does
+    #   not use (pod, time, and path)
+  \$ perl -MDevel::Cover=-db,.\/myPerlDB2,-silent,1 myScript.pl
     # run 'cover' from the Devel::Cover installation - to extract runtime
     #   data into a usable form.  This will also generate an HTML report
     #   in 'myCoverDB'
@@ -92,6 +92,28 @@ For example:
   \$ perl2lcov -o perldata.info [--testname myTestName] myCoverDB
     # and generate a genhtml-format coverage report:
   \$ genhtml -o html_report perldata.info ...
+
+Note that the data generateed by Devel::Cover is not always internally
+consistent.  For example:
+
+  - some which are never called, do not appear in the coverage data.
+
+  - sometimes, a line will appear to be executed (non-zero hit count) but
+    none of its contained branch expressions have been evaluated.
+    (If the line was executed, then at least one branch condition must have
+    been evaluated.
+
+This can cause the various tools in the lcov package to generate errors of
+type 'inconsistent'.
+In that case, you can:
+
+  - skip consistency checks entirely:  see the 'skip_consistency_checks' section
+    in man lovrc(5)
+
+  - ignore the error:  see the '--ignore-error' section in man genhtml(1)
+
+  - exclude the offending code: see the '--exclude', '--filter', and
+    '--omit-lines' sections in man genhtml(1).
 
 END_OF_USAGE
 }
@@ -110,7 +132,7 @@ sub findPackage
         if ($line < $v->[0]) {
             $max = $mid - 1;
         } elsif ($line > $v->[0]) {
-            $best = $v->[1];
+            $best = $v;
             $min  = $mid + 1;
         } else {
             # line number matched...which ought not to happen because
@@ -119,7 +141,7 @@ sub findPackage
             # That won't be the line containing "package ..." - unless the
             # user wrote the whole thing on one line.  Not clever.  Deserves
             # to lose, if something in here breaks.
-            return $v->[1];
+            return $v;
         }
     }
     return $best;
@@ -175,6 +197,9 @@ foreach my $db (@ARGV) {
         # use statement coverage to mark un-evaluated branches
         my ($stmts, $branches, $conditions, $subroutines);
         my @packageExtents;
+        # Devel::Cover doesn't instrument all the functions in every file -
+        # so need a workaround to find better extents for some of them
+        my @functionExtents;
 
         foreach my $criteria ($f->items) {
             # some types we don't use
@@ -188,11 +213,13 @@ foreach my $db (@ARGV) {
                 $subroutines = $c;
                 if (-f $file) {
                     open(GREP, '-|', 'grep', '--line-number', '-E',
-                         '^\s*package ', $file) or
+                         '^\s*(package|sub) ', $file) or
                         die("unable to grep $file: $!");
                     while (<GREP>) {
-                        if (/^(\d+):\s*package\s+(\S+?);/) {
+                        if (/^(\d+):\s*package\s+(\S+)\s*;/) {
                             push(@packageExtents, [$1, $2 . '::']);
+                        } elsif (/^(\d+):\s*sub\s+([^\s(]+)/) {
+                            push(@functionExtents, [$1, $2]);
                         } else {
                             die("unexpected grep output '$_'");
                         }
@@ -248,7 +275,7 @@ foreach my $db (@ARGV) {
                     if ($name !~ /(BEGIN|__ANON__)/) {
                         my $p = findPackage(\@packageExtents, $line);
                         if (defined($p)) {
-                            $name = $p . $name;
+                            $name = $p->[1] . $name;
                         }
                         $functionMap->define_function($name, $line);
                         $functionMap->add_count($name, $count);
@@ -347,6 +374,58 @@ foreach my $db (@ARGV) {
         $fileData->sum()->union($lineMap);
         $fileData->sumbr()->union($branchMap);
         $fileData->func()->union($functionMap);
+
+        # have to do this manually due to some Perl quirks -
+        # in particular, there may be code outside of the subroutine we are
+        # walking...and we want to correct the end line
+        TraceFile::_deriveFunctionEndLines($fileData);
+        my $lineData = $fileData->sum();
+        my $funcData = $fileData->testfnc();
+
+        foreach my $func ($fileData->func()->valuelist()) {
+            # where is the nearest 'package' after my start line?
+            my $first = $func->line();
+            my $end   = $func->end_line();
+            next unless defined($end);
+            # find package or function enclosing my end line..
+            my $last = $end;
+            foreach my $ext (\@packageExtents, \@functionExtents) {
+                while (1) {
+                    my $p = findPackage($ext, $last);
+                    if (defined($p) && $p->[0] > $first) {
+                        $last = $p->[0] - 1;
+                        lcovutil::info(1,
+                                       $func->name() .
+                                           ": found update end line $last in " .
+                                           $p->[1] . "\n");
+                        # iterate in case there is another package above the first one
+                    } else {
+                        last;
+                    }
+                }
+            }
+            next unless $last < $end;
+
+            # what is the last executable line before the 'package' or 'sub' decl?
+            while ($last > $first) {
+                if (defined($lineData->value($last))) {
+                    last;
+                }
+                --$last;
+            }
+            lcovutil::info(1,
+                           "resetting " . $func->name() .
+                               " end line to $last (from $end)\n");
+            $func->set_end_line($last);
+
+            foreach my $tn ($funcData->keylist()) {
+                my $d = $funcData->value($tn);
+                my $f = $d->findKey($first);
+                $f->set_end_line($last);
+            }
+
+        }    #foreach function
+
     }    # foreach file
 }    #foreach cover db
 

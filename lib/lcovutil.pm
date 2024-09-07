@@ -237,6 +237,7 @@ our $versionCallback;
 our $verify_checksum;    # compute and/or check MD5 sum of source code lines
 
 our $check_file_existence_before_callback = 1;
+our $check_data_consistency               = 1;
 
 # Specify coverage rate default precision
 our $default_precision = 1;
@@ -783,7 +784,8 @@ sub merge_child_profile($)
                         grep(/^$key$/,
                              (   'version', 'parse',
                                  'append', 'total',
-                                 'resolve', 'derive_end'))
+                                 'resolve', 'derive_end',
+                                 'check_consistency'))
                     ) {
                         $lcovutil::profileData{$key}{$f} += $t;
                     } else {
@@ -1102,6 +1104,7 @@ my %rc_common = (
              'stop_on_error'          => \$lcovutil::stop_on_error,
              'treat_warning_as_error' => \$lcovutil::treat_warning_as_error,
              'warn_once_per_file'     => \$lcovutil::warn_once_per_file,
+             'check_data_consistency' => \$lcovutil::check_data_consistency,
              "rtl_file_extensions"    => \$rtlExtensions,
              "c_file_extensions"      => \$cExtensions,
              "perl_file_extensions"   => \$perlExtensions,
@@ -4033,6 +4036,7 @@ sub filename
 
 sub hit
 {
+    # this is the hit count across all the aliases of the function
     my $self = shift;
     return $self->[COUNT];
 }
@@ -4040,8 +4044,15 @@ sub hit
 sub isLambda
 {
     my $self = shift;
-    return (TraceFile::is_language('c', $self->filename()) &&
-            $self->name() =~ /{lambda\(/);
+    # jacoco may show both a lambda and a function on the same line - which
+    # lcov then associates as an alias
+    # alias name selection above ensures that the 'master' name is lambda
+    # only if every alias is a lambda.
+    # -> this is a lambda only if there is only one alias
+    return ((TraceFile::is_language('c', $self->filename()) &&
+                 $self->name() =~ /{lambda\(/) ||
+                (TraceFile::is_language('java', $self->filename()) &&
+                 $self->name() =~ /\.lambda\$/));
 }
 
 sub count
@@ -4140,12 +4151,20 @@ sub addAlias
         # keep track of the shortest name as the function representative
         my $curlen = length($self->[NAME]);
         my $len    = length($name);
+        # penalize lambda functions so that their name is not chosen
+        #  (java workaround or ugly hack, depending on your perspective)
+        $curlen += 1000 if $self->[NAME] =~ /({lambda\(|\.lambda\$)/;
+        $len    += 1000 if $name         =~ /({lambda\(|\.lambda\$)/;
         $self->[NAME] = $name
             if ($len < $curlen ||    # alias is shorter
                 ($len == $curlen &&   # alias is same length but lexically first
                  $name lt $self->[NAME]));
     }
     $self->[COUNT] += $count;
+    # perhaps should remove lambda aliases, if they exist -
+    #   - Issue is that jacoco will show normal function and lambda on the
+    #     same line - which lcov takes to mean that they are aliases
+    # could just delete the lambda in that case..pretend it doesn't exist.
     return $changed;
 }
 
@@ -4213,7 +4232,7 @@ sub findMyLines
     my ($self, $lineData) = @_;
     return undef unless $self->end_line();
     my @lines;
-    for (my $lineNo = $self->line(); $lineNo <= $self->end_line; ++$lineNo) {
+    for (my $lineNo = $self->line(); $lineNo <= $self->end_line(); ++$lineNo) {
         my $hit = $lineData->value($lineNo);
         push(@lines, [$lineNo, $hit])
             if (defined($hit));
@@ -6513,6 +6532,149 @@ sub _deriveFunctionEndLines
     return $modified;
 }
 
+sub _consistencySuffix
+{
+    return lcovutil::explain_once('consistency_check',
+        "\n\tTo skip consistency checks, see the 'check_data_consistency' section in man lcovrc(5)."
+    );
+}
+
+sub _checkConsistency
+{
+    return unless $lcovutil::check_data_consistency;
+    my $traceInfo = shift;
+    my $modified  = 0;
+
+    my $start = Time::HiRes::gettimeofday();
+
+    my @functions = sort { $a->line() <=> $b->line() }
+        grep({ defined($_->end_line()) } $traceInfo->func()->valuelist());
+    my $lineData = $traceInfo->sum();
+    my @lines    = sort { $a <=> $b } $lineData->keylist()
+        if @functions;
+    my $currentLine = @lines ? shift(@lines) : 0;
+    FUNC: while (@functions) {
+        my $func    = shift(@functions);
+        my $first   = $func->line();
+        my $end     = $func->end_line();
+        my $imHit   = $func->hit() != 0;    # I'm hit if any aliases is hit
+        my $lineHit = 0;
+        while ($first > $currentLine) {
+            # skip until we find the first line of the current function
+            if (@lines) {
+                $currentLine = shift(@lines);
+            } else {
+                # can only get here with really inconsistent data...would have
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                    '"' . $func->filename() .
+                        "\":$first: file linecov does not match function cov data - skipping checks."
+                );
+                last FUNC;
+            }
+        }
+        while ($end >= $currentLine) {
+            # look for first covered line in this function -
+            #   sufficient to just look at the such line
+            die("bug: " . $func->filename() . " [$first:$end]: $currentLine")
+                unless $first <= $currentLine && $currentLine <= $end;
+            my $hit = $lineData->value($currentLine);
+            $lineHit = 1 if $hit;
+            if ($hit && !$imHit) {
+                # don't wan about the first line of a lambda:
+                #  - the decl may executed even if the lambda function itself is
+                #    not called
+                #  - if no other lines are hit, then then the function is not
+                #    covered, but the coverage DB is consistent
+                #  - if some other line _is_ hit, then, the data is inconsistent
+                if ($func->isLambda() && $currentLine == $first) {
+                    $lineHit = 0;
+                    last unless @lines;
+                    $currentLine = shift(@lines);
+                    next;
+                }
+
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                  '"' . $func->filename() .
+                                      "\":$first: function '" . $func->name() .
+                                      "' is not hit but line $currentLine is." .
+                                      _consistencySuffix());
+                # if message was ignored, then mark the function hit
+                $func->[FunctionEntry::COUNT] = 1;
+                $imHit                        = 1;
+                $modified                     = 1;
+                last;    # only warn on the first hit line in the function
+            }
+            last if $lineHit && $hit;    # can stop looking at this function now
+            last unless (@lines);
+            $currentLine = shift @lines;
+        }
+        if ($imHit && !$lineHit) {
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                '"' . $traceInfo->filename() .
+                                    "\":$first: function '" . $func->name() .
+                                    "' is hit but no contained lines are hit." .
+                                    _consistencySuffix());
+            # if message was ignored, then mark the function not hit
+            $func->[FunctionEntry::COUNT] = 0;
+        }
+    }
+
+    # also check branch data consistency...should not have non-zero branch hit
+    # count if line is not hit - and vice versa
+    my $checkBranchConsistency =
+        !TraceFile::is_language('perl', $traceInfo->filename());
+    if ($lcovutil::br_coverage) {
+        my $brData = $traceInfo->sumbr();
+
+        foreach my $line ($brData->keylist()) {
+            # we expect to find a line everywhere there is a branch
+
+            my $lineHit = $lineData->value($line);
+            unless (defined($lineHit)) {
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                      '"' . $traceInfo->filename() .
+                          "\":$line: location has branchcov but no linecov data"
+                          . _consistencySuffix());
+            }
+
+            my $brHit = 0;
+            my $brd   = $brData->value($line);
+            BLOCK: foreach my $id ($brd->blocks()) {
+                my $block = $brd->getBlock($id);
+                foreach my $br (@$block) {
+                    if (0 != $br->count()) {
+                        $brHit = 1;
+                        last BLOCK;
+                    }
+                }
+            }
+            if (!defined($lineHit)) {
+                # must have ignored the above error - so build fake line data here
+                #  (maybe should delete the branch instead?)
+                $lineData->append($line, $brHit);
+                next;
+            }
+            if ($lineHit && !$brHit) {
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                    '"' . $traceInfo->filename() .
+                        "\":$line: line is hit but no branches on line have been evaluated."
+                        . _consistencySuffix())
+                    if $checkBranchConsistency;
+            } elsif (!$lineHit && $brHit) {
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                    '"' . $traceInfo->filename() .
+                        "\":$line: line is not hit but at least one branch on line has been evaluated."
+                        . _consistencySuffix());
+            }
+        }
+    }
+
+    my $end = Time::HiRes::gettimeofday();
+    $lcovutil::profileData{check_consistency}{$traceInfo->filename()} =
+        $end - $start;
+    return $modified;
+}
+
 sub _filterFile
 {
     my ($traceInfo, $source_file, $actions, $srcReader, $state) = @_;
@@ -6520,6 +6682,7 @@ sub _filterFile
     my $modified = 0;
     if (0 != ($actions & DID_DERIVE)) {
         $modified = _deriveFunctionEndLines($traceInfo);
+        $modified ||= _checkConsistency($traceInfo);
         if (0 == ($actions & DID_FILTER)) {
             return [$traceInfo, $modified];
         }
@@ -7309,11 +7472,15 @@ sub applyFilters
             # we are forking anyway - so also compute end lines there
             $actions |= DID_FILTER;
             push(@filter_workList, [$traceInfo, $name, $actions]);
-        } elsif (0 != $actions) {
-            # all we are doing is deriving function end lines - which doesn't
-            # take long enough to be worth forking
-            TraceFile::_deriveFunctionEndLines($traceInfo);
+        } else {
+            if (0 != $actions) {
+                # all we are doing is deriving function end lines - which doesn't
+                # take long enough to be worth forking
+                TraceFile::_deriveFunctionEndLines($traceInfo);
+            }
+            TraceFile::_checkConsistency($traceInfo);
         }
+
     }    # foreach file
     $self->[STATE] |= DID_DERIVE;
 

@@ -95,6 +95,7 @@ use FindBin;
 use Time::HiRes;    # for profiling
 use Storable;
 use POSIX;
+use Data::Dumper;
 
 use lib "$FindBin::RealBin/../lib";
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
@@ -2570,24 +2571,6 @@ sub _categorizeLineCov
             next;
         }
         # LCOV_EXCL_STOP
-        next if defined($lineCovCurrent->value($line));
-
-        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                      "line $filename:$line has branchcov but no linecov data");
-        # maybe should skip this branch if no line data - rather
-        #  than building fake line data.
-        my $hit        = 0;    # hit if any of the associated branches are hit
-        my $branchData = $branchCurrent->value($line);
-        BLOCKS: foreach my $block ($branchData->blocks()) {
-            my $b = $branchData->getBlock($block);
-            foreach my $expr (@$b) {
-                if ($expr->count() != 0) {
-                    $hit = 1;
-                    last BLOCKS;
-                }
-            }
-        }
-        $lineCovCurrent->append($line, $hit);
     }
 
     # it is sufficient to just walk the 'global' (merged) line
@@ -2597,9 +2580,15 @@ sub _categorizeLineCov
     #  coverages.)
     foreach my $line ($lineCovCurrent->keylist()) {
         my $type = $diffMap->type($filename, $diffMap->NEW, $line);
-        die("'current' line $filename:$line should not be marked 'delete'")
-            unless $type ne 'delete';
-
+        if ($type eq 'delete') {
+            # can happen in some inconsistent case, when there are certain
+            # out-of-range references in a file which contained diffs - and we
+            # ignored the error check
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                "'current' line $filename:$line should not be marked 'delete'");
+            $lineCovCurrent->remove($line);
+            next;
+        }
         my $linedata;
         if (!exists($lineDataMap->{$line})) {
             $linedata = LineData->new($type);
@@ -2716,9 +2705,14 @@ sub _categorizeBranchCov
     #     Or because we did something bad and no longer reach what had been
     #     a high probability event?
     foreach my $line ($branchCurrent->keylist()) {
-        # should have been caught or fixed, above
-        die("line $filename:$line has branchcov but no linecov data")
-            unless exists($lineDataMap->{$line});
+        unless (exists($lineDataMap->{$line})) {
+            # unless ignored, should have been caught or fixed during
+            #  TraceInfo::_checkConsistency
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                "\"$filename\":$line line has branchcov but no linecov data (skipping)."
+            );
+            next;
+        }
         my $data = $lineDataMap->{$line};
 
         $branchCovLines{$line} = 1;
@@ -5123,7 +5117,6 @@ sub _synthesize
 
     return $self if ($last_line < 1 ||
                      $currentLast >= $last_line);
-
     my $why;
     if (0 == $currentLast) {
         # Synthesize source data from coverage trace to replace unreadable file
@@ -5148,7 +5141,6 @@ sub _synthesize
                                   $last_line . $suffix);
         $why = 'not long enough';
     }
-
     # Simulate gcov behavior
     my $notFound = "/* " . $self->path() . " $why */";
     my $synth    = "/* (content generated from line coverage data) */";
@@ -5488,6 +5480,8 @@ sub add_dependency
     lcovutil::debug(1,
                     "add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n")
         unless exists($parent->[1]->{$name});
+    print("add depend $name -> " . $parent->[0]->[1]->[2] . "\n")
+        if $main::debugScheduler > 1;
     $parent->[1]->{$name} = 1;
 }
 
@@ -5505,10 +5499,24 @@ sub completed_dependency
     delete($pendingParent->[1]->{$name});
     print("completed $name -> $parent " . scalar(%{$pendingParent->[1]}) . "\n")
         if $main::debugScheduler > 1;
-
+    # LCOV_EXCL_START
+    if ($main::debugScheduler > 1) {
+        # print parent dependencies
+        while (my ($k, $d) = each(%{$pendingParent->[1]})) {
+            die("unexpected parent dependency $k ARRAY: " . $d->[0] . ' ' .
+                join('/', @{$d->[2]}))
+                if ('ARRAY' eq ref($d) || 1 != $d);
+            print("  $k\n");
+        }
+    }
+    # LCOV_EXCL_STOP
     if (!%{$pendingParent->[1]}) {
         # no more dependencies - schedule this one
-        push(@{$self->[WORKLIST]}, $pendingParent->[0]);
+        my $p = $pendingParent->[0];
+        print("completed dependencies - schedule " . $p->[0] . ' ' .
+              join('/', @{$p->[2]}) . "\n")
+            if $main::debugScheduler > 1;
+        push(@{$self->[WORKLIST]}, $p);
         delete($pending->{$parent});
     }
 }
@@ -5914,7 +5922,25 @@ sub compute
                 next WORK;
             }
         }
-        die("unexpected empty worklist??") unless (@$worklist || @$joblist);
+        #LCOV_EXCL_START
+        unless (@$worklist || @$joblist) {
+            foreach my $e (keys %$pending) {
+                # something went wrong - print some debug data
+                lcovutil::info("me: $e: depends\n");
+                my $p = $pending->{$e};
+                while (my ($k, $d) = each(%{$p->[1]})) {
+                    lcovutil::info("  $k\n");
+                    die("unexpected data for depend $k: $d") unless $d == 1;
+                }
+                lcovutil::info("   parent: " . $p->[0]->[0] . ' ' .
+                               join('/', @{$p->[0]->[2]}) . "\n");
+            }
+            # can get here if child process hit a 'die' (as opposed to an error)
+            # and "--keep-going" was specified.
+            die("unexpected empty worklist??");
+        }
+        #LCOV_EXCL_STOP
+
         # schedule a few items from the worklist if we can..
         $segmentID = $self->_segment_worklist($segmentID);
 
