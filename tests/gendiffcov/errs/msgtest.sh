@@ -133,7 +133,7 @@ LCOV_OPTS="$LCOV_BASE"
 DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -707,6 +707,43 @@ for err in "--rc truncate_owner_table=top,x" "--rc owner_table_entries=abc" "--r
     fi
 done
 
+
+# test error checks for --expect-message-count expressions
+for expr in "malformed" "noSuchMsg:%C<5" "inconsistent:%c<5" 'inconsistent:%C<$x' 'inconsistent:0,inconsistent:2' ; do
+
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o expect --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --expect-message $expr --show-owners
+    if [ 0 == $? ] ; then
+        echo "ERROR: genhtml $expr unexpectedly passed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o expect --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --expect-message $expr --show-owners --ignore usage
+    if [ 0 != $? ] ; then
+        echo "ERROR: genhtml $expr with ignore unexpectedly failed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+# slightly more complicated case...hack a bit so that 'expect' eval fails
+#  in summary callback
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o context --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'context' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --context-script ./MsgContext.pm --expect-message 'usage:MsgContext::test(%C)' --show-owners --ignore callback 2>&1 | tee expect.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml context with ignore unexpectedly failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "WARNING: .*callback.* evaluation of .+ failed" expect.log
+if [ 0 != $? ] ; then
+    echo "ERROR: didn't find expected callback message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 
 echo "Tests passed"
 

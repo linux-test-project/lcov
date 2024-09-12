@@ -56,6 +56,9 @@ Capture coverage data tracefile (from compiler-generated data):
 .RB [ \-\-ignore\-errors
 .IR errors ]
 .br
+.RB [\-\-expect\-message\-count
+.IR message_type=expr[,message_type=expr..]]
+.br
 .RB [ \-\-preserve ]
 .RB [ \-\-to\-package
 .IR package ]
@@ -1453,8 +1456,27 @@ Also see man
 .B lcovrc(5)
 for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed.  This can be used to reduce log file volume.
 
-
 .RE
+
+.BI "\-\-expect\-message\-count message_type:expr[,message_type:expr]"
+.RS
+Give
+.B lcov
+a constraint on the number of messages of one or more types which are expected to
+be produced during execution.  If the constraint is not true, then generate an
+error of type
+.I "count"
+(see above).
+
+See man
+.B genhtml(1)
+for more details about the flag, as well as the
+.I "expect_message_count"
+section in man
+.B lcovrc(5)
+for a description of the equivalent configuration file option.
+.RE
+
 .BI "\-\-keep\-going "
 .RS
 Do not stop if error occurs: attempt to generate a result, however flawed.

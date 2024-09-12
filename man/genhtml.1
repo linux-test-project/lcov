@@ -86,6 +86,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-ignore\-errors
 .IR errors  ]
 .br
+.RB [\-\-expect\-message\-count
+.IR message_type=expr[,message_type=expr..]]
+.br
 .RB [ \-\-keep\-going ]
 .RB [ \-\-config\-file
 .IR config\-file ]
@@ -2862,7 +2865,6 @@ function alias record (
 branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match
 .PP
 
-
 .PP
 .IP \- 3
 Negative number or zero line number encounted.
@@ -2962,12 +2964,84 @@ a tool called during processing returned an error code (e.g., 'find' encountered
 \-\-version\-script comparison returned non\-zero mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
 .PP
 
+Note that certain error messages are caused by issues that you probably cannot
+fix by yourself - for example, bugs in your tool chain which result in
+.I inconsistent
+coverage DB data (see above).
+In those cases, after reviewing the messages you may want to exclude the offending code or the entire offending
+file, or you may simply ignore the messages - either by converting to warning or suppressing entirely.
+Another alternative is to tell
+.B genhtml
+about the number of messages you expect - so that it can warn you if something changes
+such that the count differs, such that you know to review the messages again.
+See the
+.I "\-\-expect\-message\-count"
+flag, below.
+
 Also see 'man
 .B lcovrc(5)
 ' for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed.  This can be used to reduce log file volume.
 .br
 
 .RE
+.BI "\-\-expect\-message\-count message_type:expr[,message_type:expr]"
+.RS
+Give
+.B genhtml
+a constraint on the number of messages of one or more types which are expected to
+be produced during execution.  Note that the total includes _all_ messages
+of the given type - including those which have been suppressed.
+If the constraint is not true, an
+error of type
+.I "count"
+(see above) is generated.
+.I message_type
+is one of the message mnemonics described above, and
+.I expr
+may be either
+.IP \- 3
+an integer - interpreted to mean that there should be exactly that number
+of messages of the corresponding type, or
+.IP \- 3
+a Perl expression containing the substring
+.B %C
+; %C is replaced with the total number of messages of the corresponding type and
+then evaluated.  The constraint is met if the result is non-zero and is not met
+otherwise.
+
+For example:
+.IP
+\-\-expect\-message\-count inconsistent:5
+.br
+says that we expect exactly 5 messages of type 'inconsistent'.
+.PP
+.IP
+\-\-expect\-message\-count inconsistent:%C==5
+.br
+also says that we expect exactly 5 messages of this type, but specified
+using expression syntax.
+.PP
+.IP
+\-\-expect\-message\-count 'inconsistent : %C > 6 && %C <= 10'
+.br
+says that we expect the number of messages to be in the range (6:10].
+(Note that quoting may be necessary, to protect whitespace from interpretation by
+your shell, if you want to improve expression readability by adding spaces to your expression.)
+.PP
+
+Multiple constraints can be specified using a comma-separated list or
+by using the option multiple times.
+
+This flag is equivalent to the
+.I "expect_message_count"
+configuration option.  See man
+.B lcovrc(5)
+for more details on the expression syntax and how expressions are interpreted.
+The number of messages of the particular type is substituted into the
+expression before it is evaluated.
+
+.RE
+
 .BI "\-\-keep\-going "
 .RS
 Do not stop if error occurs: attempt to generate a result, however flawed.

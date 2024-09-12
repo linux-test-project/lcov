@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (LCOV) -
-- Last changes: 2024-03-21
+- Last changes: 2024-09-13
 -------------------------------------------------
 
 Description
@@ -64,9 +64,10 @@ Further README contents
                        to lcov format
   bin/geninfo        - Internal tool (creates LCOV data files)
   bin/genpng         - Internal tool (creates png overviews of source files)
+  lcovrc             - LCOV configuration file
   man                - Directory containing man pages for included tools
   example            - Directory containing an example to demonstrate LCOV
-  lcovrc             - LCOV configuration file
+  tests              - Directory containing lcov regression tests
   Makefile           - Makefile providing 'install' and 'uninstall' targets
 
 
@@ -110,8 +111,8 @@ or if you want to use the perl2lcov utility.
 To view the collected coverage information, point your browser to
 .../lcov_coverage/index.html after running the tests.
 
-Note that the testcases are intended to test LCOV functionality and
-not to be easily readable tutorial examples.
+Note that the testcases are primarily intended to test LCOV functionality
+and not to be easily readable tutorial examples.
 
 3. Dependencies:
 ----------------
@@ -307,13 +308,16 @@ New features and capabilities fall into 7 major categories:
      A generic - but very simple - error handler has been added to the
      lcov tool suite.  The error handler is used to report exceptions,
      and provides a mechanism for the user to ignore the particular
-     message if desired.
+     message if desired.  Note that ignoring certain errors can cause
+     subsequent errors and/or can result in inconsistent or confusing
+     coverage reports.
      See the genhtml/lcov/geninfo man pages for details.
 
      Note that some errors are unrecoverable - and cannot be suppressed or
      ignored.
 
-     Related options:  --ignore-error, --keep-going
+     Related options:
+        --ignore-error, --expect-message-count, --keep-going
 
   c) Navigation and display:
 

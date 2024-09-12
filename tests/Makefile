@@ -25,8 +25,8 @@ report:
 	  cover $(COVER_DB) ;                                       \
 	  $(BINDIR)/perl2lcov -o perlcov.info $(COVER_DB)           \
                --version-script $(VERSION_SCRIPT)                   \
-	       --exclude 'genError.pm' --exclude 'filter.pl'        \
-               --exclude 'brokenCallback.pm'                        \
+	       --exclude genError.pm --exclude filter.pl            \
+               --exclude brokenCallback.pm --exclude MsgContext.pm  \
                --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b' \
 	       --ignore unsupported,unused,inconsistent             \
                --filter region ;                                    \

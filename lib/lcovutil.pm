@@ -100,6 +100,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
 
 our @ignore;
 our @message_count;
+our @expected_message_count;
 our %message_types;
 our $suppressAfter = 100;    # stop warning after this number of messages
 our %ERROR_ID;
@@ -1047,8 +1048,9 @@ my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
     @rc_erase_patterns, @rc_version_script, @unsupported_config,
     @rc_source_directories, @rc_build_dir, %unsupported_rc,
     $keepGoing, $help, @rc_resolveCallback,
-    @rc_criteria_script, @rc_contextCallback, $rc_no_branch_coverage,
-    $rc_no_func_coverage, $rc_no_checksum, $version);
+    @rc_expected_msg_counts, @rc_criteria_script, @rc_contextCallback,
+    $rc_no_branch_coverage, $rc_no_func_coverage, $rc_no_checksum,
+    $version);
 my $quiet = 0;
 my $tempdirname;
 
@@ -1059,6 +1061,7 @@ our ($lcov_remove,     # If set, removes parts of tracefile
      $lcov_extract);    # If set, extracts parts of tracefile
 our @opt_config_files;
 our @opt_ignore_errors;
+our @opt_expected_message_counts;
 our @opt_filter;
 our @comments;
 
@@ -1101,6 +1104,7 @@ my %rc_common = (
              "lcov_branch_coverage"   => \$lcovutil::br_coverage,
              "ignore_errors"          => \@rc_ignore,
              "max_message_count"      => \$lcovutil::suppressAfter,
+             'expected_message_count' => \@rc_expected_msg_counts,
              'stop_on_error'          => \$lcovutil::stop_on_error,
              'treat_warning_as_error' => \$lcovutil::treat_warning_as_error,
              'warn_once_per_file'     => \$lcovutil::warn_once_per_file,
@@ -1220,17 +1224,18 @@ our %argCommon = ("tempdir=s"         => \$tempdirname,
                       \@ReadCurrentSource::source_directories,
                   'build-directory=s' => \@lcovutil::build_directory,
 
-                  'resolve-script=s'  => \@lcovutil::resolveCallback,
-                  'context-script=s'  => \@lcovutil::contextCallback,
-                  "filter=s"          => \@opt_filter,
-                  "demangle-cpp:s"    => \@lcovutil::cpp_demangle,
-                  "ignore-errors=s"   => \@opt_ignore_errors,
-                  "keep-going"        => \$keepGoing,
-                  "config-file=s"     => \@unsupported_config,
-                  "rc=s%"             => \%unsupported_rc,
-                  "profile:s"         => \$lcovutil::profile,
-                  "exclude=s"         => \@lcovutil::exclude_file_patterns,
-                  "include=s"         => \@lcovutil::include_file_patterns,
+                  'resolve-script=s'       => \@lcovutil::resolveCallback,
+                  'context-script=s'       => \@lcovutil::contextCallback,
+                  "filter=s"               => \@opt_filter,
+                  "demangle-cpp:s"         => \@lcovutil::cpp_demangle,
+                  "ignore-errors=s"        => \@opt_ignore_errors,
+                  "expect-message-count=s" => \@opt_expected_message_counts,
+                  "keep-going"             => \$keepGoing,
+                  "config-file=s"          => \@unsupported_config,
+                  "rc=s%"                  => \%unsupported_rc,
+                  "profile:s"              => \$lcovutil::profile,
+                  "exclude=s"              => \@lcovutil::exclude_file_patterns,
+                  "include=s"              => \@lcovutil::include_file_patterns,
                   "erase-functions=s" => \@lcovutil::exclude_function_patterns,
                   "omit-lines=s"      => \@lcovutil::omit_line_patterns,
                   "substitute=s"      => \@lcovutil::file_subst_patterns,
@@ -1452,6 +1457,7 @@ sub parseOptions
     # apply the RC file settings if no command line arg
     foreach my $rc ([\@opt_filter, \@rc_filter],
                     [\@opt_ignore_errors, \@rc_ignore],
+                    [\@opt_expected_message_counts, \@rc_expected_msg_counts],
                     [\@lcovutil::exclude_file_patterns, \@rc_exclude_patterns],
                     [\@lcovutil::include_file_patterns, \@rc_include_patterns],
                     [\@lcovutil::file_subst_patterns, \@rc_subst_patterns],
@@ -1536,6 +1542,7 @@ sub parseOptions
         lcovutil::init_parallel_params();
         # Determine which errors the user wants us to ignore
         parse_ignore_errors(@opt_ignore_errors);
+        parse_expected_message_counts(@opt_expected_message_counts);
         # Determine what coverpoints the user wants to filter
         push(@opt_filter, 'exception') if $lcovutil::exclude_exception_branch;
         parse_cov_filters(@opt_filter);
@@ -1746,12 +1753,13 @@ sub define_errors()
     my $id = 0;
     foreach my $d (@lcovErrs) {
         my ($k, $ref) = @$d;
-        $$ref               = $id;
-        $lcovErrors{$k}     = $id;
-        $ERROR_ID{$k}       = $id;
-        $ERROR_NAME{$id}    = $k;
-        $ignore[$id]        = 0;
-        $message_count[$id] = 0;
+        $$ref                        = $id;
+        $lcovErrors{$k}              = $id;
+        $ERROR_ID{$k}                = $id;
+        $ERROR_NAME{$id}             = $k;
+        $ignore[$id]                 = 0;
+        $message_count[$id]          = 0;
+        $expected_message_count[$id] = undef;    # no expected count, by default
         ++$id;
     }
 }
@@ -1761,6 +1769,29 @@ sub summarize_messages
     my $silent = shift;
     return if $lcovutil::in_child_process;
 
+    # first check for expected message count constraints
+    for (my $idx = 0; $idx <= $#expected_message_count; ++$idx) {
+        my $expr = $expected_message_count[$idx];
+        next unless defined($expr);
+        my $t = $message_count[$idx];
+        $expr =~ s/%C/$t/g;
+        my $v;
+        eval { $v = eval $expr; };
+        if ($@ || !defined($v)) {
+            # we checked the syntax of the message - so should not be able to fail
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                      "evaluation of '$expr' failed: $@");
+            next;
+        }
+        unless ($v) {
+            my $type = $ERROR_NAME{$idx};
+            lcovutil::ignorable_error($lcovutil::ERROR_COUNT,
+                "'$type' constraint '$expr' is not true (see '--expect_message_count' for details)."
+            );
+        }
+    }
+
+    # now summarize
     my %total = ('error'   => 0,
                  'warning' => 0,
                  'ignore'  => 0,);
@@ -1807,6 +1838,56 @@ sub parse_ignore_errors(@)
             unless exists($ERROR_ID{lc($item)});
         my $item_id = $ERROR_ID{lc($item)};
         $ignore[$item_id] += 1;
+    }
+}
+
+sub parse_expected_message_counts(@)
+{
+    my @constraints = split($split_char, join($split_char, @_));
+    # parse the list and look for errors..
+    foreach my $c (@constraints) {
+        if ($c =~ /^s*(\S+?)\s*:\s*((\d+)|(.+?))\s*$/) {
+            unless (exists($ERROR_ID{lc($1)})) {
+                lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                       "unknown 'expected-message-count' message type \"$1\".");
+                next;
+            }
+
+            my $id = $ERROR_ID{lc($1)};
+            if (defined($expected_message_count[$id])) {
+                my $ignore = $lcovutil::ignore[$lcovutil::ERROR_USAGE];
+                lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                                        "duplicate 'expected' constraint '$c'" .
+                                            ($ignore ? ': ignoring.' : ''));
+                next;
+            }
+            # check if syntax look resonable
+            my $expr = $2;
+            if (Scalar::Util::looks_like_number($expr)) {
+                $expected_message_count[$id] = "%C == $expr";
+                next;
+            }
+            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                "expect-message-count constraint '$c' does not appear to depend on message count:  '%C' substitution not found."
+            ) unless ($expr =~ /%C/);
+
+            # now lets try an eval
+            my $v = $expr;
+            $v =~ s/%C/0/g;
+            $v = eval $v;
+            if (defined($v)) {
+                $expected_message_count[$id] = $expr;
+            } else {
+                my $ignore = $lcovutil::ignore[$lcovutil::ERROR_USAGE];
+                lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                      "eval error in 'expect-message-count' constraint '$c': $@"
+                          . ($ignore ? ': ignoring.' : ''));
+            }
+        } else {
+            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                "malformed expected-message-count constraint \"$c\". Expected 'msg_type = expr'."
+            );
+        }
     }
 }
 

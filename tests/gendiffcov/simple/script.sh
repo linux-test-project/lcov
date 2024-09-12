@@ -134,7 +134,7 @@ DIFFCOV_OPTS="$DIFFCOV_NOFRAME_OPTS --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py names.data linked.cpp linked_diff.txt
-rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source linked linked_err linked_elide linked_dir failUnder
+rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source linked linked_err linked_elide linked_dir failUnder expect_err expect
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete -db $COVER_DB
@@ -1592,6 +1592,30 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+# skip both errors - but check total message count
+echo genhtml $DIFFCOV_OPTS --output-directory ./expect_err --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage --expect usage:1
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./expect_err --rc memory_percentage --rc percent=5 baseline_orig.info --ignore usage $IGNORE --expect usage:1 2>&1 | tee expect_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: didn't catch expect count error"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR:.*count.*'usage' contraint .+ is not true" expect_err.log
+
+# now skip the count message too
+echo genhtml $DIFFCOV_OPTS --output-directory ./expect --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage,count --rc expect_message_count=usage:1
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./expect --rc memory_percentage --rc percent=5 baseline_orig.info --ignore usage,count $IGNORE --rc expect_message_count=usage:1 2>&1 | tee expect.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: didn't skip expect count error"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "WARNING:.*count.*'usage' contraint .+ is not true" expect_err.log
 
 
 echo $SPREADSHEET_TOOL -o results.xlsx `find . -name "*.json"`
