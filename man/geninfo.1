@@ -999,7 +999,7 @@ option is supplied, then
 .RS
  #comment_string
 .RE
-will appeaare at the top of the tracefile.  There is no space before or after the
+will appear at the top of the tracefile.  There is no space before or after the
 .I #
 character.
 
@@ -1063,14 +1063,14 @@ FNF:<number of functions found>
 FNH:<number of function hit>
 .RE
 
-Branch coverage information is stored which one line per branch:
+Branch coverage information is stored one line per branch:
 
 .RS
 BRDA:<line_number>,[<exception>]<block>,<branch>,<taken>
 .RE
 
 .I <line_number>
-is the line number where the branch is found - and is expected to to be a non-zero integer.
+is the line number where the branch is found - and is expected to be a non-zero integer.
 .br
 .I <block>
 and
@@ -1086,9 +1086,9 @@ is a string which serves to uniquely identify a particular edge.  For some langu
 .I <branch>
 is an ordered integer index related to expression tree traversal order of the associated conditional.  For others, it may be a meaningful string - see below.
 .I <branch>
-appears in the 'tooltip' popup of the asognciated branch in the
+appears in the 'tooltip' popup of the associated branch in the
 .B genhtml
-output - so human-readable values are helpful to users who are trying to understand coveage results.
+output - so human-readable values are helpful to users who are trying to understand coverage results.
 .br
 .I <taken>
 is either '-' if the corresponding expression was never evaluated (e.g., the basic block containing the branch was never executed) or
