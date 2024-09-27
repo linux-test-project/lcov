@@ -8,6 +8,8 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+CC="${CC:-gcc}"
+CXX="${CXX:-g++}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -30,13 +32,12 @@ while [ $# -gt 0 ] ; do
             ;;
 
         --coverage )
-            #COVER="perl -MDevel::Cover "
             if [[ "$1"x != 'x' &&  $1 != "-"* ]] ; then
                COVER_DB=$1
                LOCAL_COVERAGE=0
                shift
             fi
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             ;;
 
         --home | -home )
@@ -72,7 +73,7 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
     echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
     exit 1
 fi
@@ -80,12 +81,18 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--branch $PARALLEL $PROFILE"
 # gcc/4.8.5 (and possibly other old versions) generate inconsistent line/function data
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent"
     # and filter exception branches to avoid spurious differences for old compiler
@@ -102,12 +109,12 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
-if ! type g++ >/dev/null 2>&1 ; then
-        echo "Missing tool: g++" >&2
+if ! type ${CXX} >/dev/null 2>&1 ; then
+        echo "Missing tool: ${CXX}" >&2
         exit 2
 fi
 
-$COVER $LCOV_HOME/bin/genhtml $LCOV_OPTS -o relative relative.info --ignore source,source --synthesize
+$COVER $GENHTML_TOOL $LCOV_OPTS -o relative relative.info --ignore source,source --synthesize
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from genhtml"
     if [ $KEEP_GOING == 0 ] ; then

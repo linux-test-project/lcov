@@ -1,0 +1,42 @@
+TN:
+SF:a.cpp
+DA:1,1
+#common line:  my count is zero and yours is nonzero        
+DA:2,1
+DA:3,0
+DA:4,-3
+DA:10,1.a0e+19
+DA:12,1.0e+19
+LF:4
+LH:3
+FN:1,2,fcn
+FN:1,2,alias
+FN:1,2,alias2
+FN:1,2,alias3
+FN:3,3,noCommonAlias
+FN:11,11,onlyA
+FNF:4
+FNH:3
+# my count is zero yours is nonzero
+FNDA:0,fcn
+FNDA:-2,alias
+FNDA:1.5eb+20,alias2
+FNDA:1.5e+20,alias3
+FNDA:-0,onlyA
+FNDA:1,noCommonAlias
+
+BRDA:1,1,0,1
+BRDA:1,1,1,-1
+BRDA:1,1,2,-
+BRDA:1,2,0,1.67+20
+BRDA:1,2,1,1.67e+20
+# common branch expr count zero in my, nonzero in you
+BRDA:1,2,1,0
+
+# branch in A only
+BRDA:11,0,0,0
+BRDA:11,0,1,-0
+
+BRF:7
+BRH:4
+end_of_record

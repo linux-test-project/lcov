@@ -34,7 +34,7 @@ class GenerateSpreadsheet(object):
         geninfoKeys = ('order', 'file', 'parse', 'exec', 'append')
 
         # work: productive time: process_one_chunk + merge chunk
-        # chunk: everything from fork() to end of filesytem cleanup after child merge
+        # chunk: everything from fork() to end of filesystem cleanup after child merge
         # child: time from entering child process to immediately before serialize
         # process: time to call process_one_chunk
         # undump:  time to deserialize chunk data into master
@@ -44,7 +44,7 @@ class GenerateSpreadsheet(object):
         geninfoSpecialKeys = ('total', 'parallel', 'filter', 'write')
 
         # keys related to filtering
-        filterKeys = ('filt_chunk', 'filt_queue',  'filt_child', 'filt_proc', 'filt_undump', 'filt_merge')
+        filterKeys = ('filt_chunk', 'filt_queue',  'filt_child', 'filt_proc', 'filt_undump', 'filt_merge', 'derive_end')
         if args.verbose:
             geninfoKeys.extend(['read', 'translate'])
 
@@ -72,7 +72,7 @@ class GenerateSpreadsheet(object):
             devCell = xl_rowcol_to_cell(devRow, beginCol, True, False)
             # relative row, relative column
             dataCell = xl_rowcol_to_cell(beginRow, beginCol, False, False)
-            # absolute value of differnce from the average
+            # absolute value of difference from the average
             diff = 'ABS(%(cell)s - %(avg)s)' % {
                 'cell' : dataCell,
                 'avg' : avgCell,
@@ -139,11 +139,12 @@ class GenerateSpreadsheet(object):
                 col += 1
                 if key in ('order',):
                     continue
+                if key not in sawData:
+                    continue
+                    
                 f = xl_rowcol_to_cell(beginRow, col)
                 t = xl_rowcol_to_cell(endRow, col)
 
-                if key not in sawData:
-                    continue
                 sum = "+SUM(%(from)s:%(to)s)" % {
                     "from" : f,
                     "to": t
@@ -445,7 +446,7 @@ class GenerateSpreadsheet(object):
                 #          child (can't record 'dumper' call time
                 #          because that also dumps the profile
                 # child:   time from child coming to life after fork
-                #          to immediately afer 'process_one_file'
+                #          to immediately after 'process_one_file'
                 # exec: time take to by 'gcov' call
                 # merge: time to merge child process (undump, read
                 #       trace data, append to summary, etc.)
@@ -477,7 +478,7 @@ class GenerateSpreadsheet(object):
                 row = dataSection('files', sorted(data['file'].keys(), key=cmp_to_key(cmpFile)),
                                   geninfoKeys, fileDataRow, fileStatsRow)
 
-                # now the fiter data - if any
+                # now the filter data - if any
                 if args.show_filter:
                     filterDataRow = row + 1;
                     try:
@@ -561,7 +562,19 @@ class GenerateSpreadsheet(object):
                 # process:  time to generate data and write HTML for file
                 # synth:  generate file content (no file found)
                 # source:
-                genhtmlKeys = ('total', 'child', 'annotate', 'synth', 'categorize', 'source', 'check_version', 'html')
+                genhtmlKeys = ['  '] # placeholder key
+                # these keys are computed for segments
+                genhtml_chunkyKeys = ['child', 'startDelay', 'mergeDelay',
+                                      'merge_segment', 'segment']
+                filter_keys = ['filt_undump', 'filt_merge', 'filt_queue', 'filt_chunk']
+
+                perObj_keys = ['file', 'source', 'categorize', 'annotate', 'check_version',
+                               'html', 'load', 'criteria', 'synth']
+
+                for k in perObj_keys:
+                    if k in data:
+                        genhtmlKeys.append(k)
+
                 col = 3
                 for k in genhtmlKeys:
                     sheet.write_string(row, col, k)
@@ -579,15 +592,19 @@ class GenerateSpreadsheet(object):
 
                 #print(" ".join(data.keys()))
                 try:
-                    fileData = data['file']
+                    if 'file' in data:
+                        scopeList = data['file'].keys()
+                    else:
+                        scopeList = data['html'].keys()
                 except:
                     print("%s:  incomplete data - skipping" % (name))
                     continue
                 begin = row
                 sawData = {}
-                sawData['total'] = 0
+                #sawData['total'] = 0
                 def printDataRow(name):
                     col = 4
+                    nonlocal row
                     for k in genhtmlKeys[1:]:
                         if (k in data and
                             name in data[k]):
@@ -601,45 +618,34 @@ class GenerateSpreadsheet(object):
                                 print("%s: failed to write %s" %(name, data[k][name]))
                         col += 1
 
-                def visitScope(f, dirname):
-                    pth, name = os.path.split(f)
-                    if None != dirname or pth != dirname:
-                        return
-                    sheet.write_string(row, 2, name)
-                    sheet.write_number(row, 3, fileData[f], twoDecimal)
-                    sawData['total'] += 1
+                def visitScope(f):
+                    nonlocal row
+                    if '' == f:
+                        sheet.write_string(row, 1, 'top')
+                    else:
+                        pth, name = os.path.split(f)
+                        if name == '':
+                            # this is a directory..
+                            sheet.write_string(row, 0, 'directory')
+                            sheet.write_string(row, 1, pth)
+                        else:
+                            sheet.write_string(row, 3, name)
+                    # there really is no 'total' data for any file or directory
                     printDataRow(f)
                     row += 1
+                    return 1
 
-                try:
-                    dirData = data['dir']
-                except:
-                    # hack - 'flat' report doens't have directory data
-                    for f in sorted(fileData.keys()):
-                      visitScope(f, None)
-                    dirData = {}
-
-                for dirname in sorted(dirData.keys()):
-                    sheet.write_string(row, 0, "directory")
-                    sheet.write_string(row, 1, dirname)
-                    sheet.write_number(row, 3, dirData[dirname], twoDecimal)
-                    #pdb.set_trace()
-                    printDataRow(dirname)
-                    row += 1
-
-                    start = row
-
-                    for f in sorted(fileData.keys()):
-                      visitScope(f, dirname)
+                for f in sorted(scopeList):
+                    visitScope(f)
 
                 insertStats(genhtmlKeys, sawData, sumRow, avgRow, devRow, begin,
-                           row-1, 3)
+                            row-1, 3)
 
                 overallParallelism = "+%(from)s/%(total)s" % {
-                    'from': xl_rowcol_to_cell(sumRow, 3),
+                    'from': xl_rowcol_to_cell(sumRow, 4),
                     'total': total,
                     }
-                sheet.write_formula(totalRow,2, overallParallelism, twoDecimal);
+                sheet.write_formula(totalRow, 2, overallParallelism, twoDecimal);
                 continue
 
             for k in data:

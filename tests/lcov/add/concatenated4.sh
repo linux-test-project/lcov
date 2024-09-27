@@ -8,4 +8,4 @@
 
 cat "$TARGETINFO" "$TARGETINFO" "$TARGETINFO" "$TARGETINFO" >concatenated.info
 
-exec ./helper.sh 0.25 "$TARGETINFO" concatenated.info
+exec ./helper.sh $@ 0.25 "$TARGETINFO" concatenated.info

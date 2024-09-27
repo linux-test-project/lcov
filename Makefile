@@ -24,7 +24,8 @@
 #                          --parallel n  - use --parallel flag
 #                          --home path   - path to lcov script
 #                          --llvm        - use LLVM rather than gcc
-#                         --keep-going  - don't stop on error
+#                         --keep-going   - don't stop on error
+#                         --verbose      - echo commands to test.log
 #                   Note that not all tests have been updated to use
 #                   all flags
 
@@ -38,35 +39,41 @@ export LCOV_PERL_PATH   := /usr/bin/perl
 export LCOV_PYTHON_PATH := /usr/bin/python3
 
 PREFIX  := /usr/local
-FIRST_CHAR = $(shell echo $(PREFIX) | cut -c 1)
 
-# if user specified an absolute path, use it - otherwise, make it absolute
-DESTDIR := $(shell                           \
-	if [ '/' == "$(FIRST_CHAR)" ] ; then \
-	  echo $(PREFIX) ;                   \
-	else                                 \
-	  realpath $(PREFIX) ;               \
-	fi )
-
-ifneq ($(PREFIX),$(DESTDIR))
-$(warning "installing at absolute path '$(DESTDIR)' rather your suggested '$(PREFIX)'")
+FIRST_CHAR = $(shell echo "$(DESTDIR)$(PREFIX)" | cut -c 1)
+ifneq ("$(FIRST_CHAR)", "/")
+$(error "DESTDIR + PREFIX expected to be absolute path - found $(FIRST_CHAR)")
 endif
 
-CFG_DIR := $(DESTDIR)/etc
-BIN_DIR := $(DESTDIR)/bin
-LIB_DIR := $(DESTDIR)/lib/lcov
-MAN_DIR := $(DESTDIR)/share/man
-SCRIPT_DIR := $(DESTDIR)/share/lcov/support-scripts
-TMP_DIR := $(shell mktemp -d)
-FILES   := $(wildcard bin/*) $(wildcard man/*) README Makefile \
-	   $(wildcard rpm/*) lcovrc
+CFG_DIR := $(PREFIX)/etc
+BIN_DIR := $(PREFIX)/bin
+LIB_DIR := $(PREFIX)/lib/lcov
+MAN_DIR := $(PREFIX)/share/man
+SHARE_DIR := $(PREFIX)/share/lcov/
+SCRIPT_DIR := $(SHARE_DIR)/support-scripts
 
-EXES = lcov genhtml geninfo genpng gendesc
-SCRIPTS = p4udiff p4annotate getp4version get_signature gitblame gitdiff \
-	criteria analyzeInfoFiles spreadsheet.py py2lcov gitversion
+CFG_INST_DIR := $(DESTDIR)$(CFG_DIR)
+BIN_INST_DIR := $(DESTDIR)$(BIN_DIR)
+LIB_INST_DIR := $(DESTDIR)$(LIB_DIR)
+MAN_INST_DIR := $(DESTDIR)$(MAN_DIR)
+SHARE_INST_DIR := $(DESTDIR)$(SHARE_DIR)
+SCRIPT_INST_DIR := $(SHARE_INST_DIR)/support-scripts
+
+TMP_DIR := $(shell mktemp -d)
+FILES   := README Makefile lcovrc \
+	   $(wildcard bin/*) $(wildcard example/*) $(wildcard lib/*) \
+	   $(wildcard man/*) $(wildcard rpm/*) $(wildcard scripts/*)
+DIST_CONTENT := CONTRIBUTING COPYING README Makefile lcovrc \
+	bin example lib man rpm scripts tests
+
+EXES = lcov genhtml geninfo genpng gendesc perl2lcov py2lcov xml2lcov xml2lcovutil.py
+# there may be both public and non-public user scripts - so lets not show
+#   any of their names
+SCRIPTS = $(shell ls scripts | grep -v -E '([\#\~]|\.orig|\.bak|\.BAK)' )
 LIBS = lcovutil.pm
-MANPAGES = man1/lcov.1 man1/genhtml.1 man1/geninfo.1 man1/genpng.1 \
-	man1/gendesc.1 man5/lcovrc.5
+# similarly, lets not talk about man pages
+MANPAGES = $(foreach m, $(shell cd man ; ls *.1), man1/$(m)) \
+	$(foreach m, $(shell cd man ; ls *.5), man5/$(m))
 
 # Program for checking coding style
 CHECKSTYLE = $(CURDIR)/bin/checkstyle.sh
@@ -89,52 +96,53 @@ all: info
 
 info:
 	@echo "Available make targets:"
-	@echo "  install   : install binaries and man pages in PREFIX (default $(PREFIX))"
-	@echo "  uninstall : delete binaries and man pages from PREFIX (default $(PREFIX))"
+	@echo "  install   : install binaries and man pages in DESTDIR (default /)"
+	@echo "  uninstall : delete binaries and man pages from DESTDIR (default /)"
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
 	@echo "  check     : perform self-tests"
 	@echo "  checkstyle: check source files for coding style issues"
 	@echo "  release   : finalize release and create git tag for specified VERSION"
-	@echo "  test      : same as 'make check"
+	@echo "  test      : same as 'make check'"
 
 clean:
 	$(call echocmd,"  CLEAN   lcov")
-	rm -f lcov-*.tar.gz
-	rm -f lcov-*.rpm
+	$(RM) -f lcov-*.tar.gz lcov-*.rpm
+	$(RM) -rf ./bin/__pycache__
 	$(MAKE) -C example -s clean
 	$(MAKE) -C tests -s clean
 	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
 
 install:
-	$(INSTALL) -d -m 755 $(BIN_DIR)
+	$(INSTALL) -d -m 755 $(BIN_INST_DIR)
 	for b in $(EXES) ; do \
-		$(call echocmd,"  INSTALL $(BIN_DIR)/$$b") \
-		$(INSTALL) -m 755 bin/$$b $(BIN_DIR)/$$b ; \
+		$(call echocmd,"  INSTALL $(BIN_INST_DIR)/$$b") \
+		$(INSTALL) -m 755 bin/$$b $(BIN_INST_DIR)/$$b ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
-		       --exec $(BIN_DIR)/$$b ; \
+		       --exec $(BIN_INST_DIR)/$$b ; \
 	done
-	$(INSTALL) -d -m 755 $(SCRIPT_DIR)
+	$(INSTALL) -d -m 755 $(SCRIPT_INST_DIR)
 	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  INSTALL $(SCRIPT_DIR)/$$s") \
-		$(INSTALL) -m 755 bin/$$s $(SCRIPT_DIR)/$$s ; \
+		$(call echocmd,"  INSTALL $(SCRIPT_INST_DIR)/$$s") \
+		$(INSTALL) -m 755 scripts/$$s $(SCRIPT_INST_DIR)/$$s ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
-		       --fixinterp --fixver --fixlibdir --fixbindir \
-		       --exec $(SCRIPT_DIR)/$$s ; \
+		       --fixinterp --fixver --fixlibdir \
+		       --fixscriptdir --scriptdir $(SCRIPT_DIR) \
+		       --exec $(SCRIPT_INST_DIR)/$$s ; \
 	done
-	$(INSTALL) -d -m 755 $(LIB_DIR)
+	$(INSTALL) -d -m 755 $(LIB_INST_DIR)
 	for l in $(LIBS) ; do \
-		$(call echocmd,"  INSTALL $(LIB_DIR)/$$l") \
-		$(INSTALL) -m 644 lib/$$l $(LIB_DIR)/$$l ; \
+		$(call echocmd,"  INSTALL $(LIB_INST_DIR)/$$l") \
+		$(INSTALL) -m 644 lib/$$l $(LIB_INST_DIR)/$$l ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
 		       --fixinterp --fixver --fixlibdir --fixbindir \
-		       --exec $(LIB_DIR)/$$l ; \
+		       --exec $(LIB_INST_DIR)/$$l ; \
 	done
 	for section in 1 5 ; do \
-		DEST=$(MAN_DIR)/man$$section ; \
+		DEST=$(MAN_INST_DIR)/man$$section ; \
 		$(INSTALL) -d -m 755 $$DEST ; \
 		for m in man/*.$$section ; do  \
 			F=`basename $$m` ; \
@@ -145,55 +153,60 @@ install:
 		         --manpage $$DEST/$$F ; \
 		done ;  \
 	done
-	$(INSTALL) -d -m 755 $(CFG_DIR)
-	$(call echocmd,"  INSTALL $(CFG_DIR)/lcovrc")
-	$(INSTALL) -m 644 lcovrc $(CFG_DIR)/lcovrc
+	mkdir -p $(SHARE_INST_DIR)
+	for d in example tests ; do \
+		( cd $$d ; make clean ) ; \
+		find $$d -type d -exec mkdir -p "$(SHARE_INST_DIR){}" \; ; \
+		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_INST_DIR){}" \; ; \
+	done ;
+	@chmod -R ugo+x $(SHARE_INST_DIR)/tests/bin
+	@find $(SHARE_INST_DIR)/tests \( -name '*.sh' -o -name '*.pl' \) -exec chmod ugo+x {} \;
+	$(INSTALL) -d -m 755 $(CFG_INST_DIR)
+	$(call echocmd,"  INSTALL $(CFG_INST_DIR)/lcovrc")
+	$(INSTALL) -m 644 lcovrc $(CFG_INST_DIR)/lcovrc
+	$(call echocmd,"  done INSTALL")
+
 
 uninstall:
 	for b in $(EXES) ; do \
-		$(call echocmd,"  UNINST  $(BIN_DIR)/$$b") \
-		$(RM) -f $(BIN_DIR)/$$b ; \
+		$(call echocmd,"  UNINST  $(BIN_INST_DIR)/$$b") \
+		$(RM) -f $(BIN_INST_DIR)/$$b ; \
 	done
+	rmdir --ignore-fail-on-non-empty $(BIN_INST_DIR) || true
 	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  UNINST  $(SCRIPT_DIR)/$$s")  \
-		$(RM) -f $(SCRIPT_DIR)/$$s ; \
+		$(call echocmd,"  UNINST  $(SCRIPT_INST_DIR)/$$s")  \
+		$(RM) -f $(SCRIPT_INST_DIR)/$$s ; \
 	done
-	rmdir --ignore-fail-on-non-empty $(SCRIPT_DIR)
+	rmdir --ignore-fail-on-non-empty $(SCRIPT_INST_DIR)
 	for l in $(LIBS) ; do \
-		$(call echocmd,"  UNINST  $(LIB_DIR)/$$l") \
-		$(RM) -f $(LIB_DIR)/$$l ; \
+		$(call echocmd,"  UNINST  $(LIB_INST_DIR)/$$l") \
+		$(RM) -f $(LIB_INST_DIR)/$$l ; \
 	done
-	for section in 1 5 ; do \
-		DEST=$(MAN_DIR)/man$$section ; \
-		for m in man/*.$$section ; do  \
-			F=`basename $$m` ; \
-			$(call echocmd,"  UNINST  $$DEST/$$F") \
-			$(RM) -f $$DEST/$$F ; \
-		done ; \
-		rmdir --ignore-fail-on-non-empty $$DEST ; \
-	done ; \
-	rmdir --ignore-fail-on-non-empty $(MAN_DIR)
-
-	$(call echocmd,"  UNINST  $(CFG_DIR)/lcovrc")
-	$(RM) -f $(CFG_DIR)/lcovrc
+	rmdir --ignore-fail-on-non-empty $(LIB_INST_DIR) || true
+	rmdir `dirname $(LIB_INST_DIR)` || true
+	rm -rf `dirname $(SHARE_INST_DIR)`
+	$(call echocmd,"  UNINST  $(CFG_INST_DIR)/lcovrc")
+	$(RM) -f $(CFG_INST_DIR)/lcovrc
+	rmdir --ignore-fail-on-non-empty $(CFG_INST_DIR) || true
+	rmdir --ignore-fail-on-non-empty $(PREFIX)$(DESTDIR) || true
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
 
 lcov-$(VERSION).tar.gz: $(FILES)
 	$(call echocmd,"  DIST    lcov-$(VERSION).tar.gz")
+	$(RM) -rf $(TMP_DIR)/lcov-$(VERSION)
 	mkdir -p $(TMP_DIR)/lcov-$(VERSION)
-	cp -r . $(TMP_DIR)/lcov-$(VERSION)
-	rm -rf $(TMP_DIR)/lcov-$(VERSION)/.git
-	bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
+	cp -r $(DIST_CONTENT) $(TMP_DIR)/lcov-$(VERSION)
+	./bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
 	$(MAKE) -s -C $(TMP_DIR)/lcov-$(VERSION) clean >/dev/null
 	cd $(TMP_DIR)/lcov-$(VERSION) ; \
 	$(FIX) --version $(VERSION) --release $(RELEASE) \
 	       --verfile .version --fixver --fixdate \
-	       $(patsubst %,bin/%,$(EXES)) $(patsubst %,bin/%,$(SCRIPTS)) \
+	       $(patsubst %,bin/%,$(EXES)) $(patsubst %,scripts/%,$(SCRIPTS)) \
 	       $(patsubst %,lib/%,$(LIBS)) \
 	       $(patsubst %,man/%,$(notdir $(MANPAGES))) README rpm/lcov.spec
-	bin/get_changes.sh > $(TMP_DIR)/lcov-$(VERSION)/CHANGES
+	./bin/get_changes.sh > $(TMP_DIR)/lcov-$(VERSION)/CHANGES || true
 	cd $(TMP_DIR) ; \
 	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION) \
 	    --owner root --group root
@@ -217,6 +230,7 @@ rpms: lcov-$(VERSION).tar.gz
 		lcov-$(VERSION)/rpm/lcov.spec \
 	)
 	rpmbuild --define '_topdir $(TMP_DIR)' --define '_buildhost localhost' \
+		 --define "_target_os linux" \
 		 --undefine vendor --undefine packager \
 		 -ba $(TMP_DIR)/BUILD/lcov-$(VERSION)/rpm/lcov.spec --quiet
 	mv $(TMP_DIR)/RPMS/noarch/lcov-$(VERSION)-$(RELEASE).noarch.rpm .
@@ -226,19 +240,30 @@ rpms: lcov-$(VERSION).tar.gz
 
 ifeq ($(COVERAGE), 1)
 # write to .../tests/cover_db
-export COVER_DB := ./cover_db
+export COVER_DB := $(shell echo `pwd`/tests/cover_db)
+export PYCOV_DB := $(shell echo `pwd`/tests/pycov.dat)
+export HTML_RPT := $(shell echo `pwd`/lcov_coverage)
+#export LCOV_FORCE_PARALLEL = 1
 endif
-export TESTCASE_ARGS COVER_DB
+export TESTCASE_ARGS
 
 test: check
 
+# for COVERAGE mode check: run once with LCOV_FORCE_PARALLEL=1 and
+#   once without - so we can merge the result
 check:
-	if [ "x$(COVERAGE)" != 'x' ] && [ ! -d tests/$(COVER_DB) ]; then \
-	  mkdir tests/$(COVER_DB) ; \
+	if [ "x$(COVERAGE)" != 'x' ] ; then                                 \
+	  if [ ! -d $(COVER_DB) ]; then                                     \
+	    mkdir $(COVER_DB) ;                                             \
+	  fi ;                                                              \
+	  echo "*** Run once, force parallel ***" ;                         \
+	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C tests check LCOV_HOME=`pwd` ; \
+	  echo "*** Run again, no force ***" ;                              \
 	fi
-	@$(MAKE) -s -C tests check
-	if [ "x$(COVERAGE)" != 'x' ] ; then \
-	  ( cd tests ; cover ) ; \
+	@$(MAKE) -s -C tests check LCOV_HOME=`pwd`
+	@if [ "x$(COVERAGE)" != 'x' ] ; then       \
+	  $(MAKE) -s -C example LCOV_HOME=`pwd`;   \
+	  $(MAKE) -s -C tests report ;             \
 	fi
 
 # Files to be checked for coding style issue issues -
@@ -258,18 +283,18 @@ endif
 	  if [ 0 != $$? ] ; then                                 \
 	    RC=1;                                                \
 	    echo "saw mismatch for $$FILE";                      \
-	    if [[ -f $$FILE.tdy && "$(UPDATE)x" != 'x' ]] ; then \
+	    if [ -f $$FILE.tdy -a "$(UPDATE)x" != 'x' ]; then    \
 	      echo "updating $$FILE";                            \
 	      mv $$FILE $$FILE.orig;                             \
 	      mv $$FILE.tdy $$FILE ;                             \
-            fi                                                   \
+	    fi                                                   \
 	  fi                                                     \
 	done ;                                                   \
 	exit $$RC
 
 release:
 	@if [ "$(origin VERSION)" != "command line" ] ; then echo "Please specify new version number, e.g. VERSION=1.16" >&2 ; exit 1 ; fi
-	@if [ -n "$$(git status --porcelain 2>&1)" ] ; then echo "The repository contains uncommited changes" >&2 ; exit 1 ; fi
+	@if [ -n "$$(git status --porcelain 2>&1)" ] ; then echo "The repository contains uncommitted changes" >&2 ; exit 1 ; fi
 	@if [ -n "$$(git tag -l v$(VERSION))" ] ; then echo "A tag for the specified version already exists (v$(VERSION))" >&2 ; exit 1 ; fi
 	@echo "Preparing release tag for version $(VERSION)"
 	git checkout master

@@ -5,4 +5,4 @@
 # Add single 100% coverage file - output should be same as input
 #
 
-exec ./helper.sh 1 "$FULLINFO" "$FULLINFO"
+exec ./helper.sh $@ 1 "$FULLINFO" "$FULLINFO"

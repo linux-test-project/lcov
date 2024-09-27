@@ -1,0 +1,715 @@
+#!/bin/bash
+set +x
+
+CLEAN_ONLY=0
+COVER=
+UPDATE=0
+PARALLEL='--parallel 0'
+PROFILE="--profile"
+CC="${CC:-gcc}"
+CXX="${CXX:-g++}"
+COVER_DB='cover_db'
+LOCAL_COVERAGE=1
+KEEP_GOING=0
+while [ $# -gt 0 ] ; do
+
+    OPT=$1
+    shift
+    case $OPT in
+
+        --clean | clean )
+            CLEAN_ONLY=1
+            ;;
+
+        -v | --verbose | verbose )
+            set -x
+            ;;
+
+        --keep-going )
+            KEEP_GOING=1
+            ;;
+
+        --coverage )
+            #COVER="perl -MDevel::Cover "
+            if [[ "$1"x != 'x' && $1 != "-"*  ]] ; then
+               COVER_DB=$1
+               LOCAL_COVERAGE=0
+               shift
+            fi
+            if [ ! -d ${COVER_DB} ] ; then
+                mkdir -p ${COVER_DB}
+            fi
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
+            ;;
+
+        --home | -home )
+            LCOV_HOME=$1
+            shift
+            if [ ! -f $LCOV_HOME/bin/lcov ] ; then
+                echo "LCOV_HOME '$LCOV_HOME' does not exist"
+                exit 1
+            fi
+            ;;
+
+        --no-parallel )
+            PARALLEL=''
+            ;;
+
+        --no-profile )
+            PROFILE=''
+            ;;
+
+        --llvm )
+            LLVM=1
+            module load como/tools/llvm-gnu/11.0.0-1
+            # seems to have been using same gcov version as gcc/4.8.3
+            module load gcc/4.8.3
+            #EXTRA_GCOV_OPTS="--gcov-tool '\"llvm-cov gcov\"'"
+            CXX="clang++"
+            ;;
+
+        --update )
+            UPDATE=1
+            ;;
+
+        * )
+            echo "Error: unexpected option '$OPT'"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "x" == ${LCOV_HOME}x ]] ; then
+       if [ -f ../../../bin/lcov ] ; then
+           LCOV_HOME=../../..
+       else
+           LCOV_HOME=../../../../releng/coverage/lcov
+       fi
+fi
+LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
+
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
+    echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
+    exit 1
+fi
+
+export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
+export MANPATH=${MANPATH}:${LCOV_HOME}/man
+
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
+ROOT=`pwd`
+PARENT=`(cd .. ; pwd)`
+if [ -f $LCOV_HOME/scripts/getp4version ] ; then
+    SCRIPTS_DIR=$LCOV_HOME/scripts
+else
+    SCRIPTS_DIR=$LCOV_HOME/share/lcov/support-scripts
+fi
+SELECT_SCRIPT=$SCRIPTS_DIR/select.pm
+CRITERIA_SCRIPT=$SCRIPTS_DIR/criteria.pm
+GITBLAME_SCRIPT=$SCRIPTS_DIR/gitblame.pm
+GITVERSION_SCRIPT=$SCRIPTS_DIR/gitversion.pm
+P4VERSION_SCRIPT=$SCRIPTS_DIR/P4version.pm
+
+# is this git or P4?
+git -C . rev-parse > /dev/null 2>&1
+if [ 0 == $? ] ; then
+    # this is git
+    VERSION_SCRIPT=${SCRIPTS_DIR}/gitversion.pm
+    ANNOTATE_SCRIPT=${SCRIPTS_DIR}/gitblame.pm
+else
+    VERSION_SCRIPT=${SCRIPTS_DIR}/getp4version
+    ANNOTATE_SCRIPT=${SCRIPTS_DIR}/p4annotate.pm
+fi
+
+
+# filter out the compiler-generated _GLOBAL__sub_... symbol
+LCOV_BASE="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
+LCOV_OPTS="$LCOV_BASE"
+DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
+
+rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail
+
+if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
+    cover -delete
+fi
+
+if [[ 1 == $CLEAN_ONLY ]] ; then
+    exit 0
+fi
+
+if ! type "${CXX}" >/dev/null 2>&1 ; then
+        echo "Missing tool: $CXX" >&2
+        exit 2
+fi
+
+echo `which gcov`
+echo `which lcov`
+
+ln -s ../simple/simple.cpp test.cpp
+${CXX} --coverage test.cpp
+./a.out
+
+# old version of gcc has inconsistent line/function data
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
+if [ "${VER[0]}" -lt 5 ] ; then
+    # can't get branch coverpoints in 'initial' mode, with ancient GCC
+    IGNORE="--ignore usage"
+fi
+
+# some warnings..
+echo lcov $LCOV_OPTS --capture --directory .  --initial --all --output-file initial.info --test-name myTest $IGNORE
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --initial --all --output-file initial.info --test-name myTest $IGNORE 2>&1 | tee initial_all.log
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov --capture failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -- "'--all' ignored" initial_all.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing ignore message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# need data for version error message checking as well
+echo lcov $LCOV_OPTS --capture --directory .  --output-file version.info --test-name myTest --version-script $SCRIPTS_DIR/getp4version
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory .  --output-file version.info --test-name myTest --version-script $SCRIPTS_DIR/getp4version | tee version.log
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov --capture failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# help message
+for T in "$GENHTML_TOOL" "$LCOV_TOOL" "$GENINFO_TOOL" ; do
+    echo  "'$T' --help"
+    $COVER $T --help
+    if [ 0 != $? ] ; then
+        echo "unsuccessful $T help"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    echo  "'$T' --noSuchOppt"
+    $COVER $T --noSuchOpt
+    if [ 0 == $? ] ; then
+        echo "didn't catch missing opt"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+# generate some usage errors..
+echo lcov $LCOV_OPTS --list initial.info --initial
+$COVER $LCOV_TOOL $LCOV_OPTS --list initial.info --initial 2>&1 | tee initial_warn.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --list failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "'--initial' is ignored" initial_warn.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing ignore message 2"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+echo lcov $LCOV_OPTS --summary initial.info --prune
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --prune 2>&1 | tee prune_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --summary 3 failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep 'prune-tests has effect' prune_err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing ignore message 2"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+echo lcov $LCOV_OPTS --summary initial.info --prune --ignore usage
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --prune --ignore usgae 2>&1 | tee prune_warn.log
+
+echo lcov $LCOV_OPTS --capture -d . -o build.info --build-dir x/y
+$COVER $LCOV_TOOL $LCOV_OPTS --capture -d . -o build.info --build-dir x/y 2>&1 | tee build_dir_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --list failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "'x/y' is not a directory" build_dir_err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing build dir message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+echo lcov $LCOV_OPTS --summary initial.info --config-file noSuchFile --ignore usage
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file noSuchFile --ignore usgae 2>&1 | tee err_missing.log
+grep "cannot read configuration file 'noSuchFile'" err_missing.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing config file message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+echo lcov $LCOV_OPTS --capture -d . -o build.info --build-dir $LCOV_HOME
+$COVER $LCOV_TOOL $LCOV_OPTS --capture -d . -o build.info --build-dir $LCOV_HOME 2>&1 | tee build_dir_unused.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --list failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "\"--build-directory .* is unused" build_dir_unused.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing build dir unused message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+echo lcov $LCOV_OPTS --summary initial.info --rc memory_percentage=-10
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --rc memory_percentage=-10 2>&1 | tee mem_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --summary 4 failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "memory_percentage '-10' " mem_err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing percent message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+echo lcov $LCOV_OPTS --summary initial.info --rc memory_percentage=-10 --ignore usage
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --rc memory_percentage=-10 --ignore usage 2>&1 | tee mem_warn.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov memory usage failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+echo genhtml $DIFCOV_OPTS initial.info -o select --select-script $SELECT_SCRIPT --select-script -x
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script $SELECT_SCRIPT --select-script -x 2>&1 | tee script_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml select passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "unable to create callback from" script_err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing script message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+for arg in "--select-script $SELECT_SCRIPT,--range,0:10" \
+               "--criteria-script $CRITERIA_SCRIPT,--signoff" \
+               "--annotate-script $ANNOTATE_SCRIPT" \
+               "--annotate-script $GITBLAME_SCRIPT,mediatek.com,--p4" \
+               "--annotate-script $GITBLAME_SCRIPT,--p4" \
+               "--annotate-script $GITBLAME_SCRIPT" \
+               " --ignore version --version-script $GITVERSION_SCRIPT,--md5,--p4" \
+           ; do
+    echo genhtml $DIFCOV_OPTS initial.info -o scriptErr ${arg},-x
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o scriptErr ${arg},-x 2>&1 | tee script_err.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+        echo "ERROR: genhtml scriptErr passed by accident"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    grep "unable to create callback from" script_err.log
+    if [ 0 != $? ] ; then
+        echo "ERROR: missing script message"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    # run again  without error
+    echo genhtml $DIFCOV_OPTS initial.info -o scriptFixed ${arg}
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o scriptFixed ${arg} --ignore annotate 2>&1 | tee script_err.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        echo "ERROR: genhtml scriptFixed failed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+echo genhtml $DIFCOV_OPTS initial.info -o p4err --version-script $P4VERSION_SCRIPT,-x
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o p4err --version-script $P4VERSION_SCRIPT,-x 2>&1 | tee p4err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml select passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "unable to create callback from" p4err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing script message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --rc compute_file_version=1
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh  --rc compute_file_version=1 2>&1 | tee select_scr.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml compute_version failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ 0 != $? ] ; then
+    echo "ERROR: trivial select failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "'compute_file_version=1' option has no effect" select_scr.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing script message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# and again, as a differential report with annotation
+NOW=`date`
+rm -rf mycache
+echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix 2>&1 | tee select_scr.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml cache failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ ! -d mycache ] ; then
+    echo "did not create 'mycache'"
+fi
+
+#break the cached data - cause corruption error
+for i in `find mycache -type f` ; do
+    echo $i
+    echo xyz > $i
+done
+# have to ignore version mismatch becaure p4annotate also computes version
+echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --ignore version
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --ignore version 2>&1 | tee cacheFail.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml corrupt deserialize failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep -E "corrupt.*unable to deserialize" cacheFail.log
+if [ 0 != $? ] ; then
+    echo "ERROR: failed to file cache corruption"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# make cache file unreadable
+find mycache -type f -exec chmod ugo-r {} \;
+echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix 2>&1 | tee cacheFail2.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml unreadable cache failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep -E "callback.*can't open" cacheFail2.log
+if [ 0 != $? ] ; then
+    echo "ERROR: failed to file cache error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+# differntial report with empty diff file
+touch diff.txt
+echo genhtml $DIFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCTIPT --baseline-file initial.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info 2>&1 | tee empty_diff.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml did not fail empty diff eheck"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "'diff' data file diff.txt contains no differences" empty_diff.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing empty message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+# insensitive flag with case-sensitive substitute expr
+#   - this will trigger multiple usage messages, but we set the max count
+#     to 1 (one) - to also trigger a 'count exceeded' message.
+echo lcov $LCOV_OPTS --summary initial.info --substitute 's#aBc#AbC#' --substitute 's@XyZ#xyz#i' --rc case_insensitive=1 --ignore source --rc max_message_count=1
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --substitute 's#aBc#AbC#' --rc case_insensitive=1 --ignore source --rc max_message_count=1 2>&1 | tee insensitive.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --summary insensitive"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep " --substitute pattern 's#aBc#AbC#' does not seem to be case insensitive" insensitive.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing insensitive message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep " (count) max_message_count=1 reached for 'usage' messages: no more will be reported." insensitive.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing max count message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+# callback error testing
+#  die() in 'extract' callback:
+echo lcov $LCOV_OPTS --summary version.info --filter line--version-script ./genError.pm
+$COVER $LCOV_TOOL $LCOV_OPTS --summary version.info --filter line --version-script ./genError.pm 2>&1 | tee extract_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov extract passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "extract_version.+ failed" extract_err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: extract_version message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# pass 'extract' but die in check (need to check version in order to filter)
+echo lcov $LCOV_OPTS --summary version.info --filter line --version-script ./genError.pm --version-script extract
+$COVER $LCOV_TOOL $LCOV_OPTS --summary version.info --filter line --version-script ./genError.pm --version-script extract 2>&1 | tee extract_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov extract passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "compare_version.+ failed" extract_err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: compare_version message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# resolve
+# apply substitution to ensure that the file is not found so the resolve callback
+# is called
+echo lcov $LCOV_OPTS --summary initial.info --rc case_insensitive=1 --filter branch --resolve ./genError.pm --substitute s/test.cpp/noSuchFile.cpp/i
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --rc case_insensitive=1 --filter branch --resolve ./genError.pm --substitute s/test.cpp/noSuchFile.cpp/i 2>&1 | tee resolve_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: lcov --summary resolve"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "resolve.+ failed" resolve_err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: resolve message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+for callback in select annotate criteria ; do
+
+  echo genhtml $DIFCOV_OPTS initial.info -o $callback --${callback}-script ./genError.pm
+  $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o $callback --${callback}-script ./genError.pm 2>&1 | tee ${callback}_err.log
+  if [ 0 == ${PIPESTATUS[0]} ] ; then
+      echo "ERROR: genhtml $callback error passed by accident"
+      if [ 0 == $KEEP_GOING ] ; then
+          exit 1
+      fi
+  fi
+  grep -E "${callback}.* failed" ${callback}_err.log
+  if [ 0 != $? ] ; then
+      echo "ERROR: $callback message"
+      if [ 0 == $KEEP_GOING ] ; then
+          exit 1
+      fi
+  fi
+done
+
+echo genhtml $DIFCOV_OPTS initial.info -o unused_src --source-dir ../..
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o unused_src --source-dir ../.. 2>&1 | tee src_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml source-dir error passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E -- '"--source-directory ../.." is unused' src_err.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing srcdir message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# inconsistent setting of branch filtering without enabling branch coverage
+echo genhtml --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent --rc treat_warning_as_error=1
+$COVER $GENHTML_TOOL --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent --rc treat_warning_as_error=1 2>&1 | tee inconsistent.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml inconsistent warning-as-error passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep 'ERROR: (usage) branch filter enabled but branch coverage not enabled' inconsistent.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing inconsistency message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# when we treat warning as error, but ignore the message type
+echo genhtml --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent --rc treat_warning_as_error=1 --ignore usage
+$COVER $GENHTML_TOOL --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent --rc treat_warning_as_error=1 --ignore usage 2>&1 | tee inconsistent.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml inconsistent warning-as-error passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep 'WARNING: (usage) branch filter enabled but branch coverage not enabled' inconsistent.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing inconsistency message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+echo genhtml --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent
+$COVER $GENHTML_TOOL --filter branch --prefix $PARENT_VERSION $PROFILE initial.info -o inconsistent 2>&1 | tee inconsistent2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml inconsistent warning-as-error failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep 'WARNING: (usage) branch filter enabled but branch coverage not enabled' inconsistent2.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing inconsistency message 2"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+# use jan1 1970 as epoch
+echo SOURCE_DATE_EPOCH=0 genhtml $DIFFCOV_OPTS initial.info -o epoch
+SOURCE_DATE_EPOCH=0 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT -o epoch 2>&1 | tee epoch.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: missed epoch error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR: \(inconsistent\) .+ 'SOURCE_DATE_EPOCH=0' .+ is older than annotate time" epoch.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing epoch"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# deprecated messages
+echo genhtml $DIFFCOV_OPTS initial.info -o highlight --highlight
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT --highlight -o highlight 2>&1 | tee highlight.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: missed decprecated error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR: \(deprecated\) .*option .+ has been removed" highlight.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing highlight message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+mkdir -p etc
+echo "genhtml_highlight = 1" > etc/lcovrc
+echo genhtml $DIFFCOV_OPTS initial.info -o highlight --config-file LCOV_HOME/etc/lcovrc
+LCOV_HOME=. $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT -o highlight 2>&1 | tee highlight2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: deprecated error was fatal"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "WARNING: \(deprecated\) .+ deprecated and ignored" highlight2.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing decrecated message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+for err in "--rc truncate_owner_table=top,x" "--rc owner_table_entries=abc" "--rc owner_table_entries=-1" ; do
+    echo genhtml $DIFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --show-owners
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix $err --show-owners
+    if [ 0 == $? ] ; then
+        echo "ERROR: genhtml $err unexpectedly passed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+
+echo "Tests passed"
+
+if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ] ; then
+    cover
+fi

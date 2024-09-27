@@ -20,7 +20,7 @@
 #
 #   This is a sample script which uses uses md5sum to compare file versions
 #   If the checksum is not the same - then line numbers, etc. may be different
-#   and soem very strange errors may occur.
+#   and some very strange errors may occur.
 #   md5sum is not secure - so could use sha512sum or some other program, if we
 #   really wanted to
 
@@ -31,13 +31,15 @@ use Cwd qw(abs_path);
 sub usage
 {
     print(STDERR "usage: $0 --compare old_version new_version filename OR\n" .
-          "       $0 filename\n");
+          "       $0 [--allow-missing] filename\n");
 }
 
 my $compare;
+my $allow_missing;
 my $help;
-if (!GetOptions("--compare" => \$compare,
-                '--help'    => \$help) ||
+if (!GetOptions("--compare"       => \$compare,
+                '--allow-missing' => \$allow_missing,
+                '--help'          => \$help) ||
     $help ||
     ($compare && scalar(@ARGV) != 3) ||
     (!$compare && scalar(@ARGV) != 1)
@@ -53,8 +55,14 @@ if ($compare) {
     exit($old ne $new);    # for the moment, just look for exact match
 }
 
-die("Error: $filename does not exist")
-    unless (-e $filename);
+unless (-e $filename) {
+    if ($allow_missing) {
+        print("\n");       # empty string
+        exit 0;
+    }
+    die("Error: $filename does not exist - perhaps you need the '--allow-missing' flag"
+    );
+}
 $pathname = abs_path($filename);
 
 #my $sum = `sha512sum $pathname`;

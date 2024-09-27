@@ -6,6 +6,33 @@
 #   genhtml_demangle_cpp_params
 #
 
+KEEP_GOING=0
+while [ $# -gt 0 ] ; do
+
+    OPT=$1
+    case $OPT in
+
+        --coverage )
+            shift
+            COVER_DB=$1
+            shift
+
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
+            KEEP_GOING=1
+
+            ;;
+
+        -v | --verbose )
+            set -x
+            shift
+            ;;
+
+        * )
+            break
+            ;;
+    esac
+done
+
 OUTDIR="out_demangle"
 STDOUT="demangle_stdout.log"
 STDERR="demangle_stderr.log"
@@ -36,13 +63,14 @@ EOF
 }
 
 function run() {
-        local CMDLINE="${GENHTML} --ignore unmapped,unmapped,category,category ${INFO} -o ${OUTDIR} $*"
+    export LCOV_SHOW_LOCATION=1
+        local CMDLINE="${GENHTML} --ignore unmapped,unmapped,category,category,source,source ${INFO} -o ${OUTDIR} $*"
 
         rm -rf "${OUTDIR}"
 
         # Run genhtml
         echo "CMDLINE: $CMDLINE"
-        $CMDLINE >${STDOUT} 2>${STDERR}
+        $CMDLINE 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
         RC=$?
 
         echo "STDOUT_START"
@@ -54,10 +82,10 @@ function run() {
         echo "STDERR_STOP"
 
         # Check exit code
-        [[ $RC -ne 0 ]] && die "Non-zero genhtml exit code $RC"
+        [[ $RC -ne 0 && $KEEP_GOING != 1 ]] && die "Non-zero genhtml exit code $RC"
 
         # Output must not contain warnings
-        if [[ -s ${STDERR} ]] ; then
+        if [[ -s ${STDERR} && $COVER == '' ]] ; then
                 echo "Error: Output on stderr.log:"
                 cat ${STDERR}
                 exit 1
@@ -93,7 +121,7 @@ else
         echo "Skipping - missing c++filt tool"
 fi
 
-# need to quiet warnings because 'run' method croaks if ther is
+# need to quiet warnings because 'run' method croaks if there is
 #  anything in stderr
 IGNORE="--ignore deprecated"
 echo

@@ -531,7 +531,7 @@ foreach my $filename (sort keys %sourceFiles) {
 }
 
 if (%missing) {
-    print("Files misssing from .info data:\n");
+    print("Files missing from .info data:\n");
 
     foreach my $f (sort keys %missing) {
         print("\t$f:\n");

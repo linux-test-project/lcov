@@ -155,17 +155,20 @@ package main;
 my @exclude_patterns;
 my @include_patterns;
 my $suppress_unchanged;
+my $ignore_whitespace;
 
 if (!GetOptions("exclude=s"    => \@exclude_patterns,
                 "include=s"    => \@include_patterns,
+                'b|blank'      => \$ignore_whitespace,
                 'no-unchanged' => \$suppress_unchanged) ||
     3 != scalar(@ARGV)
 ) {
     print(STDERR<<EOF
-usage: [(--exclude|include) regexp[,regexp]] [--no-unchanged] sandbox_directory base_changelist current_changelist
+usage: [(--exclude|include) regexp[,regexp]] [-b] [--no-unchanged] sandbox_directory base_changelist current_changelist
  'exclude' wins if both exclude and include would match.
  'current_changelist' may be a changelist number or "sandbox".
- "sandbox" indicates that there may be changes in 'sandbox_directory' which have not ben commited to perforce yet.
+ "sandbox" indicates that there may be changes in 'sandbox_directory' which have not ben committed to perforce yet.
+ '-b' ignores whitespace changes
 EOF
     );
     exit(1);
@@ -359,13 +362,15 @@ foreach my $f (sort keys %union) {
     } elsif (defined($b) && defined($c)) {
         # check diff
         next if ($b->type() eq "binary" || $c->type() eq "binary");
-        # "p4 diff -du ". $c->path() . '#' . $c->rev() . " " . $b->path() . '#' . $b->rev()
+        # "p4 diff $ignore_whitespace -du ". $c->path() . '#' . $c->rev() . " " . $b->path() . '#' . $b->rev()
         printf("p4 diff $f#%d $f#%d\n", $b->rev(), $c->rev());
         printf("index %d..%d\n", $base_changelist, $curr_changelist);
         my @lines;
-        open(HANDLE, "-|", "p4", "diff", "-du",
-             $b->path() . '#' . $b->rev(),
-             $c->path() . '#' . $c->rev()) or
+        my @cmd = ("p4", "diff", "-du",
+                   $b->path() . '#' . $b->rev(),
+                   $c->path() . '#' . $c->rev());
+        splice(@cmd, 2, 0, '-db') if $ignore_whitespace;
+        open(HANDLE, "-|", @cmd) or
             die("p4 diff failed: $!\n");
         while (my $line = <HANDLE>) {
             chomp $line;

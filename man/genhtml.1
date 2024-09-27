@@ -1,5 +1,5 @@
 \" Define path to scripts
-.ds scriptdir bin
+.ds scriptdir scripts
 
 \" Define project URL
 .ds lcovurl https://github.com/linux\-test\-project/lcov
@@ -15,7 +15,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .br
 .RB [ \-q | \-\-quiet ]
 .RB [ \-v | \-\-verbose ]
-.RB [ \-\-debug ]
+.br
+.RB [ \-\-debug ] [ \-\-validate ]
 .br
 .RB [ \-s | \-\-show\-details ]
 .br
@@ -47,10 +48,15 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .IR prefix ]
 .RB [ \-\-no\-prefix ]
 .br
+.RB [ \-\-build\-directory
+.IR directory ]
+.br
 .RB [ \-\-source\-directory
 .IR dirname ]
 .br
 .RB [ \-\-no\-source ]
+.RB [ \-\-no\-html ]
+.br
 .RB [ \-\-num\-spaces
 .IR num ]
 .RB [ \-\-highlight ]
@@ -83,12 +89,18 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-keep\-going ]
 .RB [ \-\-config\-file
 .IR config\-file ]
+.br
+.RB [ \-\-profile
+.IR [profile\-file ]
+.br
 .RB [ \-\-rc
 .IR keyword = value ]
 .br
 .RB [ \-\-precision
 .IR num ]
 .RB [ \-\-missed ]
+.br
+.RB [ \-\-merge\-aliases ]
 .br
 .RB [ \-\-suppress\-aliases ]
 .br
@@ -111,13 +123,28 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-annotate\-script
 .IR script ]
 .br
+.RB [ \-\-context\-script
+.IR script ]
+.br
 .RB [ \-\-criteria\-script
 .IR script ]
 .br
 .RB [ \-\-version\-script
 .IR script  ]
 .br
+.RB [ \-\-resolve\-script
+.IR script  ]
+.br
+.RB [ \-\-select\-script
+.IR script  ]
+.br
 .RB [ \-\-checksum ]
+.br
+.RB [ \-\-fail\-under\-branches
+.IR percentage ]
+.br
+.RB [ \-\-fail\-under\-lines
+.IR percentage ]
 .br
 .RB [ \-\-new\-file\-as\-baseline ]
 .br
@@ -174,6 +201,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-preserve ]
 .br
 .RB [ \-\-save ]
+.br
+.RB [ \-\-serialize
+.IR serialize_output_file ]
 .br
 .IR tracefile_pattern(s)
 .RE
@@ -378,7 +408,13 @@ following options:
 .RS
 .B \-\-annotate\-script
 .br
+.B \-\-context\-script
+.br
 .B \-\-criteria\-script
+.br
+.B \-\-resolve\-script
+.br
+.B \-\-select\-script
 .br
 .B \-\-version\-script
 .br
@@ -388,25 +424,195 @@ While each script performs a separate function there are some common aspects
 in the way these options are handled:
 
 .IP 1. 3
-If an option is specified only once, the argument specifies the full command
-line that
-.B genhtml
-passes to a shell interpreter to run the script.
-This includes the script path followed by optional additional parameters
-separated by spaces. Care must be taken to provide proper quoting if script
-path or any parameter contains spaces or shell special characters.
+If the callback script name ends in
+.B \.pm
+then the script is assumed to be a Perl module.
 .br
+A perl module may offer performance advantages over an external script, as it is compiled once and loaded into the interpreter and because it can load and maintain internal state.
+.br
+The module is expected to export a method 'new', which is
+called with the script name and the script parameters (if any) as arguments.  It is expected to return an object which implements several standard methods:
+.br
+.I $callback_obj = packagename\-\>new(perl_module_file, args);
+.RS 3
+.IP version\-script 3
+.I $version = $callback_obj->extract_version($source_file_ename);
+.br
+.I $match = $callback_obj->check_version($old_version, $new_version, $source_file_name);
+.br
+.RS
+.IP $match 3
+ is expected to be 1 (true) if the version keys refer to the came file and 0 (false) otherwise.
 .PP
 
-.IP 2. 3
-If an option is specified multiple times, the first invocation specifies the
-script path and any further invocation specifies one additional parameter.
-In this case, genhtml takes care of quoting of spaces contained in
-script location and additional parameters.
+.IP $version 3
+ is a string representing a unique identifier of the particular version of the file
+.PP
+.RE
+
+See example implementations
+.I $LCOV_HOME/share/lcov/support-scripts/gitversion.pm
+and
+.I $LCOV_HOME/share/lcov/support-scripts/getp4version.pm.
+.PP
+.IP annotate\-script 3
+.I ($status, $array) = $callback_obj->annotate($source_file_name);
 .br
+.br
+.br
+
+where
+.RS
+.IP $status 3
+ is 0 if the command succeeded and nonzero otherwise.
+.I $status
+is interpreted in same way as the return code from 'system(..)'
+.PP
+.IP $array 3
+is a list of line data of the form:
+.br
+.I [$text, $abbrev, $full_name, $when, $changelist].
+.PP
+.br
+
+and
+
+.IP $text 3
+is the source text from the corresponding line (without newline termination)
+.PP
+.IP $abbrev 3
+is the "abbreviated author name" responsible for this line of code.  This is the name that will be used in the various HTML tables.  For example, for brevity/readability, you may want to strip the domain from developers who are inside your organization.  If there is no associated author, then the value should be
+.I \"NONE\".
+.PP
+.IP $full_name 3
+is the "full author name" which is used in annotation tooltips.  See the
+.I genhtml_annotate_tooltip
+entry in man
+.B lcovrc(5).
+.I $fullname
+may be
+.I undef
+if the full name and abbreviated names are the same.
+.PP
+.IP $when 3
+is the timestamp associated with the most recent edit of the corresponding
+line and may be
+.I \"NONE\"
+if there is no associated time.
+.PP
+.IP $changelist 3
+is the commit identifier associated with the most recent change to this line, or
+.I \"NONE\"
+if there isn't one.
+.PP
+
+
+See example implementations
+.I $LCOV_HOME/share/lcov/support-scripts/gitblame.pm
+and
+.I $LCOV_HOME/share/lcov/support-scripts/p4annotate.pm.
+.RE
+
+.IP context\-script
+.I $hash = $callback_obj->context();
+.br
+.br
+
+where
+.I $hash
+is a reference to a hask of key/value pairs which are meaningful to you.
+This data is stored in the
+.I profile
+database.  See the 'profile' section in man
+.B lcovrc(5)
+for more information.
+
+If your callback is not a perl module - for example, is a shellscript - then it should return a string such that the first word on each line is the key and the remainder is the associated data.  If a key is repeated, then the corresponding data strings are concatentated, separated by newline.
+
+If you want to record only system information, then a shell callback is likely sufficient.  If you want to record any tool-specific/internal information, then you will need to implement a perl module so that your callback will be able to access the information.
+Note that the constructor of your
+.I context-script
+callback (or of any callback) can perform any additional actions which
+are required - for example, to write additional files, to query or set
+tool-specific information,
+.I etc.
+For example, the example implementation, below, has an option to append
+comments to the generated .info file.
+
+
+See the example implementation
+.I $LCOV_HOME/share/lcov/support-scripts/context.pm.
+.RE
+
+
+
+.IP criteria\-script
+.I ($status, $array) = $callback_obj->check_criteria($obj_name, $type, $json);
+.br
+.br
+
+where
+.RS
+.IP $obj_name 3
+is the source file or directory name, or \"top\" of the object whose coverage criteria is being checked.
+.PP
+.IP $type 3
+is the object type - either
+.I \"file\", \"directory\", or \"top\".
+.PP
+.IP $json 3
+is the coverage data associated with this object, in JSON format - see below.
+.PP
+.IP $status 3
+is the return status of the operation, interpreted the same way as the
+.I annotate
+callback status, described above.
+.PP
+.IP $array 3
+is a reference to a possibly empty list of strings which will be reported by genhtml.  The strings are are expected to explain why the coverage criteria failed.
+.PP
+
+See example implementations
+.I $LCOV_HOME/share/lcov/support-scripts/criteria.pm.
+.RE
+
+.IP resolve\-script
+$newpath = $callback_obj->resolve($source_file_name)
+.br
+.br
+
+where
+.I $newpath
+is the correct path to the indicated source file or
+.I undef
+if the source file is not found by the callback.
+.PP
+
+.RE
+
+.IP 2. 3
+The option may be specified as a single
+.I split_char
+separated string which is divied into words (see
+.B man lcovrc(5)
+), or as a list of arguments.
+The resulting command line is passed
+to a shell interpreter to be executed.
+The command line includes the script path followed by optional additional parameters
+separated by spaces. Care must be taken to provide proper quoting if script
+path or any parameter contains spaces or shell special characters.
 .PP
 
 .IP 3. 3
+If an option is specified multiple times, then the parameters are
+.I not
+split, but are simply concatentated to form the command line - see the examples, below.
+.br
+For simplicity and ease of understanding:  your command line should
+pass all arguments individually, or all as a comma-separated list - not a mix of the two.
+.PP
+
+.IP 4. 3
 .B genhtml
 passes any additional parameters specified via option arguments
 between the script path and the parameters required by the script's function.
@@ -419,25 +625,119 @@ Example:
 .RS
 genhtml --annotate-script /bin/script.sh
 .br
-        --annotate-script "full"
+        --annotate-script arg0 ...
 .br
+
+results in the same callback as
+
 .br
+genhtml --annotate-script "/bin/script.sh arg0" ...
+.br
+
+or
+
+.br
+genhtml --annotate-script /bin/script.sh,arg0 ...
+.br
+
+Note that the first form is preferred.
+
 .RE
 
-results in
+The resulting
 .B genhtml
-executing the following command line:
+callback executes the command line:
 .br
 
 .RS
-/bin/script.sh "full"
+/bin/script.sh arg0
 .I source_file_name
 .RE
 .br
 
+Similarly
+.br
+.RS
+genhtml --annotate-script
+.I /bin/myMoodule.pm
+.br
+        --annotate-script arg0 --annotate-script arg1 ...
+.br
+
+or
+.br
+genhtml --annotate-script
+.I /bin/myMoodule.pm,arg0,arg1
+.br
+
+.br
+.RE
+
+result in
+.B genhtml
+executing
+.br
+
+.RS
+$annotateCallback = myModule->new(arg0, arg1);
+.RE
+
+to initialize the class object -
+.I arg0
+and
+.I arg1
+passed as strings - and then to execute
+
+.RS
+($status, $arrayRef) = $annotateCallback(
+.I source_file_name
+);
+.RE
+
+to retrieve the annotation information.
+
+In contrast, the command
+.br
+.RS
+genhtml --annotate-script
+.I /bin/myMoodule.pm
+.br
+        --annotate-script arg0,arg1 ...
+.RE
+would result in
+.B genhtml
+initializing the callback object via
+.br
+
+.RS
+$annotateCallback = myModule->new("arg0,arg1");
+.RE
+where "arg0,arg1" is passed as single comma-separated string.
+
+Similarly, the command
+.br
+.RS
+genhtml --annotate-script
+.I /bin/myMoodule.pm,arg0
+.br
+        --annotate-script arg1 ...
+.RE
+would very likely result in an error when genhtml tries to find
+a script called "/bin/mymodule.pm,arg0".
+
+
 Note that multiple instances of each script may execute simultaneously if the
 .B \-\-parallel
 option was specified. Therefore each script must either be reentrant or should arrange for its own synchronization, if necessary.
+.br
+In particular, if your callback is implemented via a perl module:
+.IP \- 3
+the class object associated with the module will initialized once (in the parent process)
+.PP
+.IP \- 3
+The callback will occur in the child process (possibly simultaneously with other child processes).
+.PP
+As a result:  if your callback needs to pass data back to the parent, you will need to arrange a communication mechanism to do so.
 .br
 
 .SS Additional considerations
@@ -449,7 +749,7 @@ option is used, genhtml will use the referenced script to determine whether your
 
 The
 .B \-\-version\-script
-option is used to verify that the same/compatible source code versions are displayed as were used to capture coverage data.
+option is used to verify that the same/compatible source code versions are displayed as were used to capture coverage data, as well as to verify that the same source code was used to capture coverage information which is going to be merged and to verify that the source version used for filtering operations is compatible with the version used to generate the data.
 
 HTML output files are created in the current working directory unless the
 .B \-\-output\-directory
@@ -468,8 +768,24 @@ Further, the
 .BR \-\-version\-script ", " \-\-annotate\-script ", and " \-\-criteria\-script " scripts "
 use the same path strings. However, see the
 .B \-\-substitute
-option for a mechanism to adjust extracted paths so they match your source and/or revision control layout.
+and
+.B \-\-resolve\-script
+options for a mechanism to adjust extracted paths so they match your source and/or revision control layout.
+
 .br
+You can use the
+.BR check_exisitence_before_callback
+configuration option to tell the tool to check that the file exists before
+calling the
+.BR \-\-version\-script
+or
+.BR \-\-annotate\-script
+callback. See man
+.B lcovrc(5)
+for details.
+.br
+
+.SS Additional options
 
 Use option
 .B \-\-diff\-file
@@ -506,8 +822,9 @@ or type-specific limits:
 .br
 .RE
 
-See the lcovrc man page for details.
-.br
+See man
+.B lcovrc(5)
+for details.
 
 Also note that when displaying percentages, 0% and 100% are only printed when
 the values are exactly 0% and 100% respectively. Other values which would
@@ -522,12 +839,21 @@ reports will include both line and function coverage data.
 Branch data is not displayed by default; you can use the
 .B --branch-coverage
 option to enable branch coverage - or you can permanently enable branch coverage by adding the appropriate
-settings to your personal, group, or site lcov configuration file.  See the
-.B lcovrc
-man page for details.
+settings to your personal, group, or site lcov configuration file.  See man
+.B lcovrc(5)
+for details.
 
 
 .SH OPTIONS
+
+In general, (almost) all
+.B genhtml
+options can also be specified in your personal, group, project, or site
+configuration file - see man
+.B lcovrc(5)
+for details.
+
+
 .B \-h
 .br
 .B \-\-help
@@ -562,6 +888,14 @@ Decreased verbosity will suppress 'progress' messages for example - while error 
 Increment 'debug messages' verbosity.  This is useful primarily to developers who want to enhance the lcov tool suite.
 
 .RE
+.B \-\-validate
+.RS
+Check the generated HTML to verify that there are no dead hyperlinks and no unused files in the output directory.
+The checks can also be enabled by setting environment variable
+.B LCOV_VALIDATE = 1.
+This option is primarily intended for use by developers who modify the HTML report.
+
+.RE
 .B \-\-flat
 .br
 .B \-\-hierarchical
@@ -571,17 +905,21 @@ Use the specified HTML report hierarchy layout.
 
 The default HTML report is 3 levels:
 
-.RS
-.B 1. top\-level:
+.RS 2
+.IP 1. 3
+.B top\-level:
 table of all directories,
-.br
+.PP
 
-.B 2. directory:
+.IP 2. 3
+.B directory:
 table of source files in a directory, and
+.PP
 
-.B 3. source file detail:
+.IP 3. 3
+.B source file detail:
 annotated source code.
-.br
+.PP
 .RE
 
 Option
@@ -593,19 +931,28 @@ Option
 .B \-\-flat
 produces a two-level HTML report:
 
-.RS
-.B 1. top\-level:
+.RS 2
+.IP 1. 3
+.B top\-level:
 table of all project source files, and
-.br
+.PP
 
-.B 2. source file detail:
+.IP 2. 3
+.B source file detail:
 annotated source code.
-.br
+.PP
 .RE
+
+The 'flat' view can reduce the number of clicks required to navigate around
+the coverage report - but is unwieldy except for rather small projects consisting of only a few source files.  It can be useful in 'code review' mode, even for very large projects (see the
+.I \-\-select\-script
+option).
+.br
+Most large projects follow a rational directory structure - which favors the 'hierarchical' report format.  Teams responsible for a particular module can focus on a specific subdirectory or set of subdirectories.
 
 Only one of options
 .B \-\-flat
-and
+or
 .B \-\-hierarchical
 can be specified at the same time.
 
@@ -628,7 +975,9 @@ or
 .br
 .RE
 
-See the lcovrc man page for details.
+See man
+.B lcovrc(5)
+for details.
 
 .RE
 .B \-f
@@ -644,6 +993,21 @@ code character has to be inspected once. Note also that the GD.pm Perl
 module has to be installed for this option to work (it may be obtained
 from http://www.cpan.org).
 
+This option can also be controlled from the
+.I genhtml_frames
+entry of the
+.B lcovrc
+file.
+
+Please note that there is a bug in firefox and in chrome, such that
+enabling frames will disable hyperlinks from the 'directory' level summary
+table entry to the first line in the corresponding file in the particular
+category - e.g., to the first 'MIS' line (vanilla coverage report - see the
+.i \-\-show\-navigation
+option, below), to
+the first 'UNC' branch (differential coverage repot), etc.
+Hyperlinks from the summary table at the top of the 'source detail' page are not affected.
+
 .RE
 .B \-s
 .br
@@ -653,10 +1017,25 @@ Generate detailed directory view.
 
 When this option is enabled,
 .B genhtml
-generates two versions of each
-file view. One containing the standard information plus a link to a
-"detailed" version. The latter additionally contains information about
-which test case covered how many lines of each source file.
+generates two versions of each source file file entry in the corresponding summary table:
+.IP
+one containing the standard information plus a link to a
+"detailed" version, and
+.PP
+.IP
+a second which contains the number of coverpoints in the hit by each
+testcase.
+.br
+Note that missed coverpoints are not shown in the per-testcase table entry data.
+.PP
+
+The corresponding summary table is found on the 'directory' page of the default 3-level genthm report, or on the top-level page of the 'flat' report (see
+.I genhtml \-\-flat ...
+), or on the parent directory page of the 'hierarchical' report (see
+.I genhtml \-\-hierarchical ...
+).
+
+Note that this option may significantly increase memory consumption.
 
 .RE
 .BI "\-b " baseline\-file\-pattern
@@ -674,6 +1053,14 @@ The coverage data files specified by
 .I baseline\-file\-pattern
 is read and used as the baseline for classifying the change in coverage represented by the coverage counts in
 .IR tracefile\-patterns .
+If
+.I baseline\-file\-pattern
+is a directory, then genhtml will search the directory for all files ending in '.info'.
+See the
+.I info_file_extension
+section in
+.B man(5) lcovrc
+for how to change this pattern.
 
 In general, you should specify a diff file in unified diff format via
 .B \-\-diff\-file
@@ -722,6 +1109,32 @@ and
 .IR tracefile(s) .
 .br
 
+
+Note:
+
+.IP - 3
+if filters are applied during the creation of a differential coverage report,
+(see the
+,I \-\-filter
+section, below), then those filters will be applied to the
+.I baseline coverage data
+(see the
+.I \-\-baseline\-file
+section, above) as well as to the
+.I current coverage data.
+It is important that the
+.I diff-file
+accurately reflect all source code changes so that the baseline coverage data can be correctly filtered.
+.PP
+
+.IP - 3
+Best practice is to use a
+.I \-\-version\-script
+callback to verify that source versions match before source-based filtering is applied.
+.PP
+
+It is almost always a better idea to filter at capture or aggregate time - not at report generation.
+
 A suitable
 .I diff\-file
 can be generated using the command:
@@ -761,7 +1174,9 @@ diff [optional header strings]
 
 in the p4diff/gitdiff output as this knowledge will help to suppress spurious 'path mismatch' warnings.  See the
 .B \-\-elide\-path\-mismatch
-option, below.
+and
+.B \-\-build\-directory
+entries, below.
 
 In general, you will specify
 .B \-\-baseline\-file
@@ -788,7 +1203,7 @@ the tool will assume that there is no baseline coverage data (no baseline code w
 .I i.e.,
 which does not appear in the
 .I diff_file
-will be categorized as eiher GIC (covered) or UIC (not covered) while new or chagned code will be categorized as either GNC or UNC.
+will be categorized as eiher GIC (covered) or UIC (not covered) while new or changed code will be categorized as either GNC or UNC.
 
 .RE
 .BI "\-\-annotate\-script " script
@@ -809,9 +1224,9 @@ to add a summary table to the HTML report header that shows counts in the variou
 Annotation data is also used to populate a 'tooltip' which appears when the mouse
 hovers over the associated source code.  See the
 .I genhtml_annotate_tooltip
-entry in the
-.B lcovrc
-man page for details.
+entry in man
+.B lcovrc(5)
+for details.
 .br
 
 The specified
@@ -912,7 +1327,7 @@ executable should output a line to the standard output stream in the following f
 .br
 
 .RS
-.IR commit_id | author_id | date | source_code
+.IR commit_id | author_data | date | source_code
 .br
 .RE
 
@@ -935,10 +1350,33 @@ and as 'successfully annotated' otherwise.
 .RE
 .br
 
-.B author_id
+.B author_data
 .br
 .RS
-identifies the author of the last change
+identifies the author of the last change.
+.br
+For backward compatibility with existing annotate-script implementations,
+two
+.I author_data
+formats are supported:
+.IP - 3
+.I string
+:  the string used as both the 'abbreviated name' (used as 'owner' name in
+HTML output and callbacks) and as 'full name' (used in tooltip callbacks)
+.PP
+.IP - 3
+.I abbrev_string;full_name
+: the
+.I author_data
+string contains both an 'abbreviated name' and a 'full name' - separated by a semicolon character (';').
+.br
+This is useful when generating coverage reports for opensource software
+components where there are many 'External' contributors who you do not want
+to distinguish in 'owner' summary tables but you still want to know who the
+actual author was.  (See the
+.B gitblame
+callback script for an example.)
+.PP
 .br
 .RE
 .br
@@ -1025,7 +1463,9 @@ genhtml --rc criteria_callback_data=date,owner ...
 .br
 .RE
 
-See the lcovrc man page for more details.
+See man
+.B lcovrc(5)
+for more details.
 
 .B "Creating your own script"
 .br
@@ -1037,12 +1477,12 @@ above for general calling conventions and script requirements.
 
 .I script
 is run with the following command line for each source code file,
-leaf-directory, and top-level coverage results:
+leaf\-directory, and top-level coverage results:
 
 .RS
 .B script
 .I "[additional_parameters] " "name " " type"
-.I "json_data"
+.I "coverage_data"
 .br
 .RE
 
@@ -1082,11 +1522,12 @@ checked, that is one of "file", "directory", or "top"
 .br
 .RE
 
-.B json_data
+.B coverage_data
 .br
 .RS
-is a JSON representation of coverage data for the corresponding source code
-object
+is either a coverage data hash or a JSON representation of coverage data hash of the corresponding source code
+object.
+If the callback is a Perl module, then the it is passes a hash object - other wise, it is passed a JSON representation of that data.
 .br
 .RE
 .RE
@@ -1214,6 +1655,17 @@ A version ID can be a file hash or commit ID from revision control. It is used t
 Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - e.g., when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revisions.
 .br
 
+If your .info (coverage data) file does not contain version information - for example, because it was generated by a tool which did not support versioning - then you can use the
+.I compute_file_version " = 1"
+config file option to generate the data afterward.  A convenient way to do this might be to use
+.B lcov
+.I \-\-add\-tracefile
+to read the original file, insert version information, and write out the result.
+See man
+.B lcovrc(5)
+for more details.
+
+
 Sample scripts for Perforce ("getp4version"), git ("gitversion") and using an md5 hash ("get_signature") are provided as part of this package in the following locations:
 .br
 
@@ -1305,6 +1757,40 @@ It should return non\-zero if the IDs do not match.
 
 .RE
 
+.B \-\-resolve\-script
+.I script
+.br
+.RS
+Use
+.I script
+to find the file path for some source file which which appears in
+an input data file if the file is not found after applying
+.I \-\-substitute
+patterns and searching the
+.I \-\-source\-directory
+list.  This option is equivalent to the
+.B resolve_script
+config file option. See man
+.B lcovrc(5)
+for details.
+.RE
+
+.B \-\-select\-script
+.I callback
+.br
+.RS
+Use
+.I callback
+to decide whether a particular source line is interesting and should be
+included in the output data/generated report or not.
+
+This option is equivalent to the
+.B select_script
+config file option. See man
+.B lcovrc(5)
+for details.
+.RE
+
 .BI "\-\-checksum "
 .RS
 Specify whether to compare stored tracefile checksum to checksum computed from the source code.
@@ -1321,6 +1807,31 @@ to the code used to generate the coverage data.
 Note that this option is somewhat subsumed by the
 .B \-\-version\-script
 option - which does something similar, but at the 'whole file' level.
+
+.RE
+.B \-\-fail\-under\-branches
+.I percentage
+.br
+.RS
+Use this option to tell genhtml to exit with a status of 1 if the total
+branch coverage is less than
+.I percentage.
+See
+.B man lcov(1)
+for more details.
+
+.RE
+.B \-\-fail\-under\-lines
+.I percentage
+.br
+.RS
+Use this option to tell genhtml to exit with a status of 1 if the total
+line coverage is less than
+.I percentage.
+See
+.B man lcov(1)
+for more details.
+
 
 .RE
 .B \-\-new\-file\-as\-baseline
@@ -1381,13 +1892,31 @@ there is only one unmatched unified\-diff\-file entry with that basename.
 
 See the
 .B \-\-diff\-file
-discussion above for a discussion of how to avoid spurious warnings and/or incorrect matches.
+and
+.B \-\-build\-directory
+entries for a discussion of how to avoid spurious warnings and/or incorrect matches.
 
 .RE
 .BI "\-\-synthesize\-missing"
 .RS
 Generate (fake) file content if source file does not exist.
 This option can be used to work around otherwise fatal annotation errors.
+
+When generating annotated file content,
+.B genhtml
+assumes that the source was written 'now' (so age is zero), the author is
+.I no.body
+and the commit ID is
+.I synthesized.
+These names and ages will appear in your HTML reports.
+
+.br
+This option is equivalent config file
+.I genhtml_synthesize_missing
+parameter; see man
+.B lcovrc(5)
+for details.
+
 
 .RE
 .BI "\-\-date\-bins " day[,day,...]
@@ -1412,6 +1941,35 @@ Please note: if the
 .I all
 option is not specified, the summary table will contain "Total" rows for all date/owner bins which are not empty - but there will be no secondary "File/Directory" entries for elements which have no "missed" coverpoints.
 
+.br
+This option is equivalent config file
+.I genhtml_show_owner_table
+parameter; see man
+.B lcovrc(5)
+for details.
+
+The lcovrc controls
+.I owner_table_entries
+and
+.I truncate_owner_table
+can be used to improve readability by limiting the number of authors who are displayed in the table
+when the author number is large.
+For example, if your configuration is:
+.RS
+.PP
+.I owner_table_entries = 5
+.IP
+.PP
+.I truncate_owner_table = top,directory
+.PP
+.RE
+then the owner table displayed at the top- and directory-levels will be truncated while the table shown at the 'file' level will display the full list.
+
+See man
+.B lcovrc(5)
+for details.
+
+
 .RE
 .BI "\-\-show\-noncode "
 .RS
@@ -1420,6 +1978,14 @@ By default, the source code detail view does not show owner or date annotations 
 option is used, then the source code view will show annotations for both code and non\-code lines.
 This argument has no effect if there is no
 .I source\-annotation\-script .
+
+.br
+This option is equivalent config file
+.I genhtml_show_noncode_owners
+parameter; see man
+.B lcovrc(5)
+for details.
+
 
 .RE
 .BI "\-\-show\-zero\-columns "
@@ -1446,6 +2012,13 @@ Hyperlinks are always generated for differential coverage reports.
 
 This feature enables developers to find and understand coverage issues more quickly than they might otherwise, if they had to rely on scrolling.
 
+See the
+.I \-\-frames
+description above for a description of a browser bug which disables
+these hyperlinks in certain conditions.
+
+Navigation hyperlinks are always enabled in differential coveage report.
+
 .RE
 .BI "\-\-show\-proportions "
 .RS
@@ -1454,11 +2027,10 @@ In the 'function coverage detail' table, also show the percentage of lines and b
 This feature enables developers to focus attention on functions which have the largest effect on overall code coverage.
 
 This feature is disabled by default.
-Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports or that you configure the tool to derive the required dta - see the
+Note that this option requires that you use a compiler version which is new enough to support function begin/end line reports or that you configure the tool to derive the required data - see the
 .BI derive_function_end_line
-discussion in the
-.B lcovrc
-man page.
+discussion in man
+.B lcovrc(5).
 
 
 .RE
@@ -1491,11 +2063,10 @@ Exclude coverage data from lines which fall within a function whose name matches
 .B \-\-demangle\-cpp
 option is used or not.
 
-Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports or that you configure the tool to derive the required dta - see the
+Note that this option requires that you use a compiler version which is new enough to support function begin/end line reports or that you configure the tool to derive the required data - see the
 .BI derive_function_end_line
-discussion in the
-.B lcovrc
-man page.
+discussion in man
+.B lcovrc(5).
 
 
 .RE
@@ -1507,6 +2078,10 @@ Apply Perl regexp
 .IR regexp_pattern
 to source file names found during processing.  This is useful when some file paths in the baseline or current .info file do not match your source layout and so the source code is not found.
 See the lcov man page for more details.
+
+Note that the substitution patterns are applied to the
+.IR \-\-diff\-file
+entries as well as the baseline and current .info files.
 .RE
 
 .B \-\-omit\-lines
@@ -1527,6 +2102,14 @@ See the lcov man page for details.
 .I [ integer ]
 .RS
 Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
+.br
+Also see the
+.I memory, memory_percentage, max_fork_fails
+and
+.I fork_fail_timeout
+entries in man
+.B lcovrc(5).
+
 
 .RE
 .BI "\-\-memory "
@@ -1536,67 +2119,142 @@ Specify the maximum amount of memory to use during parallel processing, in Mb.  
 
 This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does not know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
 
+The configuration file
+.I memory_percentage
+option provided another way to set the maximum memory consumption.
+See man
+.B lcovrc (5)
+for details.
+
 
 .RE
 .BI \-\-filter " filters"
 .RS
 Specify a list of coverpoint filters to apply to input data.
 
+Note that certain filters apply only to C/C++ source files.
+.B genhtml
+associates the file extension ('.c', '.vhd',
+.I etc.
+) with its source language.  See the
+.I c_file_extentions
+and
+.I rtl_file_extensions
+sections of man
+.B lcovrc(5)
+for a description of the default associations and how they can be changed.
+
+Most filters need the source code; filters are not applied if the source file is not available.  Similarly, for each source file, if the version recorded in the coverage data (the '.info' file)
+does not match the version found on the filesystem, then a
+.I version
+error is reported.  If the
+.I version
+error is ignored, then filtering is not applied to the mismatched file.
+See the
+.I \-\-version\-script
+for more information.
+
 .I filters
 can be a comma\-separated list of the following keywords:
 
-.B branch:
+.IP branch: 3
 ignore branch counts for C/C++ source code lines which do not appear to contain conditionals.  These may be generated automatically by the compiler (e.g., from C++ exception handling) - and are not interesting to users.
 This option has no effect unless
 .B \-\-branch\-coverage
 is used.
 
-See also the lcovrc man page - which describes several variables which affect branch filtering:
+See also man
+.B lcovrc(5)
+- which describes several variables which affect branch filtering:
 .I filter_lookahead
 and
 .I filter_bitwise_conditional.
 
-The most common use for branch filtering is to remove compiler-generated branches related to C++ exception handlers.  See the no_exception_branch' option in the lcovrc man page for a way to remove all identified exception branches.
+The most common use for branch filtering is to remove compiler-generated branches related to C++ exception handlers.  See the no_exception_branch' option in man
+.B lcovrc(5)
+for a way to remove all identified exception branches.
+.PP
 
-.B brace:
+.IP brace: 3
 ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceding line has the same count or if the close brace has a zero count and either the preceding line has a non\-zero count, or the close brace is not the body of a conditional.
 
 These lines seem to appear and disappear in gcov output - and cause differential coverage to report bogus LBC and/or GIC and/or UIC counts.  Bogus LBC or UIC counts are a problem because an automated regression which uses pass criteria "LBC + UIC + UNC == 0" will fail.
+.PP
 
-.B blank:
+.IP blank: 3
 ignore lines which contain only whitespace (or whitespace + comments) whose 'hit' count is zero.  These appear to be a 'gcov' artifact related to compiler-generated code - such as exception handlers and destructor calls at the end of scope - and can confuse differential coverage criteria.
+.br
+If lcovrc option
+.I filter_blank_aggressive = 1
+is enabled, then blank lines will be ignored whether their 'hit' count is zero or not.  Aggressive filtering may be useful in LLVM-generated coverage data, which tends to include large numbers of such lines.
+.PP
 
-.B range:
-Ignore line and branch coverpoints on lines which are out-of range/whose line number is beyond the end of the source file.  These appear to be gcov artifacts caused by a macro instantiation on the last line of the file.
+.IP directive: 3
+ignore lines which look like C compiler directives: #ifdef, #include, #define,
+.I etc.
+These lines are sometimes included by
+.I llvm\-cov
+when LLVM profile data is translated to LCOV format.
+.PP
 
-.B line:
+.IP exception: 3
+Exclude branches related to C++ exception handling from branch coverage.
+Whether C++ exception branches are identified and removed is dependent on your compiler/toolchain correctly marking them in the generated coverage data.
+See the
+.I no_exception_branch
+section of
+.B man lcovrc(5).
+
+.IP initializer: 3
+Exclude lines which appear to be part of a C++ std::initializer_list.
+.PP
+
+.IP line: 3
 alias for "\-\-filter brace,blank".
+.PP
 
-.B region:
+.IP orphan: 3
+Remove branches which appear by themselves -
+.I i.e.,
+the branch has only one destination and so cannot be a conditional.
+.br
+These occur most frequently as a result of exception branch filtering.
+
+.IP range: 3
+Ignore line and branch coverpoints on lines which are out-of range/whose line number is beyond the end of the source file.  These appear to be gcov artifacts caused by a macro instantiation on the last line of the file.
+.PP
+
+.IP region: 3
 apply LCOV_EXCL_START/LCOV_EXCL_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
 This option may be useful in cases that the source code was not found during 'lcov \-\-capture ...' but is accessible now.
+.PP
 
-.B branch_region:
+.IP branch_region: 3
 apply LCOV_EXCL_BR_START/LCOV_EXCL_BR_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
 This is similar to the 'region option, above - but applies to branch coverpoints only.
+.PP
 
-.B function:
+.IP function: 3
 combine data for every "unique" function which is defined at the same file/line.
 .I geninfo/gcov
 seem to have a bug such that they create multiple entries for the same function.
 This feature also merges all instances of the same template function/template method.
+.PP
 
-.B trivial:
+.IP trivial: 3
 remove trivial functions and associated coverpoints.  'Trivial' functions are
 whose body is empty/do not contain any statements.  Commonly, these include compiler-generated methods (e.g., default constructors and assignment operators) as well as static initialization wrappers, etc.
 
 Note that the
 .I trivial
-filter requires function end line information - and so requires that you use a gcc veraion which is new enough to support begin/end line reports:  gcc/9 or newer, or that you enable lcov/genhtml/geninfo to derive the information:
+filter requires function end line information - and so requires that you use a compiler version which is new enough to support begin/end line reports
+(
+.I e.g.,
+gcc/9 or newer) or that you enable lcov/genhtml/geninfo to derive the information:
 
-In the
-.B lcovrc
-man page, see the
+In man
+.B lcovrc(5),
+see the
 .I derive_function_end_line
 setting as well as the
 .I trivial_function_threshold
@@ -1608,6 +2266,7 @@ Also see the
 and
 .I lcov_filter_chunk_size
 settings, which may improve CPU performance if the number of files to process is very large.
+.PP
 
 .RE
 .BI "\-o " output\-directory
@@ -1730,14 +2389,46 @@ option
 .IR genhtml_css_file .
 
 .RE
+.BI "\-\-build\-directory " dirname
+.RS
+To support 'linked build directory' structures, add 'dirname' to the list of
+places to search for soft links to source files -
+.I e.g.,
+to handle the case that the links point to source files which are held in your
+revision control system, and appear in the
+.I \-\-diff\-file
+data.  In this use case, paths in the coverage data very likely refer to the
+structure seen by the compiler during the build - so resolving them back to
+the corresponding revsion-controlled source structure is likely to be successful.
+.br
+
+Look in
+.I dirname
+for file paths which appear in
+.IR tracefile
+\- possibly after substitutions have been applied \-
+which are soft links.
+Both the original file path and the path to the linked file will resolve to the same
+.I \-\-diff\-file entry.
+
+This option can be specified multiple times, to add more directories to the search path.
+
+
+.RE
 .BI "\-\-source\-directory " dirname
 .RS
 Add 'dirname' to the list of places to look for source files.
 .br
 
-For relative paths listed in
+For relative source file paths
+.I e.g.
+paths found in
 .IR tracefile,
-genhtml will first look for the path from 'cwd' (where genhtml was
+or in
+.IR diff-file
+\- possibly after substitutions have been applied -
+.B genhtml
+will first look for the path from 'cwd' (where genhtml was
 invoked) and
 then from each alternate directory name in the order specified.
 The first location matching location is used.
@@ -1785,6 +2476,18 @@ Use this switch if you don't want to get a source code view for each file.
 This option can also be configured permanently using the configuration file
 option
 .IR genhtml_no_source .
+
+.RE
+.B \-\-no\-html
+.RS
+Do not create HTML report.
+
+Use this switch if you want some artifact of coverage report generation -
+.I e.g.,
+the coverage criteria check or the serialized coverage DB,
+.B etc.
+- but do not need teh coverage report HTML itself.
+
 
 .RE
 .BI "\-\-num\-spaces " spaces
@@ -1945,8 +2648,10 @@ a link to a page which lists all functions found in that file plus the
 respective call count for those functions.
 The function coverage page groups the data for every alias of each function, sorted by name or execution count.  The representative name of the group of functions is the shorted (i.e., containing the fewest characters).
 
-If using differential coverage and a sufficiently recent gcc version which report both begin and end line of functions (gcc/9 and newer), functions are considered 'new' if any of their source lines have changed.
-With older gcc versions, functions are considered 'new' if the function signature has changed or if the entire function is new.
+If using differential coverage and a sufficiently recent compiler version which report both begin and end line of functions (
+.I e.g.,
+gcc/9 and newer), functions are considered 'new' if any of their source lines have changed.
+With older compiler versions, functions are considered 'new' if the function signature has changed or if the entire function is new.
 
 .RE
 .B \-\-branch\-coverage
@@ -2005,7 +2710,7 @@ The
 option can be used multiple times to specify the demangling tool and a set of
 command line options that are passed to the tool - similar to how the gcc
 .I -Xlinker
-paramter works.  In that case, you callback will be executed as:
+parameter works.  In that case, you callback will be executed as:
 .I | demangle_param0 demangle_param1 ...
 Note that the demangle tool is called as a pipe and is expected to read from stdin and write to stdout.
 
@@ -2025,119 +2730,223 @@ To suppress the warning message, specify the error class twice.
 .I errors
 can be a comma\-separated list of the following keywords:
 
-.B annotate:
+.IP annotate: 3
 .B \-\-annotate\-script
 returned non\-zero exit status - likely a file path or related error.  HTML source code display will not be correct and ownership/date information may be missing.
-.br
+.PP
 
-.B branch:
+.IP branch: 3
 Branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
-.br
+.PP
 
-.B callback:
+.IP callback: 3
 Annotate, version, or criteria script error.
-.br
+.PP
 
-.B category:
+.IP category: 3
 Line number categorizations are incorrect in the .info file, so branch coverage line number turns out to not be an executable source line.
-.br
+.PP
 
-.B count:
+.IP child: 3
+child process returned non-zero exit code during
+.I \-\-parallel
+execution.  This typically indicates that the child encountered an error:  see the log file immediately above this message.
+In contrast:  the
+.B parallel
+error indicates an unexpected/unhandled exception in the child process - not a 'typical' lcov error.
+.PP
+
+.IP count: 3
 An excessive number of messages of some class has been reported - subsequent messages of that type will be suppressed.
-The limit can be controlled by the 'max_message_count' variable. See the lcovrc man page.
-.br
+The limit can be controlled by the 'max_message_count' variable. See man
+.B lcovrc(5).
+.PP
 
-.B corrupt:
+.IP corrupt: 3
 Corrupt/unreadable coverage data file found.
-.br
+.PP
 
-.B deprecated:
+.IP deprecated: 3
 You are using a deprecated option.
 This option will be removed in an upcoming release - so you should change your
 scripts now.
-.br
+.PP
 
-.B empty:
+.IP empty: 3
 The patch file specified by the
 .B \-\-diff\-file
 argument does not contain any differences.  This may be OK if there were no source code changes between 'baseline' and 'current' (e.g., the only change was to modify a Makefile) - or may indicate an unsupported file format.
-.br
+.PP
 
-.B format:
+.IP excessive: 3
+your coverage data contains a suspiciously large 'hit' count which is unlikely
+to be correct - possibly indicating a bug in your toolchain.
+See the
+.I excessive_count_threshold
+section in man
+.B lcorc(5)
+for details.
+.PP
+
+.IP fork: 3
+Unable to create child process during
+.I \-\-parallel
+execution.
+.br
+If the message is ignored (
+.I \-\-ignore\-errors fork
+), then genhtml
+will wait a brief period and then retry the failed execution.
+.br
+If you see continued errors, either turn off or reduce parallelism, set a memory limit, or find a larger server to run the task.
+
+.PP
+
+.IP format: 3
 Unexpected syntax found in .info file.
-.br
+.PP
 
-.B inconsistent:
+.IP inconsistent: 3
+This error indicates that your coverage data is internally inconsistent:  it makes two or more mutually exclusive claims.  For example:
+.RS
+.IP \- 3
 Files have been moved or repository history presented by
 .B \-\-diff\-file
-data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' and 'annotate' scripts.
+data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data.  These issues are likely to be caused by inconsistent handling in the 'diff' data compared to the 'baseline' and 'current' coverage data (e.g., using different source versions to collect the data but incorrectly annotating those differences), or by inconsistent treatment in the 'annotate' script.
+Consider using a
+.B \-\-version\-script
+to guard against version mismatches.
+.PP
+.IP \- 3
+Two or more
+.B gcov
+data files or
+.B lcov
+".info" files report different end lines for the same function.  This is likely due either to a gcc/gcov bug or to a source version mismatch.
 .br
+In this context, if the
+.I "inconsistent"
+error is ignored, then the tool will record the largest number as the function end line.
+.PP
+.IP \- 3
+Two or more
+.B gcov
+data files or
+.B lcov
+".info" files report different start lines for the same function.  This is likely due either to a gcc/gcov bug or to a source version mismatch.
+.br
+In this context, if the
+.I "inconsistent"
+error is ignored, then the tool will retain only the first function definition that it saw.
+.PP
+.PP \- 3
+Negative number or zero line number encounted.
+.br
+If the error is ignored, the offending record is skipped.
+.RE
+.PP
 
-.B mismatch:
+.IP internal: 3
+internal tool issue detected.  Please report this bug along with a testcase.
+.PP
+
+.IP mismatch: 3
 Inconsistent entries found in trace file:
-.br
 
+.RS 3
 .IP \(bu 3
 branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
 .PP
 .IP \(bu 3
 function execution count (FNDA:...) but no function declaration (FN:...).
 .PP
+.RE
+.PP
 
-.B negative:
-negative 'hit' count found.
+.IP missing: 3
+remove all coverpoints associated with source files which are not found or are not readable.
+This is equivalent to adding a
+.I \-\-exclude <name>
+pattern for each file which is not found.
 .br
+If a
+.I \-\-resolve\-script
+callback is specified, then the file is considered missing if it is not
+locally visible and the callback
+returns "" (empty string) or 'undef' - otherwise not missing.
+.br
+
+.IP negative: 3
+negative 'hit' count found.
 
 Note that negative counts may be caused by a known GCC bug - see
-.br
 
-.RS
-https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080
-.RE
-.br
+  https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080
 
 and try compiling with "-fprofile-update=atomic". You will need to recompile, re-run your tests, and re-capture coverage data.
-.br
+.PP
 
-.B package:
+
+.IP package: 3
 A required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
-.br
+.PP
 
-.B parallel:
-Various types of errors related to parallelism - e.g., child process died due to some error.   If you see an error related to parallel execution, it may be a good idea to remove the
-.B \-\-parallel
-flag and try again.
-.br
+.IP parallel: 3
+various types of errors related to parallelism -
+.I i.e.,
+a child process died due to an error.  The corresponding error message appears in the log file immediately before the
+.I parallel
+error.
+If you see an error related to parallel execution that seems invalid, it may be a good idea to remove the \-\-parallel flag and try again.  If removing the flag leads to a different result, please report the issue (along with a testcase) so that the tool can be fixed.
+.PP
 
-.B path:
+.IP path: 3
 File name found in
 .B \-\-diff\-file
 file but does not appear in either baseline or current trace data.  These may be mapping issues - different pathname in the tracefile vs. the diff file.
+.PP
 
-.B source:
+.IP range: 3
+Coverage data refers to a line number which is larger than the number of
+lines in the source file.  This can be caused by a version mismatch or
+by an issue in the
+.I gcov
+data.
+.PP
+
+.IP source: 3
 The source code file for a data set could not be found.
-.br
+.PP
 
-.B unmapped:
+.IP unmapped: 3
 Coverage data for a particular line cannot be found, possibly because the source code was not found, or because the line number mapping in the \.info file is wrong.
-.br
 
 This can happen if the source file used in HTML generation is not the same as the file used to generate the coverage data - for example, lines have been added or removed.
-.br
+.PP
 
-.B unsupported:
+.IP unsupported: 3
 The requested feature is not supported for this tool configuration.  For example, function begin/end line range exclusions use some GCOV features that are not available in older GCC releases.
-.br
+.PP
 
-.B unused:
+.IP unused: 3
 The include/exclude/erase/substitute/omit pattern did not match any file pathnames.
-.br
+.PP
 
-.B version:
+.IP usage: 3
+unsupported usage detected - e.g. an unsupported option combination.
+.PP
+
+.IP utility: 3
+a tool called during processing returned an error code (e.g., 'find' encountered an unreadable directory).
+.PP
+
+.IP version: 3
 \-\-version\-script comparison returned non\-zero mismatch indication.  It likely that the version of the file which was used in coverage data extraction is different than the source version which was found.  File annotations may be incorrect.
-.br
+.PP
 
-Also see 'man lcovrc' for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed.  This can be used to reduce log file volume.
+Also see 'man
+.B lcovrc(5)
+' for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed.  This can be used to reduce log file volume.
 .br
 
 .RE
@@ -2147,7 +2956,9 @@ Do not stop if error occurs: attempt to generate a result, however flawed.
 
 This command line option corresponds to the
 .I stop_on_error
-lcovrc option.  See the lcovrc man page for more details.
+lcovrc option.  See man
+.B lcovrc(5)
+for more details.
 
 .RE
 
@@ -2156,7 +2967,9 @@ lcovrc option.  See the lcovrc man page for more details.
 .br
 .RS
 Specify a configuration file to use.
-See the lcovrc man page for details of the file format and options.
+See man
+.B lcovrc(5)
+for details of the file format and options.
 
 When this option is specified, neither the system\-wide configuration file
 /etc/lcovrc, nor the per\-user configuration file ~/.lcovrc is read.
@@ -2170,6 +2983,20 @@ Note that this option must be specified in full - abbreviations are not supporte
 
 .RE
 
+.B \-\-profile
+.I [ profile\-data\-file ]
+.br
+.RS
+Tell the tool to keep track of performance and other configuration data.
+If the optional
+.I profile\-data\-file
+is not specified, then the profile data is written to a file named
+.I "genhtml.json"
+in the output directory.
+
+.RE
+
+
 .B \-\-rc
 .IR keyword = value
 .br
@@ -2181,7 +3008,7 @@ Use this option to specify a
 statement which overrides the corresponding configuration statement in
 the lcovrc configuration file. You can specify this option more than once
 to override multiple configuration statements.
-See
+See man
 .BR lcovrc (5)
 for a list of available keywords and their meaning.
 .RE
@@ -2199,6 +3026,28 @@ option
 .IR genhtml_precision .
 .RE
 
+.B \-\-merge\-aliases
+.RS
+Functions whose file/line is the same are considered to be aliases;
+.B genthml
+uses the shortest name in the list of aliases (fewest characters) as the leader.
+.br
+This option counts each alias group as a single object - so the 'function'
+count will be the number of distinct function groups rather than the total number
+of aliases of all functions - and displays them as groups in the 'function detail
+table.
+.br
+Note that this option has an effect only if
+.B "\-\-filter function"
+has been applied to the coverage DB.
+.br
+
+This parameter an be configured via the configuration file
+.IR merge_function_aliases
+option.  See
+.B man(5) lcovrc.
+
+
 .B \-\-suppress\-aliases
 .RS
 Suppress list of aliases in function detail table.
@@ -2211,14 +3060,14 @@ uses the shortest name in the list of aliases (fewest characters) as the leader.
 
 The number of aliases can be large, for example due to instantiated templates - which can make function coverage results difficult to read.  This option removes the list of aliases, making it easier to focus on the overall function coverage number, which is likely more interesting.
 
-Note that this option has an effect only when
-.B \-\-filter
-function is applied.
+Note that this option has an effect only if
+.B "\-\-filter function"
+has been applied to the coverage DB.
 
-This option can also be configured permanently using the configuration file
-option
-.IR suppress_function_aliases .
-.RE
+This parameter an be configured via the configuration file
+.IR merge_function_aliases
+option.  See
+.B man(5) lcovrc.
 
 
 .B \-\-forget\-test\-names
@@ -2283,6 +3132,19 @@ Keeping copies of the input data files may help to debug any issues or to regene
 
 .RE
 
+.BI "\-\-serialize " file_name
+.RS
+Save coverage database to
+.I file_name.
+
+The file is in Perl "Storable" format.
+
+Note that this option may significantly increase
+.I genhtml
+memory requirements, as a great deal of data must be retained.
+
+.RE
+
 .SH FILES
 
 .I /etc/lcovrc
@@ -2295,11 +3157,17 @@ The system\-wide configuration file.
 The per\-user configuration file.
 .RE
 
+Sample
+.I  \-\-diff\-file
+data creation scripts:
+.RS
+
 .I \*[scriptdir]/p4udiff
 .RS
 Sample script for use with
 .B --diff-file
-that creates a unified diff file via Perforce.
+that creates a unified diff file via
+.B Perforce.
 .br
 .RE
 
@@ -2307,39 +3175,83 @@ that creates a unified diff file via Perforce.
 .RS
 Sample script for use with
 .B --diff-file
-that creates a unified diff file via git.
+that creates a unified diff file via
+.B git.
 .br
 .RE
+.RE
 
-.I \*[scriptdir]/p4annotate
+Sample
+.I \-\-annotate\-script
+callback Perl modules:
+
 .RS
-Sample script for use with
+.I \*[scriptdir]/p4annotate.pm
+.RS
+Sample script written as Perl module for use with
 .B --annotate-script
-that provides annotation data via Perforce.
+that provides annotation data via
+.B Perforce.
 .br
 .RE
 
-.I \*[scriptdir]/gitblame
+.I \*[scriptdir]/gitblame.pm
 .RS
-Sample script for use with
+Sample script written as Perl module for use with
 .B --annotate-script
 that provides annotation data via git.
 .br
 .RE
+.RE
 
-.I \*[scriptdir]/criteria
+Sample
+.I \-\-criteria\-script
+callback Perl modules:
 .RS
-Sample script for use with
+
+.I \*[scriptdir]/criteria.pm
+.RS
+Sample script written as Perl module for use with
 .B --criteria-script
 that implements a check for "UNC + LBC + UIC == 0".
 .br
 .RE
 
+.I \*[scriptdir]/threshold.pm
+.RS
+Sample script written as Perl module to check for miminum acceptable
+line and/or branch and/or function coverage.
+For example, the
+.RS
+.I "genhtml --fail_under_lines 75 ..."
+.RE
+feature can instead be realized by
+.RS
+.I "genhtml --criteria-script \*[scriptdir]/threshold.pm,--line,75 ..."
+.RE
+.br
+.RE
+.RE
+
+Sample
+.I \-\-version\-script
+callback Perl modules and scripts:
+.RS
+
 .I \*[scriptdir]/getp4version
 .RS
 Sample script for use with
-.B --version-script
-that obtains version IDs via Perforce.
+.B \-\-version\-script
+that obtains version IDs via
+.B Perforce.
+.br
+.RE
+
+.I \*[scriptdir]/P4version.pm
+.RS
+A perl module with similar functionality to
+.B getp4version
+but higher performance.
 .br
 .RE
 
@@ -2349,6 +3261,24 @@ Sample script for use with
 .B --version-script
 that uses md5hash as version IDs.
 .br
+.RE
+
+.I \*[scriptdir]/gitversion.pm
+.RS
+A perl module with for use with
+.B \-\-version\-script
+which retrieves version IDs from
+.B git.
+.br
+.RE
+
+.I \*[scriptdir]/batchGitVersion.pm
+.RS
+A perl module with similar functionality to
+.B gitversion.pm
+but higher performance.
+.br
+.RE
 .RE
 
 

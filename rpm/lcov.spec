@@ -1,6 +1,6 @@
 Summary: A graphical code coverage front-end
 Name: lcov
-Version: 2.0
+Version: 2.2
 Release: 1
 License: GPLv2+
 Group: Development/Tools
@@ -15,10 +15,13 @@ Prefix: /etc
 # Force older/more compatible payload compression and digest versions
 %define _binary_filedigest 1
 %define _binary_payload w9.gzdio
+%global __python %{__python3}
 
 # lcov Perl modules are not intended for use by other packages
-%define __requires_exclude ^perl\\(lcovutil\\)$
+%define __requires_exclude ^perl\\(lcovutil\\)$|^perl\\((criteria)\\)$|^perl\\((annotateutil)\\)$|^perl\\((gitblame)\\)$|^perl\\((gitversion)\\)$|^perl\\((select)\\)$|^perl\\((p4annotate)\\)
 %define __provides_exclude ^perl.*$
+
+%define _binaries_in_noarch_packages_terminate_build 0
 
 %description
 LCOV is a set of command line tools that can be used to collect, process, and
@@ -48,7 +51,7 @@ rm -rf $RPM_BUILD_ROOT
 /usr/bin/*
 /usr/lib/*
 /usr/share/man/man*/*
-/usr/share/lcov/support-scripts/*
+/usr/share/lcov/*
 %config /etc/*
 
 %changelog

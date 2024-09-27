@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-#   Copyright (c) MediaTek USA Inc., 2022
+#   Copyright (c) MediaTek USA Inc., 2022-2023
 #
 #   This program is free software;  you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -24,40 +24,39 @@
 #   to verify that the data the user is attempting to merge is for the same
 #   source code/same version.
 #   If the version is not the same - then line numbers, etc. may be different
-#   and soem very strange errors may occur.
+#   and some very strange errors may occur.
 
+use strict;
 use POSIX qw(strftime);
 use Getopt::Long;
 use File::Spec;
 use Cwd qw(abs_path);
+use FindBin;
 
-sub get_modify_time($)
-{
-    my $filename = shift;
-    my @stat     = stat $filename;
-    my $tz       = strftime("%z", localtime($stat[9]));
-    $tz =~ s/([0-9][0-9])$/:\1/;
-    return strftime("%Y-%m-%dT%H:%M:%S", localtime($stat[9])) . $tz;
-}
+use lib "$FindBin::RealBin";
+use annotateutil qw(get_modify_time not_in_repo compute_md5);
 
 sub usage
 {
     print(STDERR "usage: $0 --compare old_version new_version filename OR\n" .
-          "       $0 [--md5] filename\n");
+          "       $0 [--md5] [--allow-missing] filename\n");
 }
 
 my $compare;
 my $use_md5;    # if set, append md5 checksum to the P4 version string
+my $allow_missing;
 my $help;
-if (!GetOptions("--compare" => \$compare,
-                "--md5"     => \$use_md5,
-                '--help'    => \$help) ||
+if (!GetOptions("--compare"       => \$compare,
+                "--md5"           => \$use_md5,
+                '--allow-missing' => \$allow_missing,
+                '--help'          => \$help) ||
     $help ||
     ($compare && scalar(@ARGV) != 3) ||
     (!$compare && scalar(@ARGV) != 1)
 ) {
     usage();
-    exit(defined($help) ? 0 : 1);
+    exit(defined($help) ? 0 : 1) unless caller;
+    return 1;
 }
 
 my $filename = $ARGV[$compare ? 2 : 0];
@@ -65,7 +64,7 @@ my $filename = $ARGV[$compare ? 2 : 0];
 if ($compare) {
     my ($old, $new) = @ARGV;
     if ($use_md5 &&
-        $old !~ /^(@head|#[0-9]+)/ &&
+        $old !~ /^(\@head|#[0-9]+)/ &&
         $old =~ / md5:(.+)$/) {
         my $o = $1;
         if ($new =~ / md5:(.+)$/) {
@@ -76,15 +75,16 @@ if ($compare) {
     exit($old ne $new);    # for the moment, just look for exact match
 }
 
-die("Error: $filename does not exist")
-    unless (-e $filename);
-$pathname = abs_path($filename);
-my $null = File::Spec->devnull();    # more portable way to do it
-if ($use_md5) {
-    $use_md5 = `md5sum $pathname 2>$null`;
-    $use_md5 =~ /^(\S+)/;
-    $use_md5 = $1;
+unless (-e $filename) {
+    if ($allow_missing) {
+        print("\n");       # empty string
+        exit 0;
+    }
+    die("Error: $filename does not exist - perhaps you need the '--allow-missing' flag"
+    );
 }
+my $pathname = abs_path($filename);
+my $null     = File::Spec->devnull();    # more portable way to do it
 
 my $version;
 if (0 ==
@@ -93,7 +93,7 @@ if (0 ==
     if ($have =~ /#([0-9]+) - /) {
         $version = "#$1";
     } else {
-        $version = '@head';
+        $version = '\@head';
     }
 
     my $opened = `p4 opened $pathname 2>$null`;
@@ -101,13 +101,13 @@ if (0 ==
         # file is locally edited...append modify time to the version ID
         $version .= ' edited ' . get_modify_time($pathname);
     }
-    $version .= " md5:$use_md5"
+    $version .= ' md5:' . compute_md5($pathname)
         if $use_md5;
 } else {
     # not in P4 - just print the modify time, so we have a prayer of
     #  noticing file differences
     $version = get_modify_time($pathname);
-    $version .= " md5:$use_md5"
+    $version .= ' md5:' . compute_md5($pathname)
         if ($use_md5);
 }
 print($version . "\n");

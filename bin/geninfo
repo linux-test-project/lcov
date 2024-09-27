@@ -61,12 +61,12 @@ use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
 use File::Temp;
 use File::Copy qw(copy move);
 use File::Path;
-use Cwd qw/abs_path getcwd/;
+use Cwd qw/abs_path getcwd realpath/;
 use Time::HiRes;    # for profiling
 use Capture::Tiny;
-use Module::Load;
 use FindBin;
 use Storable;
+use POSIX;
 
 use lib "$FindBin::RealBin/../lib";
 use lcovutil qw (define_errors parse_ignore_errors
@@ -86,9 +86,11 @@ use lcovutil qw (define_errors parse_ignore_errors
                  warn_file_patterns
                  @extractVersionScript
 
-                 %geninfoErrs $ERROR_GCOV $ERROR_GRAPH $ERROR_PACKAGE
-                 $ERROR_EMPTY $ERROR_PARALLEL $ERROR_UNSUPPORTED
-                 report_parallel_error
+                 $ERROR_GCOV $ERROR_GRAPH $ERROR_PACKAGE $ERROR_CHILD
+                 $ERROR_EMPTY $ERROR_PARALLEL $ERROR_UNSUPPORTED $ERROR_PATH
+                 $ERROR_INCONSISTENT_DATA $ERROR_UTILITY $ERROR_FORMAT
+                 report_parallel_error check_parent_process
+                 summarize_messages
                  is_external @internal_dirs
                  parseOptions
                  @comments
@@ -99,20 +101,13 @@ if ($^O eq "msys") {
     require File::Spec::Win32;
 }
 
-# Constants
 our @gcov_tool;
+
+# Constants
 
 our $GCOV_VERSION_8_0_0 = 0x80000;
 our $GCOV_VERSION_4_7_0 = 0x40700;
-our $GCOV_VERSION_3_4_0 = 0x30400;
-our $GCOV_VERSION_3_3_0 = 0x30300;
-our $GCNO_FUNCTION_TAG  = 0x01000000;
-our $GCNO_LINES_TAG     = 0x01450000;
-our $GCNO_FILE_MAGIC    = 0x67636e6f;
-our $BBG_FILE_MAGIC     = 0x67626267;
-
-# Error classes which users may specify to ignore during processing
-lcovutil::define_errors(\%lcovutil::geninfoErrs);
+our $GCOV_VERSION_4_2_0 = 0x40200;    # llvm/11
 
 # Compatibility mode values
 our $COMPAT_VALUE_OFF  = 0;
@@ -124,7 +119,7 @@ our %COMPAT_NAME_TO_VALUE = ("off"  => $COMPAT_VALUE_OFF,
                              "on"   => $COMPAT_VALUE_ON,
                              "auto" => $COMPAT_VALUE_AUTO,);
 
-# Compatiblity modes
+# Compatibility modes
 our $COMPAT_MODE_LIBTOOL   = 1 << 0;
 our $COMPAT_MODE_HAMMER    = 1 << 1;
 our $COMPAT_MODE_SPLIT_CRC = 1 << 2;
@@ -146,8 +141,7 @@ our %COMPAT_MODE_DEFAULTS = ($COMPAT_MODE_LIBTOOL   => $COMPAT_VALUE_ON,
                              $COMPAT_MODE_SPLIT_CRC => $COMPAT_VALUE_AUTO,);
 
 # Compatibility mode auto-detection routines
-sub compat_hammer_autodetect();
-our %COMPAT_MODE_AUTO = ($COMPAT_MODE_HAMMER    => \&compat_hammer_autodetect,
+our %COMPAT_MODE_AUTO = ($COMPAT_MODE_HAMMER    => 0,    # no gcc/3.3 support
                          $COMPAT_MODE_SPLIT_CRC => 1,    # will be done later
 );
 
@@ -163,6 +157,7 @@ sub match_filename($@);
 sub solve_ambiguous_match($$$);
 sub split_filename($);
 sub solve_relative_path($$);
+sub compute_internal_directories(@);
 sub read_gcov_header($);
 sub read_gcov_file($$$);
 sub my_info(@);
@@ -184,20 +179,10 @@ sub graph_cleanup($);
 sub graph_find_base($);
 sub graph_from_bb($$$$);
 sub graph_add_order($$$);
-sub read_bb_word(*;$);
-sub read_bb_value(*;$);
-sub read_bb_string(*$);
-sub read_bb($);
-sub read_bbg_word(*;$);
-sub read_bbg_value(*;$);
-sub read_bbg_string(*);
-sub read_bbg_lines_record(*$$$$$);
-sub read_bbg($);
 sub read_gcno_word(*;$$);
 sub read_gcno_value(*$;$$);
 sub read_gcno_string(*$);
 sub read_gcno_lines_record(*$$$$$$);
-sub determine_gcno_split_crc($$$$);
 sub read_gcno_function_record(*$$$$$);
 sub read_gcno($);
 sub get_gcov_capabilities();
@@ -211,12 +196,10 @@ sub which($);
 # Global variables
 our $gcov_version;
 our $gcov_version_string;
-our $graph_file_extension;
-our $data_file_extension;
+our $graph_file_extension = '.gcno';
+our $data_file_extension  = '.gcda';
 our @data_directory;
-# root of directory where .gcno files can be found -directory name,
-# if .gcda and .gcno not in same place
-our @build_directory;
+our $buildDirSearchPath;
 our $test_name = "";
 our $help;
 our $output_filename;
@@ -224,41 +207,28 @@ our $single_file;          # Write result into single merged file or not
 our $files_created = 0;    # Number of output files created
 our $base_directory;
 our $version;
-our $follow;
-our $opt_compat_libtool;
 our $opt_no_compat_libtool;
-our $rc_adjust_src_path;    # Regexp specifying parts to remove from source path
-our $adjust_testname;
-our @ignore_errors;         # List of errors to ignore (parameter)
-our @opt_filter;            # list of coverpoints to ignore (parameter)
 our $initial;
 our $no_recursion = 0;
 our $maxdepth;
 our $no_markers           = 0;
 our $opt_derive_func_data = 0;
-our $opt_external;
 our $gcov_caps;
-our @opt_config_file;
-our $opt_gcov_all_blocks          = 1;
-our $opt_adjust_unexecuted_blocks = 0;
-our $opt_compat;
 our %compat_value;
-our $gcno_split_crc;
-our $rc_auto_base    = 1;
-our $rc_intermediate = "auto";
 our $intermediate;
-our $intervalMonitor;       # class for progress reporting
+our $intervalMonitor;             # class for progress reporting
 our $totalChildCpuTime    = 0;
 our $intervalChildCpuTime = 0;    # since last updata
 
 # for performance tweaking/tuning
 our $defaultChunkSize;
 our $defaultInterval;
+our %childRetryCounts;
 
 our $cwd = getcwd();
 chomp($cwd);
 
-lcovutil::save_cmd_line(\@ARGV, $FindBin::RealBin);
+lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
 
 #
 # Code entry point
@@ -273,67 +243,54 @@ $SIG{__DIE__}  = \&die_handler;
 $ENV{"LC_ALL"} = "C";
 
 # retrieve settings from RC file - use these if not overridden on command line
-
-my %geninfo_rc_opts = (
-          "geninfo_gcov_tool"           => \@gcov_tool,
-          "geninfo_adjust_testname"     => \$adjust_testname,
-          "geninfo_checksum"            => \$lcovutil::verify_checksum,
-          "geninfo_compat_libtool"      => \$opt_compat_libtool,
-          "geninfo_external"            => \$opt_external,
-          "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
-          "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
-          "geninfo_compat"              => \$opt_compat,
-          "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
-          "geninfo_auto_base"           => \$rc_auto_base,
-          "geninfo_intermediate"        => \$rc_intermediate,
-          "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
-          'geninfo_chunk_size'          => \$defaultChunkSize,
-          'geninfo_interval_update'     => \$defaultInterval,);
-
 my %geninfo_opts = ("test-name|t=s"       => \$test_name,
                     "output-filename|o=s" => \$output_filename,
                     "base-directory|b=s"  => \$base_directory,
-                    "build-directory|b=s" => \@build_directory,
-                    "follow|f"            => \$follow,
-                    "compat-libtool"      => \$opt_compat_libtool,
+                    "follow|f"            => \$lcovutil::opt_follow,
+                    "compat-libtool"      => \$lcovutil::opt_compat_libtool,
                     "no-compat-libtool"   => \$opt_no_compat_libtool,
                     "gcov-tool=s"         => \@gcov_tool,
                     "initial|i"           => \$initial,
+                    "all"                 => \$lcovutil::geninfo_captureAll,
                     "no-recursion"        => \$no_recursion,
                     "no-markers"          => \$no_markers,
                     "derive-func-data"    => \$opt_derive_func_data,
-                    "external|e"          => \$opt_external,
+                    "external|e"          => \$lcovutil::opt_external,
                     "no-external"         => \$lcovutil::opt_no_external,
-                    "compat=s"            => \$opt_compat,);
+                    "compat=s"            => \$lcovutil::geninfo_opt_compat,);
 
 # Parse command line options
-if (!lcovutil::parseOptions(\%geninfo_rc_opts, \%geninfo_opts)) {
+if (!lcovutil::parseOptions(\%lcovutil::geninfo_rc_opts, \%geninfo_opts)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
 
+$buildDirSearchPath =
+    SearchPath->new('build directory', @lcovutil::build_directory);
+@gcov_tool = @lcovutil::rc_gcov_tool unless @gcov_tool;
+
 # Check regexp
-if (defined($rc_adjust_src_path)) {
-    my ($pattern, $replace) = split(/\s*=>\s*/, $rc_adjust_src_path);
-    local $SIG{__DIE__};
-    my $src_pattern;
-    eval '$src_pattern = qr>' . $pattern . '>;';
-    if (!defined($src_pattern)) {
-        my $msg = $@;
-
-        chomp($msg);
-        $msg =~ s/at \(eval.*$//;
-        warn("WARNING: invalid pattern in geninfo_adjust_src_path: $msg\n");
-
+if (defined($lcovutil::rc_adjust_src_path)) {
+    my ($pattern, $replace) = split(/\s*=>\s*/, $lcovutil::rc_adjust_src_path);
+    # If no replacement is specified, simply remove pattern
+    $replace = '' unless defined($replace);
+    my $p = "s#$pattern#$replace#g";
+    $p .= 'i' if $lcovutil::case_insensitive;
+    my $text = 'abc';
+    my $str  = eval { '$test =~ ' . $p . ';' };
+    if ($@) {
+        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+            "Invalid 'geninfo_adjust_src_path=$lcovutil::rc_adjust_src_path' syntax: '$@'"
+        );
     } else {
-        if (!defined($replace)) {
-            # If no replacement is specified, simply remove pattern
-            $replace = "";
-        }
-        my $p = 's#$pattern#$replace#g';
-        push(@lcovutil::file_subst_patterns,
-             [lcovutil::transform_pattern($p), $p, 0]);
+        push(@lcovutil::file_subst_patterns, [$p, 0]);
     }
+}
+
+if ($lcovutil::geninfo_captureAll && $initial) {
+    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                              "'--all' ignored when '--initial' is used");
+    $lcovutil::geninfo_captureAll = undef;
 }
 
 if (defined($lcovutil::tempdirname)) {
@@ -345,13 +302,13 @@ if (defined($lcovutil::tempdirname)) {
 
 # Merge options
 if (defined($opt_no_compat_libtool)) {
-    $opt_compat_libtool    = ($opt_no_compat_libtool ? 0 : 1);
-    $opt_no_compat_libtool = undef;
+    $lcovutil::opt_compat_libtool = ($opt_no_compat_libtool ? 0 : 1);
+    $opt_no_compat_libtool        = undef;
 }
 
-if (defined($opt_external)) {
-    $lcovutil::opt_no_external = 0;
-    $opt_external              = undef;
+if (defined($lcovutil::opt_external)) {
+    $lcovutil::opt_no_external = !$lcovutil::opt_external;
+    $lcovutil::opt_external    = undef;
 }
 
 my $start = Time::HiRes::gettimeofday();
@@ -364,6 +321,8 @@ if (0 == scalar(@gcov_tool)) {
     # not specified - use gcov by default - expected to be in user's path
     push(@gcov_tool, 'gcov');
 } else {
+    @gcov_tool =
+        split($lcovutil::split_char, join($lcovutil::split_char, @gcov_tool));
     my $tool = $gcov_tool[0];
     my (undef, $dir, $file) = splitpath($tool);
 
@@ -373,7 +332,7 @@ if (0 == scalar(@gcov_tool)) {
         $tool = abs_path($tool);
     }
     if (!-x $tool) {
-        die("Error: cannot access gcov tool '$gcov_tool[0]'");
+        die("cannot access gcov tool '$gcov_tool[0]'");
     }
     $gcov_tool[0] = $tool;
     if (scalar(@gcov_tool) > 1) {
@@ -390,7 +349,7 @@ if (scalar(@lcovutil::extractVersionScript) > 1) {
 
 # Check gcov tool
 if (system_no_output(3, @gcov_tool, "--help") == -1) {
-    die("ERROR: failed execution of gcov_tool \"" .
+    die("failed execution of gcov_tool \"" .
         join(' ', @gcov_tool) . " --help\": $!");
 }
 
@@ -398,19 +357,19 @@ if (system_no_output(3, @gcov_tool, "--help") == -1) {
 $gcov_caps = get_gcov_capabilities();
 
 # Determine intermediate mode
-if ($rc_intermediate eq "0") {
+if ($lcovutil::rc_intermediate eq "0") {
     $intermediate = 0;
-} elsif ($rc_intermediate eq "1") {
+} elsif ($lcovutil::rc_intermediate eq "1") {
     $intermediate = 1;
-} elsif (lc($rc_intermediate) eq "auto") {
+} elsif (lc($lcovutil::rc_intermediate) eq "auto") {
     # Use intermediate format if supported by gcov and not conflicting with
     # exception branch exclusion
     $intermediate = (($gcov_caps->{'intermediate-format'} &&
                           !$lcovutil::exclude_exception_branch) ||
                          $gcov_caps->{'json-format'}) ? 1 : 0;
 } else {
-    die("ERROR: invalid value for geninfo_intermediate: " .
-        "'$rc_intermediate'\n");
+    die("invalid value for geninfo_intermediate: " .
+        "'$lcovutil::rc_intermediate'\n");
 }
 
 if ($gcov_version >= (9 << 16) &&
@@ -424,20 +383,14 @@ if ($gcov_version >= (9 << 16) &&
 if ($intermediate) {
     info("Using intermediate gcov format\n");
     if ($opt_derive_func_data) {
-        warn("WARNING: --derive-func-data is not compatible with " .
-             "intermediate format - ignoring\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+               "--derive-func-data is not compatible with intermediate format");
         $opt_derive_func_data = 0;
     }
     if ($lcovutil::exclude_exception_branch && !$gcov_caps->{'json-format'}) {
-        die("ERROR: excluding exception branches is not compatible with " .
+        die("excluding exception branches is not compatible with " .
             "text intermediate format\n");
     }
-}
-
-if ($lcovutil::exclude_exception_branch &&
-    ($gcov_version < $GCOV_VERSION_3_3_0)) {
-    die("ERROR: excluding exception branches is not compatible with " .
-        "gcov versions older than 3.3\n");
 }
 
 # Determine gcov options
@@ -445,14 +398,14 @@ push(@gcov_tool, "-b")
     if ($gcov_caps->{'branch-probabilities'} &&
         ($lcovutil::br_coverage ||
          $lcovutil::func_coverage ||
-         $opt_adjust_unexecuted_blocks));
+         $lcovutil::opt_adjust_unexecuted_blocks));
 push(@gcov_tool, "-c")
     if ($gcov_caps->{'branch-counts'} &&
         $lcovutil::br_coverage);
 push(@gcov_tool, "-a")
     if ($gcov_caps->{'all-blocks'} &&
-        $opt_gcov_all_blocks   &&
-        $lcovutil::br_coverage &&
+        $lcovutil::opt_gcov_all_blocks &&
+        $lcovutil::br_coverage         &&
         !$intermediate);
 if ($gcov_caps->{'hash-filenames'}) {
     push(@gcov_tool, "-x");
@@ -462,18 +415,22 @@ if ($gcov_caps->{'hash-filenames'}) {
 push(@gcov_tool, '-i') if $intermediate;
 
 # Determine compatibility modes
-parse_compat_modes($opt_compat);
+parse_compat_modes($lcovutil::geninfo_opt_compat);
 
-push(@opt_filter, "region", "branch_region") unless $no_markers;
-parse_cov_filters(@opt_filter);
+unless ($no_markers) {
+    push(@lcovutil::opt_filter, "region");
+    push(@lcovutil::opt_filter, "branch_region") if $br_coverage;
+}
+parse_cov_filters(@lcovutil::opt_filter);
 
 # Make sure test names only contain valid characters
 if ($test_name =~ s/\W/_/g) {
-    warn("WARNING: invalid characters removed from testname!\n");
+    lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
+                                "invalid characters removed from testname");
 }
 
 # Adjust test name to include uname output if requested
-if ($adjust_testname) {
+if ($lcovutil::geninfo_adjust_testname) {
     $test_name .= "__" . `uname -a`;
     $test_name =~ s/\W/_/g;
 }
@@ -482,13 +439,6 @@ if ($adjust_testname) {
 if ($base_directory) {
     $base_directory = solve_relative_path($cwd, $base_directory);
     push(@ReadCurrentSource::source_directories, $base_directory);
-}
-
-# Check for follow option
-if ($follow) {
-    $follow = "-follow";
-} else {
-    $follow = "";
 }
 
 # Determine checksum mode - normalize to boolean
@@ -532,23 +482,15 @@ if (!@data_directory) {
             }
         }
         if (0 == $count) {
-            ignorable_error($ERROR_GCOV, "$pattern does not match anything.");
+            ignorable_error($ERROR_EMPTY, "$pattern does not match anything.");
         }
     }
     @data_directory = @dirs;
 }
 
-if ($gcov_version < $GCOV_VERSION_3_4_0) {
-    if (is_compat($COMPAT_MODE_HAMMER)) {
-        $data_file_extension  = ".da";
-        $graph_file_extension = ".bbg";
-    } else {
-        $data_file_extension  = ".da";
-        $graph_file_extension = ".bb";
-    }
-} else {
-    $data_file_extension  = ".gcda";
-    $graph_file_extension = ".gcno";
+if ($gcov_version < $GCOV_VERSION_4_2_0) {
+    die("Your toolchain version is too old and is no longer supported by lcov.  Please upgrade - or use an older lcov release."
+    );
 }
 
 # Check output filename
@@ -561,24 +503,17 @@ $output_filename = catfile($cwd, $output_filename)
         !file_name_is_absolute($output_filename));
 
 # Build list of directories to identify external files
-foreach my $entry (@data_directory, $base_directory) {
-    next if (!defined($entry));
-    my $p = solve_relative_path($cwd, $entry);
-    push(@lcovutil::internal_dirs, $p);
-    if (!file_name_is_absolute($entry) &&
-        $entry ne $p) {
-        push(@lcovutil::internal_dirs, $entry);
-    }
-}
-
-# Function is_external() requires all internal_dirs to end with a slash
-foreach my $dir (@lcovutil::internal_dirs) {
-    $dir =~ s#$lcovutil::dirseparator*$#$lcovutil::dirseparator#;
-}
+compute_internal_directories(@data_directory, $base_directory);
 
 if ($initial && $lcovutil::br_coverage && !$intermediate) {
-    warn("Note: --initial does not generate branch coverage data\n");
+    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+        "--initial cannot generate branch coverage data with this compiler/toolchain version."
+    );
 }
+
+lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                "--fail_under_lines not supported unless output file specified")
+    if (defined($lcovutil::fail_under_lines) && !$single_file);
 
 # where to write parallel child data
 my $tempFileDir =
@@ -598,41 +533,69 @@ if ($@) {
 }
 
 if (0 == $exit_code) {
-    my $now = Time::HiRes::gettimeofday();
-    # have to check the loaded input data for exclusion markers because the
-    #  data was generated directly from the gcov files - did not go through
-    #  TraceFile::load which explicitly checks
-    if ($single_file && defined($trace_data)) {
-        $trace_data->applyFilters();
-        my $f = Time::HiRes::gettimeofday();
-        $trace_data->add_comments(@lcovutil::comments);
-        $trace_data->write_info_file($output_filename,
-                                     $lcovutil::verify_checksum);
-        $files_created++;
+    eval {
+        my $now = Time::HiRes::gettimeofday();
+        # have to check the loaded input data for exclusion markers because the
+        #  data was generated directly from the gcov files - did not go through
+        #  TraceFile::load which explicitly checks
+        if ($single_file && defined($trace_data)) {
+            $trace_data->applyFilters();
+            my $f = Time::HiRes::gettimeofday();
+            $trace_data->add_comments(@lcovutil::comments);
+            $trace_data->write_info_file($output_filename,
+                                         $lcovutil::verify_checksum);
+            $files_created++;
+            my $then = Time::HiRes::gettimeofday();
+            $lcovutil::profileData{filter} = $f - $now;
+            $lcovutil::profileData{write}  = $then - $f;
+        }
+        if ($files_created == 0) {
+            lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                      "no data generated\n");
+        }
         my $then = Time::HiRes::gettimeofday();
-        $lcovutil::profileData{filter} = $f - $now;
-        $lcovutil::profileData{write}  = $then - $f;
+        $lcovutil::profileData{emit} = $then - $now;
+        if (defined($trace_data)) {
+            info("Finished .info-file creation\n");
+            $trace_data->print_summary()
+                if ($lcovutil::verbose >= 0);
+        }
+        summarize_cov_filters();
+        # print warnings
+        lcovutil::warn_file_patterns();
+        $buildDirSearchPath->warn_unused(
+                              @lcovutil::build_directory ? '--build-directory' :
+                                  'build_directory = ');
+        ReadCurrentSource::warn_sourcedir_patterns();
+    };
+    if ($@) {
+        # eval of filter application failed - set error return code, but
+        #  still try to emit profile
+        print(STDERR $@);
+        $exit_code = 1;
     }
-    if ($files_created == 0) {
-        warn("WARNING: no data generated\n");
-    }
-    my $then = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{emit} = $then - $now;
-
-    lcovutil::info(1, "Processed $processedFiles GCDA files\n");
-    info("Finished .info-file creation\n");
-    summarize_cov_filters();
-
-    # print warnings
-    lcovutil::warn_file_patterns();
 }
+if (0 == $exit_code &&
+    $single_file) {
+
+    $trace_data->checkCoverageCriteria();
+    CoverageCriteria::summarize();
+    $exit_code = 1 if $CoverageCriteria::coverageCriteriaStatus;
+}
+summarize_messages();
 my $end = Time::HiRes::gettimeofday();
 $lcovutil::profileData{total} = $end - $start;
+
+lcovutil::cleanup_callbacks();
 
 lcovutil::save_profile(
      (defined($output_filename) && '-' ne $output_filename) ? $output_filename :
          "geninfo");
 
+# exit with non-zero status if --keep-going and some errors detected
+$exit_code = 1
+    if (0 == $exit_code &&
+        lcovutil::saw_error());
 exit($exit_code);
 
 #
@@ -669,6 +632,7 @@ COMMON OPTIONS
 
 OPTIONS
   -i, --initial                     Capture initial zero coverage data
+  --all                             Capture both .gcda and lone .gcno data
   -t, --test-name NAME              Use test case NAME for resulting data
   -o, --output-filename OUTFILE     Write data only to OUTFILE
   -f, --follow                      Follow links when searching .da/.gcda files
@@ -697,8 +661,9 @@ OPTIONS
       --erase-functions REGEXP      Exclude data for functions matching REGEXP
       --omit-lines REGEXP           Ignore data in lines matching REGEXP
       --forget-test-names           Merge data for all tests names
-      --version-script SCRIPTNAME   Call script to find revison control version
+      --version-script SCRIPTNAME   Call script to find revision control version
                                     ID of source file
+      --resolve-script SCRIPTNAME   Call script to find source file frpm path
   -j, --parallel [N]                Use parallel processing with at most N jobs
       --memory MB                   Use at most MB memory in parallel processing
       --profile [FILENAME]          Write performance statistics to FILENAME
@@ -800,6 +765,231 @@ sub checkUpdate
     }
 }
 
+package BuildWorkList;
+
+sub new
+{
+    my $class = shift;
+    my $self  = [[], {}, {}];    # [worklist, processedFiles, messages]
+    return bless $self, $class;
+}
+
+sub worklist
+{
+    my $self = shift;
+    # we saved the mssages for the end...
+    foreach my $msg (values %{$self->[2]}) {
+        lcovutil::ignorable_error($msg->[0], $msg->[1]);
+    }
+    return $self->[0];
+}
+
+sub find_corresponding_gcno_file
+{
+    my ($gcda_file, $searchdir) = @_;
+    my ($name, $d, $e) = File::Basename::fileparse($gcda_file, qr/\.[^.]*/);
+    my $gcno_file = File::Spec->catfile($d, $name . ".gcno");
+    foreach ($gcno_file) {
+        return $gcno_file if (-f $gcno_file || -l $gcno_file);
+
+        my $alt    = lcovutil::subst_file_name($gcno_file);
+        my $prefix = "looking for GCNO matching '$gcda_file':\n";
+        if ($alt ne $gcno_file) {
+            $gcno_file = $alt;
+            lcovutil::info(1, "$prefix  at '$gcno_file'\n");
+            $prefix = '';
+            return $gcno_file if (-f $gcno_file || -l $gcno_file);
+        }
+        # check to see if this file is in a different directory
+        my $dir = $d;
+        $dir =~ s#^$searchdir##g;
+        $prefix = "looking for GCNO matching '$gcda_file' prefix:'$dir':\n";
+        # handle case that gcda and gcno are in different directories
+        #  - say, where is the gcda that we found, then see if gcno is
+        #    in the same directory. If not, then look in a gcno path and
+        #    link both gcda and gcno into this tempdir, run gcov, then
+        #    unlink
+        # from the directory where the gcda file is found:
+        #   strip off the directory where we start the search
+        #   then strip off the GCOV_PREFIX (if there is one)
+        #   then append the remaining path the the GCDA file, to the
+        #   'GCNO_PATH' that we were provided.
+        #     - if there is a file there:  use it.
+        foreach my $d (@$buildDirSearchPath) {
+            # is the GCNO in the relative path from build_dir?
+            my $build_directory = $d->[0];
+            $gcno_file =
+                File::Spec->catfile($build_directory, $dir, $name . ".gcno");
+
+            lcovutil::info(1, "$prefix  at '$gcno_file'\n");
+            $prefix = '';
+            if (-f $gcno_file || -l $gcno_file) {
+                ++$d->[1];
+                return $gcno_file;
+            }
+
+            # is the GCNO in the relative path after we apply substitutions?
+            $alt = lcovutil::subst_file_name($gcno_file);
+            if ($alt ne $gcno_file) {
+                $gcno_file = $alt;
+                lcovutil::info(1, "$prefix  at '$gcno_file'\n");
+                $prefix = '';
+                if (-f $gcno_file || -l $gcno_file) {
+                    ++$d->[1];
+                    return $gcno_file;
+                }
+            }
+        }    # foreach build_directory
+
+        if (@lcovutil::resolveCallback) {
+            $gcno_file = File::Spec->catfile($d, $name . ".gcno");
+
+            $gcno_file = SearchPath::resolveCallback($gcno_file, 1);
+            return $gcno_file if (-f $gcno_file || -l $gcno_file);
+        }
+    }    # foreach switch
+
+    # skip the .gcda file if there is no .gcno
+    lcovutil::ignorable_error(
+        $lcovutil::ERROR_PATH,
+        (lcovutil::is_ignored($lcovutil::ERROR_PATH) ? 'skipping' :
+             'cannot process') .
+            " .gcda file $gcda_file because corresponding .gcno file '$gcno_file' is missing"
+            .
+            (
+            $lcovutil::verbose ||
+                lcovutil::message_count($lcovutil::ERROR_PATH) == 0 ?
+                " (see the '--build-directory' entry in 'man geninfo' for suggestions)"
+            :
+                '') .
+            '.');
+
+    return undef;
+}
+
+sub add_worklist_entry
+{
+    my ($self, $filename, $directory) = @_;
+    if (exists($self->[1]->{$filename})) {
+        lcovutil::ignorable_error(
+                                 $lcovutil::ERROR_USAGE,
+                                 "duplicate file $filename in both " .
+                                     $self->[1]->{$filename} . " and $directory"
+                                     .
+                                     (lcovutil::is_ignored(
+                                                       $lcovutil::ERROR_USAGE) ?
+                                          ' (skip latter)' :
+                                          ''));
+        return;
+    }
+    $self->[1]->{$filename} = $directory;
+
+    my ($gcda_file, $gcno_file);
+    if ($filename !~ /$data_file_extension$/) {
+        $gcno_file = $filename;
+    } else {
+        $gcda_file = $filename;
+        $gcno_file = find_corresponding_gcno_file($filename, $directory);
+        return unless $gcno_file;    # would have errored out
+
+        my ($vol, $dir, $name) = File::Spec->splitpath($gcno_file);
+        # remove trailing slash
+        $self->[1]->{$gcno_file} = substr($dir, 0, -1);
+    }
+    push(@{$self->[0]}, [$directory, $gcda_file, $gcno_file]);
+}
+
+sub find_files
+{
+    my $self        = shift;
+    my $processGcno = shift;
+    my ($type, $ext);
+
+    if ($processGcno) {
+        $type = "graph";
+        $ext  = $graph_file_extension;
+    } else {
+        $type = "data";
+        $ext  = $data_file_extension;
+    }
+    foreach my $directory (@_) {
+        unless (-e $directory) {
+            # hold error until the end of processing - we might be looking
+            #  for both .gcno and .gcda files - and don't want to generate
+            #   the same 'no such directory' message twice.  Nor do we want
+            #  to produce an error if only one type of file is in this
+            # directory
+            $self->[2]->{$directory} = [$lcovutil::ERROR_USAGE,
+                                        "no such file or directory '$directory'"
+            ];
+            next;
+        }
+        if (-d $directory) {
+            lcovutil::info("Scanning $directory for $ext files ...\n");
+
+            my $now    = Time::HiRes::gettimeofday();
+            my $follow = $lcovutil::opt_follow ? '-follow' : '';
+            my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+                system(
+                    "find '$directory' $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l"
+                );
+            };
+            lcovutil::ignorable_error($lcovutil::ERROR_UTILITY,
+                                  "error in 'find \"$directory\" ...': $stderr")
+                if ($code);
+
+            my $time = Time::HiRes::gettimeofday() - $now;
+            if (exists($lcovutil::profileData{find}) &&
+                exists($lcovutil::profileData{find}{$directory})) {
+                $lcovutil::profileData{find}{$directory} += $time;
+            } else {
+                $lcovutil::profileData{find}{$directory} = $time;
+            }
+            my @found = split(' ', $stdout);
+            if (!@found) {
+                if (!defined($processGcno) || $processGcno != 2) {
+                    # delay message: might be a file of other type here
+                    $self->[2]->{$directory} = [
+                                             $lcovutil::ERROR_EMPTY,
+                                             "no $ext files found in $directory"
+                    ];
+                }
+
+                next;
+            }
+            # we found something here - remove the pending error message, if any
+            delete($self->[2]->{$directory})
+                ;    # if exists($self->[2]->{$directory});
+            lcovutil::info("Found %d %s files in %s\n",
+                           scalar(@found), $type, $directory);
+            # keep track of directory where we found the file
+            foreach my $entry (@found) {
+                # don't add gcno file again, if we already handled the .gcda
+                $self->add_worklist_entry($entry, $directory)
+                    unless (defined($processGcno) &&
+                            $processGcno == 2 &&
+                            exists($self->[1]->{$entry}));
+            }
+        } elsif (!defined($processGcno) || $processGcno == 1) {
+            my ($name, $d, $e) =
+                File::Basename::fileparse($directory, qr/\.[^.]*/);
+            if ($e ne $ext &&
+                (!$lcovutil::geninfo_captureAll || $e ne $graph_file_extension)
+            ) {
+                $self->[2]->{$directory} = [
+                       $lcovutil::ERROR_USAGE,
+                       "$directory has unsupported extension: expected '$ext'" .
+                           ($initial ? " for initial capture" : "")
+                ];
+                next;
+            }
+            delete($self->[2]->{$directory});
+            # use the directory where we find the file as the base dir
+            $self->add_worklist_entry($directory, $d);
+        }
+    }
+}
+
 package main;
 
 #
@@ -811,17 +1001,8 @@ package main;
 #   TN:<test name>
 #
 # For each source file name referenced in the data file, there is a section
-# containing source code and coverage data:
-#
-#   SF:<absolute path to the source file>
-#   FN:<line number of function start>,<function name> for each function
-#   DA:<line number>,<execution count> for each instrumented line
-#   LH:<number of lines with an execution count> greater than 0
-#   LF:<number of instrumented lines>
-#
-# Sections are separated by:
-#
-#   end_of_record
+# containing source code and coverage data.  See geninfo(1) man page for
+# more details.
 #
 # In addition to the main source code file there are sections for each
 # #included file containing executable code. Note that the absolute path
@@ -846,11 +1027,18 @@ sub _process_one_chunk($$$$)
     my $idx = 0;
     foreach my $data (@$chunk) {
         my $now = Time::HiRes::gettimeofday();
+        if (defined($pid) &&
+            0 != $pid) {
+            # if parent died, then time for me to go
+            lcovutil::check_parent_process();
+        }
+
         my ($searchdir, $gcda_file, $gcno_file) = @$data;
 
         # "name" will be .gcno if "$initial" else will be $gcda
         my $name = defined($gcda_file) ? $gcda_file : $gcno_file;
-        info("Processing $name%s\n", defined($pid) ? " in child $pid" : "");
+        info(1, "Processing $name%s\n", defined($pid) ? " in child $pid" : "");
+        my $context = MessageContext->new("capturing from $name");
 
         # multiple gcda files may refer to the same source - so generate the
         #  same 'source.gcda' output file - so they each need a different directory
@@ -861,7 +1049,7 @@ sub _process_one_chunk($$$$)
                           "geninfo_XXXXX",
                           DIR     => $tempFileDir,
                           CLEANUP => !defined($lcovutil::preserve_intermediates)
-        ) if ($intermediate || !defined($initial));
+        ) if ($intermediate || defined($gcda_file));
 
         # keep track of order - so we can estimate which files were processed
         # at same time
@@ -874,7 +1062,7 @@ sub _process_one_chunk($$$$)
             $trace =
                 process_intermediate($searchdir, $gcda_file,
                                      $gcno_file, $tmp->dirname);
-        } elsif ($initial) {
+        } elsif (!defined($gcda_file)) {
             # just read the gcno file and set all the counters to zero
             $trace = process_graphfile($searchdir, $gcno_file);
         } else {
@@ -918,13 +1106,20 @@ sub _process_one_chunk($$$$)
     return $combined;
 }
 
-sub _merge_one_child($$$$$)
+sub _merge_one_child($$$)
 {
-    my ($child, $children, $type, $tempFileExt, $childstatus) = @_;
-    my $start = Time::HiRes::gettimeofday();
+    my ($children, $tempFileExt, $worklist) = @_;
+
+    my $child       = wait();
+    my $start       = Time::HiRes::gettimeofday();
+    my $childstatus = $?;
+    unless (exists($children->{$child})) {
+        lcovutil::report_unknown_child($child);
+        return 0;
+    }
 
     debug(
-        "_merge_one_child: $child $type (parent $$) status $childstatus from $tempFileDir\n"
+        "_merge_one_child: $child (parent $$) status $childstatus from $tempFileDir\n"
     );
     my ($chunk, $forkAt, $chunkId) = @{$children->{$child}};
     my $dumped   = File::Spec->catfile($tempFileDir, "dumper_$child");
@@ -932,6 +1127,11 @@ sub _merge_one_child($$$$$)
     my $childErr = File::Spec->catfile($tempFileDir, "geninfo_$child.err");
 
     foreach my $f ($childLog, $childErr) {
+        if (!-f $f) {
+            # no data was printed..
+            $f = '';
+            next;
+        }
         if (open(RESTORE, "<", $f)) {
             # slurp into a string and eval..
             my $str = do { local $/; <RESTORE> };    # slurp whole thing
@@ -939,25 +1139,33 @@ sub _merge_one_child($$$$$)
             unlink $f;
             $f = $str;
         } else {
-            report_parallel_error('geninfo', "unable to open $f: $!");
+            $f = "unable to open $f: $!";
+            if (0 == $childstatus) {
+                report_parallel_error('geninfo', $ERROR_PARALLEL, $child, 0,
+                                      $f, keys(%$children));
+            }
         }
     }
+    my $signal = $childstatus & 0xFF;
     print(STDOUT $childLog)
-        if ($childstatus != 0 ||
-            $lcovutil::verbose > 1);
+        if ((0 != $childstatus &&
+             $signal != POSIX::SIGKILL &&
+             $lcovutil::max_fork_fails != 0) ||
+            $lcovutil::verbose);
     print(STDERR $childErr);
-    if (0 == $childstatus && -f $dumped) {
-        my $data = Storable::retrieve($dumped);
-        if (defined($data)) {
-            my ($childInfo, $patterns, $profile, $counts, $updates) = @$data;
-            lcovutil::update_state($updates);
+    my $data = Storable::retrieve($dumped)
+        if (-f $dumped && 0 == $childstatus);
+    # note that $data will not be defined (no data dumped) if there was
+    #  no child data extracted (e.g., all files excluded)
+    if (defined($data)) {
+        eval {
+            my ($childInfo, $buildDirCounts, $counts, $updates) = @$data;
+            lcovutil::update_state(@$updates);
             $files_created  += $counts->[0];
             $processedFiles += $counts->[1];
             my $childFinish = $counts->[2];
-            # HGC:  need to pass back substitutions, etc.
-            lcovutil::merge_child_pattern_counts($patterns);
-            lcovutil::merge_child_profile($profile);
-            my $childCpuTime = $profile->{child}{$chunkId};
+            $buildDirSearchPath->update_count(@$buildDirCounts);
+            my $childCpuTime = $lcovutil::profileData{child}{$chunkId};
             $totalChildCpuTime    += $childCpuTime;
             $intervalChildCpuTime += $childCpuTime;
 
@@ -975,15 +1183,33 @@ sub _merge_one_child($$$$$)
                 $lcovutil::profileData{merge}{$chunkId} = $end - $now;
                 $lcovutil::profileData{queue}{$chunkId} = $start - $childFinish;
             }
-
             $intervalMonitor->checkUpdate($processedFiles);
-        } else {
-            report_parallel_error('geninfo', "unable to deserialize $dumped");
+        };
+        if ($@) {
+            $childstatus = 1 << 8 unless $childstatus;
+            print STDOUT $@;
+            report_parallel_error('geninfo', $ERROR_PARALLEL, $child,
+                              $childstatus, "unable to deserialize $dumped: $@",
+                              keys(%$children));
         }
-    } elsif ($childstatus > 0) {
-        report_parallel_error('geninfo',
-            "child $child returned non-zero code $childstatus: ignoring data in chunk $chunkId"
-        );
+    }
+    if ($childstatus != 0) {
+        if (POSIX::SIGKILL == $signal) {
+            if (exists($childRetryCounts{$chunkId})) {
+                $childRetryCounts{$chunkId} += 1;
+            } else {
+                $childRetryCounts{$chunkId} = 1;
+            }
+            lcovutil::report_fork_failure(
+                                 "compute job $chunkId",
+                                 "killed by OS - possibly due to out-of-memory",
+                                 $childRetryCounts{$chunkId});
+            push(@$worklist, $chunk);
+        } else {
+            report_parallel_error('geninfo', $ERROR_CHILD, $child, $childstatus,
+                                  "ignoring data in chunk $chunkId",
+                                  keys(%$children));
+        }
     }
     foreach my $f ($dumped) {
         unlink $f
@@ -997,72 +1223,28 @@ sub _merge_one_child($$$$$)
             $lcovutil::profileData{process}{$chunkId} +
             $lcovutil::profileData{merge}{$chunkId};
     }
+    return 0 == $childstatus;
 }
 
 sub gen_info(@)
 {
-    my $type;
-    my $ext;
+    my $builder = BuildWorkList->new();
 
-    if ($initial) {
-        $type = "graph";
-        $ext  = $graph_file_extension;
-    } else {
-        $type = "data";
-        $ext  = $data_file_extension;
+    $builder->find_files($initial, @_);
+    if (!defined($initial) &&
+        defined($lcovutil::geninfo_captureAll) &&
+        $lcovutil::geninfo_captureAll) {
+        $builder->find_files(2, @_);
     }
-    my %files;
-    my $total = 0;
-    foreach my $directory (@_) {
-        if (-d $directory) {
-            info("Scanning $directory for $ext files ...\n");
-
-            my $now = Time::HiRes::gettimeofday();
-            my @found =
-                `find "$directory" $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l 2>$lcovutil::devnull`;
-            die("Error return code from 'find \"$directory\" ...': $!")
-                if ($?);
-            my $then = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{find}{$directory} = $then - $now;
-            chomp(@found);
-            if (!@found) {
-                lcovutil::ignorable_error($ERROR_EMPTY,
-                                          "no $ext files found in $directory");
-                next;
-            }
-            info("Found %d %s files in %s\n", scalar(@found), $type,
-                 $directory);
-            # keep track of directory where we found the file
-            foreach my $entry (@found) {
-                if (exists($files{$entry})) {
-                    warn(
-                        "duplicate file $directory fone in both $directory and "
-                            . $files{$entry} / "\n");
-                } else {
-                    ++$total;
-                }
-                $files{$entry} = $directory;
-            }
-        } else {
-            die("no such file or directory '$directory'")
-                unless (-e $directory);
-            # use the directory where we find the file as the base dir
-            my $d = dirname($directory);
-
-            if (exists($files{$directory})) {
-                warn("duplicate file $directory fone in both $d and " .
-                     $files{$directory} / "\n");
-            } else {
-                ++$total;
-            }
-            $files{$directory} = $d;
-        }
-    }
-
+    my $filelist = $builder->worklist();
+    my $total    = scalar(@$filelist);
     if (1 < $lcovutil::maxParallelism) {
-        my $floor = int($total / $lcovutil::maxParallelism);
-        if (defined($defaultChunkSize)) {
-            if ($defaultChunkSize =~ /^(\d+)\s*(%?)$/) {
+        my $floor =
+            $lcovutil::maxParallelism ?
+            (int($total / $lcovutil::maxParallelism)) :
+            1;
+        if (defined($lcovutil::defaultChunkSize)) {
+            if ($lcovutil::defaultChunkSize =~ /^(\d+)\s*(%?)$/) {
                 if (defined($2) && $2) {
                     # a percentage
                     $chunkSize = int($total * $1 / 100);
@@ -1071,13 +1253,13 @@ sub gen_info(@)
                     $chunkSize = $1;
                 }
             } else {
-                warn(
-                    "geninfo_chunk_size '$defaultChunkSize' is not recognized - ignoring\n"
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                    "geninfo_chunk_size '$lcovutil::defaultChunkSize' is not recognized"
                 );
             }
         }
         # Need to balance time in child vs. time to merge child data -
-        #   - if we hav too many children, then they finish and wait in the
+        #   - if we have too many children, then they finish and wait in the
         #     queue to be merged.
         #   - if we have too few, then the merge time in child gets long
         # build up in set to 80% of
@@ -1089,76 +1271,8 @@ sub gen_info(@)
     }
     my @worklist;
     my $chunk = [];
-    DATA_FILE: while (my ($filename, $searchdir) = each(%files)) {
-        #  $filename will be .gcda or .gcno.
-        #  expect gcno only if --initial
-        lcovutil::info(2, "schedule %s in %d\n", $filename, scalar(@worklist));
-        # find the corresponding gcno file...
-        my ($name, $d, $e) = fileparse($filename, qr/\.[^.]*/);
-        die("unexpected extension '$e': should be $ext" .
-            ($initial ? " for initial capture" : ""))
-            unless ($e eq $ext);
-        my ($gcda_file, $gcno_file);
-        if ($initial) {
-            $gcno_file = $filename;
-        } else {
-            $gcda_file = $filename;
-            $gcno_file = File::Spec->catfile($d, $name . ".gcno");
-            GCNO: foreach ($gcno_file) {
-                last if (-f $gcno_file || -l $gcno_file);
-
-                my $alt = lcovutil::subst_file_name($gcno_file);
-                my $prefix =
-                    "looking for GCNO corresponding to '$gcda_file':\n";
-                if ($alt ne $gcno_file) {
-                    $gcno_file = $alt;
-                    lcovutil::info(1, "$prefix  at '$gcno_file'\n");
-                    $prefix = '';
-                    last GCNO if (-f $gcno_file || -l $gcno_file);
-                }
-                # check to see if this file is in a different directory
-                my $dir = $d;
-                $dir =~ s#^$searchdir##g;
-                # handle case that gcda and gcno are in different directories
-                #  - say, where is the gcda that we found, then see if gcno is
-                #    in the same directory. If not, then look in a gcno path and
-                #    link both gcda and gcno into this tempdir, run gcov, then
-                #    unlink
-                # from the directory where the gcda file is found:
-                #   strip off the directory where we start the search
-                #   then strip off the GCOV_PREFIX (if there is one)
-                #   then append the remaining path the the GCDA file, to the
-                #   'GCNO_PATH' that we were provided.
-                #     - if there is a file there:  use it.
-                foreach my $build_directory (@build_directory) {
-                    # is the GCNO in the relative path from build_dir?
-                    $gcno_file =
-                        File::Spec->catfile($build_directory, $dir,
-                                            $name . ".gcno");
-
-                    lcovutil::info(1, "$prefix  at '$gcno_file'\n");
-                    $prefix = '';
-                    last GCNO if (-f $gcno_file || -l $gcno_file);
-
-                    # is the GCNO in the relative path after we apply substitutions?
-                    $alt = lcovutil::subst_file_name($gcno_file);
-                    if ($alt ne $gcno_file) {
-                        $gcno_file = $alt;
-                        lcovutil::info(1, "$prefix  at '$gcno_file'\n");
-                        $prefix = '';
-                        last GCNO if (-f $gcno_file || -l $gcno_file);
-                    }
-                }    # foreach build_directory
-
-                # skip the .gcda file if there is no .gcno
-
-                lcovutil::ignorable_error($ERROR_GCOV,
-                    "skipping .gcda file $gcda_file because corresponding .gcno file '$gcno_file' is missing (see the '--build-directory' entry in 'man geninfo' for suggestions)"
-                );
-                next DATA_FILE;
-            }    # foreach switch
-        }    # if (initial)
-        push(@$chunk, [$searchdir, $gcda_file, $gcno_file]);
+    foreach my $j (@$filelist) {
+        push(@$chunk, $j);
         if (scalar(@$chunk) == $chunkSize) {
             push(@worklist, $chunk);
             $chunk = [];
@@ -1177,9 +1291,9 @@ sub gen_info(@)
     my $processedChunks = 0;
 
     # process at least 5% of files before printing stats
-    $defaultInterval = 5 unless defined($defaultInterval);
+    $lcovutil::defaultInterval = 5 unless defined($lcovutil::defaultInterval);
 
-    my $intervalLength = int($total * $defaultInterval / 100);
+    my $intervalLength = int($total * $lcovutil::defaultInterval / 100);
     my $start          = Time::HiRes::gettimeofday();
 
     $intervalMonitor =
@@ -1191,140 +1305,176 @@ sub gen_info(@)
     $lcovutil::profileData{nChunks}   = $totalChunks;
     $lcovutil::profileData{interval}  = $intervalLength;
     $lcovutil::profileData{nFiles}    = $total;
+    $lcovutil::maxParallelism         = 1 unless scalar(@worklist) > 1;
 
-    CHUNK: foreach my $chunk (@worklist) {
-        ++$processedChunks;
-        if (1 < $lcovutil::maxParallelism &&
-            scalar(@worklist) > 1) {
+    my $failedAttempts = 0;
+    do {
+        CHUNK: while (@worklist) {
 
-            my $currentSize = 0;
-            if (0 != $lcovutil::maxMemory) {
-                $currentSize = lcovutil::current_process_size();
-            }
-            while ($currentParallel >= $lcovutil::maxParallelism ||
-                   ($currentParallel > 1 &&
-                    (($currentParallel + 1) * $currentSize) >
-                    $lcovutil::maxMemory)
-            ) {
-                lcovutil::info(1,
-                    "memory constraint ($currentParallel + 1) * $currentSize > $lcovutil::maxMemory violated: waiting.  "
-                        . ($total + 1)
-                        . " remaining\n")
-                    if ((($currentParallel + 1) * $currentSize) >
-                        $lcovutil::maxMemory);
-                my $child       = wait();
-                my $childstatus = $?;
-                _merge_one_child($child, \%children, $type, $tempFileExt,
-                                 $childstatus);
-                --$currentParallel;
-            }
+            my $chunk = pop(@worklist);
+            ++$processedChunks;
 
-            my $now = Time::HiRes::gettimeofday();
-            my $pid = fork();
-            if (!defined($pid)) {
-                # fork failed
-                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                         "fork() syscall failed while trying to process chunk");
-                --$processedChunks;
-                push(@worklist, $chunk);
-                sleep(10);
-                next CHUNK;
-            }
-            if (0 == $pid) {
-                # I'm the child...
-                #   set my output file to temp location so my dump won't
-                #   collide with another child - then merge at the end...
-                # would be better if the various gcov data readers would
-                #   build a datastructure that we could dump - rather than
-                #   printing a .info file that we have to parse....but so
-                #   be it.
-                my $childStart = Time::HiRes::gettimeofday();
-                # clear profile - want only my contribution
-                %lcovutil::profileData = ();
-                my $currentState = lcovutil::initial_state();
-                $output_filename =
-                    File::Spec->catfile($tempFileDir,
-                                        "geninfo_$$.info" . $tempFileExt);
-                my $stdout_file =
-                    File::Spec->catfile($tempFileDir, "geninfo_$$.log");
-                my $stderr_file =
-                    File::Spec->catfile($tempFileDir, "geninfo_$$.err");
-                my $childInfo;
-                # set count to zero so we know how many got created in
-                # the child process
-                $files_created = 0;
+            if (1 < $lcovutil::maxParallelism) {
+
+                my $currentSize = 0;
+                if (0 != $lcovutil::maxMemory) {
+                    $currentSize = lcovutil::current_process_size();
+                }
+                if ($currentParallel >= $lcovutil::maxParallelism ||
+                    ($currentParallel > 1 &&
+                        (($currentParallel + 1) * $currentSize) >
+                        $lcovutil::maxMemory)
+                ) {
+                    lcovutil::info(1,
+                        "memory constraint ($currentParallel + 1) * $currentSize > $lcovutil::maxMemory violated: waiting.  "
+                            . ($total + 1)
+                            . " remaining\n")
+                        if ((($currentParallel + 1) * $currentSize) >
+                            $lcovutil::maxMemory);
+
+                    $currentParallel -=
+                        _merge_one_child(\%children, $tempFileExt, \@worklist);
+                    # put the job back in the list
+                    --$processedChunks;
+                    push(@worklist, $chunk);
+                    next CHUNK;
+                }
+
+                $lcovutil::deferWarnings = 1;
                 my $now = Time::HiRes::gettimeofday();
-                # using 'capture' here so that we can both capture/redirect geninfo
-                #   messages from a child process during parallel execution AND
-                #   redirect stdout/stderr from gcov calls.
-                # It does not work to directly open/reopen the STDOUT and STDERR
-                #   descriptors due to interactions between the child and parent
-                #   processes (see the Capture::Tiny doc for some details)
-                my ($stdout, $stderr, $code) = Capture::Tiny::capture {
-                    $childInfo =
-                        _process_one_chunk($chunk, $processedChunks,
-                                           $childInfo, $$);
-                };
-                # print stdout and stderr ...
-                foreach
-                    my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
-                    my $f = InOutFile->out($d->[0]);
-                    my $h = $f->hdl();
-                    print($h $d->[1]);
+                my $pid = fork();
+                if (!defined($pid)) {
+                    # fork failed
+                    ++$failedAttempts;
+                    lcovutil::report_fork_failure("process chunk",
+                                                  $!, $failedAttempts);
+                    --$processedChunks;
+                    push(@worklist, $chunk);
+                    next CHUNK;
                 }
-                my $dumpf = File::Spec->catfile($tempFileDir, "dumper_$$");
-                foreach my $f ($output_filename) {
-                    unlink $f if -f $f && !$lcovutil::preserve_intermediates;
-                }
-                my $patterns = lcovutil::save_child_pattern_counts();
+                $failedAttempts = 0;
+                if (0 == $pid) {
+                    # I'm the child...
+                    #   set my output file to temp location so my dump won't
+                    #   collide with another child - then merge at the end...
+                    # would be better if the various gcov data readers would
+                    #   build a datastructure that we could dump - rather than
+                    #   printing a .info file that we have to parse....but so
+                    #   be it.
+                    my $childStart   = Time::HiRes::gettimeofday();
+                    my $currentState = lcovutil::initial_state();
+                    $buildDirSearchPath->reset();
+                    $output_filename =
+                        File::Spec->catfile($tempFileDir,
+                                            "geninfo_$$.info" . $tempFileExt);
+                    my $childInfo;
+                    # set count to zero so we know how many got created in
+                    # the child process
+                    $files_created = 0;
+                    my $now = Time::HiRes::gettimeofday();
+                    # using 'capture' here so that we can both capture/redirect geninfo
+                    #   messages from a child process during parallel execution AND
+                    #   redirect stdout/stderr from gcov calls.
+                    # It does not work to directly open/reopen the STDOUT and STDERR
+                    #   descriptors due to interactions between the child and parent
+                    #   processes (see the Capture::Tiny doc for some details)
+                    my $status = 0;
+                    my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+                        eval {
+                            $childInfo =
+                                _process_one_chunk($chunk, $processedChunks,
+                                                   $childInfo, $$);
+                        };
+                        if ($@) {
+                            $status = 1;         # error
+                            print(STDERR $@);    # capture messages in $stderr
+                        }
+                    };
+                    # parent might have already caught an error, cleaned up and
+                    #  removed the tempdir and exited.
+                    lcovutil::check_parent_process();
 
+                    # print stdout and stderr ...
+                    foreach my $d (['kog', $stdout], ['err', $stderr]) {
+                        my ($ext, $str) = @$d;
+                        # only print if there is something to print
+                        next
+                            unless ($str);
+                        my $tmpf =
+                            File::Spec->catfile($tempFileDir,
+                                                "geninfo_$$.$ext");
+                        my $f = InOutFile->out($tmpf);
+                        my $h = $f->hdl();
+                        print($h $str);
+                    }
+                    my $dumpf = File::Spec->catfile($tempFileDir, "dumper_$$");
+                    foreach my $f ($output_filename) {
+                        unlink $f
+                            if -f $f && !$lcovutil::preserve_intermediates;
+                    }
+                    my $buildDirCounts = $buildDirSearchPath->current_count();
+
+                    my $then = Time::HiRes::gettimeofday();
+                    # keep separate timestamp for when this child block was entered
+                    # vs when fork() was called - lest this job waited in queue for
+                    # a while
+                    $lcovutil::profileData{process}{$processedChunks} =
+                        $then - $now;
+
+                    $lcovutil::profileData{child}{$processedChunks} =
+                        $then - $childStart;
+                    # dump parsed data - then read back and merge
+                    my $data;
+                    eval {
+                        # NOTE:  not storing anything if we extracted nothing/
+                        #  there is no childInfo data
+                        $data =
+                            Storable::store(
+                                      [$single_file ? $childInfo : undef,
+                                       $buildDirCounts,
+                                       [$files_created, scalar(@$chunk), $then],
+                                       lcovutil::compute_update($currentState)
+                                      ],
+                                      $dumpf) if defined($childInfo);
+                    };
+                    if ($@ || (defined($childInfo) && !defined($data))) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                              "Child $$ serialize failed" . ($@ ? ": $@" : ''));
+                    }
+                    exit($status);
+                } else {
+                    # I'm the parent
+                    $children{$pid} = [$chunk, $now, $processedChunks];
+                    ++$currentParallel;
+                }
+            } else {
+                # not parallel..
+                my $now = Time::HiRes::gettimeofday();
+                $trace_data =
+                    _process_one_chunk($chunk, $processedChunks, $trace_data,
+                                       undef);
+                $processedFiles += scalar(@$chunk);
                 my $then = Time::HiRes::gettimeofday();
-                # keep separate timestamp for when this child block was entered
-                # vs when fork() was called - lest this job waited in queue for
-                # a while
                 $lcovutil::profileData{process}{$processedChunks} =
                     $then - $now;
-
-                $lcovutil::profileData{child}{$processedChunks} =
-                    $then - $childStart;
-                # dump parsed data - then read back and merge
-                eval {
-                    Storable::store([$single_file ? $childInfo : undef,
-                                     $patterns,
-                                     \%lcovutil::profileData,
-                                     [$files_created, scalar(@$chunk), $then],
-                                     lcovutil::compute_update($currentState)
-                                    ],
-                                    $dumpf) if defined($childInfo);
-                };
-                if ($@) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                                              "Child $$ serialize failed: $!");
-                }
-                exit(0);
-            } else {
-                # I'm the parent
-                $children{$pid} = [$chunk, $now, $processedChunks];
-                ++$currentParallel;
             }
-        } else {
-            # not parallel..
-            my $now = Time::HiRes::gettimeofday();
-            $trace_data =
-                _process_one_chunk($chunk, $processedChunks, $trace_data,
-                                   undef);
-            my $then = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{process}{$processedChunks} = $then - $now;
-        }
-    }    # end foreach
+        }    # end foreach
 
-    while ($currentParallel != 0) {
-        my $child       = wait();
-        my $childstatus = $?;
-        --$currentParallel;
-        _merge_one_child($child, \%children, $type, $tempFileExt, $childstatus);
-    }
-    info("Finished GDCA file processing\n");
+        while ($currentParallel != 0) {
+            $currentParallel -=
+                _merge_one_child(\%children, $tempFileExt, \@worklist);
+        }
+        # wrap in outer loop in case we get a spaceout/child failure
+        #  during 'tail' processing.
+    } while (@worklist);
+
+    info("Finished processing %d "
+             .
+             ($initial ? 'GCNO' :
+                  ($lcovutil::geninfo_captureAll ? 'GCDA/GCNO' : 'GCDA')) .
+             " file%s\n",
+         $processedFiles,
+         1 == $processedFiles ? '' : 's');
     # Report whether files were excluded.
     if (%lcovutil::excluded_files) {
         my $count = scalar keys %lcovutil::excluded_files;
@@ -1466,7 +1616,6 @@ sub process_dafile($$$$)
     }
 
     # Construct name of graph file
-    $bb_basename = File::Basename::basename($gcno_file);
     $bb_filename = solve_relative_path($cwd, $gcno_file);
 
     # Find out the real location of graph file in case we're just looking at
@@ -1480,26 +1629,18 @@ sub process_dafile($$$$)
 
     # Ignore empty graph file (e.g. source file with no statement)
     if (-z $bb_filename) {
-        warn("WARNING: empty $bb_filename (skipped)\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY, "empty $bb_filename");
         chdir($cwd) or die("can't cd back to $cwd: $!");
-        return;
+        return undef;
     }
 
     # Read contents of graph file into hash. We need it later to find out
     # the absolute path to each .gcov file created as well as for
     # information about functions and their source code positions.
-    if ($gcov_version < $GCOV_VERSION_3_4_0) {
-        if (is_compat($COMPAT_MODE_HAMMER)) {
-            ($instr, $graph) = read_bbg($bb_filename);
-        } else {
-            ($instr, $graph) = read_bb($bb_filename);
-        }
-    } else {
-        ($instr, $graph) = read_gcno($bb_filename);
-    }
+    ($instr, $graph) = read_gcno($bb_filename);
 
     # Try to find base directory automatically if requested by user
-    if ($rc_auto_base) {
+    if ($lcovutil::rc_auto_base) {
         $base_dir = find_base_from_source($base_dir,
                                           [keys(%{$instr}), keys(%{$graph})]);
     }
@@ -1519,11 +1660,11 @@ sub process_dafile($$$$)
         $da_arg = File::Basename::basename($da_filename);
         my $gcda = File::Spec->catfile($tempdir, $da_arg);
         symlink($da_filename, $gcda) or
-            die("ERROR: cannot create link $gcda: $!\n");
+            die("cannot create link $gcda: $!\n");
         my $gcno = File::Spec->catfile($tempdir,
                                        File::Basename::basename($bb_filename));
         symlink($bb_filename, $gcno) or
-            die("ERROR: cannot create link $gcno: $!\n");
+            die("cannot create link $gcno: $!\n");
         $object_dir = '.';
     }
 
@@ -1567,12 +1708,14 @@ sub process_dafile($$$$)
 
     # Check for files
     if (!@gcov_list) {
-        warn("WARNING: gcov did not create any files for " . "$da_filename!\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                      "gcov did not create any files for " . "$da_filename!\n");
     }
 
     if ($code) {
-        ignorable_error($ERROR_GCOV, "GCOV failed for $da_filename!");
-        return;
+        ignorable_error($ERROR_UTILITY,
+                        "GCOV command failed for $da_filename!");
+        return undef;
     }
 
     my $traceFile = TraceFile->new();
@@ -1595,15 +1738,16 @@ sub process_dafile($$$$)
 
             $source = solve_relative_path($base_dir, $source);
 
-            #  apply more patterns here
-            $source = lcovutil::subst_file_name($source);
+            # apply more patterns here
+            $source = ReadCurrentSource::resolve_path($source, 1);
 
             @matches = match_filename($source, keys(%{$instr}));
 
             # Skip files that are not mentioned in the graph file
             if (!@matches) {
-                warn("WARNING: cannot find an entry for " . $gcov_file .
-                     " in $graph_file_extension file, skipping file!\n");
+                lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+                             "cannot find an entry for " .
+                                 $gcov_file . " in $graph_file_extension file");
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
@@ -1611,7 +1755,8 @@ sub process_dafile($$$$)
             # Read in contents of gcov file
             my @result = read_gcov_file($gcov_file, $da_filename, $source);
             if (!defined($result[0])) {
-                warn("WARNING: skipping unreadable file " . $gcov_file . "\n");
+                lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
+                                          "$gcov_file is unreadable");
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
@@ -1621,7 +1766,8 @@ sub process_dafile($$$$)
 
             # Skip empty files
             if (!@gcov_content) {
-                warn("WARNING: skipping empty file " . $gcov_file . "\n");
+                lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                          "$gcov_file is empty");
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
@@ -1634,7 +1780,9 @@ sub process_dafile($$$$)
                 $source_filename = solve_ambiguous_match($gcov_file, \@matches,
                                                          \@gcov_content);
             }
-            $source_filename = lcovutil::subst_file_name($source_filename);
+            $source_filename =
+                ReadCurrentSource::resolve_path($source_filename, 1);
+
             if (TraceFile::skipCurrentFile($source_filename)) {
                 $lcovutil::excluded_files{$source_filename} = 1;
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
@@ -1653,8 +1801,7 @@ sub process_dafile($$$$)
             my $branchMap   = $fileData->testbr($test_name);
             my $lineMap     = $fileData->test($test_name);
 
-            if (@lcovutil::extractVersionScript &&
-                -f $source_filename) {
+            if (@lcovutil::extractVersionScript) {
                 my $version = lcovutil::extractFileVersion($source_filename);
                 $fileData->version($version)
                     if (defined($version) && $version ne "");
@@ -1683,8 +1830,7 @@ sub process_dafile($$$$)
                     $fn = filter_fn_name($fn,
                                          defined($lcovutil::demangle_cpp_cmd));
                     $functionData{$fn} =
-                        $functionMap->define_function($fn, $source_filename,
-                                                      $line);
+                        $functionMap->define_function($fn, $line);
                 }
             }
 
@@ -1741,10 +1887,11 @@ sub process_dafile($$$$)
                             lcovutil::debug(
                                 "$source_filename:$line_number: unexecuted block on non-branch line with count=$hit\n"
                             );
-                            if ($opt_adjust_unexecuted_blocks) {
+                            if ($lcovutil::opt_adjust_unexecuted_blocks) {
                                 $hit = 0;
                             } else {
-                                lcovutil::ignorable_warning($ERROR_GCOV,
+                                lcovutil::ignorable_warning(
+                                    $ERROR_INCONSISTENT_DATA,
                                     "$source_filename:$line_number: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
                                 ) unless $warnedUnexecuted;
                                 $warnedUnexecuted = 1;
@@ -1767,6 +1914,80 @@ sub process_dafile($$$$)
     }
 
     return $traceFile;
+}
+
+#
+# compute_internal_directories(list)
+#
+# Walk directory tree to find set of 'internal' directories
+#   - soft links within the 'internal' tree which point to directories outside
+#     the tree cause those target directories to be considered 'internal' if
+#     the "--follow" flag is specified - else, 'external'
+#
+
+sub compute_internal_directories(@)
+{
+    my @dirstack;
+    foreach my $entry (@_) {
+        next unless (defined($entry));
+        # do not apply substitution patterns to the dir name -
+        #   if user really wants that, they can specify a substitution and/or
+        #   include/exclude patterns
+        my $p = solve_relative_path($cwd, $entry);
+        push(@dirstack, $p)
+            if $lcovutil::opt_follow && !grep($p eq $_, @dirstack);
+        push(@lcovutil::internal_dirs, $p)
+            unless
+            grep($p eq $_ || ($lcovutil::case_insensitive && lc($p) eq lc($_)),
+                 @lcovutil::internal_dirs);
+        if (!file_name_is_absolute($entry) &&
+            $entry ne $p) {
+            push(@lcovutil::internal_dirs, $entry)
+                unless grep($entry eq $_ || ($lcovutil::case_insensitive &&
+                                             lc($entry) eq lc($_)),
+                            @lcovutil::internal_dirs);
+        }
+    }
+
+    my %visited;
+    while (@dirstack) {
+        my $top = pop(@dirstack);
+        if (-l $top) {
+            my $t = Cwd::realpath($top);
+            die("expected directory found '$t'") unless -d $t;
+            unless (exists($visited{$t})) {
+                lcovutil::info("internal: target '$t' of link '$top'\n");
+                $visited{$t} = $top;
+                push(@dirstack, $t);
+                push(@lcovutil::internal_dirs, $t)
+                    if lcovutil::is_external($t);
+            }
+            next;
+        }
+        opendir(my $dh, $top) or die("can't open directory: $!");
+        while (my $e = readdir($dh)) {
+            next if $e eq '.' || $e eq '..';
+            my $p = File::Spec->catfile($top, $e);
+            if (-l $p) {
+                my $l = Cwd::realpath($p);
+                push(@dirstack, $p) if (-d $l);
+            } elsif (-d $p) {
+                push(@dirstack, $p) unless exists($visited{$p});
+                $visited{$p} = $top;
+            }
+        }    # while
+        closedir($dh);
+    }
+
+    if (@lcovutil::internal_dirs) {
+        lcovutil::info("Recording 'internal' directories:\n\t" .
+                       join("\n\t", @lcovutil::internal_dirs) . "\n");
+    }
+
+    # Function is_external() requires all internal_dirs to end with a slash
+    foreach my $dir (@lcovutil::internal_dirs) {
+        $dir =~ s#$lcovutil::dirseparator*$#$lcovutil::dirseparator#;
+    }
 }
 
 #
@@ -1911,7 +2132,7 @@ sub solve_ambiguous_match($$$)
 
         # Compare file contents
         open(SOURCE, "<", $filename) or
-            die("ERROR: cannot read $filename: $!\n");
+            die("cannot read $filename: $!\n");
 
         $no_match = 0;
         for ($index = 2; <SOURCE>; $index += 3) {
@@ -1934,7 +2155,7 @@ sub solve_ambiguous_match($$$)
         }
     }
 
-    die("ERROR: could not match gcov data for $rel_name!\n");
+    die("could not match gcov data for $rel_name!\n");
 }
 
 #
@@ -2045,8 +2266,6 @@ sub read_gcov_file($$$)
     my $input = $f->hdl();
 
     my $currentBlock;
-    die("your GCC version is ANCIENT.  Not supported by this version of lcov")
-        unless $gcov_version >= $GCOV_VERSION_3_3_0;
 
     # Expect gcov format as used in gcc >= 3.3
     debug("reading $filename\n");
@@ -2058,7 +2277,6 @@ sub read_gcov_file($$$)
     # - e.g., if we find the file due to fully qualified paths, and find
     # a non-EOF line following an EOF line.
     my $foundEOF = 0;
-    my ($warnedBranch, $warnedFunction, $warnedLine);
     while (<$input>) {
         chomp($_);
         # Also remove CR from line-end
@@ -2072,23 +2290,11 @@ sub read_gcov_file($$$)
         } elsif (/^branch\s+(\d+)\s+taken\s+(\d+)(?:\s+\(([^)]*)\))?/) {
             next
                 if (!$lcovutil::br_coverage ||
-                    $exclude_line           ||
-                    $exclude_branch         ||
-                    (($exclude_exception_branch ||
-                      $lcovutil::exclude_exception_branch) &&
-                     defined($3) &&
-                     ($3 eq "throw")));
+                    $exclude_line ||
+                    $exclude_branch);
             # $1 is block ID, $2 is hit count
             my $count = $2;
-            if ($count < 0) {
-                #negative...
-                lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                    "Unexpected negative count '$count' for branch $1 of $source_filename:$last_line at $filename:$.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                ) unless $warnedBranch;
-                $warnedBranch = 1;    # only once
-                $count        = 0;
-            }
-            my $br = BranchBlock->new($branchId, $count, undef,
+            my $br    = BranchBlock->new($branchId, $count, undef,
                                       defined($3) && $3 eq 'throw');
             $branchData->append($last_line, $last_block, $br, $filename);
             ++$branchId;
@@ -2105,14 +2311,6 @@ sub read_gcov_file($$$)
             next if (!$lcovutil::func_coverage || $exclude_line);
             my $name  = $1;
             my $count = $2;
-            if ($count < 0) {
-                #negative...
-                lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                    "Unexpected negative count '$count' for function $name of $source_filename:$last_line at $filename:$.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                ) unless $warnedFunction;
-                $warnedFunction = 1;
-                $count          = 0;
-            }
             push(@functions, $count, $name);
         } elsif (/^call/) {
             # Function call return data
@@ -2126,7 +2324,7 @@ sub read_gcov_file($$$)
             } elsif ($foundEOF) {
                 # data looks inconsistent...we started finding some EOF entries
                 # and now we found a following entry which claims not to be EOF
-                lcovutil::ignorable_error($ERROR_GCOV,
+                lcovutil::ignorable_error($ERROR_FORMAT,
                     "non-EOF for $source_filename:$line at $filename:$. while processing $da_filename: '$code'"
                 );
             }
@@ -2200,13 +2398,6 @@ sub read_gcov_file($$$)
                     # Check for zero count
                     if ($count =~ /^[#=]/) {
                         $count = 0;
-                    } elsif ($count < 0) {
-                        #negative...
-                        lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                            "Unexpected negative count '$count' for $source_filename:$line at $filename:$.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                        ) unless $warnedLine;
-                        $warnedLine = 1;
-                        $count      = 0;
                     }
                     if ($unexec) {
                         push(@result, 1, [$count, $unexec]);
@@ -2220,7 +2411,8 @@ sub read_gcov_file($$$)
     }
 
     if ($exclude_flag || $exclude_br_flag || $exclude_exception_br_flag) {
-        warn("WARNING: unterminated exclusion section in $filename\n");
+        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+                                 "unterminated exclusion section in $filename");
     }
     return (\@result, $branchData, \@functions);
 }
@@ -2246,8 +2438,7 @@ sub read_intermediate_text($$)
         if ($line =~ /^file:(.*)$/) {
             $filename = $1;
             $filename =~ s/[\r\n]$//g;
-            # adjust filename...
-            $filename = lcovutil::subst_file_name($filename);
+            #filename will be simplified/sustituted in 'adjust_source_filenames'
         } elsif (defined($filename)) {
             $data->{$filename} .= $line;
         }
@@ -2284,7 +2475,7 @@ sub read_intermediate_json($$$)
     if (!defined($json) ||
         !exists($json->{"files"}) ||
         ref($json->{"files"} ne "ARRAY")) {
-        die("ERROR: Unrecognized JSON output format in $gcov_filename\n");
+        die("Unrecognized JSON output format in $gcov_filename\n");
     }
 
     $$basedir_ref = $json->{"current_working_directory"};
@@ -2330,7 +2521,6 @@ sub intermediate_text_to_info($)
 
     my $traceFile = TraceFile->new();
 
-    my ($warnedLine, $warnedBranch, $warnedFunction);    # once only
     while (my ($filename, $fileStr) = each(%$data)) {
         # note that we already substituted the source file name and handled
         # include/exclude directives - so no need to check here
@@ -2344,8 +2534,7 @@ sub intermediate_text_to_info($)
         my $branchMap   = $fileData->testbr($test_name);
         my $lineMap     = $fileData->test($test_name);
 
-        if (@lcovutil::extractVersionScript &&
-            -f $filename) {
+        if (@lcovutil::extractVersionScript) {
             my $version = lcovutil::extractFileVersion($filename);
             $fileData->version($version)
                 if (defined($version) && $version ne "");
@@ -2356,14 +2545,6 @@ sub intermediate_text_to_info($)
                 # lcount:<line>,<count>,<has_unexecuted_blocks>
                 my $lineNo = $1;
                 my $hit    = $2;
-                if ($hit < 0) {
-                    #negative...
-                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "Unexpected negative count '$hit' for $filename:$lineNo.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                    ) unless $warnedLine;
-                    $warnedLine = 1;
-                    $hit        = 0;
-                }
                 $lineMap->append($lineNo, $hit);
 
                 # Intermediate text format does not provide
@@ -2380,17 +2561,8 @@ sub intermediate_text_to_info($)
 
                 # function:<line>,<endline,>?<count>,<name>
                 my ($lineNo, $endline, $hit, $name) = ($2, $4, $5, $6);
-                if ($hit < 0) {
-                    #negative...
-                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "Unexpected negative count '$hit' for function $name at $filename:$lineNo.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                    ) unless $warnedFunction;
-                    $warnedFunction = 1;
-                    $hit            = 0;
-                }
                 my $func =
-                    $functionMap->define_function($name, $filename, $lineNo,
-                                                  $endline);
+                    $functionMap->define_function($name, $lineNo, $endline);
                 $func->addAlias($name, $hit);
             } elsif ($line =~ /^branch:(\d+),(taken|nottaken|notexec)/) {
                 my $lineNo = $1;
@@ -2442,8 +2614,7 @@ sub intermediate_json_to_info($)
     my $traceFile = TraceFile->new();
     lcovutil::debug(1,
           "called intermediate_json_to_info " . join(' ', keys(%$data)) . "\n");
-    my ($warnedLine, $warnedBranch, $warnedFunction, $warnedUnexecuted)
-        ;    # once only
+    my $warnedUnexecuted;    # once only
     while (my ($filename, $file_data) = each(%$data)) {
         # note that we already substituted the source file name and handled
         # include/exclude directives - so no need to check here
@@ -2454,8 +2625,7 @@ sub intermediate_json_to_info($)
         my $branchMap   = $fileData->testbr($test_name);
         my $lineMap     = $fileData->test($test_name);
 
-        if (@lcovutil::extractVersionScript &&
-            -f $filename) {
+        if (@lcovutil::extractVersionScript) {
             my $version = lcovutil::extractFileVersion($filename);
             $fileData->version($version)
                 if (defined($version) && $version ne "");
@@ -2470,18 +2640,9 @@ sub intermediate_json_to_info($)
                 my $count = $d->{"execution_count"};
                 my $name  = $lcovutil::demangle_cpp_cmd ? $d->{demangled_name} :
                     $d->{"name"};
-
-                if ($count < 0) {
-                    #negative...
-                    lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                        "Unexpected negative count '$count' for function $name at $filename:$start_line.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                    ) unless $warnedFunction;
-                    $warnedFunction = 1;
-                    $count          = 0;
-                }
                 my $func =
-                    $functionMap->define_function($name, $filename,
-                                                  $start_line, $end_line);
+                    $functionMap->define_function($name, $start_line,
+                                                  $end_line);
                 $func->addAlias($name, $count);
             }
         }
@@ -2494,23 +2655,14 @@ sub intermediate_json_to_info($)
 
             next
                 if (!defined($line) || !defined($count));
-
-            if ($count < 0) {
-                #negative...
-                lcovutil::ignorable_error($lcovutil::ERROR_NEGATIVE,
-                    "Unexpected negative count '$count' for $filename:$line.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                ) unless $warnedLine;
-                $warnedLine = 1;
-                $count      = 0;
-            }
             if (0 == scalar(@$branches) && $unexec && $count != 0) {
                 lcovutil::debug(
                     "$filename:$line: unexecuted block on non-branch line with count=$count\n"
                 );
-                if ($opt_adjust_unexecuted_blocks) {
+                if ($lcovutil::opt_adjust_unexecuted_blocks) {
                     $count = 0;
                 } else {
-                    lcovutil::ignorable_warning($ERROR_GCOV,
+                    lcovutil::ignorable_warning($ERROR_INCONSISTENT_DATA,
                         "$filename:$line: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
                     ) unless $warnedUnexecuted;
                     $warnedUnexecuted = 1;
@@ -2527,7 +2679,6 @@ sub intermediate_json_to_info($)
                 #  the closing brace of the function...
                 $branch_num = 0;
                 $unexec     = (defined($unexec) && $unexec && $count == 0);
-                my %branchRenumber;
 
                 for my $b (@$branches) {
                     my $brcount      = $b->{"count"};
@@ -2535,42 +2686,15 @@ sub intermediate_json_to_info($)
                     # need to keep track of whether compiler thinks this
                     #  branch is an exception - so we can skip it later.
 
-                    if (
-                        !( $is_exception && $lcovutil::exclude_exception_branch)
-                    ) {
-                        if (!defined($brcount) || $unexec) {
-                            $brcount = "-";
-                        } else {
-                            if ($brcount < 0) {
-                                #negative...
-                                lcovutil::ignorable_error(
-                                    $lcovutil::ERROR_NEGATIVE,
-                                    "Unexpected negative count '$brcount' for branch $branch_num of $filename:$line.\n\tPerhaps you need to compile with '-fprofile-update=atomic"
-                                ) unless $warnedBranch;
-                                $warnedBranch = 1;
-                                $brcount      = 0;
-                            }
-                        }
-                        my $entry =
-                            BranchBlock->new($branch_num, $brcount, undef,
-                                  defined($is_exception) && $is_exception != 0);
-                        if (exists($branchRenumber{$branch_num})) {
-                            $branchRenumber{$branch_num}->merge($entry);
-                        } else {
-                            $branchRenumber{$branch_num} = $entry;
-                        }
-                        ++$branch_num;
+                    if (!defined($brcount) || $unexec) {
+                        $brcount = "-";
                     }
-                }
-                my $id = 0;
-                foreach my $b (sort { $a <=> $b } keys(%branchRenumber)) {
-                    my $br = $branchRenumber{$b};
-                    my $newBr =
-                        BranchBlock->new($id, $br->data(), undef,
-                                         $br->is_exception());
+                    my $entry =
+                        BranchBlock->new($branch_num, $brcount, undef,
+                                  defined($is_exception) && $is_exception != 0);
                     # "block" is always zero for intermediate JSON data
-                    $branchMap->append($line, 0, $newBr, $filename);
-                    ++$id;
+                    $branchMap->append($line, 0, $entry, $filename);
+                    ++$branch_num;
                 }
             }
         }
@@ -2683,7 +2807,7 @@ sub process_intermediate($$$$)
         }
     } else {
         # if .gcda and .gcno files are in the same directory, then simply
-        #   processs in place - otherwise, link the .gcda and .gcno files
+        #   process in place - otherwise, link the .gcda and .gcno files
         #   into tempdir and run from here
         if (dirname($filename) eq dirname($gcno_file)) {
             # Process data file in place
@@ -2693,7 +2817,9 @@ sub process_intermediate($$$$)
             my $gcda = File::Spec->catfile($tempdir, $data_file);
             debug("create links to process $filename in $tempdir\n");
             symlink($file, $gcda);
-            if ($?) {
+            # unclear why symlink returns an error code when it actually
+            #  created the link
+            if ($? && !-l $gcda) {
                 $errmsg = "unable to create link $data_file: $!";
                 goto err;
             }
@@ -2701,7 +2827,7 @@ sub process_intermediate($$$$)
             my $g    = solve_relative_path($cwd, $gcno_file);
             my $gcno = File::Spec->catfile($tempdir, basename($gcno_file));
             symlink($g, $gcno);
-            if ($?) {
+            if ($? && !-l $gcda) {
                 $errmsg = "unable to create link $gcno: $!";
                 goto err;
             }
@@ -2765,7 +2891,7 @@ sub process_intermediate($$$$)
         }
         if ($lcovutil::preserve_intermediates) {
             File::Copy::move($gcov_filename, $fdir) or
-                die("ERROR: cannot rename $gcov_filename: $!");
+                die("cannot rename $gcov_filename: $!");
         } else {
             unlink($gcov_filename);
         }
@@ -2793,7 +2919,7 @@ sub process_intermediate($$$$)
         }
 
         # Try to find base directory automatically if requested by user
-        if ($rc_auto_base) {
+        if ($lcovutil::rc_auto_base) {
             $base = find_base_from_source($base, [keys(%data)]);
         }
     }
@@ -2815,6 +2941,7 @@ sub process_intermediate($$$$)
 
     err:
     ignorable_error($ERROR_GCOV, "$errmsg!");
+    return undef;
 }
 
 # Map LLVM versions to the version of GCC gcov which they emulate.
@@ -2825,7 +2952,7 @@ sub map_llvm_version($)
 
     return 0x040200 if ($ver >= 0x030400);
 
-    warn("WARNING: This version of LLVM's gcov is unknown.  " .
+    warn("This version of LLVM's gcov is unknown.  " .
          "Assuming it emulates GCC gcov version 4.2.\n");
 
     return 0x040200;
@@ -2878,7 +3005,7 @@ sub get_gcov_version()
     }
 
     open(GCOV_PIPE, "-|", "\"$gcov_tool[0]\" --version") or
-        die("ERROR: cannot retrieve gcov version: $!\n");
+        die("cannot retrieve gcov version: $!\n");
     local $/;
     $version_string = <GCOV_PIPE>;
     close(GCOV_PIPE) or die("unable to close gcov pipe: $!\n");
@@ -2892,7 +3019,7 @@ sub get_gcov_version()
         $version_string = (split('\n', $version_string))[0];
         chomp($version_string);
     } else {
-        warn("WARNING: cannot determine gcov version - assuming $a.$b.$c\n");
+        warn("cannot determine gcov version - assuming $a.$b.$c\n");
     }
     $result = $a << 16 | $b << 8 | $c;
 
@@ -2970,22 +3097,15 @@ sub process_graphfile($$)
 
     # Ignore empty graph file (e.g. source file with no statement)
     if (-z $graph_filename) {
-        warn("WARNING: empty $graph_filename (skipped)\n");
-        return;
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                  "empty $graph_filename");
+        return undef;
     }
 
-    if ($gcov_version < $GCOV_VERSION_3_4_0) {
-        if (is_compat($COMPAT_MODE_HAMMER)) {
-            ($instr, $graph) = read_bbg($graph_filename);
-        } else {
-            ($instr, $graph) = read_bb($graph_filename);
-        }
-    } else {
-        ($instr, $graph) = read_gcno($graph_filename);
-    }
+    ($instr, $graph) = read_gcno($graph_filename);
 
     # Try to find base directory automatically if requested by user
-    if ($rc_auto_base) {
+    if ($lcovutil::rc_auto_base) {
         $base_dir = find_base_from_source($base_dir,
                                           [keys(%{$instr}), keys(%{$graph})]);
     }
@@ -3009,8 +3129,7 @@ sub process_graphfile($$)
         my $functionMap = $fileData->testfnc($test_name);
         my $lineMap     = $fileData->test($test_name);
 
-        if (@lcovutil::extractVersionScript &&
-            -f $filename) {
+        if (@lcovutil::extractVersionScript) {
             my $version = lcovutil::extractFileVersion($filename);
             $fileData->version($version)
                 if (defined($version) && $version ne "");
@@ -3025,8 +3144,7 @@ sub process_graphfile($$)
                 my $lineNo = $linedata->[0];
                 my $fnName =
                     filter_fn_name($func, defined($lcovutil::demangle_cpp_cmd));
-                my $func =
-                    $functionMap->define_function($fnName, $filename, $lineNo);
+                my $func = $functionMap->define_function($fnName, $lineNo);
                 $func->addAlias($fnName, 0);
             }
         }
@@ -3069,7 +3187,12 @@ sub graph_error($$)
 {
     my ($filename, $msg) = @_;
 
-    ignorable_error($ERROR_GRAPH, "$filename: $msg - skipping.");
+    ignorable_error($ERROR_GRAPH,
+                    "$filename: $msg"
+                        .
+                        (lcovutil::is_ignored($ERROR_GRAPH) ? ' - skipping' : ''
+                        ) .
+                        '.');
     return;
 }
 
@@ -3092,7 +3215,8 @@ sub graph_read(*$;$$)
     if ($peek) {
         $pos = tell($handle);
         if ($pos == -1) {
-            warn("Could not get current file position: $!\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
+                                     "Could not get current file position: $!");
             return undef;
         }
     }
@@ -3120,7 +3244,8 @@ sub graph_read(*$;$$)
     }
     if ($peek) {
         if (!seek($handle, $pos, 0)) {
-            warn("Could not set file position: $!\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
+                                      "Could not set file position: $!");
             return undef;
         }
     }
@@ -3300,7 +3425,10 @@ sub adjust_source_filenames($$$)
         $filename = solve_relative_path($base_dir, $filename);
 
         # Apply adjustment
-        $filename = lcovutil::subst_file_name($filename);
+        $filename = ReadCurrentSource::resolve_path($filename, 1);
+        if ($lcovutil::opt_follow && $lcovutil::opt_follow_file_links) {
+            $filename = Cwd::realpath($filename);
+        }
 
         if ($filename ne $old_filename) {
             $hash->{$filename} = delete($hash->{$old_filename});
@@ -3320,8 +3448,14 @@ sub filter_source_files($)
 
     foreach my $filename (keys(%{$hash})) {
         # Skip external files if requested
-        if (is_external($filename) ||
+        my $external = is_external($filename);
+        if ($external ||
             TraceFile::skipCurrentFile($filename)) {
+            if ($external) {
+                lcovutil::info("Dropping 'external' file '$filename'\n");
+            } else {
+                lcovutil::info("Excluding file '$filename'\n");
+            }
             # Remove file data
             delete($hash->{$filename});
             $lcovutil::excluded_files{$filename} = 1;
@@ -3506,324 +3640,6 @@ sub graph_add_order($$$)
 }
 
 #
-# read_bb_word(handle[, description])
-#
-# Read and return a word in .bb format from handle.
-#
-
-sub read_bb_word(*;$)
-{
-    my ($handle, $desc) = @_;
-
-    return graph_read($handle, 4, $desc);
-}
-
-#
-# read_bb_value(handle[, description])
-#
-# Read a word in .bb format from handle and return the word and its integer
-# value.
-#
-
-sub read_bb_value(*;$)
-{
-    my ($handle, $desc) = @_;
-    my $word;
-
-    $word = read_bb_word($handle, $desc);
-    return undef if (!defined($word));
-
-    return ($word, unpack("V", $word));
-}
-
-#
-# read_bb_string(handle, delimiter)
-#
-# Read and return a string in .bb format from handle up to the specified
-# delimiter value.
-#
-
-sub read_bb_string(*$)
-{
-    my ($handle, $delimiter) = @_;
-    my $word;
-    my $value;
-    my $string = "";
-
-    lcovutil::debug(2, "string");
-    do {
-        ($word, $value) = read_bb_value($handle, "string or delimiter");
-        return undef if (!defined($value));
-        if ($value != $delimiter) {
-            $string .= $word;
-        }
-    } while ($value != $delimiter);
-    $string =~ s/\0//g;
-
-    return $string;
-}
-
-#
-# read_bb(filename)
-#
-# Read the contents of the specified .bb file and return (instr, graph), where:
-#
-#   instr     : filename -> line data
-#   line data : [ line1, line2, ... ]
-#
-#   graph     :     filename -> file_data
-#   file_data : function name -> line_data
-#   line_data : [ line1, line2, ... ]
-#
-# See the gcov info pages of gcc 2.95 for a description of the .bb file format.
-#
-
-sub read_bb($)
-{
-    my ($bb_filename) = @_;
-    my $minus_one     = 0x80000001;
-    my $minus_two     = 0x80000002;
-    my $value;
-    my $filename;
-    my $function;
-    my $bb        = {};
-    my $fileorder = {};
-    my $instr;
-    my $graph;
-    local *HANDLE;
-
-    open(HANDLE, "<", $bb_filename) or goto open_error;
-    binmode(HANDLE);
-    while (!eof(HANDLE)) {
-        $value = read_bb_value(*HANDLE, "data word");
-        goto incomplete if (!defined($value));
-        if ($value == $minus_one) {
-            # Source file name
-            lcovutil::debug(2, "filename");
-            $filename = read_bb_string(*HANDLE, $minus_one);
-            goto incomplete if (!defined($filename));
-        } elsif ($value == $minus_two) {
-            # Function name
-            lcovutil::debug(2, "function name");
-            $function = read_bb_string(*HANDLE, $minus_two);
-            goto incomplete if (!defined($function));
-        } elsif ($value > 0) {
-            # Line number
-            if (!defined($filename) || !defined($function)) {
-                warn("WARNING: unassigned line number $value\n");
-                next;
-            }
-            push(@{$bb->{$function}->{$filename}}, $value);
-            graph_add_order($fileorder, $function, $filename);
-        }
-    }
-    close(HANDLE) or die("unable to close $bb_filename: $!\n");
-
-    ($instr, $graph) = graph_from_bb($bb, $fileorder, $bb_filename, 0);
-    graph_cleanup($graph);
-
-    return ($instr, $graph);
-
-    open_error:
-    graph_error($bb_filename, "could not open file: $!");
-    return undef;
-    incomplete:
-    graph_error($bb_filename, "reached unexpected end of file");
-    return undef;
-}
-
-#
-# read_bbg_word(handle[, description])
-#
-# Read and return a word in .bbg format.
-#
-
-sub read_bbg_word(*;$)
-{
-    my ($handle, $desc) = @_;
-
-    return graph_read($handle, 4, $desc);
-}
-
-#
-# read_bbg_value(handle[, description])
-#
-# Read a word in .bbg format from handle and return its integer value.
-#
-
-sub read_bbg_value(*;$)
-{
-    my ($handle, $desc) = @_;
-    my $word;
-
-    $word = read_bbg_word($handle, $desc);
-    return undef if (!defined($word));
-
-    return unpack("N", $word);
-}
-
-#
-# read_bbg_string(handle)
-#
-# Read and return a string in .bbg format.
-#
-
-sub read_bbg_string(*)
-{
-    my ($handle, $desc) = @_;
-    my $length;
-    my $string;
-
-    lcovutil::debug(2, "string");
-    # Read string length
-    $length = read_bbg_value($handle, "string length");
-    return undef if (!defined($length));
-    if ($length == 0) {
-        return "";
-    }
-    # Read string
-    $string = graph_read($handle, $length, "string");
-    return undef if (!defined($string));
-    # Skip padding
-    graph_skip($handle, 4 - $length % 4, "string padding") or return undef;
-
-    return $string;
-}
-
-#
-# read_bbg_lines_record(handle, bbg_filename, bb, fileorder, filename,
-#                       function)
-#
-# Read a bbg format lines record from handle and add the relevant data to
-# bb and fileorder. Return filename on success, undef on error.
-#
-
-sub read_bbg_lines_record(*$$$$$)
-{
-    my ($handle, $bbg_filename, $bb, $fileorder, $filename, $function) = @_;
-    my $string;
-    my $lineno;
-
-    lcovutil::debug(2, "lines record");
-    # Skip basic block index
-    graph_skip($handle, 4, "basic block index") or return undef;
-    while (1) {
-        # Read line number
-        $lineno = read_bbg_value($handle, "line number");
-        return undef if (!defined($lineno));
-        if ($lineno == 0) {
-            # Got a marker for a new filename
-            lcovutil::debug(2, "filename");
-            $string = read_bbg_string($handle);
-            return undef if (!defined($string));
-            # Check for end of record
-            if ($string eq "") {
-                return $filename;
-            }
-            $filename = $string;
-            if (!exists($bb->{$function}->{$filename})) {
-                $bb->{$function}->{$filename} = [];
-            }
-            next;
-        }
-        # Got an actual line number
-        if (!defined($filename)) {
-            warn("WARNING: unassigned line number in $bbg_filename\n");
-            next;
-        }
-        push(@{$bb->{$function}->{$filename}}, $lineno);
-        graph_add_order($fileorder, $function, $filename);
-    }
-}
-
-#
-# read_bbg(filename)
-#
-# Read the contents of the specified .bbg file and return the following mapping:
-#   graph:     filename -> file_data
-#   file_data: function name -> line_data
-#   line_data: [ line1, line2, ... ]
-#
-# See the gcov-io.h file in the SLES 9 gcc 3.3.3 source code for a description
-# of the .bbg format.
-#
-
-sub read_bbg($)
-{
-    my ($bbg_filename) = @_;
-    my $file_magic     = 0x67626267;
-    my $tag_function   = 0x01000000;
-    my $tag_lines      = 0x01450000;
-    my $word;
-    my $tag;
-    my $length;
-    my $function;
-    my $filename;
-    my $bb        = {};
-    my $fileorder = {};
-    my $instr;
-    my $graph;
-    local *HANDLE;
-
-    open(HANDLE, "<", $bbg_filename) or goto open_error;
-    binmode(HANDLE);
-    # Read magic
-    $word = read_bbg_value(*HANDLE, "file magic");
-    goto incomplete if (!defined($word));
-    # Check magic
-    if ($word != $file_magic) {
-        goto magic_error;
-    }
-    # Skip version
-    graph_skip(*HANDLE, 4, "version") or goto incomplete;
-    while (!eof(HANDLE)) {
-        # Read record tag
-        $tag = read_bbg_value(*HANDLE, "record tag");
-        goto incomplete if (!defined($tag));
-        # Read record length
-        $length = read_bbg_value(*HANDLE, "record length");
-        goto incomplete if (!defined($tag));
-        if ($tag == $tag_function) {
-            lcovutil::debug(2, "function record");
-            # Read function name
-            lcovutil::debug(2, "function name");
-            $function = read_bbg_string(*HANDLE);
-            goto incomplete if (!defined($function));
-            $filename = undef;
-            # Skip function checksum
-            graph_skip(*HANDLE, 4, "function checksum") or
-                goto incomplete;
-        } elsif ($tag == $tag_lines) {
-            # Read lines record
-            $filename =
-                read_bbg_lines_record(HANDLE, $bbg_filename,
-                                      $bb, $fileorder, $filename, $function);
-            goto incomplete if (!defined($filename));
-        } else {
-            # Skip record contents
-            graph_skip(*HANDLE, $length, "unhandled record") or
-                goto incomplete;
-        }
-    }
-    close(HANDLE) or die("unable to close $bbg_filename: $!\n");
-    ($instr, $graph) = graph_from_bb($bb, $fileorder, $bbg_filename, 0);
-
-    graph_cleanup($graph);
-
-    return ($instr, $graph);
-
-    open_error:
-    graph_error($bbg_filename, "could not open file: $!");
-    return undef;
-    incomplete:
-    graph_error($bbg_filename, "reached unexpected end of file");
-    return undef;
-    magic_error:
-    graph_error($bbg_filename, "found unrecognized bbg file magic");
-    return undef;
-}
-
-#
 # read_gcno_word(handle[, description, peek])
 #
 # Read and return a word in .gcno format.
@@ -3927,58 +3743,14 @@ sub read_gcno_lines_record(*$$$$$$)
         }
         # Got an actual line number
         if (!defined($filename)) {
-            warn("WARNING: unassigned line number in $gcno_filename\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                    "unassigned line number in $gcno_filename");
             next;
         }
         # Add to list
         push(@{$bb->{$function}->{$filename}}, $lineno);
         graph_add_order($fileorder, $function, $filename);
     }
-}
-
-#
-# determine_gcno_split_crc(handle, big_endian, rec_length, version)
-#
-# Determine if HANDLE refers to a .gcno file with a split checksum function
-# record format. Return non-zero in case of split checksum format, zero
-# otherwise, undef in case of read error.
-#
-
-sub determine_gcno_split_crc($$$$)
-{
-    my ($handle, $big_endian, $rec_length, $version) = @_;
-    my $strlen;
-    my $overlong_string;
-
-    return 1 if ($version >= $GCOV_VERSION_4_7_0);
-    return 1 if (is_compat($COMPAT_MODE_SPLIT_CRC));
-
-    # Heuristic:
-    # Decide format based on contents of next word in record:
-    # - pre-gcc 4.7
-    #   This is the function name length / 4 which should be
-    #   less than the remaining record length
-    # - gcc 4.7
-    #   This is a checksum, likely with high-order bits set,
-    #   resulting in a large number
-    $strlen = read_gcno_value($handle, $big_endian, undef, 1);
-    return undef if (!defined($strlen));
-    $overlong_string = 1 if ($strlen * 4 >= $rec_length - 12);
-
-    if ($overlong_string) {
-        if (is_compat_auto($COMPAT_MODE_SPLIT_CRC)) {
-            info("Auto-detected compatibility mode for split " .
-                 "checksum .gcno file format\n");
-
-            return 1;
-        } else {
-            # Sanity check
-            warn("Found overlong string in function record: " .
-                 "try '--compat split_crc'\n");
-        }
-    }
-
-    return 0;
 }
 
 #
@@ -4000,15 +3772,8 @@ sub read_gcno_function_record(*$$$$$)
     lcovutil::debug(2, "function record");
     # Skip ident and checksum
     graph_skip($handle, 8, "function ident and checksum") or return undef;
-    # Determine if this is a function record with split checksums
-    if (!defined($gcno_split_crc)) {
-        $gcno_split_crc =
-            determine_gcno_split_crc($handle, $big_endian,
-                                     $rec_length, $version);
-        return undef if (!defined($gcno_split_crc));
-    }
-    # Skip cfg checksum word in case of split checksums
-    graph_skip($handle, 4, "function cfg checksum") if ($gcno_split_crc);
+    # must be gcc > 4 - so only split checksum exists
+    graph_skip($handle, 4, "function cfg checksum");
     # Read function name
     lcovutil::debug(2, "function name");
     $function = read_gcno_string($handle, $big_endian);
@@ -4152,7 +3917,8 @@ sub read_gcno($)
         if ($next_pos > $filelength) {
             debug("Overlong record: file_length=$filelength " .
                   "rec_length=$length\n");
-            warn("WARNING: $gcno_filename: Overlong record at end of file!\n");
+            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                              "$gcno_filename: Overlong record at end of file");
             last;
         }
         # Process record
@@ -4220,7 +3986,7 @@ sub get_gcov_capabilities()
 {
     my $help = join(' ', @gcov_tool) . ' --help';
     $help = `$help`;
-    die("Error return code from '\"$gcov_tool[0]\" --help': $!")
+    die("return code from '\"$gcov_tool[0]\" --help': $!")
         if ($?);
     my %capabilities;
     my %short_option_translations = ('a' => 'all-blocks',
@@ -4290,9 +4056,9 @@ sub parse_compat_modes($)
     %compat_value = %COMPAT_MODE_DEFAULTS;
 
     # Add old style specifications
-    if (defined($opt_compat_libtool)) {
+    if (defined($lcovutil::opt_compat_libtool)) {
         $compat_value{$COMPAT_MODE_LIBTOOL} =
-            $opt_compat_libtool ? $COMPAT_VALUE_ON :
+            $lcovutil::opt_compat_libtool ? $COMPAT_VALUE_ON :
             $COMPAT_VALUE_OFF;
     }
 
@@ -4308,20 +4074,19 @@ sub parse_compat_modes($)
         #   mode (implies on)
         if ($directive !~ /^(\w+)=(\w+)$/ &&
             $directive !~ /^(\w+)$/) {
-            die("ERROR: Unknown compatibility mode specification: " .
-                "$directive!\n");
+            die("Unknown compatibility mode specification: " . "$directive!\n");
         }
         # Determine mode
         $mode = $COMPAT_NAME_TO_MODE{lc($1)};
         if (!defined($mode)) {
-            die("ERROR: Unknown compatibility mode '$1'!\n");
+            die("Unknown compatibility mode '$1'!\n");
         }
         $specified{$mode} = 1;
         # Determine value
         if (defined($2)) {
             $value = $COMPAT_NAME_TO_VALUE{lc($2)};
             if (!defined($value)) {
-                die("ERROR: Unknown compatibility mode value '$2'!\n");
+                die("Unknown compatibility mode value '$2'!\n");
             }
         } else {
             $value = $COMPAT_VALUE_ON;
@@ -4338,8 +4103,7 @@ sub parse_compat_modes($)
             my $autodetect = $COMPAT_MODE_AUTO{$mode};
 
             if (!defined($autodetect)) {
-                die("ERROR: No auto-detection for " .
-                    "mode '$name' available!\n");
+                die("No auto-detection for " . "mode '$name' available!\n");
             }
 
             if (ref($autodetect) eq "CODE") {
@@ -4360,16 +4124,6 @@ sub parse_compat_modes($)
             }
         }
     }
-}
-
-sub compat_hammer_autodetect()
-{
-    if ($gcov_version_string =~ /suse/i && $gcov_version == 0x30303 ||
-        $gcov_version_string =~ /mandrake/i && $gcov_version == 0x30302) {
-        info("Auto-detected compatibility mode for GCC 3.3 (hammer)\n");
-        return $COMPAT_VALUE_ON;
-    }
-    return $COMPAT_VALUE_OFF;
 }
 
 #

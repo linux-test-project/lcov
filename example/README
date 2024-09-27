@@ -1,6 +1,62 @@
+To see some examples of LCOV generated HTML coverage reports,
+and point a web browser into the resulting reports:
 
-To get an example of how the LCOV generated HTML output looks like,
-type 'make output' and point a web browser to the resulting file
+Default view:
 
-  output/index.html
+  - Point your browser to
+      output/index.html
 
+Hierarchical view:
+
+  - Point your browser to
+      hierarchical/index.html
+
+  - Note that that the coverage data is the same - only the report
+    format is different:
+
+       - Follows directory structure, similar to MS file viewer
+         ('--hierarchical' flag)
+
+       - Additional navigation links also enabled
+         ('--show-navigation' flag)
+
+Differential coverage:
+
+  - Point your browser to
+      exampleRepo/differential/index.html
+
+  - This example is slightly complicated because it emulates a moderately
+    realistic project in that it pretends to see project changes:
+
+       - updates to two project source files example.c and iterate.c
+
+       - change to the test suite: only one test of updated
+         code rather than 3 of the original code
+
+  - The Makefile simulates this by checking code into a git repo,
+    building an executable and then updating a few source files, rebuildling,
+    and running some tests.
+
+Code review:
+
+  - point your browser to
+      exampleRepo/differential/index.html
+
+  - This example builds on the "Differential coverage" example, above
+    to emulate a possible code review methodology in which adds code
+    coverage to the review criteria.
+    The intent is to generate a reduced report which shows only the
+    code changes which negatively affect code coverage - while removing
+    other details which only distract from the review.
+
+      - Use the 'genhtml --select-script ...' feature to show only new
+        source code which was negatively affected by the change under
+        review (uncovered and/or lost code).
+        You might want to modify the select criteria to include positive
+        change (e.g., GNC, GBC, and GIC categories).
+
+      - Real use cases are likely to use more sophisticated select-script
+        callbacks (e.g., to select from a range of changelists).
+
+Feel free to edit the Makefile or to run the lcov utilities directly,
+to see the effect of other options that you find in the lcov man pages.

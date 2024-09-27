@@ -36,52 +36,73 @@
 #     genhtml --criteria-script 'path/criteria --signoff' ....
 #
 #   It is not hard to envision much more complicated coverage criteria.
+package criteria;
 
 use strict;
 use JSON;
-use Getopt::Long;
+use Getopt::Long qw(GetOptionsFromArray);
 
-my $signoff = 0;
+our @ISA       = qw(Exporter);
+our @EXPORT_OK = qw(new);
 
-if (!GetOptions('signoff' => \$signoff) ||
-    3 != scalar(@ARGV)) {
-    print(STDERR "usage: name type json-string [--signoff]\n");
-    exit(1);
-}
+use constant {SIGNOFF => 0,};
 
-#print(join(' ', @ARGV) . "\n");
-my $name = shift;
-my $type = shift;
-my $json = shift;
+sub new
+{
+    my $class      = shift;
+    my $signoff    = 0;
+    my $script     = shift;
+    my $standalone = $script eq $0;
+    my @options    = @_;
 
-my $fail = 0;
-if ($type eq 'top') {
-    # for the moment - only worry about the top-level coverage
-    my $db = decode_json($json);
-
-    if (exists($db->{'line'})) {
-        # our criteria is LBC + UNC + UIC == 0
-        my $sep    = '';
-        my $sum    = 0;
-        my $msg    = '';
-        my $counts = '';
-        my $lines  = $db->{'line'};
-        foreach my $tla ('UNC', 'LBC', 'UIC') {
-            $msg    .= $sep . $tla;
-            $counts .= $sep;
-            if (exists $lines->{$tla}) {
-                my $count = $lines->{$tla};
-                $sum += $count;
-                $counts .= "$count";
-            } else {
-                $counts .= "0";
-            }
-            $sep = ' + ';
-        }
-        $fail = $sum != 0;
-        print($msg . " != 0: " . $counts . "\n")
-            if $fail;
+    if (!GetOptionsFromArray(\@_, ('signoff' => \$signoff)) ||
+        (!$standalone && @_)) {
+        print(STDERR "Error: unexpected option:\n  " .
+              join(' ', @options) .
+              "\nusage: name type json-string [--signoff]\n");
+        exit(1) if $standalone;
+        return undef;
     }
+
+    my $self = [$signoff];
+    return bless $self, $class;
 }
 
-exit($fail && !$signoff);
+sub check_criteria
+{
+    my ($self, $name, $type, $db) = @_;
+
+    my $fail = 0;
+    my @messages;
+    if ($type eq 'top') {
+        # for the moment - only worry about the top-level coverage
+
+        if (exists($db->{'line'})) {
+            # our criteria is LBC + UNC + UIC == 0
+            my $sep    = '';
+            my $sum    = 0;
+            my $msg    = '';
+            my $counts = '';
+            my $lines  = $db->{'line'};
+            foreach my $tla ('UNC', 'LBC', 'UIC') {
+                $msg    .= $sep . $tla;
+                $counts .= $sep;
+                if (exists $lines->{$tla}) {
+                    my $count = $lines->{$tla};
+                    $sum += $count;
+                    $counts .= "$count";
+                } else {
+                    $counts .= "0";
+                }
+                $sep = ' + ';
+            }
+            $fail = $sum != 0;
+            push(@messages, $msg . " != 0: " . $counts . "\n")
+                if $fail;
+        }
+    }
+
+    return ($fail && !$self->[SIGNOFF], \@messages);
+}
+
+1;

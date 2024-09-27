@@ -6,6 +6,7 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+CXX="${CXX:-g++}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -70,7 +71,7 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
     echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
     exit 1
 fi
@@ -93,17 +94,24 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
-if ! type g++ >/dev/null 2>&1 ; then
-	echo "Missing tool: g++" >&2
-	exit 2
+if ! type ${CXX} >/dev/null 2>&1 ; then
+        echo "Missing tool: ${CXX}" >&2
+        exit 2
 fi
 
-g++ -std=c++1y --coverage demangle.cpp
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
+
+${CXX} -std=c++1y --coverage demangle.cpp
 ./a.out 1
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list demangle.info
+$COVER $LCOV_TOOL $LCOV_OPTS --list demangle.info
 
 # how many branches reported?
 COUNT=`grep -c BRDA: demangle.info`
@@ -112,7 +120,7 @@ if [ $COUNT != '0' ] ; then
     exit 1
 fi
 
-for k in FN FNDA ; do
+for k in FNA ; do
     # how many functions reported?
     grep $k: demangle.info
     COUNT=`grep -v __ demangle.info | grep -c $k:`
@@ -131,9 +139,9 @@ for k in FN FNDA ; do
 done
 
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --directory . -o vanilla.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --directory . -o vanilla.info
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --list vanilla.info
+$COVER $LCOV_TOOL $LCOV_OPTS --list vanilla.info
 
 # how many branches reported?
 COUNT=`grep -c BRDA: vanilla.info`
@@ -142,7 +150,7 @@ if [ $COUNT != '0' ] ; then
     exit 1
 fi
 
-for k in FN FNDA ; do
+for k in FNA ; do
     # how many functions reported?
     grep $k: vanilla.info
     COUNT=`grep -v __ demangle.info | grep -c $k: vanilla.info`
@@ -163,13 +171,13 @@ done
 
 # see if we can exclude a function - does the generated data contain
 #  function end line numbers?
-grep -E 'FN:[0-9]+,[0-9]+,.+' demangle.info
+grep -E 'FNL:[0-9]+,[0-9]+,[0-9]+' demangle.info
 if [ $? == 0 ] ; then
     echo "----------------------"
     echo "   compiler version support start/end reporting - testing erase"
 
     # end line is captured - so we should be able to filter
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main -o exclude.info -v -v
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main -o exclude.info -v -v
     if [ $? != 0 ] ; then
         echo "geninfo with exclusion failed"
         if [ $KEEP_GOING == 0 ] ; then
@@ -177,7 +185,7 @@ if [ $? == 0 ] ; then
         fi
     fi
 
-    for type in DA FNDA FN ; do
+    for type in DA FNA ; do
         ORIG=`grep -c -E "^$type:" demangle.info`
         NOW=`grep -c -E "^$type:" exclude.info`
         if [ $ORIG -le $NOW ] ; then
@@ -187,7 +195,7 @@ if [ $? == 0 ] ; then
     done
 
     # check that the same lines are removed by 'aggregate'
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o aggregate.info -a demangle.info --erase-functions main -v
+    $COVER $LCOV_TOOL $LCOV_OPTS -o aggregate.info -a demangle.info --erase-functions main -v
 
     diff exclude.info aggregate.info
     if [ $? != 0 ] ; then
@@ -195,11 +203,27 @@ if [ $? == 0 ] ; then
         exit 1
     fi
 
+    perl -pe 's/(FNL:[0-9]+),([0-9]+),[0-9]+/$1,$2/' demangle.info > munged.info
+    $COVER $LCOV_TOOL $LCOV_OPTS  --filter branch --demangle-cpp -a munged.info --erase-functions main -o munged_exclude.info --rc derive_function_end_line=0
+    if [ $? == 0 ] ; then
+        echo "lcov exclude with no function end lines passed"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    $COVER $LCOV_TOOL $LCOV_OPTS  --filter branch --demangle-cpp -a munged.info --erase-functions main -o munged_exclude.info --rc derive_function_end_line=0 --ignore unsupported
+    if [ $? != 0 ] ; then
+        echo "didn't ignore exclusion message"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+
 else
     # no end line in data - check for error message...
     echo "----------------------"
     echo "   compiler version DOESN't support start/end reporting - check error"
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude.info
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude.info
     if [ 0 == $? ] ; then
         echo "Error:  expected exit for unsupported feature"
         if [ $KEEP_GOING == 0 ] ; then
@@ -207,7 +231,7 @@ else
         fi
     fi
 
-    $COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unsupported,unused -o ignore.info
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unsupported,unused -o ignore.info
     if [ 0 != $? ] ; then
         echo "Error:  expected to ignore unsupported message"
         if [ $KEEP_GOING == 0 ] ; then
@@ -217,7 +241,7 @@ else
     # expect not to find 'main'
     grep main ignore.info
     if [ $? == 0 ] ; then
-        echo "expected 'main' to be filterd out"
+        echo "expected 'main' to be filtered out"
         exit 1
     fi
     # but expect to find coverpoint within main..

@@ -8,6 +8,8 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
+CC="${CC:-gcc}"
+CXX="${CXX:-g++}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -72,7 +74,7 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
     echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
     exit 1
 fi
@@ -80,12 +82,18 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--branch $PARALLEL $PROFILE"
 # gcc/4.8.5 (and possibly other old versions) generate inconsistent line/function data
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent"
     # and filter exception branches to avoid spurious differences for old compiler
@@ -102,13 +110,13 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
-if ! type g++ >/dev/null 2>&1 ; then
-        echo "Missing tool: g++" >&2
+if ! type ${CXX} >/dev/null 2>&1 ; then
+        echo "Missing tool: ${CXX}" >&2
         exit 2
 fi
 
 status=0
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o intersect.info a.info --intersect b.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o intersect.info a.info --intersect b.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from intersect"
     status=1
@@ -116,7 +124,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o intersect_2.info b.info --intersect a.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o intersect_2.info b.info --intersect a.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from intersect"
     status=1
@@ -144,7 +152,7 @@ if [ 0 != $? ] ; then
 fi
 
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o diff.info a.info --subtract b.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o diff.info a.info --subtract b.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from subtract"
     status=1
@@ -161,7 +169,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o diff2.info b.info --subtract a.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o diff2.info b.info --subtract a.info
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from subtract 2"
     status=1
@@ -180,7 +188,7 @@ fi
 
 
 # test some error messages...
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o x.info 'y.?info' --intersect a.info
+$COVER $LCOV_TOOL $LCOV_OPTS -o x.info 'y.?info' --intersect a.info
 if [ 0 == $? ] ; then
     echo "Error:  expected error but did not see one"
     status=1
@@ -188,7 +196,7 @@ if [ 0 == $? ] ; then
         exit 1
     fi
 fi
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS -o x.info a.info --intersect 'z.?info'
+$COVER $LCOV_TOOL $LCOV_OPTS -o x.info a.info --intersect 'z.?info'
 if [ 0 == $? ] ; then
     echo "Error:  expected error but did not see one"
     status=1

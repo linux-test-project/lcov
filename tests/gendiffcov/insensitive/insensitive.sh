@@ -6,7 +6,8 @@ COVER=
 
 PARALLEL='--parallel 0'
 PROFILE="--profile"
-CXX='g++'
+CC="${CC:-gcc}"
+CXX="${CXX:-g++}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -35,7 +36,7 @@ while [ $# -gt 0 ] ; do
                LOCAL_COVERAGE=0
                shift
             fi
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine,-silent,1 "
             ;;
 
         --home | -home )
@@ -80,7 +81,7 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
     echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
     exit 1
 fi
@@ -88,11 +89,17 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
-if [ -f $LCOV_HOME/bin/getp4version ] ; then
-    GET_VERSION=$LCOV_HOME/bin/getp4version
-    ANNOTATE=$LCOV_HOME/bin/p4annotate
+if [ -f $LCOV_HOME/scripts/getp4version ] ; then
+    GET_VERSION=$LCOV_HOME/scripts/getp4version
+    ANNOTATE=$LCOV_HOME/scripts/p4annotate
 else
     GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
     ANNOTATE=$LCOV_HOME/share/lcov/support-scripts/p4annotate
@@ -109,7 +116,7 @@ fi
 
 
 LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script `pwd`/version.sh $PARALLEL $PROFILE"
-DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script `pwd`/version.sh $PROFILE $PARALLEL"
+DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT --version-script `pwd`/version.sh $PROFILE $PARALLEL"
 
 rm -f *.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt *.log *.err *.json dumper* *.annotated *.log TEST.cpp TeSt.cpp
 rm -rf ./baseline ./current ./differential* ./cover_db
@@ -138,13 +145,13 @@ echo `which gcov`
 echo `which lcov`
 
 # old gcc version generates inconsistent line/function data
-IFS='.' read -r -a VER <<< `gcc -dumpversion`
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     IGNORE="--ignore inconsistent"
 fi
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline.info --no-external $IGNORE
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline.info --no-external $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -169,7 +176,7 @@ fi
 #  ignore 'source' error when we try to open the file (for filtering) - because
 #  our filesystem is not actually case insensitive.
 sed -e 's/TEST.cpp/test.cpp/g' < baseline.info > baseline2.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --output merge.info -a baseline.info -a baseline2.info --ignore source
+$COVER $LCOV_TOOL $LCOV_OPTS --output merge.info -a baseline.info -a baseline2.info --ignore source
 if [ 0 != $? ] ; then
     echo "ERROR: merge with mismatched case did not fail"
     if [ 0 == $KEEP_GOING ] ; then
@@ -185,7 +192,7 @@ if [ $COUNT != '2' ] ; then
     fi
 fi
 
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --rc case_insensitive=1 --output merge2.info -a baseline.info -a baseline2.info --ignore source
+$COVER $LCOV_TOOL $LCOV_OPTS --rc case_insensitive=1 --output merge2.info -a baseline.info -a baseline2.info --ignore source
 if [ 0 != $? ] ; then
     echo "ERROR: ignore error case insensitive merge failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -194,7 +201,7 @@ if [ 0 != $? ] ; then
 fi
 COUNT=`grep -c SF: merge2.info`
 if [ $COUNT != '1' ] ; then
-    echo "ERROR: expected 1 file in case-insenstive result found $COUNT"
+    echo "ERROR: expected 1 file in case-insensitive result found $COUNT"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
@@ -207,7 +214,7 @@ ln -s ../simple/simple2.cpp TeSt.cpp
 ${CXX} --coverage -DADD_CODE -DREMOVE_CODE TeSt.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current.info $IGNORE
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current.info $IGNORE
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current.info $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture TeSt failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -223,8 +230,11 @@ fi
 ln -s ../simple/simple2.cpp.annotated TEst.cpp.annotated
 
 # check that this works with test names
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 --ignore-annotate,source $IGNORE
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 $GENHTML_PORT --ignore annotate,source $IGNORE
+#  need to not do the exiistence callback because the 'insensitive' name
+#  won't be found but the version-check in the .info file already contains
+#  a value - so we would get a version check error
+echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 --ignore-annotate,source $IGNORE --rc check_existence_before_callback=0 --ignore inconsistent
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 $GENHTML_PORT --ignore annotate,source $IGNORE --rc check_existence_before_callback=0 --ignore inconsistent
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -234,7 +244,7 @@ fi
 
 # check warning
 echo lcov $LCOV_OPTS --capture --directory . --output-file current.info --substitute 's/test/TEST/g' $IGNORE
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current.info --substitute 's/test\b/TEST/' --rc case_insensitive=1 --ignore unused,source  $IGNORE 2>&1 | tee warn.log
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current.info --substitute 's/test\b/TEST/' --rc case_insensitive=1 --ignore unused,source  $IGNORE 2>&1 | tee warn.log
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture TeSt failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -253,29 +263,30 @@ rm -f TeSt.cpp
 
 # check annotation failure message...
 # check that this works with test names
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore source $IGNORE
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source $IGNORE 2>&1 | tee fail.log
+echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential2 ./current.info --ignore source $IGNORE --rc check_existence_before_callback=0
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential2 ./current.info $GENHTML_PORT --ignore source $IGNORE --rc check_existence_before_callback=0 2>&1 | tee fail.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: expected annotation error but didn't find"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
-grep -i "Error: non-zero exit status from annotate" fail.log
+grep -i -E "Error: \(annotate\) annotate command failed: .*non-zero exit status" fail.log
 if [ 0 != $? ] ; then
     echo "did not find expected annotate error message in fail.log"
     exit 1
 fi
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore-source,annotate $IGNORE
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source,annotate $IGNORE 2>&1 | tee fail2.log
+# just ignore the version check error this time..
+echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential3 ./current.info --ignore-source,annotate,version $IGNORE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential3 ./current.info $GENHTML_PORT --ignore source,annotate,version $IGNORE 2>&1 | tee fail2.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: expected synthesize  error but didn't find"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
-grep -i "Warning: ('annotate') non-zero exit status from annotate" fail2.log
+grep -i -E "Warning: \(annotate\).* non-zero exit status" fail2.log
 if [ 0 != $? ] ; then
     echo "did not find expected annotate warning message in fail2.log"
     exit 1
@@ -286,8 +297,8 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential ./current.info --ignore-source,annotate --synthesize $IGNORE
-$COVER ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential ./current.info $GENHTML_PORT --ignore source,annotate --synthesize $IGNORE 2>&1 | tee fail3.log
+echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential4 ./current.info --ignore-source,annotate,version --synthesize $IGNORE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential4 ./current.info $GENHTML_PORT --ignore source,annotate,version --synthesize $IGNORE 2>&1 | tee fail3.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: unexpected synthesize  error"
     if [ 0 == $KEEP_GOING ] ; then
@@ -302,6 +313,6 @@ fi
 
 echo "Tests passed"
 
-if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE; then
+if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE ]; then
     cover
 fi

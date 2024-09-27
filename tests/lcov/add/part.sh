@@ -6,4 +6,4 @@
 # be same as input
 #
 
-exec ./helper.sh 1 "$PART1INFO" "$PART1INFO"
+exec ./helper.sh $@ 1 "$PART1INFO" "$PART1INFO"

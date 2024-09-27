@@ -1,0 +1,36 @@
+TN:
+SF:./exception.cpp
+# slightly faked data - to hit additional branch
+FN:5,23,main
+FNDA:1,main
+FNF:1
+FNH:1
+BRDA:8,0,0,1
+BRDA:8,e0,1,0
+BRDA:12,0,0,1
+BRDA:12,0,1,0
+BRDA:17,0,0,1
+#fake block with all exception branches here
+BRDA:17,e0,1,0
+BRDA:18,e0,0,1
+BRDA:18,e0,1,0
+# fake orphan here
+BRDA:19,0,0,-
+BRDA:20,0,0,1
+BRDA:20,e0,1,0
+BRF:10
+BRH:5
+DA:5,1
+DA:8,1
+DA:10,1
+DA:12,1
+DA:13,1
+DA:15,0
+DA:17,1
+DA:18,1
+DA:19,1
+DA:20,1
+DA:22,1
+LF:11
+LH:10
+end_of_record

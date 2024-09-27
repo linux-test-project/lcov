@@ -6,7 +6,7 @@ COVER=
 UPDATE=0
 PARALLEL='--parallel 0'
 PROFILE="--profile"
-CXX='g++'
+CC="${CC:-gcc}"
 COVER_DB='cover_db'
 LOCAL_COVERAGE=1
 KEEP_GOING=0
@@ -35,10 +35,10 @@ while [ $# -gt 0 ] ; do
                LOCAL_COVERAGE=0
                shift
             fi
-            if [ ! -d $COVER_DB ] ; then
-                mkdir -p $COVER_DB
+            if [ ! -d ${COVER_DB} ] ; then
+                mkdir -p ${COVER_DB}
             fi
-            COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
+            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
             ;;
 
         --home | -home )
@@ -87,7 +87,7 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
+if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
     echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
     exit 1
 fi
@@ -95,10 +95,16 @@ fi
 export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
 export MANPATH=${MANPATH}:${LCOV_HOME}/man
 
+if [ 'x' == "x$GENHTML_TOOL" ] ; then
+    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
+    LCOV_TOOL=${LCOV_HOME}/bin/lcov
+    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
-if [ -f $LCOV_HOME/bin/getp4version ] ; then
-    GET_VERSION=$LCOV_HOME/bin/getp4version
+if [ -f $LCOV_HOME/scripts/getp4version ] ; then
+    GET_VERSION=$LCOV_HOME/scripts/getp4version
 else
     GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
 fi
@@ -107,10 +113,12 @@ fi
 #PROFILE="''
 
 # filter out the compiler-generated _GLOBAL__sub_... symbol
-LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
-DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --highlight --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
-#DIFFCOV_OPTS="--function-coverage --branch-coverage --highlight --demangle-cpp --frame"
-#DIFFCOV_OPTS='--function-coverage --branch-coverage --highlight --demangle-cpp'
+LCOV_BASE="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
+VERSION_OPTS="--version-script $GET_VERSION"
+LCOV_OPTS="$LCOV_BASE $VERSION_OPTS"
+DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
+#DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame"
+#DIFFCOV_OPTS='--function-coverage --branch-coverage --demangle-cpp'
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx *.diff *.txt template *gcov
 rm -rf baseline_*call_current*call alias* no_alias*
@@ -124,13 +132,13 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 if ! type "${CXX}" >/dev/null 2>&1 ; then
-	echo "Missing tool: $CXX" >&2
-	exit 2
+        echo "Missing tool: $CXX" >&2
+        exit 2
 fi
 
 if ! python3 -c "import xlsxwriter" >/dev/null 2>&1 ; then
-	echo "Missing python module: xlsxwriter" >&2
-	exit 2
+        echo "Missing python module: xlsxwriter" >&2
+        exit 2
 fi
 
 echo *
@@ -144,7 +152,7 @@ ${CXX} --coverage -DCALL_FUNCTIONS test.cpp
 
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -153,13 +161,46 @@ if [ 0 != $? ] ; then
 fi
 gzip -c baseline_call.info > baseline_call.info.gz
 
+# run again - without version info:
+echo lcov $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest
+$COVER $LCOV_TOOL $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov --capture no version failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep VER: baseline_no_vers.info
+if [ 0 == $? ] ; then
+    echo "ERROR: lcov contains version info"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# insert the version info
+echo lcov $VERSION_OPTS --rc compute_file_version=1 --add-tracefile baseline_no_vers.info --output-file baseline_vers.info
+$COVER $LCOV_TOOL $VERSION_OPTS --rc compute_file_version=1 --add-tracefile baseline_no_vers.info --output-file baseline_vers.info
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov insert version failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+diff baseline_vers.info baseline_call.info
+if [ 0 != $? ] ; then
+    echo "ERROR: data differs after version insert"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 rm -f test.gcno test.gcda a.out
 
 ${CXX} --coverage test.cpp
 ./a.out
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (2) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -176,7 +217,7 @@ ln -s current.cpp test.cpp
 ${CXX} --coverage -DADD_CODE -DREMOVE_CODE -DCALL_FUNCTIONS test.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current_call.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current_call.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current_call.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (3) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -189,7 +230,7 @@ rm -f test.gcno test.gcda a.out
 ${CXX} --coverage -DADD_CODE -DREMOVE_CODE test.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current_nocall.info
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --directory . --output-file current_nocall.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current_nocall.info
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (4) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -208,7 +249,7 @@ fi
 
 #check for end line markers - if present then check for whole-function
 #categorization
-grep -E 'FN:[0-9]+,[0-9]+,.+' baseline_call.info
+grep -E 'FNL:[0-9]+,[0-9]+,[0-9]+' baseline_call.info
 NO_END_LINE=$?
 
 if [ $NO_END_LINE == 0 ] ; then
@@ -224,8 +265,8 @@ fi
 for base in baseline_call baseline_nocall ; do
     for curr in current_call current_nocall ; do
         OUT=${base}_${curr}
-        echo $LCOV_HOME/bin/genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info
-        $COVER $LCOV_HOME/bin/genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --elide-path
+        echo genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --ignore inconsistent
+        $COVER $GENHTML_TOOL -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --elide-path --ignore inconsistent
         if [ $? != 0 ] ; then
             echo "genhtml $OUT failed"
             if [ 0 == $KEEP_GOING ] ; then
@@ -255,16 +296,16 @@ rm *.gcda *.gcno
 ${CXX} --coverage -std=c++11 -o template template.cpp
 ./template
 echo lcov $LCOV_OPTS --capture --directory . --demangle --output-file template.info --no-external --branch-coverage --test-name myTest
-$COVER $LCOV_HOME/bin/lcov $LCOV_OPTS --capture --demangle --directory . --output-file template.info --no-external --branch-coverage --test-name myTest
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --demangle --directory . --output-file template.info --no-external --branch-coverage --test-name myTest
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
-COUNT=`grep -c FN: template.info`
+COUNT=`grep -c FNA: template.info`
 if [ 4 != $COUNT ] ; then
-    echo "ERROR: expected 4 FNDA - found $COUNT"
+    echo "ERROR: expected 4 FNA - found $COUNT"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
@@ -272,8 +313,8 @@ fi
 
 for opt in '' '--forget-test-names' ; do
     outdir="alias$opt"
-    echo $LCOV_HOME/bin/genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion
-    $COVER $LCOV_HOME/bin/genhtml -o $outdir $pt $DIFFCOV_OPTS  template.info --show-proportion
+    echo genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion
+    $COVER $GENHTML_TOOL -o $outdir $pt $DIFFCOV_OPTS  template.info --show-proportion
     if [ $? != 0 ] ; then
         echo "genhtml $outdir failed"
         if [ 0 == $KEEP_GOING ] ; then
@@ -290,9 +331,9 @@ for opt in '' '--forget-test-names' ; do
     fi
 
     outdir="no_alias$opt"
-    # suppres aliases
-    echo $LCOV_HOME/bin/genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion --suppress-alias
-    $COVER $LCOV_HOME/bin/genhtml -o $outdir $opt $DIFFCOV_OPTS  template.info --show-proportion --suppress-alias
+    # suppress aliases
+    echo genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion --suppress-alias
+    $COVER $GENHTML_TOOL -o $outdir $opt $DIFFCOV_OPTS  template.info --show-proportion --suppress-alias
     if [ $? != 0 ] ; then
         echo "genhtml $outdir failed"
         if [ 0 == $KEEP_GOING ] ; then
@@ -318,7 +359,7 @@ done
 
 
 # and generate a spreadsheet..check that we don't crash
-SPREADSHEET=$LCOV_HOME/bin/spreadsheet.py
+SPREADSHEET=$LCOV_HOME/scripts/spreadsheet.py
 if [ ! -f $SPREADSHEET ] ; then
     SPREADSHEET=$LCOV_HOME/share/lcov/support-scripts/spreadsheet.py
 fi

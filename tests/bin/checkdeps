@@ -36,7 +36,12 @@ sub check_file($)
             next if ($line !~ /^\s*use\s+(\S+).*;\s*$/);
 
             $module = $1;
-            next if $module eq 'lcovutil';
+            # skip modules we define...
+            next
+                if grep(/^$module$/,
+                        ('lcovutil', 'annotateutil',
+                         'gitversion', 'gitblame',
+                         'getp4version', 'p4annotate'));
             print("Checking for $module\n") if ($verbose);
             if (!eval("require $module")) {
                 warn("Error: Missing Perl module '$module' " .

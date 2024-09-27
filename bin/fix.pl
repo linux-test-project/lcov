@@ -96,7 +96,7 @@ sub update_perl($)
         die("$0: Missing option --release\n") if (!defined($opt_release));
 
         $source =~
-            s/^(our\s+\$lcov_version\s*=).*$/$1 "LCOV version $opt_version-$opt_release";/mg;
+            s/^(our\s+\$VERSION\s*=).*$/$1 "$opt_version-$opt_release";/mg;
     }
 
     if ($opt_fixinterp && defined($path) && $path ne "") {
@@ -114,7 +114,14 @@ sub update_perl($)
         die("$0: Missing option --bindir\n") if (!defined($opt_bindir));
 
         $source =~ s/^use FindBin;\n//mg;
-        $source =~ s/\$FindBin::RealBin/"$opt_bindir"/mg;
+        $source =~ s/"\$FindBin::RealBin"/"$opt_bindir"/mg;
+    }
+
+    if ($opt_fixscriptdir) {
+        die("$0: Missing option --scriptdir\n") if (!defined($opt_scriptdir));
+
+        $source =~ s/^use FindBin;\n//mg;
+        $source =~ s/"\$FindBin::RealBin"/"$opt_scriptdir"/mg;
     }
 
     return $source;
