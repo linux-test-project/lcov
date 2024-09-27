@@ -5122,12 +5122,13 @@ sub _synthesize
         # Synthesize source data from coverage trace to replace unreadable file
         my $suffix =
             $lcovutil::ignore[$lcovutil::ERROR_SOURCE] ?
-            ' - synthesizing fake content' :
-            '';
+            ' - synthesizing fake content.' :
+            '.';
         lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                  "cannot read '" . $self->path() . "'$suffix")
+                                  "cannot read '" . $self->path() .
+                                      "' - file is empty or unreadable$suffix")
             unless $main::no_sourceview;
-        $why = 'not found';
+        $why = 'empty or unreadable';
     } else {
         my $suffix = '';
         if ($lcovutil::ignore[$lcovutil::ERROR_RANGE]) {
