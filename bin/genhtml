@@ -4075,10 +4075,7 @@ use constant {
 
 sub new
 {
-    # countdata may be 'undef'
-    my ($class, $filepath, $fileSummary, $fileCovInfo, $countdata,
-        $hasNoBaselineData)
-        = @_;
+    my ($class, $filepath, $fileSummary, $fileCovInfo, $hasNoBaselineData) = @_;
 
     (ref($fileSummary) eq 'SummaryInfo' &&
      ref($fileCovInfo) eq "FileCoverageInfo") or
@@ -4097,7 +4094,7 @@ sub new
 
     # use the line coverage count to synthesize a fake file, if we can't
     #   find an actual file
-    $self->_load($countdata, $fileCovInfo->version('current'));
+    $self->_load($fileCovInfo);
 
     if ($hasNoBaselineData) {
         my $fileAge = $self->age();
@@ -4957,7 +4954,7 @@ sub _computeAge
 
 sub _load
 {
-    my ($self, $countdata, $currentVersion) = @_;
+    my ($self, $fileCovInfo) = @_;
 
     my $start = Time::HiRes::gettimeofday();
     ++$totalFiles;
@@ -4980,7 +4977,8 @@ sub _load
 
     # check for version mismatch...
     if (@lcovutil::extractVersionScript) {
-        my $version = lcovutil::extractFileVersion($repo_path);
+        my $currentVersion = $fileCovInfo->version('current');
+        my $version        = lcovutil::extractFileVersion($repo_path);
         if (defined($version) &&
             '' ne $version) {
             if (defined($currentVersion)) {
@@ -5055,7 +5053,7 @@ sub _load
             $lcovutil::profileData{annotate}{$self->path()} = $end - $begin;
 
             ++$annotatedFiles if $found;
-            $self->_synthesize($countdata, 1);    # fake annotations too
+            $self->_synthesize($fileCovInfo, 1);    # fake annotations too
             return $self;
         } else {
 
@@ -5085,7 +5083,7 @@ sub _load
              0 == scalar(@lcovutil::extractVersionScript) &&
              !lcovutil::is_filter_enabled())
         ) {
-            $self->_synthesize($countdata,
+            $self->_synthesize($fileCovInfo,
                                defined($SourceFile::annotateCallback));
             my $end = Time::HiRes::gettimeofday();
             $lcovutil::profileData{synth}{$self->path()} = $end - $begin;
@@ -5096,7 +5094,7 @@ sub _load
         );
     }
     $self->_bare_load($path);
-    $self->_synthesize($countdata, defined($SourceFile::annotateCallback));
+    $self->_synthesize($fileCovInfo, defined($SourceFile::annotateCallback));
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{load}{$self->path()} = $end - $begin;
     return $self;
@@ -5104,17 +5102,31 @@ sub _load
 
 sub _synthesize
 {
-    my ($self, $countdata, $annotate) = @_;
+    my ($self, $fileCovInfo, $annotate) = @_;
 
-    return $self if (!defined($countdata));
-
-    my $last_line = 0;
-    my @lines     = sort({ $a <=> $b } $countdata->keylist());
-    if (@lines) {
-        $last_line = $lines[scalar(@lines) - 1];
-    }
+    my $lineData    = $fileCovInfo->lineMap();
     my $currentLast = scalar(@{$self->[LINES]});
-
+    my $last_line   = 0;
+    while (my ($l, $d) = each(%$lineData)) {
+        $last_line = $l if ('<' ne substr($l, 0, 1) && $l > $last_line);
+    }
+    my %functionDecls;
+    while (my ($fnName, $funcEntry) = each(%{$fileCovInfo->functionMap()})) {
+        my $line = $funcEntry->line();
+        my $end  = $funcEntry->end_line();
+        $last_line = $line if $line > $last_line;
+        $functionDecls{$line} = "/* BEGIN: function \"$fnName\" */"
+            if ($line >= $currentLast);
+        if (defined($end)) {
+            $functionDecls{$end} = "/* END: function \"$fnName\" */"
+                if ($end >= $currentLast);
+            if ($end > $last_line) {
+                # function end is not an executable line,
+                # but is after last executable line
+                $last_line = $end;
+            }
+        }
+    }
     return $self if ($last_line < 1 ||
                      $currentLast >= $last_line);
     my $why;
@@ -5144,7 +5156,7 @@ sub _synthesize
     }
     # Simulate gcov behavior
     my $notFound = "/* " . $self->path() . " $why */";
-    my $synth    = "/* (content generated from line coverage data) */";
+    my $synth    = "/* (content generated from coverage data) */";
     my $idx      = 1;
     my @fakeline = (undef,    # line number
                     undef);    # source text
@@ -5161,10 +5173,16 @@ sub _synthesize
     }
     for (my $line = $currentLast + 1; $line <= $last_line; $line++) {
         my $mod = $idx++ % 20;
-        my $l = (($mod == 1) ? $notFound :
-                     ($mod == 2) ? $synth :
-                     "/* ... */");
-        splice(@fakeline, 0, 2, $line, $l);
+        my $text;
+        # if there is function decl here...mark it.
+        if (exists($functionDecls{$line})) {
+            $text = $functionDecls{$line};
+        } else {
+            $text = (($mod == 1) ? $notFound :
+                         ($mod == 2) ? $synth :
+                         "/* ... */");
+        }
+        splice(@fakeline, 0, 2, $line, $text);
         push(@{$self->[LINES]}, SourceLine->new(@fakeline));
     }
     return $self;
@@ -7398,7 +7416,7 @@ sub process_file($$$$$)
     #   - $fileCovInfo: change GIC->CBC, UIC->UBC if $fineNotInBaseline and
     #     source code is older than baseline file
     my $srcfile = SourceFile->new($filename, $fileSummary, $fileCovInfo,
-                                  $sumcount, $fileHasNoBaselineInfo);
+                                  $fileHasNoBaselineInfo);
     my $endSrc = Time::HiRes::gettimeofday();
     $lcovutil::profileData{source}{$filename} = $endSrc - $then;
 
