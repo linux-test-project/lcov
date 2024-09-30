@@ -12590,6 +12590,10 @@ END_OF_HTML
                         $tla;
                     $tlaRow = "<td class=\"tla$tla\">$label</td>";
                 }
+
+                # Escape special characters
+                $alias = escape_html($alias);
+
                 write_html(*HTML_HANDLE, <<END_OF_HTML);
             <tr>
               <td class="coverFnAlias"><a href="$source#L$startline">$alias</a></td>
