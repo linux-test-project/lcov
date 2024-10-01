@@ -107,7 +107,7 @@ if [ "${VER[0]}" -lt 5 ] ; then
     FILTER='--filter branch'
 fi
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log *.o
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log *.o errs
 rm -rf rcOptBug
 
 if [ -d separate ] ; then
@@ -230,6 +230,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
 
 echo $COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branch,65,--function,100
 $COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPTS/threshold.pm,--line,90,--branch,65,--function,100 2>&1 | tee callback_fail2.log
@@ -835,6 +836,39 @@ fi
 grep -E 'resolve.*failed' removeMissing.log
 if [ 0 != $? ] ; then
     echo "expected to find messages"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# try to produce some errors that were hit by user :-(
+mkdir -p errs
+rm -f errs/*
+( cd errs ; ln -s ../extract.gcda ; ln -s ../missing.gcno extract.gcno )
+$COVER $CAPTURE errs $LCOV_OPTS -o err1.info $FILTER $IGNORE
+if [ 0 == $? ] ; then
+    echo "Error:  expected error code from lcov --capture"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+$COVER $CAPTURE errs $LCOV_OPTS -o err2.info $FILTER $IGNORE --initial
+if [ 0 == $? ] ; then
+    echo "Error:  expected error code from lcov --capture --initial"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+$COVER $CAPTURE errs $LCOV_OPTS -o err3.info $FILTER $IGNORE --initial --ignore path
+if [ 0 == $? ] ; then
+    echo "Error:  expected error code from lcov --capture --initial --ignore"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+$COVER $CAPTURE errs $LCOV_OPTS -o err4.info $FILTER $IGNORE --initial --keep-going
+if [ 0 == $? ] ; then
+    echo "Error:  expected error code from lcov --capture --initial --keep-going"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi

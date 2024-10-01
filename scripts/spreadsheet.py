@@ -141,7 +141,7 @@ class GenerateSpreadsheet(object):
                     continue
                 if key not in sawData:
                     continue
-                    
+
                 f = xl_rowcol_to_cell(beginRow, col)
                 t = xl_rowcol_to_cell(endRow, col)
 
@@ -475,8 +475,12 @@ class GenerateSpreadsheet(object):
                     else:
                         return 0 if idA == idB else -1
 
-                row = dataSection('files', sorted(data['file'].keys(), key=cmp_to_key(cmpFile)),
-                                  geninfoKeys, fileDataRow, fileStatsRow)
+                try:
+                    row = dataSection('files', sorted(data['file'].keys(), key=cmp_to_key(cmpFile)),
+                                      geninfoKeys, fileDataRow, fileStatsRow)
+                except:
+                    # there may be no files - if dataset was empty
+                    print("No 'file' data in %s" % (name))
 
                 # now the filter data - if any
                 if args.show_filter:

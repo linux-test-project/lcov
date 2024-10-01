@@ -575,7 +575,10 @@ if (0 == $exit_code) {
         $exit_code = 1;
     }
 }
+# $trace_data may be undef if no non-empty GCDA files found and the
+#  'empty' warning is ignored
 if (0 == $exit_code &&
+    defined($trace_data) &&
     $single_file) {
 
     $trace_data->checkCoverageCriteria();
@@ -595,7 +598,8 @@ lcovutil::save_profile(
 # exit with non-zero status if --keep-going and some errors detected
 $exit_code = 1
     if (0 == $exit_code &&
-        lcovutil::saw_error());
+        (!(defined($trace_data) && $single_file) ||
+         lcovutil::saw_error()));
 exit($exit_code);
 
 #
@@ -2783,6 +2787,7 @@ sub process_intermediate($$$$)
     my ($fdir, $fbase, $fext);
     my $data_file;
     my $errmsg;
+    my $errorType = $lcovutil::ERROR_GCOV;
     my %data;
     my $fd;
     my $base;
@@ -2802,34 +2807,38 @@ sub process_intermediate($$$$)
         $data_file =
             File::Spec->catfile($tempdir, "$fbase$graph_file_extension");
         if (!copy($file, $data_file)) {
-            $errmsg = "ERROR: Could not copy file $file: $!";
+            $errmsg    = "ERROR: Could not copy file $file: $!";
+            $errorType = $lcovutil::ERROR_PATH;
             goto err;
         }
     } else {
+        $gcno_file = solve_relative_path($cwd, $gcno_file);
+        foreach my $f ($file, $gcno_file) {
+            my $p = -l $f ? Cwd::abs_path($f) : $f;
+            if (!-r $p) {
+                $errmsg    = "$f does not exist/is not readable";
+                $errorType = $lcovutil::ERROR_PATH;
+                goto err;
+            }
+        }
         # if .gcda and .gcno files are in the same directory, then simply
         #   process in place - otherwise, link the .gcda and .gcno files
         #   into tempdir and run from here
-        if (dirname($filename) eq dirname($gcno_file)) {
+        if (dirname($file) eq dirname($gcno_file)) {
             # Process data file in place
             $data_file = $file;
         } else {
             $data_file = basename($file);
-            my $gcda = File::Spec->catfile($tempdir, $data_file);
-            debug("create links to process $filename in $tempdir\n");
-            symlink($file, $gcda);
-            # unclear why symlink returns an error code when it actually
-            #  created the link
-            if ($? && !-l $gcda) {
-                $errmsg = "unable to create link $data_file: $!";
-                goto err;
-            }
-            # and the gcno file
-            my $g    = solve_relative_path($cwd, $gcno_file);
-            my $gcno = File::Spec->catfile($tempdir, basename($gcno_file));
-            symlink($g, $gcno);
-            if ($? && !-l $gcda) {
-                $errmsg = "unable to create link $gcno: $!";
-                goto err;
+            foreach my $f ($file, $gcno_file) {
+                my $l = File::Spec->catfile($tempdir, basename($f));
+                debug("create links to process $f in $tempdir\n");
+                symlink($f, $l);
+                # unclear why symlink returns an error code when it actually
+                #  created the link
+                if ($? && !-l $l) {
+                    $errmsg = "unable to create link for $f: $!";
+                    goto err;
+                }
             }
         }
     }
@@ -2863,8 +2872,6 @@ sub process_intermediate($$$$)
         if (check_gcov_fail($err, $file)) {
             return;
         }
-    }
-    if ($rc) {
         $errmsg = "GCOV failed for $file";
         goto err;
     }
@@ -2940,7 +2947,7 @@ sub process_intermediate($$$$)
     return $trace;
 
     err:
-    ignorable_error($ERROR_GCOV, "$errmsg!");
+    ignorable_error($errorType, "$errmsg!");
     return undef;
 }
 
