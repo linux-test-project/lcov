@@ -244,7 +244,8 @@ my %lcov_options = ("directory|d|di=s"     => \@directory,
 my %mergedRcOpts = (%lcov_rc_params, %lcovutil::geninfo_rc_opts);
 
 # Parse command line options
-if (!lcovutil::parseOptions(\%mergedRcOpts, \%lcov_options)) {
+if (!lcovutil::parseOptions(\%mergedRcOpts, \%lcov_options, \$output_filename))
+{
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }

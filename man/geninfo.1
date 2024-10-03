@@ -52,6 +52,9 @@ geninfo \- Generate tracefiles from GCOV coverage data files
 .RB [ \-\-memory
 .IR integer_num_Mb ]
 .br
+.RB [ \-\-msg\-log
+.IR [ log_file_name ] ]
+.br
 .RB [ \-\-ignore\-errors
 .IR errors ]
 .br
@@ -784,6 +787,16 @@ not need per-testcase coverage summary in coverage reports.
 This option can also be configured permanently using the configuration file
 option
 .IR forget_testcase_names .
+.RE
+
+.B \-\-msg\-log
+.I [ log_file_name ]
+.br
+.RS
+Specify location to store error and warning messages (in addition to writing to STDERR).
+If
+.I log_file_name
+is not specified, then default location is used.
 .RE
 
 .B \-\-ignore\-errors

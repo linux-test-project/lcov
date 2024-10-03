@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (LCOV) -
-- Last changes: 2024-09-13
+- Last changes: 2024-10-03
 -------------------------------------------------
 
 Description
@@ -317,7 +317,7 @@ New features and capabilities fall into 7 major categories:
      ignored.
 
      Related options:
-        --ignore-error, --expect-message-count, --keep-going
+        --ignore-error, --expect-message-count, --keep-going, --msg-log
 
   c) Navigation and display:
 

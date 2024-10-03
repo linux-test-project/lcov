@@ -21,6 +21,7 @@ use Getopt::Long;
 use DateTime;
 use Config;
 use POSIX;
+use Fcntl qw(:flock SEEK_END);
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
@@ -102,6 +103,7 @@ our @ignore;
 our @message_count;
 our @expected_message_count;
 our %message_types;
+our $message_log;
 our $suppressAfter = 100;    # stop warning after this number of messages
 our %ERROR_ID;
 our %ERROR_NAME;
@@ -595,7 +597,15 @@ sub _msg_handler
     $msg =~ s/^(error|warning):\s+//i;
     my $type = $error ? 'ERROR' : 'WARNING';
 
-    return "$tool_name: $type: $msg";
+    my $txt = "$tool_name: $type: $msg";
+    if ($message_log && 'GLOB' eq ref($message_log)) {
+        flock($message_log, LOCK_EX);
+        # don't bother to seek...assume modern O_APPEND semantics
+        #seek($message_log, 0, SEEK_END);
+        print $message_log $txt;
+        flock($message_log, LOCK_UN);
+    }
+    return $txt;
 }
 
 sub warn_handler($$)
@@ -1230,6 +1240,7 @@ our %argCommon = ("tempdir=s"         => \$tempdirname,
                   "demangle-cpp:s"         => \@lcovutil::cpp_demangle,
                   "ignore-errors=s"        => \@opt_ignore_errors,
                   "expect-message-count=s" => \@opt_expected_message_counts,
+                  'msg-log:s'              => \$message_log,
                   "keep-going"             => \$keepGoing,
                   "config-file=s"          => \@unsupported_config,
                   "rc=s%"                  => \%unsupported_rc,
@@ -1429,7 +1440,7 @@ sub apply_rc_params($)
 
 sub parseOptions
 {
-    my ($rcOptions, $cmdLineOpts) = @_;
+    my ($rcOptions, $cmdLineOpts, $output_arg) = @_;
 
     apply_rc_params($rcOptions);
 
@@ -1442,7 +1453,6 @@ sub parseOptions
         die("'" . $d->[0] . "' option name cannot be abbreviated\n")
             if ($d->[1]);
     }
-
     if ($help) {
         main::print_usage(*STDOUT);
         exit(0);
@@ -1451,6 +1461,19 @@ sub parseOptions
     if ($version) {
         print("$tool_name: $lcov_version\n");
         exit(0);
+    }
+    if (defined($message_log)) {
+        if (!$message_log) {
+            # base log file name on output arg (if specified) or tool name otherwise
+            $message_log = (
+                        defined($$output_arg) ?
+                            substr($$output_arg, 0, rindex($$output_arg, '.')) :
+                            $tool_name) .
+                ".msg";
+        }
+        open(LOG, ">", $message_log) or
+            die("unable to write message log '$message_log': $!");
+        $message_log = \*LOG;
     }
 
     lcovutil::init_verbose_flag($quiet);

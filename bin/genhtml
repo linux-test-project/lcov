@@ -6420,7 +6420,10 @@ my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        "suppress-aliases"  => \$suppress_function_aliases,
                        'validate'          => \$validateHTML,);
 # Parse command line options
-if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options)) {
+if (
+    !lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options,
+                            \$output_directory)
+) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }

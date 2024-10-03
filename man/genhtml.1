@@ -83,6 +83,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-demangle\-cpp
 .IR [ param ] ]
 .br
+.RB [ \-\-msg\-log
+.IR [ log_file_name ] ]
+.br
 .RB [ \-\-ignore\-errors
 .IR errors  ]
 .br
@@ -2716,6 +2719,17 @@ command line options that are passed to the tool - similar to how the gcc
 parameter works.  In that case, you callback will be executed as:
 .I | demangle_param0 demangle_param1 ...
 Note that the demangle tool is called as a pipe and is expected to read from stdin and write to stdout.
+
+.RE
+.B \-\-msg\-log
+.I [ log_file_name ]
+.br
+.RS
+Specify location to store error and warning messages (in addition to writing to STDERR).
+If
+.I log_file_name
+is not specified, then default location is used.
+.RE
 
 .RE
 .B \-\-ignore\-errors

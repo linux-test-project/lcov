@@ -53,6 +53,9 @@ Capture coverage data tracefile (from compiler-generated data):
 .RB [ \-\-compat\-libtool ]
 .RB [ \-\-no\-compat\-libtool ]
 .br
+.RB [ \-\-msg\-log
+.IR [ log_file_name ] ]
+.br
 .RB [ \-\-ignore\-errors
 .IR errors ]
 .br
@@ -1274,6 +1277,16 @@ path of each source file.
 .br
 
 If you specify a pattern which does not seem to be correctly applied - files that you expected to be included in the output do not appear - lcov will generate an error message of type 'unused'.  See the \-\-ignore\-errors option for how to make lcov ignore the error or turn it into a warning.
+.RE
+
+.B \-\-msg\-log
+.I [ log_file_name ]
+.br
+.RS
+Specify location to store error and warning messages (in addition to writing to STDERR).
+If
+.I log_file_name
+is not specified, then default location is used.
 .RE
 
 .B \-\-ignore\-errors

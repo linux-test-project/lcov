@@ -260,7 +260,8 @@ my %geninfo_opts = ("test-name|t=s"       => \$test_name,
                     "compat=s"            => \$lcovutil::geninfo_opt_compat,);
 
 # Parse command line options
-if (!lcovutil::parseOptions(\%lcovutil::geninfo_rc_opts, \%geninfo_opts)) {
+if (!lcovutil::parseOptions(\%lcovutil::geninfo_rc_opts, \%geninfo_opts,
+                            \$output_filename)) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
