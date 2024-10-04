@@ -5600,7 +5600,10 @@ sub parseLines
     my @excludes;
     if (defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION])) {
         push(@excludes,
-             [$excl_start, $excl_stop, \$exclude_region, 3 | EXCLUDE_REGION]);
+             [$excl_start, $excl_stop,
+              \$exclude_region, 3 | EXCLUDE_REGION,
+              $lcovutil::EXCL_START, $lcovutil::EXCL_STOP
+             ]);
     } else {
         $excl_line = undef;
     }
@@ -5608,10 +5611,15 @@ sub parseLines
     if (defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])) {
         push(@excludes,
              [$excl_ex_start, $excl_ex_stop,
-              \$exclude_exception_region, 4 | EXCLUDE_BRANCH_REGION
+              \$exclude_exception_region, 4 | EXCLUDE_BRANCH_REGION,
+              $lcovutil::EXCL_BR_START, $lcovutil::EXCL_BR_STOP,
              ],
-             [$excl_br_start, $excl_br_stop,
-              \$exclude_br_region, 2 | EXCLUDE_BRANCH_REGION
+             [$excl_br_start,
+              $excl_br_stop,
+              \$exclude_br_region,
+              2 | EXCLUDE_BRANCH_REGION,
+              $lcovutil::EXCL_EXCEPTION_BR_START,
+              $lcovutil::EXCL_EXCEPTION_BR_STOP,
              ]);
     } else {
         $excl_br_line = undef;
@@ -5632,18 +5640,24 @@ sub parseLines
         }
 
         foreach my $d (@excludes) {
+            # note:  $d->[4] is the 'start' string (not converted to perl regexp)
+            #        $d->[5] is the 'stop' string
             my ($start, $stop, $ref, $reason) = @$d;
             if ($_ =~ $start) {
                 lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-                    "$filename: overlapping exclude directives. Found $start at line $line - but no matching $stop for $start at line "
-                        . $ref->[0])
+                           "$filename: overlapping exclude directives. Found " .
+                               $d->[4] .
+                               " at line $line - but no matching " . $d->[5] .
+                               ' for ' . $d->[4] . ' at line ' . $$ref->[0])
                     if $$ref;
                 $$ref = [$line, $reason];
                 last;
             } elsif ($_ =~ $stop) {
                 lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-                    "$filename: found $stop directive at line $line without matching $start directive"
-                ) unless $$ref;
+                              "$filename: found " . $d->[5] .
+                                  " directive at line $line without matching " .
+                                  $d->[4] . ' directive')
+                    unless $$ref;
                 $$ref = undef;
                 last;
             }
@@ -5675,22 +5689,24 @@ sub parseLines
                   $exclude_exception_region ? $exclude_exception_region->[1] : 0
                  ) | $exclude_branch_line | $exclude_exception_branch_line);
     }
-    lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-                  "$filename: unmatched $lcovutil::EXCL_START at line " .
-                      $exclude_region->[0] .
-                      " - saw EOF while looking for matching $lcovutil::EXCL_STOP"
-    ) if $exclude_region;
-    lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-               "$filename: unmatched $lcovutil::EXCL_BR_START at line " .
-                   $exclude_br_region->[0] .
-                   " - saw EOF while looking for matching $lcovutil::EXCL_BR_STOP"
-    ) if $exclude_br_region;
-    lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-     "$filename: unmatched $lcovutil::EXCL_EXCEPTION_BR_START at line " .
-         $exclude_exception_region->[0] .
-         " - saw EOF while looking for matching $lcovutil::EXCL_EXCEPTION_BR_STOP"
-    ) if $exclude_exception_region;
-
+    foreach my $t ([$exclude_region, $lcovutil::EXCL_START,
+                    $lcovutil::EXCL_STOP
+                   ],
+                   [$exclude_br_region, $lcovutil::EXCL_BR_START,
+                    $lcovutil::EXCL_BR_STOP
+                   ],
+                   [$exclude_exception_region,
+                    $lcovutil::EXCL_EXCEPTION_BR_START,
+                    $lcovutil::EXCL_EXCEPTION_BR_STOP
+                   ]
+    ) {
+        my ($key, $start, $stop) = @$t;
+        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+                                 "$filename: unmatched $start at line " .
+                                     $key->[0] .
+                                     " - saw EOF while looking for matching $stop"
+        ) if ($key);
+    }
     my $data = $self->[0];
     $data->[FILENAME] = $filename;
     $data->[SOURCE]   = $sourceLines;

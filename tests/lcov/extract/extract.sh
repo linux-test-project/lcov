@@ -493,7 +493,7 @@ fi
 
 # workaround:  depending on compiler verision, we see a coverpoint on the
 #  close brace line (gcc/6 for example) or we don't (gcc/10 for example)
-BRACE_LINE='^DA:28'
+BRACE_LINE='^DA:34'
 MARKER_LINES=`grep -v $BRACE_LINE internal.info | grep -c "^DA:"`
 
 # check 'no-markers':  is the excluded line back?
@@ -508,6 +508,55 @@ NOMARKER_LINES=`grep -v $BRACE_LINE nomarkers.info | grep -c "^DA:"`
 NOMARKER_BRANCHES=`grep -c "^BRDA:" nomarkers.info`
 if [ $NOMARKER_LINES != '13' ] ; then
     echo "did not honor --no-markers expected 13 found $NOMARKER_LINES"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# override excl region start/stop and look for error
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o regionErr1.info --rc lcov_excl_start=TEST_OVERLAP_START --rc lcov_excl_stop=TEST_OVERLAP_END --msg-log
+if [ $? == 0 ] ; then
+    echo "error expected overlap fail"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+grep -E 'overlapping exclude directives. Found TEST_OVERLAP_START at .+ but no matching TEST_OVERLAP_END for TEST_OVERLAP_START at line ' regionErr1.msg
+if [ 0 != $? ] ; then
+    echo "error expected overlap message but didn't find"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o regionErr2.info --rc lcov_excl_start=TEST_DANGLING_START --rc lcov_excl_stop=TEST_DANGLING_END --msg-log
+if [ $? == 0 ] ; then
+    echo "error expected dangling fail"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+grep -E 'unmatched TEST_DANGLING_START at line .+ saw EOF while looking for matching TEST_DANGLING_END' regionErr2.msg
+if [ 0 != $? ] ; then
+    echo "error expected dangling message but didn't find"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o regionErr3.info --rc lcov_excl_start=TEST_UNMATCHED_START --rc lcov_excl_stop=TEST_UNMATCHED_END --msg-log
+if [ $? == 0 ] ; then
+    echo "error expected unmatched fail"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+grep -E 'found TEST_UNMATCHED_END directive at line .+ without matching TEST_UNMATCHED_START' regionErr3.msg
+if [ 0 != $? ] ; then
+    echo "error expected unmapted message but didn't find"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
@@ -573,7 +622,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 
-BRACE_LINE="DA:28"
+BRACE_LINE="DA:34"
 # a bit of a hack:  gcc/10 doesn't put a DA entry on the closing brace
 COUNT=`grep -v $BRACE_LINE omit.info | grep -c ^DA:`
 if [ $COUNT != '11' ] ; then
@@ -650,7 +699,7 @@ if [ $? != 0 ] ; then
         exit 1
     fi
 fi
-#munge the checksum in the outpt file
+#munge the checksum in the output file
 perl -i -pe 's/DA:6,1.+/DA:6,1,abcde/g' < checksum.info > mismatch.info
 $COVER $LCOV_TOOL $LCOV_OPTS --summary mismatch.info --checksum
 if [ $? == 0 ] ; then

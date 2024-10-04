@@ -16,8 +16,14 @@ int main(int argc, const char *argv[])
     printf("Hai\n");
   delete[] a;
 
+  // TEST_OVERLAP_START
+  // TEST_OVERLAP_START
   std::string str("asdads");
   str = "cd";
+  // TEST_OVERLAP_END
+
+  //TEST_DANGLING_START
+  //TEST_UNMATCHED_END
 
   std::cout << str << std::endl;
 
