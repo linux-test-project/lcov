@@ -174,7 +174,6 @@ sub graph_read(*$;$$);
 sub graph_skip(*$;$);
 sub uniq(@);
 sub sort_uniq(@);
-sub sort_uniq_lex(@);
 sub graph_cleanup($);
 sub graph_find_base($);
 sub graph_from_bb($$$$);
@@ -190,7 +189,6 @@ sub int_handler();
 sub compat_name($);
 sub parse_compat_modes($);
 sub is_compat($);
-sub is_compat_auto($);
 sub which($);
 
 # Global variables
@@ -1588,14 +1586,6 @@ sub process_dafile($$$$)
     my $gcov_branches;      # Branch content of a .gcov file
     my @gcov_functions;     # Function calls of a .gcov file
     my $line_number;        # Line number count
-    my $lines_hit;          # Number of instrumented lines hit
-    my $lines_found;        # Number of instrumented lines found
-    my $funcs_hit;          # Number of instrumented functions hit
-    my $funcs_found;        # Number of instrumented functions found
-    my $br_hit;
-    my $br_found;
-    my $source;             # gcov source header information
-    my $object;             # gcov object header information
     my @matches;            # List of absolute paths matching filename
     my $base_dir;           # Base directory for current file
 
@@ -1729,11 +1719,9 @@ sub process_dafile($$$$)
     # single .info file
     foreach $gcov_file (@gcov_list) {
         GCOV_FILE_LOOP: {
-            my $i;
-            my $num;
             next unless -f $gcov_file;    # skp if we didn't copy it over
 
-            ($source, $object) = read_gcov_header($gcov_file);
+            my ($source, $object) = read_gcov_header($gcov_file);
             if (!defined($source)) {
                 # Derive source file name from gcov file name if
                 # header format could not be parsed
@@ -2086,21 +2074,17 @@ sub match_filename($@)
     entry:
     foreach $entry (@list) {
         my ($evol, $edir, $efile) = splitpath($entry);
-        my @ecomp;
-        my $ecomps;
-        my $i;
-
         # Filename component must match
         if ($efile ne $file) {
             next;
         }
         # Check directory components last to first for match
-        @ecomp  = splitdir($edir);
-        $ecomps = scalar(@ecomp);
+        my @ecomp  = splitdir($edir);
+        my $ecomps = scalar(@ecomp);
         if ($ecomps < $comps) {
             next;
         }
-        for ($i = 0; $i < $comps; $i++) {
+        for (my $i = 0; $i < $comps; $i++) {
             if ($comp[$comps - $i - 1] ne $ecomp[$ecomps - $i - 1]) {
                 next entry;
             }
@@ -2127,20 +2111,17 @@ sub solve_ambiguous_match($$$)
     my $rel_name = $_[0];
     my $matches  = $_[1];
     my $content  = $_[2];
-    my $filename;
-    my $index;
-    my $no_match;
     local *SOURCE;
 
     # Check the list of matches
-    foreach $filename (@$matches) {
+    foreach my $filename (@$matches) {
 
         # Compare file contents
         open(SOURCE, "<", $filename) or
             die("cannot read $filename: $!\n");
 
-        $no_match = 0;
-        for ($index = 2; <SOURCE>; $index += 3) {
+        my $no_match = 0;
+        for (my $index = 2; <SOURCE>; $index += 3) {
             chomp;
 
             # Also remove CR from line-end
@@ -2256,14 +2237,8 @@ sub read_gcov_file($$$)
     my $branchData = BranchData->new();
     my @functions  = ();
     my $number;
-    my $exclude_flag              = 0;
-    my $exclude_line              = 0;
-    my $exclude_br_flag           = 0;
-    my $exclude_exception_br_flag = 0;
-    my $exclude_branch            = 0;
-    my $exclude_exception_branch  = 0;
-    my $last_block                = $UNNAMED_BLOCK;
-    my $last_line                 = 0;
+    my $last_block = $UNNAMED_BLOCK;
+    my $last_line  = 0;
     my $branchId;
     my $unexec;
 
@@ -2293,10 +2268,7 @@ sub read_gcov_file($$$)
             $last_line  = $2;
             $last_block = $3;
         } elsif (/^branch\s+(\d+)\s+taken\s+(\d+)(?:\s+\(([^)]*)\))?/) {
-            next
-                if (!$lcovutil::br_coverage ||
-                    $exclude_line ||
-                    $exclude_branch);
+            next unless $lcovutil::br_coverage;
             # $1 is block ID, $2 is hit count
             my $count = $2;
             my $br    = BranchBlock->new($branchId, $count, undef,
@@ -2304,16 +2276,13 @@ sub read_gcov_file($$$)
             $branchData->append($last_line, $last_block, $br, $filename);
             ++$branchId;
         } elsif (/^branch\s+(\d+)\s+never\s+executed/) {
-            next
-                if (!$lcovutil::br_coverage ||
-                    $exclude_line ||
-                    $exclude_branch);
+            next unless $lcovutil::br_coverage;
             # this branch not taken
             my $br = BranchBlock->new($branchId, '-');
             $branchData->append($last_line, $last_block, $br, $filename);
             ++$branchId;
         } elsif (/^function\s+(.+)\s+called\s+(\d+)\s+/) {
-            next if (!$lcovutil::func_coverage || $exclude_line);
+            next unless $lcovutil::func_coverage;
             my $name  = $1;
             my $count = $2;
             push(@functions, $count, $name);
@@ -2336,46 +2305,6 @@ sub read_gcov_file($$$)
             $branchId   = 0;                # if $last_line != $line;
             $last_line  = $line;
             $last_block = $UNNAMED_BLOCK;
-            # Check for exclusion markers
-            if (!$no_markers) {
-                # universal markers..
-                if (/$lcovutil::EXCL_STOP/) {
-                    $exclude_flag = 0;
-                } elsif (/$lcovutil::EXCL_START/) {
-                    $exclude_flag = 1;
-                }
-                if (/$lcovutil::EXCL_LINE/ || $exclude_flag) {
-                    $exclude_line = 1;
-                } else {
-                    $exclude_line = 0;
-                }
-
-                # branch exclusion markers..
-                if (/$lcovutil::EXCL_BR_STOP/) {
-                    $exclude_br_flag = 0;
-                } elsif (/$lcovutil::EXCL_BR_START/) {
-                    $exclude_br_flag = 1;
-                }
-                if (/$lcovutil::EXCL_BR_LINE/ || $exclude_br_flag) {
-                    $exclude_branch = 1;
-                } else {
-                    $exclude_branch = 0;
-                }
-
-                # Check for exception branch exclude markers
-                if (/$lcovutil::EXCL_EXCEPTION_BR_STOP/) {
-                    $exclude_exception_br_flag = 0;
-                } elsif (/$lcovutil::EXCL_EXCEPTION_BR_START/) {
-                    $exclude_exception_br_flag = 1;
-                }
-                if (/$lcovutil::EXCL_EXCEPTION_LINE/ ||
-                    $exclude_exception_br_flag) {
-                    $exclude_exception_branch = 1;
-                } else {
-                    $exclude_exception_branch = 0;
-                }
-            }
-
             # Strip unexecuted basic block marker
             if ($count =~ /^([^*]+)\*$/) {
                 # need to do something about lines which have non-zero count
@@ -2397,27 +2326,18 @@ sub read_gcov_file($$$)
                 # Uninstrumented line
                 push(@result, 0, 0, $code);
             } else {
-                if ($exclude_line) {
-                    push(@result, 0, 0);
+                # Check for zero count
+                if ($count =~ /^[#=]/) {
+                    $count = 0;
+                }
+                if ($unexec) {
+                    push(@result, 1, [$count, $unexec]);
                 } else {
-                    # Check for zero count
-                    if ($count =~ /^[#=]/) {
-                        $count = 0;
-                    }
-                    if ($unexec) {
-                        push(@result, 1, [$count, $unexec]);
-                    } else {
-                        push(@result, 1, $count);
-                    }
+                    push(@result, 1, $count);
                 }
                 push(@result, $code);
             }
         }
-    }
-
-    if ($exclude_flag || $exclude_br_flag || $exclude_exception_br_flag) {
-        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-                                 "unterminated exclusion section in $filename");
     }
     return (\@result, $branchData, \@functions);
 }
@@ -2466,7 +2386,6 @@ sub read_intermediate_json($$$)
 {
     my ($gcov_filename, $data, $basedir_ref) = @_;
     my $text;
-    my $json;
 
     {
         # intermediate JSON contains the demangled name
@@ -2476,7 +2395,7 @@ sub read_intermediate_json($$$)
         $text = join("\n", @lines);
     }
 
-    $json = JsonSupport::decode($text);    # imported from lcovutil.pm
+    my $json = JsonSupport::decode($text);    # imported from lcovutil.pm
     if (!defined($json) ||
         !exists($json->{"files"}) ||
         ref($json->{"files"} ne "ARRAY")) {
@@ -2713,7 +2632,7 @@ sub intermediate_json_to_info($)
 
 sub which($)
 {
-    my ($filename) = @_;
+    my $filename = shift;
 
     return $filename if (file_name_is_absolute($filename));
     foreach my $dir (File::Spec->path()) {
@@ -2785,20 +2704,17 @@ sub print_gcov_warnings($$$$)
 sub process_intermediate($$$$)
 {
     my ($searchdir, $file, $gcno_file, $tempdir) = @_;
-    my ($fdir, $fbase, $fext);
     my $data_file;
     my $errmsg;
     my $errorType = $lcovutil::ERROR_GCOV;
     my %data;
-    my $fd;
     my $base;
-    my ($out, $err, $rc);
     my $json_basedir;
     my $json_format;
 
     my $filename = defined($file) ? $file : $gcno_file;
     $file = solve_relative_path($cwd, $filename);
-    ($fdir, $fbase, $fext) = split_filename($file);
+    my ($fdir, $fbase, $fext) = split_filename($file);
 
     my $is_graph = (".$fext" eq $graph_file_extension);
 
@@ -2854,7 +2770,7 @@ sub process_intermediate($$$$)
     # Run gcov on data file
     debug("gcov: " . join(' ', @gcov_tool) . " $data_file\n");
     my $now = Time::HiRes::gettimeofday();
-    ($out, $err, $rc) = system_no_output(1 + 2 + 4, @gcov_tool, $data_file);
+    my ($out, $err, $rc) = system_no_output(1 + 2 + 4, @gcov_tool, $data_file);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{exec}{$filename} = $then - $now;
     print_gcov_warnings('stdout', $out, $is_graph, {$data_file => $file,})
@@ -2956,7 +2872,7 @@ sub process_intermediate($$$$)
 
 sub map_llvm_version($)
 {
-    my ($ver) = @_;
+    my $ver = shift;
 
     return 0x040200 if ($ver >= 0x030400);
 
@@ -2970,12 +2886,11 @@ sub map_llvm_version($)
 
 sub version_to_str($)
 {
-    my ($ver) = @_;
-    my ($a, $b, $c);
+    my $ver = shift;
 
-    $a = $ver >> 16 & 0xff;
-    $b = $ver >> 8 & 0xff;
-    $c = $ver & 0xff;
+    my $a = $ver >> 16 & 0xff;
+    my $b = $ver >> 8 & 0xff;
+    my $c = $ver & 0xff;
 
     return "$a.$b.$c";
 }
@@ -2989,8 +2904,6 @@ sub version_to_str($)
 sub get_gcov_version()
 {
     local *HANDLE;
-    my $version_string;
-    my $result;
     my ($a, $b, $c) = (4, 2, 0);    # Fallback version
 
     # Examples for gcov version output:
@@ -3015,7 +2928,7 @@ sub get_gcov_version()
     open(GCOV_PIPE, "-|", "\"$gcov_tool[0]\" --version") or
         die("cannot retrieve gcov version: $!\n");
     local $/;
-    $version_string = <GCOV_PIPE>;
+    my $version_string = <GCOV_PIPE>;
     close(GCOV_PIPE) or die("unable to close gcov pipe: $!\n");
 
     # Remove all bracketed information
@@ -3029,7 +2942,7 @@ sub get_gcov_version()
     } else {
         warn("cannot determine gcov version - assuming $a.$b.$c\n");
     }
-    $result = $a << 16 | $b << 8 | $c;
+    my $result = $a << 16 | $b << 8 | $c;
 
     if ($version_string =~ /LLVM/) {
         $result = map_llvm_version($result);
@@ -3076,19 +2989,15 @@ sub process_graphfile($$)
 {
     my ($dirname, $file) = @_;
     my $graph_filename = $file;
-    my $graph_dir;
-    my $graph_basename;
     my $source_dir;
     my $base_dir;
-    my $graph;
-    my $instr;
 
     # Get path to data file in absolute and normalized form (begins with /,
     # contains no more ../ or ./)
     $graph_filename = solve_relative_path($cwd, $graph_filename);
 
     # Get directory and basename of data file
-    ($graph_dir, $graph_basename) = split_filename($graph_filename);
+    my ($graph_dir, $graph_basename) = split_filename($graph_filename);
 
     $source_dir = $graph_dir;
     if (is_compat($COMPAT_MODE_LIBTOOL)) {
@@ -3110,7 +3019,7 @@ sub process_graphfile($$)
         return undef;
     }
 
-    ($instr, $graph) = read_gcno($graph_filename);
+    my ($instr, $graph) = read_gcno($graph_filename);
 
     # Try to find base directory automatically if requested by user
     if ($lcovutil::rc_auto_base) {
@@ -3201,7 +3110,6 @@ sub graph_error($$)
                         (lcovutil::is_ignored($ERROR_GRAPH) ? ' - skipping' : ''
                         ) .
                         '.');
-    return;
 }
 
 #
@@ -3216,7 +3124,6 @@ sub graph_read(*$;$$)
 {
     my ($handle, $length, $desc, $peek) = @_;
     my $data;
-    my $result;
     my $pos;
 
     lcovutil::debug(2, $desc);
@@ -3228,7 +3135,8 @@ sub graph_read(*$;$$)
             return undef;
         }
     }
-    $result = read($handle, $data, $length);
+    my $result = read($handle, $data, $length);
+    # LCOV_EXCL_START
     if ($debug &&
         $debug >= 2) {
         my $op    = $peek ? "peek" : "read";
@@ -3250,6 +3158,7 @@ sub graph_read(*$;$$)
         }
         lcovutil::debug(2, "$msg$hex |$ascii|\n");
     }
+    # LCOV_EXCL_STOP
     if ($peek) {
         if (!seek($handle, $pos, 0)) {
             lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
@@ -3274,10 +3183,7 @@ sub graph_skip(*$;$)
 {
     my ($handle, $length, $desc) = @_;
 
-    if (defined(graph_read($handle, $length, $desc))) {
-        return 1;
-    }
-    return 0;
+    return defined(graph_read($handle, $length, $desc));
 }
 
 #
@@ -3288,11 +3194,10 @@ sub graph_skip(*$;$)
 
 sub uniq(@)
 {
-    my (@list) = @_;
     my @new_list;
     my %known;
 
-    foreach my $item (@list) {
+    foreach my $item (@_) {
         next if ($known{$item});
         $known{$item} = 1;
         push(@new_list, $item);
@@ -3309,30 +3214,12 @@ sub uniq(@)
 
 sub sort_uniq(@)
 {
-    my (@list) = @_;
     my %hash;
 
-    foreach (@list) {
+    foreach (@_) {
         $hash{$_} = 1;
     }
     return sort { $a <=> $b } keys(%hash);
-}
-
-#
-# sort_uniq_lex(list)
-#
-# Return list in lexically ascending order and without duplicate entries.
-#
-
-sub sort_uniq_lex(@)
-{
-    my (@list) = @_;
-    my %hash;
-
-    foreach (@list) {
-        $hash{$_} = 1;
-    }
-    return sort keys(%hash);
 }
 
 #
@@ -3344,7 +3231,7 @@ sub sort_uniq_lex(@)
 
 sub parent_dir($)
 {
-    my ($dir) = @_;
+    my $dir = shift;
     my ($v, $d, $f) = splitpath($dir, 1);
     my @dirs = splitdir($d);
 
@@ -3452,7 +3339,7 @@ sub adjust_source_filenames($$$)
 
 sub filter_source_files($)
 {
-    my ($hash) = @_;
+    my $hash = shift;
 
     foreach my $filename (keys(%{$hash})) {
         # Skip external files if requested
@@ -3480,7 +3367,7 @@ sub filter_source_files($)
 
 sub graph_cleanup($)
 {
-    my ($graph) = @_;
+    my $graph = shift;
     my $filename;
 
     foreach $filename (keys(%{$graph})) {
@@ -3514,34 +3401,27 @@ sub graph_cleanup($)
 
 sub graph_find_base($)
 {
-    my ($bb) = @_;
+    my $bb = shift;
     my %file_count;
     my $basefile;
-    my $file;
-    my $func;
-    my $filedata;
-    my $count;
-    my $num;
 
     # Identify base name for this bb data.
-    foreach $func (keys(%{$bb})) {
-        $filedata = $bb->{$func};
+    foreach my $func (keys(%{$bb})) {
+        my $filedata = $bb->{$func};
 
-        foreach $file (keys(%{$filedata})) {
-            $count = $file_count{$file};
+        foreach my $file (keys(%{$filedata})) {
+            my $count = $file_count{$file};
 
             # Count file occurrence
             $file_count{$file} = defined($count) ? $count + 1 : 1;
         }
     }
-    $count = 0;
-    $num   = 0;
-    foreach $file (keys(%file_count)) {
+    my $count = 0;
+    foreach my $file (keys(%file_count)) {
         if ($file_count{$file} > $count) {
             # The file that contains code for the most functions
             # is likely the base file
             $count    = $file_count{$file};
-            $num      = 1;
             $basefile = $file;
         } elsif ($file_count{$file} == $count) {
             # If more than one file could be the basefile, we
@@ -3583,18 +3463,12 @@ sub graph_from_bb($$$$)
     my ($bb, $fileorder, $bb_filename, $fileorder_first) = @_;
     my $graph = {};
     my $instr = {};
-    my $basefile;
-    my $file;
-    my $func;
-    my $filedata;
-    my $linedata;
-    my $order;
 
-    $basefile = graph_find_base($bb);
+    my $basefile = graph_find_base($bb);
     # Create graph structure
-    foreach $func (keys(%{$bb})) {
-        $filedata = $bb->{$func};
-        $order    = $fileorder->{$func};
+    foreach my $func (keys(%{$bb})) {
+        my $filedata = $bb->{$func};
+        my $order    = $fileorder->{$func};
 
         # Account for lines in functions
         if (defined($basefile) &&
@@ -3611,14 +3485,14 @@ sub graph_from_bb($$$$)
                 $filedata->{$order->[0]};
         }
 
-        foreach $file (keys(%{$filedata})) {
+        foreach my $file (keys(%{$filedata})) {
             # Account for instrumented lines
-            $linedata = $filedata->{$file};
+            my $linedata = $filedata->{$file};
             push(@{$instr->{$file}}, @$linedata);
         }
     }
     # Clean up array of instrumented lines
-    foreach $file (keys(%{$instr})) {
+    foreach my $file (keys(%{$instr})) {
         $instr->{$file} = [sort_uniq(@{$instr->{$file}})];
     }
 
@@ -3634,11 +3508,9 @@ sub graph_from_bb($$$$)
 sub graph_add_order($$$)
 {
     my ($fileorder, $function, $filename) = @_;
-    my $item;
-    my $list;
 
-    $list = $fileorder->{$function};
-    foreach $item (@$list) {
+    my $list = $fileorder->{$function};
+    foreach my $item (@$list) {
         if ($item eq $filename) {
             return;
         }
@@ -3671,16 +3543,10 @@ sub read_gcno_word(*;$$)
 sub read_gcno_value(*$;$$)
 {
     my ($handle, $big_endian, $desc, $peek) = @_;
-    my $word;
-    my $pos;
 
-    $word = read_gcno_word($handle, $desc, $peek);
-    return undef if (!defined($word));
-    if ($big_endian) {
-        return unpack("N", $word);
-    } else {
-        return unpack("V", $word);
-    }
+    my $word = read_gcno_word($handle, $desc, $peek);
+    return undef unless defined($word);
+    return unpack($big_endian ? 'N' : 'V', $word);
 }
 
 #
@@ -3692,19 +3558,17 @@ sub read_gcno_value(*$;$$)
 sub read_gcno_string(*$)
 {
     my ($handle, $big_endian) = @_;
-    my $length;
-    my $string;
 
     lcovutil::debug(2, "string");
     # Read string length
-    $length = read_gcno_value($handle, $big_endian, "string length");
+    my $length = read_gcno_value($handle, $big_endian, "string length");
     return undef if (!defined($length));
     if ($length == 0) {
         return "";
     }
     $length *= 4;
     # Read string
-    $string = graph_read($handle, $length, "string and padding");
+    my $string = graph_read($handle, $length, "string and padding");
     return undef if (!defined($string));
     $string =~ s/\0//g;
 
@@ -3724,20 +3588,18 @@ sub read_gcno_lines_record(*$$$$$$)
     my ($handle, $gcno_filename, $bb, $fileorder, $filename, $function,
         $big_endian)
         = @_;
-    my $string;
-    my $lineno;
 
     lcovutil::debug(2, "lines record");
     # Skip basic block index
     graph_skip($handle, 4, "basic block index") or return undef;
     while (1) {
         # Read line number
-        $lineno = read_gcno_value($handle, $big_endian, "line number");
+        my $lineno = read_gcno_value($handle, $big_endian, "line number");
         return undef if (!defined($lineno));
         if ($lineno == 0) {
             # Got a marker for a new filename
             lcovutil::debug(2, "filename");
-            $string = read_gcno_string($handle, $big_endian);
+            my $string = read_gcno_string($handle, $big_endian);
             return undef if (!defined($string));
             # Check for end of record
             if ($string eq "") {
@@ -3771,10 +3633,6 @@ sub read_gcno_lines_record(*$$$$$$)
 sub read_gcno_function_record(*$$$$$)
 {
     my ($handle, $bb, $fileorder, $big_endian, $rec_length, $version) = @_;
-    my $filename;
-    my $function;
-    my $lineno;
-    my $lines;
     my $artificial;
 
     lcovutil::debug(2, "function record");
@@ -3784,7 +3642,7 @@ sub read_gcno_function_record(*$$$$$)
     graph_skip($handle, 4, "function cfg checksum");
     # Read function name
     lcovutil::debug(2, "function name");
-    $function = read_gcno_string($handle, $big_endian);
+    my $function = read_gcno_string($handle, $big_endian);
     return undef if (!defined($function));
     if ($version >= $GCOV_VERSION_8_0_0) {
         $artificial = read_gcno_value($handle, $big_endian,
@@ -3793,10 +3651,10 @@ sub read_gcno_function_record(*$$$$$)
     }
     # Read filename
     lcovutil::debug(2, "filename");
-    $filename = read_gcno_string($handle, $big_endian);
+    my $filename = read_gcno_string($handle, $big_endian);
     return undef if (!defined($filename));
     # Read first line number
-    $lineno = read_gcno_value($handle, $big_endian, "initial line number");
+    my $lineno = read_gcno_value($handle, $big_endian, "initial line number");
     return undef if (!defined($lineno));
     # Skip column and ending line number
     if ($version >= $GCOV_VERSION_8_0_0) {
@@ -3818,13 +3676,12 @@ sub read_gcno_function_record(*$$$$$)
 
 sub map_gcno_version($)
 {
-    my ($version) = @_;
-    my ($a, $b, $c);
+    my $version = shift;
     my ($major, $minor);
 
-    $a = $version >> 24;
-    $b = $version >> 16 & 0xff;
-    $c = $version >> 8 & 0xff;
+    my $a = $version >> 24;
+    my $b = $version >> 16 & 0xff;
+    my $c = $version >> 8 & 0xff;
 
     if ($a < ord('A')) {
         $major = $a - ord('0');
@@ -4040,7 +3897,7 @@ sub get_gcov_capabilities()
 
 sub compat_name($)
 {
-    my ($mode) = @_;
+    my $mode = shift;
     my $name = $COMPAT_MODE_TO_NAME{$mode};
 
     return $name if (defined($name));
@@ -4056,7 +3913,7 @@ sub compat_name($)
 
 sub parse_compat_modes($)
 {
-    my ($opt) = @_;
+    my $opt = shift;
     my @opt_list;
     my %specified;
 
@@ -4142,22 +3999,7 @@ sub parse_compat_modes($)
 
 sub is_compat($)
 {
-    my ($mode) = @_;
+    my $mode = shift;
 
-    return 1 if ($compat_value{$mode} == $COMPAT_VALUE_ON);
-    return 0;
-}
-
-#
-# is_compat_auto(mode)
-#
-# Return non-zero if compatibility mode MODE is set to auto-detect.
-#
-
-sub is_compat_auto($)
-{
-    my ($mode) = @_;
-
-    return 1 if ($compat_value{$mode} == $COMPAT_VALUE_AUTO);
-    return 0;
+    return $compat_value{$mode} == $COMPAT_VALUE_ON;
 }

@@ -391,7 +391,7 @@ New features and capabilities fall into 7 major categories:
         v) select a subset of coverage data to display - e.g., to
            use in a code review which wants to concentrate on only
            the changes caused by a particular commit or range of commits.
-        vi) keep track of environment and otehr settings - to aid
+         vi) keep track of environment and other settings - to aid
             infrastructure debugging in more complicated use cases.
 
      The callback may be any desired script or executable - but there
