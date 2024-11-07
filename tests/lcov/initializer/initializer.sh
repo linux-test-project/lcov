@@ -151,20 +151,26 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 
-COUNT2=`grep -c "^DA:" filtered.info`
-if [ "$COUNT" -le $COUNT2 ] ; then
-    echo "ERROR: expected to filter out 3 initializer-list lines"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
-    fi
-fi
+# did the non-filtered capture command find linecov entried on line 8, 9, or 10?
+grep -E '^DA:\(8|9|10\)' initializer.info
+if [ $? == 0 ] ; then
+   COUNT2=`grep -c "^DA:" filtered.info`
+   if [ "$COUNT" -le $COUNT2 ] ; then
+       echo "ERROR: expected to filter out 3 initializer-list lines"
+       if [ $KEEP_GOING == 0 ] ; then
+           exit 1
+       fi
+   fi
 
-DIFF=`expr $COUNT - $COUNT2`
-if [ "$DIFF" != 3 ] ; then
-    echo "ERROR: expected to filter out 3 initializer-list lines"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
-    fi
+   DIFF=`expr $COUNT - $COUNT2`
+   if [ "$DIFF" != 3 ] ; then
+       echo "ERROR: expected to filter out 3 initializer-list lines"
+       if [ $KEEP_GOING == 0 ] ; then
+           exit 1
+       fi
+   fi
+else
+    echo "no linecov points on std::initializer lines"
 fi
 
 echo "Tests passed"
