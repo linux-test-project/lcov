@@ -243,31 +243,6 @@ such that coverpoints found only in the set on the left will be retained and all
 .RE
 
 
-Generate new tracefile from existing tracefile, modifying line numbers as indicated in diff file:
-.br
-
-.RS 3
-.B lcov
-.BR \-\-diff
-.IR "tracefile diff"
-.RS 4
-.br
-.RB [ \-o | \-\-output\-file
-.IR tracefile ]
-.RB [ \-\-checksum ]
-.RB [ \-\-no\-checksum ]
-.br
-.RB [ \-\-convert\-filenames ]
-.RB [ \-\-strip
-.IR depth ]
-.RB [ \-\-path
-.IR path ]
-.br
-.RE
-.br
-.B NOTE:  the \-\-diff option is deprecated and will be removed in a subsequent release - see below.
-.RE
-
 
 Summarize tracefile content:
 .br
@@ -427,7 +402,7 @@ filename combinations.
 The result of the add operation will be written to stdout or the tracefile
 specified with \-o.
 
-Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
+Only one of  \-z, \-c, \-a, \-e, \-r, \-l or \-\-summary may be
 specified at a time.
 
 .RE
@@ -687,56 +662,6 @@ basename as the
 appended.
 
 .RE
-
-
-.B \-\-convert\-filenames
-.br
-.RS
-Convert filenames when applying diff.
-
-Use this option together with \-\-diff to rename the file names of processed
-data sets according to the data provided by the diff.
-.RE
-
-.B \-\-diff
-.I tracefile
-.I difffile
-.br
-.RS
-Convert coverage data in
-.I tracefile
-using source code diff file
-.IR difffile .
-
-.B NOTE THAT THIS FEATURE IS DEPRECATED AND WILL BE REMOVED IN A SUBSEQUENT RELEASE.
-The converted coverage data may be misleading at best and is incorrect at worst - for example, inserted or modified code may have changed the reachability of unchanged regions.
-Please see the
-.I "differential coverage"
-section in
-.B man(1) genhtml
-for a more robust conversion and comparison methodology.
-
-Use this option if you want to merge coverage data from different source code
-levels of a program, e.g. when you have data taken from an older version
-and want to combine it with data from a more current version.
-.B lcov
-will try to map source code lines between those versions and adjust the coverage
-data respectively.
-.I difffile
-needs to be in unified format, i.e. it has to be created using the "\-u" option
-of the
-.B diff
-tool.
-
-Note that lines which are not present in the old version will not be counted
-as instrumented, therefore tracefiles resulting from this operation should
-not be interpreted individually but together with other tracefiles taken
-from the newer version. Also keep in mind that converted coverage data should
-only be used for overview purposes as the process itself introduces a loss
-of accuracy.
-
-The result of the diff operation will be written to stdout or the tracefile
-specified with \-o.
 
 Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
 specified at a time.
@@ -1669,16 +1594,6 @@ By convention, lcov\-generated coverage data files are called "tracefiles" and
 should have the filename extension ".info".
 .RE
 
-.B \-\-path
-.I path
-.br
-.RS
-Strip path from filenames when applying diff.
-
-Use this option together with \-\-diff to tell lcov to disregard the specified
-initial path component when matching between tracefile and diff filenames.
-.RE
-
 .B \-v
 .br
 .B \-\-verbose
@@ -1781,16 +1696,6 @@ specified with \-o.
 
 Only one of  \-z, \-c, \-a, \-e, \-r, \-l, \-\-diff or \-\-summary may be
 specified at a time.
-.RE
-
-.B \-\-strip
-.I depth
-.br
-.RS
-Strip path components when applying diff.
-
-Use this option together with \-\-diff to tell lcov to disregard the specified
-number of initial directories when matching tracefile and diff filenames.
 .RE
 
 .B \-\-summary
