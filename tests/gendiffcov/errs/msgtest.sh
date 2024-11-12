@@ -148,19 +148,24 @@ if ! type "${CXX}" >/dev/null 2>&1 ; then
         exit 2
 fi
 
+# old version of gcc has inconsistent line/function data
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
+if [ "${VER[0]}" -lt 5 ] ; then
+    # can't get branch coverpoints in 'initial' mode, with ancient GCC
+    IGNORE="--ignore usage"
+elif [ "${VER[0]}" -ge 14 ] ; then
+    ENABLE_MCDC=1
+    BASE_OPTS="$BASE_OPTS --mcdc"
+    # enable MCDC
+    COVERAGE_OPTS="-fcondition-coverage"
+fi
+
 echo `which gcov`
 echo `which lcov`
 
 ln -s ../simple/simple.cpp test.cpp
 ${CXX} --coverage test.cpp
 ./a.out
-
-# old version of gcc has inconsistent line/function data
-IFS='.' read -r -a VER <<< `${CC} -dumpversion`
-if [ "${VER[0]}" -lt 5 ] ; then
-    # can't get branch coverpoints in 'initial' mode, with ancient GCC
-    IGNORE="--ignore usage"
-fi
 
 # some warnings..
 echo lcov $LCOV_OPTS --capture --directory .  --initial --all --output-file initial.info --test-name myTest $IGNORE
@@ -602,7 +607,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep 'ERROR: (usage) branch filter enabled but branch coverage not enabled' inconsistent.log
+grep 'ERROR: (usage) branch filter enabled but neither branch or condition coverage is enabled' inconsistent.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing inconsistency message"
     if [ 0 == $KEEP_GOING ] ; then
@@ -619,7 +624,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep 'WARNING: (usage) branch filter enabled but branch coverage not enabled' inconsistent.log
+grep 'WARNING: (usage) branch filter enabled but neither branch or condition coverage is enabled' inconsistent.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing inconsistency message"
     if [ 0 == $KEEP_GOING ] ; then
@@ -635,7 +640,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep 'WARNING: (usage) branch filter enabled but branch coverage not enabled' inconsistent2.log
+grep 'WARNING: (usage) branch filter enabled but neither branch or condition coverage is enabled' inconsistent2.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing inconsistency message 2"
     if [ 0 == $KEEP_GOING ] ; then
@@ -740,6 +745,54 @@ fi
 grep -E "WARNING: .*callback.* evaluation of .+ failed" expect.log
 if [ 0 != $? ] ; then
     echo "ERROR: didn't find expected callback message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+if [ "$ENABLE_MCDC" != 1 ] ; then
+    $COVER $GENINFO_TOOL . -o mccd --mcdc-coverage $LCOV_OPTS --msg-log mcdc_errs.log
+    if [ 0 == $? ] ; then
+        echo "ERROR: no error for unsupported MC/DC"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    
+    grep -E "MC/DC coverage enabled .* does not support the .* option" mcdc_errs.log
+    if [ 0 != $? ] ; then
+        echo "ERROR: didn't find expected MCDC error"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+
+fi
+
+$COVER $LCOV_TOOL --summary mcdc_errs.dat --mcdc-coverage $LCOV_OPTS --msg-log mcdc_expr.log --ignore format,inconsistent,source
+if [ 0 != $? ] ; then
+    echo "ERROR: didn't ignore MC/DC errors"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "MC/DC group .* expression .* changed from" mcdc_expr.log
+if [ 0 != $? ] ; then
+    echo "ERROR: did not see MC/DC expression error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "MC/DC group .* non-contiguous expression .* found" mcdc_expr.log
+if [ 0 != $? ] ; then
+    echo "ERROR: did not see MC/DC contiguous error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "unexpected line number .* in condition data record .*" mcdc_expr.log
+if [ 0 != $? ] ; then
+    echo "ERROR: did not see MC/DC contiguous error"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi

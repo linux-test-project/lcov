@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (LCOV) -
-- Last changes: 2024-10-03
+- Last changes: 2024-11-12
 -------------------------------------------------
 
 Description
@@ -209,6 +209,15 @@ Point the web browser of your choice to the resulting index.html file.
        Capture the current coverage state to a file:
 
          $ lcov --directory path/to/my/testcase --capture --output-file app.info
+
+       If you want to collect Modified Condition / Decision Coverage (MD/DC)
+       date, then:
+         - you must use gcc/14.2 or newer
+         - your compile- and link command line must include flag
+           '-fcondition-coverage'
+         - your lcov and genhtml command line must include flag
+           '--mcdc-coverage'
+       See the '--mcdc-coverage' section in the lcov and geninfo man pages.
 
        Note that runtime coverage data exists only after the application has
        been started and stopped at least once. Otherwise, no data will be found

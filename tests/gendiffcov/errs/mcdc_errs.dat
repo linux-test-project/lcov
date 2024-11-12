@@ -1,7 +1,6 @@
 TN:
 SF:a.cpp
 DA:1,1
-#common line:  my count is zero and yours is nonzero        
 DA:2,0
 DA:3,0
 DA:4,1
@@ -16,7 +15,6 @@ FN:3,3,noCommonAlias
 FN:11,11,onlyA
 FNF:4
 FNH:3
-# my count is zero yours is nonzero
 FNDA:0,fcn
 FNDA:2,alias
 FNDA:0,onlyA
@@ -36,15 +34,16 @@ BRDA:11,0,1,0
 BRF:5
 BRH:4
 
-# common
-MCDC:1,2,t,0,0,0
-MCDC:1,2,f,0,0,0
 MCDC:1,2,t,0,1,0
 MCDC:1,2,f,0,1,0
+# wrong order
+MCDC:1,2,t,0,0,0
+MCDC:1,2,f,0,0,0
 
-# in A only
 MCDC:11,1,t,0,0,0
-MCDC:11,1,f,0,0,0
+MCDC:11,1,f,0,0,differnt expression
+
+MCDC:0,1,t,1,0,0
 
 MCF:6
 MCH:0

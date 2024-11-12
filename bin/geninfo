@@ -413,6 +413,17 @@ if ($gcov_caps->{'hash-filenames'}) {
 }
 push(@gcov_tool, '-i') if $intermediate;
 
+if ($lcovutil::mcdc_coverage) {
+    if ($gcov_caps->{'conditions'}) {
+        push(@gcov_tool, '--conditions');
+    } else {
+        $lcovutil::mcdc_coverage = 0;
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+            "MC/DC coverage enabled but \"$gcov_tool[0]\" does not support the '--conditions' option."
+        );
+    }
+}
+
 # Determine compatibility modes
 parse_compat_modes($lcovutil::geninfo_opt_compat);
 
@@ -644,6 +655,7 @@ OPTIONS
                                     with .gcda)
       --(no-)function-coverage      Enable (disable) function coverage
       --(no)-branch-coverage        Enable (disable) branch coverage
+      --mcdc                        Enable MC/DC coverage
       --(no-)checksum               Enable (disable) line checksumming
       --(no-)compat-libtool         Enable (disable) libtool compatibility mode
       --gcov-tool TOOL              Specify gcov tool location
@@ -2330,12 +2342,7 @@ sub read_gcov_file($$$)
                 if ($count =~ /^[#=]/) {
                     $count = 0;
                 }
-                if ($unexec) {
-                    push(@result, 1, [$count, $unexec]);
-                } else {
-                    push(@result, 1, $count);
-                }
-                push(@result, $code);
+                push(@result, 1, $unexec ? [$count, $unexec] : $count, $code);
             }
         }
     }
@@ -2548,6 +2555,8 @@ sub intermediate_json_to_info($)
         my $functionMap = $fileData->testfnc($test_name);
         my $branchMap   = $fileData->testbr($test_name);
         my $lineMap     = $fileData->test($test_name);
+        my $mcdcMap     = $fileData->testcase_mcdc($test_name);
+        lcovutil::debug(1, "parse $filename\n");
 
         if (@lcovutil::extractVersionScript) {
             my $version = lcovutil::extractFileVersion($filename);
@@ -2574,11 +2583,21 @@ sub intermediate_json_to_info($)
             my $line  = $d->{"line_number"};
             my $count = $d->{"count"};
 
-            my $branches = $d->{"branches"};
-            my $unexec   = $d->{"unexecuted_block"};
+            my $branches   = $d->{"branches"};
+            my $unexec     = $d->{"unexecuted_block"};
+            my $conditions = $d->{'conditions'}
+                if $lcovutil::mcdc_coverage && exists($d->{'conditions'});
 
             next
                 if (!defined($line) || !defined($count));
+
+            if ($line <= 0) {
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                         '"' . $fileData->filename() .
+                             "\"::  unexpected line number '$line' in gcov record"
+                );
+                next;    # don't store inconsistent data if message is ignored
+            }
             if (0 == scalar(@$branches) && $unexec && $count != 0) {
                 lcovutil::debug(
                     "$filename:$line: unexecuted block on non-branch line with count=$count\n"
@@ -2621,10 +2640,43 @@ sub intermediate_json_to_info($)
                     ++$branch_num;
                 }
             }
+            if ($conditions && @$conditions) {
+                #die("unexpected multiple conditons at $line") if scalar(@$conditions) > 1;
+                #lcovutil::debig(1, "MDCD at $filename:$line\n");
+                my $mcdc = $mcdcMap->new_mcdc($fileData, $line);
+
+                foreach my $c (@$conditions) {
+                    my $count    = $c->{count};
+                    my $exprs    = $count / 2;
+                    my $coverage = $c->{covered};
+                    my $false    = $c->{not_covered_false};
+                    my $true     = $c->{not_covered_true};
+                    die("expected even condition count: $count") if $count % 2;
+                    my @true;
+                    my @false;
+
+                    foreach my $m (sort @$false) {
+                        $false[$m] = 0;
+                    }
+                    foreach my $m (sort @$true) {
+                        $true[$m] = 0;
+                    }
+                    for (my $i = 0; $i < $exprs; ++$i) {
+                        $mcdc->insertExpr($filename, $exprs, 0,
+                                          !defined($false[$i]),
+                                          $i, $i);
+                        $mcdc->insertExpr($filename, $exprs, 1,
+                                          !defined($true[$i]),
+                                          $i, $i);
+                    }
+                }
+                $mcdcMap->close_mcdcBlock($mcdc);
+            }
         }
         # now go through lines, functions, branches - append to test_name data
         $fileData->sum()->union($lineMap);
         $fileData->sumbr()->union($branchMap);
+        $fileData->mcdc()->union($mcdcMap);
         $fileData->func()->union($functionMap);
     }
     return $traceFile;

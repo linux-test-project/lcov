@@ -127,14 +127,8 @@ SELECT=${SCRIPT_DIR}/select.pm
 #PROFILE="''
 
 
-LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PARALLEL $PROFILE"
-DIFFCOV_NOFRAME_OPTS=" $PROFILE --function-coverage --branch-coverage --demangle-cpp --prefix $PARENT --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing $PARALLEL"
-DIFFCOV_OPTS="$DIFFCOV_NOFRAME_OPTS --frame"
-#DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame"
-#DIFFCOV_OPTS='--function-coverage --branch-coverage --demangle-cpp'
-
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx annotate.{cpp,exe} c d ./cover_db_py names.data linked.cpp linked_diff.txt *.msg
-rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source linked linked_err linked_elide linked_dir failUnder expect_err expect
+rm -rf ./baseline ./current ./differential* ./reverse ./diff_no_baseline ./no_baseline ./no_annotation ./no_owners differential_nobranch reverse_nobranch baseline-filter* noncode_differential* broken mismatchPath elidePath ./cover_db ./criteria* ./mismatched ./navigation differential_prop proportion ./annotate ./current-* ./current_prefix* select select2 html_report ./usage ./errOut ./noNames no_source linked linked_err linked_elide linked_dir failUnder expect_err expect recategorize
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete -db $COVER_DB
@@ -162,10 +156,7 @@ echo "COVER_DB = '$COVER_DB'"
 echo "PYCOVER = '$PYCOVER'"
 echo "PYCOV_DB = '$PYCOV_DB'"
 
-status=0
-ln -s simple.cpp test.cpp
-${CXX} --coverage test.cpp
-./a.out
+BASE_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
 echo `which gcov`
 echo `which lcov`
@@ -176,7 +167,23 @@ if [ "${VER[0]}" -lt 5 ] ; then
 fi
 if [ "${VER[0]}" -lt 9 ] ; then
     DERIVE='--rc derive_function_end_line=1'
+elif [ "${VER[0]}" -ge 14 ] ; then
+    ENABLE_MCDC=1
+    BASE_OPTS="$BASE_OPTS --mcdc"
+    # enable MCDC
+    COVERAGE_OPTS="-fcondition-coverage"
 fi
+LCOV_OPTS="$EXTRA_GCOV_OPTS $BASE_OPTS --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing"
+DIFFCOV_NOFRAME_OPTS="$BASE_OPTS --demangle-cpp --prefix $PARENT --version-script $GET_VERSION $MD5_OPT --version-script --allow-missing"
+#DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame"
+#DIFFCOV_OPTS='--function-coverage --branch-coverage --demangle-cpp'
+DIFFCOV_OPTS="$DIFFCOV_NOFRAME_OPTS --frame"
+
+status=0
+ln -s simple.cpp test.cpp
+${CXX} --coverage $COVERAGE_OPTS test.cpp
+./a.out
+
 
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --memory 20
@@ -266,7 +273,7 @@ if [ 0 != $? ] ; then
 fi
 # run again with version script options passed in string
 # test filter with differing version
-$COVER $LCOV_TOOL $EXTRA_GCOV_OPTS --branch-coverage --version-script "$GET_VERSION_EXE --md5 --allow-missing" $PARALLEL $PROFILE --output filt2.info --filter branch,line -a baseline2.info $IGNORE
+$COVER $LCOV_TOOL $EXTRA_GCOV_OPTS $BASE_OPTS --version-script "$GET_VERSION_EXE --md5 --allow-missing" --output filt2.info --filter branch,line -a baseline2.info $IGNORE
 if [ 0 == $? ] ; then
     echo "ERROR: filter with mismatched version did not fail"
     status=1
@@ -281,7 +288,7 @@ if [ -e filt2.info ] ; then
         exit 1
     fi
 fi
-$COVER $LCOV_TOOL $EXTRA_GCOV_OPTS --branch-coverage --version-script "$GET_VERSION_EXE --md5 --allow-missing" $PARALLEL $PROFILE --output filt2.info --filter branch,line -a baseline2.info $IGNORE --ignore version
+$COVER $LCOV_TOOL $EXTRA_GCOV_OPTS $BASE_OPTS --version-script "$GET_VERSION_EXE --md5  --allow-missing" --output filt2.info --filter branch,line -a baseline2.info $IGNORE --ignore version
 if [ 0 != $? ] ; then
     echo "ERROR: ignore error filter with combined opts and mismatched version failed"
     status=1
@@ -417,7 +424,7 @@ echo $PWD
 
 rm -f test.cpp test.gcno test.gcda a.out
 ln -s simple2.cpp test.cpp
-${CXX} --coverage -DADD_CODE -DREMOVE_CODE test.cpp
+${CXX} --coverage $COVERAGE_OPTS -DADD_CODE -DREMOVE_CODE test.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current.info $IGNORE
 $COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current.info $IGNORE
@@ -1303,8 +1310,16 @@ fi
 
 HIT=`grep -c HIT.. navigation.log`
 MISS=`grep -c MIS.. navigation.log`
-if [[ $HIT != '3' || $MISS != '2' ]] ; then
-    echo "ERROR: 'navigation counts are wrong: hit $HIT != 3 $MISS != 2"
+if [ "$ENABLE_MCDC" != '1' ] ; then
+    EXPECT_MISS=2
+    EXPECT_HIT=3
+else
+    # MC/DC included...
+    EXPECT_MISS=3
+    EXPECT_HIT=4
+fi
+if [[ $HIT != $EXPECT_HIT || $MISS != $EXPECT_MISS ]] ; then
+    echo "ERROR: 'navigation counts are wrong: hit $HIT != $EXPECT_HIT $MISS != $EXPECT_MISS"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -1516,7 +1531,7 @@ done
 
 # check error message if nothing annotated
 cp simple.cpp annotate.cpp
-${CXX} -o annotate.exe --coverage annotate.cpp
+${CXX} $COVERAGE_OPTS -o annotate.exe --coverage annotate.cpp
 if [ 0 != $? ] ; then
     echo "annotate compile failed"
     status=1
@@ -1624,7 +1639,6 @@ if [ 0 == $? ] ; then
         exit 1
     fi
 fi
-
 
 
 echo $SPREADSHEET_TOOL -o results.xlsx `find . -name "*.json"`

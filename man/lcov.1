@@ -42,6 +42,8 @@ Capture coverage data tracefile (from compiler-generated data):
 .br
 .RB [ \-\-branch\-coverage ]
 .br
+.RB [ \-\-mcdc\-coverage ]
+.br
 .RB [ \-\-demangle\-cpp
 .IR [ param ] ]
 .br
@@ -142,6 +144,8 @@ Aggregate multiple coverage tracefiles into one:
 .RB [ \-\-map\-functions ]
 .br
 .RB [ \-\-branch\-coverage ]
+.br
+.RB [ \-\-mcdc\-coverage ]
 .br
 .RB [ \-\-checksum ]
 .RB [ \-\-no\-checksum ]
@@ -294,6 +298,8 @@ Common lcov options - supported by all the above use cases:
 .br
 .RB [ \-\-branch\-coverage ]
 .br
+.RB [ \-\-mcdc\-coverage ]
+.br
 .RB [ \-\-config\-file
 .IR config\-file ]
 .RB [ \-\-rc
@@ -370,8 +376,10 @@ By default,
 .B lcov
 and related tools generate and collect line and function coverage data.
 Branch data is not collected or displayed by default; all tools support the
-.B --branch-coverage
-option to enable branch coverage - or you can permanently enable branch coverage by adding the appropriate
+.B\ \--branch\-coverage
+and
+.B \-\-mdcd\-coverage
+options to enable branch and MC/DC coverage, respectively - or you can permanently enable branch coverage by adding the appropriate
 settings to your personal, group, or site lcov configuration file.  See man
 .B lcovrc(5)
 for details.
@@ -512,6 +520,23 @@ Collect and/or retain branch coverage data.
 
 This is equivalent to using the option "\-\-rc branch_coverage=1"; the option was added to better match the genhml interface.
 
+.RE
+
+.B \-\-mcdc\-coverage
+.RS
+.br
+Collect retain MC/DC data.
+
+This is equivalent to using the option "\-\-rc mcdc_coverage=1".
+MC/DC coverage capture is supported for GCC versions 14.2 and higher.
+
+
+Note that branch and MC/DC coverage data is identical if the condiition is
+a simple expression -
+.I e.g.,
+.RS 3
+ if (enable) ...
+.RE
 .RE
 
 .B \-\-checksum

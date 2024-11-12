@@ -156,6 +156,10 @@ our $fn_med_limit;
 our $br_hi_limit;
 our $br_med_limit;
 
+# For MC/DC coverage
+our $mcdc_hi_limit;
+our $mcdc_med_limit;
+
 # Width of overview image
 our $overview_width = 80;
 
@@ -182,6 +186,9 @@ our $line_field_width = 12;
 # Width for branch coverage information in the source code view
 our $br_field_width = 16;
 
+# Width for MC/DC coverage information in the source code view
+our $mcdc_field_width = 14;
+
 # Width for owner name in the source code view
 our $owner_field_width = 20;
 
@@ -205,9 +212,11 @@ our $SORT_FILE   = 0;
 our $SORT_LINE   = 1;
 our $SORT_FUNC   = 2;
 our $SORT_BRANCH = 3;
+our $SORT_MCDC   = 4;
 # function detail sort types
-our $SORT_MISSING_LINE   = 4;    # by number of not-hit lines in function
-our $SORT_MISSING_BRANCH = 5;    # by number of not-hit branches in function
+our $SORT_MISSING_LINE   = 5;    # by number of not-hit lines in function
+our $SORT_MISSING_BRANCH = 6;    # by number of not-hit branches in function
+our $SORT_MISSING_MCDC = 7; # by number of not-hit MC/DC expressions in function
 
 # Fileview heading types
 our $HEAD_NO_DETAIL     = 1;
@@ -215,13 +224,9 @@ our $HEAD_DETAIL_HIDDEN = 2;
 our $HEAD_DETAIL_SHOWN  = 3;
 
 # Additional offsets used when converting branch coverage data to HTML
-our $BR_LEN   = 3;
-our $BR_OPEN  = 4;
-our $BR_CLOSE = 5;
-
-# Branch data combination types
-our $BR_SUB = 0;
-our $BR_ADD = 1;
+our $BR_LEN   = -3;
+our $BR_OPEN  = -2;         # 2nd last element
+our $BR_CLOSE = -1;         # last  element
 
 # Data related prototypes
 sub print_usage(*);
@@ -235,7 +240,7 @@ sub get_relative_base_path($);
 sub read_testfile($);
 sub get_date_string($);
 sub remove_unused_descriptions();
-sub get_affecting_tests($$$);
+sub get_affecting_tests($$$$);
 sub apply_prefix($@);
 sub get_html_prolog($);
 sub get_html_epilog($);
@@ -253,7 +258,7 @@ sub write_png_files();
 sub write_htaccess_file();
 sub write_css_file();
 sub write_description_file($$);
-sub write_function_table(*$$$$$$$$$$);
+sub write_function_table(*$$$$$$$$$$$$);
 
 sub write_html(*$);
 sub write_html_prolog(*$$);
@@ -274,9 +279,9 @@ sub write_test_table_prolog(*$);
 sub write_test_table_entry(*$$);
 sub write_test_table_epilog(*);
 
-sub write_source($$$$$$$);
+sub write_source($$$$$$$$);
 sub write_source_prolog(**);
-sub write_source_line(*$$$$);
+sub write_source_line(*$$$$$);
 sub write_source_epilog(*);
 
 sub write_frameset(*$$$);
@@ -372,16 +377,17 @@ use constant {
               FULL_DIR      => 4,
               LINE_DATA     => 5,
               BRANCH_DATA   => 6,
-              FUNCTION_DATA => 7,
+              MCDC_DATA     => 7,
+              FUNCTION_DATA => 8,
 
-              FILE_DETAILS => 8, # SourceFile struct - only used for 'file' type
-              SOURCES      => 8, # used by top and directory types
-              IS_ABSOLUTE  => 9, # used by directory type only
+              FILE_DETAILS => 9, # SourceFile struct - only used for 'file' type
+              SOURCES      => 9, # used by top and directory types
+              IS_ABSOLUTE  => 10,    # used by directory type only
 
               # coverage data list for type
               DATA   => 0,
               AGE    => 1,
-              OWNERS => 2,       # not used by Function coverage - no owner
+              OWNERS => 2,           # not used by Function coverage - no owner
 };
 
 sub type2str
@@ -389,6 +395,7 @@ sub type2str
     my $t = shift;
     return 'line' if ($t == LINE_DATA);
     return 'branch' if ($t == BRANCH_DATA);
+    return 'MC/DC' if ($t == MCDC_DATA);
     die("unexpected type '$t'") unless ($t == FUNCTION_DATA);
     return 'function';
 }
@@ -458,6 +465,7 @@ sub new
                 undef,              # full directory path,
                 [undef, [], {}],    # line data
                 [undef, [], {}],    # branch data
+                [undef, [], {}],    # MC/DC data
                 [undef, []]         # function data
     ];
     if ($type eq 'file') {
@@ -468,7 +476,7 @@ sub new
             if ($type eq 'directory');
     }
 
-    for my $type (LINE_DATA, BRANCH_DATA, FUNCTION_DATA) {
+    for my $type (LINE_DATA, BRANCH_DATA, MCDC_DATA, FUNCTION_DATA) {
         $self->[$type]->[DATA] = _initCounts();
         # no age data unless annotations are enabled
         next unless @SourceFile::annotateScript;
@@ -491,7 +499,8 @@ sub new
 sub copyGuts
 {
     my ($self, $that) = @_;
-    my @copy = (RELATIVE_DIR, FULL_DIR, LINE_DATA, BRANCH_DATA, FUNCTION_DATA);
+    my @copy = (RELATIVE_DIR, FULL_DIR, LINE_DATA, BRANCH_DATA,
+                MCDC_DATA, FUNCTION_DATA);
     if ($that->[TYPE] eq 'file') {
         push(@copy, FILE_DETAILS);
     } elsif ($that->[TYPE] eq 'directory') {
@@ -599,7 +608,7 @@ sub fileDetails
 
 sub get_sorted_keys
 {
-    # sort_type in ($SORT_FILE, $SORT_LINE, $SORT_FUNC, $SORT_BRANCH)
+    # sort_type in ($SORT_FILE, $SORT_LINE, $SORT_FUNC, $SORT_BRANC, $SORT_MCDC)
     my ($self, $sort_type, $include_dirs) = @_;
     die("invalid usage") if $self->type() eq 'file';
 
@@ -626,6 +635,9 @@ sub get_sorted_keys
     } elsif ($sort_type == $SORT_FUNC) {
         # Sort by number of instrumented functions without coverage
         $covtype = FUNCTION_DATA;
+    } elsif ($sort_type == $SORT_MCDC) {
+        # Sort by number of MC/DC points without coverage
+        $covtype = MCDC_DATA;
     } else {
         die("unexpected sort type $sort_type")
             unless ($sort_type == $SORT_BRANCH);
@@ -737,7 +749,10 @@ sub owners
     #   - filter only those which have 'missed' lines
     my ($self, $showAll, $covType) = @_;
 
-    (!defined($covType) || $covType == LINE_DATA || $covType == BRANCH_DATA) or
+    (!defined($covType) ||
+     $covType == LINE_DATA   ||
+     $covType == BRANCH_DATA ||
+     $covType eq MCDC_DATA) or
         die("unsupported coverage type '$covType'");
 
     my $hash = $self->[defined($covType) ? $covType : LINE_DATA]->[OWNERS];
@@ -770,7 +785,10 @@ sub owner_tlaCount
     return 0    # not supported, yet
         if $covType == FUNCTION_DATA;
 
-    (!defined($covType) || $covType == LINE_DATA || $covType == BRANCH_DATA) or
+    (!defined($covType) ||
+     $covType == LINE_DATA   ||
+     $covType == BRANCH_DATA ||
+     $covType == MCDC_DATA) or
         die("unsupported coverage type '$covType'");
 
     my $hash =
@@ -842,18 +860,27 @@ sub findOwnerList
             $lcovutil::func_coverage ?
             $self->owner_tlaCount($owner, 'missed', FUNCTION_DATA) :
             0;
+        my $mcdcMissed =
+            $lcovutil::mcdc_coverage ?
+            $self->owner_tlaCount($owner, 'missed', MCDC_DATA) :
+            0;
         # filter owners who have unexercised code, if requested
 
         if ($all ||
             (0 != $lineMissed || 0 != $branchMissed || 0 != $funcMissed)) {
             my $lineCb   = OwnerDetailCallback->new($self, $owner, LINE_DATA);
             my $branchCb = OwnerDetailCallback->new($self, $owner, BRANCH_DATA);
+            my $mcdcCb   = OwnerDetailCallback->new($self, $owner, MCDC_DATA);
             my $functionCb =
                 OwnerDetailCallback->new($self, $owner, FUNCTION_DATA);
             my $lineTotal = $self->owner_tlaCount($owner, 'found', LINE_DATA);
             my $branchTotal =
                 $lcovutil::br_coverage ?
                 $self->owner_tlaCount($owner, 'found', BRANCH_DATA) :
+                0;
+            my $mcdcTotal =
+                $lcovutil::mcdc_coverage ?
+                $self->owner_tlaCount($owner, 'found', MCDC_DATA) :
                 0;
             my $funcTotal =
                 $lcovutil::func_coverage ?
@@ -863,7 +890,8 @@ sub findOwnerList
                  [$owner,
                   [$lineMissed, $lineTotal, $lineCb],
                   [$branchMissed, $branchTotal, $branchCb],
-                  [$funcMissed, $funcTotal, $functionCb]
+                  [$funcMissed, $funcTotal, $functionCb],
+                  [$mcdcMissed, $mcdcTotal, $mcdcCb]
                  ]);
         }
     }
@@ -906,7 +934,7 @@ sub append
     $record->[PARENT] = $self
         if !defined($record->parent());
 
-    foreach my $group (LINE_DATA, FUNCTION_DATA, BRANCH_DATA) {
+    foreach my $group (LINE_DATA, FUNCTION_DATA, BRANCH_DATA, MCDC_DATA) {
         my $mine  = $self->[$group]->[DATA];
         my $yours = $record->[$group]->[DATA];
         while (my ($key, $value) = each(%$yours)) {
@@ -918,7 +946,7 @@ sub append
     #   merge the date- and owner data, if if we aren't going to display it
     #   (In future, probably want to serialize the data for future processing)
     if (%{$record->[LINE_DATA]->[OWNERS]}) {
-        foreach my $covType (LINE_DATA, FUNCTION_DATA, BRANCH_DATA) {
+        foreach my $covType (LINE_DATA, FUNCTION_DATA, BRANCH_DATA, MCDC_DATA) {
             for (my $bin = 0; $bin <= $#ageGroupHeader; ++$bin) {
                 foreach my $key (keys %{$self->[$covType]->[DATA]}) {
                     # duplicate line-coverage buckets
@@ -928,6 +956,9 @@ sub append
                                    $record->lineCovCount($key, "age", $ageval));
                     } elsif ($covType == BRANCH_DATA) {
                         $self->branchCovCount($key, "age", $ageval,
+                                 $record->branchCovCount($key, "age", $ageval));
+                    } elsif ($covType == MCDC_DATA) {
+                        $self->mcdcCovCount($key, "age", $ageval,
                                  $record->branchCovCount($key, "age", $ageval));
                     } else {
                         $self->functionCovCount($key, 'age', $ageval,
@@ -1030,6 +1061,42 @@ sub branchCovCount
     return $d->{$key};
 }
 
+sub mcdcCovCount
+{
+    my ($self, $key, $group, $age, $delta) = @_;
+
+    $delta = 0 unless defined($delta);
+
+    if ($key eq 'missed') {
+        my $found = $self->mcdcCovCount('found', $group, $age);
+        my $hit   = $self->mcdcCovCount('hit', $group, $age);
+        return $found - $hit;
+    }
+
+    my $mcdc = $self->[MCDC_DATA];
+    if ($group eq "age") {
+        my $a   = $mcdc->[AGE];
+        my $bin = SummaryInfo::findAgeBin($age);
+        # LCOV_EXCL_START
+        unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                                      "unexpected key '$key' for bin '$bin'");
+            return;
+        }
+        # LCOV_EXCL_STOP
+        $a->[$bin]->{$key} += $delta;
+        return $a->[$bin]->{$key};
+    }
+    my $d = $mcdc->[DATA];
+    defined($d) or
+        die("SummaryInfo::value: unrecognized MC/DC group $group\n");
+    defined($d->{$key}) or
+        die("SummaryInfo::value: unrecognized MC/DC key $key\n");
+
+    $d->{$key} += $delta;
+    return $d->{$key};
+}
+
 sub functionCovCount
 {
     my ($self, $key, $group, $age, $delta) = @_;
@@ -1084,6 +1151,15 @@ sub removeLine
             $br->{found} -= $found;
         }
     }
+    if ($lcovutil::mcdc_coverage) {
+        my $b = $lineData->current_mcdc();
+        if (defined($b)) {
+            my ($found, $hit) = $b->totals();
+            my $br = $self->[MCDC_DATA]->[DATA];
+            $br->{hit}   -= $hit;
+            $br->{found} -= $found;
+        }
+    }
     if ($lcovutil::func_coverage) {
         my $f = $lineData->current_function();
         if (defined($f)) {
@@ -1104,58 +1180,52 @@ sub is_empty
     return 1;
 }
 
+sub type_count
+{
+    my ($type, $status, $self, $delta) = @_;
+    my $l = $self->[$type]->[DATA];
+    $l->{$status} += $delta if defined($delta);
+    return $l->{$status};
+}
+
 sub l_found
 {
-    my $self  = shift;
-    my $delta = defined($_[0]) ? shift : 0;
-    my $l     = $self->[LINE_DATA]->[DATA];
-    $l->{found} += $delta;
-    return $l->{found};
+    return type_count(LINE_DATA, 'found', @_);
 }
 
 sub l_hit
 {
-    my $self  = shift;
-    my $delta = defined($_[0]) ? shift : 0;
-    my $l     = $self->[LINE_DATA]->[DATA];
-    $l->{hit} += $delta;
-    return $l->{hit};
+    return type_count(LINE_DATA, 'hit', @_);
 }
 
 sub f_found
 {
-    my $self  = shift;
-    my $delta = defined($_[0]) ? shift : 0;
-    my $f     = $self->[FUNCTION_DATA]->[DATA];
-    $f->{found} += $delta;
-    return $f->{found};
+    return type_count(FUNCTION_DATA, 'found', @_);
 }
 
 sub f_hit
 {
-    my $self  = shift;
-    my $delta = defined($_[0]) ? shift : 0;
-    my $f     = $self->[FUNCTION_DATA]->[DATA];
-    $f->{hit} += $delta;
-    return $f->{hit};
+    return type_count(FUNCTION_DATA, 'hit', @_);
 }
 
 sub b_found
 {
-    my $self  = shift;
-    my $delta = defined($_[0]) ? shift : 0;
-    my $b     = $self->[BRANCH_DATA]->[DATA];
-    $b->{found} += $delta;
-    return $b->{found};
+    return type_count(BRANCH_DATA, 'found', @_);
 }
 
 sub b_hit
 {
-    my $self  = shift;
-    my $delta = defined($_[0]) ? shift : 0;
-    my $b     = $self->[BRANCH_DATA]->[DATA];
-    $b->{hit} += $delta;
-    return $b->{hit};
+    return type_count(BRANCH_DATA, 'hit', @_);
+}
+
+sub mcdc_found
+{
+    return type_count(MCDC_DATA, 'found', @_);
+}
+
+sub mcdc_hit
+{
+    return type_count(MCDC_DATA, 'hit', @_);
 }
 
 sub selected
@@ -1178,6 +1248,8 @@ sub tlaSummary
         $type = LINE_DATA;
     } elsif ($t eq 'function') {
         $type = FUNCTION_DATA;
+    } elsif ($t eq 'mcdc') {
+        $type = MCDC_DATA;
     } else {
         die("unknown type $t") unless 'branch' eq $t;
         $type = BRANCH_DATA;
@@ -1210,7 +1282,7 @@ sub checkCoverageCriteria
 
     my $start = Time::HiRes::gettimeofday();
     my %data;
-    foreach my $t (LINE_DATA, FUNCTION_DATA, BRANCH_DATA) {
+    foreach my $t (LINE_DATA, FUNCTION_DATA, BRANCH_DATA, MCDC_DATA) {
         my $key = type2str($t);
         my $d   = $self->[$t]->[DATA];
         foreach my $k (keys %$d) {
@@ -1225,7 +1297,7 @@ sub checkCoverageCriteria
         }
     }
     if (grep(/^date$/, @CoverageCriteria::criteriaCallbackTypes)) {
-        foreach my $t (LINE_DATA, FUNCTION_DATA, BRANCH_DATA) {
+        foreach my $t (LINE_DATA, FUNCTION_DATA, BRANCH_DATA, MCDC_DATA) {
             my $key = type2str($t);
 
             next unless exists($self->[$t]->[AGE]);
@@ -1252,7 +1324,7 @@ sub checkCoverageCriteria
         }
     }
     if (grep(/^owner$/, @CoverageCriteria::criteriaCallbackTypes)) {
-        foreach my $t (LINE_DATA, BRANCH_DATA) {
+        foreach my $t (LINE_DATA, BRANCH_DATA, MCDC_DATA) {
             my $key = type2str($t);
             next unless exists($self->[$t]->[OWNERS]);
             my $ownerBins = $self->[$t]->[OWNERS];
@@ -1378,6 +1450,9 @@ sub get
     return $summary->functionCovCount($key, 'age', $age)
         if $covType == SummaryInfo::FUNCTION_DATA;
 
+    return $summary->mcdcCovCount($key, 'age', $age)
+        if $covType == SummaryInfo::MCDC_DATA;
+
     die('$covType coverage not yet implemented')
         if $covType != SummaryInfo::BRANCH_DATA;
 
@@ -1467,7 +1542,8 @@ sub data
     my $summary = $self->summary();
     my @rtn;
     foreach my $type (SummaryInfo::LINE_DATA, SummaryInfo::FUNCTION_DATA,
-                      SummaryInfo::BRANCH_DATA) {
+                      SummaryInfo::BRANCH_DATA, SummaryInfo::MCDC_DATA
+    ) {
         my $hash = $summary->[$type]->[SummaryInfo::DATA];
         push(@rtn, $hash->{found}, $hash->{hit});
     }
@@ -1516,6 +1592,7 @@ sub dateDetailCallback
     my ($self, $ageval, $covtype) = @_;
     $covtype == SummaryInfo::LINE_DATA       ||
         $covtype == SummaryInfo::BRANCH_DATA ||
+        $covtype == SummaryInfo::MCDC_DATA   ||
         $covtype == SummaryInfo::FUNCTION_DATA or
         die("'$covtype' type not supported");
 
@@ -1528,6 +1605,7 @@ sub ownerDetailCallback
     my ($self, $owner, $covtype) = @_;
     $covtype == SummaryInfo::LINE_DATA ||
         $covtype == SummaryInfo::BRANCH_DATA or
+        $covtype == SummaryInfo::MCDC_DATA   or
         die("'$covtype' type not supported");
 
     return OwnerDetailCallback->new($self->summary(), $owner, $covtype);
@@ -1580,6 +1658,9 @@ sub data
     my $branchCb =
         OwnerDetailCallback->new($self->[1], $self->[0],
                                  SummaryInfo::BRANCH_DATA);
+    my $mcdcCb =
+        OwnerDetailCallback->new($self->[1], $self->[0],
+                                 SummaryInfo::MCDC_DATA);
     my $fn_found = 0;
     # ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit, $page_link,
     #  $fileSummary, $fileDetails)
@@ -1587,7 +1668,8 @@ sub data
     #  associated file or summary info.  Pass undef.
     return ($lineCb->get('found'), $lineCb->get('hit'),
             0, 0,    # fn_found, fn_hit
-            $branchCb->get('found'), $branchCb->get('hit'));
+            $branchCb->get('found'), $branchCb->get('hit'),
+            $mcdcCb->get('found'), $mcdcCb->get('hit'));
 }
 
 sub totalCallback
@@ -1596,7 +1678,8 @@ sub totalCallback
     my ($self, $covtype) = @_;
     die("$covtype not supported by OwnerDetail callback")
         unless ($covtype == SummaryInfo::LINE_DATA ||
-                $covtype == SummaryInfo::BRANCH_DATA);
+                $covtype == SummaryInfo::BRANCH_DATA ||
+                $covtype == SummaryInfo::MCDC_DATA);
 
     return OwnerDetailCallback->new($self->[1], $self->name(), $covtype);
 }
@@ -1622,18 +1705,24 @@ sub findFileList
             OwnerDetailCallback->new($source, $owner, SummaryInfo::LINE_DATA);
         my $brCb =
             OwnerDetailCallback->new($source, $owner, SummaryInfo::BRANCH_DATA);
+        my $mcdcCb =
+            OwnerDetailCallback->new($source, $owner, SummaryInfo::MCDC_DATA);
         my $funcCb =
             OwnerDetailCallback->new($source, $owner,
                                      SummaryInfo::FUNCTION_DATA);
-        my $total    = $lineCb->get('found');
-        my $br_total = $lcovutil::br_coverage ? $brCb->get('found') : 0;
-        my $fn_total = $lcovutil::func_coverage ? $funcCb->get('found') : 0;
-        next if (0 == $total &&
-                 0 == $br_total &&
-                 0 == $fn_total);
-        my $missed    = $lineCb->get('missed');
-        my $br_missed = $lcovutil::br_coverage ? $brCb->get('missed') : 0;
-        my $fn_missed = $lcovutil::func_coverage ? $funcCb->get('missed') : 0;
+        my $total      = $lineCb->get('found');
+        my $br_total   = $lcovutil::br_coverage ? $brCb->get('found') : 0;
+        my $fn_total   = $lcovutil::func_coverage ? $funcCb->get('found') : 0;
+        my $mcdc_total = $lcovutil::mcdc_coverage ? $mcdcCb->get('found') : 0;
+        next
+            if (0 == $total &&
+                0 == $br_total   &&
+                0 == $mcdc_total &&
+                0 == $fn_total);
+        my $missed      = $lineCb->get('missed');
+        my $br_missed   = $lcovutil::br_coverage ? $brCb->get('missed') : 0;
+        my $mcdc_missed = $lcovutil::mcdc_coverage ? $mcdcCb->get('missed') : 0;
+        my $fn_missed   = $lcovutil::func_coverage ? $funcCb->get('missed') : 0;
 
         if ($all ||
             0 != $missed    ||
@@ -1644,6 +1733,7 @@ sub findFileList
                  [$file,
                   [$missed, $total, $lineCb],
                   [$br_missed, $br_total, $brCb],
+                  [$mcdc_missed, $mcdc_total, $mcdcCb],
                   [$fn_missed, $fn_total, $funcCb]
                  ]);
         }
@@ -1709,7 +1799,8 @@ sub data
 
     my @rtn;
     foreach my $covType (SummaryInfo::LINE_DATA, SummaryInfo::FUNCTION_DATA,
-                         SummaryInfo::BRANCH_DATA) {
+                         SummaryInfo::BRANCH_DATA, SummaryInfo::MCDC_DATA
+    ) {
         my $cb = DateDetailCallback->new($self->[2], $self->[1], $covType);
         push(@rtn, $cb->get('found'), $cb->get('hit'));
     }
@@ -1747,27 +1838,35 @@ sub findFileList
             DateDetailCallback->new($source, $ageval, SummaryInfo::LINE_DATA);
         my $brCb =
             DateDetailCallback->new($source, $ageval, SummaryInfo::BRANCH_DATA);
+        my $mcdcCb =
+            DateDetailCallback->new($source, $ageval, SummaryInfo::MCDC_DATA);
         my $funcCb =
             DateDetailCallback->new($source, $ageval,
                                     SummaryInfo::FUNCTION_DATA);
-        my $total    = $lineCb->get('found');
-        my $br_total = $lcovutil::br_coverage ? $brCb->get('found') : 0;
-        my $fn_total = $lcovutil::func_coverage ? $funcCb->get('found') : 0;
-        next if (0 == $total &&
-                 0 == $br_total &&
-                 0 == $fn_total);
+        my $total      = $lineCb->get('found');
+        my $br_total   = $lcovutil::br_coverage ? $brCb->get('found') : 0;
+        my $mcdc_total = $lcovutil::mcdc_coverage ? $mcdcCb->get('found') : 0;
+        my $fn_total   = $lcovutil::func_coverage ? $funcCb->get('found') : 0;
+        next
+            if (0 == $total &&
+                0 == $br_total   &&
+                0 == $mcdc_total &&
+                0 == $fn_total);
 
-        my $missed    = $lineCb->get('missed');
-        my $br_missed = $lcovutil::br_coverage ? $brCb->get('missed') : 0;
-        my $fn_missed = $lcovutil::func_coverage ? $funcCb->get('missed') : 0;
+        my $missed      = $lineCb->get('missed');
+        my $br_missed   = $lcovutil::br_coverage ? $brCb->get('missed') : 0;
+        my $mcdc_missed = $lcovutil::mcdc_coverage ? $mcdcCb->get('missed') : 0;
+        my $fn_missed   = $lcovutil::func_coverage ? $funcCb->get('missed') : 0;
         if ($all ||
-            0 != $missed    ||
-            0 != $br_missed ||
+            0 != $missed      ||
+            0 != $br_missed   ||
+            0 != $mcdc_missed ||
             0 != $fn_missed) {
             push(@files,
                  [$file,
                   [$missed, $total, $lineCb],
                   [$br_missed, $br_total, $brCb],
+                  [$mcdc_missed, $mcdc_total, $mcdcCb],
                   [$fn_missed, $fn_total, $funcCb]
                  ]);
         }
@@ -1812,6 +1911,7 @@ sub new
     die("$covType not supported yet")
         unless ($covType eq SummaryInfo::LINE_DATA ||
                 $covType eq SummaryInfo::BRANCH_DATA ||
+                $covType eq SummaryInfo::MCDC_DATA   ||
                 $covType eq SummaryInfo::FUNCTION_DATA);
     my $self = [$summary, $covType];
     bless $self, $class;
@@ -1829,7 +1929,8 @@ sub owner
 {
     my $self = shift;
     die("CovTypeSummaryCallback::owner not supported for " . $self->[1])
-        unless ($self->[1] == SummaryInfo::BRANCH_DATA);
+        unless ($self->[1] == SummaryInfo::BRANCH_DATA ||
+                $self->[1] == SummaryInfo::MCDC_DATA);
     return $self->[0]->owner();
 }
 
@@ -2020,7 +2121,8 @@ use constant {
               LINENO_CURRENT => 2,    # location of this line in current data
               LINE_DATA      => 3,
               BRANCH_DATA    => 4,
-              FUNCTION_DATA  => 5,
+              MCDC_DATA      => 5,
+              FUNCTION_DATA  => 6,
 
               # data elements in line data
               TLA           => 0,
@@ -2031,7 +2133,6 @@ use constant {
               DATA_BASELINE     => 0,
               DATA_CURRENT      => 1,
               DATA_DIFFERENTIAL => 2,
-
 };
 
 sub new
@@ -2044,6 +2145,7 @@ sub new
     my $self = [$type, undef, undef,
                 ['UNK', undef, undef],    # line coverage data
                 [],                       # branch coverage data
+                [],                       # MCDC coverage data
                 []
     ];    # function coverage
     bless $self, $class;
@@ -2052,7 +2154,7 @@ sub new
 
 sub to_list
 {
-    # used by script-leve 'select' callback
+    # used by script-level 'select' callback
     my $self = shift;
 
     my @rtn = ($self->[TYPE],
@@ -2060,6 +2162,7 @@ sub to_list
                 $self->in_curr() ? $self->curr_count() : undef,
                 $self->in_base() ? $self->base_count() : undef
                ]);
+    # @todo perhaps visit MC/DC here too
     my $branch = $self->differential_branch();
     if (defined($branch)) {
         my @data;
@@ -2275,6 +2378,55 @@ sub differential_branch
     return $branch->[DATA_DIFFERENTIAL];
 }
 
+sub _mergeMcdcData
+{
+    # this is nearly identical to 'function' implementation...maybe share
+    my ($self, $loc, $mcdcData, $filename) = @_;
+    my $mcdc = $self->[MCDC_DATA];
+    if (defined($mcdc->[$loc])) {
+
+        my $current = $mcdc->[$loc];
+        $current->merge($mcdcData);
+    } else {
+        $mcdc->[$loc] = Storable::dclone($mcdcData);
+    }
+}
+
+sub baseline_mcdc
+{
+    my ($self, $mcdcData, $filename) = @_;
+    die("has baseline MC/DC data but not in baseline")
+        if (defined($mcdcData) && !defined($self->[LINENO_BASE]));
+    if (defined($mcdcData)) {
+        $self->_mergeMcdcData(DATA_BASELINE, $mcdcData, $filename);
+    }
+    my $mcdc = $self->[MCDC_DATA];
+    return $mcdc->[DATA_BASELINE];
+}
+
+sub current_mcdc
+{
+    my ($self, $mcdcData, $filename) = @_;
+    die("has current MC/DC data but not in current")
+        if (defined($mcdcData) &&
+            (!defined($self->[LINENO_CURRENT]) || $self->[LINENO_CURRENT] < 0));
+    if (defined($mcdcData)) {
+        $self->_mergeMcdcData(DATA_CURRENT, $mcdcData, $filename);
+    }
+    my $mcdc = $self->[MCDC_DATA];
+    return $mcdc->[DATA_CURRENT];
+}
+
+sub differential_mcdc
+{
+    my ($self, $differential) = @_;
+    my $mcdc = $self->[MCDC_DATA];
+    if (defined($differential)) {
+        $mcdc->[DATA_DIFFERENTIAL] = $differential;
+    }
+    return $mcdc->[DATA_DIFFERENTIAL];
+}
+
 sub _mergeFunctionData
 {
     my ($self, $loc, $functionData) = @_;
@@ -2361,6 +2513,9 @@ sub new
     $self->_categorizeBranchCov($filename, $base_data, $current_data,
                                 $diffMap, $verbose)
         if ($lcovutil::br_coverage);
+    $self->_categorizeMcdcCov($filename, $base_data, $current_data,
+                              $diffMap, $verbose)
+        if ($lcovutil::mcdc_coverage);
     $self->_categorizeFunctionCov($filename, $base_data, $current_data,
                                   $diffMap, $verbose)
         if ($lcovutil::func_coverage);
@@ -2445,6 +2600,24 @@ sub recategorizeTlaAsBaseline
                 }
             }
         }    # if branch data
+
+        # MC/DC coverage...
+        if ($lcovutil::mcdc_coverage && defined($data->differential_mcdc())) {
+            my $mcdc = $data->differential_mcdc();
+
+            while (my ($groupSize, $group) = each(%{$mcdc->groups()})) {
+                foreach my $cond (@$group) {
+                    # remap both the true and false sense..
+                    foreach my $sense (0, 1) {
+                        my $c   = $cond->count($sense);
+                        my $tla = $c->[0];
+                        if (exists($remap{$tla})) {
+                            $c->[0] = $remap{$tla};
+                        }
+                    }
+                }
+            }
+        }    # if MCDC data
 
         # function coverage..
         if ($lcovutil::func_coverage && defined($data->differential_function()))
@@ -2837,6 +3010,151 @@ sub _categorizeBranchCov
             }    # foreach branchId in current that isn't in base
         }
     }
+}
+
+sub _cloneMcdcEntry
+{
+    my ($cloneInto, $cloneFrom, $missTla, $hitTla) = @_;
+    while (my ($groupSize, $group) = each(%{$cloneFrom->groups()})) {
+        foreach my $expr (@$group) {
+            foreach my $sense (0, 1) {
+                my $count = $expr->count($sense);
+                my $tla   = (0 == $count) ? $missTla : $hitTla;
+                $count = [$tla, undef, $count]
+                    ;    # [TLA, baseline value, current value]
+                $cloneInto->insertExpr('unknownFile', $groupSize,
+                                       $sense, $count,
+                                       $expr->index(), $expr->expression());
+            }
+        }
+    }
+}
+
+sub _categorizeMcdcCov
+{
+    my ($self, $filename, $base_data, $current_data, $diffMap, $verbose) = @_;
+    my $lineDataMap = $self->lineMap();
+
+    my $mcdcBaseline = $base_data->mcdc() if defined($base_data);
+    my $mcdcCurrent  = $current_data->mcdc();
+
+    my %mcdcCovLines;
+    # look through the 'current' data, to find all the MC/DC data
+    # keep track of hit count in baseline, current - in element 2 of the
+    #  retained MC/DC data.  These counts are useful - for example, to report
+    #  the hit count in the baseline for LBC elements:
+    #   - e.g., in random testing: is this branch lost because it was a
+    #     low probablilty event (..baseline count is a small number)>
+    #     Or because we did something bad and no longer reach what had been
+    #     a high probability event?
+    foreach my $line ($mcdcCurrent->keylist()) {
+        unless (exists($lineDataMap->{$line})) {
+            # unless ignored, should have been caught or fixed during
+            #  TraceInfo::_checkConsistency
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                "\"$filename\":$line line has MC/DC but no linecov data (skipping)."
+            );
+            next;
+        }
+        my $data = $lineDataMap->{$line};
+
+        $mcdcCovLines{$line} = 1;
+        # we expect that the line number matches...
+        $data->lineNo("current", $line);
+        # append this MC/DC data for the line (this is an MCDC_Block)
+        my $currMcdcData = $mcdcCurrent->value($line);
+        $data->current_mcdc($currMcdcData, $filename);
+        if (!defined($mcdcBaseline)) {
+            my $categorized = MCDC_Block->new($line);
+            $data->differential_mcdc($categorized);
+            _cloneMcdcEntry($categorized, $currMcdcData, 'UNC', 'GNC');
+        }
+    }    # foreach line in 'current' branch data
+
+    return unless defined($mcdcBaseline);
+
+    # now look through the baseline to find matching data
+
+    foreach my $base_line ($mcdcBaseline->keylist()) {
+        my $data      = $self->_findLineData($diffMap, $filename, $base_line);
+        my $curr_line = $data->lineNo('current');
+        my $type      = $data->type();
+        if ($type ne 'delete') {
+            $mcdcCovLines{$curr_line} = 1;
+        } else {
+            # the line has been deleted...just record the data
+            my $deleteKey = "<<<" . $base_line;
+        }
+        my $baseMcdcData = $mcdcBaseline->value($base_line);
+        $data->baseline_mcdc($baseMcdcData, $filename);
+    }    # foreach line in baseline data
+
+    # go through all the MC/DC data for each line, and categorize everything
+    foreach my $line (keys(%mcdcCovLines)) {
+        my $data        = $self->lineMap()->{$line};
+        my $type        = $data->type();
+        my $curr        = $data->current_mcdc();
+        my $base        = $data->baseline_mcdc();
+        my $categorized = MCDC_Block->new($line);
+        $data->differential_mcdc($categorized);
+        # handle case that baseline and/or current do not conta MC/DC data
+        my $currGroups = defined($curr) ? $curr->groups() : ();
+        my $baseGroups = defined($base) ? $base->groups() : ();
+
+        if ($type eq 'insert') {
+            # can get here if diff data vs baseline/current is not consistent
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                "baseline MC/DC data should not be defined for inserted line $filename:$line"
+            ) if defined($base);
+
+            _cloneMcdcEntry($categorized, $curr, 'UNC', 'GNC');
+        } elsif ($type eq 'delete') {
+            # similarly: get here if diff data vs baseline/current is not consistent
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                "current MC/DC data should not be defined for deleted line $filename:$line"
+            ) if defined($curr);
+
+            _cloneMcdcEntry($categorized, $base, 'DUB', 'DCB');
+        } else {
+            lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                      "unexpected MC/DC coverage type $type at $filename:$line")
+                if $type ne 'equal';
+            # group might or might not be in both baseline and current
+            while (my ($groupSize, $bgroup) = each(%$baseGroups)) {
+
+                if (defined($currGroups) && exists($currGroups->{$groupSize})) {
+                    my $cgroup = $currGroups->{$groupSize};
+
+                    for (my $i = 0; $i < $groupSize; ++$i) {
+                        my $b = $bgroup->[$i];
+                        my $c = $cgroup->[$i];
+                        die("mismatched expressions")
+                            unless $b->expression() eq $c->expression();
+
+                        foreach my $sense (0, 1) {
+                            my $b_count = $b->count($sense);
+                            my $c_count = $c->count($sense);
+                            my $tla     = _categorize($b_count, $c_count);
+                            $categorized->insertExpr('unknownFile', $groupSize,
+                                             $sense, [$tla, $b_count, $c_count],
+                                             $i, $c->expression());
+                        }
+                    }
+                } else {
+                    # not found in current
+                    foreach my $b (@$bgroup) {
+                        foreach my $sense (0, 1) {
+                            my $b_count = $b->count($sense);
+                            my $tla     = $b_count ? 'ECB' : 'EUB';
+                            $categorized->insertExpr('unknownFile', $groupSize,
+                                                $sense, [$tla, $b_count, undef],
+                                                $b->index(), $b->expression());
+                        }
+                    }
+                }
+            }    #foreach group in base
+        }    # endif deleted line
+    }    # foreach line
 }
 
 sub _cloneFunctionEntry
@@ -3964,15 +4282,16 @@ use constant {
               COMMIT       => 6,
               LINE_TLA     => 7,
               BRANCH_TLA   => 8,
-              FUNCTION_TLA => 9,
+              MCDC_TLA     => 9,
+              FUNCTION_TLA => 10,
 };
 
 sub new
 {
     my $class = shift;
-    my @data  = @_
-        ; #[lineNo, text, abbrev_name, full_name, date, age, commitID, lineCovTla]
-        # [line, text, owner, date, age, commit, lineTLA, branchTLA, functionTLA
+    # [lineNo, text, abbrev_name, full_name, date, age, commitID, lineTLA, branchTLA,
+    #  MCDC_TLA, functionTLA]
+    my @data = @_;
     my $self = \@data;
     bless $self, $class;
     return $self;
@@ -4016,6 +4335,14 @@ sub branchElem
     $self->[BRANCH_TLA] = $branchElem
         if defined($branchElem);
     return $#$self >= BRANCH_TLA ? $self->[BRANCH_TLA] : undef;
+}
+
+sub mcdcElem
+{
+    my ($self, $mcdcElem) = @_;
+    $self->[MCDC_TLA] = $mcdcElem
+        if defined($mcdcElem);
+    return $#$self >= MCDC_TLA ? $self->[MCDC_TLA] : undef;
 }
 
 sub functionElem
@@ -4071,6 +4398,8 @@ use constant {
               LINE_CATEGORIES   => 4,
               BRANCH_OWNERS     => 5,
               BRANCH_CATEGORIES => 6,
+              MCDC_OWNERS       => 5,
+              MCDC_CATEGORIES   => 6,
 };
 
 sub new
@@ -4185,6 +4514,9 @@ sub new
         $self->_countBranchTlaData($line, $lne, $fileSummary)
             if ($lcovutil::br_coverage && defined($lne->differential_branch()));
 
+        $self->_countMcdcTlaData($line, $lne, $fileSummary)
+            if ($lcovutil::mcdc_coverage && defined($lne->differential_mcdc()));
+
         $self->_countFunctionTlaData($line, $lne, $fileSummary)
             if ($lcovutil::func_coverage &&
                 defined($lne->differential_function()));
@@ -4215,18 +4547,27 @@ sub simplify
             my $line = $self->nextInDateBin($bin, $tla);
             $keep{$line} = 1 if defined($line);
         }
-        next unless $main::br_coverage;
-        foreach my $tla (keys %{$self->[BRANCH_CATEGORIES]}) {
-            next if grep(/$tla/, ('DUB', 'DCB'));
-            my $line = $self->nextBranchInDateBin($bin, $tla);
-            $keep{$line} = 1 if defined($line);
+        if ($lcovutil::br_coverage) {
+            foreach my $tla (keys %{$self->[BRANCH_CATEGORIES]}) {
+                next if grep(/$tla/, ('DUB', 'DCB'));
+                my $line = $self->nextBranchInDateBin($bin, $tla);
+                $keep{$line} = 1 if defined($line);
+            }
+        }
+        if ($lcovutil::mcdc_coverage) {
+            foreach my $tla (keys %{$self->[MCDC_CATEGORIES]}) {
+                next if grep(/$tla/, ('DUB', 'DCB'));
+                my $line = $self->nextMcdcInDateBin($bin, $tla);
+                $keep{$line} = 1 if defined($line);
+            }
         }
     }
 
     # retain first location of each TLA (globally) and each TLA for each owner
-    foreach
-        my $bin (LINE_OWNERS, LINE_CATEGORIES, BRANCH_OWNERS, BRANCH_CATEGORIES)
-    {
+    foreach my $bin (LINE_OWNERS, LINE_CATEGORIES,
+                     BRANCH_OWNERS, BRANCH_CATEGORIES,
+                     MCDC_OWNERS, MCDC_CATEGORIES
+    ) {
         while (my ($key, $list) = each(%{$self->[$bin]})) {
             if ('ARRAY' eq ref($list)) {
                 next if grep(/$key/, ('DUB', 'DCB'));
@@ -4366,6 +4707,128 @@ sub _countBranchTlaData
                 $dhash->{$tla} = []
                     unless exists($dhash->{$tla});
                 push(@{$dhash->{$tla}}, $line);
+            }
+        }
+    }
+}
+
+sub _countMcdcTlaData
+{
+    my ($self, $line, $lineData, $fileSummary) = @_;
+    my $differentialData = $lineData->differential_mcdc();
+
+    my %foundMcdcTlas;
+    my ($src_age, $developer, $srcLine);
+    my $lineTla = $lineData->tla();
+    $srcLine = $self->line($line);
+    if (!defined($srcLine)) {
+        lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
+                        "no data for 'MC/DC' line:$line, file:" . $self->path())
+            if (!$lcovutil::warn_once_per_file ||
+            lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE, $self->path()));
+    } else {
+        $srcLine->mcdcElem($differentialData);
+        if (@SourceFile::annotateScript &&
+            !grep(/^$lineTla$/, ('DUB', 'DCB'))) {
+            # deleted lines don't have owner data...
+            # if this line is not in the project (e.g., from some 3rd party
+            #   library - then we might not have file history for it.
+            $src_age   = $srcLine->age();
+            $developer = $srcLine->owner();
+
+            if (defined($developer)) {
+                my $shash = $self->[BRANCH_OWNERS];
+                if (!exists($shash->{$developer})) {
+                    $shash->{$developer} = {};
+                    $shash->{$developer}->{lines} = [];
+                }
+                push(@{$shash->{$developer}->{lines}}, $line);
+            }
+        }
+    }
+
+    my %recorded;
+    while (my ($groupSize, $group) = each(%{$differentialData->groups()})) {
+        foreach my $expr (@$group) {
+            foreach my $sense (0, 1) {
+                my $count = $expr->count($sense);
+                my $tla   = $count->[0];
+                # LCOV_EXCL_START
+                unless (defined($tla)) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                                        "undef TLA for sense $sense of MC/DC " .
+                                            $expr->index() .
+                                            ' of ' . $self->path() .
+                                            ":$line - lineTLA:$lineTla taken:" .
+                                            $count->[1]);
+                    next;
+                }
+                # LCOV_EXCL_STOP
+                $fileSummary->[SummaryInfo::MCDC_DATA]->[SummaryInfo::DATA]
+                    ->{$tla} += 1;
+                # keep track of all the branch TLAs found on this line...
+                if (!exists($foundMcdcTlas{$tla})) {
+                    $foundMcdcTlas{$tla} = 1;
+                    $self->[MCDC_CATEGORIES]->{$tla} = []
+                        unless exists($self->[MCDC_CATEGORIES]->{$tla});
+                }
+                push(@{$self->[MCDC_CATEGORIES]->{$tla}}, $line);
+
+                next
+                    if (0 == ($SummaryInfo::tlaLocation{$tla} & 0x1));
+                # skip "DUB' and 'DCB' categories - which are not in current
+                #   and thus have no line associated
+
+                # and the age...
+                #lcovutil::info("$l: $tla" . $lineData->in_curr() . "\n");
+
+                unless (defined($srcLine) && defined($src_age)) {
+                    # just count totals
+                    $fileSummary->mcdcCovCount($tla, 'noGroup', undef, 1);
+                    next;
+                }
+
+                # increment count of branches of this age we found for this TLA
+                $fileSummary->mcdcCovCount($tla, "age", $src_age, 1);
+
+                my $hit = grep(/$tla/, ('GBC', 'GIC', 'GNC', 'CBC'));
+                $fileSummary->mcdcCovCount("found", "age", $src_age, 1);
+                $fileSummary->mcdcCovCount("hit", "age", $src_age, 1)
+                    if $hit;
+
+                next
+                    unless defined($developer);
+
+                # add this line to those that belong to this owner..
+
+                # first:  increment line count in 'file summary'
+                my $ohash =
+                    $fileSummary->[SummaryInfo::MCDC_DATA]
+                    ->[SummaryInfo::OWNERS];
+                if (!exists($ohash->{$developer})) {
+                    my %data = ('hit'   => $hit ? 1 : 0,
+                                'found' => 1,
+                                $tla    => 1);
+                    $ohash->{$developer} = \%data;
+                } else {
+                    my $d = $ohash->{$developer};
+                    $d->{$tla} = 0
+                        unless exists($d->{$tla});
+                    $d->{$tla}  += 1;
+                    $d->{found} += 1;
+                    $d->{hit}   += 1
+                        if $hit;
+                }
+
+                # now append this branchTLA to the owner...
+                my $ownerKey = $developer . $tla;
+                if (!exists($recorded{$ownerKey})) {
+                    $recorded{$ownerKey} = 1;
+                    my $dhash = $self->[MCDC_OWNERS]->{$developer};
+                    $dhash->{$tla} = []
+                        unless exists($dhash->{$tla});
+                    push(@{$dhash->{$tla}}, $line);
+                }
             }
         }
     }
@@ -4693,25 +5156,36 @@ sub nextTlaGroup
     return defined($idx) ? $locations->[$idx] : undef;
 }
 
-sub nextBranchTlaGroup
+sub nextCategoryTlaGroup
 {
     # return number of first line of next group of specified branchcov TLA -
     # note that all branch lines are independent - so we will
     # report and go the next branch, even if it is on the adjacent line
-    my ($self, $tla, $after) = @_;
+    my ($type, $category, $self, $tla, $after) = @_;
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
         lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
-                                  "unknown branch TLA '$tla'");
+                                  "unknown $type TLA '$tla'");
         return undef;
     }
-    die("no branch data for TLA '$tla'")
-        unless exists($self->[BRANCH_CATEGORIES]->{$tla});
+    die("no $type data for TLA '$tla'")
+        unless exists($self->[$category]->{$tla});
 
-    my $locations = $self->[BRANCH_CATEGORIES]->{$tla};
+    my $locations = $self->[$category]->{$tla};
 
     $after = defined($after) ? $after + 1 : 1;
     my $idx = binarySearchLine($locations, $after);
     return defined($idx) ? $locations->[$idx] : undef;
+}
+
+sub nextBranchTlaGroup
+{
+    # ($self, $tla, $after_line)
+    return nextCategoryTlaGroup('branch', BRANCH_CATEGORIES, @_);
+}
+
+sub nextMcdcTlaGroup
+{
+    return nextCategoryTlaGroup('MC/DC', MCDC_CATEGORIES, @_);
 }
 
 sub nextInDateBin
@@ -4848,13 +5322,13 @@ sub nextInOwnerBin
     return defined($idx) ? $locations->[$idx] : undef;
 }
 
-sub nextBranchInDateBin
+sub nextCategoryInDateBin
 {
-    my ($self, $dateBin, $tla, $after) = @_;
+    my ($type, $category, $self, $dateBin, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
         lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
-                                  "unknown branch TLA '$tla'");
+                                  "unknown $type TLA '$tla'");
         return undef;
     }
     $dateBin <= $#SummaryInfo::ageGroupHeader or
@@ -4863,10 +5337,10 @@ sub nextBranchInDateBin
     # note the the "$self->line(...)" argument is 1-based (not zero-base)
     $after = defined($after) ? $after + 1 : 1;
 
-    exists($self->[BRANCH_CATEGORIES]->{$tla}) or
-        die("no $tla branches in " . $self->path());
+    exists($self->[$category]->{$tla}) or
+        die("no $tla ${type}es in " . $self->path());
 
-    my $lines = $self->[BRANCH_CATEGORIES]->{$tla};
+    my $lines = $self->[$category]->{$tla};
     my $idx   = binarySearchLine($lines, $after);
 
     return undef unless defined($idx);
@@ -4899,21 +5373,32 @@ sub nextBranchInDateBin
     return undef;
 }
 
-sub nextBranchInOwnerBin
+sub nextBranchInDateBin
 {
-    my ($self, $owner, $tla, $after) = @_;
+    # ($self, $dateBin, $tla, $after) = @_;
+    return nextCategoryInDateBin('branch', BRANCH_CATEGORIES, @_);
+}
+
+sub nextMcdcInDateBin
+{
+    return nextCategoryInDateBin('MC/DC', MCDC_CATEGORIES, @_);
+}
+
+sub nextCategoryInOwnerBin
+{
+    my ($type, $category, $self, $owner, $tla, $after) = @_;
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
         lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
-                                  "unknown branch TLA '$tla'");
+                                  "unknown $type TLA '$tla'");
         return undef;
     }
 
     # note the the "$self->line(...)" argument is 1-based (not zero-base)
     $after = defined($after) ? $after + 1 : 1;
 
-    if (exists($self->[BRANCH_OWNERS]->{$owner})) {
-        my $od = $self->[BRANCH_OWNERS]->{$owner};
+    if (exists($self->[$category]->{$owner})) {
+        my $od = $self->[$category]->{$owner};
         if (exists($od->{$tla})) {
             my $l   = $od->{$tla};
             my $idx = binarySearchLine($l, $after);
@@ -4921,6 +5406,18 @@ sub nextBranchInOwnerBin
         }
     }
     return undef;
+}
+
+sub nextBranchInOwnerBin
+{
+    # ($self, $owner, $tla, $after) = @_;
+    return nextCategoryInOwnerBin('branch', BRANCH_OWNERS, @_);
+}
+
+sub nextMcdcInOwnerBin
+{
+    # ($self, $owner, $tla, $after) = @_;
+    return nextCategoryInOwnerBin('MC/DC', MCDC_OWNERS, @_);
 }
 
 sub _computeAge
@@ -5263,6 +5760,29 @@ sub new
                     }
                 }
             }
+        } elsif (SummaryInfo::MCDC_DATA == $covtype) {
+            foreach my $line ($testcaseCounts->keylist()) {
+                my $lineData =
+                    $fileDetails->line($line);    # "SourceLine" structure
+                my $mcdcEntry = $lineData->mcdcElem();
+                while (my ($groupSize, $group) = each(%{$mcdcEntry->groups()}))
+                {
+                    foreach my $expr (@$group) {
+                        foreach my $sense (0, 1) {
+                            # use 'current' count...
+                            my ($tla, $b_count, $c_count) =
+                                @{$expr->count($sense)};
+                            die("unexpected branch TLA $tla for count $c_count at "
+                                    . $fileDetails->path()
+                                    . ":$line")
+                                unless (
+                                     ($c_count != 0) == exists($tlaData{$tla}));
+                            next if (0 == $c_count);
+                            $tlaData{$tla} += 1;
+                        }
+                    }
+                }
+            }
         } else {
             die("$covtype not supported yet")
                 unless $covtype == SummaryInfo::FUNCTION_DATA;
@@ -5350,7 +5870,7 @@ sub new
     my $top_level_summary = $self->[0];
     # no parent data for top-level
     my $toplevelPerTestData =
-        ($main::hierarchical || $main::flat) ? [{}, {}, {}] : undef;
+        ($main::hierarchical || $main::flat) ? [{}, {}, {}, {}] : undef;
     $pending->{""} = [
                       ['top',
                        [$top_level_summary, $toplevelPerTestData,
@@ -5407,7 +5927,7 @@ sub new
                 if (exists($pending->{$path})) {
                     $pendingParent = $pending->{$path};
                 } else {
-                    my $perTestData = [{}, {}, {}];
+                    my $perTestData = [{}, {}, {}, {}];
 
                     my @dirData = (SummaryInfo->new("directory", $relative_path,
                                                     $is_absolute),
@@ -5433,7 +5953,7 @@ sub new
             # not hierarchical
             my $relative_path = File::Spec->catdir(@rel_dir_stack);
             if (!exists($pending->{$parentDir})) {
-                my $perTestData = [{}, {}, {}];
+                my $perTestData = [{}, {}, {}, {}];
                 my @dirData = (SummaryInfo->new(
                                        "directory", $relative_path, $is_absolute
                                ),
@@ -5548,11 +6068,11 @@ sub merge_one
     my $type = $summary->type();
     if ('file' eq $type) {
         my $base_name = File::Basename::basename($fullname);
-        for (my $i = 0; $i < 3; $i++) {
+        for (my $i = 0; $i < scalar(@$perTest); $i++) {
             $parentPerTestData->[$i]->{$base_name} = $perTest->[$i];
         }
     } elsif ('directory' eq $type) {
-        for (my $i = 0; $i < 3; $i++) {
+        for (my $i = 0; $i < scalar(@$perTest); $i++) {
             while (my ($basename, $data) = each(%{$perTest->[$i]})) {
                 $parentPerTestData->[$i]->{$basename} = $data;
             }
@@ -5581,10 +6101,10 @@ sub compute_one
     my $start = Time::HiRes::gettimeofday();
 
     if ('file' eq $type) {
-        my ($testdata, $testfncdata, $testbrdata) =
+        my ($testdata, $testfncdata, $testbrdata, $testcase_mcdc) =
             main::process_file($summary, $parentSummary,
                                $trunc_dir, $rel_dir, $name);
-        $perTestData = [$testdata, $testfncdata, $testbrdata];
+        $perTestData = [$testdata, $testfncdata, $testbrdata, $testcase_mcdc];
     } elsif ('dir' eq $type) {
         # process the directory...
         main::write_summary_pages($name, 1,    # this is a directory,
@@ -6277,7 +6797,7 @@ our $opt_missed;            # List/sort lines by missed counts
 our $dark_mode;             # Use dark mode palette or normal
 our $charset = "UTF-8";     # Default charset for HTML pages
 our @fileview_sortlist;
-our @fileview_sortname = ("", "-sort-l", "-sort-f", "-sort-b");
+our @fileview_sortname = ("", "-sort-l", "-sort-f", "-sort-b", '-sort-m');
 our @fileview_prefixes = ("");
 our @funcview_sortlist;
 our @rate_name    = ("Lo", "Med", "Hi");
@@ -6332,7 +6852,10 @@ my %genhtml_rc_opts = (
                "genhtml_function_med_limit"  => \$fn_med_limit,
                "genhtml_branch_hi_limit"     => \$br_hi_limit,
                "genhtml_branch_med_limit"    => \$br_med_limit,
+               "genhtml_mcdc_hi_limit"       => \$mcdc_hi_limit,
+               "genhtml_mcdc_med_limit"      => \$mcdc_med_limit,
                "genhtml_branch_field_width"  => \$br_field_width,
+               "genhtml_mcdc_field_width"    => \$mcdc_field_width,
                "genhtml_owner_field_width"   => \$owner_field_width,
                "genhtml_age_field_width"     => \$age_field_width,
                "genhtml_sort"                => \$sort,
@@ -6439,13 +6962,15 @@ $buildSerializableDatabase = 1 if $serialize;
 $no_sourceview             = 1 if $no_html;
 
 # Copy related values if not specified
-$ln_hi_limit  = $hi_limit if (!defined($ln_hi_limit));
-$ln_med_limit = $med_limit if (!defined($ln_med_limit));
-$fn_hi_limit  = $hi_limit if (!defined($fn_hi_limit));
-$fn_med_limit = $med_limit if (!defined($fn_med_limit));
-$br_hi_limit  = $hi_limit if (!defined($br_hi_limit));
-$br_med_limit = $med_limit if (!defined($br_med_limit));
-$frames       = undef unless (defined($frames) && $frames);
+$ln_hi_limit    = $hi_limit if (!defined($ln_hi_limit));
+$ln_med_limit   = $med_limit if (!defined($ln_med_limit));
+$fn_hi_limit    = $hi_limit if (!defined($fn_hi_limit));
+$fn_med_limit   = $med_limit if (!defined($fn_med_limit));
+$br_hi_limit    = $hi_limit if (!defined($br_hi_limit));
+$br_med_limit   = $med_limit if (!defined($br_med_limit));
+$mcdc_hi_limit  = $hi_limit if (!defined($mcdc_hi_limit));
+$mcdc_med_limit = $med_limit if (!defined($mcdc_med_limit));
+$frames         = undef unless (defined($frames) && $frames);
 
 foreach my $rc ([\@datebins, \@rc_date_bins],
                 [\@SourceFile::annotateScript, \@rc_annotate_script],
@@ -6679,11 +7204,14 @@ if ($sort) {
     push(@fileview_sortlist, $SORT_LINE);
     push(@fileview_sortlist, $SORT_FUNC) if ($lcovutil::func_coverage);
     push(@fileview_sortlist, $SORT_BRANCH) if ($lcovutil::br_coverage);
+    push(@fileview_sortlist, $SORT_MCDC) if ($lcovutil::mcdc_coverage);
     push(@funcview_sortlist, $SORT_LINE);
     if ($show_functionProportions) {
         push(@funcview_sortlist, $SORT_MISSING_LINE);
         push(@funcview_sortlist, $SORT_MISSING_BRANCH)
             if ($lcovutil::br_coverage);
+        push(@funcview_sortlist, $SORT_MISSING_MCDC)
+            if ($lcovutil::mcdc_coverage);
     }
 }
 
@@ -6896,14 +7424,14 @@ END_OF_USAGE
 }
 
 #
-# print_overall_rate(trace, ln_do, fn_do, br_do, summary)
+# print_overall_rate(trace, ln_do, fn_do, br_do, mcdc_do, summary)
 #
 # Print overall coverage rates for the specified coverage types.
 #
 
-sub print_overall_rate($$$$$)
+sub print_overall_rate($$$$$$)
 {
-    my ($currentTrace, $ln_do, $fn_do, $br_do, $summary) = @_;
+    my ($currentTrace, $ln_do, $fn_do, $br_do, $mcdc_do, $summary) = @_;
 
     # use verbosity level -1:  so print unless user says "-q -q"...really quiet
     info(-1, "Overall coverage rate:\n");
@@ -6911,6 +7439,7 @@ sub print_overall_rate($$$$$)
     push(@types, SummaryInfo::LINE_DATA) if $ln_do;
     push(@types, SummaryInfo::FUNCTION_DATA) if $fn_do;
     push(@types, SummaryInfo::BRANCH_DATA) if $br_do;
+    push(@types, SummaryInfo::MCDC_DATA) if $mcdc_do;
 
     # use source file count from current - we don;t care about files
     #  that were deleted and are in baseline
@@ -7108,7 +7637,8 @@ sub gen_html()
     }
 
     print_overall_rate($current_data, 1, $lcovutil::func_coverage,
-                       $lcovutil::br_coverage, $genhtml->top());
+                       $lcovutil::br_coverage, $lcovutil::mcdc_coverage,
+                       $genhtml->top());
 
     return $genhtml->top();
 }
@@ -7202,8 +7732,10 @@ sub write_summary_pages($$$$$$$$)
                  "\n");
         my $sep = $summaryType == 1 ? $summary->name() : '';
         foreach my $t ('line',
-                       $main::br_coverage ? 'branch' : undef,
-                       $main::func_coverage ? 'function' : undef) {
+                       $lcovutil::br_coverage ? 'branch' : undef,
+                       $lcovutil::mcdc_coverage ? 'mcdc' : undef,
+                       $lcovutil::func_coverage ? 'function' : undef
+        ) {
             my $s = $summary->tlaSummary($t) if defined($t);
             next unless $s;
             info("  $t: $s\n");
@@ -7220,6 +7752,11 @@ sub write_summary_pages($$$$$$$$)
             (   $lcovutil::br_coverage &&
                 0 != scalar($summary->owners(
                                  $main::show_ownerBins, SummaryInfo::BRANCH_DATA
+                )))
+            ||
+            (   $lcovutil::mcdc_coverage &&
+                0 != scalar($summary->owners(
+                                   $main::show_ownerBins, SummaryInfo::MCDC_DATA
                 )))
         ) {
             # at least one owner will appear - so table will be referenced
@@ -7291,12 +7828,13 @@ sub write_summary_pages($$$$$$$$)
     $lcovutil::profileData{html}{$name} = $end - $start;
 }
 
-sub write_function_page($$$$$$$$$$$$$)
+sub write_function_page($$$$$$$$$$$$$$$)
 {
     # Generate function table for this file
-    my ($fileCovInfo, $base_dir, $rel_dir, $trunc_dir, $base_name,
-        $title, $sumcount, $funcdata, $testfncdata, $sumbrcount,
-        $testbrdata, $sort_type, $summary) = @_;
+    my ($fileCovInfo, $base_dir, $rel_dir, $trunc_dir,
+        $base_name, $title, $sumcount, $funcdata,
+        $testfncdata, $sumbrcount, $testbrdata, $mcdc,
+        $testcase_mcdc, $sort_type, $summary) = @_;
     # $fileCovInfo is array [function hash, line hash, branch hash]
     my $filename;
     if ($sort_type == $main::SORT_FILE) {
@@ -7309,6 +7847,11 @@ sub write_function_page($$$$$$$$$$$$$)
         # by number of un-exercised lines
         $filename =
             File::Spec->catfile($rel_dir, "$base_name.func-l.$html_ext");
+    } elsif ($sort_type == $main::SORT_MISSING_MCDC) {
+        # by number of un-exercised MC/DC expressions
+        return unless %{$fileCovInfo->[3]};
+        $filename =
+            File::Spec->catfile($rel_dir, "$base_name.func-m.$html_ext");
     } else {
         die("Unexpected sort $sort_type")
             unless ($sort_type == $main::SORT_MISSING_BRANCH);
@@ -7332,6 +7875,7 @@ sub write_function_page($$$$$$$$$$$$$)
                          "$base_name.gcov.$html_ext", $sumcount,
                          $funcdata, $testfncdata,
                          $sumbrcount, $testbrdata,
+                         $mcdc, $testcase_mcdc,
                          $base_name, $base_dir,
                          $sort_type);
     write_html_epilog(*HTML_HANDLE, $base_dir, 1);
@@ -7361,14 +7905,16 @@ sub process_file($$$$$)
     local *HTML_HANDLE;
 
     my $fileData = $current_data->data($filename);    # TraceInfo struct
-    my ($testdata, $sumcount, $funcdata, $checkdata,
-        $testfncdata, $testbrdata, $sumbrcount) = $fileData->get_info();
+    my ($testdata, $sumcount, $funcdata,
+        $checkdata, $testfncdata, $testbrdata,
+        $sumbrcount, $mcdc_summary, $testcase_mcdc) = $fileData->get_info();
 
-    my ($lines_found, $lines_hit, $br_found, $br_hit, $fn_found, $fn_hit) = (
-                                       $fileData->found(), $fileData->hit(),
-                                       $fileData->b_found(), $fileData->b_hit(),
-                                       $fileData->f_found(), $fileData->f_hit()
-    );
+    my ($lines_found, $lines_hit, $br_found, $br_hit,
+        $mcdc_found, $mcdc_hit, $fn_found, $fn_hit)
+        = ($fileData->found(), $fileData->hit(),
+           $fileData->b_found(), $fileData->b_hit(),
+           $fileData->mcdc_found(), $fileData->mcdc_hit(),
+           $fileData->f_found(), $fileData->f_hit());
 
     $fileSummary->l_found($lines_found);
     $fileSummary->l_hit($lines_hit);
@@ -7376,6 +7922,8 @@ sub process_file($$$$$)
     $fileSummary->f_hit($fn_hit);
     $fileSummary->b_found($br_found);
     $fileSummary->b_hit($br_hit);
+    $fileSummary->mcdc_found($mcdc_found);
+    $fileSummary->mcdc_hit($mcdc_hit);
 
     # handle case that file was moved between baseline and current
     my $baseline_filename = $diff_data->baseline_file_name($filename);
@@ -7401,6 +7949,8 @@ sub process_file($$$$$)
         if $lcovutil::func_coverage && $fn_found != 0;
     $r .= " branches=$br_found hit=$br_hit"
         if $lcovutil::br_coverage && $br_found != 0;
+    $r .= " MC/DC=$mcdc_found hit=$mcdc_hit"
+        if $lcovutil::mcdc_coverage && $mcdc_found != 0;
     info($r . "\n");
 
     my $fileHasNoBaselineInfo = $main::treatNewFileAsBaseline &&
@@ -7427,6 +7977,7 @@ sub process_file($$$$$)
         # summarize the bin data if we had baseline data for comparison
         foreach my $t (['line', $lines_found],
                        ['branch', $lcovutil::br_coverage ? $br_found : 0],
+                       ['mcdc', $lcovutil::mcdc_coverage ? $mcdc_found : 0],
                        ['function', $lcovutil::func_coverage ? $fn_found : 0]
         ) {
             next if 0 == $t->[1];
@@ -7483,7 +8034,7 @@ sub process_file($$$$$)
 
         @source = write_source(*HTML_HANDLE, $srcfile, $sumcount,
                                $checkdata, $fileCovInfo, $funcdata,
-                               $sumbrcount);
+                               $sumbrcount, $mcdc_summary);
 
         write_html_epilog(*HTML_HANDLE, $base_dir, 1);
         close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
@@ -7495,6 +8046,7 @@ sub process_file($$$$$)
             # compute number of hit/missed coverpoints in each function
             my %lineCov;
             my %branchCov;
+            my %mcdcCov;
             if ($main::show_functionProportions) {
                 while (my ($name, $funcEntry) = each(%$differentialFunctionMap))
                 {
@@ -7524,12 +8076,27 @@ sub process_file($$$$$)
                             $branchCov{$name} = [$found, $hit];
                         }
                     }
+                    if ($lcovutil::mcdc_coverage) {
+                        my $mcdcData = $funcEntry->findMyMcdc($mcdc_summary);
+                        if (defined($mcdcData) &&
+                            0 != scalar(@$mcdcData)) {
+                            # there are MC/DC expressions here..
+                            my $found = 0;
+                            my $hit   = 0;
+                            foreach my $mcdc (@$mcdcData) {
+                                my ($f, $h) = $mcdc->totals();
+                                $found += $f;
+                                $hit   += $h;
+                            }
+                            $mcdcCov{$name} = [$found, $hit];
+                        }
+                    }
                 }
             }
             if (%$differentialFunctionMap) {
-                foreach (@funcview_sortlist) {
-                    write_function_page([$differentialFunctionMap, \%lineCov,
-                                         \%branchCov
+                foreach my $sort_type (@funcview_sortlist) {
+                    write_function_page([$differentialFunctionMap,
+                                         \%lineCov, \%branchCov, \%mcdcCov,
                                         ],
                                         $base_dir,
                                         $rel_dir,
@@ -7541,7 +8108,9 @@ sub process_file($$$$$)
                                         $testfncdata,
                                         $sumbrcount,
                                         $testbrdata,
-                                        $_,
+                                        $mcdc_summary,
+                                        $testcase_mcdc,
+                                        $sort_type,
                                         $fileSummary);
                 }
             }
@@ -7581,7 +8150,7 @@ sub process_file($$$$$)
     }
     my $to = Time::HiRes::gettimeofday();
     $lcovutil::profileData{html}{$filename} = $to - $from;
-    return ($testdata, $testfncdata, $testbrdata);
+    return ($testdata, $testfncdata, $testbrdata, $testcase_mcdc);
 }
 
 sub compute_title($$)
@@ -8820,6 +9389,16 @@ sub write_css_file()
         {
           color: #COLOR_00;
         }
+
+        a.mcdcTla:link
+        {
+          color: #COLOR_00;
+        }
+
+        a.mcdcTla:visited
+        {
+          color: #COLOR_00;
+        }
 END_OF_CSS
         ;
 
@@ -9589,6 +10168,8 @@ END_OF_HTML
                                 if $covType == SummaryInfo::LINE_DATA;
                             $line = $fileDetails->nextBranchTlaGroup($key)
                                 if $covType == SummaryInfo::BRANCH_DATA;
+                            $line = $fileDetails->nextMcdcTlaGroup($key)
+                                if $covType == SummaryInfo::MCDC_DATA;
                         } elsif ('owner' eq $page_type) {
                             my $owner = $summary->owner();
                             $column = $owner;
@@ -9598,6 +10179,9 @@ END_OF_HTML
                             $line =
                                 $fileDetails->nextBranchInOwnerBin($owner, $key)
                                 if $covType == SummaryInfo::BRANCH_DATA;
+                            $line =
+                                $fileDetails->nextMcdcInOwnerBin($owner, $key)
+                                if $covType == SummaryInfo::MCDC_DATA;
                         } elsif ('date' eq $page_type) {
                             my $agebin = $summary->bin();
                             $column = $agebin;
@@ -9608,6 +10192,9 @@ END_OF_HTML
                             $line =
                                 $fileDetails->nextBranchInDateBin($agebin, $key)
                                 if $covType == SummaryInfo::BRANCH_DATA;
+                            $line =
+                                $fileDetails->nextMcdcInDateBin($agebin, $key)
+                                if $covType == SummaryInfo::MCDC_DATA;
                         } else {
                             die("unexpected page detail type '$page_type'");
                         }
@@ -9808,11 +10395,13 @@ sub write_source_prolog(**)
 {
     my $lineno_heading     = " " x 9;
     my $branch_heading     = "";
+    my $mcdc_heading       = "";
     my $tlaWidth           = 4;
     my $fileHasProjectData = $_[1];
     my $age_heading        = "";
     my $owner_heading      = "";
     my $tla_heading        = "";
+
     if (defined($main::show_dateBins) &&
         $fileHasProjectData) {
         $age_heading   = fmt_centered(5, "Age");
@@ -9827,6 +10416,9 @@ sub write_source_prolog(**)
     if ($lcovutil::br_coverage) {
         $branch_heading = fmt_centered($br_field_width, "Branch data") . " ";
     }
+    if ($lcovutil::mcdc_coverage) {
+        $mcdc_heading = fmt_centered($mcdc_field_width, "MC/DC data") . " ";
+    }
 
     # *************************************************************
 
@@ -9837,69 +10429,11 @@ sub write_source_prolog(**)
             </tr>
             <tr>
               <td>
-<pre class="sourceHeading">${age_heading} ${owner_heading} ${lineno_heading}${branch_heading}${tla_heading}${line_heading} ${source_heading}</pre>
+<pre class="sourceHeading">${age_heading} ${owner_heading} ${lineno_heading}${branch_heading}${mcdc_heading}${tla_heading}${line_heading} ${source_heading}</pre>
 <pre class="source">
 END_OF_HTML
 
     # *************************************************************
-}
-
-sub cmp_blocks($$)
-{
-    my ($a, $b)   = @_;
-    my ($fa, $fb) = ($a->[0], $b->[0]);
-
-    return $fa->[0] <=> $fb->[0] if ($fa->[0] != $fb->[0]);
-    return $fa->[1] <=> $fb->[1];
-}
-
-#
-# get_branch_blocks(brdata)
-#
-# Group branches that belong to the same basic block.
-#
-# Returns: [block1, block2, ...]
-# block:   [branch1, branch2, ...]
-# branch:  [block_num, branch_num, taken_count, text_length, open, close]
-#
-
-sub get_branch_blocks($)
-{
-    my $brdata = shift;
-
-    return () if (!defined($brdata));
-
-    my $last_block_num;
-    my $block = [];
-    my @blocks;
-
-    # Group branches
-    foreach my $block_num (sort $brdata->blocks()) {
-        my $blockData = $brdata->getBlock($block_num);
-        my $branch    = 0;
-        foreach my $br (@$blockData) {
-
-            if (defined($last_block_num) && $block_num != $last_block_num) {
-                push(@blocks, $block);
-                $block = [];
-            }
-            my $br = [$block_num, $branch, $br, 3, 0, 0];
-            push(@{$block}, $br);
-            $last_block_num = $block_num;
-            ++$branch;
-        }
-    }
-    push(@blocks, $block) if (scalar(@{$block}) > 0);
-
-    # Add braces to first and last branch in group
-    foreach $block (@blocks) {
-        $block->[0]->[$BR_OPEN] = 1;
-        $block->[0]->[$BR_LEN]++;
-        $block->[scalar(@{$block}) - 1]->[$BR_CLOSE] = 1;
-        $block->[scalar(@{$block}) - 1]->[$BR_LEN]++;
-    }
-
-    return sort(cmp_blocks @blocks);
 }
 
 #
@@ -9916,8 +10450,127 @@ sub get_block_len($)
     foreach my $branch (@{$block}) {
         $len += $branch->[$BR_LEN];
     }
-
     return $len;
+}
+
+#
+# get_block_list(brdata | mcdc_data)
+#
+# common method for branch and MC/DC records
+# Group elements that belong to the same basic record
+#
+# Returns: [block1, block2, ...] <- in order of increasing block number/group size
+# block:   [branch1, branch2, ...] <- in order of increasing branch/expression index
+# branch:  [block_num, branch_num, taken_count, text_length, open, close]
+#
+
+sub get_block_list($)
+{
+    my $data = shift;
+    return () unless defined($data);
+
+    my @blocks;
+
+    if ('BranchEntry' eq ref($data)) {
+
+        my $block = [];
+        my $last_block_num;
+
+        # Group branches
+        foreach my $block_num (sort $data->blocks()) {
+            my $blockData = $data->getBlock($block_num);
+            my $branch    = 0;
+            foreach my $br (@$blockData) {
+
+                if (defined($last_block_num) && $block_num != $last_block_num) {
+                    push(@blocks, $block);
+                    $block = [];
+                }
+                my $br = [$block_num, $branch, $br, 3, 0, 0];
+                push(@{$block}, $br);
+                $last_block_num = $block_num;
+                ++$branch;
+            }
+        }
+        push(@blocks, $block) if (scalar(@{$block}) > 0);
+    } else {
+        die('unexpected ' . ref($data)) unless 'MCDC_Block' eq ref($data);
+        # Group MC/DC groups
+        foreach my $groupSize (sort keys %{$data->groups()}) {
+            my $exprs = $data->groups()->{$groupSize};
+            my $block = [];
+            push(@blocks, $block);
+            foreach my $expr (@$exprs) {
+                # display 'true' then 'false' sense - to match what we do for branches
+                # and to match behaviour of ?: operator
+                foreach my $sense (1, 0) {
+                    my $cond =
+                        [$groupSize, $expr->index(), $sense, $expr, 3, 0, 0];
+                    push(@{$block}, $cond);
+                }
+            }
+        }
+    }
+    # Add braces to first and last branch in group
+    foreach my $block (@blocks) {
+        $block->[0]->[$BR_OPEN] = 1;
+        $block->[0]->[$BR_LEN]++;
+        $block->[$#$block]->[$BR_CLOSE] = 1;
+        $block->[$#$block]->[$BR_LEN]++;
+    }
+    return @blocks;
+}
+
+# distribute blocks into lines - trying to keep groups on a single line,
+# if possible
+sub distribute_blocks($$)
+{
+    my ($blocks, $field_width) = @_;
+
+    my $line_len = 0;
+    my $line     = [];    # [branch2|" ", branch|" ", ...]
+    my @lines;            # [line1, line2, ...]
+    my @result;
+
+    # Distribute blocks to lines
+    foreach my $block (@$blocks) {
+        my $block_len = get_block_len($block);
+
+        # Does this block fit into the current line?
+        if ($line_len + $block_len <= $field_width) {
+            # Add it
+            $line_len += $block_len;
+            push(@{$line}, @{$block});
+            next;
+        } elsif ($block_len <= $field_width) {
+            # It would fit if the line was empty - add it to new line
+            push(@lines, $line);
+            $line_len = $block_len;
+            $line     = [@{$block}];
+            next;
+        }
+        # Split the block into several lines
+        foreach my $branch (@{$block}) {
+            if ($line_len + $branch->[$BR_LEN] >= $field_width) {
+                # Start a new line
+                if (($line_len + 1 <= $field_width) &&
+                    scalar(@{$line}) > 0 &&
+                    !$line->[scalar(@$line) - 1]->[$BR_CLOSE]) {
+                    # Try to align branch symbols to be in
+                    # one # row
+                    push(@{$line}, " ");
+                }
+                push(@lines, $line);
+                $line_len = 0;
+                $line     = [];
+            }
+            push(@{$line}, $branch);
+            $line_len += $branch->[$BR_LEN];
+        }
+    }
+    push(@lines, $line);
+
+    return @lines;
 }
 
 #
@@ -9939,56 +10592,19 @@ sub get_branch_html($$)
             if defined($lineData);
     }
     # build the 'blocks' array from differential data if we have it..
-    my @blocks = get_branch_blocks(
+    my @blocks = get_block_list(
                   defined($differentialBranch) ? $differentialBranch : $brdata);
-    my $line_len = 0;
-    my $line     = [];    # [branch2|" ", branch|" ", ...]
-    my @lines;            # [line1, line2, ...]
-    my @result;
 
-    # Distribute blocks to lines
-    foreach my $block (@blocks) {
-        my $block_len = get_block_len($block);
-
-        # Does this block fit into the current line?
-        if ($line_len + $block_len <= $br_field_width) {
-            # Add it
-            $line_len += $block_len;
-            push(@{$line}, @{$block});
-            next;
-        } elsif ($block_len <= $br_field_width) {
-            # It would fit if the line was empty - add it to new
-            # line
-            push(@lines, $line);
-            $line_len = $block_len;
-            $line     = [@{$block}];
-            next;
-        }
-        # Split the block into several lines
-        foreach my $branch (@{$block}) {
-            if ($line_len + $branch->[$BR_LEN] >= $br_field_width) {
-                # Start a new line
-                if (($line_len + 1 <= $br_field_width) &&
-                    scalar(@{$line}) > 0 &&
-                    !$line->[scalar(@$line) - 1]->[$BR_CLOSE]) {
-                    # Try to align branch symbols to be in
-                    # one # row
-                    push(@{$line}, " ");
-                }
-                push(@lines, $line);
-                $line_len = 0;
-                $line     = [];
-            }
-            push(@{$line}, $branch);
-            $line_len += $branch->[$BR_LEN];
-        }
-    }
-    push(@lines, $line);
-
-    my %tlaLinks;
+    my @lines = distribute_blocks(\@blocks, $br_field_width);
 
     # Convert to HTML
-    foreach $line (@lines) {
+    #  branch and MC/DC code is similar - but merging only makes things
+    #  more complicated as the details of the text, popups, etc are different
+    # maybe revisit later
+    my @result;
+    my %tlaLinks;
+
+    foreach my $line (@lines) {
         my $current     = "";
         my $current_len = 0;
 
@@ -10093,6 +10709,146 @@ sub get_branch_html($$)
     return @result;
 }
 
+sub get_mcdc_html($$)
+{
+    # @todo can be shared with branch, MC/DC
+    my ($mcdc_data, $cbdata) = @_;
+    my $differentialMcdc;
+    my $fileDetail = $cbdata->sourceDetail();
+    if (defined($main::show_tla)) {
+        my $lineNo   = $cbdata->lineNo();
+        my $lineData = $cbdata->lineData()->line($lineNo);
+        $differentialMcdc = $lineData->differential_mcdc()
+            if defined($lineData);
+    }
+    # build the 'blocks' array from differential data if we have it..
+    my @blocks = get_block_list(
+                   defined($differentialMcdc) ? $differentialMcdc : $mcdc_data);
+
+    my @lines = distribute_blocks(\@blocks, $mcdc_field_width);
+
+    # Convert to HTML
+    #  branch and MC/DC code is similar - but merging only makes things
+    #  more complicated as the details of the text, popups, etc are different
+    # maybe revisit later
+    my @result;
+    my %tlaLinks;
+
+    foreach my $line (@lines) {
+        my $current     = "";
+        my $current_len = 0;
+
+        foreach my $cond (@$line) {
+            # Skip alignment space
+            unless ('ARRAY' eq ref($cond)) {
+                die("unexpected 'cond' entry '$cond'") unless ($cond eq " ");
+                $current .= " ";
+                $current_len++;
+                next;
+            }
+
+            my ($groupSize, $exprIdx, $sense, $expr, $len, $open, $close) =
+                @$cond;
+            die("unexpected expr type") unless ref($expr) eq 'MCDC_Expression';
+
+            my $count = $expr->count($sense);
+            my $taken;
+            my $class;
+            my $prefix;
+            my $tla;
+            my $base_count;
+            if ('ARRAY' ne ref($count)) {
+                # vanilla case - no differential coverage info
+                die("differential MC/DC coverage but no TLA")
+                    if defined($differentialMcdc);
+                $taken = $count;
+                if ($count == 0) {
+                    $class = "tlaUNC";
+                } else {
+                    $class = 'tlaGBC';
+                }
+                $prefix = '';
+            } else {
+                die("differential MC/DC coverage but no TLA")
+                    unless defined($differentialMcdc);
+                ($tla, $base_count, $taken) = @$count;
+
+                $class = "tla$tla";
+                my $label =
+                    $main::use_legacyLabels ?
+                    $SummaryInfo::tlaToLegacySrcLabel{$tla} :
+                    $tla;
+                $prefix = $label . ": ";
+            }
+            my ($char, $title);
+
+            my $expr_name = $expr->expression();
+            $title = ${prefix} . ($sense ? 'True' : 'False') .
+                ' sense of expression "' . $expr->expression() . '" ';
+            if ($expr->parent()->num_groups() > 1) {
+                $title .= 'in group "' . $expr->groupSize() . '" ';
+            }
+
+            if (!defined($taken)) {
+                $char = '-';
+                $title .= 'was dropped';
+                $title .=
+                    ' (previously ' .
+                    (1 == $base_count ? '' : 'not ') . 'sensitized)'
+                    if (defined($tla) &&
+                        ($tla eq 'LBC' || $tla eq 'ECB'));
+
+            } elsif ($taken == 0) {
+                $char = $sense ? 't' : 'f';
+                $title .= 'was not sensitized';
+                $title .=
+                    ' (previously ' .
+                    (1 == $base_count ? '' : 'not ') . 'sensitized)'
+                    if (defined($tla) &&
+                        ($tla eq 'LBC' || $tla eq 'ECB'));
+            } else {
+                $char = $sense ? 'T' : 'F';
+                $title .= 'was sensitized';
+            }
+            $title = escape_html($title);
+            $current .= "[" if ($open);
+
+            if (!$main::no_sourceview &&
+                defined($differentialMcdc)) {
+                my $href;
+                if (exists($tlaLinks{$tla})) {
+                    $href = $tlaLinks{$tla};
+                } else {
+                    my $line = $differentialMcdc->line();
+                    my $next = $fileDetail->nextMcdcTlaGroup($tla, $line);
+                    $href =
+                        "<a href=\"#" . (defined($next) ? "L$next" : 'top') .
+                        "\" title=\"TITLE\" class=\"mcdcTla\">SENSE</a>";
+                    # cache the href as 'next' lookup is moderately expensive
+                    $tlaLinks{$tla} = $href;
+                }
+                # keep the link but update the sense character
+                $href =~ s/SENSE/$char/;
+                $href =~ s#TITLE#$title#;
+                $current .= "<span class=\"$class\"> $href </span>";
+            } else {
+                $current .=
+                    "<span class=\"$class\" title=\"$title\"> $char </span>";
+            }
+            $current .= "]" if ($close);
+            $current_len += $len;
+        }
+
+        # Right-align result text
+        if ($current_len < $mcdc_field_width) {
+            $current = (" " x ($mcdc_field_width - $current_len)) . $current;
+        }
+        push(@result, $current);
+    }
+
+    return @result;
+}
+
 #
 # format_count(count, width)
 #
@@ -10125,16 +10881,16 @@ sub format_count($$)
 }
 
 #
-# write_source_line(filehandle, cbdata, source, hit_count, brdata,
+# write_source_line(filehandle, cbdata, source, hit_count, brdata, mcdc,
 #                   printCallbackStruct)
 #
 # Write formatted source code line. Return a line in a format as needed
 # by gen_png()
 #
 
-sub write_source_line(*$$$$)
+sub write_source_line(*$$$$$)
 {
-    my ($handle, $srcline, $count, $brdata, $cbdata) = @_;
+    my ($handle, $srcline, $count, $brdata, $mcdc, $cbdata) = @_;
     my $line         = $cbdata->lineNo();
     my $fileCovInfo  = $cbdata->lineData();
     my $sourceDetail = $cbdata->sourceDetail();
@@ -10147,7 +10903,6 @@ sub write_source_line(*$$$$)
     my $anchor_start      = "";
     my $anchor_end        = "";
     my $count_field_width = $line_field_width - 1;
-    my @br_html;
     my $html;
     my $tla;
     my $base_count;
@@ -10159,7 +10914,9 @@ sub write_source_line(*$$$$)
                     $cbdata->current('age'));
 
     # Get branch HTML data for this line
-    @br_html = get_branch_html($brdata, $cbdata) if ($lcovutil::br_coverage);
+    my @br_html = get_branch_html($brdata, $cbdata) if ($lcovutil::br_coverage);
+
+    my @mcdc_html = get_mcdc_html($mcdc, $cbdata) if ($lcovutil::mcdc_coverage);
 
     my $thisline = $fileCovInfo->lineMap()->{$line};
     my $tlaIsHref;
@@ -10469,7 +11226,9 @@ sub write_source_line(*$$$$)
     $html .= sprintf("$lineNumSpan%8d</span> ", $line);
     #printf("tla= " . $tla);
     #printf("html= " . $html);
+
     $html .= shift(@br_html) . ":" if ($lcovutil::br_coverage);
+    $html .= shift(@mcdc_html) . ":" if ($lcovutil::mcdc_coverage);
 
     $tla = ""
         if (!defined($main::show_tla));
@@ -10496,13 +11255,17 @@ sub write_source_line(*$$$$)
 
     write_html($handle, $html);
 
-    if ($lcovutil::br_coverage) {
-        # Add lines for overlong branch information
-        foreach (@br_html) {
-            write_html($handle,
-                       "$html_continuation_leader$lineNumSpan" .
-                           ' ' x 8 . "</span> $_\n");
+    # Add lines for overlong branch and/or MC/DC information
+    while (@br_html || @mcdc_html) {
+        my $br = @br_html ? shift(@br_html) : '';
+        my $mc = @mcdc_html ? shift(@mcdc_html) : '';
+        if ($mc) {
+            # space over far enough to line up with MC/DC extension column
+            $br .= ' ' x ($br_field_width - length($br)) . ' ';
         }
+        write_html($handle,
+                   "$html_continuation_leader$lineNumSpan" .
+                       ' ' x 8 . "</span> $br$mc\n");
     }
     # *************************************************************
 
@@ -10724,6 +11487,9 @@ sub buildDateSummaryTable($$$$$$$$$)
     } elsif ($covType == SummaryInfo::BRANCH_DATA) {
         $lim_med  = $br_med_limit;
         $lim_high = $br_hi_limit;
+    } elsif ($covType == SummaryInfo::MCDC_DATA) {
+        $lim_med  = $mcdc_med_limit;
+        $lim_high = $mcdc_hi_limit;
     } elsif ($covType == SummaryInfo::FUNCTION_DATA) {
         $lim_med  = $fn_med_limit;
         $lim_high = $fn_hi_limit;
@@ -10846,6 +11612,9 @@ sub buildOwnerSummaryTable($$$$$$$$$$)
     } elsif ($covType eq SummaryInfo::BRANCH_DATA) {
         $lim_med  = $br_med_limit;
         $lim_high = $br_hi_limit;
+    } elsif ($covType eq SummaryInfo::MCDC_DATA) {
+        $lim_med  = $mcdc_med_limit;
+        $lim_high = $mcdc_hi_limit;
     } elsif ($covType eq SummaryInfo::FUNCTION_DATA) {
         $lim_med  = $fn_med_limit;
         $lim_high = $fn_hi_limit;
@@ -11287,6 +12056,8 @@ END_OF_HTML
         my @visit = (SummaryInfo::LINE_DATA);
         push(@visit, SummaryInfo::BRANCH_DATA)
             if $lcovutil::br_coverage;
+        push(@visit, SummaryInfo::MCDC_DATA)
+            if $lcovutil::mcdc_coverage;
         push(@visit, SummaryInfo::FUNCTION_DATA)
             if $lcovutil::func_coverage;
 
@@ -11441,6 +12212,32 @@ END_OF_HTML
             if ($type != $HDR_TESTDESC);
     }
 
+    # MC/DC coverage
+    if ($lcovutil::mcdc_coverage) {
+        my $tot = $summary->mcdc_found();
+        my $hit = $summary->mcdc_hit();
+        $style =
+            $rate_name[classify_rate($tot, $hit, $br_med_limit, $br_hi_limit)];
+        $rate = rate($hit, $tot, "&nbsp;%");
+        $hit -= $tot
+            if $main::opt_missed;    # negative number
+        my @dataRow = ([undef, "headerItem", "MC/DC:"],
+                       [undef, "headerCovTableEntry$style", $rate],
+                       [undef, "headerCovTableEntry", $tot]);
+        if ($main::show_hitTotalCol) {
+            push(@dataRow, [undef, "headerCovTableEntry", $hit]);
+        }
+        if ($main::show_tla) {
+            my @tlaRow =
+                buildHeaderSummaryTableRow($summary, SummaryInfo::MCDC_DATA,
+                                  $fileDetail, \&SourceFile::nextBranchTlaGroup,
+                                  $tlaSummaryTypes);
+            push(@dataRow, @tlaRow);
+        }
+        push(@row_right, \@dataRow)
+            if ($type != $HDR_TESTDESC);
+    }
+
     # Aged coverage
     if ($show_dateBins) {
         # make a space in the table between before date bins
@@ -11486,6 +12283,21 @@ END_OF_HTML
             push(@row_right, @$br_table)
                 if ($type != $HDR_TESTDESC);
         }
+
+        if ($lcovutil::mcdc_coverage) {
+            my $mcdc_table =
+                buildDateSummaryTable($summary,
+                                      SummaryInfo::MCDC_DATA,
+                                      \&SummaryInfo::mcdcCovCount,
+                                      $fileDetail,
+                                      \&SourceFile::nextMcdcInDateBin,
+                                      "MC/DC coverage date bins:",
+                                      $dateBinDetailPage,
+                                      scalar(@dataRow),
+                                      $tlaSummaryTypes);
+            push(@row_right, @$mcdc_table)
+                if ($type != $HDR_TESTDESC);
+        }
     }
     # owner bins..
     if (defined($main::show_ownerBins)) {
@@ -11528,6 +12340,22 @@ END_OF_HTML
                                            scalar(@dataRow),
                                            $tlaSummaryTypes);
                 push(@row_right, @$br_table)
+                    if ($type != $HDR_TESTDESC);
+            }
+
+            if ($lcovutil::mcdc_coverage) {
+                my $mcdc_table =
+                    buildOwnerSummaryTable($ownerList,
+                                           $truncated,
+                                           $summary,
+                                           SummaryInfo::MCDC_DATA,
+                                           $fileDetail,
+                                           \&SourceFile::nextBranchInOwnerBin,
+                                           "MC/DC coverage ownership bins",
+                                           $ownerBinDetailPage,
+                                           scalar(@dataRow),
+                                           $tlaSummaryTypes);
+                push(@row_right, @$mcdc_table)
                     if ($type != $HDR_TESTDESC);
             }
         }
@@ -11665,6 +12493,23 @@ sub get_br_code($$$$$$)
     return $result;
 }
 
+sub get_mcdc_code($$$$$$)
+{
+    my ($type, $text, $sort_button, $bin_type, $primary_key, $base) = @_;
+    my $result = $text;
+    my $link;
+    my $key = 'name' ne $primary_key ? "-bin_$primary_key" : "";
+
+    if ($sort_button) {
+        $link = "index$key$bin_type";
+        $link .= '-detail'
+            unless ($type == $HEAD_NO_DETAIL);
+        $link .= "-sort-m.$html_ext";
+    }
+    $result .= get_sort_code($link, "MC/DC coverage", $base);
+    return $result;
+}
+
 #
 # write_file_table(filehandle, callback_type, base_dir, perTestcaseData,
 #                  parentSummary, ctrlSettings, activeTlaCols)
@@ -11691,10 +12536,11 @@ sub get_br_code($$$$$$)
 sub write_file_table(*$$$$$$)
 {
     local *HTML_HANDLE = $_[0];
-    my $callback_type   = $_[1];
-    my $base_dir        = $_[2];
-    my $perTestcaseData = $_[3];    # undef or [lineCov, funcCov, branchCov]
-    my $dirSummary      = $_[4];    # SummaryInfo object
+    my $callback_type = $_[1];
+    my $base_dir      = $_[2];
+    my $perTestcaseData =
+        $_[3];    # undef or [lineCov, funcCov, branchCov, mcdcCov]
+    my $dirSummary = $_[4];    # SummaryInfo object
     my ($fileview, $primary_key, $sort_type, $bin_type) = @{$_[5]};
     my $activeTlaCols = $_[6];
     # $fileview == 0 if listing directories, 1 if listing files
@@ -11751,22 +12597,30 @@ sub write_file_table(*$$$$$$)
                               "Branch Coverage",
                               $use_sort_button && $sort_type != $SORT_BRANCH,
                               $bin_type, $primary_key, $base_dir);
+    my $mcdc_code = get_mcdc_code($hide,
+                                  "MC/DC Coverage",
+                                  $use_sort_button && $sort_type != $SORT_MCDC,
+                                  $bin_type, $primary_key, $base_dir);
 
     my @head_columns;
     my $includeFunctionColumns =
         $lcovutil::func_coverage && 'owner' ne $primary_key;
 
     my @lineCovCols     = (["Rate", 2], "Total");
+    my @mcdcCovCols     = ("Rate", "Total");
     my @branchCovCols   = ("Rate", "Total");
     my @functionCovCols = ("Rate", "Total");
     if ($main::show_hitTotalCol) {
         my $t = $main::opt_missed ? "Missed" : "Hit";
         push(@lineCovCols, $t);
+        push(@mcdcCovCols, $t);
         push(@branchCovCols, $t);
         push(@functionCovCols, $t);
     }
     if ($main::show_tla) {
         my @visit = ([SummaryInfo::LINE_DATA, \@lineCovCols]);
+        push(@visit, [SummaryInfo::MCDC_DATA, \@mcdcCovCols])
+            if $lcovutil::mcdc_coverage;
         push(@visit, [SummaryInfo::BRANCH_DATA, \@branchCovCols])
             if $lcovutil::br_coverage;
         push(@visit, [SummaryInfo::FUNCTION_DATA, \@functionCovCols])
@@ -11788,6 +12642,8 @@ sub write_file_table(*$$$$$$)
         }
     }
     push(@head_columns, [$line_code, $#lineCovCols + 2, \@lineCovCols]);
+    push(@head_columns, [$mcdc_code, $#mcdcCovCols + 1, \@mcdcCovCols])
+        if ($lcovutil::mcdc_coverage);
     push(@head_columns, [$br_code, $#branchCovCols + 1, \@branchCovCols])
         if ($lcovutil::br_coverage);
     push(@head_columns, [$func_code, $#functionCovCols + 1, \@functionCovCols])
@@ -11836,64 +12692,45 @@ sub write_file_table(*$$$$$$)
         #   or by number of missed lines or missed branches
         my $all = defined($main::show_ownerBins) && $main::show_ownerBins;
 
-        # line coverage...
         my %owners;
-        foreach my $owner ($dirSummary->owners($all, SummaryInfo::LINE_DATA)) {
+        foreach my $d ([1, SummaryInfo::LINE_DATA, 0],
+                       [$lcovutil::mcdc_coverage, SummaryInfo::MCDC_DATA, 1],
+                       [$lcovutil::br_coverage, SummaryInfo::BRANCH_DATA, 2],
+        ) {
+            my ($enable, $dataType, $idx) = @$d;
+            next unless $enable;
 
-            $owners{$owner} = [
-                               [
-                                $dirSummary->owner_tlaCount(
-                                         $owner, 'found', SummaryInfo::LINE_DATA
-                                ),
-                                $dirSummary->owner_tlaCount(
-                                           $owner, 'hit', SummaryInfo::LINE_DATA
-                                )
-                               ],
-                               [0, 0],    # no branch owner data
-                               [0, 0],    # no function owner
-            ];
-        }
-        if ($lcovutil::br_coverage) {
-            foreach
-                my $owner ($dirSummary->owners($all, SummaryInfo::BRANCH_DATA))
-            {
-
-                $owners{$owner} = [[0, 0], [0, 0], [0, 0]]
+            foreach my $owner ($dirSummary->owners($all, $dataType)) {
+                # (line count, branch count, mcdc count, function count)
+                $owners{$owner} = [[0, 0], [0, 0], [0, 0], [0, 0]]
                     unless exists($owners{$owner});
 
-                $owners{$owner}->[1] = [
-                                   $dirSummary->owner_tlaCount(
-                                       $owner, 'found', SummaryInfo::BRANCH_DATA
-                                   ),
-                                   $dirSummary->owner_tlaCount(
-                                         $owner, 'hit', SummaryInfo::BRANCH_DATA
-                                   )
+                $owners{$owner}->[$idx] = [
+                        $dirSummary->owner_tlaCount($owner, 'found', $dataType),
+                        $dirSummary->owner_tlaCount($owner, 'hit', $dataType)
                 ];
             }
         }
-        my @sorted;
-        # now, sort the owner list...
-        if ($sort_type eq $SORT_LINE) {
-            # sort by number of missed lines
-            @sorted = sort({
-                               my $la = $owners{$a}->[0];
-                               my $lb = $owners{$b}->[0];
-                               ($lb->[0] - $lb->[1]) <=> ($la->[0] - $la->[1])
-                                   ||
-                                   $a cmp $b    # then by name
-            } keys(%owners));
-        } elsif ($sort_type eq $SORT_BRANCH) {
-            # sort by number of missed branches
-            @sorted = sort({
-                               my $la = $owners{$a}->[1];
-                               my $lb = $owners{$b}->[1];
-                               ($lb->[0] - $lb->[1]) <=> ($la->[0] - $la->[1])
-                                   ||
-                                   $a cmp $b    # then by name
-            } keys(%owners));
-        } else {
-            @sorted = sort(keys(%owners));
+        my @sorted = sort(keys(%owners));    # default sort order
+                                             # now, sort the owner list...
+        foreach my $d ([1, $SORT_LINE, 0],
+                       [$lcovutil::mcdc_coverage, $SORT_MCDC, 1],
+                       [$lcovutil::br_coverage, $SORT_BRANCH, 2],
+        ) {
+            my ($enable, $s, $idx) = @$d;
+            if ($sort_type eq $s) {
+                # sort by number of missed lines/branches/MCDC expressions
+                @sorted = sort({
+                                   my $la = $owners{$a}->[$idx];
+                                   my $lb = $owners{$b}->[$idx];
+                                   ($lb->[0] - $lb->[1])
+                                       <=> ($la->[0] - $la->[1]) ||
+                                       $a cmp $b    # then by name
+                } keys(%owners));
+                last;
+            }
         }
+
         # don't truncate the 'owner detail table'
         #  if user asked to see the page, then they want to be able to navigate
         #  to all users
@@ -11919,6 +12756,8 @@ sub write_file_table(*$$$$$$)
                 ($lcovutil::br_coverage &&
                     0 != $dirSummary->branchCovCount('found', 'age', $ageval))
                 ||
+                ($lcovutil::mcdc_coverage &&
+                    0 != $dirSummary->mcdcCovCount('found', 'age', $ageval)) ||
                 ($lcovutil::func_coverage &&
                     0 != $dirSummary->functionCovCount('found', 'age', $ageval))
             ) {
@@ -11992,6 +12831,16 @@ sub write_file_table(*$$$$$$)
                             $lcovutil::br_coverage ? $branchCb->get('hit') : 0;
                         my $branchMissed = $branchTotal - $hit;
 
+                        my $mcdcCb =
+                            $primaryCb->dateDetailCallback($ageval,
+                                                        SummaryInfo::MCDC_DATA);
+                        my $mcdcTotal =
+                            $lcovutil::mcdc_coverage ? $mcdcCb->get('found') :
+                            0;
+                        $hit =
+                            $lcovutil::mcdc_coverage ? $mcdcCb->get('hit') : 0;
+                        my $mcdcMissed = $mcdcTotal - $hit;
+
                         my $functionCb =
                             $primaryCb->dateDetailCallback($ageval,
                                                     SummaryInfo::FUNCTION_DATA);
@@ -12007,11 +12856,13 @@ sub write_file_table(*$$$$$$)
                         next
                             if 0 == $lineTotal &&
                             0 == $branchTotal  &&
+                            0 == $mcdcTotal    &&
                             0 == $functionTotal;
 
                         push(@secondaryRows,
                              [$SummaryInfo::ageGroupHeader[$bin],
                               [$lineMissed, $lineTotal, $lineCb],
+                              [$mcdcMissed, $mcdcTotal, $mcdcCb],
                               [$branchMissed, $branchTotal, $branchCb],
                               [$functionMissed, $functionTotal, $functionCb]
                              ]);
@@ -12023,8 +12874,8 @@ sub write_file_table(*$$$$$$)
             push(@secondaryRows, $primaryCb->findFileList($all));
         }
 
-        my ($found, $hit, $fn_found,
-            $fn_hit, $br_found, $br_hit,
+        my ($found, $hit, $fn_found, $fn_hit,
+            $br_found, $br_hit, $mcdc_found, $mcdc_hit,
             $page_link, $fileSummary, $fileDetails) = $primaryCb->data();
         # a bit of a hack: if this is top-level page (such that the links
         #   are to directory pages rather than to source code detail pages)
@@ -12049,6 +12900,18 @@ sub write_file_table(*$$$$$$)
               $primaryCb->totalCallback(SummaryInfo::LINE_DATA),
               SummaryInfo::LINE_DATA
              ]);
+        # MC/DC coverage
+        if ($lcovutil::mcdc_coverage) {
+            push(@columns,
+                 [$mcdc_found,
+                  $mcdc_hit,
+                  $mcdc_med_limit,
+                  $mcdc_hi_limit,
+                  0,
+                  $primaryCb->totalCallback(SummaryInfo::MCDC_DATA),
+                  SummaryInfo::MCDC_DATA
+                 ]);
+        }
         # Branch coverage
         if ($lcovutil::br_coverage) {
             push(@columns,
@@ -12107,8 +12970,10 @@ sub write_file_table(*$$$$$$)
                 $sortElem = 1;
             } elsif ($sort_type == $SORT_BRANCH) {
                 $sortElem = 2;
-            } elsif ($sort_type == $SORT_FUNC) {
+            } elsif ($sort_type == $SORT_MCDC) {
                 $sortElem = 3;
+            } elsif ($sort_type == $SORT_FUNC) {
+                $sortElem = 4;
             }
             @secondaryRows =
                 sort({
@@ -12119,7 +12984,7 @@ sub write_file_table(*$$$$$$)
                 } @secondaryRows);
         }
         foreach my $secondary (@secondaryRows) {
-            my ($name, $line, $branch, $func) = @$secondary;
+            my ($name, $line, $branch, $mcdc, $func) = @$secondary;
             my ($lineMissed, $lineTotal, $lineCb) = @$line;
             my $lineHit = $lineTotal - $lineMissed;
 
@@ -12133,6 +12998,16 @@ sub write_file_table(*$$$$$$)
                   $hi_limit, $showLineGraph, $lineCb,
                   SummaryInfo::LINE_DATA
                  ]);
+            if ($lcovutil::mcdc_coverage) {
+                my ($mcdcMissed, $mcdcTotal, $mcdcCallback) = @$mcdc;
+                # need to compute the totals...
+                push(@ownerColData,
+                     [$mcdcTotal, $mcdcTotal - $mcdcMissed,
+                      $mcdc_med_limit, $mcdc_hi_limit,
+                      0, $mcdcCallback,
+                      SummaryInfo::MCDC_DATA
+                     ]);
+            }
             if ($lcovutil::br_coverage) {
                 my ($branchMissed, $branchTotal, $brCallback) = @$branch;
                 # need to compute the totals...
@@ -12181,7 +13056,8 @@ sub write_file_table(*$$$$$$)
         # we know that the top-level callback item must hold a file.
         my $filename = $primaryCb->name();
 
-        my ($testhash, $testfnchash, $testbrhash) = @$perTestcaseData;
+        my ($testhash, $testfnchash, $testbrhash, $testcase_mcdc) =
+            @$perTestcaseData;
 
         my $testdata = $testhash->{$filename};
 
@@ -12190,18 +13066,21 @@ sub write_file_table(*$$$$$$)
 
         my $testfncdata = $testfnchash->{$filename};
         my $testbrdata  = $testbrhash->{$filename};
+        my $test_mcdc   = $testcase_mcdc->{$filename};
 
         # Filter out those tests that actually affect this file
-        my %affecting_tests =
-            %{get_affecting_tests($testdata, $testfncdata, $testbrdata)};
+        my %affecting_tests = %{
+            get_affecting_tests($testdata, $testfncdata, $testbrdata,
+                                $test_mcdc)
+        };
 
         # Does any of the tests affect this file at all?
         if (!%affecting_tests) { next; }
 
         foreach my $testname (keys(%affecting_tests)) {
 
-            ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit) =
-                @{$affecting_tests{$testname}};
+            ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit, $mcdc_found,
+             $mcdc_hit) = @{$affecting_tests{$testname}};
 
             my $showgraph = 0;
             my @results;
@@ -12212,6 +13091,19 @@ sub write_file_table(*$$$$$$)
                                       $testdata->value($testname), $fileDetails,
                                       SummaryInfo::LINE_DATA)
                  ]);
+            # there might not be optional test data for some tests - that type was
+            #  not emabled
+            push(@results,
+                 [$mcdc_found,
+                  $mcdc_hit,
+                  SummaryInfo::MCDC_DATA,
+                  TestcaseTlaCount->new(
+                                     $test_mcdc->value($testname), $fileDetails,
+                                     SummaryInfo::MCDC_DATA)
+                 ])
+                if ($lcovutil::mcdc_coverage &&
+                    defined($test_mcdc->value($testname)));
+
             push(@results,
                  [$br_found,
                   $br_hit,
@@ -12219,7 +13111,10 @@ sub write_file_table(*$$$$$$)
                   TestcaseTlaCount->new(
                                     $testbrdata->value($testname), $fileDetails,
                                     SummaryInfo::BRANCH_DATA)
-                 ]) if ($lcovutil::br_coverage);
+                 ])
+                if ($lcovutil::br_coverage &&
+                    defined($testbrdata->value($testname)));
+
             push(@results,
                  [$fn_found,
                   $fn_hit,
@@ -12227,7 +13122,9 @@ sub write_file_table(*$$$$$$)
                   TestcaseTlaCount->new(
                                    $testfncdata->value($testname), $fileDetails,
                                    SummaryInfo::FUNCTION_DATA)
-                 ]) if ($lcovutil::func_coverage);
+                 ])
+                if ($lcovutil::func_coverage &&
+                    defined($testfncdata->value($testname)));
 
             my $href = $testname;
             # Insert link to description of available
@@ -12263,31 +13160,40 @@ END_OF_HTML
 }
 
 #
-# get_affecting_tests(testdata, testfncdata, testbrdata)
+# get_affecting_tests(testdata, testfncdata, testbrdata, pertest_mcdc)
 #
 # HASHREF contains a mapping filename -> (linenumber -> exec count). Return
 # a hash containing mapping filename -> "lines found, lines hit" for each
 # filename which has a nonzero hit count.
 #
 
-sub get_affecting_tests($$$)
+sub get_affecting_tests($$$$)
 {
-    my ($testdata, $testfncdata, $testbrdata) = @_;
+    my ($testdata, $testfncdata, $testbrdata, $testmcdcdata) = @_;
     my %result;
 
     foreach my $testname ($testdata->keylist()) {
         # Get (line number -> count) hash for this test case
-        my $testcount    = $testdata->value($testname);
-        my $testfnccount = $testfncdata->value($testname);
-        my $testbrcount  = $testbrdata->value($testname);
+        my $testcount     = $testdata->value($testname);
+        my $testfnccount  = $testfncdata->value($testname);
+        my $testbrcount   = $testbrdata->value($testname);
+        my $testmcdccount = $testmcdcdata->value($testname);
 
         # Calculate sum
-        my ($found, $hit)       = $testcount->get_found_and_hit();
-        my ($fn_found, $fn_hit) = $testfnccount->get_found_and_hit();
-        my ($br_found, $br_hit) = $testbrcount->get_found_and_hit();
+        my ($found, $hit) = $testcount->get_found_and_hit();
+        # might be no data for this testcase
+        my ($fn_found, $fn_hit) =
+            defined($testfnccount) ? $testfnccount->get_found_and_hit() :
+            (0, 0);
+        my ($br_found, $br_hit) =
+            defined($testbrcount) ? $testbrcount->get_found_and_hit() : (0, 0);
+        my ($mcdc_found, $mcdc_hit) =
+            defined($testmcdccount) ? $testmcdccount->get_found_and_hit() :
+            (0, 0);
 
-        $result{$testname} =
-            [$found, $hit, $fn_found, $fn_hit, $br_found, $br_hit]
+        $result{$testname} = [$found, $hit, $fn_found, $fn_hit,
+                              $br_found, $br_hit, $mcdc_found, $mcdc_hit
+            ]
             if ($hit > 0);
     }
     return (\%result);
@@ -12295,7 +13201,7 @@ sub get_affecting_tests($$$)
 
 #
 # write_source(filehandle, source_filename, count_data, checksum_data,
-#              converted_data, func_data, sumbrcount)
+#              converted_data, func_data, sumbrcount, mcdc_summary)
 #
 # Write an HTML view of a source code file. Returns a list containing
 # data as needed by gen_png().
@@ -12303,11 +13209,11 @@ sub get_affecting_tests($$$)
 # Die on error.
 #
 
-sub write_source($$$$$$$)
+sub write_source($$$$$$$$)
 {
     local *HTML_HANDLE = shift;
-    my ($srcfile, $count_data, $checkdata, $fileCovInfo, $funcdata, $sumbrcount)
-        = @_;
+    my ($srcfile, $count_data, $checkdata, $fileCovInfo,
+        $funcdata, $sumbrcount, $mcdc_summary) = @_;
     my @result;
 
     write_source_prolog(*HTML_HANDLE, $srcfile->isProjectFile());
@@ -12326,7 +13232,7 @@ sub write_source($$$$$$$)
         # foreground/background - to make distinctive
         $empty .= '  <span class="lineNumWithDelete">' .
             (' ' x (8 - 3)) . '...</span>';
-        $empty .= ' ' x $main::br_field_width if $main::br_coverage;
+        $empty .= ' ' x $main::br_field_width if $lcovutil::br_coverage;
         $empty .= ' ' x $main::tla_field_width;
         $empty .= ' ' x ($line_field_width - 1);
         $empty .=
@@ -12367,6 +13273,7 @@ sub write_source($$$$$$$)
                                $srcline,
                                $count_data->value($line_number),
                                $sumbrcount->value($line_number),
+                               $mcdc_summary->value($line_number),
                                $cbdata));
     }
     if ($prevLine != $line_number) {
@@ -12403,6 +13310,14 @@ sub funcview_get_label($$$$)
         }
         return "Lines" .
             get_sort_code($link, "unexercised lines in function", $base);
+    } elsif ($col eq 'missed_mcdc') {
+        if ($sort && $sort_type != $SORT_MISSING_MCDC) {
+            $link = "$name.func-m.$html_ext";
+        }
+        return "MC/DC"
+            .
+            get_sort_code($link, "unexercised MC/DC expressions in function",
+                          $base);
     } else {
         die("unexpected sort $col") unless ($col eq 'missed_branch');
         if ($sort && $sort_type != $SORT_MISSING_BRANCH) {
@@ -12424,7 +13339,8 @@ sub funcview_get_sorted($$$)
 {
     my ($funcData, $type, $merged) = @_;
 
-    my ($differential_func, $lineFuncData, $branchFuncData) = @$funcData;
+    my ($differential_func, $lineFuncData, $branchFuncData, $mcdcFuncData) =
+        @$funcData;
     my @rtn = keys(%$differential_func);
 
     if ($type == $SORT_LINE) {
@@ -12471,6 +13387,25 @@ sub funcview_get_sorted($$$)
                         # function name if count matches
                         $missedB <=> $missedA or $a cmp $b
         } @rtn);
+    } elsif ($type == $SORT_MISSING_MCDC) {
+        @rtn = sort({
+                        my $bra =
+                            exists($mcdcFuncData->{$a}) ?
+                            $mcdcFuncData->{$a} :
+                            undef;
+                        my $brb =
+                            exists($mcdcFuncData->{$b}) ?
+                            $mcdcFuncData->{$b} :
+                            undef;
+                        my $missedA =
+                            defined($bra) ? $bra->[0] - $bra->[1] : -1;
+                        my $missedB =
+                            defined($brb) ? $brb->[0] - $brb->[1] : -1;
+
+                        # highest to lowest 'missed expressions', then by
+                        # function name if count matches
+                        $missedB <=> $missedA or $a cmp $b
+        } @rtn);
 
     } elsif (!defined($main::no_sort)) {
         # sort alphabetically by function name
@@ -12481,7 +13416,7 @@ sub funcview_get_sorted($$$)
 
 #
 # write_function_table(filehandle, funcData, source_file, sumcount, funcdata,
-#                      testfncdata, sumbrcount, testbrdata,
+#                      testfncdata, sumbrcount, testbrdata, mcdc_summary, testase_mcdc,
 #                      base_name, base_dir, sort_type)
 #
 # Write an HTML table listing all functions in a source file, including
@@ -12490,21 +13425,25 @@ sub funcview_get_sorted($$$)
 # Die on error.
 #
 
-sub write_function_table(*$$$$$$$$$$)
+sub write_function_table(*$$$$$$$$$$$$)
 {
     local *HTML_HANDLE = shift;
-    my ($funcData, $source, $sumcount, $funcdata, $testfncdata,
-        $sumbrcount, $testbrdata, $name, $base, $type) = @_;
-    my ($differentialMap, $funcLineCovMap, $funcBranchCovMap) = @$funcData;
+    my ($funcData, $source, $sumcount, $funcdata,
+        $testfncdata, $sumbrcount, $testbrdata, $mcdc_summary,
+        $testcase_mcdc, $name, $base, $type) = @_;
+    my ($differentialMap, $funcLineCovMap, $funcBranchCovMap, $funcMcdcCovMap)
+        = @$funcData;
     # Get HTML code for headings
     my $func_code   = funcview_get_label($name, $base, undef, $type);
     my $count_code  = funcview_get_label($name, $base, 'hit', $type);
     my $line_code   = funcview_get_label($name, $base, 'missed_line', $type);
     my $branch_code = funcview_get_label($name, $base, 'missed_branch', $type);
+    my $mcdc_code   = funcview_get_label($name, $base, 'missed_mcdc', $type);
     my $showTlas    = $main::show_tla && 0 != scalar(keys %$differentialMap);
     my $tlaRow      = "";
     my $lineProportionRow   = '';
     my $branchProportionRow = '';
+    my $mcdcProportionRow   = '';
     my $countWidth          = 20;
 
     if ($showTlas) {
@@ -12517,6 +13456,8 @@ sub write_function_table(*$$$$$$$$$$)
             if (%$funcLineCovMap);
         $branchProportionRow = "<td class=\"tableHead\">$branch_code</td>"
             if $lcovutil::br_coverage && %$funcBranchCovMap;
+        $mcdcProportionRow = "<td class=\"tableHead\">$mcdc_code</td>"
+            if $lcovutil::mcdc_coverage && %$funcMcdcCovMap;
     }
 
     die("no functions in file") unless (%$differentialMap);
@@ -12530,6 +13471,7 @@ sub write_function_table(*$$$$$$$$$$)
               <td class="tableHead">$count_code</td>
               $lineProportionRow
               $branchProportionRow
+              $mcdcProportionRow
             </tr>
 END_OF_HTML
 
@@ -12557,6 +13499,7 @@ END_OF_HTML
         my $tlaRow              = "";
         my $lineProportionRow   = '';
         my $branchProportionRow = '';
+        my $mcdcProportionRow   = '';
         if ($showTlas) {
             my $label =
                 $main::use_legacyLabels ? $SummaryInfo::tlaToLegacy{$tla} :
@@ -12586,9 +13529,24 @@ END_OF_HTML
                     ];
                     my $rate = rate($hit, $found, "&nbsp;%");
                     $branchProportionRow =
-                        "<td class=coverPer$style>$rate ($hit / $ found)</td>";
+                        "<td class=coverPer$style>$rate ($hit / $found)</td>";
                 } else {
                     $branchProportionRow = "<td class=\"coverFn\"></td>";
+                }
+            }
+            if ($lcovutil::mcdc_coverage && %$funcMcdcCovMap) {
+                if (exists($funcMcdcCovMap->{$func})) {
+                    my ($found, $hit) = @{$funcMcdcCovMap->{$func}};
+                    # colorize based on hit proportion
+                    my $style = $rate_name[
+                        classify_rate($found, $hit, $mcdc_med_limit,
+                                      $mcdc_hi_limit)
+                    ];
+                    my $rate = rate($hit, $found, "&nbsp;%");
+                    $mcdcProportionRow =
+                        "<td class=coverPer$style>$rate ($hit / $found)</td>";
+                } else {
+                    $mcdcProportionRow = "<td class=\"coverFn\"></td>";
                 }
             }
         }
@@ -12600,6 +13558,7 @@ END_OF_HTML
               <td class="$countstyle">$count</td>
               $lineProportionRow
               $branchProportionRow
+              $mcdcProportionRow
             </tr>
 END_OF_HTML
 
@@ -12614,6 +13573,8 @@ END_OF_HTML
                     if %$funcLineCovMap;
                 $branchProportionRow = $lineProportionRow
                     if $lcovutil::br_coverage && %$funcBranchCovMap;
+                $mcdcProportionRow = $mcdcProportionRow
+                    if $lcovutil::mcdc_coverage && %$funcMcdcCovMap;
             }
             if (0 != $type) {
                 @aliasList =
@@ -12649,6 +13610,7 @@ END_OF_HTML
               <td class="$style">$hit</td>
               $lineProportionRow
               $branchProportionRow
+              $mcdcProportionRow
             </tr>
 END_OF_HTML
             }

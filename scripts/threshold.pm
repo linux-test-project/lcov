@@ -64,18 +64,19 @@ sub new
     my $script     = shift;
     my $standalone = $script eq $0;
     my @options    = @_;
-    my ($line, $function, $branch);
+    my ($line, $function, $branch, $mcdc);
 
     if (!GetOptionsFromArray(\@_,
                              ('signoff'    => \$signoff,
                               'line=s'     => \$line,
                               'branch=s'   => \$branch,
+                              'mcdc=s'     => \$mcdc,
                               'function=s' => \$function,)) ||
         (!$standalone && @_)
     ) {
         print(STDERR "Error: unexpected option:\n  " .
                 join(' ', @options) .
-                "\nusage: name type json-string [--signoff] [--line l_threshold] [--branch b_threshold] [--function f_threshold]\n"
+                "\nusage: name type json-string [--signoff] [--line l_threshold] [--branch b_threshold] [--function f_threshold] [--mcdc -m_threshold]\n"
         );
         exit(1) if $standalone;
         return undef;
@@ -84,8 +85,9 @@ sub new
     $thresh{line}     = $line if defined($line);
     $thresh{branch}   = $branch if defined($branch);
     $thresh{function} = $function if defined($function);
-    die("$script:  must specify at least of of --line, --branch, --function")
-        unless (%thresh);
+    $thresh{mcdc}     = $mcdc if defined($mcdc);
+    die("$script:  must specify at least of of --line, --branch, --function, --mcdc"
+    ) unless (%thresh);
     foreach my $key (keys %thresh) {
         my $v = $thresh{$key};
         die("unexpected $key threshold '$v'")
@@ -118,7 +120,6 @@ sub check_criteria
             push(@messages, sprintf("$key: %0.2f < %0.2f", $v, $thresh));
         }
     }
-
     return ($fail && !$self->[SIGNOFF], \@messages);
 }
 

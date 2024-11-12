@@ -80,6 +80,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-branch\-coverage ]
 .RB [ \-\-no\-branch\-coverage ]
 .br
+.RB [ \-\-mcdc\-coverage ]
+.br
 .RB [ \-\-demangle\-cpp
 .IR [ param ] ]
 .br
@@ -842,10 +844,16 @@ tool.
 By default,
 .B genhtml
 reports will include both line and function coverage data.
-Branch data is not displayed by default; you can use the
-.B --branch-coverage
-option to enable branch coverage - or you can permanently enable branch coverage by adding the appropriate
-settings to your personal, group, or site lcov configuration file.  See man
+Neither branch or MC/DC data is displayed by default; you can use the
+.B \-\-branch\-coverage
+and
+.B \-\-mcdc\-coverage
+options to enable branch or MC/DC coverage, respectively - or you can permanently enable branch coverage by adding the appropriate
+settings to your personal, group, or site lcov configuration file.  See the
+.B branch_coverage
+and
+.B mcdc_coverage
+sections of man
 .B lcovrc(5)
 for details.
 
@@ -2693,7 +2701,52 @@ branches around or eliminate some of them to generate better code.
 
 This option can also be configured permanently using the configuration file
 option
-.IR genhtml_branch_coverage .
+.IR branch_coverage .
+
+.RE
+
+.B \-\-mcdc\-coverage
+.RS
+Specify whether to display Modifie Condition / Decision Coverage (MC/DC)
+data in HTML output.
+
+Use
+.B \-\-mcdc\-coverage
+to enable MC/DC display or
+MC/DC data display is
+.B disabled
+by default.
+
+When MC/DC display is enabled, each overview page will contain
+the number of MC/DC expressions found and hit per file or directory - two senses per expression - together with
+the resulting coverage rate. In addition, each source code view will contain
+an extra column which lists all expressions and condition senses of a line with indications of
+whether the condition was sensitized or not. Conditions are shown in hte following format:
+
+ ' T ': True sense of subexpression was sensitized: if this subexpression's value had been false, then the condition resut would have been different.
+.br
+ ' t ': True sense of subexpression was
+.B not
+sensitized:  the condiiton result would not change if the subexpression value was different.
+ ' F ': False sense of subexpression was sensitized: if this subexpression's value had been true, then the condition resut would have been different.
+.br
+ ' f ': False sense of subexpression was
+.B not
+sensitized:  the condiiton result would not change if the subexpression value was different.
+
+Note that branch and MC/DC coverage are identical if the condiition is
+a simple expression -
+.I e.g.,
+.RS 3
+ if (enable) ...
+.RE
+
+
+This option can also be configured permanently using the configuration file
+option
+.IR mcdc_coverage .
+See man
+.B lcovrc(5) .
 
 .RE
 .BI "\-\-demangle\-cpp " [param]
@@ -3192,10 +3245,10 @@ option
 
 .B \-\-missed
 .RS
-Show counts of missed lines, functions, or branches.
+Show counts of missed lines, functions, branches, and MC/DC expressions.
 
 Use this option to change overview pages to show the count of lines, functions,
-or branches that were not hit. These counts are represented by negative numbers.
+branches, or MC/DC expressions that were not hit. These counts are represented by negative numbers.
 
 When specified together with \-\-sort, file and directory views will be sorted
 by missed counts.
@@ -3326,7 +3379,7 @@ that implements a check for "UNC + LBC + UIC == 0".
 .I \*[scriptdir]/threshold.pm
 .RS
 Sample script written as Perl module to check for miminum acceptable
-line and/or branch and/or function coverage.
+line and/or branch and/or and/or MC/DC function coverage.
 For example, the
 .RS
 .I "genhtml --fail_under_lines 75 ..."

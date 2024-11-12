@@ -11,11 +11,20 @@ CC      := gcc
 CFLAGS  := -Wall -I. --coverage
 LDFLAGS  := --coverage
 
-LCOV_FLAGS = --branch
+LCOV_FLAGS = --branch-coverage
 
 ifneq ($(COVER_DB),)
 export PERL_COVER_ARGS := -MDevel::Cover=-db,$(COVER_DB),-coverage,statement,branch,condition,subroutine,-silent,1
 EXEC_COVER := perl ${PERL_COVER_ARGS}
+endif
+
+# MC/DC enabled in gcc/14 and above
+ENABLE_MCDC=$(shell X=`$(CXX) -dumpversion` ; IFS='.' read -r -a VER <<< $$X ; if [ "$${VER[0]}" -ge 14 ] ; then echo 1 ; else echo 0 ; fi)
+
+ifeq ($(ENABLE_MCDC), 1)
+CFLAGS += -fcondition-coverage
+LDFLAGS += -fcondition-coverage
+LCOV_FLAGS += --mcdc-coverage
 endif
 
 # path differs depending on whether we are in the install dir or not
@@ -159,7 +168,7 @@ test_differential:
 	git commit -m baseline ; git tag baseline )
 	@echo "Build example and run some tests"
 	(cd $(REPO) ; \
-	$(CC) -o example --coverage -I. example.c methods/gauss.c methods/iterate.c ; \
+	$(CC) -o example $(CFLAGS) -I. example.c methods/gauss.c methods/iterate.c ; \
 	./example ; \
 	./example 2 1000 ; \
 	./example 2 100000 || true )
@@ -179,7 +188,7 @@ test_differential:
 	@echo "Step 4: Rebuild and run tests (fewer tests this time)"
 	( cd $(REPO) ; \
 	find . -name '*.gc*' -delete ; \
-	$(CC) -o example --coverage -I. example.c methods/gauss.c methods/iterate.c ; \
+	$(CC) -o example $(CFLAGS) -I. example.c methods/gauss.c methods/iterate.c ; \
 	./example )
 
 	@echo "Step 5: Capture new coverage (after source changes)"

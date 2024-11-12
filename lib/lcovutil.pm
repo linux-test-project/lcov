@@ -43,7 +43,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      @file_subst_patterns subst_file_name
      @comments
 
-     $br_coverage $func_coverage
+     $br_coverage $func_coverage $mcdc_coverage
      @cpp_demangle do_mangle_check $demangle_cpp_cmd
      $cpp_demangle_tool $cpp_demangle_params
      get_overall_line rate
@@ -201,6 +201,7 @@ our $warn_once_per_file     = 1;
 our $excessive_count_threshold;    # default not set: don't check
 
 our $br_coverage   = 0;    # If set, generate branch coverage statistics
+our $mcdc_coverage = 0;    # MC/DC
 our $func_coverage = 1;    # If set, generate function coverage statistics
 
 # for external file filtering
@@ -1100,6 +1101,7 @@ my %rc_common = (
              "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
              "lcov_json_module"            => \$JsonSupport::rc_json_module,
              "branch_coverage"             => \$lcovutil::br_coverage,
+             'mcdc_coverage'               => \$lcovutil::mcdc_coverage,
              "function_coverage"           => \$lcovutil::func_coverage,
              "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
              "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
@@ -1225,6 +1227,7 @@ our %argCommon = ("tempdir=s"         => \$tempdirname,
 
                   "function-coverage"    => \$lcovutil::func_coverage,
                   "branch-coverage"      => \$lcovutil::br_coverage,
+                  'mcdc-coverage'        => \$lcovutil::mcdc_coverage,
                   "no-function-coverage" => \$rc_no_func_coverage,
                   "no-branch-coverage"   => \$rc_no_branch_coverage,
 
@@ -2422,10 +2425,11 @@ sub parse_cov_filters(@)
     }
     if ((defined($cov_filter[$FILTER_BRANCH_NO_COND]) ||
          defined($cov_filter[$FILTER_EXCLUDE_BRANCH])) &&
-        !$br_coverage
+        !($br_coverage || $mcdc_coverage)
     ) {
         lcovutil::ignorable_warning($ERROR_USAGE,
-                       "branch filter enabled but branch coverage not enabled");
+            "branch filter enabled but neither branch or condition coverage is enabled"
+        );
     }
     if ($cov_filter[$FILTER_BRANCH_NO_COND]) {
         # turn on exception and orphan filtering too
@@ -4093,6 +4097,213 @@ sub totals
     return ($found, $hit);
 }
 
+package MCDC_Block;
+
+# there may be more than one MCDC groups on a particular line -
+#   we hold the groups in a hash, keyed by size (number of MCDC_expressions)
+#   The particular group is a sorted list
+use constant {
+              LINE   => 0,
+              GROUPS => 1,
+};
+
+sub new
+{
+    my ($class, $line) = @_;
+    my $self = [$line, {}];
+
+    return bless $self, $class;
+}
+
+sub insertExpr
+{
+    my ($self, $filename, $groupSize, $sense, $count, $idx, $expr) = @_;
+    my $groups = $self->[GROUPS];
+    my $group;
+    if (exists($groups->{$groupSize})) {
+        $group = $groups->{$groupSize};
+    } else {
+        $group = [];
+        $groups->{$groupSize} = $group;
+    }
+    my $cond;
+    if ($idx < scalar(@$group)) {
+        $cond = $group->[$idx];
+        if ($cond->expression() ne $expr) {
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                 "\"$filename\":" . $self->line() .
+                     ": MC/DC group $groupSize expression $idx changed from '" .
+                     $cond->expression() . "' to '$expr'");
+        }
+    } else {
+        if ($idx != scalar(@$group)) {
+            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                "\"$filename\":" . '":' . $self->line() .
+                    ": MC/DC group $groupSize: non-contiguous expression '$idx' found - should be '"
+                    . scalar(@$group)
+                    . "'.");
+        }
+        $cond = MCDC_Expression->new($self, $groupSize, $idx, $expr);
+        push(@$group, $cond);
+    }
+    $cond->set($sense, $count);
+}
+
+sub line
+{
+    return $_[0]->[LINE];
+}
+
+sub totals
+{
+    my $self  = shift;
+    my $found = 0;
+    my $hit   = 0;
+    while (my ($size, $group) = each(%{$self->groups()})) {
+        foreach my $expr (@$group) {
+            foreach my $sense (0, 1) {
+                my $count = $expr->count($sense);
+                if ('ARRAY' eq ref($count)) {
+                    # differential number - report 'current'
+                    next unless defined($count->[2]);    # not in current
+                    $count = $count->[2];
+                }
+                ++$found;
+                ++$hit if 0 != $count;
+            }
+        }
+    }
+    return ($found, $hit);
+}
+
+sub groups
+{
+    return $_[0]->[GROUPS];
+}
+
+sub num_groups
+{
+    return scalar(keys %{$_[0]->[GROUPS]});
+}
+
+sub expressions
+{
+    my ($self, $size) = @_;
+    return exists($self->[GROUPS]->{$size}) ? $self->[GROUPS]->{$size} : undef;
+}
+
+sub expr
+{
+    my ($self, $groupSize, $idx) = @_;
+    return $self->[GROUPS]->{$groupSize}->[$idx];
+}
+
+sub is_compatible
+{
+    my ($self, $you) = @_;
+
+    my $yours  = $you->groups();
+    my $groups = $self->groups();
+    foreach my $size (keys %$groups) {
+        next unless exists($yours->{$size});
+        my $idx = 0;
+        my $m   = $groups->{$size};
+        my $y   = $yours->{$size};
+        foreach my $e (@$m) {
+            my $ye = $y->[$idx++];
+            return 0 if $e->expression() ne $ye->expression();
+        }
+    }
+    return 1;
+}
+
+sub merge
+{
+    # merge all groups from you into me
+    my ($self, $you) = @_;
+
+    my $mine    = $self->groups();
+    my $yours   = $you->groups();
+    my $changed = 0;
+    while (my ($size, $group) = each(%$yours)) {
+        if (exists($mine->{$size})) {
+            my $m   = $mine->{$size};
+            my $idx = 0;
+            foreach my $e (@$m) {
+                my $y = $group->[$idx++];
+                $changed += $e->set(1, $y->count(1));
+                $changed += $e->set(0, $y->count(0));
+            }
+        } else {
+            $mine->{$size} = Storable::dclone($group);
+            $changed = 1;
+        }
+    }
+    return $changed;
+}
+
+package MCDC_Expression;
+
+use constant {
+              PARENT     => 0,    # MCDC_BLOCK
+              GROUP_SIZE => 1,    # which group in parent
+              INDEX      => 2,    # index of this expression
+
+              EXPRESSION => 3,
+              TRUE  => 4,  # hit count of sensitization of 'true' sense of expr
+              FALSE => 5,  # hit count of sensitization of 'false' sense of expr
+};
+
+sub new
+{
+    my ($class, $parent, $groupSize, $idx, $expr) = @_;
+
+    my $self = [$parent, $groupSize, $idx, $expr, 0, 0];
+    return bless $self, $class;
+}
+
+sub set
+{
+    # 'sense' should be 0 or 1 - for 'false' and 'true' sense, respectively
+    my ($self, $sense, $count) = @_;
+    return 0 if 0 == $count;
+
+    if ('ARRAY' eq ref($count)) {
+        # recording a differential result
+        $self->[$sense ? TRUE : FALSE] = $count;
+        return 1;    # assumed changed
+    }
+    my $changed = $count && $self->count($sense) == 0;
+    $self->[$sense ? TRUE : FALSE] += $count;
+    return $changed;
+}
+
+sub parent
+{
+    return $_[0]->[PARENT];
+}
+
+sub groupSize
+{
+    return $_[0]->[GROUP_SIZE];
+}
+
+sub index
+{
+    return $_[0]->[INDEX];
+}
+
+sub expression
+{
+    return $_[0]->[EXPRESSION];
+}
+
+sub count
+{
+    my ($self, $sense) = @_;
+    return $_[0]->[$sense ? TRUE : FALSE];
+}
+
 package FunctionEntry;
 # keep track of all the functions/all the function aliases
 #  at a particular line in the file.  THey must all be the
@@ -4344,20 +4555,35 @@ sub findMyLines
     return \@lines;
 }
 
+sub _findConditionals
+{
+    my ($self, $data) = @_;
+    return undef unless $self->end_line();
+    my @list;
+    for (my $lineNo = $self->line(); $lineNo <= $self->end_line(); ++$lineNo) {
+        my $entry = $data->value($lineNo);
+        push(@list, $entry)
+            if (defined($entry));
+    }
+    return \@list;
+}
+
 sub findMyBranches
 {
     # use my start/end location to list of branch entries within this function
     # return sorted list [ branchEntry, ..] sorted by line
     my ($self, $branchData) = @_;
     die("expected BranchData") unless ref($branchData) eq "BranchData";
-    return undef               unless $self->end_line();
-    my @branches;
-    for (my $lineNo = $self->line(); $lineNo <= $self->end_line; ++$lineNo) {
-        my $entry = $branchData->value($lineNo);
-        push(@branches, $entry)
-            if (defined($entry));
-    }
-    return \@branches;
+    return $self->_findConditionals($branchData);
+}
+
+sub findMyMcdc
+{
+    # use my start/end location to list of MC/DC entries within this function
+    # return list [ MCDC_Block, ..] sorted by line
+    my ($self, $mcdcData) = @_;
+    die("expected MCDC_Data") unless ref($mcdcData) eq "MCDC_Data";
+    return $self->_findConditionals($mcdcData);
 }
 
 package FunctionMap;
@@ -4630,7 +4856,7 @@ sub remove
     delete($locationMap->{$key});
 }
 
-package BranchData;
+package BranchMap;
 
 use constant {
               DATA  => 0,
@@ -4641,14 +4867,79 @@ use constant {
 sub new
 {
     my $class = shift;
-    my $self = [{},    #  hash of lineNo -> BranchEntry
+    my $self = [{},    #  hash of lineNo -> BranchEntry/MCDC_Element
+                       #   BranchEntry:
                        #      hash of blockID ->
                        #         array of 'taken' entries for each sequential
                        #           branch ID
+                       #  MCDC_Element:
                 0,     # branches found
                 0,     # branches executed
     ];
-    bless $self, $class;
+    return bless $self, $class;
+}
+
+sub remove
+{
+    my ($self, $line, $check_if_present) = @_;
+    my $data = $self->[DATA];
+
+    return 0 if ($check_if_present && !exists($data->{$line}));
+
+    my $branch = $data->{$line};
+    my ($f, $h) = $branch->totals();
+    $self->[FOUND] -= $f;
+    $self->[HIT]   -= $h;
+
+    delete($data->{$line});
+    return 1;
+}
+
+sub found
+{
+    my $self = shift;
+
+    return $self->[FOUND];
+}
+
+sub hit
+{
+    my $self = shift;
+
+    return $self->[HIT];
+}
+
+# return BranchEntry struct (or undef)
+sub value
+{
+    my ($self, $lineNo) = @_;
+
+    my $map = $self->[DATA];
+    return exists($map->{$lineNo}) ? $map->{$lineNo} : undef;
+}
+
+# return list of lines which contain branch data
+sub keylist
+{
+    my $self = shift;
+    return keys(%{$self->[DATA]});
+}
+
+sub get_found_and_hit
+{
+    my $self = shift;
+
+    return ($self->[FOUND], $self->[HIT]);
+}
+
+package BranchData;
+
+use base 'BranchMap';
+
+sub new
+{
+    my $class = shift;
+    my $self  = $class->SUPER::new();
     return $self;
 }
 
@@ -4659,7 +4950,7 @@ sub append
     #   error message if the data is inconsistent.
     # OTOH:  unclear what a normal user could do about it anyway.
     #   Maybe exclude that file?
-    my $data = $self->[DATA];
+    my $data = $self->[BranchMap::DATA];
     $filename = '<stdin>' if (defined($filename) && $filename eq '-');
     if (!defined($br)) {
         lcovutil::ignorable_error($lcovutil::ERROR_BRANCH,
@@ -4674,8 +4965,8 @@ sub append
         # have to fix up the branch entry.
         $block->[0] = $line;
         my ($f, $h) = $block->totals();
-        $self->[FOUND] += $f;
-        $self->[HIT]   += $h;
+        $self->[BranchMap::FOUND] += $f;
+        $self->[BranchMap::HIT]   += $h;
         $data->{$line} = $block;
         return 1;    # we added something
     }
@@ -4709,9 +5000,9 @@ sub append
         push(@$l,
              BranchBlock->new($branch, $br->data(),
                               $br->expr(), $br->is_exception()));
-        ++$self->[FOUND];                       # found one
-        ++$self->[HIT] if 0 != $br->count();    # hit one
-        $changed = 1;                           # something new..
+        ++$self->[BranchMap::FOUND];                       # found one
+        ++$self->[BranchMap::HIT] if 0 != $br->count();    # hit one
+        $changed = 1;                                      # something new..
     } else {
         $block = $branchElem->getBlock($block);
 
@@ -4729,14 +5020,14 @@ sub append
             $block->[$branch] =
                 BranchBlock->new($branch, $br->data(), $br->expr(),
                                  $br->is_exception());
-            ++$self->[FOUND];                       # found one
-            ++$self->[HIT] if 0 != $br->count();    # hit one
+            ++$self->[BranchMap::FOUND];                       # found one
+            ++$self->[BranchMap::HIT] if 0 != $br->count();    # hit one
 
             $changed = 1;
         } else {
             my $me = $block->[$branch];
             if (0 == $me->count() && 0 != $br->count()) {
-                ++$self->[HIT];                     # hit one
+                ++$self->[BranchMap::HIT];                     # hit one
                 $changed = 1;
             }
             if ($me->merge($br, $filename, $line)) {
@@ -4747,29 +5038,13 @@ sub append
     return $changed;
 }
 
-sub remove
-{
-    my ($self, $line, $check_if_present) = @_;
-    my $data = $self->[DATA];
-
-    return 0 if ($check_if_present && !exists($data->{$line}));
-
-    my $branch = $data->{$line};
-    my ($f, $h) = $branch->totals();
-    $self->[FOUND] -= $f;
-    $self->[HIT]   -= $h;
-
-    delete($data->{$line});
-    return 1;
-}
-
 sub removeBranches
 {
     my ($self, $branchList) = @_;
 
     foreach my $b (@$branchList) {
-        --$self->[FOUND];
-        --$self->[HIT] if 0 != $b->count();
+        --$self->[BranchMap::FOUND];
+        --$self->[BranchMap::HIT] if 0 != $b->count();
     }
 }
 
@@ -4778,7 +5053,7 @@ sub _checkCounts
     # some consistenc checking
     my $self = shift;
 
-    my $data  = $self->[DATA];
+    my $data  = $self->[BranchMap::DATA];
     my $found = 0;
     my $hit   = 0;
 
@@ -4788,24 +5063,10 @@ sub _checkCounts
         $found += $f;
         $hit   += $h;
     }
-    die("invalid counts: found:" .
-        $self->[FOUND] . "->$found, hit:" . $self->[HIT] . "->$hit")
-        unless ($self->[FOUND] == $found &&
-                $self->[HIT] == $hit);
-}
-
-sub found
-{
-    my $self = shift;
-
-    return $self->[FOUND];
-}
-
-sub hit
-{
-    my $self = shift;
-
-    return $self->[HIT];
+    die("invalid counts: found:" . $self->[BranchMap::FOUND] .
+        "->$found, hit:" . $self->[BranchMap::HIT] . "->$hit")
+        unless ($self->[BranchMap::FOUND] == $found &&
+                $self->[BranchMap::HIT] == $hit);
 }
 
 sub compatible($$)
@@ -4830,8 +5091,8 @@ sub union
     my ($self, $info, $filename) = @_;
     my $changed = 0;
 
-    my $mydata = $self->[DATA];
-    while (my ($line, $yourBranch) = each(%{$info->[DATA]})) {
+    my $mydata = $self->[BranchMap::DATA];
+    while (my ($line, $yourBranch) = each(%{$info->[BranchMap::DATA]})) {
         # check if self has corresponding line:
         #  no: just copy all the data for this line, from 'info'
         #  yes: check for matching blocks
@@ -4839,8 +5100,8 @@ sub union
         if (!defined($myBranch)) {
             $mydata->{$line} = Storable::dclone($yourBranch);
             my ($f, $h) = $yourBranch->totals();
-            $self->[FOUND] += $f;
-            $self->[HIT]   += $h;
+            $self->[BranchMap::FOUND] += $f;
+            $self->[BranchMap::HIT]   += $h;
             $changed = 1;
             next;
         }
@@ -4924,8 +5185,8 @@ sub intersect
     my ($self, $info, $filename) = @_;
     my $changed = 0;
 
-    my $mydata   = $self->[DATA];
-    my $yourdata = $info->[DATA];
+    my $mydata   = $self->[BranchMap::DATA];
+    my $yourdata = $info->[BranchMap::DATA];
     foreach my $line (keys %$mydata) {
         if (exists($yourdata->{$line})) {
             # look at all my blocks.  If you have a compatible block, merge them
@@ -4967,8 +5228,8 @@ sub difference
     my ($self, $info, $filename) = @_;
     my $changed = 0;
 
-    my $mydata   = $self->[DATA];
-    my $yourdata = $info->[DATA];
+    my $mydata   = $self->[BranchMap::DATA];
+    my $yourdata = $info->[BranchMap::DATA];
     foreach my $line (keys %$mydata) {
         # keep everything here if you don't have this line
         next unless exists($yourdata->{$line});
@@ -4995,27 +5256,145 @@ sub difference
     return $changed;
 }
 
-# return BranchEntry struct (or undef)
-sub value
-{
-    my ($self, $lineNo) = @_;
+package MCDC_Data;
 
-    my $map = $self->[DATA];
-    return exists($map->{$lineNo}) ? $map->{$lineNo} : undef;
+use base 'BranchMap';
+
+sub new
+{
+    my $class = shift;
+    my $self  = $class->SUPER::new();
+    return $self;
 }
 
-# return list of lines which contain branch data
-sub keylist
+sub append_mcdc
 {
-    my $self = shift;
-    return keys(%{$self->[DATA]});
+    my ($self, $mcdc) = @_;
+    my $line = $mcdc->line();
+    die("MCDC already defined for $line")
+        if exists($self->[BranchMap::DATA]->{$line});
+    $self->[BranchMap::DATA]->{$line} = $mcdc;
 }
 
-sub get_found_and_hit
+sub new_mcdc
 {
-    my $self = shift;
+    my ($self, $fileData, $line) = @_;
+    die("undexpected line $line <= 0") if ($line <= 0);
 
-    return ($self->[FOUND], $self->[HIT]);
+    return $self->[BranchMap::DATA]->{$line}
+        if exists($self->[BranchMap::DATA]->{$line});
+
+    my $mcdc = MCDC_Block->new($line);
+    $self->[BranchMap::DATA]->{$line} = $mcdc;
+    return $mcdc;
+}
+
+sub close_mcdcBlock
+{
+    my ($self, $mcdc) = @_;
+    my $found = 0;
+    my $hit   = 0;
+    while (my ($groupSize, $exprs) = each(%{$mcdc->groups()})) {
+        foreach my $e (@$exprs) {
+            $found += 2;
+            ++$hit if $e->count(0);
+            ++$hit if $e->count(1);
+        }
+    }
+    $self->[BranchMap::FOUND] += $found;
+    $self->[BranchMap::HIT]   += $hit;
+}
+
+sub _calculate_counts
+{
+    my $self  = shift;
+    my $found = 0;
+    my $hit   = 0;
+    while (my ($line, $block) = each(%{$self->[BranchMap::DATA]})) {
+        my ($f, $h) = $block->totals();
+        $found += $f;
+        $hit   += $h;
+    }
+    $self->[BranchMap::FOUND] = $found;
+    $self->[BranchMap::HIT]   = $hit;
+}
+
+sub union
+{
+    my ($self, $info) = @_;
+    my $changed = 0;
+
+    my $mydata = $self->[BranchMap::DATA];
+    while (my ($line, $yourBranch) = each(%{$info->[BranchMap::DATA]})) {
+        # check if self has corresponding line:
+        #  no: just copy all the data for this line, from 'info'
+        #  yes: check for matching blocks
+        my $myBranch = $self->value($line);
+        if (!defined($myBranch)) {
+            my $c = Storable::dclone($yourBranch);
+            $mydata->{$line} = $c;
+            $self->close_mcdcBlock($c);
+            $changed = 1;
+            next;
+        }
+
+        # check if we are compatible.
+        if ($myBranch->is_compatible($yourBranch)) {
+            $changed += $myBranch->merge($yourBranch);
+        } else {
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                      "cannot merge iconsistent MC/DC record");
+            # possibly remove this record?
+        }
+    }
+    $self->_calculate_counts();
+    return $changed;
+}
+
+sub intersect
+{
+    my ($self, $info, $filename) = @_;
+    my $changed = 0;
+
+    my $yourData = $info->[BranchMap::DATA];
+    my $mydata   = $self->[BranchMap::DATA];
+    foreach my $line (keys %$mydata) {
+        if (exists($yourData->{$line})) {
+            # append your count to mine
+            my $yourBranch = $yourData->{$line};
+            my $myBranch   = $mydata->{$line};
+
+            if ($myBranch->is_compatible($yourBranch)) {
+                $changed += $myBranch->merge($yourBranch);
+            } else {
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                       "cannot merge iconsistent MC/DC record");
+                # possibly remove this record?
+            }
+        } else {
+            $self->remove($line);
+            $changed = 1;
+        }
+    }
+    $self->_calculate_counts();
+    return $changed;
+}
+
+sub difference
+{
+    my ($self, $info, $filename) = @_;
+    my $changed = 0;
+
+    my $yourData = $info->[BranchMap::DATA];
+    my $mydata   = $self->[BranchMap::DATA];
+    foreach my $line (keys %$mydata) {
+        if (exists($yourData->{$line})) {
+            $self->remove($line);
+            $changed = 1;
+        }
+    }
+    $self->_calculate_counts();
+    return $changed;
 }
 
 package FilterBranchExceptions;
@@ -5046,8 +5425,8 @@ sub removeBranches
         my @replace;
         foreach my $br (@$blockData) {
             if (defined($filter) && $br->is_exception()) {
-                --$branches->[BranchData::FOUND];
-                --$branches->[BranchData::HIT] if 0 != $br->count();
+                --$branches->[BranchMap::FOUND];
+                --$branches->[BranchMap::HIT] if 0 != $br->count();
                 #lcovutil::info($srcReader->fileanme() . ": $line: remove exception branch\n");
                 $modified = 1;
                 ++$count;
@@ -5135,6 +5514,7 @@ use constant {
               LINE_DATA     => 4,    # per-testcase data
               BRANCH_DATA   => 5,
               FUNCTION_DATA => 6,
+              MCDC_DATA     => 7,
 
               UNION      => 0,
               INTERSECT  => 1,
@@ -5170,6 +5550,8 @@ sub new
     # function: [FunctionMap:  function_name->FunctionEntry,
     #            tescase_name -> FucntionMap ]
     $self->[FUNCTION_DATA] = [FunctionMap->new($filename), MapData->new()];
+
+    $self->[MCDC_DATA] = [MCDC_Data->new(), MapData->new()];
 
     return $self;
 }
@@ -5291,6 +5673,16 @@ sub b_hit
     return $self->sumbr()->hit();
 }
 
+sub mcdc_found
+{
+    return $_[0]->mcdc()->found();
+}
+
+sub mcdc_hit
+{
+    return $_[0]->mcdc()->hit();
+}
+
 sub check
 {
     my $self = shift;
@@ -5339,24 +5731,38 @@ sub sumbr
     return $self->[BRANCH_DATA]->[0];
 }
 
-#
-# set_info_entry(hash_ref, testdata_ref, sumcount_ref, funcdata_ref,
-#                checkdata_ref, testfncdata_ref,
-#                testbrdata_ref, sumbrcount_ref)
-#
-# Update the hash referenced by HASH_REF with the provided data references.
-#
-
-sub set_info($$$$$$$$)
+# MCDC coverage
+sub testcase_mcdc
 {
-    my ($self, $linePerTest, $lineSum, $funcSum, $checksum, $funcPerTest,
-        $branchPerTest, $branchSum)
-        = @_;
+    my ($self, $testname) = @_;
 
-    $self->[LINE_DATA]     = [$lineSum, $linePerTest];
-    $self->[FUNCTION_DATA] = [$funcSum, $funcPerTest];
-    $self->[BRANCH_DATA]   = [$branchSum, $branchPerTest];
-    $self->[CHECKSUM]      = $checksum;
+    my $data = $self->[MCDC_DATA]->[1];
+    if (!defined($testname)) {
+        return $data;
+    }
+
+    if (!$data->mapped($testname)) {
+        $data->append_if_unset($testname, MCDC_Data->new());
+    }
+
+    return $data->value($testname);
+}
+
+sub mcdc
+{
+    # return MCDC_Data map of line number -> MCDC_Block
+    #   data is merged over all testcases
+    my $self = shift;
+    return $self->[MCDC_DATA]->[0];
+}
+
+#
+# check_data
+#  some paranoia checks
+
+sub check_data($)
+{
+    my $self = shift;
 
     # some paranoia checking...
     if (1 || $lcovutil::debug) {
@@ -5383,10 +5789,12 @@ sub get_info($)
     my ($sumcount_ref, $testdata_ref) = @{$self->[LINE_DATA]};
     my ($funcdata_ref, $testfncdata)  = @{$self->[FUNCTION_DATA]};
     my ($sumbrcount, $testbrdata)     = @{$self->[BRANCH_DATA]};
+    my ($mcdccount, $testcasemcdc)    = @{$self->[MCDC_DATA]};
     my $checkdata_ref = $self->[CHECKSUM];
 
-    return ($testdata_ref, $sumcount_ref, $funcdata_ref, $checkdata_ref,
-            $testfncdata, $testbrdata, $sumbrcount);
+    return ($testdata_ref, $sumcount_ref, $funcdata_ref,
+            $checkdata_ref, $testfncdata, $testbrdata,
+            $sumbrcount, $mcdccount, $testcasemcdc);
 }
 
 sub _merge_checksums
@@ -5416,21 +5824,24 @@ sub merge
     my $me  = defined($self->version()) ? $self->version() : "<no version>";
     my $you = defined($info->version()) ? $info->version() : "<no version>";
 
-    my ($countOp, $funcOp, $brOp);
+    my ($countOp, $funcOp, $brOp, $mcdcOp);
 
     if ($op == UNION) {
         $countOp = \&CountData::union;
         $funcOp  = \&FunctionMap::union;
         $brOp    = \&BranchData::union;
+        $mcdcOp  = \&MCDC_Data::union;
     } elsif ($op == INTERSECT) {
         $countOp = \&CountData::intersect;
         $funcOp  = \&FunctionMap::intersect;
         $brOp    = \&BranchData::intersect;
+        $mcdcOp  = \&MCDC_Data::intersect;
     } else {
         die("unexpected op $op") unless $op == DIFFERENCE;
         $countOp = \&CountData::difference;
         $funcOp  = \&FunctionMap::difference;
         $brOp    = \&BranchData::difference;
+        $mcdcOp  = \&MCDC_Data::difference;
     }
 
     lcovutil::checkVersionMatch($filename, $me, $you, 'merge');
@@ -5463,6 +5874,18 @@ sub merge
         }
     }
     if (&$brOp($self->sumbr(), $info->sumbr(), $filename)) {
+        $changed = 1;
+    }
+
+    foreach my $name ($info->testcase_mcdc()->keylist()) {
+        if (
+            &$mcdcOp($self->testcase_mcdc($name), $info->testcase_mcdc($name),
+                     $filename)
+        ) {
+            $changed = 1;
+        }
+    }
+    if (&$mcdcOp($self->mcdc(), $info->mcdc(), $filename)) {
         $changed = 1;
     }
     return $changed;
@@ -6139,7 +6562,7 @@ sub count_totals
 {
     my $self = shift;
     # return list of (number files, [#lines, #hit], [#branches, #hit], [#functions,#hit])
-    my @data = (0, [0, 0], [0, 0], [0, 0]);
+    my @data = (0, [0, 0], [0, 0], [0, 0], [0, 0]);
     foreach my $filename ($self->files()) {
         my $entry = $self->data($filename);
         ++$data[0];
@@ -6149,6 +6572,11 @@ sub count_totals
         $data[2]->[1] += $entry->b_hit();
         $data[3]->[0] += $entry->f_found();    # function
         $data[3]->[1] += $entry->f_hit();
+
+        if ($lcovutil::mcdc_coverage) {
+            $data[4]->[0] += $entry->mcdc_found();    # mcdc
+            $data[4]->[1] += $entry->mcdc_hit();
+        }
     }
     return @data;
 }
@@ -6159,7 +6587,7 @@ sub check_fail_under_criteria
     my @types;
     if (!defined($type)) {
         push(@types, 'line');
-        push(@types, 'branch') if $lcovutil::br_coverage;
+        push(@types, 'branch', 'condition') if $lcovutil::br_coverage;
     } else {
         push(@types, $type);
     }
@@ -6187,8 +6615,9 @@ sub check_fail_under_criteria
         my $actual_rate   = ($hit / $found);
         my $expected_rate = $rate / 100;
         if ($actual_rate < $expected_rate) {
-            my $msg = sprintf("Failed '$t' coverage criteria: %0.2f < %0.2f",
-                              $actual_rate, $expected_rate);
+            my $msg =
+                sprintf("Failed '$t' coverage criteria: %0.2f < %0.2f",
+                        $actual_rate, $expected_rate);
             lcovutil::info("$msg\n");
             return $msg;
         }
@@ -6213,6 +6642,10 @@ sub checkCoverageCriteria
                  'branch' => {
                               'found' => 0,
                               'hit'   => 0
+                 },
+                 'condition' => {
+                                 'found' => 0,
+                                 'hit'   => 0
                  },
                  'function' => {
                                 'found' => 0,
@@ -6246,10 +6679,11 @@ sub checkCoverageCriteria
 
 sub print_summary
 {
-    my ($self, $fn_do, $br_do) = @_;
+    my ($self, $fn_do, $br_do, $mcdc_do) = @_;
 
-    $br_do = $lcovutil::br_coverage   unless defined($br_do);
-    $fn_do = $lcovutil::func_coverage unless defined($fn_do);
+    $br_do   = $lcovutil::br_coverage   unless defined($br_do);
+    $mcdc_do = $lcovutil::mcdc_coverage unless defined($mcdc_do);
+    $fn_do   = $lcovutil::func_coverage unless defined($fn_do);
     my @counts = $self->count_totals();
     lcovutil::info("Summary coverage rate:\n");
     lcovutil::info("  source files: %d\n", $counts[0]);
@@ -6265,6 +6699,10 @@ sub print_summary
                    lcovutil::get_overall_line(
                                       $counts[2]->[0], $counts[2]->[1], "branch"
                    )) if ($br_do);
+    lcovutil::info("  conditions..: %s\n",
+                   lcovutil::get_overall_line(
+                                  $counts[4]->[0], $counts[4]->[1], "conditions"
+                   )) if ($mcdc_do);
 }
 
 sub skipCurrentFile
@@ -6364,6 +6802,7 @@ sub data
     return $files->{$key};
 }
 
+
 sub remove
 {
     my ($self, $filename) = @_;
@@ -6397,13 +6836,15 @@ sub merge_tracefile
 
         if (exists($yours->{$filename})) {
             # this file in both me and you...merge as appropriate
+            #lcovutil::info(1, "merge common $filename\n");
             if ($self->data($filename)
-                ->merge($trace->data($filename), $op, $filename)) {
+                ->merge($yours->{$filename}, $op, $filename)) {
                 $changed = 1;
             }
         } else {
             # file in me and not you - remove mine if intersect operation
             if ($op == TraceInfo::INTERSECT) {
+                #lcovutil::info(1, "removing my $filename: intersect\n");
                 delete $mine->{$filename};
                 $changed = 1;
             }
@@ -6424,9 +6865,8 @@ sub merge_tracefile
 
 sub _eraseFunction
 {
-    my ($fcn, $name, $end_line, $source_file,
-        $functionMap, $lineData, $branchData, $checksum)
-        = @_;
+    my ($fcn, $name, $end_line, $source_file, $functionMap,
+        $lineData, $branchData, $mcdcData, $checksum) = @_;
     if (defined($end_line)) {
         for (my $line = $fcn->line(); $line <= $end_line; ++$line) {
 
@@ -6441,6 +6881,10 @@ sub _eraseFunction
                 lcovutil::info(2,
                           "exclude BRDA in FN '$name' on $source_file:$line\n");
             }
+            if (defined($mcdcData) && $mcdcData->remove($line, 1)) {
+                lcovutil::info(2,
+                          "exclude MCDC in FN '$name' on $source_file:$line\n");
+            }
         }    # foreach line
     }
     # remove this function and all its aliases...
@@ -6449,9 +6893,8 @@ sub _eraseFunction
 
 sub _eraseFunctions
 {
-    my ($source_file, $srcReader, $functionMap, $lineData,
-        $branchData, $checksum, $state, $isMasterList)
-        = @_;
+    my ($source_file, $srcReader, $functionMap, $lineData, $branchData,
+        $mcdcData, $checksum, $state, $isMasterList) = @_;
 
     my $modified      = 0;
     my $removeTrivial = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
@@ -6483,7 +6926,7 @@ sub _eraseFunctions
                       "\"$source_file\":$end_line: filter trivial FN $alias\n");
                 _eraseFunction($fcn, $alias, $end_line,
                                $source_file, $functionMap, $lineData,
-                               $branchData, $checksum);
+                               $branchData, $mcdcData, $checksum);
                 ++$removeTrivial->[-1] if $isMasterList;
             }
             $modified = 1;
@@ -6508,7 +6951,7 @@ sub _eraseFunctions
                     }
                     _eraseFunction($fcn, $alias, $end_line,
                                    $source_file, $functionMap, $lineData,
-                                   $branchData, $checksum);
+                                   $branchData, $mcdcData, $checksum);
                     $modified = 1;
                     next FUNC;
                 }    # if match
@@ -6739,6 +7182,37 @@ sub _checkConsistency
         }
     }
 
+    # check MC/DC consistency -
+    #   Note that we might have an MC/DC block on a line which has no
+    #     linecov data
+    #   This can happen for template functions (and similar) where the
+    #     expression is statically determned to be true or false - and elided
+    #     by the compiler.  In that case, generate a new line coverpoint
+    if ($lcovutil::mcdc_coverage) {
+        my $mcdc          = $traceInfo->mcdc();
+        my $testcase_mcdc = $traceInfo->testcase_mcdc();
+        foreach my $line ($mcdc->keylist()) {
+            my $lineHit = $lineData->value($line);
+            next if defined($lineHit);
+
+            lcovutil::info(1,
+                           '"' . $traceInfo->filename() .
+                               "\":$line: generating DA entry for orphan MC/DC\n"
+            );
+            my $block = $mcdc->value($line);
+            my ($found, $hit) = $block->totals();
+            $lineData->append($line, $hit);
+
+            # create the entry in the per-testcase data
+            foreach my $testcase ($testcase_mcdc->keylist()) {
+                my $m = $testcase_mcdc->value($testcase);
+                if ($m->value($line)) {
+                    $traceInfo->test($testcase)->append($line, $hit);
+                }
+            }
+        }
+    }
+
     # also check branch data consistency...should not have non-zero branch hit
     # count if line is not hit - and vice versa
     my $checkBranchConsistency =
@@ -6789,6 +7263,9 @@ sub _checkConsistency
         }
     }
 
+    # @todo expect to have a branch everywhere we have an MCDC -
+    #  further, expect the number of branches and conditions to match
+
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{check_consistency}{$traceInfo->filename()} =
         $end - $start;
@@ -6807,6 +7284,8 @@ sub _filterFile
             return [$traceInfo, $modified];
         }
     }
+    # @todo: if MCDC has just one expression, then drop it -
+    #  it is equivalent to branch coverage.
     my $region           = $cov_filter[$FILTER_EXCLUDE_REGION];
     my $branch_region    = $cov_filter[$FILTER_EXCLUDE_BRANCH];
     my $range            = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
@@ -6862,6 +7341,7 @@ sub _filterFile
         my $funcData   = $traceInfo->testfnc();
         my $lineData   = $traceInfo->test();
         my $branchData = $traceInfo->testbr();
+        my $mcdcData   = $traceInfo->testcase_mcdc();
         my $checkData  = $traceInfo->check();
         my $reader     = defined($trivial_histogram) &&
             $srcReader->notEmpty() ? $srcReader : undef;
@@ -6870,15 +7350,17 @@ sub _filterFile
             my $m =
                 _eraseFunctions($source_file, $reader,
                                 $funcData->value($tn), $lineData->value($tn),
-                                $branchData->value($tn), $checkData->value($tn),
-                                $state, 0);
+                                $branchData->value($tn), $mcdcData->value($tn),
+                                $checkData->value($tn), $state,
+                                0);
             $modified ||= $m;
         }
         my $m =
             _eraseFunctions($source_file, $reader,
                             $traceInfo->func(), $traceInfo->sum(),
-                            $traceInfo->sumbr(), $traceInfo->check(),
-                            $state, 1);
+                            $traceInfo->sumbr(), $traceInfo->mcdc(),
+                            $traceInfo->check(), $state,
+                            1);
         $modified ||= $m;
     }
 
@@ -6888,13 +7370,14 @@ sub _filterFile
 
     my $filterExceptionBranches = FilterBranchExceptions->new();
 
-    my ($testdata, $sumcount, $funcdata, $checkdata,
-        $testfncdata, $testbrdata, $sumbrcount) = $traceInfo->get_info();
+    my ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
+        $testbrdata, $sumbrcount, $testmcdc, $mcdc) = $traceInfo->get_info();
 
     foreach my $testname (sort($testdata->keylist())) {
         my $testcount    = $testdata->value($testname);
         my $testfnccount = $testfncdata->value($testname);
         my $testbrcount  = $testbrdata->value($testname);
+        my $mcdc_count   = $testmcdc->value($testname);
 
         my $functionMap = $testfncdata->{$testname};
         if ($lcovutil::func_coverage &&
@@ -6980,29 +7463,35 @@ sub _filterFile
                     $remove = $branch_histogram;
                 }
                 if ($remove) {
-                    my $brdata = $testbrcount->value($line);
-                    ++$remove->[-2];    # one line where we skip
-                    $remove->[-1] += ($brdata->totals())[0];
-                    lcovutil::info(2,
-                                   "filter BRDA '"
-                                       .
-                                       ($line < $srcReader->numLines() ?
-                                            $srcReader->getLine($line) :
-                                            '<-->') .
-                                       "' $source_file:$line\n");
-                    # now remove this branch everywhere...
-                    foreach my $tn ($testbrdata->keylist()) {
-                        my $d = $testbrdata->value($tn);
-                        $d->remove($line, 1);    # remove if present
+                    foreach my $t ([$testbrdata, $sumbrcount, 'BRDA'],
+                                   [$testmcdc, $mcdc, 'MCDC']) {
+                        my ($testCount, $sumCount, $str) = @$t;
+                        my $brdata = $sumCount->value($line);
+                        # might not be MCDC here, even if there is a branch
+                        next unless $brdata;
+                        ++$remove->[-2];    # one line where we skip
+                        $remove->[-1] += ($brdata->totals())[0];
+                        lcovutil::info(2,
+                                       "filter $str '"
+                                           .
+                                           ($line < $srcReader->numLines() ?
+                                                $srcReader->getLine($line) :
+                                                '<-->') .
+                                           "' $source_file:$line\n");
+                        # now remove this branch everywhere...
+                        foreach my $tn ($testCount->keylist()) {
+                            my $d = $testCount->value($tn);
+                            $d->remove($line, 1);    # remove if present
+                        }
+                        # remove at top
+                        $sumCount->remove($line);
+                        $modified = 1;
                     }
-                    # remove at top
-                    $sumbrcount->remove($line);
-                    $modified = 1;
                 } elsif (defined($filterExceptionBranches)) {
                     # exclude exception branches here
                     my $m =
                         $filterExceptionBranches->filter($line, $srcReader,
-                                                      $sumbrcount, $testbrdata);
+                                  $sumbrcount, $testbrdata, $mcdc, $mcdc_count);
                     $modified ||= $m;
                 }
             }    # foreach line
@@ -7676,18 +8165,30 @@ sub _read_info
         $readSourceCallback = ReadCurrentSource->new();
     }
 
-    my $testdata;     #       "             "
-    my $testcount;    #       "             "
-    my $sumcount;     #       "             "
-    my $funcdata;     #       "             "
-    my $checkdata;    #       "             "
-    my $testfncdata;
-    my $testfnccount;
-    my $testbrdata;
-    my $testbrcount;
-    my $sumbrcount;
+    # per file data
+    my %perfile;
+    my $sumcount;      # line total counts in this file
+    my $funcdata;      # function total counts in this file
+    my $sumbrcount;    # branch total counts
+    my $mcdcCount;     # MD/DC total counts
+
+    my $checkdata;     # line checksums
+    my %perTestData;
+    my %summaryData;
+    # hash of per-testcase coverage data per testcase, in this file
+    my $testdata;      # hash of testname -> line coverage
+    my $testfncdata;   # hash of testname -> function coverage
+    my $testbrdata;    # hash of testname -> branch data
+    my $testMcdc;      #     -> MC/DC data
+
+    my $testcount;     # line coverage for particular testcase
+    my $testfnccount;  # func coverage   "    "
+    my $testbrcount;   # branch coverage "   "
+    my $testcase_mcdc; # MC/DC coverage  "   "
+
     my $testname;            # Current test name
     my $filename;            # Current filename
+    my $current_mcdc;
     my $changed_testname;    # If set, warn about changed testname
 
     lcovutil::info(1, "Reading data file $tracefile\n");
@@ -7768,8 +8269,9 @@ sub _read_info
             $fileData = $self->data($filename);
             # record line number where file entry found - can use it in error messages
             $fileData->location($tracefile, $.);
-            ($testdata, $sumcount, $funcdata, $checkdata,
-             $testfncdata, $testbrdata, $sumbrcount) = $fileData->get_info();
+            ($testdata, $sumcount, $funcdata,
+             $checkdata, $testfncdata, $testbrdata,
+             $sumbrcount, $mcdcCount, $testMcdc) = $fileData->get_info();
             $functionMap =
                 defined($testname) ? FunctionMap->new($filename) : $funcdata;
 
@@ -7777,10 +8279,13 @@ sub _read_info
                 $testcount    = $fileData->test($testname);
                 $testfnccount = $fileData->testfnc($testname);
                 $testbrcount  = $fileData->testbr($testname);
+                $testbrcount   = $fileData->testbr($testname);
+                $testcase_mcdc = $fileData->testcase_mcdc($testname);
             } else {
-                $testcount    = CountData->new($filename, 1);
-                $testfnccount = CountData->new($filename, 0);
-                $testbrcount  = BranchData->new();
+                $testcount     = CountData->new($filename, 1);
+                $testfnccount  = CountData->new($filename, 0);
+                $testbrcount   = BranchData->new();
+                $testcase_mcdc = MCDC_Data->new();
             }
             next;
         }
@@ -8023,6 +8528,38 @@ sub _read_info
                 last;
             };
 
+            /^MCDC:(\d+),(\d+),([tf]),(\d+),(\d+),(.+)$/ && do {
+                # line number, groupSize, sense, count, index, expression
+                # 'sense' is t/f: was this expression sensitized
+                last unless $lcovutil::mcdc_coverage;
+
+                my ($line, $groupSize, $sense, $count, $idx, $expr) =
+                    ($1, $2, $3, $4, $5, $6);
+                if ($line <= 0) {
+                    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        "\"$tracefile\":$.: unexpected line number '$line' in condition data record record '$_'"
+                    );
+                    last;
+                }
+
+                if (!defined($current_mcdc) ||
+                    $current_mcdc->line() != $line) {
+                    if ($current_mcdc) {
+                        $fileData->mcdc()->close_mcdcBlock($current_mcdc);
+
+                        $fileData->testcase_mcdc($testname)
+                            ->append_mcdc(Storable::dclone($current_mcdc))
+                            if (defined($testname));
+                    }
+                    $current_mcdc =
+                        $fileData->mcdc()->new_mcdc($fileData, $line);
+                }
+                $current_mcdc->insertExpr($filename, $groupSize, $sense eq 't',
+                                          $count, $idx, $expr);
+                last;
+            };
+
             /^end_of_record/ && do {
                 # Found end of section marker
                 if ($filename) {
@@ -8038,24 +8575,23 @@ sub _read_info
                         if ($funcdata != $functionMap) {
                             $funcdata->union($functionMap);
                         }
-                        if (defined($testname)) {
-                            $fileData->testfnc($testname)->union($functionMap);
-                        }
                     }
-                    # Store current section data
-                    if (defined($testname)) {
-                        $testdata->{$testname}    = $testcount;
-                        $testfncdata->{$testname} = $testfnccount;
-                        $testbrdata->{$testname}  = $testbrcount;
+                    if ($current_mcdc) {
+                        # close the current expression in case the next file
+                        # has an expression on the same line
+                        $fileData->mcdc()->close_mcdcBlock($current_mcdc);
+                        $fileData->testcase_mcdc($testname)
+                            ->append_mcdc(Storable::dclone($current_mcdc))
+                            if (defined($testname));
+                        $current_mcdc = undef;
                     }
 
-                    $self->data($filename)->set_info(
-                                    $testdata, $sumcount, $funcdata, $checkdata,
-                                    $testfncdata, $testbrdata, $sumbrcount);
+                    # some paranoic checks
+                    $self->data($filename)->check_data();
                     last;
                 }
             };
-            /^(FN|BR|L)[HF]/ && do {
+            /^(FN|BR|L|MC)[HF]/ && do {
                 last;    # ignore count records
             };
             /^\s*$/ && do {
@@ -8089,6 +8625,7 @@ sub _read_info
                 $filedata->test()->remove($testname);
                 $filedata->testfnc()->remove($testname);
                 $filedata->testbr()->remove($testname);
+                $filedata->testcase_mcdc()->remove($testname);
             }
         }
     }
@@ -8146,10 +8683,9 @@ sub write_info($$$)
         die("expected TraceInfo, got '" . ref($entry) . "'")
             unless ('TraceInfo' eq ref($entry));
 
-        my ($testdata, $sumcount, $funcdata, $checkdata,
-            $testfncdata, $testbrdata, $sumbrcount) = $entry->get_info();
-        my ($found, $hit, $f_found, $f_hit, $br_found, $br_hit);
-
+        my ($testdata, $sumcount, $funcdata,
+            $checkdata, $testfncdata, $testbrdata,
+            $sumbrcount, $sum_mcdc, $testmcdc) = $entry->get_info();
         # munge the source file name, if requested
         $source_file = ReadCurrentSource::resolve_path($source_file, 1);
 
@@ -8160,8 +8696,7 @@ sub write_info($$$)
             my $testcount    = $testdata->value($testname);
             my $testfnccount = $testfncdata->value($testname);
             my $testbrcount  = $testbrdata->value($testname);
-            $found = 0;
-            $hit   = 0;
+            my $mcdc         = $testmcdc->value($testname);
 
             print(INFO_HANDLE "TN:$testname\n");
             print(INFO_HANDLE "SF:$source_file\n");
@@ -8223,8 +8758,8 @@ sub write_info($$$)
             if ($lcovutil::br_coverage &&
                 defined($testbrcount)) {
                 # Write branch related data
-                $br_found = 0;
-                $br_hit   = 0;
+                my $br_found = 0;
+                my $br_hit   = 0;
 
                 foreach my $line (sort({ $a <=> $b } $testbrcount->keylist())) {
 
@@ -8265,7 +8800,41 @@ sub write_info($$$)
                     print(INFO_HANDLE "BRH:$br_hit\n");
                 }
             }
+            if ($mcdc &&
+                $lcovutil::mcdc_coverage) {
+
+                my $mcdc_found = 0;
+                my $mcdc_hit   = 0;
+                foreach my $line (sort({ $a <=> $b } $mcdc->keylist())) {
+
+                    die("unexpected MCDC line $line") if ($line <= 0);
+                    my $m      = $mcdc->value($line);
+                    my $groups = $m->groups();
+                    foreach my $groupSize (sort keys %$groups) {
+                        my $exprs = $groups->{$groupSize};
+                        my $index = -1;
+                        foreach my $e (@$exprs) {
+                            $mcdc_found += 2;
+                            ++$index;
+                            foreach my $sense ('t', 'f') {
+                                my $count = $e->count($sense eq 't');
+                                ++$mcdc_hit if 0 != $count;
+                                print(INFO_HANDLE
+                                     "MCDC:$line,$groupSize,$sense,$count,$index,"
+                                     . $e->expression(),
+                                 "\n");
+                            }
+                        }
+                    }
+                }
+                if ($mcdc_found != 0) {
+                    print(INFO_HANDLE "MCF:$mcdc_found\n");
+                    print(INFO_HANDLE "MCH:$mcdc_hit\n");
+                }
+            }
             # Write line related data
+            my $found = 0;
+            my $hit   = 0;
             foreach my $line (sort({ $a <=> $b } $testcount->keylist())) {
                 my $l_hit = $testcount->value($line);
                 my $chk   = '';

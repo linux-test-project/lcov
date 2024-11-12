@@ -21,6 +21,14 @@ BRDA:1,2,0,1
 BRDA:1,2,1,1
 BRF:2
 BRH:2
+
+# common
+MCDC:1,2,t,0,0,0
+MCDC:1,2,f,0,0,0
+MCDC:1,2,t,0,1,0
+MCDC:1,2,f,1,1,0
+MCF:4
+MCH:1
 end_of_record
 
 #file in B and not A
@@ -45,4 +53,12 @@ BRDA:1,2,0,1
 BRDA:1,2,1,1
 BRF:5
 BRH:4
+
+MCDC:1,2,t,0,0,0
+MCDC:1,2,f,0,1,0
+MCDC:1,2,t,0,1,0
+MCDC:1,2,f,1,1,0
+MCF:4
+MCH:2
+
 end_of_record

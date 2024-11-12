@@ -131,8 +131,8 @@ sub new
             my $depot_path = $1;
             my $version    = $2 ? "#$2" : '@head';
             my $filename   = $3;
-	    next unless -e $filename; # filename has ben deleted
-            my $full       = Cwd::abs_path($filename);
+            next unless -e $filename;    # filename has ben deleted
+            my $full = Cwd::abs_path($filename);
             die("unexpected depot filename $filename")
                 unless $root eq substr($filename, 0, $len);
             my $trimmed = substr($filename, $len);

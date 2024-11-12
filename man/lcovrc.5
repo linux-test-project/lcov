@@ -283,6 +283,11 @@ genhtml_line_field_width = 12
 genhtml_branch_field_width = 16
 .br
 
+# Width of MC/DC coverage field in source code view
+.br
+genhtml_mcdc_field_width = 14
+.br
+
 # width of 'owner' field in source code view - default is 20
 .br
 genhtml_owner_field_width = 20
@@ -571,6 +576,13 @@ function_coverage = 1
 # displayed.
 .br
 branch_coverage = 0
+.br
+
+# Specify if Modified Condition / Decision Coveage data should be collected,
+.br
+#  processed, and displayed.
+.br
+mcdc_coverage = 0
 .br
 
 # Ask lcov/genhtml/geninfo to return non-zero exit code if branch coverage is
@@ -1157,6 +1169,16 @@ branch coverage information.
 .br
 
 Default is 16.
+.PP
+
+.BR genhtml_mcdc_field_width " ="
+.I number_of_characters
+.IP
+Specify the width (in characters) of the source code view column containing
+MC/DC coverage information.
+.br
+
+Default is 14.
 .PP
 
 .BR genhtml_owner_field_width " ="
@@ -2341,6 +2363,28 @@ are supported but deprecated.  Please use the new option instead.
 
 
 Default is 0.
+.PP
+
+.BR mcdc_coverage " ="
+.IR 0 | 1
+.IP
+Specify whether lcov/geninfo should generate, process, and display Modified
+Condition / Decision Coverage (MC/DC)
+coverage data.
+.br
+
+Turning off MC/DC coverage by setting this option to 0 can reduce
+memory and CPU time consumption
+when lcov is collecting and processing coverage data, as well as
+reduce the size of the resulting data files.
+.br
+
+This option can be overridden by the
+.I \-\-mcdc\-coverage
+ command line option.
+.br
+
+Default is 0 (not enabled).
 .PP
 
 .BR lcov_excl_line " ="

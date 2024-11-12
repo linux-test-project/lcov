@@ -40,6 +40,7 @@ report:
               --show-navigation --flat --branch --show-proportion   \
               --version-script $(VERSION_SCRIPT)                    \
 	      --annotate-script $(ANNOTATE_SCRIPT)                  \
+	      --filter region                                       \
               --ignore empty,inconsistent ;                         \
 	  cp p*cov.info $(HTML_RPT) ;                               \
 	  echo "Wrote HTML report to ${HTML_RPT}" ;                 \

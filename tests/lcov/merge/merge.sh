@@ -91,7 +91,7 @@ fi
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
-LCOV_OPTS="--branch $PARALLEL $PROFILE"
+LCOV_OPTS="--branch $PARALLEL $PROFILE --mcdc-coverage"
 # gcc/4.8.5 (and possibly other old versions) generate inconsistent line/function data
 IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
@@ -205,6 +205,50 @@ if [ 0 == $? ] ; then
         exit 1
     fi
 fi
+
+# test line coverpoint generation
+$COVER $LCOV_TOOL $LCOV_OPTS -o gen.info -a mcdc.dat --ignore inconsistent
+if [ 0 != $? ] ; then
+    echo "Error:  MC/DC DA gen failed"
+
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+for count in 'DA:6,0' 'LF:8' 'LH:2' ; do
+    grep $count gen.info
+    if [ 0 != $? ] ; then
+        echo "Error:  didn't find expected count '$count' in MC/DC gen"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+
+
+$COVER $LCOV_TOOL $LCOV_OPTS -o func.info -a functionBug_1.dat -a functionBug_2.dat --ignore inconsistent
+if [ 0 != $? ] ; then
+    echo "Error:  function merge failed"
+
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+for count in 'FNF:2' 'FNH:1' ; do
+    grep $count func.info
+    if [ 0 != $? ] ; then
+        echo "Error:  didn't find expected count '$count' in function merge"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
 
 if [ 0 == $status ] ; then
     echo "Tests passed"

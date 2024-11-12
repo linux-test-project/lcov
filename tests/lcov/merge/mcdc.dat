@@ -42,9 +42,9 @@ MCDC:1,2,f,0,0,0
 MCDC:1,2,t,0,1,0
 MCDC:1,2,f,0,1,0
 
-# in A only
-MCDC:11,1,t,0,0,0
-MCDC:11,1,f,0,0,0
+# on line which has no coverpoint (so synthesize one)
+MCDC:6,1,t,0,0,0
+MCDC:6,1,f,0,0,0
 
 MCF:6
 MCH:0
