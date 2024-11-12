@@ -345,7 +345,7 @@ our $trivial_function_threshold         = 5;
 our @omit_line_patterns;
 our @exclude_function_patterns;
 
-our %languageExtensions = ('c'      => 'c|h|i||C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx',
+our %languageExtensions = ('c'      => 'c|h|i|C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx',
                            'rtl'    => 'v|vh|sv|vhdl?',
                            'perl'   => 'pl|pm',
                            'python' => 'py',
@@ -7616,12 +7616,12 @@ sub is_language
 {
     my ($lang, $filename) = @_;
     my $idx = index($filename, '.');
-    my $ext = $idx == -1 ? '' : substr($filename, $idx + 1);
+    my $ext = $idx == -1 ? '' : substr($filename, $idx);
     foreach my $l (split('\|', $lang)) {
         die("unknown language '$l'")
             unless exists($lcovutil::languageExtensions{$l});
         my $extensions = $lcovutil::languageExtensions{$l};
-        return 1 if ($ext =~ /($extensions)/);
+        return 1 if ($ext =~ /\.($extensions)$/);
     }
     return 0;
 }
