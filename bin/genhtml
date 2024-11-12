@@ -2430,12 +2430,15 @@ sub differential_mcdc
 sub _mergeFunctionData
 {
     my ($self, $loc, $functionData) = @_;
+    die('expected FunctionEntry found ' . ref($functionData))
+        unless 'FunctionEntry' eq ref($functionData);
     my $function = $self->[FUNCTION_DATA];
     if (defined($function->[$loc])) {
         my $current = $function->[$loc];
         $current->merge($functionData);
     } else {
-        $function->[$loc] = Storable::dclone($functionData);
+        # also clone hit count data
+        $function->[$loc] = $functionData->cloneWithEndLine(1, 1);
     }
 }
 
@@ -3253,10 +3256,13 @@ sub _categorizeFunctionCov
         my $base = $data->baseline_function();
         my $categorized;
         if (defined($curr)) {
-            $categorized = $curr->cloneWithEndLine(1);  # also copy the end lien
+            # also copy the end line
+            $categorized = $curr->cloneWithEndLine(1);
         } else {
-            $categorized = $base->cloneWithEndLine(0)
-                ;    # not in current - don't copy end line
+            # not in current - don't copy end line
+            # @todo if needed, could compute where the end line of the deleted
+            #  function is now
+            $categorized = $base->cloneWithEndLine(0);
         }
         my $name = $categorized->name();
         $differentialMap->{$name} = $categorized;
@@ -4842,8 +4848,9 @@ sub _countLineTlaData
 
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
         # this case can happen if the line number annotations are
-        #   wrong in the .info file - so the branch coverage line
-        #   number turns out not to be an executable source code line
+        #   wrong in the .info file - so the first line of some function
+        #   or some branch coverage line number turns out not to be an
+        #   executable source code line
         lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
                "unexpected category $tla for line " . $self->path() . ":$line");
         return;

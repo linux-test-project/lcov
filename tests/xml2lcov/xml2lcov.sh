@@ -247,7 +247,10 @@ if [ 0 == $? ] ; then
 fi
 
 # aggregate the files - as a syntax check
-$COVER $LCOV_TOOL $LCOV_OPTS -o aggregate.info -a test.info
+#  the file contains inconsistent data for 'org/jasig/portal/EntityTypes.java'
+#  function 'mapRow' is declared twice at different locations and
+#  overlaps with a previous decl
+$COVER $LCOV_TOOL $LCOV_OPTS -o aggregate.info -a test.info --ignore inconsistent
 if [ 0 != $? ] ; then
     echo "lcov aggregate failed"
     if [ 0 == $KEEP_GOING ] ; then

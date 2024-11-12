@@ -266,7 +266,8 @@ if [ 0 != $? ] ; then
 fi
 cover cover_genhtml -silent 1
 
-$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output genhtml.info --testname genhtml_test ./cover_genhtml
+# ignore inconsistency:  line hit but no branch on line is hit
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output genhtml.info --testname genhtml_test ./cover_genhtml --ignore inconsistent
 if [ 0 != $? ] ; then
     echo "perl2lcov genhtml"
     if [ 0 == $KEEP_GOING ] ; then

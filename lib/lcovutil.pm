@@ -4331,10 +4331,18 @@ sub new
 
 sub cloneWithEndLine
 {
-    my ($self, $withEnd) = @_;
-    return
-        FunctionEntry->new($self->[NAME], $self->[MAP], $self->[FIRST],
-                           $withEnd ? $self->[LAST] : undef);
+    my ($self, $withEnd, $cloneAliases) = @_;
+    my $fn = FunctionEntry->new($self->[NAME], $self->[MAP], $self->[FIRST],
+                                $withEnd ? $self->[LAST] : undef);
+    if ($cloneAliases) {
+        my $count = 0;
+        while (my ($alias, $hit) = each(%{$self->aliases()})) {
+            $fn->[ALIASES]->{$alias} = $hit;
+            $count += $hit;
+        }
+        $fn->[COUNT] = $count;
+    }
+    return $fn;
 }
 
 sub name
@@ -6775,7 +6783,7 @@ sub data
 
     my $key   = $lcovutil::case_insensitive ? lc($file) : $file;
     my $files = $self->[FILES];
-    if (!defined($files->{$key})) {
+    if (!exists($files->{$key})) {
         if (defined $checkMatchingBasename) {
             # check if there is a file in the map that has the same basename
             #  as the lone we are looking for.
@@ -6802,6 +6810,13 @@ sub data
     return $files->{$key};
 }
 
+sub contains
+{
+    my ($self, $file) = @_;
+    my $key   = $lcovutil::case_insensitive ? lc($file) : $file;
+    my $files = $self->[FILES];
+    return exists($files->{$key});
+}
 
 sub remove
 {
@@ -6966,8 +6981,9 @@ sub _deriveFunctionEndLines
     my $traceInfo = shift;
     my $modified  = 0;
 
-    my $start = Time::HiRes::gettimeofday();
-    my @lines = sort { $a <=> $b } $traceInfo->sum()->keylist();
+    my $start    = Time::HiRes::gettimeofday();
+    my $lineData = $traceInfo->sum();
+    my @lines    = sort { $a <=> $b } $lineData->keylist();
     # sort functions by start line number
     # ignore lambdas - which we don't process correctly at the moment
     #   (would need to do syntactic search for the end line)
@@ -6980,6 +6996,12 @@ sub _deriveFunctionEndLines
         my $func  = shift(@functions);
         my $first = $func->line();
         my $end   = $func->end_line();
+        #unless (defined($lineData->value($first))) {
+        #    lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+        #			      '"' . $func->filename() .
+        #                "\":$first: first line of function has no linecov.");
+        #    $lineData->append($first, $func->hit());
+        #}
         while ($first < $currentLine) {
             if (@lines) {
                 $currentLine = shift @lines;
@@ -7143,7 +7165,7 @@ sub _checkConsistency
             my $hit = $lineData->value($currentLine);
             $lineHit = 1 if $hit;
             if ($hit && !$imHit) {
-                # don't wan about the first line of a lambda:
+                # don't warn about the first line of a lambda:
                 #  - the decl may executed even if the lambda function itself is
                 #    not called
                 #  - if no other lines are hit, then then the function is not
@@ -8240,6 +8262,12 @@ sub _read_info
                 $skipCurrentFile = 1;
                 next;
             }
+            #if ($self->contains($filename)) {
+            #    # we expect there to be only one entry for each source file in each section
+            #    lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
+            #				  "Duplicate entries for \"$filename\""
+            #				  . ($testname ? " in testcase '$testname'" : '') . '.');
+            #}
             $filename = ReadCurrentSource::resolve_path($1, 1);
             # should this one be skipped?
             $skipCurrentFile = skipCurrentFile($filename);
@@ -8272,13 +8300,10 @@ sub _read_info
             ($testdata, $sumcount, $funcdata,
              $checkdata, $testfncdata, $testbrdata,
              $sumbrcount, $mcdcCount, $testMcdc) = $fileData->get_info();
-            $functionMap =
-                defined($testname) ? FunctionMap->new($filename) : $funcdata;
 
             if (defined($testname)) {
-                $testcount    = $fileData->test($testname);
-                $testfnccount = $fileData->testfnc($testname);
-                $testbrcount  = $fileData->testbr($testname);
+                $testcount     = $fileData->test($testname);
+                $functionMap   = $fileData->testfnc($testname);
                 $testbrcount   = $fileData->testbr($testname);
                 $testcase_mcdc = $fileData->testcase_mcdc($testname);
             } else {
@@ -8286,6 +8311,7 @@ sub _read_info
                 $testfnccount  = CountData->new($filename, 0);
                 $testbrcount   = BranchData->new();
                 $testcase_mcdc = MCDC_Data->new();
+                $functionMap   = FunctionMap->new($filename);
             }
             next;
         }
