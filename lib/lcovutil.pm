@@ -8362,8 +8362,7 @@ sub _read_info
             /^DA:(\d+),([^,]+)(,([^,\s]+))?/ && do {
                 my ($line, $count, $checksum) = ($1, $2, $4);
                 if ($line <= 0) {
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
                     );
                     last;
@@ -8427,12 +8426,10 @@ sub _read_info
                 my $end_line = $3;
                 if ($lineNo <= 0 ||
                     (defined($end_line) && $end_line <= 0)) {
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected function line '$lineNo' in .info file record '$_'"
                     ) if $lineNo <= 0;
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected function end line '$end_line' in .info file record '$_'"
                     ) if defined($end_line) && $end_line <= 0;
 
@@ -8505,8 +8502,7 @@ sub _read_info
                     #   - if we wrote one from geninfo, then we will not have
                     #     produced bogus data - so no need to check.
                     #   - only some (broken) external tool could have the issue
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
                     );
                     last;
@@ -8562,8 +8558,7 @@ sub _read_info
                 my ($line, $groupSize, $sense, $count, $idx, $expr) =
                     ($1, $2, $3, $4, $5, $6);
                 if ($line <= 0) {
-                    lcovutil::ignorable_error(
-                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected line number '$line' in condition data record record '$_'"
                     );
                     last;
@@ -8754,8 +8749,7 @@ sub write_info($$$)
 
                     if ($line <= 0) {
                         my $alias = (sort keys %$aliases)[0];
-                        lcovutil::ignorable_error(
-                            $lcovutil::ERROR_INCONSISTENT_DATA,
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                             "\"$source_file\": unexpected line number '$line' for function $alias"
                         );
                         next;
@@ -8790,8 +8784,7 @@ sub write_info($$$)
                 foreach my $line (sort({ $a <=> $b } $testbrcount->keylist())) {
 
                     if ($line <= 0) {
-                        lcovutil::ignorable_error(
-                            $lcovutil::ERROR_INCONSISTENT_DATA,
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                             "\"$source_file\": unexpected line number '$line' in branch data record record '$_'"
                         );
                         last;

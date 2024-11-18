@@ -136,7 +136,7 @@ for f in badFncLine badFncEndLine fncMismatch badBranchLine badLine ; do
     fi
 
     echo lcov $LCOV_OPTS --summary $f.info --ignore inconsistent
-    $COVER $LCOV_TOOL $LCOV_OPTS --summary $f.info --ignore inconsistent 2>&1 | tee ${f}2.log
+    $COVER $LCOV_TOOL $LCOV_OPTS --summary $f.info --ignore format,inconsistent 2>&1 | tee ${f}2.log
     if [ 0 != ${PIPESTATUS[0]} ] ; then
         echo "failed to ignore message ${f}2.log"
         status=1

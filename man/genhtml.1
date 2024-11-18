@@ -2873,7 +2873,9 @@ If you see continued errors, either turn off or reduce parallelism, set a memory
 .PP
 
 .IP format: 3
-Unexpected syntax found in .info file.
+Unexpected syntax or value found in .info file - for example, negative number or
+zero line number encountered.
+
 .PP
 
 .IP inconsistent: 3
@@ -2930,11 +2932,7 @@ function alias record (
 .PP
 .IP \- 3
 branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match
-.PP
 
-.PP
-.IP \- 3
-Negative number or zero line number encounted.
 .br
 If the error is ignored, the offending record is skipped.
 .RE

@@ -2592,7 +2592,7 @@ sub intermediate_json_to_info($)
                 if (!defined($line) || !defined($count));
 
             if ($line <= 0) {
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                          '"' . $fileData->filename() .
                              "\"::  unexpected line number '$line' in gcov record"
                 );
