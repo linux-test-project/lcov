@@ -3377,6 +3377,15 @@ sub decode($)
     return decode_json($text);
 }
 
+sub load($)
+{
+    my $filename = shift;
+    my $f        = InOutFile->in($filename);
+    my $h        = $f->hdl();
+    my @lines    = <$h>;
+    return decode(join("\n", @lines));
+}
+
 package InOutFile;
 
 our $checkedGzipAvail;
@@ -6169,6 +6178,28 @@ sub getLine
     return $self->isOutOfRange($line) ?
         undef :
         $self->[0]->[SOURCE]->[$line - 1];
+}
+
+sub getExpr
+{
+    my ($self, $startLine, $startCol, $endLine, $endCol) = @_;
+    die("bad range [$startLine:$endLine]") unless $endLine >= $startLine;
+    return 'NA'                            unless $endLine <= $self->numLines();
+
+    my $line = $self->getLine($startLine);
+    my $expr;
+    if ($startLine == $endLine) {
+        $expr = substr($line, $startCol - 1, $endCol - $startCol);
+    } else {
+        $expr = substr($line, $startCol - 1);
+        for (my $l = $startLine + 1; $l < $endLine; ++$l) {
+            $expr .= $self->getLine($l);
+        }
+        $line = $self->getLine($endLine);
+        $expr .= substr($line, 0, $endCol);
+    }
+    $expr =~ /^\s*(.+?)\s*$/;
+    return $1;
 }
 
 sub isOutOfRange

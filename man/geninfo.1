@@ -430,15 +430,17 @@ This is equivalent to using the option "\-\-rc branch_coverage=1"; the option wa
 Collect retain MC/DC data.
 
 This is equivalent to using the option "\-\-rc mcdc_coverage=1".
-MC/DC coverage capture is supported for GCC versions 14.2 and higher.
+MC/DC coverage capture is supported for GCC versions 14.2 and higher,
+or LLVM versions 18.1 and higher.
+.br
+See
+.I llvm2lcov \-\-help
+for details on MC/DC data capture in LLVM.
 
-
-Note that branch and MC/DC coverage are identical if the condiition is
-a simple expression -
-.I e.g.,
-.RS 3
- if (enable) ...
-.RE
+.br
+See the MC/DC section of man
+.B genhtml(1)
+for more details
 .RE
 
 .B \-\-checksum

@@ -75,6 +75,7 @@ export LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/lcov
 export GENHTML_TOOL := $(EXEC_COVER) $(BINDIR)/genhtml
 export GENINFO_TOOL := $(EXEC_COVER) $(BINDIR)/geninfo
 export PERL2LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/perl2lcov
+export LLVM2LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/llvm2lcov
 export PY2LCOV_TOOL := $(PYCOVER) $(BINDIR)/py2lcov
 export XML2LCOV_TOOL := $(PYCOVER) $(BINDIR)/xml2lcov
 export SPREADSHEET_TOOL := $(PYCOVER) $(SCRIPTDIR)/spreadsheet.py

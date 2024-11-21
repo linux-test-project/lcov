@@ -2717,22 +2717,33 @@ MC/DC data display is
 .B disabled
 by default.
 
+MC/DC coverage is supported for GCC versions 14.2 and higher, or
+LLVM 18.1 and higher.
+.br
+See
+.I llvm2lcov \-\-help
+for details on MC/DC data capture in LLVM.
+
 When MC/DC display is enabled, each overview page will contain
 the number of MC/DC expressions found and hit per file or directory - two senses per expression - together with
 the resulting coverage rate. In addition, each source code view will contain
 an extra column which lists all expressions and condition senses of a line with indications of
-whether the condition was sensitized or not. Conditions are shown in hte following format:
+whether the condition was sensitized or not. Conditions are shown in the following format:
 
- ' T ': True sense of subexpression was sensitized: if this subexpression's value had been false, then the condition resut would have been different.
-.br
- ' t ': True sense of subexpression was
+.RS 3
+.IP T: 3
+True sense of subexpression was sensitized: if this subexpression's value had been false, then the condition resut would have been different.
+.IP t: 3
+True sense of subexpression was
 .B not
 sensitized:  the condiiton result would not change if the subexpression value was different.
- ' F ': False sense of subexpression was sensitized: if this subexpression's value had been true, then the condition resut would have been different.
-.br
- ' f ': False sense of subexpression was
+.IP F:
+False sense of subexpression was sensitized: if this subexpression's value had been true, then the condition resut would have been different.
+.IP f:
+False sense of subexpression was
 .B not
 sensitized:  the condiiton result would not change if the subexpression value was different.
+.RE
 
 Note that branch and MC/DC coverage are identical if the condiition is
 a simple expression -
@@ -2741,12 +2752,50 @@ a simple expression -
  if (enable) ...
 .RE
 
-
 This option can also be configured permanently using the configuration file
 option
 .IR mcdc_coverage .
 See man
 .B lcovrc(5) .
+
+Note that MC/DC coverpoints are defined differently by GCC and LLVM.
+.IP GCC: 3
+evaluates the sensitivity of the condition to the 'true' and 'false' sense of each constituent (leaf) expression independently.
+.br
+That is:  it evaluates the question:  does the result of the condition change if
+.I this
+constituent expression changed from true to false (termed the 'true' sense, above) or from false to true (termed the 'false' sens, above).
+.br
+For example, the expression
+.I A || B
+is sensitve to
+.I A==true
+when
+.I B==false,
+but is is not sensitive to
+.I A==true
+when
+.I B==true.
+
+.IP LLVM: 3
+records the subexpression as covered if and only if there is a pair of evaluations
+of the condition such that the condition was
+sensitized for both 'true' and 'false' values of the subexpression.
+This is defined as an
+.I independence pair
+in the LLVM documentation.
+.PP
+
+That is: the testcase must sensitize both values in order to be marked covered by
+LLVM, whereas GCC will independently mark each.
+Consequently:  in LLVM-generated
+.B lcov
+reports, either both 'true' and 'false' sensitizations will be covered, or neither will be.
+.br
+See the examples in tesctcase
+.I .../tests/lcov/mcdc.
+
+
 
 .RE
 .BI "\-\-demangle\-cpp " [param]

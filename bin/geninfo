@@ -2392,17 +2392,8 @@ sub read_intermediate_text($$)
 sub read_intermediate_json($$$)
 {
     my ($gcov_filename, $data, $basedir_ref) = @_;
-    my $text;
-
-    {
-        # intermediate JSON contains the demangled name
-        my $f     = InOutFile->in($gcov_filename);
-        my $h     = $f->hdl();
-        my @lines = <$h>;
-        $text = join("\n", @lines);
-    }
-
-    my $json = JsonSupport::decode($text);    # imported from lcovutil.pm
+    # intermediate JSON contains the demangled name
+    my $json = JsonSupport::load($gcov_filename);    # imported from lcovutil.pm
     if (!defined($json) ||
         !exists($json->{"files"}) ||
         ref($json->{"files"} ne "ARRAY")) {
