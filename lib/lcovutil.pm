@@ -5662,7 +5662,7 @@ sub hit
     return $self->sum()->hit();
 }
 
-sub f_found
+sub function_found
 {
     my $self = shift;
     return $self->func()
@@ -5670,7 +5670,7 @@ sub f_found
               defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]));
 }
 
-sub f_hit
+sub function_hit
 {
     my $self = shift;
     return $self->func()
@@ -5678,13 +5678,13 @@ sub f_hit
               defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]));
 }
 
-sub b_found
+sub branch_found
 {
     my $self = shift;
     return $self->sumbr()->found();
 }
 
-sub b_hit
+sub branch_hit
 {
     my $self = shift;
     return $self->sumbr()->hit();
@@ -6605,12 +6605,12 @@ sub count_totals
     foreach my $filename ($self->files()) {
         my $entry = $self->data($filename);
         ++$data[0];
-        $data[1]->[0] += $entry->found();      # lines
+        $data[1]->[0] += $entry->found();             # lines
         $data[1]->[1] += $entry->hit();
-        $data[2]->[0] += $entry->b_found();    # branch
-        $data[2]->[1] += $entry->b_hit();
-        $data[3]->[0] += $entry->f_found();    # function
-        $data[3]->[1] += $entry->f_hit();
+        $data[2]->[0] += $entry->branch_found();      # branch
+        $data[2]->[1] += $entry->branch_hit();
+        $data[3]->[0] += $entry->function_found();    # function
+        $data[3]->[1] += $entry->function_hit();
 
         if ($lcovutil::mcdc_coverage) {
             $data[4]->[0] += $entry->mcdc_found();    # mcdc
@@ -6694,8 +6694,8 @@ sub checkCoverageCriteria
     foreach my $filename ($self->files()) {
         my $entry = $self->data($filename);
         my @data = ($entry->found(), $entry->hit(),
-                    $entry->b_found(), $entry->b_hit(),
-                    $entry->f_found(), $entry->f_hit());
+                    $entry->branch_found(), $entry->branch_hit(),
+                    $entry->function_found(), $entry->function_hit());
         my $idx = 0;
         foreach my $t ('line', 'branch', 'function') {
             foreach my $x ('found', 'hit') {
@@ -8178,10 +8178,10 @@ sub is_language
 #        "func"  -> \%funcdata
 #        "found" -> $lines_found (number of instrumented lines found in file)
 #        "hit"   -> $lines_hit (number of executed lines in file)
-#        "f_found" -> $fn_found (number of instrumented functions found in file)
-#        "f_hit"   -> $fn_hit (number of executed functions in file)
-#        "b_found" -> $br_found (number of instrumented branches found in file)
-#        "b_hit"   -> $br_hit (number of executed branches in file)
+#        "function_found" -> $fn_found (number of instrumented functions found in file)
+#        "function_hit"   -> $fn_hit (number of executed functions in file)
+#        "branch_found" -> $br_found (number of instrumented branches found in file)
+#        "branch_hit"   -> $br_hit (number of executed branches in file)
 #        "check" -> \%checkdata
 #        "testfnc" -> \%testfncdata
 #        "testbr"  -> \%testbrdata

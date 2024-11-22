@@ -280,8 +280,8 @@ sub write_test_table_entry(*$$);
 sub write_test_table_epilog(*);
 
 sub write_source($$$$$$$$);
-sub write_source_prolog(**);
-sub write_source_line(*$$$$$);
+sub write_source_prolog(*$$$);
+sub write_source_line(*$$$$$$$);
 sub write_source_epilog(*);
 
 sub write_frameset(*$$$);
@@ -1188,32 +1188,32 @@ sub type_count
     return $l->{$status};
 }
 
-sub l_found
+sub lines_found
 {
     return type_count(LINE_DATA, 'found', @_);
 }
 
-sub l_hit
+sub lines_hit
 {
     return type_count(LINE_DATA, 'hit', @_);
 }
 
-sub f_found
+sub function_found
 {
     return type_count(FUNCTION_DATA, 'found', @_);
 }
 
-sub f_hit
+sub function_hit
 {
     return type_count(FUNCTION_DATA, 'hit', @_);
 }
 
-sub b_found
+sub branch_found
 {
     return type_count(BRANCH_DATA, 'found', @_);
 }
 
-sub b_hit
+sub branch_hit
 {
     return type_count(BRANCH_DATA, 'hit', @_);
 }
@@ -7919,16 +7919,16 @@ sub process_file($$$$$)
     my ($lines_found, $lines_hit, $br_found, $br_hit,
         $mcdc_found, $mcdc_hit, $fn_found, $fn_hit)
         = ($fileData->found(), $fileData->hit(),
-           $fileData->b_found(), $fileData->b_hit(),
+           $fileData->branch_found(), $fileData->branch_hit(),
            $fileData->mcdc_found(), $fileData->mcdc_hit(),
-           $fileData->f_found(), $fileData->f_hit());
+           $fileData->function_found(), $fileData->function_hit());
 
-    $fileSummary->l_found($lines_found);
-    $fileSummary->l_hit($lines_hit);
-    $fileSummary->f_found($fn_found);
-    $fileSummary->f_hit($fn_hit);
-    $fileSummary->b_found($br_found);
-    $fileSummary->b_hit($br_hit);
+    $fileSummary->lines_found($lines_found);
+    $fileSummary->lines_hit($lines_hit);
+    $fileSummary->function_found($fn_found);
+    $fileSummary->function_hit($fn_hit);
+    $fileSummary->branch_found($br_found);
+    $fileSummary->branch_hit($br_hit);
     $fileSummary->mcdc_found($mcdc_found);
     $fileSummary->mcdc_hit($mcdc_hit);
 
@@ -10398,16 +10398,16 @@ sub fmt_centered($$)
 # Write start of source code table.
 #
 
-sub write_source_prolog(**)
+sub write_source_prolog(*$$$)
 {
-    my $lineno_heading     = " " x 9;
-    my $branch_heading     = "";
-    my $mcdc_heading       = "";
-    my $tlaWidth           = 4;
-    my $fileHasProjectData = $_[1];
-    my $age_heading        = "";
-    my $owner_heading      = "";
-    my $tla_heading        = "";
+    my ($handle, $fileHasProjectData, $showBranches, $showMcdc) = @_;
+    my $lineno_heading = " " x 9;
+    my $branch_heading = "";
+    my $mcdc_heading   = "";
+    my $tlaWidth       = 4;
+    my $age_heading    = "";
+    my $owner_heading  = "";
+    my $tla_heading    = "";
 
     if (defined($main::show_dateBins) &&
         $fileHasProjectData) {
@@ -10420,16 +10420,16 @@ sub write_source_prolog(**)
     my $line_heading   = fmt_centered($line_field_width, "Line data");
     my $source_heading = " Source code";
 
-    if ($lcovutil::br_coverage) {
+    if ($showBranches) {
         $branch_heading = fmt_centered($br_field_width, "Branch data") . " ";
     }
-    if ($lcovutil::mcdc_coverage) {
+    if ($showMcdc) {
         $mcdc_heading = fmt_centered($mcdc_field_width, "MC/DC data") . " ";
     }
 
     # *************************************************************
 
-    write_html($_[0], <<END_OF_HTML);
+    write_html($handle, <<END_OF_HTML);
           <table cellpadding=0 cellspacing=0 border=0>
             <tr>
               <td><br></td>
@@ -10895,9 +10895,11 @@ sub format_count($$)
 # by gen_png()
 #
 
-sub write_source_line(*$$$$$)
+sub write_source_line(*$$$$$$$)
 {
-    my ($handle, $srcline, $count, $brdata, $mcdc, $cbdata) = @_;
+    my ($handle, $srcline, $count, $showBranches, $brdata, $showMcdc, $mcdc,
+        $cbdata)
+        = @_;
     my $line         = $cbdata->lineNo();
     my $fileCovInfo  = $cbdata->lineData();
     my $sourceDetail = $cbdata->sourceDetail();
@@ -10921,9 +10923,9 @@ sub write_source_line(*$$$$$)
                     $cbdata->current('age'));
 
     # Get branch HTML data for this line
-    my @br_html = get_branch_html($brdata, $cbdata) if ($lcovutil::br_coverage);
+    my @br_html = get_branch_html($brdata, $cbdata) if ($showBranches);
 
-    my @mcdc_html = get_mcdc_html($mcdc, $cbdata) if ($lcovutil::mcdc_coverage);
+    my @mcdc_html = get_mcdc_html($mcdc, $cbdata) if ($showMcdc);
 
     my $thisline = $fileCovInfo->lineMap()->{$line};
     my $tlaIsHref;
@@ -11234,8 +11236,8 @@ sub write_source_line(*$$$$$)
     #printf("tla= " . $tla);
     #printf("html= " . $html);
 
-    $html .= shift(@br_html) . ":" if ($lcovutil::br_coverage);
-    $html .= shift(@mcdc_html) . ":" if ($lcovutil::mcdc_coverage);
+    $html .= shift(@br_html) . ":" if ($showBranches);
+    $html .= shift(@mcdc_html) . ":" if ($showMcdc);
 
     $tla = ""
         if (!defined($main::show_tla));
@@ -11973,6 +11975,9 @@ sub write_header(*$$$$$$$)
               [undef, "headerValue", $baseline_date]
              ]);
     }
+    my $hasBranchData = $lcovutil::br_coverage && 0 != $summary->branch_found();
+    my $hasMcdcData   = $lcovutil::mcdc_coverage && 0 != $summary->mcdc_found();
+
     # if top-level page, link to command line and profile
     if ($summary->type() eq 'top' &&
         $bin_type eq ''                &&
@@ -12026,19 +12031,28 @@ sub write_header(*$$$$$$$)
 
     # Right row
     if ($legend && ($type == $HDR_SOURCE || $type == $HDR_FUNC)) {
+        # kind of hacky - using spaces to try to align
         my $text = <<END_OF_HTML;
-            Lines:
+            Lines:&nbsp&nbsp&nbsp&nbsp
             <span class="coverLegendCov">hit</span>
             <span class="coverLegendNoCov">not hit</span>
 END_OF_HTML
-        if ($lcovutil::br_coverage) {
+        if ($hasBranchData) {
             $text .= <<END_OF_HTML;
-            | Branches:
+            <br>Branches:
             <span class="coverLegendCov">+</span> taken
             <span class="coverLegendNoCov">-</span> not taken
             <span class="coverLegendNoCov">#</span> not executed
 END_OF_HTML
-
+        }
+        if ($hasMcdcData) {
+            $text .= <<END_OF_HTML;
+            <br>MC/DC:&nbsp&nbsp&nbsp
+            <span class="coverLegendCov">T</span> 'true' sensitized
+            <span class="coverLegendNoCov">t</span> 'true' not sensitized
+            <span class="coverLegendCov">F</span> 'false' sensitized
+            <span class="coverLegendNoCov">f</span> 'false' not sensitized
+END_OF_HTML
         }
         push(@row_left,
              [[undef, "headerItem", "Legend:"],
@@ -12062,9 +12076,9 @@ END_OF_HTML
         # compute which TLAs have non-zero entries for line/branch/function
         my @visit = (SummaryInfo::LINE_DATA);
         push(@visit, SummaryInfo::BRANCH_DATA)
-            if $lcovutil::br_coverage;
+            if $hasBranchData;
         push(@visit, SummaryInfo::MCDC_DATA)
-            if $lcovutil::mcdc_coverage;
+            if $hasMcdcData;
         push(@visit, SummaryInfo::FUNCTION_DATA)
             if $lcovutil::func_coverage;
 
@@ -12146,13 +12160,13 @@ END_OF_HTML
         push(@row_right, \@headerRow);
     }
     # Line coverage
-    my $tot = $summary->l_found();    #might have been modified...
-    my $hit = $summary->l_hit();
+    my $tot = $summary->lines_found();    #might have been modified...
+    my $hit = $summary->lines_hit();
     my $style =
         $rate_name[classify_rate($tot, $hit, $ln_med_limit, $ln_hi_limit)];
     my $rate = rate($hit, $tot, "&nbsp;%");
     $hit -= $tot
-        if $main::opt_missed;         # negative number
+        if $main::opt_missed;             # negative number
     my @dataRow = ([undef, "headerItem", "Lines:"],
                    [undef, "headerCovTableEntry$style", $rate],
                    [undef, "headerCovTableEntry", $tot]);
@@ -12170,8 +12184,8 @@ END_OF_HTML
         if ($type != $HDR_TESTDESC);
     # Function coverage
     if ($lcovutil::func_coverage) {
-        my $tot = $summary->f_found();
-        my $hit = $summary->f_hit();
+        my $tot = $summary->function_found();
+        my $hit = $summary->function_hit();
         $style =
             $rate_name[classify_rate($tot, $hit, $fn_med_limit, $fn_hi_limit)];
         $rate = rate($hit, $tot, "&nbsp;%");
@@ -12194,9 +12208,9 @@ END_OF_HTML
             if ($type != $HDR_TESTDESC);
     }
     # Branch coverage
-    if ($lcovutil::br_coverage) {
-        my $tot = $summary->b_found();
-        my $hit = $summary->b_hit();
+    if ($hasBranchData) {
+        my $tot = $summary->branch_found();
+        my $hit = $summary->branch_hit();
         $style =
             $rate_name[classify_rate($tot, $hit, $br_med_limit, $br_hi_limit)];
         $rate = rate($hit, $tot, "&nbsp;%");
@@ -12220,7 +12234,7 @@ END_OF_HTML
     }
 
     # MC/DC coverage
-    if ($lcovutil::mcdc_coverage) {
+    if ($hasMcdcData) {
         my $tot = $summary->mcdc_found();
         my $hit = $summary->mcdc_hit();
         $style =
@@ -12276,7 +12290,7 @@ END_OF_HTML
                 if ($type != $HDR_TESTDESC);
         }
 
-        if ($lcovutil::br_coverage) {
+        if ($hasBranchData) {
             my $br_table =
                 buildDateSummaryTable($summary,
                                       SummaryInfo::BRANCH_DATA,
@@ -12291,7 +12305,7 @@ END_OF_HTML
                 if ($type != $HDR_TESTDESC);
         }
 
-        if ($lcovutil::mcdc_coverage) {
+        if ($hasMcdcData) {
             my $mcdc_table =
                 buildDateSummaryTable($summary,
                                       SummaryInfo::MCDC_DATA,
@@ -12334,7 +12348,7 @@ END_OF_HTML
             push(@row_right, @$table)
                 if ($type != $HDR_TESTDESC);
 
-            if ($lcovutil::br_coverage) {
+            if ($hasBranchData) {
                 my $br_table =
                     buildOwnerSummaryTable($ownerList,
                                            $truncated,
@@ -12350,7 +12364,7 @@ END_OF_HTML
                     if ($type != $HDR_TESTDESC);
             }
 
-            if ($lcovutil::mcdc_coverage) {
+            if ($hasMcdcData) {
                 my $mcdc_table =
                     buildOwnerSummaryTable($ownerList,
                                            $truncated,
@@ -12571,6 +12585,14 @@ sub write_file_table(*$$$$$$)
         "primary key '$primary_key' does not support '$bin_type' detail reporting"
         );
 
+    my $hasBranchData =
+        $lcovutil::br_coverage && 0 != $dirSummary->branch_found();
+    my $hasMcdcData =
+        $lcovutil::mcdc_coverage && 0 != $dirSummary->mcdc_found();
+    my $includeFunctionColumns = $lcovutil::func_coverage &&
+        0 != $dirSummary->function_found() &&
+        'owner' ne $primary_key;
+
     # Determine HTML code for column headings
     my $hide = $HEAD_NO_DETAIL;
     my $show = $HEAD_NO_DETAIL;
@@ -12610,8 +12632,6 @@ sub write_file_table(*$$$$$$)
                                   $bin_type, $primary_key, $base_dir);
 
     my @head_columns;
-    my $includeFunctionColumns =
-        $lcovutil::func_coverage && 'owner' ne $primary_key;
 
     my @lineCovCols     = (["Rate", 2], "Total");
     my @mcdcCovCols     = ("Rate", "Total");
@@ -12627,9 +12647,9 @@ sub write_file_table(*$$$$$$)
     if ($main::show_tla) {
         my @visit = ([SummaryInfo::LINE_DATA, \@lineCovCols]);
         push(@visit, [SummaryInfo::MCDC_DATA, \@mcdcCovCols])
-            if $lcovutil::mcdc_coverage;
+            if $hasMcdcData;
         push(@visit, [SummaryInfo::BRANCH_DATA, \@branchCovCols])
-            if $lcovutil::br_coverage;
+            if $hasBranchData;
         push(@visit, [SummaryInfo::FUNCTION_DATA, \@functionCovCols])
             if $includeFunctionColumns;
         foreach my $d (@visit) {
@@ -12650,9 +12670,9 @@ sub write_file_table(*$$$$$$)
     }
     push(@head_columns, [$line_code, $#lineCovCols + 2, \@lineCovCols]);
     push(@head_columns, [$mcdc_code, $#mcdcCovCols + 1, \@mcdcCovCols])
-        if ($lcovutil::mcdc_coverage);
+        if $hasMcdcData;
     push(@head_columns, [$br_code, $#branchCovCols + 1, \@branchCovCols])
-        if ($lcovutil::br_coverage);
+        if $hasBranchData;
     push(@head_columns, [$func_code, $#functionCovCols + 1, \@functionCovCols])
         if $includeFunctionColumns;
 
@@ -12908,7 +12928,7 @@ sub write_file_table(*$$$$$$)
               SummaryInfo::LINE_DATA
              ]);
         # MC/DC coverage
-        if ($lcovutil::mcdc_coverage) {
+        if ($hasMcdcData) {
             push(@columns,
                  [$mcdc_found,
                   $mcdc_hit,
@@ -12920,7 +12940,7 @@ sub write_file_table(*$$$$$$)
                  ]);
         }
         # Branch coverage
-        if ($lcovutil::br_coverage) {
+        if ($hasBranchData) {
             push(@columns,
                  [$br_found,
                   $br_hit,
@@ -13005,7 +13025,7 @@ sub write_file_table(*$$$$$$)
                   $hi_limit, $showLineGraph, $lineCb,
                   SummaryInfo::LINE_DATA
                  ]);
-            if ($lcovutil::mcdc_coverage) {
+            if ($hasMcdcData) {
                 my ($mcdcMissed, $mcdcTotal, $mcdcCallback) = @$mcdc;
                 # need to compute the totals...
                 push(@ownerColData,
@@ -13015,7 +13035,7 @@ sub write_file_table(*$$$$$$)
                       SummaryInfo::MCDC_DATA
                      ]);
             }
-            if ($lcovutil::br_coverage) {
+            if ($hasBranchData) {
                 my ($branchMissed, $branchTotal, $brCallback) = @$branch;
                 # need to compute the totals...
                 push(@ownerColData,
@@ -13108,7 +13128,7 @@ sub write_file_table(*$$$$$$)
                                      $test_mcdc->value($testname), $fileDetails,
                                      SummaryInfo::MCDC_DATA)
                  ])
-                if ($lcovutil::mcdc_coverage &&
+                if ($hasMcdcData &&
                     defined($test_mcdc->value($testname)));
 
             push(@results,
@@ -13119,7 +13139,7 @@ sub write_file_table(*$$$$$$)
                                     $testbrdata->value($testname), $fileDetails,
                                     SummaryInfo::BRANCH_DATA)
                  ])
-                if ($lcovutil::br_coverage &&
+                if ($hasBranchData &&
                     defined($testbrdata->value($testname)));
 
             push(@results,
@@ -13130,7 +13150,7 @@ sub write_file_table(*$$$$$$)
                                    $testfncdata->value($testname), $fileDetails,
                                    SummaryInfo::FUNCTION_DATA)
                  ])
-                if ($lcovutil::func_coverage &&
+                if ($includeFunctionColumns &&
                     defined($testfncdata->value($testname)));
 
             my $href = $testname;
@@ -13223,7 +13243,12 @@ sub write_source($$$$$$$$)
         $funcdata, $sumbrcount, $mcdc_summary) = @_;
     my @result;
 
-    write_source_prolog(*HTML_HANDLE, $srcfile->isProjectFile());
+    # suppress branch and MCDC columns if there is no data in the file
+    my $showBranches = $lcovutil::br_coverage   && 0 != $sumbrcount->found();
+    my $showMcdc     = $lcovutil::mcdc_coverage && 0 != $mcdc_summary->found();
+
+    write_source_prolog(*HTML_HANDLE, $srcfile->isProjectFile(),
+                        $showBranches, $showMcdc);
     my $line_number = 0;
     my $cbdata      = PrintCallback->new($srcfile, $fileCovInfo);
 
@@ -13239,7 +13264,8 @@ sub write_source($$$$$$$$)
         # foreground/background - to make distinctive
         $empty .= '  <span class="lineNumWithDelete">' .
             (' ' x (8 - 3)) . '...</span>';
-        $empty .= ' ' x $main::br_field_width if $lcovutil::br_coverage;
+        $empty .= ' ' x $main::br_field_width if $showBranches;
+        $empty .= ' ' x $main::mcdc_field_width if $showMcdc;
         $empty .= ' ' x $main::tla_field_width;
         $empty .= ' ' x ($line_field_width - 1);
         $empty .=
@@ -13276,12 +13302,10 @@ sub write_source($$$$$$$$)
                ($checkdata->value($line_number) ne md5_base64($srcline->text()))
             );
         push(@result,
-             write_source_line(HTML_HANDLE,
-                               $srcline,
-                               $count_data->value($line_number),
-                               $sumbrcount->value($line_number),
-                               $mcdc_summary->value($line_number),
-                               $cbdata));
+             write_source_line(HTML_HANDLE, $srcline,
+                               $count_data->value($line_number), $showBranches,
+                               $sumbrcount->value($line_number), $showMcdc,
+                               $mcdc_summary->value($line_number), $cbdata));
     }
     if ($prevLine != $line_number) {
         # need another blank line at the bottom...
