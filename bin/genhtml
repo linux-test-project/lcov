@@ -5615,19 +5615,22 @@ sub _synthesize
         $last_line = $l if ('<' ne substr($l, 0, 1) && $l > $last_line);
     }
     my %functionDecls;
-    while (my ($fnName, $funcEntry) = each(%{$fileCovInfo->functionMap()})) {
-        my $line = $funcEntry->line();
-        my $end  = $funcEntry->end_line();
-        $last_line = $line if $line > $last_line;
-        $functionDecls{$line} = "/* BEGIN: function \"$fnName\" */"
-            if ($line >= $currentLast);
-        if (defined($end)) {
-            $functionDecls{$end} = "/* END: function \"$fnName\" */"
-                if ($end >= $currentLast);
-            if ($end > $last_line) {
-                # function end is not an executable line,
-                # but is after last executable line
-                $last_line = $end;
+    if ($lcovutil::func_coverage) {
+        while (my ($fnName, $funcEntry) = each(%{$fileCovInfo->functionMap()}))
+        {
+            my $line = $funcEntry->line();
+            my $end  = $funcEntry->end_line();
+            $last_line = $line if $line > $last_line;
+            $functionDecls{$line} = "/* BEGIN: function \"$fnName\" */"
+                if ($line >= $currentLast);
+            if (defined($end)) {
+                $functionDecls{$end} = "/* END: function \"$fnName\" */"
+                    if ($end >= $currentLast);
+                if ($end > $last_line) {
+                    # function end is not an executable line,
+                    # but is after last executable line
+                    $last_line = $end;
+                }
             }
         }
     }
@@ -13170,7 +13173,7 @@ sub write_file_table(*$$$$$$)
         [   $suppressedSecondaryHeader,
             '<sup>&lowast;&lowast;</sup> Bin \'Total\' header elided when bin contains only one entry.'
         ],
-        [   !$includeFunctionColumns,
+        [   $lcovutil::func_coverage && !$includeFunctionColumns,
             "Note:  'Function Coverage' columns elided as function owner is not identified."
         ]
     ) {

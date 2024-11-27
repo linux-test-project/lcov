@@ -105,7 +105,7 @@ LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE"
 DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT $PROFILE $PARALLEL"
 
 rm -f *.cpp *.gcno *.gcda a.out *.info *.log *.json dumper* *.annotated annotate.sh
-rm -rf ./vanilla ./annotated ./annotateErr ./annotated2 ./annotateErr2 ./range ./filter ./cover_db
+rm -rf ./vanilla ./annotated ./annotateErr ./annotated2 ./annotateErr2 ./range ./filter ./cover_db annotated_nofunc
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -180,7 +180,33 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
+# expect to see generated function labels
+for label in 'BEGIN' 'END' ; do
+    grep -E "$label: function .+outOfRangeFnc" annotated/synthesize/test.cpp.gcov.html
+    if [ 0 != $? ] ; then
+        echo "ERROR: genhtml didn't generate function $label label"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
 
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated_nofunc --no-function-coverage --ignore range ./munged.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated_nofunc --no-function-coverage ./munged.info --ignore range 2>&1 | tee annotate.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml annotated_nofunc failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# should not be generated..
+grep -E "function .+outOfRangeFnc" annotated_nofunc/synthesize/test.cpp.gcov.html
+if [ 0 == $? ] ; then
+    echo "ERROR: genhtml should not have generated function label"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 
 echo genhtml $DIFFCOV_OPTS -o vanilla --ignore range ./munged.info
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS -o vanilla --ignore range ./munged.info  2>&1 | tee vanilla.log
