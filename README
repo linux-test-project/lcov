@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (LCOV) -
-- Last changes: 2024-11-20
+- Last changes: 2024-11-26
 -------------------------------------------------
 
 Description
@@ -18,6 +18,8 @@ Description
       coverage data by providing a hierarchical directory structure
       view, a flat list of all source files in the project,  or a three-level
       detail view: directory, file and source code view.
+
+    * Support for multiple languages - including C/C++, Perl, and Python.
 
   LCOV was initially designed to support Linux kernel coverage measurements,
   but works as well for coverage measurements on standard user space
@@ -45,7 +47,7 @@ Further README contents
   3. Dependencies
   4. An example of how to access kernel coverage data
   5. An example of how to access coverage data for a user space program
-  6. New features in lcov 2.0
+  6. LCOV features
   7. Questions and Comments
   8. Filing a new issue
 
@@ -292,10 +294,10 @@ Point the web browser of your choice to the resulting index.html file.
     as well as the examples in .../tests/gendiffcov.
 
 
-6. New features:
-----------------
+6. LCOV Features:
+-----------------
 
-New features and capabilities fall into 7 major categories:
+LCOV features and capabilities fall into 7 major categories:
 
   a) Categorization
 

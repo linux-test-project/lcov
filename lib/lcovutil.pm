@@ -8590,7 +8590,7 @@ sub _read_info
                     ($1, $2, $3, $4, $5, $6);
                 if ($line <= 0) {
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                        "\"$tracefile\":$.: unexpected line number '$line' in condition data record record '$_'"
+                        "\"$tracefile\":$.: unexpected line number '$line' in condition data record '$_'."
                     );
                     last;
                 }
@@ -8816,7 +8816,7 @@ sub write_info($$$)
 
                     if ($line <= 0) {
                         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                            "\"$source_file\": unexpected line number '$line' in branch data record record '$_'"
+                            "\"$source_file\": unexpected line number '$line' in branch data record."
                         );
                         last;
                     }
