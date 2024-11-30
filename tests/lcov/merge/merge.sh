@@ -239,7 +239,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-for count in 'FNF:2' 'FNH:1' ; do
+for count in 'FNF:2' 'FNH:2' ; do
     grep $count func.info
     if [ 0 != $? ] ; then
         echo "Error:  didn't find expected count '$count' in function merge"
@@ -249,6 +249,25 @@ for count in 'FNF:2' 'FNH:1' ; do
         fi
     fi
 done
+
+$COVER $LCOV_TOOL $LCOV_OPTS -o inconsistent.info -a a.dat -a b.dat --ignore inconsistent --msg-log inconsistent.log
+if [ 0 != $? ] ; then
+    echo "Error:  function merge2 failed"
+
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E "duplicate function .+ starts on line .+ but previous definition" inconsistent.log
+if [ 0 != $? ] ; then
+    echo "Error:  didn't find definition message"
+
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
 
 if [ 0 == $status ] ; then
     echo "Tests passed"

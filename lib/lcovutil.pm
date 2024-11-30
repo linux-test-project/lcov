@@ -262,6 +262,8 @@ our $lcov_filter_chunk_size;
 our $fail_under_lines;
 our $fail_under_branches;
 
+our $fix_inconsistency = 1;
+
 sub default_info_impl(@);
 
 our $info_callback = \&default_info_impl;
@@ -345,6 +347,8 @@ our $trivial_function_threshold         = 5;
 # list of regexps applied to line text - if exclude if matched
 our @omit_line_patterns;
 our @exclude_function_patterns;
+# need a pattern copy that we don't disable for function message suppressions
+our @suppress_function_patterns;
 
 our %languageExtensions = ('c'      => 'c|h|i|C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx',
                            'rtl'    => 'v|vh|sv|vhdl?',
@@ -1704,6 +1708,7 @@ sub munge_file_patterns
         die("invalid '" . $regexp->[0] . "' exclude pattern: $error")
             if $error;
     }
+    @suppress_function_patterns = map({ $_->[0] } @exclude_function_patterns);
 }
 
 sub warn_file_patterns
@@ -1929,7 +1934,7 @@ sub is_ignored($)
     my $code = shift;
     die("invalid error code $code")
         unless 0 <= $code && $code < scalar(@ignore);
-    return $ignore[$code];
+    return $ignore[$code] || (defined($stop_on_error) && 0 == $stop_on_error);
 }
 
 our %explainOnce;    # append explanation to first error/warning message (only)
@@ -4424,6 +4429,12 @@ sub line
     return $self->[FIRST];
 }
 
+sub set_line
+{
+    my ($self, $line) = @_;
+    return $self->[FIRST] = $line;
+}
+
 sub end_line
 {
     my $self = shift;
@@ -4470,7 +4481,9 @@ sub addAlias
         $count = 0;
     } elsif (defined($lcovutil::excessive_count_threshold) &&
              $count > $lcovutil::excessive_count_threshold) {
-        $self->_format_error($lcovutil::ERROR_EXCESSIVE_COUNT, $name, $count);
+        $self->_format_error($lcovutil::ERROR_EXCESSIVE_COUNT, $name, $count)
+            unless grep({ $name =~ $_ || $self->name() =~ $_ }
+                        @lcovutil::suppress_function_patterns);
     }
     my $changed;
     my $aliases = $self->[ALIASES];
@@ -4641,12 +4654,32 @@ sub list_functions
 
 sub define_function
 {
-    my ($self, $fnName, $start_line, $end_line) = @_;
+    my ($self, $fnName, $start_line, $end_line, $location) = @_;
     #lcovutil::info("define: $fnName " . $self->$filename() . ":$start_line->$end_line\n");
     # could check that function ranges within file are non-overlapping
     my ($locationMap, $nameMap) = @$self;
 
-    my $data;
+    my $data = $self->findName($fnName);
+    if (defined($data) &&
+        #TraceFile::is_language('c', $self->filename()) &&
+        $data->line() != $start_line
+    ) {
+        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            (defined($location) ? "$location: " : '') .
+                "duplicate function '$fnName' starts on line $start_line but previous definition started on "
+                . $data->line() . '.')
+            unless
+            grep({ $fnName =~ $_ } @lcovutil::suppress_function_patterns);
+        # if ignored, just return the function we already have -
+        # record the function location as the smallest line number we saw
+        if ($start_line < $data->line()) {
+            delete $self->[0]->{$data->line()};
+            $data->set_line($start_line);
+            $self->[0]->{$start_line} = $data;
+        }
+        return $data;
+    }
+
     if (exists($locationMap->{$start_line})) {
         $data = $locationMap->{$start_line};
         unless ((defined($end_line) &&
@@ -4663,7 +4696,9 @@ sub define_function
                                           " -> "
                                           .
                                           (defined($end_line) ? $end_line :
-                                               'undef'));
+                                               'undef'))
+                unless
+                grep({ $fnName =~ $_ } @lcovutil::suppress_function_patterns);
             # pick the highest end line if we didn't error out
             $data->set_end_line($end_line)
                 if (defined($end_line) &&
@@ -4781,9 +4816,6 @@ sub union
         }
         # merge in all the new aliases
         while (my ($alias, $count) = each(%{$thatData->aliases()})) {
-            $self->define_function($alias, $thisData->line(),
-                                   $thisData->end_line())
-                unless ($self->findName($alias));
             if ($thisData->addAlias($alias, $count)) {
                 $changed = 1;
             }
@@ -7029,12 +7061,13 @@ sub _deriveFunctionEndLines
         my $end   = $func->end_line();
         #unless (defined($lineData->value($first))) {
         #    lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-        #			      '"' . $func->filename() .
+        #                              '"' . $func->filename() .
         #                "\":$first: first line of function has no linecov.");
         #    $lineData->append($first, $func->hit());
         #}
-        while ($first < $currentLine) {
+        while ($first > $currentLine) {
             if (@lines) {
+                last if $lines[0] > $first;
                 $currentLine = shift @lines;
             } else {
                 if (!defined($end)) {
@@ -7155,6 +7188,30 @@ sub _consistencySuffix
     );
 }
 
+sub _fixFunction
+{
+    my ($traceInfo, $func, $count) = @_;
+
+    my @fix          = ($func);
+    my $line         = $func->line();
+    my $per_testcase = $traceInfo->testfnc();
+    foreach my $testname ($per_testcase->keylist()) {
+        my $data = $traceInfo->testfnc($testname);
+        my $f    = $data->findKey($line);
+        push(@fix, $f) if defined($f);
+    }
+
+    foreach my $f (@fix) {
+        $f->[FunctionEntry::COUNT] = $count;
+
+        # and mark that each alias was hit...
+        my $aliases = $f->aliases();
+        foreach my $alias (keys %$aliases) {
+            $aliases->{$alias} += $count;
+        }
+    }
+}
+
 sub _checkConsistency
 {
     return unless $lcovutil::check_data_consistency;
@@ -7208,16 +7265,23 @@ sub _checkConsistency
                     $currentLine = shift(@lines);
                     next;
                 }
-
+                my $suffix =
+                    ($lcovutil::fix_inconsistency && lcovutil::is_ignored(
+                                             $lcovutil::ERROR_INCONSISTENT_DATA)
+                    ) ? ": function marked 'hit'" :
+                    '';
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                  '"' . $func->filename() .
-                                      "\":$first: function '" . $func->name() .
-                                      "' is not hit but line $currentLine is." .
-                                      _consistencySuffix());
-                # if message was ignored, then mark the function hit
-                $func->[FunctionEntry::COUNT] = 1;
-                $imHit                        = 1;
-                $modified                     = 1;
+                           '"' . $func->filename() .
+                               "\":$first: function '" . $func->name() .
+                               "' is not hit but line $currentLine is$suffix." .
+                               _consistencySuffix());
+                if ($lcovutil::fix_inconsistency) {
+                    # if message was ignored, then mark the function and all
+                    #  its aliases hit
+                    $imHit    = 1;
+                    $modified = 1;
+                    _fixFunction($traceInfo, $func, $hit);
+                }
                 last;    # only warn on the first hit line in the function
             }
             last if $lineHit && $hit;    # can stop looking at this function now
@@ -7225,13 +7289,22 @@ sub _checkConsistency
             $currentLine = shift @lines;
         }
         if ($imHit && !$lineHit) {
+            my $suffix =
+                ($lcovutil::fix_inconsistency &&
+                 lcovutil::is_ignored($lcovutil::ERROR_INCONSISTENT_DATA)) ?
+                ": function marked 'not hit'" :
+                '';
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                '"' . $traceInfo->filename() .
-                                    "\":$first: function '" . $func->name() .
-                                    "' is hit but no contained lines are hit." .
-                                    _consistencySuffix());
-            # if message was ignored, then mark the function not hit
-            $func->[FunctionEntry::COUNT] = 0;
+                         '"' . $traceInfo->filename() .
+                             "\":$first: function '" . $func->name() .
+                             "' is hit but no contained lines are hit$suffix." .
+                             _consistencySuffix());
+            if ($lcovutil::fix_inconsistency) {
+                # if message was ignored, then mark the function and its aliases
+                #  not hit
+                $modified = 1;
+                _fixFunction($traceInfo, $func, 0);
+            }
         }
     }
 
@@ -7386,7 +7459,6 @@ sub _filterFile
     }
 
     if (defined($lcovutil::func_coverage) &&
-        !$state->[0]->[1] &&
         (0 != scalar(@lcovutil::exclude_function_patterns) ||
             defined($trivial_histogram))
     ) {
@@ -8296,8 +8368,8 @@ sub _read_info
             #if ($self->contains($filename)) {
             #    # we expect there to be only one entry for each source file in each section
             #    lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
-            #				  "Duplicate entries for \"$filename\""
-            #				  . ($testname ? " in testcase '$testname'" : '') . '.');
+            #                                  "Duplicate entries for \"$filename\""
+            #                                  . ($testname ? " in testcase '$testname'" : '') . '.');
             #}
             $filename = ReadCurrentSource::resolve_path($1, 1);
             # should this one be skipped?
@@ -8455,23 +8527,23 @@ sub _read_info
                 my $lineNo   = $1;
                 my $fnName   = $4;
                 my $end_line = $3;
-                if ($lineNo <= 0 ||
-                    (defined($end_line) && $end_line <= 0)) {
+                if (!grep({ $fnName =~ $_ }
+                          @lcovutil::suppress_function_patterns) &&
+                    ($lineNo <= 0 ||
+                        (defined($end_line) && $end_line <= 0))
+                ) {
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected function line '$lineNo' in .info file record '$_'"
                     ) if $lineNo <= 0;
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected function end line '$end_line' in .info file record '$_'"
                     ) if defined($end_line) && $end_line <= 0;
-
-                    last;
                 }
                 # the function may already be defined by another testcase
                 #  (for the same file)
                 $functionMap->define_function($fnName, $lineNo,
-                                              $end_line ? $end_line : undef)
-                    unless defined($functionMap->findName($fnName));
-
+                                              $end_line ? $end_line : undef,
+                                              , "\"$tracefile\":$.");
                 last;
             };
 
@@ -8482,7 +8554,6 @@ sub _read_info
                 my $hit    = $1;
                 # error checking is in the addAlias method
                 $functionMap->add_count($fnName, $hit);
-
                 last;
             };
 
@@ -8507,7 +8578,8 @@ sub _read_info
                     unless exists($fnIdxMap{$fnIndex});
                 my ($lineNo, $end_line) = @{$fnIdxMap{$fnIndex}};
                 my $fn =
-                    $functionMap->define_function($alias, $lineNo, $end_line);
+                    $functionMap->define_function($alias, $lineNo, $end_line,
+                                                  "\"$tracefile\":$.");
                 $fn->addAlias($alias, $hit);
                 last;
             };
@@ -8783,7 +8855,7 @@ sub write_info($$$)
                         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                             "\"$source_file\": unexpected line number '$line' for function $alias"
                         );
-                        next;
+                        # if message is ignored, leave bogus entry in the data
                     }
                     ++$fnIndex;
                     my $endLine =
