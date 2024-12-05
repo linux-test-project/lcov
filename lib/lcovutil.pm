@@ -1228,6 +1228,7 @@ our %argCommon = ("tempdir=s"         => \$tempdirname,
                   "help|h|?"    => \$help,
                   "version"     => \$version,
                   'comment=s'   => \@comments,
+                  'toolname=s'  => \$lcovutil::tool_name,
 
                   "function-coverage"    => \$lcovutil::func_coverage,
                   "branch-coverage"      => \$lcovutil::br_coverage,

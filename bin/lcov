@@ -817,6 +817,8 @@ sub lcov_geninfo(@)
     # Capture data
     info("Capturing coverage data from " . join(" ", @dir) . "\n");
     @param = (File::Spec->catfile($tool_dir, 'geninfo'), @dir);
+    # make things less confusing for user, by using the name they actually invoked
+    push(@param, '--toolname', $lcovutil::tool_name);
     if ($output_filename) {
         push(@param, "--output-filename", $output_filename);
     }
