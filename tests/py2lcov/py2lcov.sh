@@ -198,7 +198,7 @@ for d in \
 done
 
 # should be valid data to generate HTML
-$GENHTML_TOOL -o rpt1 $VERSION $ANNOTATE functions.info
+$GENHTML_TOOL -o rpt1 $VERSION $ANNOTATE functions.info --validate
 if [ 0 != $? ] ; then
     echo "genhtml failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -252,7 +252,7 @@ for l in `grep -E '^DA:' checksum.info` ; do
 done
 
 # should be valid data to generate HTML
-$GENHTML_TOOL -o rpt2 $VERSION$DEPOT $ANNOTATE functions.info checksum.info
+$GENHTML_TOOL -o rpt2 $VERSION$DEPOT $ANNOTATE functions.info checksum.info --validate
 if [ 0 != $? ] ; then
     echo "genhtml 2 failed"
     if [ 0 == $KEEP_GOING ] ; then

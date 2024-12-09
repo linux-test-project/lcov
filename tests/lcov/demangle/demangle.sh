@@ -84,7 +84,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--branch-coverage --no-external $PARALLEL $PROFILE"
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.*
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -109,7 +109,7 @@ fi
 ${CXX} -std=c++1y --coverage demangle.cpp
 ./a.out 1
 
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info --rc derive_function_end_line=0
 
 $COVER $LCOV_TOOL $LCOV_OPTS --list demangle.info
 
@@ -223,7 +223,7 @@ else
     # no end line in data - check for error message...
     echo "----------------------"
     echo "   compiler version DOESN't support start/end reporting - check error"
-    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude.info
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude.info --rc derive_function_end_line=0 --msg-log exclude.log
     if [ 0 == $? ] ; then
         echo "Error:  expected exit for unsupported feature"
         if [ $KEEP_GOING == 0 ] ; then
@@ -231,13 +231,47 @@ else
         fi
     fi
 
-    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unsupported,unused -o ignore.info
+    grep -E 'ERROR: .+Function begin/end line exclusions not supported' exclude.log
+    if [ 0 != $? ] ; then
+        echo "Error:  didn't find unsupported message"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude2.info --rc derive_function_end_line=1 --msg-log exclude2.log
+    if [ 0 != $? ] ; then
+        echo "Error:  unexpected exit when 'derive' enabled"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+
+    grep -E 'WARNING: .+Function begin/end line exclusions.+attempting to derive' exclude2.log
+    if [ 0 != $? ] ; then
+        echo "Error:  didn't find derive warning"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+
+    fi
+    
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --rc derive_function_end_line=0 --ignore unsupported,unused -o ignore.info --msg-log=exclude3.log
     if [ 0 != $? ] ; then
         echo "Error:  expected to ignore unsupported message"
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
     fi
+    grep -E 'WARNING: .+Function begin/end line exclusions.+See lcovrc man entry' exclude3.log
+    if [ 0 != $? ] ; then
+        echo "Error:  didn't find derive warning2"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+
+    fi
+    
     # expect not to find 'main'
     grep main ignore.info
     if [ $? == 0 ] ; then

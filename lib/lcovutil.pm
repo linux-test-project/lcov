@@ -7137,6 +7137,8 @@ sub _deriveFunctionEndLines
                            '"' . $traceInfo->filename() .
                                "\":$currentLine: assign end_line " .
                                $func->name() . "\n");
+            # warn that we are deriving end lines
+            _generate_end_line_message();
             $func->set_end_line($currentLine);
             $modified = 1;
         }
@@ -7841,17 +7843,36 @@ sub _mergeParallelChunk
     $lcovutil::profileData{filt_chunk}{$chunkId} = $to - $forkAt;
 }
 
+sub _generate_end_line_message
+{
+    if (lcovutil::warn_once('compiler_version', 1)) {
+        my $msg =
+            'Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer';
+        if ((defined($lcovutil::derive_function_end_line) &&
+             $lcovutil::derive_function_end_line != 0) ||
+            (defined($lcovutil::derive_function_end_line_all_files) &&
+                $lcovutil::derive_function_end_line_all_files != 0)
+        ) {
+            lcovutil::ignorable_warning($lcovutil::ERROR_UNSUPPORTED,
+                $msg .
+                    ": attempting to derive function end lines - see lcovrc man entry for 'derive_function_end_line'."
+            );
+        } else {
+            lcovutil::ignorable_error($lcovutil::ERROR_UNSUPPORTED,
+                     $msg .
+                         ".  See lcovrc man entry for 'derive_function_end_line'."
+            );
+        }
+    }
+}
+
 sub _updateModifiedFile
 {
     my ($self, $name, $traceFile, $state) = @_;
     $self->[FILES]->{$name} = $traceFile;
 
-    if ($state->[0]->[1] != 0 &&
-        lcovutil::warn_once('compiler_version', 1)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_UNSUPPORTED,
-            "Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer.  See lcovrc man entry for 'derive_function_end_line'."
-        );
-    }
+    _generate_end_line_message()
+        if $state->[0]->[1] != 0;
 }
 
 sub _processParallelChunk

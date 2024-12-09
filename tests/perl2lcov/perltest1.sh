@@ -257,7 +257,7 @@ if [ 0 != $? ] ; then
 fi
 
 # now try running genhtml on the perl2lcov-generated .info file...
-perl -MDevel::Cover=-db,cover_genhtml,-silent,1 ../../bin/genhtml -o perl2lcov_report --flat --show-navigation one.info --branch
+perl -MDevel::Cover=-db,cover_genhtml,-silent,1 ../../bin/genhtml -o perl2lcov_report --flat --show-navigation one.info --branch --validate
 if [ 0 != $? ] ; then
     echo "genhtml failed"
     if [ 0 == $KEEP_GOING ] ; then
