@@ -104,6 +104,7 @@ our @message_count;
 our @expected_message_count;
 our %message_types;
 our $message_log;
+our $message_filename;
 our $suppressAfter = 100;    # stop warning after this number of messages
 our %ERROR_ID;
 our %ERROR_NAME;
@@ -1479,6 +1480,7 @@ sub parseOptions
                             $tool_name) .
                 ".msg";
         }
+        $message_filename = $message_log;
         open(LOG, ">", $message_log) or
             die("unable to write message log '$message_log': $!");
         $message_log = \*LOG;

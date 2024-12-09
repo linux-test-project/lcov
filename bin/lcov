@@ -828,6 +828,8 @@ sub lcov_geninfo(@)
     if ($follow) {
         push(@param, "--follow");
     }
+    push(@param, '--msg-log', $lcovutil::message_filename)
+        if $lcovutil::message_filename;
     if ($lcovutil::verbose != 0) {
         if ($lcovutil::verbose < 0) {
             for (my $i = $lcovutil::verbose; $i < 0; ++$i) {
