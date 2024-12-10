@@ -1722,24 +1722,16 @@ sub list()
     my $readSourceFile = ReadCurrentSource->new();
     my $data =
         TraceFile->load($list, $readSourceFile, $lcovutil::verify_checksum);
-    my $found;
-    my $hit;
-    my $entry;
-    my $fn_found;
-    my $fn_hit;
-    my $br_found;
-    my $br_hit;
     my $total_found    = 0;
     my $total_hit      = 0;
     my $fn_total_found = 0;
     my $fn_total_hit   = 0;
     my $br_total_found = 0;
     my $br_total_hit   = 0;
+    my $total_mcdc     = 0;
+    my $total_mcdc_hit = 0;
     my $strlen         = length("Filename");
     my @footer;
-    my $rate;
-    my $fnrate;
-    my $brrate;
     my $lastpath;
     my $F_LN_NUM      = 0;
     my $F_LN_RATE     = 1;
@@ -1747,8 +1739,10 @@ sub list()
     my $F_FN_RATE     = 3;
     my $F_BR_NUM      = 4;
     my $F_BR_RATE     = 5;
-    my @fwidth_narrow = (5, 5, 3, 5, 4, 5);
-    my @fwidth_wide   = (6, 5, 5, 5, 6, 5);
+    my $F_MCDC_NUM    = 6;
+    my $F_MCDC_RATE   = 7;
+    my @fwidth_narrow = (5, 5, 3, 5, 4, 5, 4, 5);
+    my @fwidth_wide   = (6, 5, 5, 5, 6, 5, 6, 5);
     my @fwidth        = @fwidth_wide;
     my $max_width     = $opt_list_width;
     my $max_long      = $opt_list_truncate_max;
@@ -1817,39 +1811,24 @@ sub list()
     my $heading1 = sprintf("%*s|", $w, "");
     my $heading2 = sprintf("%-*s|", $w, "Filename");
     my $barlen   = $w + 1;
-    # Line coverage rate
-    $w = $fwidth[$F_LN_RATE];
-    $format   .= "%${w}s ";
-    $heading1 .= sprintf("%-*s |", $w + $fwidth[$F_LN_NUM], "Lines");
-    $heading2 .= sprintf("%-*s ", $w, "Rate");
-    $barlen += $w + 1;
-    # Number of lines
-    $w = $fwidth[$F_LN_NUM];
-    $format   .= "%${w}s|";
-    $heading2 .= sprintf("%*s|", $w, "Num");
-    $barlen += $w + 1;
-    # Function coverage rate
-    $w = $fwidth[$F_FN_RATE];
-    $format   .= "%${w}s ";
-    $heading1 .= sprintf("%-*s|", $w + $fwidth[$F_FN_NUM] + 1, "Functions");
-    $heading2 .= sprintf("%-*s ", $w, "Rate");
-    $barlen += $w + 1;
-    # Number of functions
-    $w = $fwidth[$F_FN_NUM];
-    $format   .= "%${w}s|";
-    $heading2 .= sprintf("%*s|", $w, "Num");
-    $barlen += $w + 1;
-    # Branch coverage rate
-    $w = $fwidth[$F_BR_RATE];
-    $format   .= "%${w}s ";
-    $heading1 .= sprintf("%-*s", $w + $fwidth[$F_BR_NUM] + 1, "Branches");
-    $heading2 .= sprintf("%-*s ", $w, "Rate");
-    $barlen += $w + 1;
-    # Number of branches
-    $w = $fwidth[$F_BR_NUM];
-    $format   .= "%${w}s";
-    $heading2 .= sprintf("%*s", $w, "Num");
-    $barlen += $w;
+
+    foreach my $d (['Lines', $F_LN_NUM, $F_LN_RATE],
+                   ['Functions', $F_FN_NUM, $F_FN_RATE],
+                   ['Branches', $F_BR_NUM, $F_BR_RATE],
+                   ['MC/DC', $F_MCDC_NUM, $F_MCDC_RATE],
+    ) {
+        my ($type, $n, $r) = @$d;
+        $w = $fwidth[$r];
+        $format   .= "%${w}s ";
+        $heading1 .= sprintf("%-*s |", $w + $fwidth[$n], $type);
+        $heading2 .= sprintf("%-*s ", $w, "Rate");
+        $barlen += $w + 1;
+        # Number of coverpoints
+        $w = $fwidth[$n];
+        $format   .= "%${w}s|";
+        $heading2 .= sprintf("%*s|", $w, "Num");
+        $barlen += $w + 1;
+    }
     # Line end
     $format   .= "\n";
     $heading1 .= "\n";
@@ -1890,20 +1869,16 @@ sub list()
             }
             $print_filename = shorten_filename($print_filename, $strlen);
         }
-
-        ($found, $hit, $br_found, $br_hit, $fn_found, $fn_hit) =
-            $entry->get_info();
-
-        # Assume zero count if there is no function data for this file
-        if (!defined($fn_found) || !defined($fn_hit)) {
-            $fn_found = 0;
-            $fn_hit   = 0;
-        }
-        # Assume zero count if there is no branch data for this file
-        if (!defined($br_found) || !defined($br_hit)) {
-            $br_found = 0;
-            $br_hit   = 0;
-        }
+        my $lineData   = $entry->sum();
+        my $branchData = $entry->sumbr();
+        my $funcData   = $entry->func();
+        my $mcdcData   = $entry->mcdc();
+        my ($found, $hit, $br_found, $br_hit, $fn_found, $fn_hit, $mcdc_found,
+            $mcdc_hit)
+            = ($lineData->found(), $lineData->hit(),
+               $branchData->found(), $branchData->hit(),
+               $funcData->numFunc(), $funcData->numHit(),
+               $mcdcData->found(), $mcdcData->hit());
 
         # Add line coverage totals
         $total_found += $found;
@@ -1914,46 +1889,41 @@ sub list()
         # Add branch coverage totals
         $br_total_found += $br_found;
         $br_total_hit   += $br_hit;
+        $total_mcdc     += $mcdc_found;
+        $total_mcdc_hit += $mcdc_hit;
 
-        # Determine line coverage rate for this file
-        $rate = shorten_rate($hit, $found, $fwidth[$F_LN_RATE]);
-        # Determine function coverage rate for this file
-        $fnrate = shorten_rate($fn_hit, $fn_found, $fwidth[$F_FN_RATE]);
-        # Determine branch coverage rate for this file
-        $brrate = shorten_rate($br_hit, $br_found, $fwidth[$F_BR_RATE]);
-
-        # Assemble line parameters
         my @file_data;
         push(@file_data, $print_filename);
-        push(@file_data, $rate);
-        push(@file_data, shorten_number($found, $fwidth[$F_LN_NUM]));
-        push(@file_data, $fnrate);
-        push(@file_data, shorten_number($fn_found, $fwidth[$F_FN_NUM]));
-        push(@file_data, $brrate);
-        push(@file_data, shorten_number($br_found, $fwidth[$F_BR_NUM]));
+        foreach my $d ([$hit, $found, $F_LN_RATE, $F_LN_NUM],
+                       [$fn_hit, $fn_found, $F_FN_RATE, $F_FN_NUM],
+                       [$br_hit, $br_found, $F_BR_RATE, $F_BR_NUM],
+                       [$mcdc_hit, $mcdc_found, $F_MCDC_RATE, $F_MCDC_NUM],
+        ) {
+            my ($h, $f, $r, $n) = @$d;
 
+            push(@file_data, shorten_rate($h, $f, $fwidth[$r]));
+            push(@file_data, shorten_number($f, $fwidth[$n]));
+        }
         # Print assembled line
         printf($format, @file_data);
     }
-
-    # Determine total line coverage rate
-    $rate = shorten_rate($total_hit, $total_found, $fwidth[$F_LN_RATE]);
-    # Determine total function coverage rate
-    $fnrate = shorten_rate($fn_total_hit, $fn_total_found, $fwidth[$F_FN_RATE]);
-    # Determine total branch coverage rate
-    $brrate = shorten_rate($br_total_hit, $br_total_found, $fwidth[$F_BR_RATE]);
 
     # Print separator
     print(("=" x $barlen) . "\n");
 
     # Assemble line parameters
     push(@footer, sprintf("%*s", $strlen, "Total:"));
-    push(@footer, $rate);
-    push(@footer, shorten_number($total_found, $fwidth[$F_LN_NUM]));
-    push(@footer, $fnrate);
-    push(@footer, shorten_number($fn_total_found, $fwidth[$F_FN_NUM]));
-    push(@footer, $brrate);
-    push(@footer, shorten_number($br_total_found, $fwidth[$F_BR_NUM]));
+
+    foreach my $d ([$total_hit, $total_found, $F_LN_RATE, $F_LN_NUM],
+                   [$fn_total_hit, $fn_total_found, $F_FN_RATE, $F_FN_NUM],
+                   [$br_total_hit, $br_total_found, $F_BR_RATE, $F_BR_NUM],
+                   [$total_mcdc_hit, $total_mcdc, $F_MCDC_RATE, $F_MCDC_NUM],
+    ) {
+        my ($h, $f, $r, $n) = @$d;
+
+        push(@footer, shorten_rate($h, $f, $fwidth[$r]));
+        push(@footer, shorten_number($f, $fwidth[$n]));
+    }
 
     # Print assembled line
     printf($format, @footer);

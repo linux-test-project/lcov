@@ -107,7 +107,7 @@ if [ "${VER[0]}" -lt 5 ] ; then
     FILTER='--filter branch'
 fi
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log *.o errs *.msg
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log *.o errs *.msg *.dat
 rm -rf rcOptBug
 
 if [ -d separate ] ; then
@@ -388,10 +388,23 @@ if [ 0 != $? ] ; then
 fi
 
 
-
 $COVER $CAPTURE . $LCOV_OPTS --no-external -o internal.info
 
-$COVER $LCOV_TOOL $LCOV_OPTS --list internal.info
+# substiture PWD so the test isn't dependent on directory layout.
+# quiet, to suppress core count and (empty) message summary
+$COVER $LCOV_TOOL $LCOV_OPTS --list internal.info --subst "s#$PWD#.#" -q -q > list.dat
+
+if [ "$ENABLE_MCDC" == 1 ] ; then
+    diff list.dat list_mcdc.gold
+else
+    diff list.dat list.gold
+fi
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected list difference"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
 
 COUNT=`grep -c SF: internal.info`
 if [ $COUNT != '1' ] ; then
