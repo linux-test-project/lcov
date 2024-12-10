@@ -1697,6 +1697,7 @@ sub findFileList
     my $dirSummary = $self->[1];
     my $owner      = $self->[0];
     my @files;
+    my $skipped = 0;
     foreach my $file ($dirSummary->sources()) {
         my $source = $dirSummary->get_source($file);
         next unless $source->contains_owner($owner);
@@ -1727,7 +1728,8 @@ sub findFileList
         if ($all ||
             0 != $missed    ||
             0 != $br_missed ||
-            0 != $fn_missed) {
+            0 != $fn_missed ||
+            0 != $mcdc_missed) {
 
             push(@files,
                  [$file,
@@ -1736,9 +1738,11 @@ sub findFileList
                   [$mcdc_missed, $mcdc_total, $mcdcCb],
                   [$fn_missed, $fn_total, $funcCb]
                  ]);
+        } else {
+            ++$skipped;
         }
     }
-    return @files;
+    return [$skipped, @files];
 }
 
 sub secondaryElementFileData
@@ -1831,6 +1835,7 @@ sub findFileList
     my $dirSummary = $self->[2];
     my $ageval     = $self->[1];
     my @files;
+    my $skipped = 0;
     foreach my $file ($dirSummary->sources()) {
         my $source = $dirSummary->get_source($file);
 
@@ -1869,9 +1874,11 @@ sub findFileList
                   [$mcdc_missed, $mcdc_total, $mcdcCb],
                   [$fn_missed, $fn_total, $funcCb]
                  ]);
+        } else {
+            ++$skipped;
         }
     }
-    return @files;
+    return [$skipped, @files];
 }
 
 sub secondaryElementFileData
@@ -12819,6 +12826,7 @@ sub write_file_table(*$$$$$$)
         #   rows that the $primary cell will span
 
         my @secondaryRows;
+        my $skippedSecondaryRows = 0;
 
         if (defined($showBinDetail)) {
 
@@ -12901,7 +12909,8 @@ sub write_file_table(*$$$$$$)
             }
         }    # if showBinDetail
         elsif ($primary_key ne 'name') {
-            push(@secondaryRows, $primaryCb->findFileList($all));
+            ($skippedSecondaryRows, @secondaryRows) =
+                @{$primaryCb->findFileList($all)};
         }
 
         my ($found, $hit, $fn_found, $fn_hit,
@@ -12965,8 +12974,8 @@ sub write_file_table(*$$$$$$)
                   $cbStruct, SummaryInfo::FUNCTION_DATA
                  ]);
         }
-        my $elide_secondary_header =
-            $compactSummaryTables && (scalar(@secondaryRows) == 1);
+        my $elide_secondary_header = $compactSummaryTables &&
+            (scalar(@secondaryRows) == 1 && $skippedSecondaryRows == 0);
         $suppressedSecondaryHeader ||= $elide_secondary_header;
         if (!$elide_secondary_header) {
             # pass 'dirSummary' to print method:  we omit the 'owner' column if
@@ -12974,7 +12983,7 @@ sub write_file_table(*$$$$$$)
             #  (i.e., none of them are found in the repo)
             my $numRows = (1 + scalar(@secondaryRows));
             my $asterisk;
-            if ($elideEmptyRows && 1 == $numRows) {
+            if ($elideEmptyRows && (1 == $numRows || $skippedSecondaryRows)) {
                 $asterisk           = '&lowast;';
                 $suppressedEmptyRow = 1;
             }
@@ -13064,6 +13073,7 @@ sub write_file_table(*$$$$$$)
                 #    no information by eliding the directory part
                 $name = File::Basename::basename($name);
             }
+            $name = apply_prefix($name, @dir_prefix);
             write_file_table_entry(*HTML_HANDLE, $base_dir,
                                    # 'owner' page type - no span, no page link
                                    [$name,
@@ -13168,7 +13178,7 @@ sub write_file_table(*$$$$$$)
     }
     foreach my $note (
         [   $suppressedEmptyRow,
-            "<sup>&lowast;</sup> 'Detail' entries with no 'missed' coverpoints are elided."
+            "<sup>&lowast;</sup> 'Detail' entries with no 'missed' coverpoints are elided.  Use the '--show-owners all' flag to retain them."
         ],
         [   $suppressedSecondaryHeader,
             '<sup>&lowast;&lowast;</sup> Bin \'Total\' header elided when bin contains only one entry.'
