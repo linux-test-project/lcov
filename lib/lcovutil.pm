@@ -2579,11 +2579,10 @@ sub balancedParens
             ++$close;
         }
     }
-    # lambda code may have trailing parens after the function...
-    #$close <= $open or die("malformed code in '$line'");
-
-    #return $close == $open;
-    return $close >= $open;
+    return ($open == $close ||
+                # lambda code may have trailing parens after the function...
+                ($close > $open && $line =~ /{lambda\(/)
+    );    # this is a C++-specific check
 }
 
 #
@@ -6407,7 +6406,6 @@ sub containsConditional
     my $src = $self->getLine($line);
     return 1
         unless defined($src);
-    my $foundCond = 1;
 
     my $code = "";
     for (my $next = $line + 1;
@@ -6419,25 +6417,25 @@ sub containsConditional
         my $bitwiseOperators =
             $lcovutil::source_filter_bitwise_are_conditional ? '&|~' : '';
 
-        last
+        return 1
             if ($src =~
             /([?!><$bitwiseOperators]|&&|\|\||==|!=|\b(if|switch|case|while|for)\b)/
             );
-
         $code = $code . $src;
 
-        if (lcovutil::balancedParens($code) ||
+        if (lcovutil::balancedParens($code)) {
+            return 0;    # got to the end and didn't see conditional
+        } elsif ($src =~ /[{;]\s*$/) {
             # assume we got to the end of the statement if we see semicolon
             # or brace.
-            $src =~ /[{;]\s*$/
-        ) {
-            $foundCond = 0;
-            last;
+            # parens weren't balanced though - so assume this might be
+            # a conditional
+            return 1;
         }
         $src = $self->getLine($next);
         $src = '' unless defined($src);
     }
-    return $foundCond;
+    return 1;    # not sure - so err on side of caution
 }
 
 sub containsTrivialFunction
@@ -7501,7 +7499,7 @@ sub _filterFile
     my $filterExceptionBranches = FilterBranchExceptions->new();
 
     my ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
-        $testbrdata, $sumbrcount, $testmcdc, $mcdc) = $traceInfo->get_info();
+        $testbrdata, $sumbrcount, $mcdc, $testmcdc) = $traceInfo->get_info();
 
     foreach my $testname (sort($testdata->keylist())) {
         my $testcount    = $testdata->value($testname);
@@ -7553,8 +7551,9 @@ sub _filterFile
             }    # foreach function
         }    # if func_coverage
              # $testbrcount is undef if there are no branches in the scope
-        if ($lcovutil::br_coverage &&
-            defined($testbrcount)  &&
+        if (($lcovutil::br_coverage || $lcovutil::mcdc_coverage) &&
+            (defined($testbrcount)  ||
+                defined($mcdc_count)) &&
             ($branch_histogram ||
                 $region                  ||
                 $branch_region           ||
@@ -7562,7 +7561,14 @@ sub _filterFile
                 $filterExceptionBranches ||
                 $omit)
         ) {
-            foreach my $line ($testbrcount->keylist()) {
+            my %uniq;
+            # check MC/DC lines which are not also branch lines
+            foreach
+                my $line (defined($mcdc_count) ? $mcdc_count->keylist() : (),
+                         defined($testbrcount) ? $testbrcount->keylist() : ()) {
+                next if exists($uniq{$line});
+                $uniq{$line} = 1;
+
                 # for counting: keep track filter which triggered exclusion -
                 my $remove;
                 # omit if line excluded or branches excluded on this line
@@ -7596,6 +7602,7 @@ sub _filterFile
                     foreach my $t ([$testbrdata, $sumbrcount, 'BRDA'],
                                    [$testmcdc, $mcdc, 'MCDC']) {
                         my ($testCount, $sumCount, $str) = @$t;
+                        next unless $sumCount;
                         my $brdata = $sumCount->value($line);
                         # might not be MCDC here, even if there is a branch
                         next unless $brdata;
@@ -7617,7 +7624,9 @@ sub _filterFile
                         $sumCount->remove($line);
                         $modified = 1;
                     }
-                } elsif (defined($filterExceptionBranches)) {
+                } elsif (defined($filterExceptionBranches) &&
+                         defined($sumbrcount) &&
+                         defined($sumbrcount->value($line))) {
                     # exclude exception branches here
                     my $m =
                         $filterExceptionBranches->filter($line, $srcReader,
@@ -7638,8 +7647,12 @@ sub _filterFile
 
         my %initializerListRange;
         foreach my $line ($testcount->keylist()) {
-            # don't suppresss if this line has associated branch data
-            next if (defined($sumbrcount->value($line)));
+            # don't suppresss if this line has associated branch or MC/DC data
+            next
+                if (
+                 (defined($sumbrcount) && defined($sumbrcount->value($line))) ||
+                 (defined($mcdc_count) &&
+                    defined($mcdc_count->value($line))));
 
             my $is_initializer;
             my $is_filtered = undef;

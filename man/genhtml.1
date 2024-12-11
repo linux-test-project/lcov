@@ -2158,6 +2158,15 @@ sections of man
 .B lcovrc(5)
 for a description of the default associations and how they can be changed.
 
+Note that filters are applied to both 'branch' and 'MC/DC' coverpoints,
+where appropriate: if a particular filter would remove some branch,
+then it will also remove corresponding MC/DC coverpoints - for example,
+.I "\-\-filter branch"
+will remove MC/DC coverpoints if there is no conditional expression on the
+corresponding line, and
+.I "\-\-filter branch_region"
+will remove both branch and MC/DC coverpoints in the marked region.
+
 Most filters need the source code; filters are not applied if the source file is not available.  Similarly, for each source file, if the version recorded in the coverage data (the '.info' file)
 does not match the version found on the filesystem, then a
 .I version
@@ -2748,6 +2757,11 @@ a simple expression -
 .RS 3
  if (enable) ...
 .RE
+
+Note that, where appropriate, filters are applied to both 'branch' and 'MC/DC' coverpoints: if a particular filter would remove some branch,
+then it will also remove corresponding MC/DC coverpoints.  See the
+.I \-\-filter
+section, above.
 
 This option can also be configured permanently using the configuration file
 option

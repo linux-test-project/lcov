@@ -11280,7 +11280,9 @@ sub write_source_line(*$$$$$$$)
         my $mc = @mcdc_html ? shift(@mcdc_html) : '';
         if ($mc) {
             # space over far enough to line up with MC/DC extension column
-            $br .= ' ' x ($br_field_width - length($br)) . ' ';
+            # remove the span and other HTML
+            (my $s = $br) =~ s/(<\/span>|<span.+?>)//g;
+            $br .= ' ' x ($br_field_width - length($s)) . ' ';
         }
         write_html($handle,
                    "$html_continuation_leader$lineNumSpan" .
