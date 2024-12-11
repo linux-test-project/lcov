@@ -392,12 +392,15 @@ $COVER $CAPTURE . $LCOV_OPTS --no-external -o internal.info
 
 # substiture PWD so the test isn't dependent on directory layout.
 # quiet, to suppress core count and (empty) message summary
-$COVER $LCOV_TOOL $LCOV_OPTS --list internal.info --subst "s#$PWD#.#" -q -q > list.dat
+$COVER $LCOV_TOOL $LCOV_OPTS --list internal.info --subst "s#$PWD#.#" -q -q --filter function > list.dat
 
 if [ "$ENABLE_MCDC" == 1 ] ; then
     diff list.dat list_mcdc.gold
 else
-    diff list.dat list.gold
+    # substitute the actual numbers - to become insensitive to compiler version
+    #  which produce different numbers of coverpoints
+    sed -E 's/[1-9][0-9]*\b/N/g' list.dat > munged.dat
+    diff munged.dat list.gold
 fi
 if [ 0 != $? ] ; then
     echo "Error:  unexpected list difference"

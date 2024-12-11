@@ -1722,16 +1722,7 @@ sub list()
     my $readSourceFile = ReadCurrentSource->new();
     my $data =
         TraceFile->load($list, $readSourceFile, $lcovutil::verify_checksum);
-    my $total_found    = 0;
-    my $total_hit      = 0;
-    my $fn_total_found = 0;
-    my $fn_total_hit   = 0;
-    my $br_total_found = 0;
-    my $br_total_hit   = 0;
-    my $total_mcdc     = 0;
-    my $total_mcdc_hit = 0;
-    my $strlen         = length("Filename");
-    my @footer;
+    my $strlen = length("Filename");
     my $lastpath;
     my $F_LN_NUM      = 0;
     my $F_LN_RATE     = 1;
@@ -1812,24 +1803,36 @@ sub list()
     my $heading2 = sprintf("%-*s|", $w, "Filename");
     my $barlen   = $w + 1;
 
-    foreach my $d (['Lines', $F_LN_NUM, $F_LN_RATE],
-                   ['Functions', $F_FN_NUM, $F_FN_RATE],
-                   ['Branches', $F_BR_NUM, $F_BR_RATE],
-                   ['MC/DC', $F_MCDC_NUM, $F_MCDC_RATE],
-    ) {
-        my ($type, $n, $r) = @$d;
+    # name, total_found, total_hit, total_column_width, rate_column_width
+    my @types = (['Lines', \&TraceInfo::sum, 0, 0, $F_LN_NUM, $F_LN_RATE],
+                 [$lcovutil::func_coverage ? 'Functions' : undef,
+                  \&TraceInfo::func, 0, 0, $F_FN_NUM, $F_FN_RATE
+                 ],
+                 [$lcovutil::br_coverage ? 'Branches' : undef,
+                  \&TraceInfo::sumbr, 0, 0, $F_BR_NUM, $F_BR_RATE
+                 ],
+                 [$lcovutil::mcdc_coverage ? 'MC/DC' : undef,
+                  \&TraceInfo::mcdc, 0, 0, $F_MCDC_NUM, $F_MCDC_RATE
+                 ],);
+
+    my $sep = '';
+    foreach my $d (@types) {
+        my ($type, $cb, $found, $hit, $n, $r) = @$d;
+        next unless $type;
         $w = $fwidth[$r];
-        $format   .= "%${w}s ";
-        $heading1 .= sprintf("%-*s |", $w + $fwidth[$n], $type);
-        $heading2 .= sprintf("%-*s ", $w, "Rate");
+        $format   .= "$sep%${w}s ";
+        $heading1 .= sprintf("$sep%-*s ", $w + $fwidth[$n], $type);
+        $heading2 .= sprintf("$sep%-*s ", $w, "Rate");
         $barlen += $w + 1;
         # Number of coverpoints
         $w = $fwidth[$n];
-        $format   .= "%${w}s|";
-        $heading2 .= sprintf("%*s|", $w, "Num");
+        $format   .= "%${w}s";
+        $heading2 .= sprintf("%*s", $w, "Num");
         $barlen += $w + 1;
+        $sep = '|';
     }
-    # Line end
+    --$barlen;    # no separator for last column
+                  # Line end
     $format   .= "\n";
     $heading1 .= "\n";
     $heading2 .= "\n";
@@ -1869,40 +1872,19 @@ sub list()
             }
             $print_filename = shorten_filename($print_filename, $strlen);
         }
-        my $lineData   = $entry->sum();
-        my $branchData = $entry->sumbr();
-        my $funcData   = $entry->func();
-        my $mcdcData   = $entry->mcdc();
-        my ($found, $hit, $br_found, $br_hit, $fn_found, $fn_hit, $mcdc_found,
-            $mcdc_hit)
-            = ($lineData->found(), $lineData->hit(),
-               $branchData->found(), $branchData->hit(),
-               $funcData->numFunc(), $funcData->numHit(),
-               $mcdcData->found(), $mcdcData->hit());
-
-        # Add line coverage totals
-        $total_found += $found;
-        $total_hit   += $hit;
-        # Add function coverage totals
-        $fn_total_found += $fn_found;
-        $fn_total_hit   += $fn_hit;
-        # Add branch coverage totals
-        $br_total_found += $br_found;
-        $br_total_hit   += $br_hit;
-        $total_mcdc     += $mcdc_found;
-        $total_mcdc_hit += $mcdc_hit;
-
         my @file_data;
         push(@file_data, $print_filename);
-        foreach my $d ([$hit, $found, $F_LN_RATE, $F_LN_NUM],
-                       [$fn_hit, $fn_found, $F_FN_RATE, $F_FN_NUM],
-                       [$br_hit, $br_found, $F_BR_RATE, $F_BR_NUM],
-                       [$mcdc_hit, $mcdc_found, $F_MCDC_RATE, $F_MCDC_NUM],
-        ) {
-            my ($h, $f, $r, $n) = @$d;
+        foreach my $d (@types) {
+            my ($type, $cb, $total_found, $total_hit, $n, $r) = @$d;
+            next unless defined($type);
+            my $data = &{$cb}($entry);
 
-            push(@file_data, shorten_rate($h, $f, $fwidth[$r]));
-            push(@file_data, shorten_number($f, $fwidth[$n]));
+            my ($found, $hit) = $data->get_found_and_hit();
+            # add to totals
+            $d->[2] += $found, $d->[3] += $hit;
+
+            push(@file_data, shorten_rate($hit, $found, $fwidth[$r]));
+            push(@file_data, shorten_number($found, $fwidth[$n]));
         }
         # Print assembled line
         printf($format, @file_data);
@@ -1912,19 +1894,15 @@ sub list()
     print(("=" x $barlen) . "\n");
 
     # Assemble line parameters
+    my @footer;
     push(@footer, sprintf("%*s", $strlen, "Total:"));
+    foreach my $d (@types) {
+        my ($type, $cb, $total_found, $total_hit, $n, $r) = @$d;
+        next unless defined($type);
 
-    foreach my $d ([$total_hit, $total_found, $F_LN_RATE, $F_LN_NUM],
-                   [$fn_total_hit, $fn_total_found, $F_FN_RATE, $F_FN_NUM],
-                   [$br_total_hit, $br_total_found, $F_BR_RATE, $F_BR_NUM],
-                   [$total_mcdc_hit, $total_mcdc, $F_MCDC_RATE, $F_MCDC_NUM],
-    ) {
-        my ($h, $f, $r, $n) = @$d;
-
-        push(@footer, shorten_rate($h, $f, $fwidth[$r]));
-        push(@footer, shorten_number($f, $fwidth[$n]));
+        push(@footer, shorten_rate($total_hit, $total_found, $fwidth[$r]));
+        push(@footer, shorten_number($total_found, $fwidth[$n]));
     }
-
     # Print assembled line
     printf($format, @footer);
 }
