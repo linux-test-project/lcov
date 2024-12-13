@@ -150,6 +150,19 @@ sub new
     }
     close(P4) or die("error on close 'p4 have' pipe: $!");
 
+    open(WHERE, '-|', "$cd p4 where $depot") or
+        die("unable to execute p4 where: $!");
+    my ($depot_path, $workspace_path, $workspace_dir);
+    while (<WHERE>) {
+        if (/^(\S+)\s*(\S+)\s*(\S+)$/) {
+            $depot_path     = substr($1, 0, -4);    # remove the '/...' tail
+            $workspace_path = substr($2, 0, -4);
+            $workspace_dir  = substr($3, 0, -4);
+            last;
+        }
+    }
+    close(WHERE) or die("error on close 'p4 where' pipe: $!");
+
     # check for local edits...
     open(EDITS, '-|', "$cd p4 opened $depot$dots") or
         die("unable to execute p4 opened: $!");
@@ -158,7 +171,19 @@ sub new
            /^(.+?)(#[0-9]+) - (edit|add|delete) (default change|change (\S+)) /)
         {
             # file is locally edited...append modify time or MD5 signature to the version ID
-            my $data = $filehash{$1};
+            my $data;
+            if (exists($filehash{$1})) {
+                die("unexpected 'add' state") if 'add' eq $3;
+                $data = $filehash{$1};
+            } else {
+                die("unexpected 'add' state") unless 'add' eq $3;
+                my $trimmed   = substr($1, length($depot_path));
+                my $full_name = $workspace_dir . $trimmed;
+                $data                 = [$full_name, $1, $trimmed, '#add'];
+                $filehash{$full_name} = $data;
+                $filehash{$1}         = $data;
+                $filehash{$trimmed}   = $data unless $trimmed eq $full_name;
+            }
             if (!$local_edit) {
                 die("$1$2 has local changes - see '--local-edit' flag");
             }
