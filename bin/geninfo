@@ -1726,7 +1726,6 @@ sub process_dafile($$$$)
     }
 
     my $traceFile = TraceFile->new();
-    my $warnedUnexecuted;
     # Traverse the list of generated .gcov files and combine them into a
     # single .info file
     foreach $gcov_file (@gcov_list) {
@@ -1894,12 +1893,16 @@ sub process_dafile($$$$)
                             );
                             if ($lcovutil::opt_adjust_unexecuted_blocks) {
                                 $hit = 0;
-                            } else {
+                            } elsif (
+                                     lcovutil::warn_once(
+                                                        "unexecuted block",
+                                                        $ERROR_INCONSISTENT_DATA
+                                     )
+                            ) {
                                 lcovutil::ignorable_warning(
                                     $ERROR_INCONSISTENT_DATA,
                                     "$source_filename:$line_number: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
-                                ) unless $warnedUnexecuted;
-                                $warnedUnexecuted = 1;
+                                );
                             }
                         }
                     }
@@ -2536,7 +2539,6 @@ sub intermediate_json_to_info($)
     my $traceFile = TraceFile->new();
     lcovutil::debug(1,
           "called intermediate_json_to_info " . join(' ', keys(%$data)) . "\n");
-    my $warnedUnexecuted;    # once only
     while (my ($filename, $file_data) = each(%$data)) {
         # note that we already substituted the source file name and handled
         # include/exclude directives - so no need to check here
@@ -2582,24 +2584,19 @@ sub intermediate_json_to_info($)
             next
                 if (!defined($line) || !defined($count));
 
-            if ($line <= 0) {
-                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                         '"' . $fileData->filename() .
-                             "\"::  unexpected line number '$line' in gcov record"
-                );
-                next;    # don't store inconsistent data if message is ignored
-            }
             if (0 == scalar(@$branches) && $unexec && $count != 0) {
                 lcovutil::debug(
                     "$filename:$line: unexecuted block on non-branch line with count=$count\n"
                 );
                 if ($lcovutil::opt_adjust_unexecuted_blocks) {
                     $count = 0;
-                } else {
+                } elsif (
+                         lcovutil::warn_once("unexecuted block",
+                                             $ERROR_INCONSISTENT_DATA)
+                ) {
                     lcovutil::ignorable_warning($ERROR_INCONSISTENT_DATA,
                         "$filename:$line: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
-                    ) unless $warnedUnexecuted;
-                    $warnedUnexecuted = 1;
+                    );
                 }
             }
 

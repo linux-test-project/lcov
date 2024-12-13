@@ -98,7 +98,7 @@ if [ "${VER[0]}" -lt 5 ] ; then
     FILTER='--filter branch'
 fi
 
-rm -f  *.log *.json dumper*
+rm -f  *.log *.json dumper* *.out
 rm -rf emptyDir
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
@@ -135,7 +135,7 @@ for f in badFncLine badFncEndLine fncMismatch badBranchLine badLine ; do
         fi
     fi
 
-    echo lcov $LCOV_OPTS --summary $f.info --ignore inconsistent
+    echo lcov $LCOV_OPTS --summary $f.info --ignore inconsistent,format
     $COVER $LCOV_TOOL $LCOV_OPTS --summary $f.info --ignore format,inconsistent 2>&1 | tee ${f}2.log
     if [ 0 != ${PIPESTATUS[0]} ] ; then
         echo "failed to ignore message ${f}2.log"
@@ -144,6 +144,17 @@ for f in badFncLine badFncEndLine fncMismatch badBranchLine badLine ; do
             exit $status
         fi
     fi
+    # and print the data out again..
+    echo lcov $LCOV_OPTS -o $f.out -a $f.info --ignore format,inconsistent
+    $COVER $LCOV_TOOL $LCOV_OPTS -o $f.out -a $f.info --ignore format,inconsistent --msg-log $f{3}.log
+    if [ 0 != $? ] ; then
+        echo "failed to ignore message ${f}3.log"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit $status
+        fi
+    fi
+
 done
 
 for f in noFunc ; do

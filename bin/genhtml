@@ -2745,6 +2745,9 @@ sub _categorizeLineCov
     # LLVM seems to like to generate inconsistent data.
     my $branchCurrent = $current_data->sumbr();
     foreach my $line ($branchCurrent->keylist()) {
+        # just ignore bogus data - we already warned when we read the data
+        next if ($line <= 0);
+
         my $type = $diffMap->type($filename, $diffMap->NEW, $line);
         # LCOV_EXCL_START
         if ($type eq 'delete') {
@@ -2762,6 +2765,8 @@ sub _categorizeLineCov
     #  (This observation is also true for branch and function
     #  coverages.)
     foreach my $line ($lineCovCurrent->keylist()) {
+        # just ignore bogus data - we already warned when we read the data
+        next if ($line <= 0);
         my $type = $diffMap->type($filename, $diffMap->NEW, $line);
         if ($type eq 'delete') {
             # can happen in some inconsistent case, when there are certain
@@ -2788,6 +2793,8 @@ sub _categorizeLineCov
     return unless (defined($lineCovBase));
 
     foreach my $bline ($lineCovBase->keylist()) {
+        # just ignore bogus data - we already warned when we read the data
+        next if ($bline <= 0);
         my $linedata = $self->_findLineData($diffMap, $filename, $bline);
         my $val      = $lineCovBase->value($bline);
         $linedata->base_count($val);
@@ -2888,6 +2895,7 @@ sub _categorizeBranchCov
     #     Or because we did something bad and no longer reach what had been
     #     a high probability event?
     foreach my $line ($branchCurrent->keylist()) {
+        next if ($line <= 0);    # ignore bogus
         unless (exists($lineDataMap->{$line})) {
             # unless ignored, should have been caught or fixed during
             #  TraceInfo::_checkConsistency
@@ -2931,6 +2939,7 @@ sub _categorizeBranchCov
 
     # go through all the branch data for each line, and categorize everything
     foreach my $line (keys(%branchCovLines)) {
+        next if ($line <= 0);    # ignore bogus
         my $data        = $self->lineMap()->{$line};
         my $type        = $data->type();
         my $curr        = $data->current_branch();
@@ -3058,6 +3067,7 @@ sub _categorizeMcdcCov
     #     Or because we did something bad and no longer reach what had been
     #     a high probability event?
     foreach my $line ($mcdcCurrent->keylist()) {
+        next if ($line <= 0);    # ignore bogus
         unless (exists($lineDataMap->{$line})) {
             # unless ignored, should have been caught or fixed during
             #  TraceInfo::_checkConsistency
@@ -3086,6 +3096,7 @@ sub _categorizeMcdcCov
     # now look through the baseline to find matching data
 
     foreach my $base_line ($mcdcBaseline->keylist()) {
+        next if ($base_line <= 0);    # ignore bogus
         my $data      = $self->_findLineData($diffMap, $filename, $base_line);
         my $curr_line = $data->lineNo('current');
         my $type      = $data->type();
@@ -3203,6 +3214,7 @@ sub _categorizeFunctionCov
     foreach my $key ($funcCurrent->keylist()) {
         my $func = $funcCurrent->findKey($key);
         my $line = $func->line();
+        next if ($line <= 0);    # ignore bogus
         my $type = $diffMap->type($filename, $diffMap->NEW, $line);
         $funcCovLines{$line} = 1;
         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
@@ -3241,6 +3253,7 @@ sub _categorizeFunctionCov
     foreach my $key ($funcBase->keylist()) {
         my $func = $funcBase->findKey($key);
         my $line = $func->line();
+        next if ($line <= 0);    # ignore bogus
         my $data = $self->_findLineData($diffMap, $filename, $line);
 
         my $type      = $data->type();

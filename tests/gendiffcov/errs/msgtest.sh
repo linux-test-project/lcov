@@ -231,6 +231,26 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# invalid syntax test:
+cp initial.info badRecord.info
+echo "MDCD:0,1,t,1,1,abc" >> badRecord.info
+echo lcov $LCOV_OPTS --summary badRecord.info --msg-log badRecord.log
+$COVER $LCOV_TOOL $LCOV_OPTS --summary badRecord.info --msg-log badRecord.log
+if [ 0 == $? ] ; then
+    echo "ERROR: missing format message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep 'unexpected .info file record' badRecord.log
+if [ 0 != $? ] ; then
+    echo "ERROR: failed to find format message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
 echo lcov $LCOV_OPTS --summary initial.info --prune
 $COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --prune 2>&1 | tee prune_err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
@@ -769,7 +789,7 @@ if [ "$ENABLE_MCDC" != 1 ] ; then
 
 fi
 
-$COVER $LCOV_TOOL --summary mcdc_errs.dat --mcdc-coverage $LCOV_OPTS --msg-log mcdc_expr.log --ignore format,inconsistent,source
+$COVER $LCOV_TOOL -o err.info -a mcdc_errs.dat --mcdc-coverage $LCOV_OPTS --msg-log mcdc_expr.log --ignore format,inconsistent,source
 if [ 0 != $? ] ; then
     echo "ERROR: didn't ignore MC/DC errors"
     if [ 0 == $KEEP_GOING ] ; then

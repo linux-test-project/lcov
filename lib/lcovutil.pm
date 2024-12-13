@@ -5330,7 +5330,6 @@ sub append_mcdc
 sub new_mcdc
 {
     my ($self, $fileData, $line) = @_;
-    die("undexpected line $line <= 0") if ($line <= 0);
 
     return $self->[BranchMap::DATA]->{$line}
         if exists($self->[BranchMap::DATA]->{$line});
@@ -8505,7 +8504,8 @@ sub _read_info
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
                     );
-                    last;
+                    # just keep invalid number - if error ignored
+                    # last;
                 }
                 if ($readSourceCallback->notEmpty()) {
                     # does the source checksum match the recorded checksum?
@@ -8645,7 +8645,8 @@ sub _read_info
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
                     );
-                    last;
+                    # just keep invalid line number if error ignored
+                    # last;
                 }
 
                 last if $is_exception && $lcovutil::exclude_exception_branch;
@@ -8701,7 +8702,8 @@ sub _read_info
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$tracefile\":$.: unexpected line number '$line' in condition data record '$_'."
                     );
-                    last;
+                    # keep invalid line number
+                    #last;
                 }
 
                 if (!defined($current_mcdc) ||
@@ -8927,7 +8929,8 @@ sub write_info($$$)
                         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                             "\"$source_file\": unexpected line number '$line' in branch data record."
                         );
-                        last;
+                        # keep bogus data if error ignored
+                        # last;
                     }
                     my $brdata = $testbrcount->value($line);
                     # want the block_id to be treated as 32-bit unsigned integer
@@ -8965,8 +8968,11 @@ sub write_info($$$)
                 my $mcdc_found = 0;
                 my $mcdc_hit   = 0;
                 foreach my $line (sort({ $a <=> $b } $mcdc->keylist())) {
-
-                    die("unexpected MCDC line $line") if ($line <= 0);
+                    if ($line <= 0) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$source_file\": unexpected line number '$line' in MC/DC data record."
+                        );
+                    }
                     my $m      = $mcdc->value($line);
                     my $groups = $m->groups();
                     foreach my $groupSize (sort keys %$groups) {
@@ -8995,6 +9001,11 @@ sub write_info($$$)
             my $found = 0;
             my $hit   = 0;
             foreach my $line (sort({ $a <=> $b } $testcount->keylist())) {
+                if ($line <= 0) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                        "\"$source_file\": unexpected line number '$line' in 'line' data record."
+                    );
+                }
                 my $l_hit = $testcount->value($line);
                 my $chk   = '';
                 if ($verify_checksum) {
