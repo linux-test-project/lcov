@@ -83,6 +83,21 @@ if [ 'x' == "x$GENHTML_TOOL" ] ; then
     PERL2LCOV_TOOL=${LCOV_HOME}/bin/perl2lcov
 fi
 
+if [ -f $LCOV_HOME/scripts/getp4version ] ; then
+    SCRIPT_DIR=$LCOV_HOME/scripts
+else
+    # running test from lcov install
+    SCRIPT_DIR=$LCOV_HOME/share/lcov/support-scripts
+fi
+# is this git or P4?
+git -C . rev-parse > /dev/null 2>&1
+if [ 0 == $? ] ; then
+    # this is git
+    GET_VERSION=${SCRIPT_DIR}/gitversion.pm
+else
+    GET_VERSION=${SCRIPT_DIR}/P4version.pm,--local-edit,--md5
+fi
+
 ROOT=`pwd`
 PARENT=`(cd .. ; pwd)`
 
@@ -112,7 +127,7 @@ STATUS=0
 function runClang()
 (
     # runClang exeName srcFile flags
-    clang++ -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc -o $1 $2 $3
+    clang++ -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc -o $1 main.cpp test.cpp $2
     if [ $? != 0 ] ; then
         echo "ERROR from clang++ $1"
         return 1
@@ -128,14 +143,25 @@ function runClang()
         echo "ERROR from llvm-cov $1"
         return 1
     fi
-    $COVER $LLVM2LCOV_TOOL --branch --mcdc -o $1.info $1.jsn
+    $COVER $LLVM2LCOV_TOOL --branch --mcdc -o $1.info $1.jsn --version-script $GET_VERSION
     if [ $? != 0 ] ; then
         echo "ERROR from llvm2lcov $1"
         return 1
     fi
-    $COVER $GENHTML_TOOL --flat --branch --mcdc -o $1_rpt $1.info
+    $COVER $GENHTML_TOOL --flat --branch --mcdc -o $1_rpt $1.info --version-script $GET_VERSION
     if [ $? != 0 ] ; then
         echo "ERROR from genhtml $1"
+        return 1
+    fi
+    # run again, excluding 'main.cpp'
+    $COVER $LLVM2LCOV_TOOL --branch --mcdc -o $1.excl.info $1.jsn --version-script $GET_VERSION --exclude '*/main.cpp'
+    if [ $? != 0 ] ; then
+        echo "ERROR from llvm2lcov --exclude $1"
+        return 1
+    fi
+    COUNT=`grep -c SF: $1.excl.info`
+    if [ 1 != "$COUNT" ] ; then
+        echo "ERROR llvm2lcov --exclude $1 didn't work"
         return 1
     fi
     rm -f *.profraw *.profdata
@@ -144,7 +170,7 @@ function runClang()
 function runGcc()
 {
     # runGcc exeName srcFile flags
-    g++ --coverage -fcondition-coverage -o $1 $2 $3
+    g++ --coverage -fcondition-coverage -o $1 main.cpp test.cpp $2
     if [ $? != 0 ] ; then
         echo "ERROR from g++ $1"
         return 1
@@ -184,21 +210,21 @@ fi
 
 
 if [ "$ENABLE_MCDC" == 1 ] ; then
-    runGcc gccTest1 test.cpp
+    runGcc gccTest1
     if [ $? != 0 ] ; then
         STATUS=1
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
     fi
-    runGcc gccTest2 test.cpp -DSENS1
+    runGcc gccTest2 -DSENS1
     if [ $? != 0 ] ; then
         STATUS=1
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
     fi
-    runGcc gccTest3 test.cpp -DSENS2
+    runGcc gccTest3 -DSENS2
     if [ $? != 0 ] ; then
         STATUS=1
         if [ $KEEP_GOING == 0 ] ; then
@@ -210,21 +236,21 @@ else
 fi
 
 if [ "$ENABLE_LLVM" == 1 ] ; then
-    runClang clangTest1 test.cpp
+    runClang clangTest1
     if [ $? != 0 ] ; then
         STATUS=1
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
     fi
-    runClang clangTest2 test.cpp -DSENS1
+    runClang clangTest2 -DSENS1
     if [ $? != 0 ] ; then
         STATUS=1
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
     fi
-    runClang clangTest3 test.cpp -DSENS2
+    runClang clangTest3 -DSENS2
     if [ $? != 0 ] ; then
         STATUS=1
         if [ $KEEP_GOING == 0 ] ; then

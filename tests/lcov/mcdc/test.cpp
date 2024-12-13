@@ -14,16 +14,3 @@ void test(int a, int b, int c)
     printf("not..\n");
   }
 }
-
-
-int main(int ac, char ** av)
-{
-  test(1,1,0);
-#ifdef SENS1
-  test(1,0,0);
-#endif
-#ifdef SENS2
-  test(0,1,0);
-#endif
-  return 0;
-}

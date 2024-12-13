@@ -147,16 +147,13 @@ sub parse
                     }
                     next;
                 }
-
                 $srcReader->open($filename);
 
                 my $fileInfo = $top->data($filename);
-                if ($lcovutil::compute_file_version &&
-                    @lcovutil::extractVersionScript) {
-                    my $version = lcovutil::extractFileVersion($filename);
-                    $fileInfo->version($version)
-                        if (defined($version) && $version ne "");
-                }
+
+                my $version = lcovutil::extractFileVersion($filename);
+                $fileInfo->version($version)
+                    if (defined($version) && $version ne "");
 
                 my $lineData = $fileInfo->test($testname);
                 # use branch data to derive MC/DC expression - so need
