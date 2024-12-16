@@ -97,7 +97,7 @@ fi
 git -C . rev-parse > /dev/null 2>&1
 if [ 0 == $? ] ; then
     # this is git
-    VERSION="--version-script ${SCRIPT_DIR}/gitversion${MD5_OPT)}"
+    VERSION="--version-script ${SCRIPT_DIR}/gitversion${MD5_OPT}"
     ANNOTATE="--annotate-script ${SCRIPT_DIR}/gitblame.pm,--cache,my_cache"
 else
     VERSION="--version-script ${SCRIPT_DIR}/P4version.pm,--local-edit${MD5_OPT}"
