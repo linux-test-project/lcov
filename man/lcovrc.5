@@ -2647,10 +2647,24 @@ The default is 20.
 .IR integer[,integer..]
 .IP
 This option is equivalent to the "genhtml \-\-date\-bins" option.
-See the genhtml man page for details.
+See man
+.B genhtml(1)
+for details.
 
 This option can be used multiple times in the lcovrc file to set multiple cutpoints.
-The cutpoints specified in the lcovrc file are appended to the cutpoints (if any) specified on the command line.
+
+.PP
+
+.BR genhtml_datelabels " ="
+.IR string[,string..]
+.IP
+This option is equivalent to the "genhtml \-\-date\-labels" option.
+See man
+.B genhtml(1)
+for details.
+
+This option can be used multiple times in the lcovrc file to set multiple labels.
+The number of labels should equal one greater than number of cutpoints.
 
 .PP
 

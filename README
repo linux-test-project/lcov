@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (LCOV) -
-- Last changes: 2024-11-26
+- Last changes: 2024-12-16
 -------------------------------------------------
 
 Description
@@ -313,7 +313,8 @@ LCOV features and capabilities fall into 7 major categories:
 
      Related options:
         --baseline-file, --diff-file, --annotate-script, --select-script
-        --date-bins, --new-file-as-baseline, --elide-path-mismatch
+        --date-bins, --date-labels --new-file-as-baseline,
+        --elide-path-mismatch
 
   b) Error handling
 
