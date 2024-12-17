@@ -1,6 +1,6 @@
 #!/bin/sh
 
-if [ 'die' == "$1" ] ; then
+if [ 'die' = "$1" ] ; then
     echo "dieing"
     exit 1
 fi
