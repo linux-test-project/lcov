@@ -104,7 +104,7 @@ PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
-rm -rf *.xml *.dat *.info *.jsn cover_one *_rpt *Test[123]*
+rm -rf *.xml *.dat *.info *.jsn cover_one *_rpt *Test[123]* *.gcno *.gcda gccTest* llvmTest*
 
 if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ]; then
     cover -delete
@@ -170,21 +170,25 @@ function runClang()
 
 function runGcc()
 {
+    NAME=$1
+    shift
+    ARG=$1
+    shift
     # runGcc exeName srcFile flags
-    g++ --coverage -fcondition-coverage -o $1 main.cpp test.cpp $2
+    eval g++ --coverage -fcondition-coverage -o $NAME main.cpp test.cpp $ARG
     if [ $? != 0 ] ; then
-        echo "ERROR from g++ $1"
+        echo "ERROR from g++ $NAME"
         return 1
     fi
-    ./$1
-    $COVER $GENINFO_TOOL -o $1.info --mcdc --branch $1-test.gcda
+    ./$NAME
+    $COVER $GENINFO_TOOL -o $NAME.info --mcdc --branch $NAME-test.gcda $@
     if [ $? != 0 ] ; then
-        echo "ERROR from geninfo $1"
+        echo "ERROR from geninfo $NAME"
         return 1
     fi
-    $COVER $GENHTML_TOOL --flat --branch --mcdc -o $1_rpt $1.info
+    $COVER $GENHTML_TOOL --flat --branch --mcdc -o ${NAME}_rpt $NAME.info
     if [ $? != 0 ] ; then
-        echo "ERROR from genhtml $1"
+        echo "ERROR from genhtml $NAME"
         return 1
     fi
     rm -f *.gcda *.gcno
@@ -232,6 +236,55 @@ if [ "$ENABLE_MCDC" == 1 ] ; then
             exit 1
         fi
     fi
+    runGcc gccTest4 '-DSENS2 -DSIMPLE' --filter mcdc
+    if [ $? != 0 ] ; then
+        STATUS=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    # the MC/DC should have been filtered out - in favor of the branch
+    COUNT=`grep -c MCDC gccTest4.info`
+    if [ 0 != "$COUNT" ] ; then
+        STATUS=1
+        echo "filter error MC/DC"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    runGcc gccTest4a '-DSENS2 -DSIMPLE'
+    if [ $? != 0 ] ; then
+        STATUS=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    # the MC/DC shouldn't be filtered
+    COUNT=`grep -c MCDC gccTest4a.info`
+    if [ 0 == "$COUNT" ] ; then
+        STATUS=1
+        echo "filter error2 MC/DC"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+
+    runGcc gccTest5 -DSENS2 --filter mcdc
+    if [ $? != 0 ] ; then
+        STATUS=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    # the MC/DC shouldn't have been filtered out
+    COUNT=`grep -c MCDC gccTest5.info`
+    if [ 0 == "$COUNT" ] ; then
+        STATUS=1
+        echo "MC/DC filter error"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
 else
     echo "SKIPPING MC/DC tests:  ancient compiler"
 fi
@@ -258,7 +311,7 @@ if [ "$ENABLE_LLVM" == 1 ] ; then
             exit 1
         fi
     fi
-else 
+else
     echo "SKIPPING LLVM tests"
 fi
 

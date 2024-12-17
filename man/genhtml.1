@@ -2236,6 +2236,13 @@ Exclude lines which appear to be part of a C++ std::initializer_list.
 alias for "\-\-filter brace,blank".
 .PP
 
+.IP mcdc: 3
+Remove MC/DC coverpoint which contains single expression, if 'branch' coverpoint
+is present on the same line.
+Singe-element MC/DC coverpoints are identical to the corresponding branch - except
+in the case of compile-time expression evaluation, for example, in a template
+function.
+
 .IP orphan: 3
 Remove branches which appear by themselves -
 .I i.e.,

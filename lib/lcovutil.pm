@@ -302,6 +302,8 @@ our $FILTER_MISSING_FILE;
 our $FILTER_EXCEPTION_BRANCH;
 # remove lone branch in block - it can't be an actual conditional
 our $FILTER_ORPHAN_BRANCH;
+# MC/DC with single expression is identical to branch
+our $FILTER_MCDC_SINGLE;
 our $FILTER_OMIT_PATTERNS;    # special/somewhat faked filter
 
 our %COVERAGE_FILTERS = ("branch"        => \$FILTER_BRANCH_NO_COND,
@@ -317,6 +319,7 @@ our %COVERAGE_FILTERS = ("branch"        => \$FILTER_BRANCH_NO_COND,
                          'branch_region' => \$FILTER_EXCLUDE_BRANCH,
                          'exception'     => \$FILTER_EXCEPTION_BRANCH,
                          'orphan'        => \$FILTER_ORPHAN_BRANCH,
+                         'mcdc'          => \$FILTER_MCDC_SINGLE,
                          "trivial"       => \$FILTER_TRIVIAL_FUNCTION,);
 our @cov_filter;    # 'undef' if filter is not enabled,
                     # [line_count, coverpoint_count] histogram if
@@ -2439,6 +2442,10 @@ sub parse_cov_filters(@)
             "branch filter enabled but neither branch or condition coverage is enabled"
         );
     }
+    lcovutil::ignorable_warning($ERROR_USAGE,
+                     "'mcdc' filter enabled but MC/DC coverage is not enabled.")
+        if (defined($cov_filter[$FILTER_MCDC_SINGLE]) &&
+            !$mcdc_coverage);
     if ($cov_filter[$FILTER_BRANCH_NO_COND]) {
         # turn on exception and orphan filtering too
         $cov_filter[$FILTER_EXCEPTION_BRANCH] = ['exception', 0, 0];
@@ -7429,6 +7436,8 @@ sub _filterFile
     my $directive = $cov_filter[$FILTER_DIRECTIVE];
     my $omit      = $cov_filter[$FILTER_OMIT_PATTERNS]
         if defined($FILTER_OMIT_PATTERNS);
+    my $mcdc_single = $cov_filter[$FILTER_MCDC_SINGLE]
+        if defined($FILTER_MCDC_SINGLE && $lcovutil::mcdc_coverage);
 
     my $context = MessageContext->new("filtering $source_file");
     if (lcovutil::is_filter_enabled()) {
@@ -7634,7 +7643,23 @@ sub _filterFile
                 }
             }    # foreach line
         }    # if branch_coverage
-             # Line related data
+        if ($mcdc_single) {
+            # find single-expression MC/DC's - if there is a matching branch
+            #  expression on the same line, then remove the MC/DC
+            foreach my $line ($mcdc_count->keylist()) {
+                my $block  = $mcdc_count->value($line);
+                my $groups = $block->groups();
+                if (exists($groups->{1}) &&
+                    scalar(keys %$groups) == 1) {
+                    my $branch = $testbrcount->value($line);
+                    next unless $branch && ($branch->totals())[0] == 2;
+                    $mcdc_count->remove($line);
+                    ++$mcdc_single->[-2];    # one MC/DC skipped
+
+                    $mcdc->remove($line);    # remove at top
+                }
+            }
+        }
         next
             unless $region    ||
             $range            ||
@@ -7644,6 +7669,7 @@ sub _filterFile
             $omit             ||
             $filter_initializer_list;
 
+        # Line related data
         my %initializerListRange;
         foreach my $line ($testcount->keylist()) {
             # don't suppresss if this line has associated branch or MC/DC data

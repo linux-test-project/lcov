@@ -8,9 +8,13 @@
 
 void test(int a, int b, int c)
 {
-  if (a && (b || c)) {
+  if
+#ifdef SIMPLE
+    (a)
+#else
+    (a && (b || c))
+#endif
     printf("%d && (%d || %d)\n", a, b, c);
-  } else {
+  else
     printf("not..\n");
-  }
 }
