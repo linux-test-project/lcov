@@ -528,14 +528,14 @@ and
 
 where
 .I $hash
-is a reference to a hask of key/value pairs which are meaningful to you.
+is a reference to a hash of key/value pairs which are meaningful to you.
 This data is stored in the
 .I profile
 database.  See the 'profile' section in man
 .B lcovrc(5)
 for more information.
 
-If your callback is not a perl module - for example, is a shellscript - then it should return a string such that the first word on each line is the key and the remainder is the associated data.  If a key is repeated, then the corresponding data strings are concatentated, separated by newline.
+If your callback is not a perl module - for example, is a shellscript - then it should return a string such that the first word on each line is the key and the remainder is the associated data.  If a key is repeated, then the corresponding data strings are concatenated, separated by newline.
 
 If you want to record only system information, then a shell callback is likely sufficient.  If you want to record any tool-specific/internal information, then you will need to implement a perl module so that your callback will be able to access the information.
 Note that the constructor of your
@@ -614,7 +614,7 @@ path or any parameter contains spaces or shell special characters.
 .IP 3. 3
 If an option is specified multiple times, then the parameters are
 .I not
-split, but are simply concatentated to form the command line - see the examples, below.
+split, but are simply concatenated to form the command line - see the examples, below.
 .br
 For simplicity and ease of understanding:  your command line should
 pass all arguments individually, or all as a comma-separated list - not a mix of the two.
@@ -2509,7 +2509,7 @@ Use this switch if you want some artifact of coverage report generation -
 .I e.g.,
 the coverage criteria check or the serialized coverage DB,
 .B etc.
-- but do not need teh coverage report HTML itself.
+- but do not need the coverage report HTML itself.
 
 
 .RE
@@ -2738,17 +2738,17 @@ whether the condition was sensitized or not. Conditions are shown in the followi
 
 .RS 3
 .IP T: 3
-True sense of subexpression was sensitized: if this subexpression's value had been false, then the condition resut would have been different.
+True sense of subexpression was sensitized: if this subexpression's value had been false, then the condition result would have been different.
 .IP t: 3
 True sense of subexpression was
 .B not
-sensitized:  the conditon result would not change if the subexpression value was different.
+sensitized:  the condition result would not change if the subexpression value was different.
 .IP F:
-False sense of subexpression was sensitized: if this subexpression's value had been true, then the condition resut would have been different.
+False sense of subexpression was sensitized: if this subexpression's value had been true, then the condition result would have been different.
 .IP f:
 False sense of subexpression was
 .B not
-sensitized:  the conditon result would not change if the subexpression value was different.
+sensitized:  the condition result would not change if the subexpression value was different.
 .RE
 
 Note that branch and MC/DC coverage are identical if the condition is
@@ -2779,7 +2779,7 @@ constituent expression changed from true to false (termed the 'true' sense, abov
 .br
 For example, the expression
 .I A || B
-is sensitve to
+is sensitive to
 .I A==true
 when
 .I B==false,
@@ -2981,7 +2981,7 @@ function execution count record (
 .I FN
 ).
 .PP
-.IP "(enhanced LCOV fomat)" 3
+.IP "(enhanced LCOV format)" 3
 function alias record (
 .I FNA
 ) without matching function declaration record (
@@ -3004,7 +3004,7 @@ internal tool issue detected.  Please report this bug along with a testcase.
 
 .IP mismatch: 3
 Incorrect or inconsistent information found in coverage data and/or source code - for example,
-the souce code contains overlapping exclusion directives.
+the source code contains overlapping exclusion directives.
 
 .PP
 
@@ -3436,7 +3436,7 @@ that implements a check for "UNC + LBC + UIC == 0".
 
 .I \*[scriptdir]/threshold.pm
 .RS
-Sample script written as Perl module to check for miminum acceptable
+Sample script written as Perl module to check for minimum acceptable
 line and/or branch and/or and/or MC/DC function coverage.
 For example, the
 .RS

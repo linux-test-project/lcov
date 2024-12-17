@@ -777,11 +777,11 @@ One or more
 .I \-\-substitution
 patterns and/or a
 .I \-\-resolve-script
-may be specified.  When multiple paterns are specified, they are applied in the order specifed, substitution patterns first followed by the resolve callback.
+may be specified.  When multiple patterns are specified, they are applied in the order specified, substitution patterns first followed by the resolve callback.
 The file search order is:
 .RS
 .IP 1. 3
-Look for file name (unmodifed).
+Look for file name (unmodified).
 .br
 If the file exits: return it.
 .PP
@@ -791,7 +791,7 @@ Apply all substitution patterns in order - the result of the first pattern is us
 If a file corresponding to the resulting name exists:  return it.
 .PP
 .IP 3. 3
-Apply the 'resolve' callback ot the final result of pattern substituions.
+Apply the 'resolve' callback ot the final result of pattern substitutions.
 .br
 If a file corresponding to the resulting name exists:  return it.
 .PP

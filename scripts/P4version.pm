@@ -197,7 +197,7 @@ sub new
             die("unexpected 'p4 opened' line '$_'");
         }
     }
-    close(EDITS) or die("error on clos 'p4 opened' pipe: $!");
+    close(EDITS) or die("error on close 'p4 opened' pipe: $!");
 
     my $self =
         [$allow_missing, $local_edit, $use_md5, $prefix, $depot, \%filehash];

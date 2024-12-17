@@ -952,7 +952,7 @@ sub do_mangle_check
 sub configure_callback
 {
     # if there is just one argument, then assume it might be a
-    # concatentation - otherwise, just use straight.
+    # concatenation - otherwise, just use straight.
     my $cb = shift;
     my @args =
         1 == scalar(@_) ?
@@ -1895,7 +1895,7 @@ sub parse_expected_message_counts(@)
                                             ($ignore ? ': ignoring.' : ''));
                 next;
             }
-            # check if syntax look resonable
+            # check if syntax look reasonable
             my $expr = $2;
             if (Scalar::Util::looks_like_number($expr)) {
                 $expected_message_count[$id] = "%C == $expr";
@@ -1948,7 +1948,7 @@ sub explain_once
     #   once - e.g., when two or more child processes generate them
     #   simultaneously.
     #   They will eventually update the parent process state such that
-    #   subseqent children won't report the issues.
+    #   subsequent children won't report the issues.
     my $key = shift;
     if (!exists($explainOnce{$key})) {
         $explainOnce{$key} = 1;
@@ -7443,7 +7443,7 @@ sub _filterFile
     # Note:  this is checking the version of the 'current' file - even if
     #   we are actually reading the baseline version.
     #   - This is what we want, as the 'baseline read' is actually recovering/
-    #     recreating the baseline source fromthe current source and the diff.
+    #     recreating the baseline source from the current source and the diff.
     #   - We already checked that the diff and the coverage DB baseline/current
     #     version data is consistent - so filtering will be accurate as long as
     #     we see the right 'current' source version.
@@ -9176,7 +9176,7 @@ sub merge
     my $readSourceFile;
     my $t = ref($_[0]);
     if (!defined($_[0]) || '' eq $t) {
-        # backward compatiblity - arg is undefined or is a filename
+        # backward compatibility - arg is undefined or is a filename
         $readSourceFile = ReadCurrentSource->new();
         shift unless defined($_[0]);
     } else {

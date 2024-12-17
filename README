@@ -480,7 +480,7 @@ LCOV features and capabilities fall into 7 major categories:
 
           See "xml2lcov --help" fir brief instructions on how to use
           the translator.
-          See the Coburtura documention for directions on how to
+          See the Coburtura documentation for directions on how to
           generate XML data.
 
      Other languages can be integrated using a similar approach.

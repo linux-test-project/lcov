@@ -479,7 +479,7 @@ fi
 # error message for missing env var in RC file
 $COVER $LCOV_TOOL $IGNORE --capture -d . $LCOV_OPTS -o err2.info --config-file envErr.rc  2>&1 | tee err2.log
 if [ ${PIPESTATUS[0]} == 0 ] ; then
-    echo "expected mssing value error - not found"
+    echo "expected missing value error - not found"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi

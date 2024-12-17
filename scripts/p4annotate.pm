@@ -37,7 +37,7 @@
 #     of cached files - and may result in out-of-sync annotated file data.
 #
 #   The '--verify' flag tells the tool to do some additional consistency
-#   checking whe merging local edits into the annoted file.
+#   checking whe merging local edits into the annotated file.
 #
 #   The '--log' flag specifies a file where the tool writes various annotation-
 #   related log messages.

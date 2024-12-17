@@ -4221,7 +4221,7 @@ sub new
     ];
     # we will call the $annotateObj->line(int) to collect annotate data
     #   for certain lines - to find out of a non-code line is in a
-    #   continguous region by the same author, in the same SHA or etc.
+    #   contiguous region by the same author, in the same SHA or etc.
     $self->[NEXT] = shift(@{$self->[STACK]});
     if (defined($self->[NEXT]) && $self->[NEXT] != 1) {
         _computeContextBefore($self, 0);
@@ -4237,7 +4237,7 @@ sub _computeContextBefore
     my $data     = $self->[LINECOV_HASH];
     my $annotate = $self->[ANNOTATE_OBJ];
     # find contiguous source region which matches the select criteria.
-    #   That might include non-code lined (e.g., commments)
+    #   That might include non-code lined (e.g., comments)
     for (my $l = $self->[NEXT] - 1; $l > $prev; --$l) {
         my $lineData     = $data->{$l} if exists($data->{$l});
         my $annotateData = $annotate->line($l);
@@ -4246,7 +4246,7 @@ sub _computeContextBefore
                                          $self->[ANNOTATE_OBJ]->path(), $l);
         ++$count;
     }
-    # region of interest is the (possibly empty) contigous region we found
+    # region of interest is the (possibly empty) contiguous region we found
     # plus the number of context lines
     $self->[LINES_BEFORE] = $num_context_lines + $count;
 }
@@ -10086,7 +10086,7 @@ sub write_file_table_entry(*$$@)
             if ($page_type eq 'owner') {
                 $entry .= 'N' . $id;
             } else {
-                die("unexepected page type $page_type")
+                die("unexpected page type $page_type")
                     unless $page_type eq 'date';
                 $entry .= 'B' . $SummaryInfo::ageHeaderToBin{$id};
             }
@@ -13147,7 +13147,7 @@ sub write_file_table(*$$$$$$)
                                       SummaryInfo::LINE_DATA)
                  ]);
             # there might not be optional test data for some tests - that type was
-            #  not emabled
+            #  not enabled
             push(@results,
                  [$mcdc_found,
                   $mcdc_hit,

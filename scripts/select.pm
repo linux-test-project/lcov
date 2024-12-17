@@ -28,7 +28,7 @@
 #     which should be retained:
 #        select.pm --tla LBC,UNC,UIC ...
 #
-#   --sha/--cl:  is a (posibly comma-separated list of) git SHAs or
+#   --sha/--cl:  is a (possibly comma-separated list of) git SHAs or
 #     perforce changelists which should be retained.
 #     Match checks that the provided string matches the leading characters
 #     of the full SHA or changelist.
