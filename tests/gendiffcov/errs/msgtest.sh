@@ -285,6 +285,23 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+echo geninfo $LCOV_OPTS --no-markers --filter branch . -o usage1.info --msg-log markers.err
+$GENINFO_TOOL $LCOV_OPTS --no-markers --filter branch . -o usage1.info --msg-log markers.err
+if [ 0 == $? ] ; then
+    echo "ERROR: expected usage error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "use new '--filter' option or old" markers.err
+if [ 0 != $? ] ; then
+    echo "ERROR: didint find usage error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
 echo lcov $LCOV_OPTS --summary initial.info --config-file noSuchFile --ignore usage
 $COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file noSuchFile --ignore usgae 2>&1 | tee err_missing.log
 grep "cannot read configuration file 'noSuchFile'" err_missing.log

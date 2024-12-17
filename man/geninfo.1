@@ -1135,8 +1135,24 @@ entry in
 .B \-\-no\-markers
 .br
 .RS
+Unless the
+.I \-\-no\-markers
+option is used,
+.BR geninfo
+will apply both
+.I region
+and
+.I branch_region
+filters to the captured coverae data.
 Use this option if you want to get coverage data without regard to exclusion
 markers in the source code file.
+
+If any
+.I \-\-filter
+options are applied, then the default region filters are not used.
+
+.I \-\-no\-markers should not be specified along with
+.I \-\-filter.
 .RE
 
 .B \-\-no\-recursion
