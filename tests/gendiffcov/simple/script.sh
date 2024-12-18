@@ -180,7 +180,7 @@ DIFFCOV_NOFRAME_OPTS="$BASE_OPTS --demangle-cpp --prefix $PARENT --version-scrip
 DIFFCOV_OPTS="$DIFFCOV_NOFRAME_OPTS --frame"
 
 status=0
-ln -s simple.cpp test.cpp
+cp simple.cpp test.cpp
 ${CXX} --coverage $COVERAGE_OPTS test.cpp
 ./a.out
 
@@ -257,7 +257,7 @@ fi
 # test filter with differing version
 $COVER $LCOV_TOOL $LCOV_OPTS --output filt.info --filter branch,line -a baseline2.info $IGNORE
 if [ 0 == $? ] ; then
-    echo "ERROR: filter with mismatched version did not fail"
+    echo "ERROR: filter with mismatched version did not fail 2"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -928,7 +928,7 @@ fi
 
 # and the inverse difference
 rm -f test.cpp
-ln -s simple.cpp test.cpp
+cp simple.cpp test.cpp
 diff -u simple2.cpp simple.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff_r.txt
 
 # make the version number look different so the new diff file
@@ -937,8 +937,8 @@ sed -E 's/VER:#1/VER:#2/' current.info > current_hacked.info
 
 # will get MD5 mismatch unless we have the simple.cpp and simple.cpp files
 # set up in the expected places
-echo genhtml $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse ./baseline_orig.info $IGNORE
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse ./baseline_orig.info $GENHTML_PORT $IGNORE
+echo genhtml $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse ./baseline_orig.info $IGNORE --ignore version
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse ./baseline_orig.info $GENHTML_PORT $IGNORE --ignore version
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml branch failed"
     status=1

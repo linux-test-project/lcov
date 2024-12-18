@@ -92,5 +92,5 @@ jobs:
           #           to fail.
           make check |& tee /dev/stderr \
             | grep -F ' failed, ' | tee /dev/stderr \
-            | grep -F -q ', 2 failed, ' \
+            | grep -F -q ', 1 failed, ' \
             || { echo 'Number of tests expected to fail^^ does not match -- did you break an existing test?' >&2 ; false ; }
