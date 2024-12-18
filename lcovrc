@@ -435,7 +435,7 @@ mcdc_coverage = 0
 # specify path to version identification script
 #version_script = path_to_my_executable
 
-# tell the tool to genenerate missing file version information when
+# tell the tool to generate missing file version information when
 # readind coverage DB file
 # compute_file_version = 0 | 1
 
@@ -458,7 +458,7 @@ lcov_json_module = auto
 # giving up
 # max_fork_fails = 5
 
-# Throtting control:  the maximum number of files that genhtml will
+# Throttling control:  the maximum number of files that genhtml will
 # handle in a single (parallel) thread
 # max_tasks_per_core = 20
 

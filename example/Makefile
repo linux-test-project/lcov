@@ -212,7 +212,7 @@ test_differential:
 	@echo "point your browser to `realpath $(REPO)`/differential/index.html"
 
 	@echo "Step 7: Generate subset report for code review:"
-	@echo "        (re-use revision control data cached in previous step)"
+	@echo "        (reuse revision control data cached in previous step)"
 	(cd $(REPO) ;                                            \
 	$(GENHTML) -o review --baseline-file baseline.info       \
 	  --diff-file udiff.txt --show-owners                    \

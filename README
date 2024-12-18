@@ -450,7 +450,7 @@ LCOV features and capabilities fall into 7 major categories:
            to lcov format.
 
            See "llvm2lcov --help" for brief instruction on how to use the
-           translator.  Note tha llvm2lcov uses a similar set of command line
+           translator.  Note that llvm2lcov uses a similar set of command line
            and configuration file options as lcov, genhtml, and geninfo.
 
        - py2lcov:

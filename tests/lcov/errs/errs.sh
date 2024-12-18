@@ -309,7 +309,7 @@ fi
 # data consistency errors:
 #  - function marked 'hit' but no contained lines are hit
 #  - function marked 'not hit' but some contained line is hit
-#  - line marked 'hit' but no contained braches have been evaluated
+#  - line marked 'hit' but no contained branches have been evaluated
 #  - line marked 'not hit' but at least one contained branch has been evaluated
 for i in funcNoLine lineNoFunc branchNoLine lineNoBranch ; do
 

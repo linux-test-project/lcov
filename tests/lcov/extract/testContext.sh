@@ -1,7 +1,7 @@
 #!/bin/sh
 
 if [ 'die' = "$1" ] ; then
-    echo "dieing"
+    echo "dying"
     exit 1
 fi
 
