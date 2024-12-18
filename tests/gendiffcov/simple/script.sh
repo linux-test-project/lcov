@@ -275,7 +275,7 @@ fi
 # test filter with differing version
 $COVER $LCOV_TOOL $EXTRA_GCOV_OPTS $BASE_OPTS --version-script "$GET_VERSION_EXE --md5 --allow-missing" --output filt2.info --filter branch,line -a baseline2.info $IGNORE
 if [ 0 == $? ] ; then
-    echo "ERROR: filter with mismatched version did not fail"
+    echo "ERROR: filter with mismatched version did not fail 2"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -1598,8 +1598,9 @@ if [ 0 == $? ] ; then
 fi
 
 # skip both errors
-echo genhtml $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc percent=5 baseline_orig.info --ignore usage $IGNORE
+# ignore version error which might happen if timestamp is included
+echo genhtml $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage,version
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./usage --rc memory_percentage --rc percent=5 baseline_orig.info --ignore usage,version $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: didn't ignore errors"
     status=1
@@ -1609,8 +1610,8 @@ if [ 0 != $? ] ; then
 fi
 
 # skip both errors - but check total message count
-echo genhtml $DIFFCOV_OPTS --output-directory ./expect_err --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage --expect usage:1
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./expect_err --rc memory_percentage --rc percent=5 baseline_orig.info --ignore usage $IGNORE --expect usage:1 2>&1 | tee expect_err.log
+echo genhtml $DIFFCOV_OPTS --output-directory ./expect_err --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage,version --expect usage:1
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./expect_err --rc memory_percentage --rc percent=5 baseline_orig.info --ignore usage,version $IGNORE --expect usage:1 2>&1 | tee expect_err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: didn't catch expect count error"
     status=1
@@ -1621,8 +1622,8 @@ fi
 grep -E "ERROR:.*count.*'usage' constraint .+ is not true" expect_err.log
 
 # now skip the count message too
-echo genhtml $DIFFCOV_OPTS --output-directory ./expect --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage,count --rc expect_message_count=usage:1 --msg-log
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./expect --rc memory_percentage --rc percent=5 baseline_orig.info --ignore usage,count $IGNORE --rc expect_message_count=usage:1 --msg-log 2>&1 | tee expect.log
+echo genhtml $DIFFCOV_OPTS --output-directory ./expect --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage,version,count --rc expect_message_count=usage:1 --msg-log
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./expect --rc memory_percentage --rc percent=5 baseline_orig.info --ignore usage,version,count $IGNORE --rc expect_message_count=usage:1 --msg-log 2>&1 | tee expect.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: didn't skip expect count error"
     status=1
