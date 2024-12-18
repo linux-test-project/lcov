@@ -2630,7 +2630,7 @@ sub intermediate_json_to_info($)
             }
             if ($conditions && @$conditions) {
                 #die("unexpected multiple conditions at $line") if scalar(@$conditions) > 1;
-                #lcovutil::debig(1, "MDCD at $filename:$line\n");
+                #lcovutil::debug(1, "MCDC at $filename:$line\n");
                 my $mcdc = $mcdcMap->new_mcdc($fileData, $line);
 
                 foreach my $c (@$conditions) {
