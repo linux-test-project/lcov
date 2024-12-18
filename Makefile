@@ -191,7 +191,7 @@ uninstall:
 	$(call echocmd,"  UNINST  $(CFG_INST_DIR)/lcovrc")
 	$(RM) -f $(CFG_INST_DIR)/lcovrc
 	rmdir --ignore-fail-on-non-empty $(CFG_INST_DIR) || true
-	rmdir --ignore-fail-on-non-empty $(PREFIX)$(DESTDIR) || true
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(PREFIX) || true
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
