@@ -191,7 +191,7 @@ Example:
         while os.path.exists(xml):
             xml = base + '.xml%d' % suffix
             suffix += 1
-        cmd = 'COVERAGE_FILE=%s %s xml -o %s' % (f, args.cover_cmd, xml)
+        cmd = "COVERAGE_FILE='%s' '%s' xml -o '%s'" % (f, args.cover_cmd, xml)
         try:
             #x = subprocess.run(cmd, capture_output=True, shell=True, check=True)
             x = subprocess.run(cmd, shell=True, check=True, stdout=True, stderr=True)
