@@ -67,11 +67,19 @@ first line of the function has a non-zero count.
 Best practice is to either always specify '--no-functions' or never specify
 '--no-functions'.
 
-Note that xml2lcov does not implement the full suite of LCOV features
-(e.g., filtering, substitutions, etc.).
+py2lcov uses Coverage.py to extract coverage data.
+Note that the name of the Coverage.py executable my differ on your platform.
+By default, py2lcov uses 'coverage' (which it expects to be in your path).
+You can use a different executable, either:
+  - through your COVERAGE_COMMAND environment variable, or
+  - via the 'py2lcov --cmd exename ..' command line option.
+
+py2lcov does not implement the full suite of LCOV features (e.g., filtering,
+substitutions, etc.).
 Please generate the translated LCOV format file and then read the data
 back in to lcov to use any of those features.
 %(usage)s
+
 Example:
    $ export PYCOV_DATA=path/to/pydata
 
@@ -98,7 +106,6 @@ Example:
      # use differential coverage to see exactly what filtering did
    $ genhtml -o html_differential --baseline-file mydata.info filtered.info ...
 
-
    Deprecated feature:
    For backward compatibility, py2lcov also supports translation to LCOV
    format from intermediate XML:
@@ -114,6 +121,12 @@ Example:
    """ % {
        'usage' : ProcessFile.usageNote,
        }
+
+    from_env = ''
+    cover_cmd = 'coverage'
+    if 'COVERAGE_COMMAND' in os.environ:
+        cover_cmd = os.environ['COVERAGE_COMMAND']
+        from_env = ' (from your COVERAGE_COMMAND environment variable)'
 
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -141,6 +154,8 @@ Example:
                         help='tabsize when computing indent')
     parser.add_argument('-k', "--keep-going", dest='keepGoing', default=False, action='store_true',
                         help="ignore errors")
+    parser.add_argument('--cmd', dest='cover_cmd', default=cover_cmd,
+                        help='executable used to extract python data - e.g., "python3-coverage".  Default is "%s"%s.' % (cover_cmd, from_env))
     parser.add_argument('inputs', nargs='*',
                         help="list of python coverage data input files - expected to be XML or Python .dat format")
 
@@ -176,7 +191,7 @@ Example:
         while os.path.exists(xml):
             xml = base + '.xml%d' % suffix
             suffix += 1
-        cmd = 'COVERAGE_FILE=%s coverage xml -o %s' % (f, xml)
+        cmd = 'COVERAGE_FILE=%s %s xml -o %s' % (f, args.cover_cmd, xml)
         try:
             #x = subprocess.run(cmd, capture_output=True, shell=True, check=True)
             x = subprocess.run(cmd, shell=True, check=True, stdout=True, stderr=True)

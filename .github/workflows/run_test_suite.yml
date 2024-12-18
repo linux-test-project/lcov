@@ -65,8 +65,6 @@ jobs:
 
           sudo perl -MCPAN -e 'install(Memory::Process)'  # no package in Ubuntu
 
-          sudo ln -s python3-coverage /usr/bin/coverage  # until issue #347 is fixed
-
       - name: make install
         run: |-
           set -x -o pipefail
