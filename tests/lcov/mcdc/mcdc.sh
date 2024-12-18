@@ -1,3 +1,4 @@
+#! /usr/bin/env bash
 CLEAN_ONLY=0
 COVER=
 
