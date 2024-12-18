@@ -122,14 +122,18 @@ This is a problem in at least 2 ways:
 
         if self._args.version and None == self._versionScript:
             lcov = os.path.join(os.path.split(sys.argv[0])[0], 'lcov')
-            cmd = "'%(lcov)s' -a '%(info)s' -o '%(info)s' --version-script '%(vers)s' %(checksum)s--rc compute_file_version=1 --branch-coverage --ignore inconsistent" % {
-                'lcov': lcov,
-                'checksum': "--checksum " if self._args.checksum else '',
-                'info': self._args.output,
-                'vers' : self._args.version,
-            }
+            cmd = [
+                lcov,
+                "-a", self._args.output,
+                "-o", self._args.output,
+                "--version-script", self._args.version,
+                *(["--checksum"] if self._args.checksum else []),
+                "--rc", "compute_file_version=1",
+                "--branch-coverage",
+                "--ignore", "inconsistent",
+            ]
             try:
-                x = subprocess.run(cmd, shell=True, check=True, stdout=True, stderr=True)
+                x = subprocess.run(cmd, shell=False, check=True, stdout=True, stderr=True)
             except subprocess.CalledProcessError as err:
                 print("Error during lcov version append operation: %s" % (
                     str(err)))
