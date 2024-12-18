@@ -121,8 +121,9 @@ This is a problem in at least 2 ways:
         self._outf.close()
 
         if self._args.version and None == self._versionScript:
+            lcov = os.path.join(os.path.split(sys.argv[0])[0], 'lcov')
             cmd = "'%(lcov)s' -a '%(info)s' -o '%(info)s' --version-script '%(vers)s' %(checksum)s--rc compute_file_version=1 --branch-coverage --ignore inconsistent" % {
-                'lcov': os.path.join(os.path.split(sys.argv[0])[0], 'lcov'),
+                'lcov': lcov,
                 'checksum': "--checksum " if self._args.checksum else '',
                 'info': self._args.output,
                 'vers' : self._args.version,
