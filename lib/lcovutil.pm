@@ -7109,7 +7109,7 @@ sub _deriveFunctionEndLines
                         );
                         lcovutil::ignorable_error(
                             $lcovutil::ERROR_INCONSISTENT_DATA,
-                            '"' . $traceInfo->filenname() .
+                            '"' . $traceInfo->filename() .
                                 "\":$first:  function " . $func->name() .
                                 ": last line in file is not last line of function.$suffix"
                         );
