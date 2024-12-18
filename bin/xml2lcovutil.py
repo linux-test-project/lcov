@@ -259,8 +259,8 @@ This is a problem in at least 2 ways:
                                       'hit'   : hit})
 
         # just collect the function/class name - ignore the params
-        parseLine = re.compile('(\s*)((def|class)\s*([^\( \t]+))?')
-        #parseLine = re.compile('(\s*)((def|class)\s*([^:]+)(:|$))?')
+        parseLine = re.compile(r'(\s*)((def|class)\s*([^\( \t]+))?')
+        #parseLine = re.compile(r'(\s*)((def|class)\s*([^:]+)(:|$))?')
 
         # no information about actual branch expressions/branch
         #  coverage - only the percentage and number hit/not hit
