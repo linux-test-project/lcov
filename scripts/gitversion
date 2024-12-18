@@ -57,7 +57,7 @@ if (!GetOptions("--compare"       => \$compare,
 }
 
 if ($compare) {
-    print $class->compare_version(@ARGV) . "\n";
+    exit $class->compare_version(@ARGV);
 } else {
     print $class->extract_version(@ARGV) . "\n";
 }
