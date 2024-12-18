@@ -24,7 +24,7 @@
 #
 # Arguably, this should be done in Perl so we could use lcovutil module utilities.
 # In the meantime:  suggested use model is to translate the XML using this
-# utility, then read it back into lcov for additonal processing.
+# utility, then read it back into lcov for additional processing.
 #
 # @todo figure out how to characterize branch expressions in XML data
 
@@ -84,7 +84,7 @@ This is a problem in at least 2 ways:
 
   - Coverage data merge is problematic.
 
-      o For eample: you have two testcase XML files, each of which hit
+      o For example: you have two testcase XML files, each of which hit
         4 of 8 branches on some line.
 
       o  Does that mean you hit 4 of them (both tests exercised the same

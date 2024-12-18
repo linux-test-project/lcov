@@ -96,7 +96,7 @@ LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
 IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log precidence.rc
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log precedence.rc
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -259,8 +259,8 @@ if [ $? != 0 ] ; then
 fi
 
 EXTERNAL_0_LINES=`grep -c '^DA:' external_0.info`
-echo "geninfo_external = 0" > precidence.rc
-$COVER $CAPTURE $LCOV_OPTS -o external_1.info --rc geninfo_external=1 --config-file precidence.rc --ignore inconsistent
+echo "geninfo_external = 0" > precedence.rc
+$COVER $CAPTURE $LCOV_OPTS -o external_1.info --rc geninfo_external=1 --config-file precedence.rc --ignore inconsistent
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from geninfo_external=1"
     if [ $KEEP_GOING == 0 ] ; then
@@ -278,7 +278,7 @@ fi
 
 $COVER $LCOV_TOOL $LCOV_OPTS -o filtExceptOrphan.info -a example.data --filter exception,orphan 2>&1 | tee exceptOrphanFilter.log
 if [ 0 != $? ] ; then
-    echo "Error:  unexpected error code from execpt/orphan filtering"
+    echo "Error:  unexpected error code from except/orphan filtering"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi

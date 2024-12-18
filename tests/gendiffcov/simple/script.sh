@@ -377,7 +377,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 if [ ! -f ./baseline/coverage.dat ] ; then
-    echo "ERROR: no serialzied data found"
+    echo "ERROR: no serialized data found"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -1586,7 +1586,7 @@ if [ 0 == $? ] ; then
     fi
 fi
 
-# check --rc formating
+# check --rc formatting
 echo genhtml $DIFFCOV_OPTS --output-directory ./errOut --rc memory_percentage baseline_orig.info $IGNORE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./errOut --rc memory_percentage baseline_orig.info $IGNORE
 if [ 0 == $? ] ; then
@@ -1618,7 +1618,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep -E "ERROR:.*count.*'usage' contraint .+ is not true" expect_err.log
+grep -E "ERROR:.*count.*'usage' constraint .+ is not true" expect_err.log
 
 # now skip the count message too
 echo genhtml $DIFFCOV_OPTS --output-directory ./expect --rc memory_percentage --rc -memory_percentage=50 baseline_orig.info --ignore usage,count --rc expect_message_count=usage:1 --msg-log
@@ -1631,7 +1631,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 
-grep -E "WARNING:.*count.*'usage' contraint .+ is not true" expect.msg
+grep -E "WARNING:.*count.*'usage' constraint .+ is not true" expect.msg
 if [ 0 == $? ] ; then
     echo "ERROR: didn't find expected msg in log"
     status=1

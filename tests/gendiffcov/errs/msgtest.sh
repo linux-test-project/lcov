@@ -483,7 +483,7 @@ if [ 0 != $? ] ; then
 fi
 
 
-# differntial report with empty diff file
+# differential report with empty diff file
 touch diff.txt
 echo genhtml $DIFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCTIPT --baseline-file initial.info
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info 2>&1 | tee empty_diff.log

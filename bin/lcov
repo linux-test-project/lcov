@@ -494,7 +494,7 @@ OPERATION
 
 OPTIONS
   -i, --initial                   Capture initial zero coverage data
-  --all                           Captuer from both .gcda and lone .gcno files
+  --all                           Capture from both .gcda and lone .gcno files
   -t, --test-name NAME            Specify test name to be stored with data
   -o, --output-file FILENAME      Write data to FILENAME instead of stdout
   -d, --directory DIR             Use .da files in DIR instead of kernel

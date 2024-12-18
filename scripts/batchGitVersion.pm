@@ -15,7 +15,7 @@
 #   along with this program;  if not, see
 #   <http://www.gnu.org/licenses/>.
 #
-#   This implemenation creates an initial database to hold the version stamps
+#   This implementation creates an initial database to hold the version stamps
 #   for all files in the repo - then simply queries that DB during
 #   execution.  See 'usage' for details:#
 #     .../batchGitVersion.pm --help
@@ -77,7 +77,7 @@ EOF
                       in the repo, then 'x/y/dir/file' is stored.
      --prefix dir   : add dir to the list of directories to search, to find
                       pathname.
-     --token string : use string as the blob sha token in the vesion string.
+     --token string : use string as the blob sha token in the version string.
                       default value is 'BLOB' - so application can
 		      distinguish between SHA types - say, to complare
 		      to compare a BLOB SHA to a file SHA.

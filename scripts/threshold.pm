@@ -22,7 +22,7 @@
 #   lcov/geninfo/genhtml.
 #   It can be called at any level of hierarchy - but is really expected to be
 #   called at the 'file' or 'top' level, in lcov or geninfo.
-#   It simply checks that the 'type' coverage (line, branch, fucntion) exceeds
+#   It simply checks that the 'type' coverage (line, branch, function) exceeds
 #   the threshold.
 #
 #   Format of the JSON input is:

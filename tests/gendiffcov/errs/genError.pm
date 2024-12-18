@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-# die() when callback is called - to enable erorr message testing
+# die() when callback is called - to enable error message testing
 
 package genError;
 
