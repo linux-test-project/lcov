@@ -1,0 +1,45 @@
+#
+#   Copyright (c) 2024 Sebastian Pipping <sebastian@pipping.org>
+#
+#   This program is free software;  you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or (at
+#   your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY;  without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, see
+#   <http://www.gnu.org/licenses/>.
+#
+name: Enforce codespell-clean spelling
+
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: '0 14 * * 5'  # Every Friday 2pm
+  workflow_dispatch:
+
+# Drop permissions to minimum for security
+permissions:
+  contents: read
+
+jobs:
+  codespell:
+    name: Enforce codespell-clean spelling
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: codespell-project/actions-codespell@v2
+        with:
+          # "bu" is man page markup (file man/genhtml.1 and man/lcov.1)
+          # "MIS" is an abbreviation code of "Missed" (file bin/genhtml)
+          # "nd" is variable $nd (file bin/genhtml)
+          # "numbrs" is a variable name related to "branches" (file tests/bin/mkinfo)
+          # Words need to be (1) separated by a comma and (2) all lowercase!
+          ignore_words_list: bu,mis,nd,numbrs

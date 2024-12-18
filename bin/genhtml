@@ -1909,7 +1909,7 @@ sub secondaryElementFileData
 }
 
 package CovTypeSummaryCallback;
-# callback class to return total branches in each TLA categroy
+# callback class to return total branches in each TLA category
 sub new
 {
     my ($class, $summary, $covType) = @_;
@@ -6162,7 +6162,7 @@ sub compute_one
             !$main::show_tla) {
             $summary->[SummaryInfo::FILE_DETAILS] = undef;
         } elsif ($main::show_tla) {
-            # just store the location fo the first coverpoint in each display
+            # just store the location of the first coverpoint in each display
             #   group - rather than returning the whole detail structure?
             $summary->[SummaryInfo::FILE_DETAILS]->simplify();
         }

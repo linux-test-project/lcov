@@ -7946,7 +7946,7 @@ sub _processParallelChunk
     # collect pattern counts
     my @pcounts;
     foreach my $l (@{$save->[0]}) {
-        my @c = map({ $_->[-1] } @$l);    # grap the counts
+        my @c = map({ $_->[-1] } @$l);    # grab the counts
         push(@pcounts, \@c);
     }
     $save->[0] = \@pcounts;

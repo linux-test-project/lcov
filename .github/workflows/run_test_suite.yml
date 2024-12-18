@@ -1,0 +1,98 @@
+#
+#   Copyright (c) 2024 Sebastian Pipping <sebastian@pipping.org>
+#
+#   This program is free software;  you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or (at
+#   your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY;  without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, see
+#   <http://www.gnu.org/licenses/>.
+#
+name: Run the test suite
+
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: '0 14 * * 5'  # Every Friday 2pm
+  workflow_dispatch:
+
+# Drop permissions to minimum for security
+permissions:
+  contents: read
+
+jobs:
+  test_suite:
+    name: Run the test suite
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |-
+          ubuntu_packages=(
+            # Perl runtime dependencies as documented in README
+            libcapture-tiny-perl       # CPAN Capture::Tiny
+            libdatetime-perl           # CPAN DateTime
+            libdevel-cover-perl        # CPAN Devel::Cover
+            libdigest-md5-file-perl    # CPAN Digest::MD5
+            libfile-spec-native-perl   # CPAN File::Spec
+            libjson-xs-perl            # CPAN JSON::XS
+                                       # CPAN Memory::Process, see below
+                                       # CPAN Module::Load::Conditional
+            libscalar-list-utils-perl  # CPAN Scalar::Util
+                                       # CPAN Time::HiRes
+
+            # Non-Perl runtime dependencies as documented in README
+            llvm                       # for command "llvm-profdata"
+            python3-coverage           # PyPI coverage
+            python3-xlsxwriter         # PyPI xlsxwriter
+
+            # Additional dependencies for "make check"
+            libgd-perl                 # CPAN GD
+          )
+          set -x
+
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes -V "${ubuntu_packages[@]}"
+
+          sudo perl -MCPAN -e 'install(Memory::Process)'  # no package in Ubuntu
+
+          sudo ln -s python3-coverage /usr/bin/coverage  # until issue #347 is fixed
+
+      - name: make install
+        run: |-
+          set -x -o pipefail
+          make install PREFIX=/usr CFG_DIR=/etc DESTDIR="${PWD}/ROOT"
+          find ROOT/ | sort | xargs -r ls -ld
+
+      - name: make uninstall
+        run: |-
+          set -x -o pipefail
+          make uninstall PREFIX=/usr CFG_DIR=/etc DESTDIR="${PWD}/ROOT"
+          find ROOT/ | sort | xargs -r ls -ld
+          diff -u0 <(echo 'total 0') <(ls -l ROOT/)  # i.e. fail CI if leftovers
+
+      - name: make check
+        run: |-
+          set -x -o pipefail
+          # NOTE: There are two things going on in this hackery:
+          #       - So far "make check" exits with code 0 despite failures —
+          #         see issue #348 — so we need a more manual approach to detect
+          #         failing tests
+          #       - We compare the number of failing tests to the known status
+          #         quo — see issue #343 — so that
+          #         - we have a chance for a green CI while also
+          #         - we will notice when more of the existing tests start
+          #           to fail.
+          make check |& tee /dev/stderr \
+            | grep -F ' failed, ' | tee /dev/stderr \
+            | grep -F -q ', 3 failed, ' \
+            || { echo 'Number of tests expected to fail^^ does not match -- did you break an existing test?' >&2 ; false ; }
