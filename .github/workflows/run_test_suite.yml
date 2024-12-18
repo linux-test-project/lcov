@@ -94,3 +94,10 @@ jobs:
             | grep -F ' failed, ' | tee /dev/stderr \
             | grep -F -q ', 1 failed, ' \
             || { echo 'Number of tests expected to fail^^ does not match -- did you break an existing test?' >&2 ; false ; }
+
+      - name: Upload test log as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "lcov-${{ github.sha }}-${{ runner.os }}-test-log"  # .zip
+          path: tests/test.log
+          if-no-files-found: error
