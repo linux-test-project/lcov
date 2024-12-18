@@ -1,0 +1,28 @@
+TN:
+SF: my_file.cpp
+FN:11,26,is_within_phase_offset_tolerance(Ouster1DriverConfig const&, std::chrono::duration<long, std::ratio<1l, 1000l> >, std::chrono::duration<long, std::ratio<1l, 1000l> >)
+FNDA:1885,is_within_phase_offset_tolerance(Ouster1DriverConfig const&, std::chrono::duration<long, std::ratio<1l, 1000l> >, std::chrono::duration<long, std::ratio<1l, 1000l> >)
+FNF:1
+FNH:1
+BRDA:12,0,0,1
+BRDA:12,0,1,1884
+BRDA:25,0,0,248
+BRDA:25,0,1,1636
+BRDA:25,1,2,210
+BRDA:25,1,3,1426
+BRF:6
+BRH:6
+DA:12,1885
+DA:13,1
+DA:15,1
+DA:18,1884
+DA:20,1884
+DA:21,1884
+DA:22,1884
+DA:23,1884
+DA:24,1884
+DA:25,1884
+DA:26,1885
+LF:11
+LH:11
+end_of_record

@@ -100,7 +100,8 @@ if [ "${VER[0]}" -lt 5 ] ; then
     FILTER='--filter branch'
 fi
 
-rm -rf *.txt* *.json dumper* intersect*.info* diff*.info* cover_db
+rm -f *.txt* *.json dumper* intersect*.info gen.info func.info inconsistent.info diff* *.log
+rm -rf cover_db
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
