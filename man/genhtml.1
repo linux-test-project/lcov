@@ -163,6 +163,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-date\-bins
 .IR day[,day,...]]
 .br
+.RB [ \-\-date\-labels
+.IR string[,string,...]]
+.br
 .RB [ \-\-show\-owners
 .IR [ all ] ]
 .br
@@ -1937,7 +1940,39 @@ for details.
 .RS
 The
 .B \-\-date\-bins
-option is used to specify age boundaries (cutpoints) for date\-binning classification.  If not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days.
+option is used to specify age boundaries (cutpoints) for date\-binning classification.  Each
+.I age
+element is expected to be an integer number of days prior to today (or SOURCE_DATE_EPOCH, if specified).  If not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days.
+This option is equivalent to the
+.I genhtml_date_bins
+config file option.  See man
+.B lcovrc(5).
+
+This argument has no effect if there is no
+.I source\-annotation\-script .
+
+.RE
+.BI "\-\-date\-labels " string[,string,...]
+.RS
+The
+.B \-\-date\-labels
+option is used to specify labels used for the 'date\-bin' table entries in the HTML report.
+.br
+The number of labels should be one greater than the number of cutpoints.
+.br
+If not specified, the default is to use label strings which specify the
+.I [from ..to)
+range of ages held by the corresponding bin.
+
+One possible use of this option is to use release names in the tables -
+.I i.e.,
+to indicate the release in which each particular line first appeared.
+
+This option is equivalent to the
+.I genhtml_date_labels
+config file option.  See man
+.B lcovrc(5).
+
 This argument has no effect if there is no
 .I source\-annotation\-script .
 

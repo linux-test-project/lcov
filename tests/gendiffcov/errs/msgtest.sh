@@ -133,7 +133,7 @@ LCOV_OPTS="$LCOV_BASE"
 DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels
 
 if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
     cover -delete
@@ -782,6 +782,22 @@ fi
 grep -E "WARNING: .*callback.* evaluation of .+ failed" expect.log
 if [ 0 != $? ] ; then
     echo "ERROR: didn't find expected callback message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# generate error for case that number of date labels doesn't match
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o labels --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'context' --header-title 'this is the header' --date-bins 1,5,22 --date-labels a,b,c,d,e --baseline-date "$NOW" --msg-log labels.log
+if [ 0 == $? ] ; then
+    echo "ERROR: genhtml --date-labels didn't fail"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR: .*usage.* expected number of 'age' labels to match" labels.log
+if [ 0 != $? ] ; then
+    echo "ERROR: didn't find expected labels message"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi

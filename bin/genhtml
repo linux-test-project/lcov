@@ -424,9 +424,19 @@ sub noBaseline
 sub setAgeGroups
 {
     #my $numGroups = scalar(@_) + 1;
-    @cutpoints      = sort({ $a <=> $b } @_);
+    @cutpoints = sort({ $a <=> $b } @_);
+    if (@ageGroupHeader) {
+        # labels were specified by user
+        @ageGroupHeader = split($lcovutil::split_char,
+                                join($lcovutil::split_char, @ageGroupHeader));
+        goto done
+            if (scalar(@ageGroupHeader) == scalar(@cutpoints) + 1);
+        # mismatched number - generate warning
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+               "expected number of 'age' labels to match 'date-bin' cutpoints");
+        # if message ignored, then assign default labels
+    }
     @ageGroupHeader = ();
-    %ageHeaderToBin = ();
     my $prefix = "[..";
     foreach my $days (@cutpoints) {
         my $header = $prefix . $days . "] days";
@@ -434,6 +444,8 @@ sub setAgeGroups
         $prefix = "(" . $days . ",";
     }
     push(@ageGroupHeader, "(" . $cutpoints[-1] . "..) days");
+    done:
+    %ageHeaderToBin = ();
     my $bin = 0;
     foreach my $header (@ageGroupHeader) {
         $ageHeaderToBin{$header} = $bin;
@@ -6851,7 +6863,7 @@ STDERR->autoflush;
 STDOUT->autoflush;
 
 my @datebins;
-my (@rc_date_bins, @rc_annotate_script, @rc_select_script);
+my (@rc_date_bins, @rc_annotate_script, @rc_select_script, @rc_date_labels);
 
 my %genhtml_rc_opts = (
                "genhtml_css_file"            => \$css_filename,
@@ -6909,6 +6921,7 @@ my %genhtml_rc_opts = (
                "select_script"               => \@rc_select_script,
                'num_context_lines' => \$InInterestingRegion::num_context_lines,
                'genhtml_date_bins' => \@rc_date_bins,
+               'genhtml_date_labels'        => \@rc_date_labels,
                'truncate_owner_table'       => \@truncateOwnerTableLevels,
                'owner_table_entries'        => \$ownerTableElements,
                'compact_summary_tables'     => \$compactSummaryTables,
@@ -6944,6 +6957,7 @@ my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        'show-zero-columns' => \$show_zeroTlaColumns,
                        'simplified-colors' => \$show_simplifiedColors,
                        "date-bins=s"       => \@datebins,
+                       'date-labels=s'     => \@SummaryInfo::ageGroupHeader,
                        "prefix|p=s"        => \@opt_dir_prefix,
                        "num-spaces=i"      => \$tab_size,
                        "no-prefix"         => \$no_prefix,
@@ -7003,6 +7017,7 @@ $mcdc_med_limit = $med_limit if (!defined($mcdc_med_limit));
 $frames         = undef unless (defined($frames) && $frames);
 
 foreach my $rc ([\@datebins, \@rc_date_bins],
+                [\@SummaryInfo::ageGroupHeader, \@rc_date_labels],
                 [\@SourceFile::annotateScript, \@rc_annotate_script],
                 [\@selectCallbackScript, \@rc_select_script]
 

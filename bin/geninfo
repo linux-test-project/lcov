@@ -1905,12 +1905,10 @@ sub process_dafile($$$$)
                             );
                             if ($lcovutil::opt_adjust_unexecuted_blocks) {
                                 $hit = 0;
-                            } elsif (
-                                     lcovutil::warn_once(
+                            } elsif (lcovutil::warn_once(
                                                         "unexecuted block",
                                                         $ERROR_INCONSISTENT_DATA
-                                     )
-                            ) {
+                            )) {
                                 lcovutil::ignorable_warning(
                                     $ERROR_INCONSISTENT_DATA,
                                     "$source_filename:$line_number: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
