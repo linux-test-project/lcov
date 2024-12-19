@@ -157,3 +157,5 @@ fi
 [ ! -z "$ELAPSED" ] && t_detail "TIME" "${ELAPSED}ms" >>"$LOGFILE"
 [ ! -z "$RESIDENT" ] && t_detail "MEM" "${RESIDENT}kB" >>"$LOGFILE"
 t_detail "RESULT" "$RESULT" >> "$LOGFILE"
+
+exit $RC

@@ -140,7 +140,7 @@ Example:
                         help="specify the test name for the TN: entry in LCOV .info file")
     parser.add_argument('-e', '--exclude', dest='excludePatterns', default='',
                         help="specify the exclude file patterns separated by ','")
-    parser.add_argument('-v', '--verbose', dest='verbose', default=False, action='store_true',
+    parser.add_argument('-v', '--verbose', dest='verbose', default=0, action='count',
                         help="print debug messages")
     parser.add_argument('--version-script', dest='version',
                         help="version extract callback")
@@ -195,7 +195,6 @@ Example:
         env["COVERAGE_FILE"] = f
         cmd = [args.cover_cmd, "xml", "-o", xml]
         try:
-            #x = subprocess.run(cmd, capture_output=True, shell=False, check=True, env=env)
             x = subprocess.run(cmd, shell=False, check=True, stdout=True, stderr=True, env=env)
         except subprocess.CalledProcessError as err:
             print("Error:  error during XML conversion of %s: %s" % (

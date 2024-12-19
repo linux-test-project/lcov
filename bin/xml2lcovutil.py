@@ -152,9 +152,14 @@ This is a problem in at least 2 ways:
                 for source in root[0]:
                     # keep track of number of times we use each source_path to find
                     #  some file.  Unused source paths are likely a problem.
-                    source_paths.append([source.text, 0])
                     if self._args.verbose:
-                        print("source: " + source.text)
+                        print("source: '%s'" %(source.text))
+                    # unclear why the Coverage.py version on GitHub node
+                    # generates empty sources
+                    if source.text == None:
+                        print("skipping empty source (???)")
+                        continue
+                    source_paths.append([source.text, 0])
             else:
                 print("Error: parse xml fail: no 'sources' in %s" %(xml_file))
                 sys.exit(1)
@@ -174,17 +179,24 @@ This is a problem in at least 2 ways:
             # name="." means current directory
             # name=".folder1.folder2" means external module or directory
             # name="abc" means internal module or directory
-            isExternal = (package.attrib['name'].startswith('.') and package.attrib['name'] != '.')
+            pname = package.attrib['name']
+            if self._args.verbose:
+                print("package: '%s'" % (pname))
+            isExternal = (pname.startswith('.') and pname != '.')
             #pdb.set_trace()
             for classes in package:
                 for fileNode in classes:
-                    if self._args.excludePatterns and any([fnmatch.fnmatchcase(fileNode.attrib['filename'], ef) for ef in self._excludePatterns]):
-                        if self._args.verbose:
-                            print("%s is excluded" % fileNode.attrib['filename'])
-                        continue
                     name = fileNode.attrib['filename']
+                    if self._args.excludePatterns and any([fnmatch.fnmatchcase(name, ef) for ef in self._excludePatterns]):
+                        if self._args.verbose:
+                            print("%s is excluded" % name)
+                        continue
+                    if self._args.verbose > 1:
+                        print("  file: %s" % (name))
                     if not isExternal:
                         for s in source_paths:
+                            if self._args.verbose > 1:
+                                print("  check src_path (%s %d)" % (s[0], s[1]))
                             path = os.path.join(s[0], name)
                             if os.path.exists(path):
                                 name = path
