@@ -7857,6 +7857,8 @@ sub _mergeParallelChunk
 
 sub _generate_end_line_message
 {
+    # don't generate gcov warnings for tools that don't use gcov
+    return if grep({ /(llvm|perl|py|xml)2lcov/ } $lcovutil::tool_name);
     if (lcovutil::warn_once('compiler_version', 1)) {
         my $msg =
             'Function begin/end line exclusions not supported with this version of GCC/gcov; require gcc/9 or newer';
