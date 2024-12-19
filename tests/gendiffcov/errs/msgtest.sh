@@ -817,6 +817,9 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+if [ -d mycache ] ; then
+    find mycache -type f -exec chmod ugo+r {} \;
+fi
 
 echo "Tests passed"
 

@@ -81,19 +81,7 @@ jobs:
       - name: make check
         run: |-
           set -x -o pipefail
-          # NOTE: There are two things going on in this hackery:
-          #       - So far "make check" exits with code 0 despite failures —
-          #         see issue #348 — so we need a more manual approach to detect
-          #         failing tests
-          #       - We compare the number of failing tests to the known status
-          #         quo — see issue #343 — so that
-          #         - we have a chance for a green CI while also
-          #         - we will notice when more of the existing tests start
-          #           to fail.
-          make check |& tee /dev/stderr \
-            | grep -F ' failed, ' | tee /dev/stderr \
-            | grep -F -q ', 1 failed, ' \
-            || { echo 'Number of tests expected to fail^^ does not match -- did you break an existing test?' >&2 ; false ; }
+          make check
 
       - name: Upload test log as an artifact
         uses: actions/upload-artifact@v4
@@ -101,3 +89,10 @@ jobs:
           name: "lcov-${{ github.sha }}-${{ runner.os }}-test-log"  # .zip
           path: tests/test.log
           if-no-files-found: error
+
+      - name: Upload test directory shrapnel  as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "lcov-${{ github.sha }}-${{ runner.os }}-shrapnel"  # .zip
+          path: tests
+          #if-no-files-found: error

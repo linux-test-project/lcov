@@ -305,6 +305,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
         exit $status
     fi
 fi
+chmod ugo+rx emptyDir
 
 # data consistency errors:
 #  - function marked 'hit' but no contained lines are hit

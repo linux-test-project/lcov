@@ -80,7 +80,7 @@ Example:
                         help="specify the test name for the TN: entry in LCOV .info file")
     parser.add_argument('-e', '--exclude', dest='excludePatterns', default='',
                         help="specify the exclude file patterns separated by ','")
-    parser.add_argument('-v', '--verbose', dest='verbose', default=False, action='store_true',
+    parser.add_argument('-v', '--verbose', dest='verbose', default=0, action='count',
                         help="print debug messages")
     parser.add_argument('--version-script', dest='version',
                         help="version extract callback")

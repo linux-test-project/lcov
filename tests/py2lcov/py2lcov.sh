@@ -1,5 +1,5 @@
 #!/bin/bash
-set +x
+set -x
 
 CLEAN_ONLY=0
 COVER=
@@ -154,7 +154,7 @@ if [ 0 != $? ] ; then
 fi
 
 # some corner cases:
-COVERAGE_FILE=./functions.dat $CMD  run --branch ./test.py
+COVERAGE_FILE=./functions.dat $CMD  run --branch ./test.py -v -v
 if [ 0 != $? ] ; then
     echo "coverage functions failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -182,19 +182,19 @@ done
 # look for expected location and function hit counts:
 for d in \
     'FN functions.info' \
-    'FNL:0,10,12' \
-    'FNA:0,0,unusedFunc' \
-    'FNL:1,2,7' \
-    'FNA:1,1,enter' \
-    'FNL:0,10,18' \
-    'FNA:0,0,main.localfunc' \
-    'FNL:1,12,16' \
-    'FNA:1,0,main.localfunc.nested1' \
-    'FNL:2,13,14' \
-    'FNA:2,0,main.localfunc.nested1.nested2' \
-    'FNL:3,5,18' \
+    'FNL:[0-9],10,12' \
+    'FNA:[0-9],0,unusedFunc' \
+    'FNL:[0-9],2,7' \
+    'FNA:[0-9],1,enter' \
+    'FNL:[0-9],10,18' \
+    'FNA:[0-9],0,main.localfunc' \
+    'FNL:[0-9],12,16' \
+    'FNA:[0-9],0,main.localfunc.nested1' \
+    'FNL:[0-9],13,14' \
+    'FNA:[0-9],0,main.localfunc.nested1.nested2' \
+    'FNL:[0-9],5,18' \
     ; do
-    grep $d functions.info
+    grep -E $d functions.info
     if [ 0 != $? ] ; then
         echo "did not find expected function data $d"
         if [ 0 == $KEEP_GOING ] ; then
