@@ -427,9 +427,21 @@ if ($lcovutil::mcdc_coverage) {
 # Determine compatibility modes
 parse_compat_modes($lcovutil::geninfo_opt_compat);
 
-unless ($no_markers) {
+if ($no_markers) {
+    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                   "use new '--filter' option or old '--no-markers' - not both")
+        if (@lcovutil::opt_filter);
+} elsif (!@lcovutil::opt_filter) {
+    # don't apply the backward-compatible options if user specifies any filters
+    lcovutil::info(1,
+        "$lcovutil::tool_name:  applying '--filter region,branch_region' by default - see the '--no-markers' section in the man page for more information.\n"
+    );
     push(@lcovutil::opt_filter, "region");
     push(@lcovutil::opt_filter, "branch_region") if $br_coverage;
+} else {
+    lcovutil::info(
+        "Note: 'region' and 'branch_region' filters are not applied by default when '--filter' is specified.  See the '--no-markers section in the man page for more information.\n"
+    ) unless grep({ /(region|branch_region)/ } @lcovutil::opt_filter);
 }
 parse_cov_filters(@lcovutil::opt_filter);
 
