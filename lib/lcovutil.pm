@@ -4666,10 +4666,12 @@ sub define_function
         #TraceFile::is_language('c', $self->filename()) &&
         $data->line() != $start_line
     ) {
+        $location = '"' . $self->filename() . '":' . $start_line
+            unless defined($location);
         lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-            (defined($location) ? "$location: " : '') .
-                "duplicate function '$fnName' starts on line $start_line but previous definition started on "
-                . $data->line() . '.')
+            "$location: duplicate function '$fnName' starts on line $start_line but previous definition started on "
+                . $data->line()
+                . MessageContext::context() . '.')
             unless
             grep({ $fnName =~ $_ } @lcovutil::suppress_function_patterns);
         # if ignored, just return the function we already have -
@@ -4698,7 +4700,8 @@ sub define_function
                                           " -> "
                                           .
                                           (defined($end_line) ? $end_line :
-                                               'undef'))
+                                               'undef') .
+                                          MessageContext::context())
                 unless
                 grep({ $fnName =~ $_ } @lcovutil::suppress_function_patterns);
             # pick the highest end line if we didn't error out
