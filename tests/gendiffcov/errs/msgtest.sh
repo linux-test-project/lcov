@@ -1,143 +1,12 @@
 #!/bin/bash
 set +x
 
-CLEAN_ONLY=0
-COVER=
-UPDATE=0
-PARALLEL='--parallel 0'
-PROFILE="--profile"
-CC="${CC:-gcc}"
-CXX="${CXX:-g++}"
-COVER_DB='cover_db'
-LOCAL_COVERAGE=1
-KEEP_GOING=0
-while [ $# -gt 0 ] ; do
-
-    OPT=$1
-    shift
-    case $OPT in
-
-        --clean | clean )
-            CLEAN_ONLY=1
-            ;;
-
-        -v | --verbose | verbose )
-            set -x
-            ;;
-
-        --keep-going )
-            KEEP_GOING=1
-            ;;
-
-        --coverage )
-            #COVER="perl -MDevel::Cover "
-            if [[ "$1"x != 'x' && $1 != "-"*  ]] ; then
-               COVER_DB=$1
-               LOCAL_COVERAGE=0
-               shift
-            fi
-            if [ ! -d ${COVER_DB} ] ; then
-                mkdir -p ${COVER_DB}
-            fi
-            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
-            ;;
-
-        --home | -home )
-            LCOV_HOME=$1
-            shift
-            if [ ! -f $LCOV_HOME/bin/lcov ] ; then
-                echo "LCOV_HOME '$LCOV_HOME' does not exist"
-                exit 1
-            fi
-            ;;
-
-        --no-parallel )
-            PARALLEL=''
-            ;;
-
-        --no-profile )
-            PROFILE=''
-            ;;
-
-        --llvm )
-            LLVM=1
-            module load como/tools/llvm-gnu/11.0.0-1
-            # seems to have been using same gcov version as gcc/4.8.3
-            module load gcc/4.8.3
-            #EXTRA_GCOV_OPTS="--gcov-tool '\"llvm-cov gcov\"'"
-            CXX="clang++"
-            ;;
-
-        --update )
-            UPDATE=1
-            ;;
-
-        * )
-            echo "Error: unexpected option '$OPT'"
-            exit 1
-            ;;
-    esac
-done
-
-if [[ "x" == ${LCOV_HOME}x ]] ; then
-       if [ -f ../../../bin/lcov ] ; then
-           LCOV_HOME=../../..
-       else
-           LCOV_HOME=../../../../releng/coverage/lcov
-       fi
-fi
-LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
-
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
-    echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
-    exit 1
-fi
-
-export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
-export MANPATH=${MANPATH}:${LCOV_HOME}/man
-
-if [ 'x' == "x$GENHTML_TOOL" ] ; then
-    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
-    LCOV_TOOL=${LCOV_HOME}/bin/lcov
-    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
-fi
-
-ROOT=`pwd`
-PARENT=`(cd .. ; pwd)`
-if [ -f $LCOV_HOME/scripts/getp4version ] ; then
-    SCRIPTS_DIR=$LCOV_HOME/scripts
-else
-    SCRIPTS_DIR=$LCOV_HOME/share/lcov/support-scripts
-fi
-SELECT_SCRIPT=$SCRIPTS_DIR/select.pm
-CRITERIA_SCRIPT=$SCRIPTS_DIR/criteria.pm
-GITBLAME_SCRIPT=$SCRIPTS_DIR/gitblame.pm
-GITVERSION_SCRIPT=$SCRIPTS_DIR/gitversion.pm
-P4VERSION_SCRIPT=$SCRIPTS_DIR/P4version.pm
-
-# is this git or P4?
-git -C . rev-parse > /dev/null 2>&1
-if [ 0 == $? ] ; then
-    # this is git
-    VERSION_SCRIPT=${SCRIPTS_DIR}/gitversion.pm
-    ANNOTATE_SCRIPT=${SCRIPTS_DIR}/gitblame.pm
-else
-    VERSION_SCRIPT=${SCRIPTS_DIR}/getp4version
-    ANNOTATE_SCRIPT=${SCRIPTS_DIR}/p4annotate.pm
-fi
-
-
-# filter out the compiler-generated _GLOBAL__sub_... symbol
-LCOV_BASE="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
-LCOV_OPTS="$LCOV_BASE"
-DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
+source ../../common.tst
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt
 rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels
 
-if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
-    cover -delete
-fi
+clean_cover
 
 if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
@@ -147,6 +16,28 @@ if ! type "${CXX}" >/dev/null 2>&1 ; then
         echo "Missing tool: $CXX" >&2
         exit 2
 fi
+
+SELECT_SCRIPT=$SCRIPT_DIR/select.pm
+CRITERIA_SCRIPT=$SCRIPT_DIR/criteria.pm
+GITBLAME_SCRIPT=$SCRIPT_DIR/gitblame.pm
+GITVERSION_SCRIPT=$SCRIPT_DIR/gitversion.pm
+P4VERSION_SCRIPT=$SCRIPT_DIR/P4version.pm
+
+if [ 1 == "$USE_GIT" ] ; then
+    # this is git
+    VERSION_SCRIPT=${SCRIPT_DIR}/gitversion.pm
+    ANNOTATE_SCRIPT=${SCRIPT_DIR}/gitblame.pm
+else
+    VERSION_SCRIPT=${SCRIPT_DIR}/getp4version
+    ANNOTATE_SCRIPT=${SCRIPT_DIR}/p4annotate.pm
+fi
+
+
+# filter out the compiler-generated _GLOBAL__sub_... symbol
+LCOV_BASE="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
+LCOV_OPTS="$LCOV_BASE"
+DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
+
 
 # old version of gcc has inconsistent line/function data
 IFS='.' read -r -a VER <<< `${CC} -dumpversion`
@@ -185,8 +76,8 @@ if [ 0 != $? ] ; then
 fi
 
 # need data for version error message checking as well
-echo lcov $LCOV_OPTS --capture --directory .  --output-file version.info --test-name myTest --version-script $SCRIPTS_DIR/getp4version
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory .  --output-file version.info --test-name myTest --version-script $SCRIPTS_DIR/getp4version | tee version.log
+echo lcov $LCOV_OPTS --capture --directory .  --output-file version.info --test-name myTest --version-script $SCRIPT_DIR/getp4version
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory .  --output-file version.info --test-name myTest --version-script $SCRIPT_DIR/getp4version | tee version.log
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -442,17 +333,23 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+if [ $IS_GIT == 0 ] && [ $IS_P4 == 0 ] ; then
+    IGNORE_ANNOTATE='--ignore annotate'
+fi
+
 # and again, as a differential report with annotation
 NOW=`date`
 rm -rf mycache
-echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix 2>&1 | tee select_scr.log
+echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info $IGNORE_ANNOTATE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix  $IGNORE_ANNOTATE 2>&1 | tee select_scr.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml cache failed"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
+
 if [ ! -d mycache ] ; then
     echo "did not create 'mycache'"
 fi
@@ -463,42 +360,47 @@ for i in `find mycache -type f` ; do
     echo xyz > $i
 done
 # have to ignore version mismatch becaure p4annotate also computes version
-echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --ignore version
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --ignore version 2>&1 | tee cacheFail.log
-if [ 0 == ${PIPESTATUS[0]} ] ; then
-    echo "ERROR: genhtml corrupt deserialize failed"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
-    fi
-fi
+echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --ignore version $IGNORE_ANNOTATE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --ignore version $IGNORE_ANNOTATE 2>&1 | tee cacheFail.log
 
-grep -E "corrupt.*unable to deserialize" cacheFail.log
-if [ 0 != $? ] ; then
-    echo "ERROR: failed to file cache corruption"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+if [ '' == $IGNORE_ANNOTATE ] ; then
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+        echo "ERROR: genhtml corrupt deserialize failed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+
+    grep -E "corrupt.*unable to deserialize" cacheFail.log
+    if [ 0 != $? ] && [ '' == $IGNORE_ANNOTATE ]; then
+        echo "ERROR: failed to find cache corruption"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
 fi
 
 # make cache file unreadable
 find mycache -type f -exec chmod ugo-r {} \;
-echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix 2>&1 | tee cacheFail2.log
-if [ 0 == ${PIPESTATUS[0]} ] ; then
-    echo "ERROR: genhtml unreadable cache failed"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info $IGNORE_ANNOTATE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x $IGNORE_ANNOTATE --no-prefix 2>&1 | tee cacheFail2.log
+
+if [ '' == $IGNORE_ANNOTATE ] ; then
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+        echo "ERROR: genhtml unreadable cache failed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+
+    grep -E "callback.*can't open" cacheFail2.log
+    if [ 0 != $? ] ; then
+        echo "ERROR: failed to find cache error"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
 fi
-
-grep -E "callback.*can't open" cacheFail2.log
-if [ 0 != $? ] ; then
-    echo "ERROR: failed to file cache error"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
-    fi
-fi
-
 
 # differential report with empty diff file
 touch diff.txt
@@ -722,8 +624,8 @@ fi
 
 mkdir -p etc
 echo "genhtml_highlight = 1" > etc/lcovrc
-echo genhtml $DIFFCOV_OPTS initial.info -o highlight --config-file LCOV_HOME/etc/lcovrc
-LCOV_HOME=. $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT -o highlight 2>&1 | tee highlight2.log
+echo genhtml $DIFFCOV_OPTS initial.info -o highlight --config-file LCOV_HOME/etc/lcovrc $IGNORE_ANNOTATE
+LCOV_HOME=. $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT -o highlight $IGNORE_ANNOTATE 2>&1 | tee highlight2.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: deprecated error was fatal"
     if [ 0 == $KEEP_GOING ] ; then
@@ -739,8 +641,8 @@ if [ 0 != $? ] ; then
 fi
 
 for err in "--rc truncate_owner_table=top,x" "--rc owner_table_entries=abc" "--rc owner_table_entries=-1" ; do
-    echo genhtml $DIFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --show-owners
-    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix $err --show-owners
+    echo genhtml $DIFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --show-owners $IGNORE_ANNOTATE
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix $err --show-owners $IGNORE_ANNOTATE
     if [ 0 == $? ] ; then
         echo "ERROR: genhtml $err unexpectedly passed"
         if [ 0 == $KEEP_GOING ] ; then
@@ -753,7 +655,7 @@ done
 # test error checks for --expect-message-count expressions
 for expr in "malformed" "noSuchMsg:%C<5" "inconsistent:%c<5" 'inconsistent:%C<$x' 'inconsistent:0,inconsistent:2' ; do
 
-    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o expect --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --expect-message $expr --show-owners
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o expect --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --expect-message $expr --show-owners $IGNORE_ANNOTATE
     if [ 0 == $? ] ; then
         echo "ERROR: genhtml $expr unexpectedly passed"
         if [ 0 == $KEEP_GOING ] ; then
@@ -761,7 +663,7 @@ for expr in "malformed" "noSuchMsg:%C<5" "inconsistent:%c<5" 'inconsistent:%C<$x
         fi
     fi
 
-    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o expect --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --expect-message $expr --show-owners --ignore usage
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o expect --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --expect-message $expr --show-owners --ignore usage $IGNORE_ANNOTATE
     if [ 0 != $? ] ; then
         echo "ERROR: genhtml $expr with ignore unexpectedly failed"
         if [ 0 == $KEEP_GOING ] ; then
@@ -772,7 +674,7 @@ done
 
 # slightly more complicated case...hack a bit so that 'expect' eval fails
 #  in summary callback
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o context --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'context' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --context-script ./MsgContext.pm --expect-message 'usage:MsgContext::test(%C)' --show-owners --ignore callback 2>&1 | tee expect.log
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o context --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'context' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --context-script ./MsgContext.pm --expect-message 'usage:MsgContext::test(%C)' --show-owners --ignore callback $IGNORE_ANNOTATE 2>&1 | tee expect.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml context with ignore unexpectedly failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -788,7 +690,7 @@ if [ 0 != $? ] ; then
 fi
 
 # generate error for case that number of date labels doesn't match
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o labels --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'context' --header-title 'this is the header' --date-bins 1,5,22 --date-labels a,b,c,d,e --baseline-date "$NOW" --msg-log labels.log
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o labels --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'context' --header-title 'this is the header' --date-bins 1,5,22 --date-labels a,b,c,d,e --baseline-date "$NOW" --msg-log labels.log $IGNORE_ANNOTATE
 if [ 0 == $? ] ; then
     echo "ERROR: genhtml --date-labels didn't fail"
     if [ 0 == $KEEP_GOING ] ; then

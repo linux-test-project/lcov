@@ -5,32 +5,8 @@
 # Test lcov --version
 #
 
-KEEP_GOING=0
-while [ $# -gt 0 ] ; do
+source ../../common.tst
 
-    OPT=$1
-    case $OPT in
-
-        --coverage )
-            shift
-            COVER_DB=$1
-            shift
-
-            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
-            KEEP_GOING=1
-
-            ;;
-
-        -v | --verbose )
-            set -x
-            shift
-            ;;
-
-        * )
-            break
-            ;;
-    esac
-done
 STDOUT=version_stdout.log
 STDERR=version_stderr.log
 

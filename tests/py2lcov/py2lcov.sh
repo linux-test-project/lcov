@@ -1,5 +1,5 @@
 #!/bin/bash
-set -x
+set +x
 
 CLEAN_ONLY=0
 COVER=
@@ -257,8 +257,13 @@ for l in `grep -E '^DA:' checksum.info` ; do
     fi
 done
 
+if [ $IS_GIT == 0 ] && [ $IS_P4 == 0 ] ; then
+    D=
+else
+    D=$DEPOT
+fi
 # should be valid data to generate HTML
-$GENHTML_TOOL -o rpt2 $VERSION$DEPOT $ANNOTATE functions.info checksum.info --validate
+$GENHTML_TOOL -o rpt2 $VERSION$D $ANNOTATE functions.info checksum.info --validate
 if [ 0 != $? ] ; then
     echo "genhtml 2 failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -335,28 +340,31 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-# some usage errors
-eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat -o paramErr.info --cmd $CMD ${VERSION},-x
-if [ 0 == $? ] ; then
-    echo "coverage version did not see error"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
-    fi
-fi
+if [ $IS_GIT == 1 ] || [ $IS_P4 == 1 ] ; then
 
-# run again with --keep-going flag - should generate same result as we see without version script
-eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat -o keepGoing.info --cmd $CMD ${VERSION},-x --keep-going --verbose
-if [ 0 != $? ] ; then
-    echo "keepGoing version saw error"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+    # some usage errors
+    eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat -o paramErr.info --cmd $CMD ${VERSION},-x
+    if [ 0 == $? ] ; then
+        echo "coverage version did not see error"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
-diff no_version.info keepGoing.info
-if [ 0 != $? ] ; then
-    echo "no_version vs keepGoing failed"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+
+    # run again with --keep-going flag - should generate same result as we see without version script
+    eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat -o keepGoing.info --cmd $CMD ${VERSION},-x --keep-going --verbose
+    if [ 0 != $? ] ; then
+        echo "keepGoing version saw error"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    diff no_version.info keepGoing.info
+    if [ 0 != $? ] ; then
+        echo "no_version vs keepGoing failed"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
 fi
 

@@ -151,6 +151,12 @@ fi
 
 echo *
 
+CRITERIA=${SCRIPT_DIR}/criteria
+SELECT=${SCRIPT_DIR}/select.pm
+
+#PARALLEL=''
+#PROFILE="''
+
 echo "COVER = '$COVER'"
 echo "COVER_DB = '$COVER_DB'"
 echo "PYCOVER = '$PYCOVER'"
@@ -237,7 +243,8 @@ fi
 sed -i -E 's/VER:#1/VER:#2/' baseline_name.info
 
 # test merge with differing version
-sed -e 's/VER:/VER:x/g' < baseline.info > baseline2.info
+#  - sed, to make sure versions look different
+sed -e 's/VER:/VER:x/g' -e 's/ md5:/ md5:0/g' < baseline.info > baseline2.info
 $COVER $LCOV_TOOL $LCOV_OPTS --output merge.info -a baseline.info -a baseline2.info $IGNORE
 if [ 0 == $? ] ; then
     echo "ERROR: merge with mismatched version did not fail"

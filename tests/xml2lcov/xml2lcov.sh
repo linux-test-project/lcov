@@ -1,101 +1,24 @@
 #!/bin/bash
 set +x
 
-CLEAN_ONLY=0
-COVER=
-
-PARALLEL='--parallel 0'
-PROFILE="--profile"
-if [ 'x' == "x${COVER_DB}" ] ; then
-    COVER_DB='cover_db'
+if [[ "x" == ${LCOV_HOME}x ]] ; then
+    if [ -f ../../bin/lcov ] ; then
+        LCOV_HOME=../..
+    fi
 fi
-if [ 'x' == "x${PYCOV_DB}" ] ; then
-    PYCOV_DB='pycov.dat'
-fi
-LOCAL_COVERAGE=1
-KEEP_GOING=0
-while [ $# -gt 0 ] ; do
+source ../common.tst
 
-    OPT=$1
-    shift
-    case $OPT in
+rm -rf *.info *.json __pycache__ help.txt *.pyc *.dat
 
-        --clean | clean )
-            CLEAN_ONLY=1
-            ;;
+clean_cover
 
-        -v | --verbose | verbose )
-            set -x
-            ;;
-
-        -k | --keep-going )
-            KEEP_GOING=1
-            ;;
-
-        --coverage )
-            #COVER="perl -MDevel::Cover "
-            if [[ "$1"x != 'x' && $1 != "-"* ]] ; then
-               COVER_DB=$1
-               LOCAL_COVERAGE=0
-               shift
-            fi
-            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine,-silent,1 "
-            PYCOV="COVERAGE_FILE=${PYCOV_DB} coverage run --branch --append"
-            #PYCOV="coverage run --data-file=${PYCOV_DB} --branch --append"
-            ;;
-
-        --home | -home )
-            LCOV_HOME=$1
-            shift
-            if [ ! -f $LCOV_HOME/bin/lcov ] ; then
-                echo "LCOV_HOME '$LCOV_HOME' does not exist"
-                exit 1
-            fi
-            ;;
-
-        --no-parallel )
-            PARALLEL=''
-            ;;
-
-        --no-profile )
-            PROFILE=''
-            ;;
-
-        * )
-            echo "Error: unexpected option '$OPT'"
-            exit 1
-            ;;
-    esac
-done
-
-if [ "x" == "x$LCOV_HOME" ] ; then
-       if [ -f ../../bin/lcov ] ; then
-           LCOV_HOME=../..
-       else
-           LCOV_HOME=../../../releng/coverage/lcov
-       fi
+if [[ 1 == $CLEAN_ONLY ]] ; then
+    exit 0
 fi
 
-LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
 
-if [ 'x' == "x$XML2LCOV_TOOL" ] ; then
-    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
-    LCOV_TOOL=${LCOV_HOME}/bin/lcov
-    PERLLCOV_TOOL=${LCOV_HOME}/bin/perl2lcov
-    PY2LCOV_TOOL=${LCOV_HOME}/bin/py2lcov
-    XML2LCOV_TOOL=${LCOV_HOME}/bin/xml2lcov
-fi
-
-if [ -f $LCOV_HOME/scripts/getp4version ] ; then
-    SCRIPT_DIR=$LCOV_HOME/scripts
-else
-    # running test from lcov install
-    SCRIPT_DIR=$LCOV_HOME/share/lcov/support-scripts
-    MD5_OPT='--version-script --md5'
-fi
 # is this git or P4?
-git -C . rev-parse > /dev/null 2>&1
-if [ 0 == $? ] ; then
+if [ 1 == "$USE_GIT" ] ; then
     # this is git
     VERSION="--version-script ${SCRIPT_DIR}/gitversion.pm"
     ANNOTATE="--annotate-script ${SCRIPT_DIR}/gitblame.pm"
@@ -104,41 +27,18 @@ else
     ANNOTATE="--annotate-script ${SCRIPT_DIR}/p4annotate.pm"
 fi
 
+if [ $IS_GIT == 0 ] && [ $IS_P4 == 0 ] ; then
+    VERSION="$VERSION --ignore usage"
+fi
 
 if [ ! -x $PY2LCOV_SCRIPT ] ; then
     echo "missing py2lcov script - dying"
     exit 1
 fi
 
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && -f $LCOV_HOME/lib/lcovutil.pm ) ]] ; then
-    echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
-    exit 1
-fi
-
-export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
-export MANPATH=${MANPATH}:${LCOV_HOME}/man
-
-if [ 'x' == "x$GENHTML_TOOL" ] ; then
-    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
-    LCOV_TOOL=${LCOV_HOME}/bin/lcov
-    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
-fi
-
-ROOT=`pwd`
-PARENT=`(cd .. ; pwd)`
 
 LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
-rm -rf *.info *.json __pycache__ help.txt *.pyc *.dat
-
-if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
-    cover -delete
-    rm -rf pycov
-fi
-
-if [[ 1 == $CLEAN_ONLY ]] ; then
-    exit 0
-fi
 
 # NOTE:  the 'coverage.xml' file here is a copy of the one at
 #   https://gist.github.com/apetro/fcfffb8c4cdab2c1061d
@@ -147,7 +47,7 @@ fi
 # in the remove data that was significant from a test perspective.
 
 # no source - so can't compute version
-eval ${PYCOV} ${XML2LCOV_TOOL} -o test.info coverage.xml # $VERSION
+eval ${PYCOV} ${XML2LCOV_TOOL} -o test.info coverage.xml -v -v # $VERSION
 if [ 0 != $? ] ; then
     echo "xml2lcov failed"
     if [ 0 == $KEEP_GOING ] ; then

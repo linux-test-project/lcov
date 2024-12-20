@@ -148,7 +148,14 @@ sub new
             die("unexpected p4 have line '$_'");
         }
     }
-    close(P4) or die("error on close 'p4 have' pipe: $!");
+    unless (close(P4)) {
+        # there might not be a repo here..
+        die("error on close 'p4 have' pipe: $!") if %filehash;
+        $depot = '.' unless $depot;
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                                  "'$depot' seems to not be a perforce repo.");
+        goto done;
+    }
 
     open(WHERE, '-|', "$cd p4 where $depot") or
         die("unable to execute p4 where: $!");
@@ -199,6 +206,7 @@ sub new
     }
     close(EDITS) or die("error on close 'p4 opened' pipe: $!");
 
+    done:
     my $self =
         [$allow_missing, $local_edit, $use_md5, $prefix, $depot, \%filehash];
     return bless $self, $class;
