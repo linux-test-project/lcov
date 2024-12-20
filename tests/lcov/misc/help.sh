@@ -5,32 +5,7 @@
 # Test lcov --help
 #
 
-KEEP_GOING=0
-while [ $# -gt 0 ] ; do
-
-    OPT=$1
-    case $OPT in
-
-        --coverage )
-            shift
-            COVER_DB=$1
-            shift
-
-            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine "
-            KEEP_GOING=1
-
-            ;;
-
-        -v | --verbose )
-            set -x
-            shift
-            ;;
-
-        * )
-            break
-            ;;
-    esac
-done
+source ../../common.mak
 
 STDOUT=help_stdout.log
 STDERR=help_stderr.log

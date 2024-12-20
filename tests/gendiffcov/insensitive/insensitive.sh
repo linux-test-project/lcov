@@ -1,129 +1,12 @@
 #!/bin/bash
 set +x
 
-CLEAN_ONLY=0
-COVER=
-
-PARALLEL='--parallel 0'
-PROFILE="--profile"
-CC="${CC:-gcc}"
-CXX="${CXX:-g++}"
-COVER_DB='cover_db'
-LOCAL_COVERAGE=1
-KEEP_GOING=0
-
-while [ $# -gt 0 ] ; do
-
-    OPT=$1
-    shift
-    case $OPT in
-
-        --clean | clean )
-            CLEAN_ONLY=1
-            ;;
-
-        -v | --verbose | verbose )
-            set -x
-            ;;
-
-        --keep-going )
-            KEEP_GOING=1
-            ;;
-
-        --coverage )
-            if [[ "$1"x != 'x' && $1 != "-"*  ]] ; then
-               COVER_DB=$1
-               LOCAL_COVERAGE=0
-               shift
-            fi
-            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine,-silent,1 "
-            ;;
-
-        --home | -home )
-            LCOV_HOME=$1
-            shift
-            if [ ! -f $LCOV_HOME/bin/lcov ] ; then
-                echo "LCOV_HOME '$LCOV_HOME' does not exist"
-                exit 1
-            fi
-            ;;
-
-        --no-parallel )
-            PARALLEL=''
-            ;;
-
-        --no-profile )
-            PROFILE=''
-            ;;
-
-        --llvm )
-            LLVM=1
-            module load como/tools/llvm-gnu/11.0.0-1
-            # seems to have been using same gcov version as gcc/4.8.3
-            module load gcc/4.8.3
-            #EXTRA_GCOV_OPTS="--gcov-tool '\"llvm-cov gcov\"'"
-            CXX="clang++"
-            ;;
-
-        * )
-            echo "Error: unexpected option '$OPT'"
-            exit 1
-            ;;
-    esac
-done
-
-if [[ "x" == ${LCOV_HOME}x ]] ; then
-       if [ -f ../../../bin/lcov ] ; then
-           LCOV_HOME=../../..
-       else
-           LCOV_HOME=../../../../releng/coverage/lcov
-       fi
-fi
-LCOV_HOME=`(cd ${LCOV_HOME} ; pwd)`
-
-if [[ ! ( -d $LCOV_HOME/bin && -d $LCOV_HOME/lib && -x $LCOV_HOME/bin/genhtml && ( -f $LCOV_HOME/lib/lcovutil.pm || -f $LCOV_HOME/lib/lcov/lcovutil.pm ) ) ]] ; then
-    echo "LCOV_HOME '$LCOV_HOME' seems not to be invalid"
-    exit 1
-fi
-
-export PATH=${LCOV_HOME}/bin:${LCOV_HOME}/share:${PATH}
-export MANPATH=${MANPATH}:${LCOV_HOME}/man
-
-if [ 'x' == "x$GENHTML_TOOL" ] ; then
-    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
-    LCOV_TOOL=${LCOV_HOME}/bin/lcov
-    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
-fi
-
-ROOT=`pwd`
-PARENT=`(cd .. ; pwd)`
-if [ -f $LCOV_HOME/scripts/getp4version ] ; then
-    GET_VERSION=$LCOV_HOME/scripts/getp4version
-    ANNOTATE=$LCOV_HOME/scripts/p4annotate
-else
-    GET_VERSION=$LCOV_HOME/share/lcov/support-scripts/getp4version
-    ANNOTATE=$LCOV_HOME/share/lcov/support-scripts/p4annotate
-fi
-
-if [ ! -f $ANNOTATE ] ; then
-    echo "annotate '$ANNOTATE' not found"
-    exit 1
-fi
-
-
-#PARALLEL=''
-#PROFILE="''
-
-
-LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script `pwd`/version.sh $PARALLEL $PROFILE"
-DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT --version-script `pwd`/version.sh $PROFILE $PARALLEL"
+source ../../common.tst
 
 rm -f *.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt *.log *.err *.json dumper* *.annotated *.log TEST.cpp TeSt.cpp
 rm -rf ./baseline ./current ./differential* ./cover_db
 
-if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
-    cover -delete
-fi
+clean_cover
 
 if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
@@ -133,6 +16,20 @@ if ! type "${CXX}" >/dev/null 2>&1 ; then
         echo "Missing tool: $CXX" >&2
         exit 2
 fi
+
+ANNOTATE=${SCRIPT_DIR}/p4annotate
+
+if [ ! -f $ANNOTATE ] ; then
+    echo "annotate '$ANNOTATE' not found"
+    exit 1
+fi
+
+#PARALLEL=''
+#PROFILE="''
+
+LCOV_OPTS="$EXTRA_GCOV_OPTS --branch-coverage --version-script `pwd`/version.sh $PARALLEL $PROFILE"
+DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT --version-script `pwd`/version.sh $PROFILE $PARALLEL"
+
 
 echo *
 
@@ -263,7 +160,7 @@ rm -f TeSt.cpp
 
 # check annotation failure message...
 # check that this works with test names
-echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential2 ./current.info --ignore source $IGNORE --rc check_existence_before_callback=0
+echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential2 ./current.info --ignore source $IGNORE --rc check_existence_before_callback=0
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential2 ./current.info $GENHTML_PORT --ignore source $IGNORE --rc check_existence_before_callback=0 2>&1 | tee fail.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: expected annotation error but didn't find"
