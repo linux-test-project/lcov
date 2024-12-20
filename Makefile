@@ -122,7 +122,7 @@ install:
 		$(INSTALL) -m 755 bin/$$b $(BIN_INST_DIR)/$$b ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
-		       --fixinterp --fixver --fixlibdir --fixbindir \
+		       --fixver --fixlibdir --fixbindir \
 		       --exec $(BIN_INST_DIR)/$$b ; \
 	done
 	$(INSTALL) -d -m 755 $(SCRIPT_INST_DIR)
@@ -131,7 +131,7 @@ install:
 		$(INSTALL) -m 755 scripts/$$s $(SCRIPT_INST_DIR)/$$s ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
-		       --fixinterp --fixver --fixlibdir \
+		       --fixver --fixlibdir \
 		       --fixscriptdir --scriptdir $(SCRIPT_DIR) \
 		       --exec $(SCRIPT_INST_DIR)/$$s ; \
 	done
@@ -141,7 +141,7 @@ install:
 		$(INSTALL) -m 644 lib/$$l $(LIB_INST_DIR)/$$l ; \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
 		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
-		       --fixinterp --fixver --fixlibdir --fixbindir \
+		       --fixver --fixlibdir --fixbindir \
 		       --exec $(LIB_INST_DIR)/$$l ; \
 	done
 	for section in 1 5 ; do \

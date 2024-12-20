@@ -100,7 +100,8 @@ sub update_perl($)
     }
 
     if ($opt_fixinterp && defined($path) && $path ne "") {
-        $source =~ s/^#!.*perl.*\n/#!$path\n/;
+        $source =~ s/^#!.*perl.*\n/#!$path\n/
+            unless $source =~ @^#!/usr/bin/env perl$@;
     }
 
     if ($opt_fixlibdir) {
@@ -133,7 +134,8 @@ sub update_python($)
     my $path = $ENV{"LCOV_PYTHON_PATH"};
 
     if ($opt_fixinterp && defined($path) && $path ne "") {
-        $source =~ s/^#!.*python.*\n/#!$path\n/;
+        $source =~ s/^#!.*python.*\n/#!$path\n/
+            unless $source =~ @^#!/usr/bin/env python3?$@;
     }
 
     return $source;
