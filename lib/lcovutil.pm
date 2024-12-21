@@ -4507,8 +4507,8 @@ sub addAlias
         my $len    = length($name);
         # penalize lambda functions so that their name is not chosen
         #  (java workaround or ugly hack, depending on your perspective)
-        $curlen += 1000 if $self->[NAME] =~ /({lambda\(|\.lambda\$)/;
-        $len    += 1000 if $name         =~ /({lambda\(|\.lambda\$)/;
+        $curlen += 1000 if $self->[NAME] =~ /(\{lambda\(|\.lambda\$)/;
+        $len    += 1000 if $name         =~ /(\{lambda\(|\.lambda\$)/;
         $self->[NAME] = $name
             if ($len < $curlen ||    # alias is shorter
                 ($len == $curlen &&   # alias is same length but lexically first
