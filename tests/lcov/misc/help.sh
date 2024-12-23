@@ -5,7 +5,7 @@
 # Test lcov --help
 #
 
-source ../../common.mak
+source ../../common.tst
 
 STDOUT=help_stdout.log
 STDERR=help_stderr.log

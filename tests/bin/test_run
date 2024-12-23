@@ -76,7 +76,7 @@ t_detail "OUTPUT" "" >>"$LOGFILE"
 
 # Run command
 $TIME bash -c "$INVOKE_COVER $SCRIPT $OPTS" 2>&1 | t_indent >>"$LOGFILE"
-RC=$?
+RC=${PIPESTATUS[0]}
 
 # Evaluate output of time command
 ELAPSED=
