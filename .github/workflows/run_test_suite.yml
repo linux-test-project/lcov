@@ -30,8 +30,28 @@ permissions:
 
 jobs:
   test_suite:
-    name: Run the test suite
-    runs-on: ubuntu-24.04
+    name: "Run the test suite (GCC ${{ matrix.gcc }}, ${{ matrix.runs-on }})"
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs-on: ubuntu-20.04
+            gcc: 7
+            install: g++-7 gcc-7 cpp-7
+          # GCC 4 to 8 are assumed to behave "the same",
+          # so we are skipping GCC 8 here to save CI resources
+          - runs-on: ubuntu-24.04
+            gcc: 9
+            install: g++-9 gcc-9 cpp-9
+          - runs-on: ubuntu-24.04
+            gcc: 10
+            install: g++-10 gcc-10 cpp-10
+          # GCC 10 to 14 are assumed to behave "the same",
+          # so we are skipping GCC 11, 12, 13 here to save CI resources
+          - runs-on: ubuntu-24.04
+            gcc: 14
+            install:
     steps:
       - uses: actions/checkout@v4
 
@@ -65,6 +85,25 @@ jobs:
 
           sudo perl -MCPAN -e 'install(Memory::Process)'  # no package in Ubuntu
 
+      - name: "Make GCC ${{ matrix.gcc }} systemwide default"
+        run: |-
+          set -x -o pipefail
+          if [[ "${{ matrix.install }}" != "" ]]; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends --yes -V ${{ matrix.install }}
+          fi
+
+          # Make requested version GCC and GCOV the system default
+          # before we have an easy way to fully divert "make check"
+          # off of the default commands
+          for i in cpp {,x86_64-linux-gnu-}{g++,gcc{,-{ar,nm,ranlib}},gcov{,-{dump,tool}},gfortran} lto-dump ; do
+            [[ -e /usr/bin/"${i}" ]] || continue
+            [[ -e /usr/bin/"${i}-${{ matrix.gcc }}" ]] || continue
+            sudo rm /usr/bin/"${i}"
+            sudo ln -s "${i}-${{ matrix.gcc }}" /usr/bin/"${i}"
+            "${i}" --version | head -n1
+          done
+
       - name: make install
         run: |-
           set -x -o pipefail
@@ -86,13 +125,13 @@ jobs:
       - name: Upload test log as an artifact
         uses: actions/upload-artifact@v4
         with:
-          name: "lcov-${{ github.sha }}-${{ runner.os }}-test-log"  # .zip
+          name: "lcov-${{ github.sha }}-${{ runner.os }}-GCC-${{ matrix.gcc }}-test-log"  # .zip
           path: tests/test.log
           if-no-files-found: error
 
       - name: Upload test directory shrapnel  as an artifact
         uses: actions/upload-artifact@v4
         with:
-          name: "lcov-${{ github.sha }}-${{ runner.os }}-shrapnel"  # .zip
+          name: "lcov-${{ github.sha }}-${{ runner.os }}-GCC-${{ matrix.gcc }}-shrapnel"  # .zip
           path: tests
           #if-no-files-found: error
