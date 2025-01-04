@@ -40,9 +40,10 @@ endif
 ifneq ($(COVER_DB),)
 export PERL_COVER_ARGS := -MDevel::Cover=-db,$(COVER_DB),-coverage,statement,branch,condition,subroutine,-silent,1
 EXEC_COVER := perl ${PERL_COVER_ARGS}
-PYCOVER = COVERAGE_FILE=$(PYCOV_DB) coverage run --branch --append
+export COVERAGE_COMMAND = $(shell which coverage 2>&1 > /dev/null ; if [ 0 -eq $$? ] ; then echo coverage ; else echo python3-coverage ; fi )
+PYCOVER = COVERAGE_FILE=$(PYCOV_DB) ${COVERAGE_COMMAND} run --branch --append
+#$(warning assigned PYCOVER='$(PYCOVER)')
 endif
-
 
 export TOPDIR TESTDIR
 export PARENTDIR    := $(dir $(patsubst %/,%,$(TOPDIR)))
