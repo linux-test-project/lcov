@@ -39,7 +39,6 @@
 package criteria;
 
 use strict;
-use JSON;
 use Getopt::Long qw(GetOptionsFromArray);
 
 our @ISA       = qw(Exporter);
