@@ -42,7 +42,11 @@ use FindBin;
 use Getopt::Long;
 use lib "$FindBin::RealBin";
 use criteria qw(new);
-use JSON;
+
+use lib "$FindBin::RealBin/../lib";
+use lib "$FindBin::RealBin/../../../lib";    # path from 'support-scripts'
+
+use lcovutil;
 
 my $obj = criteria->new($0, @ARGV);
 
@@ -54,7 +58,7 @@ if (!defined($obj) ||
     return undef;
 }
 my $json = pop(@ARGV);
-my $db   = decode_json($json);
+my $db   = JsonSupport::decode($json);
 
 my ($status, $msgs) = $obj->check_criteria(@ARGV, $db);
 foreach my $m (@$msgs) {

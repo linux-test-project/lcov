@@ -48,7 +48,6 @@
 package threshold;
 
 use strict;
-use JSON;
 use Getopt::Long qw(GetOptionsFromArray);
 use Scalar::Util qw/looks_like_number/;
 
