@@ -69,6 +69,7 @@ jobs:
                                        # CPAN Module::Load::Conditional
             libscalar-list-utils-perl  # CPAN Scalar::Util
                                        # CPAN Time::HiRes
+            libtimedate-perl           # CPAN TimeDate
 
             # Non-Perl runtime dependencies as documented in README
             llvm                       # for command "llvm-profdata"
