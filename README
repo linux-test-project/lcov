@@ -138,10 +138,10 @@ These perl packages include:
        - Cpanel::JSON::XS
        - JSON::PP
        - JSON
- - Memory::Process
- - Module::Load::Conditional
- - Scalar::Util
- - Time::HiRes
+  - Memory::Process
+  - Module::Load::Conditional
+  - Scalar::Util
+  - Time::HiRes
 
 If your system is missing any of these, then you may be able to install them
 via:
