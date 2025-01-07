@@ -142,6 +142,7 @@ These perl packages include:
   - Module::Load::Conditional
   - Scalar::Util
   - Time::HiRes
+  - TimeDate
 
 If your system is missing any of these, then you may be able to install them
 via:
