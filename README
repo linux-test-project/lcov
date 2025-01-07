@@ -221,7 +221,7 @@ Point the web browser of your choice to the resulting index.html file.
 
          $ lcov --directory path/to/my/testcase --capture --output-file app.info
 
-       (LLVM users using the 'prodata path' will use a somewhat different
+       (LLVM users using the 'profdata path' will use a somewhat different
        command for this step - see the discussion referenced above.)
 
        If you want to collect Modified Condition / Decision Coverage (MD/DC)
@@ -229,13 +229,13 @@ Point the web browser of your choice to the resulting index.html file.
          - you must use gcc/14.2 (or newer), or LLVM/18 (or newer)
          - your GCC compile- and link command line must include flag
            '-fcondition-coverage'.
-         - LLVM users must use the 'prodata path' for coverage data collection,
+         - LLVM users must use the 'profdata path' for coverage data collection,
            and your compile command line must include
            '-fprofile-inst-generate -fcoverage-mapping -fcoverage-mcdc'.
            See the above referenced discussion for details.
          - your lcov and genhtml command line must include flag
            '--mcdc-coverage'
-       See the '--mcdc-coverage' section in the lcov and geninfo man pages.
+       See the '--mcdc-coverage' section in the genhtml and geninfo man pages.
 
        Note that runtime coverage data exists only after the application has
        been started and stopped at least once. Otherwise, no data will be found
@@ -418,7 +418,8 @@ LCOV features and capabilities fall into 7 major categories:
             simple substitutions become complicated or unweildy.
         v) select a subset of coverage data to display - e.g., to
            use in a code review which wants to concentrate on only
-           the changes caused by a particular commit or range of commits.
+           the changes caused by a particular commit or range of commits,
+           or to review changes in a particular release.
            Sample script:  select.pm
          vi) keep track of environment and other settings - to aid
             infrastructure debugging in more complicated use cases.
