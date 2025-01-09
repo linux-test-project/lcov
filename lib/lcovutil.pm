@@ -1071,7 +1071,7 @@ my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
     $rc_no_branch_coverage, $rc_no_func_coverage, $rc_no_checksum,
     $version);
 my $quiet = 0;
-my $tempdirname;
+our $tempdirname;
 
 # these options used only by lcov - but moved here so that we can
 #   share arg parsing
