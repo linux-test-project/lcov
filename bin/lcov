@@ -916,7 +916,8 @@ sub lcov_geninfo(@)
     push(@param, "--mcdc") if $lcovutil::mcdc_coverage;
     push(@param, '--fail-under-lines', $lcovutil::fail_under_lines)
         if defined($lcovutil::fail_under_lines);
-
+    push(@param, '--tempdir', $lcovutil::tempdirname)
+        if (defined($lcovutil::tempdirname));
     foreach my $listOpt (['--comment', \@lcovutil::comments],
                          ['--config-file', \@lcovutil::opt_config_files],
                          ['--rc', \@lcovutil::opt_rc],
