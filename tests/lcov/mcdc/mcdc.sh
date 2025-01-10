@@ -11,11 +11,11 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 # is this git or P4?
-if [ 1 == "$USE_GIT" ] ; then
+if [ 1 == "$USE_P4" ] ; then
+    GET_VERSION=${SCRIPT_DIR}/P4version.pm,--local-edit,--md5
+else
     # this is git
     GET_VERSION=${SCRIPT_DIR}/gitversion.pm
-else
-    GET_VERSION=${SCRIPT_DIR}/P4version.pm,--local-edit,--md5
 fi
 
 

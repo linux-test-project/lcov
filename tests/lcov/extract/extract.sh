@@ -248,7 +248,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-grep -E "#.*user:.+$USER" context_comment.info
+grep "#user: $USER" context_comment.info
 if [ 0 != $? ] ; then
     echo "Error:  did not find context data in comment field"
     if [ $KEEP_GOING == 0 ] ; then

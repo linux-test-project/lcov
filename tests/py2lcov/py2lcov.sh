@@ -24,14 +24,14 @@ if [ ! -f $LCOV_HOME/scripts/getp4version ] ; then
     MD5_OPT=',--md5'
 fi
 # is this git or P4?
-if [ 1 == "$USE_GIT" ] ; then
-    # this is git
-    VERSION="--version-script ${SCRIPT_DIR}/gitversion${MD5_OPT}"
-    ANNOTATE="--annotate-script ${SCRIPT_DIR}/gitblame.pm,--cache,my_cache"
-else
+if [ 1 == "$IS_P4" ] ; then
     VERSION="--version-script ${SCRIPT_DIR}/P4version.pm,--local-edit${MD5_OPT}"
     ANNOTATE="--annotate-script ${SCRIPT_DIR}/p4annotate.pm,--cache,./my_cache"
     DEPOT=",."
+else
+    # this is git
+    VERSION="--version-script ${SCRIPT_DIR}/gitversion${MD5_OPT}"
+    ANNOTATE="--annotate-script ${SCRIPT_DIR}/gitblame.pm,--cache,my_cache"
 fi
 
 if [ $IS_GIT == 0 ] && [ $IS_P4 == 0 ] ; then

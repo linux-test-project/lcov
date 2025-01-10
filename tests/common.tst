@@ -135,15 +135,19 @@ git -C . rev-parse > /dev/null 2>&1
 if [ 0 == $? ] ; then
     # this is git
     IS_GIT=1
-    USE_GIT=1
-    GET_VERSION=${SCRIPT_DIR}/gitversion.pm
-    GET_VERSION_EXE=${SCRIPT_DIR}/gitversion
-    ANNOTATE=${SCRIPT_DIR}/gitblame.pm
 else
     p4 have ... > /dev/null 2>&1
     if [ 0 == $? ] ; then
         IS_P4=1
     fi
+fi
+
+if [ "$IS_GIT" == 1 ] || [ "$IS_P4" == 0 ] ; then
+    USE_GIT=1
+    GET_VERSION=${SCRIPT_DIR}/gitversion.pm
+    GET_VERSION_EXE=${SCRIPT_DIR}/gitversion
+    ANNOTATE=${SCRIPT_DIR}/gitblame.pm
+else
     USE_P4=1
     GET_VERSION=${SCRIPT_DIR}/getp4version
     GET_VERSION_EXE=${SCRIPT_DIR}/getp4version
