@@ -217,7 +217,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-grep -E "\"user\":\"$USER\"" context.info.json
+grep -F "\"user\":\"$USER\"" context.info.json
 if [ 0 != $? ] ; then
     echo "Error:  did not find expected context field"
     if [ $KEEP_GOING == 0 ] ; then
@@ -241,7 +241,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-grep -E "\"user\":\"$USER\"" context.info.json
+grep -F "\"user\":\"$USER\"" context.info.json
 if [ 0 != $? ] ; then
     echo "Error:  did not find expected context field"
     if [ $KEEP_GOING == 0 ] ; then
