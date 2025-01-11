@@ -1,6 +1,8 @@
 #!/bin/bash
 set +x
 
+: ${USER:="$(id -u -n)"}
+
 source ../../common.tst
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log *.o errs *.msg *.dat
@@ -217,7 +219,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-grep -E "\"user\":\"$USER\"" context.info.json
+grep -F "\"user\":\"$USER\"" context.info.json
 if [ 0 != $? ] ; then
     echo "Error:  did not find expected context field"
     if [ $KEEP_GOING == 0 ] ; then
@@ -241,7 +243,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-grep -E "\"user\":\"$USER\"" context.info.json
+grep -F "\"user\":\"$USER\"" context.info.json
 if [ 0 != $? ] ; then
     echo "Error:  did not find expected context field"
     if [ $KEEP_GOING == 0 ] ; then
