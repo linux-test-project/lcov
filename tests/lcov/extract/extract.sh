@@ -1,6 +1,8 @@
 #!/bin/bash
 set +x
 
+: ${USER:="$(id -u -n)"}
+
 source ../../common.tst
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log *.o errs *.msg *.dat
