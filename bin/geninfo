@@ -972,7 +972,8 @@ sub find_files
             } else {
                 $lcovutil::profileData{find}{$directory} = $time;
             }
-            my @found = split(' ', $stdout);
+            # split on crlf
+            my @found = split(/[\x0A\x0D]/, $stdout);
             if (!@found) {
                 if (!defined($processGcno) || $processGcno != 2) {
                     # delay message: might be a file of other type here

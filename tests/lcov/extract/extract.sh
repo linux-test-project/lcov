@@ -5,7 +5,7 @@ set +x
 
 source ../../common.tst
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log *.o errs *.msg *.dat
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log *.o errs *.msg *.dat mytest spaces
 rm -rf rcOptBug
 
 if [ -d separate ] ; then
@@ -880,6 +880,36 @@ fi
 $COVER $CAPTURE errs $LCOV_OPTS -o err4.info $FILTER $IGNORE --initial --keep-going --msg-log
 if [ 0 == $? ] ; then
     echo "Error:  expected error code from lcov --capture --initial --keep-going"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# test filename containing spaces
+rm -rf ./mytest
+mkdir -pv ./mytest
+echo "int main(){}" > './mytest/main space.cpp'
+( cd ./mytest ; ${CXX} -c  'main space.cpp' --coverage )
+
+$COVER $CAPTURE mytest -i -o spaces.info
+if [ 0 != $? ] ; then
+    echo "Error:  unexpected error from filename containing space"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $LCOV_TOOL --list spaces.info
+if [ 0 != $? ] ; then
+    echo "Error:  unable to list filename containing space"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $GENHTML_TOOL -o spaces spaces.info
+if [ 0 != $? ] ; then
+    echo "Error:  unable to generate HTML for filename containing space"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
