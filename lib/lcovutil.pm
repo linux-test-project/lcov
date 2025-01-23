@@ -4676,9 +4676,10 @@ sub define_function
         $location = '"' . $self->filename() . '":' . $start_line
             unless defined($location);
         lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-            "$location: duplicate function '$fnName' starts on line $start_line but previous definition started on "
-                . $data->line()
-                . MessageContext::context() . '.')
+                   "$location: duplicate function '$fnName' starts on line \"" .
+                       $data->filename() .
+                       "\":$start_line but previous definition started on " .
+                       $data->line() . MessageContext::context() . '.')
             unless
             grep({ $fnName =~ $_ } @lcovutil::suppress_function_patterns);
         # if ignored, just return the function we already have -
