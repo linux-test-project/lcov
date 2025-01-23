@@ -429,7 +429,7 @@ if [ 0 != $? ] ; then
 fi
 
 
-# workaround:  depending on compiler verision, we see a coverpoint on the
+# workaround:  depending on compiler version, we see a coverpoint on the
 #  close brace line (gcc/6 for example) or we don't (gcc/10 for example)
 BRACE_LINE='^DA:34'
 MARKER_LINES=`grep -v $BRACE_LINE internal.info | grep -c "^DA:"`
