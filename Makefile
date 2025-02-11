@@ -157,13 +157,6 @@ install:
 		done ;  \
 	done
 	mkdir -p $(SHARE_INST_DIR)
-	for d in example tests ; do \
-		( cd $$d ; make clean ) ; \
-		find $$d -type d -exec mkdir -p "$(SHARE_INST_DIR)/{}" \; ; \
-		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_INST_DIR)/{}" \; ; \
-	done ;
-	@chmod -R ugo+x $(SHARE_INST_DIR)/tests/bin
-	@find $(SHARE_INST_DIR)/tests \( -name '*.sh' -o -name '*.pl' \) -exec chmod ugo+x {} \;
 	$(INSTALL) -d -m 755 $(CFG_INST_DIR)
 	$(call echocmd,"  INSTALL $(CFG_INST_DIR)/lcovrc")
 	$(INSTALL) -m 644 lcovrc $(CFG_INST_DIR)/lcovrc
@@ -193,7 +186,7 @@ uninstall:
 	rmdir --ignore-fail-on-non-empty $(MAN_INST_DIR)/man5 || true
 	rmdir --ignore-fail-on-non-empty $(MAN_INST_DIR)/man1 || true
 	rmdir --ignore-fail-on-non-empty $(MAN_INST_DIR) || true
-	$(RM) -rf $(SHARE_INST_DIR)
+	rmdir --ignore-fail-on-non-empty $(SHARE_INST_DIR) || true
 	$(call echocmd,"  UNINST  $(CFG_INST_DIR)/lcovrc")
 	$(RM) -f $(CFG_INST_DIR)/lcovrc
 	rmdir --ignore-fail-on-non-empty $(CFG_INST_DIR) || true
