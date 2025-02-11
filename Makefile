@@ -49,7 +49,7 @@ CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/bin
 LIB_DIR := $(PREFIX)/lib/lcov
 MAN_DIR := $(PREFIX)/share/man
-SHARE_DIR := $(PREFIX)/share/lcov/
+SHARE_DIR := $(PREFIX)/share/lcov
 SCRIPT_DIR := $(SHARE_DIR)/support-scripts
 
 CFG_INST_DIR := $(DESTDIR)$(CFG_DIR)
@@ -159,8 +159,8 @@ install:
 	mkdir -p $(SHARE_INST_DIR)
 	for d in example tests ; do \
 		( cd $$d ; make clean ) ; \
-		find $$d -type d -exec mkdir -p "$(SHARE_INST_DIR){}" \; ; \
-		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_INST_DIR){}" \; ; \
+		find $$d -type d -exec mkdir -p "$(SHARE_INST_DIR)/{}" \; ; \
+		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_INST_DIR)/{}" \; ; \
 	done ;
 	@chmod -R ugo+x $(SHARE_INST_DIR)/tests/bin
 	@find $(SHARE_INST_DIR)/tests \( -name '*.sh' -o -name '*.pl' \) -exec chmod ugo+x {} \;
