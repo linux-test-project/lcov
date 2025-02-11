@@ -180,14 +180,20 @@ uninstall:
 		$(call echocmd,"  UNINST  $(SCRIPT_INST_DIR)/$$s")  \
 		$(RM) -f $(SCRIPT_INST_DIR)/$$s ; \
 	done
-	rmdir --ignore-fail-on-non-empty $(SCRIPT_INST_DIR)
+	rmdir --ignore-fail-on-non-empty $(SCRIPT_INST_DIR) || true
 	for l in $(LIBS) ; do \
 		$(call echocmd,"  UNINST  $(LIB_INST_DIR)/$$l") \
 		$(RM) -f $(LIB_INST_DIR)/$$l ; \
 	done
 	rmdir --ignore-fail-on-non-empty $(LIB_INST_DIR) || true
-	rmdir `dirname $(LIB_INST_DIR)` || true
-	rm -rf `dirname $(SHARE_INST_DIR)`
+	for m in $(MANPAGES) ; do \
+		$(call echocmd,"  UNINST  $(MAN_INST_DIR)/$$m") \
+		$(RM) -f $(MAN_INST_DIR)/$$m ; \
+	done
+	rmdir --ignore-fail-on-non-empty $(MAN_INST_DIR)/man5 || true
+	rmdir --ignore-fail-on-non-empty $(MAN_INST_DIR)/man1 || true
+	rmdir --ignore-fail-on-non-empty $(MAN_INST_DIR) || true
+	$(RM) -rf $(SHARE_INST_DIR)
 	$(call echocmd,"  UNINST  $(CFG_INST_DIR)/lcovrc")
 	$(RM) -f $(CFG_INST_DIR)/lcovrc
 	rmdir --ignore-fail-on-non-empty $(CFG_INST_DIR) || true
