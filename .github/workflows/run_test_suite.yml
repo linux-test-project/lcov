@@ -36,11 +36,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runs-on: ubuntu-20.04
-            gcc: 7
-            install: g++-7 gcc-7 cpp-7
-          # GCC 4 to 8 are assumed to behave "the same",
-          # so we are skipping GCC 8 here to save CI resources
           - runs-on: ubuntu-24.04
             gcc: 9
             install: g++-9 gcc-9 cpp-9
