@@ -111,13 +111,6 @@ jobs:
           make install PREFIX=/usr CFG_DIR=/etc DESTDIR="${PWD}/ROOT"
           find ROOT/ | sort | xargs -r ls -ld
 
-      - name: make uninstall
-        run: |-
-          set -x -o pipefail
-          make uninstall PREFIX=/usr CFG_DIR=/etc DESTDIR="${PWD}/ROOT"
-          find ROOT/ | sort | xargs -r ls -ld
-          diff -u0 <(echo 'total 0') <(ls -l ROOT/)  # i.e. fail CI if leftovers
-
       - name: make check
         run: |-
           set -x -o pipefail

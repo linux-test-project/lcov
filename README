@@ -73,7 +73,7 @@ Further README contents
   man                - Directory containing man pages for included tools
   example            - Directory containing an example to demonstrate LCOV
   tests              - Directory containing lcov regression tests
-  Makefile           - Makefile providing 'install' and 'uninstall' targets
+  Makefile           - Makefile providing 'install', 'check' and other targets
 
 
 2. Installing LCOV

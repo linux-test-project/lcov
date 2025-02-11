@@ -3,7 +3,6 @@
 #
 # Make targets:
 #   - install:   install LCOV tools and man pages on the system
-#   - uninstall: remove tools and man pages from the system
 #   - dist:      create files required for distribution, i.e. the lcov.tar.gz
 #                and the lcov.rpm file. Just make sure to adjust the VERSION
 #                and RELEASE variables below - both version and date strings
@@ -93,14 +92,13 @@ else
 .SILENT:
 endif
 
-.PHONY: all info clean install uninstall rpms test
+.PHONY: all info clean install rpms test
 
 all: info
 
 info:
 	@echo "Available make targets:"
 	@echo "  install   : install binaries and man pages in DESTDIR (default /)"
-	@echo "  uninstall : delete binaries and man pages from DESTDIR (default /)"
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
 	@echo "  check     : perform self-tests"
 	@echo "  checkstyle: check source files for coding style issues"
@@ -168,30 +166,6 @@ install:
 	$(call echocmd,"  INSTALL $(CFG_INST_DIR)/lcovrc")
 	$(INSTALL) -m 644 lcovrc $(CFG_INST_DIR)/lcovrc
 	$(call echocmd,"  done INSTALL")
-
-
-uninstall:
-	for b in $(EXES) ; do \
-		$(call echocmd,"  UNINST  $(BIN_INST_DIR)/$$b") \
-		$(RM) -f $(BIN_INST_DIR)/$$b ; \
-	done
-	rmdir --ignore-fail-on-non-empty $(BIN_INST_DIR) || true
-	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  UNINST  $(SCRIPT_INST_DIR)/$$s")  \
-		$(RM) -f $(SCRIPT_INST_DIR)/$$s ; \
-	done
-	rmdir --ignore-fail-on-non-empty $(SCRIPT_INST_DIR)
-	for l in $(LIBS) ; do \
-		$(call echocmd,"  UNINST  $(LIB_INST_DIR)/$$l") \
-		$(RM) -f $(LIB_INST_DIR)/$$l ; \
-	done
-	rmdir --ignore-fail-on-non-empty $(LIB_INST_DIR) || true
-	rmdir `dirname $(LIB_INST_DIR)` || true
-	rm -rf `dirname $(SHARE_INST_DIR)`
-	$(call echocmd,"  UNINST  $(CFG_INST_DIR)/lcovrc")
-	$(RM) -f $(CFG_INST_DIR)/lcovrc
-	rmdir --ignore-fail-on-non-empty $(CFG_INST_DIR) || true
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(PREFIX) || true
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
