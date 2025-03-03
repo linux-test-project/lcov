@@ -74,16 +74,17 @@ EXES = \
 #   any of their names
 SCRIPTS = $(shell ls scripts | grep -v -E '([\#\~]|\.orig|\.bak|\.BAK)' )
 LIBS = lcovutil.pm
+MAN_SECTIONS = 1 5
 # similarly, lets not talk about man pages
-MANPAGES = $(foreach m, $(shell cd man ; ls *.1), man1/$(m)) \
-	$(foreach m, $(shell cd man ; ls *.5), man5/$(m))
+MANPAGES = $(foreach s, $(MAN_SECTIONS), $(foreach m, $(shell cd man ; ls *.$(s)), man$(s)/$(m)))
 
 # Program for checking coding style
 CHECKSTYLE = $(CURDIR)/bin/checkstyle.sh
 
 INSTALL = install
 FIX = $(realpath bin/fix.pl)
-RM = rm
+RM = rm -f
+RMDIR = rmdir
 
 export V
 ifeq ("${V}","1")
@@ -109,8 +110,8 @@ info:
 
 clean:
 	$(call echocmd,"  CLEAN   lcov")
-	$(RM) -f lcov-*.tar.gz lcov-*.rpm
-	$(RM) -rf ./bin/__pycache__
+	$(RM) lcov-*.tar.gz lcov-*.rpm
+	$(RM) -r ./bin/__pycache__
 	$(MAKE) -C example -s clean
 	$(MAKE) -C tests -s clean
 	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
@@ -144,7 +145,7 @@ install:
 		       --fixver --fixlibdir --fixbindir \
 		       --exec $(LIB_INST_DIR)/$$l ; \
 	done
-	for section in 1 5 ; do \
+	for section in $(MAN_SECTIONS) ; do \
 		DEST=$(MAN_INST_DIR)/man$$section ; \
 		$(INSTALL) -d -m 755 $$DEST ; \
 		for m in man/*.$$section ; do  \
@@ -173,32 +174,42 @@ install:
 uninstall:
 	for b in $(EXES) ; do \
 		$(call echocmd,"  UNINST  $(BIN_INST_DIR)/$$b") \
-		$(RM) -f $(BIN_INST_DIR)/$$b ; \
+		$(RM) $(BIN_INST_DIR)/$$b ; \
 	done
-	rmdir --ignore-fail-on-non-empty $(BIN_INST_DIR) || true
-	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  UNINST  $(SCRIPT_INST_DIR)/$$s")  \
-		$(RM) -f $(SCRIPT_INST_DIR)/$$s ; \
+	$(RMDIR) $(BIN_INST_DIR) || true
+	# .../lib/lcov installed by us - so safe to remove
+	$(call echocmd,"  UNINST  $(LIB_INST_DIR)")
+	$(RM) -r $(LIB_INST_DIR)
+	$(call echocmd,"  UNINST  $(shell dirname $(LIB_INST_DIR)) (if empty)")
+	$(RMDIR) `dirname $(LIB_INST_DIR)` || true
+	# .../share/lcov installed by us - so safe to remove
+	$(call echocmd,"  UNINST  $(SHARE_INST_DIR)")
+	$(RM) -r $(SHARE_INST_DIR)
+	$(call echocmd,"  UNINST  $(MAN_INST_DIR) pages")
+	for section in $(MAN_SECTIONS) ; do \
+		DEST=$(MAN_INST_DIR)/man$$section ; \
+		for m in man/*.$$section ; do  \
+			F=`basename $$m` ; \
+			$(RM) $$DEST/$$F ; \
+		done ;  \
+		$(RMDIR) $$DEST || true; \
 	done
-	rmdir --ignore-fail-on-non-empty $(SCRIPT_INST_DIR)
-	for l in $(LIBS) ; do \
-		$(call echocmd,"  UNINST  $(LIB_INST_DIR)/$$l") \
-		$(RM) -f $(LIB_INST_DIR)/$$l ; \
-	done
-	rmdir --ignore-fail-on-non-empty $(LIB_INST_DIR) || true
-	rmdir `dirname $(LIB_INST_DIR)` || true
-	rm -rf `dirname $(SHARE_INST_DIR)`
+	$(call echocmd,"  UNINST $(MAN_INST_DIR) (if empty)")
+	$(RMDIR) $(MAN_INST_DIR) || true;
+	$(call echocmd,"  UNINST $(shell dirname $(SHARE_INST_DIR)) (if empty)")
+	$(RMDIR) `dirname $(SHARE_INST_DIR)`
 	$(call echocmd,"  UNINST  $(CFG_INST_DIR)/lcovrc")
-	$(RM) -f $(CFG_INST_DIR)/lcovrc
-	rmdir --ignore-fail-on-non-empty $(CFG_INST_DIR) || true
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(PREFIX) || true
+	$(RM) $(CFG_INST_DIR)/lcovrc
+	$(RMDIR) $(CFG_INST_DIR) || true
+	$(call echocmd,"  UNINST  $(DESTDIR)/$(PREFIX)")
+	$(RMDIR) $(DESTDIR)$(PREFIX) || true
 
 dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
       lcov-$(VERSION)-$(RELEASE).src.rpm
 
 lcov-$(VERSION).tar.gz: $(FILES)
 	$(call echocmd,"  DIST    lcov-$(VERSION).tar.gz")
-	$(RM) -rf $(TMP_DIR)/lcov-$(VERSION)
+	$(RM) -r $(TMP_DIR)/lcov-$(VERSION)
 	mkdir -p $(TMP_DIR)/lcov-$(VERSION)
 	cp -r $(DIST_CONTENT) $(TMP_DIR)/lcov-$(VERSION)
 	./bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
@@ -214,7 +225,7 @@ lcov-$(VERSION).tar.gz: $(FILES)
 	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION) \
 	    --owner root --group root
 	mv $(TMP_DIR)/lcov-$(VERSION).tar.gz .
-	rm -rf $(TMP_DIR)
+	$(RM) -r $(TMP_DIR)
 
 lcov-$(VERSION)-$(RELEASE).noarch.rpm: rpms
 lcov-$(VERSION)-$(RELEASE).src.rpm: rpms
@@ -239,7 +250,7 @@ rpms: lcov-$(VERSION).tar.gz
 	mv $(TMP_DIR)/RPMS/noarch/lcov-$(VERSION)-$(RELEASE).noarch.rpm .
 	$(call echocmd,"  DIST    lcov-$(VERSION)-$(RELEASE).src.rpm")
 	mv $(TMP_DIR)/SRPMS/lcov-$(VERSION)-$(RELEASE).src.rpm .
-	rm -rf $(TMP_DIR)
+	$(RM) -r $(TMP_DIR)
 
 ifeq ($(COVERAGE), 1)
 # write to .../tests/cover_db
