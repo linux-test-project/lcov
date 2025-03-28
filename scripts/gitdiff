@@ -2,6 +2,7 @@
 
 use Getopt::Long;
 use strict;
+use Cwd /realpath/;
 
 my $verbose = 0;
 
@@ -39,18 +40,20 @@ my @include_patterns;
 my $suppress_unchanged;
 my $prefix = '';
 my $ignore_whitespace;
+my $repo = '.';    # cwd
 
 if (!GetOptions("exclude=s"    => \@exclude_patterns,
                 "include=s"    => \@include_patterns,
                 'no-unchanged' => \$suppress_unchanged,
                 'prefix=s'     => \$prefix,
                 'b|blank'      => \$ignore_whitespace,
+                'repo=s'       => \$repo,
                 'verbose+'     => \$verbose) ||
     (2 != scalar(@ARGV) &&
         3 != scalar(@ARGV))
 ) {
     print(STDERR
-            "usage: [(--exclude|include) regexp[,regexp]] [-b] [dir] base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n"
+            "usage: [(--exclude|include) regexp[,regexp]] [--repo repo] [-b] [dir] base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n"
     );
     exit(1);
 }
@@ -71,7 +74,6 @@ if ($verbose) {
 }
 
 $prefix .= '/' if $prefix;
-my $cmd;
 if (3 == scalar(@ARGV)) {
     my $dir = shift @ARGV;
     push(@include_patterns, "$dir");
@@ -79,7 +81,9 @@ if (3 == scalar(@ARGV)) {
 my $base_sha    = shift @ARGV;
 my $current_sha = shift @ARGV;
 
-$cmd = "git diff $ignore_whitespace $base_sha $current_sha";
+$repo = Cwd::realpath($repo);
+
+my $cmd = "cd $repo ; git diff $ignore_whitespace $base_sha $current_sha";
 
 open(HANDLE, "-|", $cmd) or
     die("failed to exec git diff: $!");
@@ -104,8 +108,10 @@ while (<HANDLE>) {
         $includeCurrentFile =
             (include_me($fileA, \@include_patterns, \@exclude_patterns) ||
              include_me($fileB, \@include_patterns, \@exclude_patterns));
-        $allFiles{$fileB} = $fileA
-            if ($includeCurrentFile);
+        if ($includeCurrentFile) {
+            $allFiles{$fileB} = $fileA;
+            $line =~ s/($fileA|$fileB)/$1/g;
+        }
     }
 
     printf("%s\n", $line)
@@ -119,19 +125,17 @@ if (0 != $?) {
 
 exit 0 if defined($suppress_unchanged);
 
-my $p = `git rev-parse --show-prefix`;
-chomp $p;
-
 # now find the list of files in the current SHA - we can process that
 #  to find the list of all current files which were unchanged since the
 #  baseline SHA
 die("failed to exec git ls-tree")
-    unless (open(HANDLE, "-|", "git ls-tree -r --name-only $current_sha"));
+    unless (
+      open(HANDLE, "-|", "cd $repo ; git ls-tree -r --name-only $current_sha"));
 
 while (<HANDLE>) {
     chomp($_);
     s/\r//g;
-    my $filename = $p . $_;
+    my $filename = $repo . '/' . $_;
     my $path     = $prefix . $filename;
     if (!exists($allFiles{$path}) &&
         include_me($path, \@include_patterns, \@exclude_patterns)) {

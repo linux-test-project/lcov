@@ -3479,7 +3479,7 @@ sub new
 {
     my $class = shift;
     my $self = [{},          # linemap
-                {},          # filemap
+                {},          # filemap: new_filename->old_filename
                 {},          # baseline: filename -> baseline lineno -> text
                 undef,       # diff filename
                 [{}, {}],    # def location
@@ -3497,10 +3497,11 @@ sub load
     my ($self, $path, $info, $buildDirs) = @_;
     $self->_read_udiff($path);
 
+    # find list of soft links in [buildDirs] which may point to files in $info
+    #  we need to keep all the aliases as there may be files in baseline
+    #  which are not in current
     if (@$buildDirs) {
-        # find list of soft links in [buildDirs] which point to files in $info
         my @stack = @$buildDirs;
-        my %alias;
         while (@stack) {
             my $dir = pop(@stack);
             die("unexpected non-directory '$dir'") unless -d $dir;
@@ -3515,7 +3516,10 @@ sub load
                     push(@stack, $path);
                 } elsif (-l $path) {
                     my $l = Cwd::realpath($path);
-                    $alias{$path} = $l if (-f $l);
+                    next if (!-e $l || TraceFile::skipCurrentFile($l));
+                    # may need to turn $l into relative path??
+                    $self->[ALIASES]->{$path} = $l if (-f $l);
+                    #lcovutil::info("add alias '$path' -> '$l'\n");
                     # really, this should be a file...
                     die("unexpected soft link $path to directory")
                         unless -f $l;
@@ -3523,17 +3527,6 @@ sub load
                 # else just ignore file entry
             }
             closedir($dh);
-        }
-        # now look through list of filenames in the current .info file, and see
-        #  if any match the soft links found above
-        foreach my $f ($info->files()) {
-            my $path = $f;
-            $path = File::Spec->catfile($main::cwd, $f)
-                unless File::Spec->file_name_is_absolute($f);
-            if (exists($alias{$path})) {
-                #lcovutil::info("found alias $alias{$path} of $f\n");
-                $self->[ALIASES]->{$path} = $alias{$path};
-            }
         }
     }
     return $self;
@@ -3772,20 +3765,23 @@ sub check_path_consistency
     # That is:  files whose version differs should appear in the diff data
     $self->check_version_match($baseline, $current);
 
-    my %diffMap;
-    my %diffBaseMap;
+    my %diffMap;        # current_filename -> where_used
+    my %diffBaseMap;    # current_directory -> []
+                        # for every 'current' filename in the udiff file
     foreach my $f ($self->files()) {
-        $diffMap{$f} = 0;
+        $diffMap{$f} = 0;    # this file not used in baseline or current (yet)
         my $b = File::Basename::basename($f);
         $diffBaseMap{$b} = [[], {}]
             unless exists($diffBaseMap{$b});
         push(@{$diffBaseMap{$b}->[0]}, $f);
     }
+    # foreach unchanged file in udiff data
     foreach my $f (keys %{$self->[UNCHANGED]}) {
         # unchanged in baseline and current
         $diffMap{$f} = 3;
     }
     my %missed;
+    # for each file in 'current' info:
     foreach my $curr ($current->files()) {
         my $b = File::Basename::basename($curr);
         if ($self->containsFile($curr)) {
@@ -3796,10 +3792,12 @@ sub check_path_consistency
             $diffBaseMap{$b}->[1]->{$alias} = 0
                 unless exists($diffBaseMap{$b}->[1]->{$alias});
             ++$diffBaseMap{$b}->[1]->{$alias};
-        } else {
+        } elsif (!exists($self->[UNCHANGED]->{$self->findName($curr)})) {
             $missed{$curr} = 1;       # in current but not in diff
+            #lcovutil::info("missed curr: $curr\n");
         }
     }
+    # for each file in 'baseline' info:
     foreach my $base ($baseline->files()) {
         my $b = File::Basename::basename($base);
         if ($self->containsFile($base)) {
@@ -3810,8 +3808,9 @@ sub check_path_consistency
             $diffBaseMap{$b}->[1]->{$alias} = 0
                 unless exists($diffBaseMap{$b}->[1]->{$alias});
             ++$diffBaseMap{$b}->[1]->{$alias};
-        } else {
+        } elsif (!exists($self->[UNCHANGED]->{$self->findName($base)})) {
             # in baseline but not in diff
+            #lcovutil::info("missed base: $base\n");
             if (exists($missed{$base})) {
                 $missed{$base} |= 2;
             } else {
@@ -3822,45 +3821,46 @@ sub check_path_consistency
     my $ok = 1;
     foreach my $f (sort keys(%missed)) {
         my $b = File::Basename::basename($f);
-        if (exists($diffBaseMap{$b})) {
-            # this basename is in the diff file and didn't match any other
-            #   trace filename entry (i.e., same filename in more than one
-            #   source code directory) - then warn about possible pathname issue
-            my ($diffFiles, $sourceFiles) = @{$diffBaseMap{$b}};
-            # find the files which appear in the 'diff' list which have the
-            #   same basename and were not matched - those might be candidates
-            my @unused;
-            for my $d (@$diffFiles) {
-                # my $location = $self->[DIFF_FILENAME] . ':' . $self->[LOCATION]->[NEW]->{$d};
-                push(@unused, $d)
-                    unless exists($sourceFiles->{$d});
-            }
-            if (scalar(@unused)) {
-                my $type;
+        next unless exists($diffBaseMap{$b});
 
-                # my $baseData = $baseline->data($f);
-                # my $baseLocation = join(":", ${$baseData->location()});
-                # my $currData = $current->data($f);
-                # my $currLocation = join(":", ${$currData->location()});
+        # this basename is in the diff file and didn't match any other
+        #   trace filename entry (i.e., same filename in more than one
+        #   source code directory) - then warn about possible pathname issue
+        my ($diffFiles, $sourceFiles) = @{$diffBaseMap{$b}};
+        # find the files which appear in the 'diff' list which have the
+        #   same basename and were not matched - those might be candidates
+        my @unused;
+        for my $d (@$diffFiles) {
+            # my $location = $self->[DIFF_FILENAME] . ':' . $self->[LOCATION]->[NEW]->{$d};
+            push(@unused, $d)
+                unless exists($sourceFiles->{$d});
+        }
+        next unless @unused;
 
-                if (2 == $missed{$f}) {
-                    $type = "baseline";
-                } elsif (1 == $missed{$f}) {
-                    $type = "current";
-                } else {
-                    $type = "both baseline and current";
-                }
-                my $single = 1 == scalar(@unused);
-                # @todo could print line numbers in baseline, current .info files and
-                #   in diff file ..
-                if (lcovutil::warn_once($lcovutil::ERROR_MISMATCH, $f)) {
-                    my $suffix =
-                        $main::elide_path_mismatch ? ' (elided)' :
-                        lcovutil::explain_once(
-                        'elide-path-mismatch',
-                        '  Perhaps see "--elide-path-mismatch", "--substitute" and "--build-directory" options in \'man '
-                            . $lcovutil::tool_name . '\'');
-                    lcovutil::ignorable_warning(
+        # my $baseData = $baseline->data($f);
+        # my $baseLocation = join(":", ${$baseData->location()});
+        # my $currData = $current->data($f);
+        # my $currLocation = join(":", ${$currData->location()});
+
+        my $type;
+        if (2 == $missed{$f}) {
+            $type = "baseline";
+        } elsif (1 == $missed{$f}) {
+            $type = "current";
+        } else {
+            $type = "both baseline and current";
+        }
+        my $single = 1 == scalar(@unused);
+        # @todo could print line numbers in baseline, current .info files and
+        #   in diff file ..
+        if (lcovutil::warn_once($lcovutil::ERROR_MISMATCH, $f)) {
+            my $suffix =
+                $main::elide_path_mismatch ? ' (elided)' :
+                lcovutil::explain_once(
+                'elide-path-mismatch',
+                '  Perhaps see "--elide-path-mismatch", "--substitute" and "--build-directory" options in \'man '
+                    . $lcovutil::tool_name . '\'');
+            lcovutil::ignorable_warning(
                                        $lcovutil::ERROR_MISMATCH,
                                        "source file '$f' (in $type .info file" .
                                            ($missed{$f} == 3 ? "s" : "") .
@@ -3874,16 +3874,14 @@ sub check_path_consistency
                                            ($single ? "  " : "\n\t") .
                                            'Possible pathname mismatch?' .
                                            $suffix);
-                }
-                if ($main::elide_path_mismatch &&
-                    $missed{$f} == 3 &&
-                    $single) {
-                    $self->[FILEMAP]->{$f} = $f;
-                    $self->[LINEMAP]->{$f} = $self->[LINEMAP]->{$unused[0]};
-                } else {
-                    $ok = 0;
-                }
-            }
+        }
+        if ($main::elide_path_mismatch &&
+            $missed{$f} == 3 &&
+            $single) {
+            $self->[FILEMAP]->{$f} = $f;
+            $self->[LINEMAP]->{$f} = $self->[LINEMAP]->{$unused[0]};
+        } else {
+            $ok = 0;
         }
     }
     return $ok;
