@@ -51,6 +51,9 @@ geninfo \- Generate tracefiles from GCOV coverage data files
 .RB [ \-\-parallel | -j
 .IR [integer] ]
 .br
+.br [ \-\-large\-file
+.IR regexp ]
+.br
 .RB [ \-\-memory
 .IR integer_num_Mb ]
 .br
@@ -1299,6 +1302,13 @@ generated:  host, date, environment,
 .RS
 Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is not to use a single process (no parallelism).
 
+The
+.I \-\large\-file
+option described below may be necessary to enable parallelism to succeed
+in the presence of data files which consume excessive memory in
+.B gcov.
+
+
 Also see the
 .I memory, memory_percentage, max_fork_fails, fork_fail_timeout, geninfo_chunk_size
 and
@@ -1306,6 +1316,24 @@ and
 entries in man
 .B lcovrc(5)
 for a description of some options which may aid in parameter tuning and performance optimization.
+
+.RE
+.BI "\-\-large\-file "
+.I regexp
+.RS
+
+GCDA files whose name matches a
+.I \-\-large\-file
+regexp are processed serially - not in parallel with other files - so that
+their
+.B gcov
+process can use all available system memory.
+.br
+Use this option is you see errors related to memory allocation from gcov.
+.br
+This feature is exactly as if you had moved the matching GCDA files to another location and processed them serially, then processed remaining GDCA files in parallel and merged the results.
+
+This option may be used multiple times to specify more than one regexp.
 
 .RE
 .BI "\-\-memory "

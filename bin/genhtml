@@ -3794,7 +3794,6 @@ sub check_path_consistency
             ++$diffBaseMap{$b}->[1]->{$alias};
         } elsif (!exists($self->[UNCHANGED]->{$self->findName($curr)})) {
             $missed{$curr} = 1;       # in current but not in diff
-            #lcovutil::info("missed curr: $curr\n");
         }
     }
     # for each file in 'baseline' info:
@@ -3810,7 +3809,6 @@ sub check_path_consistency
             ++$diffBaseMap{$b}->[1]->{$alias};
         } elsif (!exists($self->[UNCHANGED]->{$self->findName($base)})) {
             # in baseline but not in diff
-            #lcovutil::info("missed base: $base\n");
             if (exists($missed{$base})) {
                 $missed{$base} |= 2;
             } else {

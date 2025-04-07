@@ -222,6 +222,7 @@ our $intervalChildCpuTime = 0;    # since last updata
 our $defaultChunkSize;
 our $defaultInterval;
 our %childRetryCounts;
+our @large_files;
 
 our $cwd = getcwd();
 chomp($cwd);
@@ -255,7 +256,8 @@ my %geninfo_opts = ("test-name|t=s"       => \$test_name,
                     "derive-func-data"    => \$opt_derive_func_data,
                     "external|e"          => \$lcovutil::opt_external,
                     "no-external"         => \$lcovutil::opt_no_external,
-                    "compat=s"            => \$lcovutil::geninfo_opt_compat,);
+                    "compat=s"            => \$lcovutil::geninfo_opt_compat,
+                    'large-file=s'        => \@large_files);
 
 # Parse command line options
 if (!lcovutil::parseOptions(\%lcovutil::geninfo_rc_opts, \%geninfo_opts,
@@ -267,6 +269,12 @@ if (!lcovutil::parseOptions(\%lcovutil::geninfo_rc_opts, \%geninfo_opts,
 $buildDirSearchPath =
     SearchPath->new('build directory', @lcovutil::build_directory);
 @gcov_tool = @lcovutil::rc_gcov_tool unless @gcov_tool;
+
+eval {
+    map { qr($_) } @large_files;
+};
+die("invalid 'large-file' regexp: $@")
+    if ($@);
 
 # Check regexp
 if (defined($lcovutil::rc_adjust_src_path)) {
@@ -1065,7 +1073,7 @@ sub _process_one_chunk($$$$)
 
         # "name" will be .gcno if "$initial" else will be $gcda
         my $name = defined($gcda_file) ? $gcda_file : $gcno_file;
-        info(1, "Processing $name%s\n", defined($pid) ? " in child $pid" : "");
+        info(1, "Processing $name%s\n", defined($pid) ? " in child $pid" : "" . "\n");
         my $context = MessageContext->new("capturing from $name");
 
         # multiple gcda files may refer to the same source - so generate the
@@ -1181,6 +1189,19 @@ sub _merge_one_child($$$)
              $lcovutil::max_fork_fails != 0) ||
             $lcovutil::verbose);
     print(STDERR $childErr);
+    # look for spaceout message in the gcov log
+    if (0 == $signal                                &&
+        0 != $childstatus                           &&
+        0 != $lcovutil::max_fork_fails              &&
+        lcovutil::is_ignored($lcovutil::ERROR_FORK) &&
+        grep(
+            { /(std::bad_alloc|annot allocate memory|out of memory|integretity check failed for compressed file)/
+            } ($childLog, $childErr))
+    ) {
+
+        # pretend it was killed so we retry
+        $signal = POSIX::SIGKILL;
+    }
     my $data = Storable::retrieve($dumped)
         if (-f $dumped && 0 == $childstatus);
     # note that $data will not be defined (no data dumped) if there was
@@ -1298,15 +1319,26 @@ sub gen_info(@)
         $chunkSize = 1;
     }
     my @worklist;
-    my $chunk = [];
+    my $serialChunk = [1, []];
+    my $chunk       = [0, []];    # [isSerial, [fileList]]
     foreach my $j (@$filelist) {
-        push(@$chunk, $j);
-        if (scalar(@$chunk) == $chunkSize) {
+        my $filename = $j->[0] . $lcovutil::dirseparator . $j->[1];
+        if (grep({ $filename =~ $_ } @main::large_files)) {
+            lcovutil::info(1, "large file: $filename\n");
+            push(@{$serialChunk->[1]}, $j);
+            next;
+        }
+        push(@{$chunk->[1]}, $j);
+        if (scalar(@{$chunk->[1]}) == $chunkSize) {
             push(@worklist, $chunk);
-            $chunk = [];
+            $chunk = [0, []];
         }
     }    #foreach DATA_FILE
-    push(@worklist, $chunk) if @$chunk;
+    push(@worklist, $chunk) if @{$chunk->[1]};
+    # serial chunk is at the top of the stack - so serial processing
+    #  happens before we fork multiple processes
+    push(@worklist, $serialChunk)
+        if (@{$serialChunk->[1]});
 
     # Process all files in list
     my $currentParallel = 0;
@@ -1342,7 +1374,8 @@ sub gen_info(@)
             my $chunk = pop(@worklist);
             ++$processedChunks;
 
-            if (1 < $lcovutil::maxParallelism) {
+            if (1 < $lcovutil::maxParallelism &&
+                1 != $chunk->[0]) {
 
                 my $currentSize = 0;
                 if (0 != $lcovutil::maxMemory) {
@@ -1410,8 +1443,8 @@ sub gen_info(@)
                     my ($stdout, $stderr, $code) = Capture::Tiny::capture {
                         eval {
                             $childInfo =
-                                _process_one_chunk($chunk, $processedChunks,
-                                                   $childInfo, $$);
+                                _process_one_chunk($chunk->[1],
+                                              $processedChunks, $childInfo, $$);
                         };
                         if ($@) {
                             $status = 1;         # error
@@ -1458,12 +1491,14 @@ sub gen_info(@)
                         #  there is no childInfo data
                         $data =
                             Storable::store(
-                                      [$single_file ? $childInfo : undef,
-                                       $buildDirCounts,
-                                       [$files_created, scalar(@$chunk), $then],
-                                       lcovutil::compute_update($currentState)
-                                      ],
-                                      $dumpf) if defined($childInfo);
+                                       [$single_file ? $childInfo : undef,
+                                        $buildDirCounts,
+                                        [$files_created, scalar(@{$chunk->[1]}),
+                                         $then
+                                        ],
+                                        lcovutil::compute_update($currentState)
+                                       ],
+                                       $dumpf) if defined($childInfo);
                     };
                     if ($@ || (defined($childInfo) && !defined($data))) {
                         lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
@@ -1477,12 +1512,24 @@ sub gen_info(@)
                 }
             } else {
                 # not parallel..
+                my $saveParallel = $lcovutil::maxParallelism;
+                $lcovutil::maxParallelism = 1;
+                if ($chunk->[0]) {
+                    my $num = scalar(@{$chunk->[1]});
+                    lcovutil::info("Processing $num file" .
+                                   ($num == 1 ? '' : 's') .
+                                   " from chunk 0 serially\n");
+                }
                 my $now = Time::HiRes::gettimeofday();
                 $trace_data =
-                    _process_one_chunk($chunk, $processedChunks, $trace_data,
-                                       undef);
-                $processedFiles += scalar(@$chunk);
+                    _process_one_chunk($chunk->[1], $processedChunks,
+                                       $trace_data, undef);
+                $processedFiles += scalar(@{$chunk->[1]});
+                if ($chunk->[0]) {
+                    lcovutil::info("Finished processing chunk 0\n");
+                }
                 my $then = Time::HiRes::gettimeofday();
+                $lcovutil::maxParallelism = $saveParallel;
                 $lcovutil::profileData{process}{$processedChunks} =
                     $then - $now;
             }
@@ -1975,7 +2022,8 @@ sub compute_internal_directories(@)
             my $t = Cwd::realpath($top);
             die("expected directory found '$t'") unless -d $t;
             unless (exists($visited{$t})) {
-                lcovutil::info("internal: target '$t' of link '$top'\n");
+                lcovutil::info(1,
+                            "internal directory: target '$t' of link '$top'\n");
                 $visited{$t} = $top;
                 push(@dirstack, $t);
                 push(@lcovutil::internal_dirs, $t)
@@ -2836,11 +2884,22 @@ sub process_intermediate($$$$)
             (0 != $rc ||
              $lcovutil::verbose));
 
+    my $gcovOutGlobPattern =
+        "$tempdir/*.gcov $tempdir/.*.gcov $tempdir/*.gcov.json.gz $tempdir/.*gcov.json.gz";
+
     if (0 != $rc) {
         if (check_gcov_fail($err, $file)) {
             return;
         }
         $errmsg = "GCOV failed for $file";
+        # can parse the error log to see if it spaced out - then return
+        # code so parent can catch it
+        if ($err =~ /out of memory allocating/) {
+            lcovutil::info("spaceout calling gcov for '$data_file'\n");
+            $errmsg .= ' out of memory';
+            $errorType = $lcovutil::ERROR_CHILD
+                if 1 != $lcovutil::maxParallelism;
+        }
         goto err;
     }
 
@@ -2853,22 +2912,32 @@ sub process_intermediate($$$$)
     # 'meson' build system likes to use "." as leading character in generated
     # files.  Seems an unfortunate decision.
     my $start = Time::HiRes::gettimeofday();
-    for my $gcov_filename (
-        glob(
-            "$tempdir/*.gcov $tempdir/.*.gcov $tempdir/*.gcov.json.gz $tempdir/.*gcov.json.gz"
-        )
-    ) {
-        if ($gcov_filename =~ /\.gcov\.json/) {
-            read_intermediate_json($gcov_filename, \%data, \$json_basedir);
-            $json_format = 1;
-        } else {
-            read_intermediate_text($gcov_filename, \%data);
-        }
-        if ($lcovutil::preserve_intermediates) {
-            File::Copy::move($gcov_filename, $fdir) or
-                die("cannot rename $gcov_filename: $!");
-        } else {
-            unlink($gcov_filename);
+    for my $gcov_filename (glob($gcovOutGlobPattern)) {
+        eval {
+            if ($gcov_filename =~ /\.gcov\.json/) {
+                read_intermediate_json($gcov_filename, \%data, \$json_basedir);
+                $json_format = 1;
+            } else {
+                read_intermediate_text($gcov_filename, \%data);
+            }
+            if ($lcovutil::preserve_intermediates) {
+                File::Copy::move($gcov_filename, $fdir) or
+                    die("cannot rename $gcov_filename: $!");
+            } else {
+                unlink($gcov_filename);
+            }
+        };
+        if ($@) {
+            if (1 != $lcovutil::maxParallelism &&
+                $@ =~ /(integrity check failed|cannot start)/) {
+                # looks like we ran out of memory..
+                # maybe need new error type ERROR_MEMORY
+                #$errorType = $lcovutil::ERROR_GCOV;
+                $errmsg = $@;
+                goto err;
+            } else {
+                die("read_intermediate failed: $@");
+            }
         }
     }
     my $end = Time::HiRes::gettimeofday();
@@ -2915,6 +2984,7 @@ sub process_intermediate($$$$)
     return $trace;
 
     err:
+    unlink(glob($gcovOutGlobPattern));    # clean up - in case gcov died
     ignorable_error($errorType, "$errmsg!");
     return undef;
 }
