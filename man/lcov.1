@@ -1332,6 +1332,13 @@ the gcov tool returned with a non\-zero return code.
 the graph file could not be found or is corrupted.
 .PP
 
+.IP inconsistent: 3
+your coverage data is internally inconsistent:  it makes two or more mutually
+exclusive claims.  For example, some expression is marked as both an exception branch and not an exception branch.  (See man
+.B genhtml(1)
+for more details.
+.PP
+
 .IP internal: 3
 internal tool issue detected.  Please report this bug along with a testcase.
 .PP
