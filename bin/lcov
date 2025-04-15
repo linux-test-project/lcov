@@ -162,6 +162,7 @@ our $compat_libtool;     # If set, indicates that libtool mode is to be enabled
 our $no_compat_libtool;  # If set, indicates that libtool mode is to be disabled
 
 our @gcov_tool;
+our @large_files;        # handled sequentially in geninfo
 our $initial;
 our $captureAll;
 our $no_recursion = 0;
@@ -214,6 +215,7 @@ my %lcov_options = ("directory|d|di=s"     => \@directory,
                     "compat-libtool"       => \$compat_libtool,
                     "no-compat-libtool"    => \$no_compat_libtool,
                     "gcov-tool=s"          => \@gcov_tool,
+                    'large-file=s'         => \@large_files,
 
                     "initial|i"         => \$initial,
                     "all"               => \$captureAll,
@@ -938,6 +940,7 @@ sub lcov_geninfo(@)
                           \@lcovutil::exclude_function_patterns
                          ],
                          ['--filter', \@lcovutil::opt_filter],
+                         ['--large-file', \@large_files],
     ) {
         my ($opt, $l) = @$listOpt;
         foreach my $v (@$l) {

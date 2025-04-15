@@ -91,6 +91,9 @@ Capture coverage data tracefile (from compiler-generated data):
 .RB [ \-\-comment
 .IR comment_string ]
 .br
+.RB [ \-\-large\-file
+.IR regexp ]
+.br
 .RE
 .RE
 
@@ -1176,6 +1179,16 @@ specified at a time.
 .br
 .RS
 Follow links when searching for .da files.
+.RE
+
+.BI "\-\-large\-file "
+.I regexp
+.RS
+See the
+.I \-\-large\-file
+section of man
+.B geninfo(1)
+for details.
 .RE
 
 .B \-\-from\-package
