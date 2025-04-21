@@ -99,6 +99,7 @@ use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  @comments
 
                  $maxParallelism $maxMemory
+                 load_lcovignore @lcovignore
   );
 
 # Directory containing gcov kernel files
@@ -328,6 +329,8 @@ if (!$from_package && !@directory && ($lcovutil::lcov_capture || $reset)) {
 our $exit_code = 0;
 
 my $trace;
+
+load_lcovignore();
 
 eval {
     # Check for requested functionality

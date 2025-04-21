@@ -97,6 +97,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
 
      %tlaColor %tlaTextColor use_vanilla_color %pngChar %pngMap
      %dark_palette %normal_palette parse_w3cdtf
+     load_lcovignore @lcovignore
 );
 
 our @ignore;
@@ -339,6 +340,7 @@ our $EXCL_LINE           = 'LCOV_EXCL_LINE';
 our $EXCL_BR_LINE        = 'LCOV_EXCL_BR_LINE';
 our $EXCL_EXCEPTION_LINE = 'LCOV_EXCL_EXCEPTION_BR_LINE';
 
+our @lcovignore;
 our @exclude_file_patterns;
 our @include_file_patterns;
 our %excluded_files;
@@ -475,6 +477,27 @@ my @deferred_rc_errors;    # ([err|warn, key, string])
 sub set_tool_name($)
 {
     $tool_name = shift;
+}
+
+sub load_lcovignore {
+    my $ignore_file = ".lcovignore";
+    @lcovignore = ();
+    return unless -e $ignore_file;
+
+    my $fh;
+    unless (open($fh, "<", $ignore_file)) {
+        warn "Warning: Cannot open $ignore_file: $!";
+        return;
+    }
+    while (my $line = <$fh>) {
+        chomp $line;
+        next if $line =~ /^\s*#/;       # ignore comments
+        next if $line =~ /^\s*$/;       # ignore empty lines
+        $line =~ s/\./\\./g;
+        $line =~ s/\*/.*/g;
+        push @lcovignore, qr/$line/;
+    }
+    close($fh);
 }
 
 #
@@ -6811,6 +6834,13 @@ sub skipCurrentFile
     }
 
     # check whether this file should be excluded or not...
+    foreach my $pattern (@lcovignore) {
+        if ($filename =~ /$pattern/) {
+            lcovutil::info(1, "exclude $filename: matches .lcovignore pattern '$pattern'\n");
+            return 1;
+        }
+    }
+
     foreach my $p (@lcovutil::exclude_file_patterns) {
         my $pattern = $p->[0];
         if ($filename =~ $pattern) {
