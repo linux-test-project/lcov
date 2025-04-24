@@ -148,7 +148,21 @@ See the OPTIONS section below for details.
 .br
 #
 .br
-
+# include some other config file
+.br
+#   e.g, user-specific options.  Note the environment variable expansion
+.br
+# config_file = $ENV{HOME}/.user_lcovrc
+.br
+#   or project specific - hard-coded from environment variable
+.br
+# config_file = /path/to/myproject/.lcovrc
+.br
+#   or in the current run directory
+.br
+# config_file = $ENV{PWD}/.lcovrc
+.br
+.br
 # External style sheet file
 .br
 #genhtml_css_file = gcov.css
@@ -726,6 +740,44 @@ maximum during parallel processing.
 .PP
 
 .SH OPTIONS
+
+.BR config_file " ="
+.I filename
+.IP
+
+Include another config file.
+
+Inclusion is equivalent to inserting the text from
+.I filename
+at this point in the current file.  As a result, settings from the included
+file are processed after earlier settings in the current file, but before later settings from the current file.
+As a result:
+
+.BR "Scalar options"
+set earlier in the current file are overridden by settings from the included file, and scalar options from the included file are overridden by later setting in the current file.
+
+.BR "Array options"
+from earlier in the current file appear before setting from the included file, and array options from later in the current file appear after.
+
+Config file inclusion is recursive:  an included config file may include another file - and so on.
+Inclusion loops are not supported and will result in a
+.I usage
+error.
+
+The most common usecase for config file inclusion is so that a site-wide or project-wide options file can include a user-specific or module-specific options file - for example, as
+
+.RS 3
+.IP
+ ...
+.br
+config_file = $ENV{HOME}/.lcovrc_user
+.br
+ ...
+.PP
+.RE
+
+
+.PP
 
 .BR genhtml_css_file " ="
 .I filename
