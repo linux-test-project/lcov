@@ -7,6 +7,14 @@
 # Note that this example script does not include all configuration options
 # see 'man lcovrc(5) for a complete list and usage description.
 
+# include some other config file
+#   e.g, user-specific options.  Note the environment variable expansion
+# config_file = $ENV{HOME}/.user_lcovrc
+#   or project specific - hard-coded from environment variable
+# config_file = /path/to/myproject/.lcovrc
+#   or in the current run directory
+# config_file = $ENV{PWD}/.lcovrc
+
 # Specify an external style sheet file (same as --css-file option of genhtml)
 #genhtml_css_file = gcov.css
 

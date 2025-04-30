@@ -1009,57 +1009,6 @@ sub cleanup_callbacks
     }
 }
 
-#
-# apply_config(REF, ref)
-#
-# REF is a reference to a hash containing the following mapping:
-#
-#   key_string => var_ref
-#
-# where KEY_STRING is a keyword and VAR_REF is a reference to an associated
-# variable. If the global configuration hashes CONFIG or OPT_RC contain a value
-# for keyword KEY_STRING, VAR_REF will be assigned the value for that keyword.
-#
-# Return 1 if we set something
-
-sub _set_config($$$)
-{
-    my ($ref, $key, $value) = @_;
-    my $r = $ref->{$key};
-    my $t = ref($r);
-    if ('ARRAY' eq $t) {
-        info(2, "  append $value to list $key\n");
-        if ('ARRAY' eq ref($value)) {
-            push(@$r, @$value);
-        } else {
-            push(@$r, $value);
-        }
-    } else {
-        # opt is a scalar or not defined
-        #  only way for $value to NOT be an array is if there is a bug in
-        #  the caller such that a scalar ref was passed where a prior call
-        #  had passed a list ref for the same RC option name
-        die("unexpected ARRAY for $key value")
-            if ('ARRAY' eq ref($value));
-        $$r = $value;
-        info(2, "  assign $$r to $key\n");
-    }
-}
-
-sub apply_config($$)
-{
-    my ($ref, $config) = @_;
-    my $set_value = 0;
-    foreach (keys(%{$ref})) {
-        # if sufficiently verbose, could mention that key is ignored
-        next unless exists($config->{$_});
-        my $v = $config->{$_};
-        $set_value = 1;
-        _set_config($ref, $_, $v);    # write into options
-    }
-    return $set_value;
-}
-
 # use these list values from the RC file unless the option is
 #   passed on the command line
 my (@rc_filter, @rc_ignore, @rc_exclude_patterns,
@@ -1284,27 +1233,66 @@ sub warnDeprecated
     return $opt_used;
 }
 
-#
-# read_config(filename)
-#
-# Read configuration file FILENAME and return a reference to a hash containing
-# all valid key=value pairs found.
-#
-
-sub read_config($)
+sub _set_config($$$)
 {
-    my $filename = shift;
-    my %result;
+    # write an RC configuration value - array or scalar
+    my ($ref, $key, $value) = @_;
+    my $r = $ref->{$key};
+    my $t = ref($r);
+    if ('ARRAY' eq $t) {
+        info(2, "  append $value to list $key\n");
+        if ('ARRAY' eq ref($value)) {
+            push(@$r, @$value);
+        } else {
+            push(@$r, $value);
+        }
+    } else {
+        # opt is a scalar or not defined
+        #  only way for $value to NOT be an array is if there is a bug in
+        #  the caller such that a scalar ref was passed where a prior call
+        #  had passed a list ref for the same RC option name
+        die("unexpected ARRAY for $key value")
+            if ('ARRAY' eq ref($value));
+        $$r = $value;
+        info(2, "  assign $$r to $key\n");
+    }
+}
+
+#
+# read_config(filename, $optionsHash)
+#
+# Read configuration file FILENAME and write supported key/values into
+#   RC options hash
+# Return: 1 if some config value was set, 0 if not (used for error messaging)
+
+sub read_config($$);    # forward decl, to make perl happy about recursive call
+my %included_config_files;
+my @include_stack;
+
+sub read_config($$)
+{
+    my ($filename, $opts) = @_;
     my $key;
     my $value;
     local *HANDLE;
 
+    my $set_value = 0;
     info(1, "read_config: $filename\n");
+    if (exists($included_config_files{abs_path($filename)})) {
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                                  'config file inclusion loop detected: "' .
+                                      join('" -> "', @include_stack) .
+                                      '" -> "' . $filename . '"');
+        return 0;
+    }
+
     if (!open(HANDLE, "<", $filename)) {
         lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
                               "cannot read configuration file '$filename': $!");
-        return undef;
+        return 0;    # didn't set anything
     }
+    $included_config_files{abs_path($filename)} = 1;
+    push(@include_stack, $filename);
     VAR: while (<HANDLE>) {
         chomp;
         # Skip comments
@@ -1337,15 +1325,15 @@ sub read_config($)
         }
         if (defined($key) && defined($value)) {
             info(2, "  set: $key = $value\n");
-            if (exists($result{$key})) {
-                if ('ARRAY' eq ref($result{$key})) {
-                    push(@{$result{$key}}, $value);
-                } else {
-                    $result{$key} = [$result{$key}, $value];
-                }
-            } else {
-                $result{$key} = $value;
+            # special case: read included file
+            if ($key eq 'config_file') {
+                $set_value |= read_config($value, $opts);
+                next;
             }
+            # skip if application doesn't use this setting
+            next unless exists($opts->{$key});
+            _set_config($opts, $key, $value);
+            $set_value = 1;
         } else {
             my $context = MessageContext::context();
             push(
@@ -1357,7 +1345,9 @@ sub read_config($)
         }
     }
     close(HANDLE) or die("unable to close $filename: $!\n");
-    return \%result;
+    delete $included_config_files{abs_path($filename)};
+    pop(@include_stack);
+    return $set_value;
 }
 
 # common utility used by genhtml, geninfo, lcov to clean up RC options,
@@ -1387,17 +1377,14 @@ sub apply_rc_params($)
 
     if (0 != scalar(@opt_config_files)) {
         foreach my $f (@opt_config_files) {
-            my $cfg = read_config($f);
-            $set_value |= apply_config(\%rcHash, $cfg);
+            $set_value |= read_config($f, \%rcHash);
         }
     } else {
         foreach my $v (['HOME', '.lcovrc'], ['LCOV_HOME', 'etc', 'lcovrc']) {
             next unless exists($ENV{$v->[0]});
             my $f = File::Spec->catfile($ENV{$v->[0]}, splice(@$v, 1));
             if (-r $f) {
-                my $config = read_config($f);
-                # Copy configuration file and --rc values to variables
-                $set_value |= apply_config(\%rcHash, $config);
+                $set_value |= read_config($f, \%rcHash);
                 last;
             }
         }

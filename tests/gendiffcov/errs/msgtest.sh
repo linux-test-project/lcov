@@ -3,7 +3,7 @@ set +x
 
 source ../../common.tst
 
-rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt
+rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err*
 rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels
 
 clean_cover
@@ -196,6 +196,30 @@ fi
 echo lcov $LCOV_OPTS --summary initial.info --config-file noSuchFile --ignore usage
 $COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file noSuchFile --ignore usgae 2>&1 | tee err_missing.log
 grep "cannot read configuration file 'noSuchFile'" err_missing.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing config file message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# loop in config file inclusion
+echo "config_file = loop1.rc" > loop1.rc
+echo lcov $LCOV_OPTS --summary initial.info --config-file loop1.rc --ignore usage
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file loop1.rc --ignore usage 2>&1 | tee err_selfloop.log
+grep "config file inclusion loop" err_selfloop.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing config file message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+echo "config_file = loop3.rc" > loop2.rc
+echo 'config_file = $ENV{PWD}/loop2.rc' > loop3.rc
+echo lcov $LCOV_OPTS --summary initial.info --config-file loop2.rc --ignore usage
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file loop2.rc --ignore usage 2>&1 | tee err_loop.log
+grep "config file inclusion loop" err_loop.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing config file message"
     if [ 0 == $KEEP_GOING ] ; then
