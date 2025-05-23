@@ -226,7 +226,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-grep user context.info
+grep user: context.info
 if [ 0 == $? ] ; then
     echo "Error:  did not expect to find context field in info"
     if [ $KEEP_GOING == 0 ] ; then
