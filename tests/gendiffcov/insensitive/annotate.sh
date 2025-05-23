@@ -33,7 +33,7 @@ OUTER: while ($dir &&
 
     if (opendir(my $d, $dir)) {
         foreach my $name (readdir($d)) {
-            if ($name =~ /$f/i) {
+            if ($name =~ /^$f$/i) {
                 push(@stack, $name);
                 last OUTER;
             }
@@ -46,7 +46,7 @@ while (1 < scalar(@stack)) {
     my $f = pop(@stack);
     opendir(my $d, $path) or die("cannot read dir $path");
     foreach my $name (readdir($d)) {
-        if ($name =~ /$f/i) {
+        if ($name =~ /^$f$/i) {
             $path = File::Spec->catdir($path, $name);
             last;
         }
@@ -61,9 +61,9 @@ $f = pop(@stack)
 my $annotated = File::Spec->catfile($path, $f . ".annotated");
 opendir my $d, $path or die("cannot read $path");
 foreach my $name (readdir($d)) {
-    if ($name =~ /$f\.annotated/i) {
+    if ($name =~ /^$f\.annotated$/i) {
         $annotated = File::Spec->catfile($path, $name);
-    } elsif ($name =~ /$f/i) {    # case insensitive match
+    } elsif ($name =~ /^$f$/i) {    # case insensitive match
         $file = File::Spec->catfile($path, $name);
     }
 }
