@@ -5646,6 +5646,9 @@ sub _synthesize
     if ($lcovutil::func_coverage) {
         while (my ($fnName, $funcEntry) = each(%{$fileCovInfo->functionMap()}))
         {
+            my $tla = $funcEntry->hit()->[1];
+            # deleted function doesn't count
+            next if grep(/^$tla$/, ('DUB', 'DCB'));
             my $line = $funcEntry->line();
             my $end  = $funcEntry->end_line();
             $last_line = $line if $line > $last_line;

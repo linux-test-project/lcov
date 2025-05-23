@@ -16,10 +16,13 @@
 #include <limits.h>
 #include "iterate.h"
 
+void test_data_logging(int, int);
 
 int iterate_get_sum (int min, int max)
 {
         int i, total;
+
+	test_data_logging(min, max);
 
         total = 0;
 
@@ -43,4 +46,12 @@ int iterate_get_sum (int min, int max)
         }
 
         return total;
+}
+
+void
+test_data_logging(int min, int max)
+{
+  (void)min; /* quiet compiler complaints */
+  (void)max;
+  printf("this is some debug data logging code that gets removed in the final product\n");
 }
