@@ -1073,7 +1073,9 @@ sub _process_one_chunk($$$$)
 
         # "name" will be .gcno if "$initial" else will be $gcda
         my $name = defined($gcda_file) ? $gcda_file : $gcno_file;
-        info(1, "Processing $name%s\n", defined($pid) ? " in child $pid" : "" . "\n");
+        info(1,
+             "Processing $name%s\n",
+             defined($pid) ? " in child $pid" : "" . "\n");
         my $context = MessageContext->new("capturing from $name");
 
         # multiple gcda files may refer to the same source - so generate the
@@ -1516,8 +1518,8 @@ sub gen_info(@)
                 $lcovutil::maxParallelism = 1;
                 if ($chunk->[0]) {
                     my $num = scalar(@{$chunk->[1]});
-                    lcovutil::info("Processing $num file" .
-                                   ($num == 1 ? '' : 's') .
+                    lcovutil::info(
+                               "Processing $num file" . ($num == 1 ? '' : 's') .
                                    " from chunk 0 serially\n");
                 }
                 my $now = Time::HiRes::gettimeofday();
