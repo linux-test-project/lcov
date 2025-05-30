@@ -812,7 +812,7 @@ sub new
 sub worklist
 {
     my $self = shift;
-    # we saved the mssages for the end...
+    # we saved the messages for the end...
     foreach my $msg (values %{$self->[2]}) {
         lcovutil::ignorable_error($msg->[0], $msg->[1]);
     }
@@ -1323,12 +1323,16 @@ sub gen_info(@)
     my @worklist;
     my $serialChunk = [1, []];
     my $chunk       = [0, []];    # [isSerial, [fileList]]
-    foreach my $j (@$filelist) {
-        my $filename = $j->[0] . $lcovutil::dirseparator . $j->[1];
-        if (grep({ $filename =~ $_ } @main::large_files)) {
-            lcovutil::info(1, "large file: $filename\n");
-            push(@{$serialChunk->[1]}, $j);
-            next;
+    FILE: foreach my $j (@$filelist) {
+        my ($dir, $gcda, $gcno) = @$j;
+        foreach my $f ($gcda, $gcno) {
+            next unless defined($f); # might not be a GCDA file 
+            my $filename = $dir . $lcovutil::dirseparator . $f;
+            if (grep({ $filename =~ $_ } @main::large_files)) {
+                lcovutil::info(1, "large file: $filename\n");
+                push(@{$serialChunk->[1]}, $j);
+                next FILE;
+            }
         }
         push(@{$chunk->[1]}, $j);
         if (scalar(@{$chunk->[1]}) == $chunkSize) {
