@@ -94,6 +94,16 @@ if [ ! -z "$TIME" ] ; then
         rm -f "$TIMEFILE"
 fi
 
+if [ 0 == $RC ] ; then
+    for str in uninitialized ; do
+        grep $str $LOGFILE
+        if [ 0 == $? ] ; then
+            echo "unexpected '$str' in '$LOGFILE' for $TESTNAME"
+            RC=1
+        fi
+    done
+fi
+
 # Save last output line as reason in case of skip result
 LAST=$(tail -n 1 "$LOGFILE" | sed -e 's/^  //g')
 
