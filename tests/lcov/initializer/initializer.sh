@@ -26,6 +26,12 @@ if [ "${VER[0]}" -lt 5 ] ; then
     exit 0
 fi
 
+if [[ "${VER[0]}" -lt 8 ]] ; then
+    # c++17 not supported
+    echo "no c++ support"
+    exit 0
+fi
+
 if ! type ${CXX} >/dev/null 2>&1 ; then
         echo "Missing tool: ${CXX}" >&2
         exit 2

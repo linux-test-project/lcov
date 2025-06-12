@@ -63,12 +63,13 @@ if [ "${VER[0]}" -lt 8 ] ; then
     DERIVE_END='--rc derive_function_end_line=0'
 fi
 
-
-$COVER $CAPTURE . $LCOV_OPTS --initial -o initial.info $IGNORE_EMPTY $IGNORE_USAGE
-if [ 0 != $? ] ; then
-    echo "Error:  unexpected error code from lcov --initial"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
+if [ 1 != $NO_INITIAL_CAPTURE ] ; then
+    $COVER $CAPTURE . $LCOV_OPTS --initial -o initial.info $IGNORE_EMPTY $IGNORE_USAGE
+    if [ 0 != $? ] ; then
+        echo "Error:  unexpected error code from lcov --initial"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
     fi
 fi
 
@@ -77,16 +78,17 @@ if [ 0 != $? ] ; then
     echo "Error:  unexpected error from gcc"
     exit 1
 fi
-# capture 'all' - which will pick up the unused file
-$COVER $CAPTURE . $LCOV_OPTS --all -o all_initial.info $IGNORE_EMPTY $IGNORE_USAGE
-if [ 0 != $? ] ; then
-    echo "Error:  unexpected error code from lcov --capture --all"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
-    fi
-fi
 
 if [ "$NO_INITIAL_CAPTURE" != 1 ] ; then
+    # capture 'all' - which will pick up the unused file
+    $COVER $CAPTURE . $LCOV_OPTS --all -o all_initial.info $IGNORE_EMPTY $IGNORE_USAGE
+    if [ 0 != $? ] ; then
+        echo "Error:  unexpected error code from lcov --capture --all"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+
     # does the result contain file 'uused'
     grep -E "SF:.+unused.c$" all_initial.info
     if [ $? != 0 ] ; then
@@ -891,27 +893,29 @@ mkdir -pv ./mytest
 echo "int main(){}" > './mytest/main space.cpp'
 ( cd ./mytest ; ${CXX} -c  'main space.cpp' --coverage )
 
-$COVER $CAPTURE mytest -i -o spaces.info
-if [ 0 != $? ] ; then
-    echo "Error:  unexpected error from filename containing space"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
+if [ 1 != $NO_INITIAL_CAPTURE ] ; then
+    $COVER $CAPTURE mytest -i -o spaces.info
+    if [ 0 != $? ] ; then
+        echo "Error:  unexpected error from filename containing space"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
     fi
-fi
 
-$COVER $LCOV_TOOL --list spaces.info
-if [ 0 != $? ] ; then
-    echo "Error:  unable to list filename containing space"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
+    $COVER $LCOV_TOOL --list spaces.info
+    if [ 0 != $? ] ; then
+        echo "Error:  unable to list filename containing space"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
     fi
-fi
 
-$COVER $GENHTML_TOOL -o spaces spaces.info
-if [ 0 != $? ] ; then
-    echo "Error:  unable to generate HTML for filename containing space"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
+    $COVER $GENHTML_TOOL -o spaces spaces.info
+    if [ 0 != $? ] ; then
+        echo "Error:  unable to generate HTML for filename containing space"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
     fi
 fi
 
