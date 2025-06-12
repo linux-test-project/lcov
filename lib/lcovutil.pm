@@ -117,6 +117,7 @@ our $lcov_url     = "https://github.com//linux-test-project/lcov";
 our @temp_dirs;
 our $tmp_dir = '/tmp';          # where to put temporary/intermediate files
 our $preserve_intermediates;    # this is useful only for debugging
+our $sort_inputs;    # sort input file lists - to reduce unpredictability
 our $devnull      = File::Spec->devnull();    # portable way to do it
 our $dirseparator = ($^O =~ /Win/) ? '\\' : '/';
 our $interp       = ($^O =~ /Win/) ? $^X : undef;
@@ -1126,7 +1127,8 @@ my %rc_common = (
              "demangle_cpp"              => \@lcovutil::cpp_demangle,
              'excessive_count_threshold' => \$excessive_count_threshold,
 
-             ,
+             'sort_input' => \$lcovutil::sort_inputs,
+
              "fail_under_lines"       => \$fail_under_lines,
              "fail_under_branches"    => \$fail_under_branches,
              'lcov_filter_parallel'   => \$lcovutil::lcov_filter_parallel,
@@ -1214,7 +1216,8 @@ our %argCommon = ("tempdir=s"         => \$tempdirname,
                   "parallel|j:i"      => \$lcovutil::maxParallelism,
                   "memory=i"          => \$lcovutil::maxMemory,
                   "forget-test-names" => \$TraceFile::ignore_testcase_name,
-                  "preserve"          => \$lcovutil::preserve_intermediates,);
+                  "preserve"          => \$lcovutil::preserve_intermediates,
+                  'sort-input'        => \$lcovutil::sort_inputs,);
 
 sub warnDeprecated
 {
@@ -9248,6 +9251,13 @@ sub merge
             $lcovutil::maxParallelism = $num;
         }
     }
+    # use a particular file sort order - to somewhat minimize order effects
+    my $filelist = \@_;
+    my @sorted_filelist;
+    if ($lcovutil::sort_inputs) {
+        @sorted_filelist = sort({ $a cmp $b } @_);
+        $filelist        = \@sorted_filelist;
+    }
 
     if (1 != $lcovutil::maxParallelism &&
         (exists($ENV{LCOV_FORCE_PARALLEL}) ||
@@ -9277,7 +9287,7 @@ sub merge
                 $lcovutil::maxParallelism) :
             1;
         my $idx = 0;
-        foreach my $tracefile (@_) {
+        foreach my $tracefile (@$filelist) {
             my $seg = $idx / $testsPerSegment;
             $seg -= 1 if $seg == $lcovutil::maxParallelism;
             push(@segments, [])
@@ -9524,7 +9534,7 @@ sub merge
         } while (@segments);
     } else {
         # sequential
-        @effective = _process_segment($total_trace, $readSourceFile, \@_);
+        @effective = _process_segment($total_trace, $readSourceFile, $filelist);
     }
     if (defined($lcovutil::tempdirname) &&
         !$lcovutil::preserve_intermediates) {

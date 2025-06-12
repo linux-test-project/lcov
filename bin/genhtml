@@ -6817,7 +6817,7 @@ our $hierarchical = 0;    # if true: show directory hierarchy
                           # default: legacy two-level report
 our $flat         = 0;    # if true: single table of all files in top level
 
-our $sort = 1;          # If set, provide directory listings with sorted entries
+our $sort_tables = 1;   # If set, provide directory listings with sorted entries
 our $no_sort;           # Disable sort
 our $frames;            # If set, use frames for source code view
 our $keep_descriptions; # If set, do not remove unused test case descriptions
@@ -6899,7 +6899,7 @@ my %genhtml_rc_opts = (
                "genhtml_mcdc_field_width"    => \$mcdc_field_width,
                "genhtml_owner_field_width"   => \$owner_field_width,
                "genhtml_age_field_width"     => \$age_field_width,
-               "genhtml_sort"                => \$sort,
+               "genhtml_sort"                => \$sort_tables,
                "genhtml_charset"             => \$charset,
                "genhtml_desc_html"           => \$rc_desc_html,
                'merge_function_aliases'      => \$merge_function_aliases,
@@ -6975,7 +6975,7 @@ my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        "html-gzip"         => \$html_gzip,
                        "hierarchical"      => \$hierarchical,
                        "flat"              => \$flat,
-                       "sort"              => \$sort,
+                       "sort-tables"       => \$sort_tables,
                        "no-sort"           => \$no_sort,
                        "precision=i"       => \$lcovutil::default_precision,
                        "missed"            => \$opt_missed,
@@ -6985,6 +6985,15 @@ my %genhtml_options = ("output-directory|o=s" => \$output_directory,
                        "merge-aliases"     => \$merge_function_aliases,
                        "suppress-aliases"  => \$suppress_function_aliases,
                        'validate'          => \$validateHTML,);
+
+# remove ambiguous entry from common table -
+#   (genhtml has '--sort-inputs' and '--sort-tables')
+# handle the (no obsolete) '--sort' option
+Getopt::Long::Configure("pass_through", "no_auto_abbrev");
+my $obsoleteSort;
+Getopt::Long::GetOptions('sort' => \$obsoleteSort);
+Getopt::Long::Configure('default');
+
 # Parse command line options
 if (
     !lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options,
@@ -6992,6 +7001,13 @@ if (
 ) {
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
+}
+
+if (defined($obsoleteSort)) {
+    $sort_tables = $obsoleteSort;
+    lcovutil::ignorable_warning($lcovutil::ERROR_DEPRECATED,
+        "option '--sort' is deprecated and will be removed in a future release;  please use '--sort-tables' instead."
+    );
 }
 
 $merge_function_aliases = 1
@@ -7037,7 +7053,7 @@ if (defined($lcovutil::stop_on_error) &&
 }
 
 # Merge sort options
-$sort = 0
+$sort_tables = 0
     if ($no_sort);
 die(
    "unsupported use of mutually exclusive '--flat' and '--hierachical' options")
@@ -7244,7 +7260,7 @@ if ($no_prefix && @dir_prefix) {
 @fileview_sortlist = ($SORT_FILE);
 @funcview_sortlist = ($SORT_FILE);
 
-if ($sort) {
+if ($sort_tables) {
     push(@fileview_sortlist, $SORT_LINE);
     push(@fileview_sortlist, $SORT_FUNC) if ($lcovutil::func_coverage);
     push(@fileview_sortlist, $SORT_BRANCH) if ($lcovutil::br_coverage);
@@ -8659,7 +8675,7 @@ sub write_png_files()
                           0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
     ];
 
-    if ($sort) {
+    if ($sort_tables) {
         $data{"updown.png"} =
             $dark_mode ?
             [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00,
@@ -11960,7 +11976,7 @@ sub write_header(*$$$$$$$)
             %$differentialFunctionMap) {
             $view .= "<span style=\"font-size: 80%;\">";
             if ($type == $HDR_SOURCE) {
-                my $suffix = $sort ? '-c' : '';
+                my $suffix = $sort_tables ? '-c' : '';
                 $view .=
                     " (source / <a href=\"$base_name.func$suffix.$html_ext\" title=\"Click to go to function table\">functions</a>)";
             } elsif ($type == $HDR_FUNC) {
@@ -12652,7 +12668,7 @@ sub write_file_table(*$$$$$$)
     }
     my $file_col_title = ($fileview || $main::flat) ? 'File' : 'Directory';
     # don't insert the 'sort' controls if there is just a single source file
-    my $use_sort_button = $sort && 1 < scalar($dirSummary->sources());
+    my $use_sort_button = $sort_tables && 1 < scalar($dirSummary->sources());
     my $file_code =
         get_file_code($hide, $file_col_title,
                       $use_sort_button && $sort_type != $SORT_FILE,
@@ -13372,23 +13388,23 @@ sub funcview_get_label($$$$)
     my $link;
 
     if (!defined($col)) {
-        if ($sort && $sort_type != $SORT_FILE) {
+        if ($sort_tables && $sort_type != $SORT_FILE) {
             $link = "$name.func.$html_ext";
         }
         return "Function Name" . get_sort_code($link, "function name", $base);
     } elsif ($col eq 'hit') {
-        if ($sort && $sort_type != $SORT_LINE) {
+        if ($sort_tables && $sort_type != $SORT_LINE) {
             $link = "$name.func-c.$html_ext";
         }
         return "Hit count" . get_sort_code($link, "function hit count", $base);
     } elsif ($col eq 'missed_line') {
-        if ($sort && $sort_type != $SORT_MISSING_LINE) {
+        if ($sort_tables && $sort_type != $SORT_MISSING_LINE) {
             $link = "$name.func-l.$html_ext";
         }
         return "Lines" .
             get_sort_code($link, "unexercised lines in function", $base);
     } elsif ($col eq 'missed_mcdc') {
-        if ($sort && $sort_type != $SORT_MISSING_MCDC) {
+        if ($sort_tables && $sort_type != $SORT_MISSING_MCDC) {
             $link = "$name.func-m.$html_ext";
         }
         return "MC/DC"
@@ -13397,7 +13413,7 @@ sub funcview_get_label($$$$)
                           $base);
     } else {
         die("unexpected sort $col") unless ($col eq 'missed_branch');
-        if ($sort && $sort_type != $SORT_MISSING_BRANCH) {
+        if ($sort_tables && $sort_type != $SORT_MISSING_BRANCH) {
             $link = "$name.func-b.$html_ext";
         }
         return "Branches" .
