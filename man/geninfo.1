@@ -79,6 +79,8 @@ geninfo \- Generate tracefiles from GCOV coverage data files
 .RB [ \-\-external ]
 .RB [ \-\-no\-external ]
 .br
+.RB [ \-\-sort\-input ]
+.br
 .RB [ \-\-config\-file
 .IR config\-file ]
 .RB [ \-\-no\-markers ]
@@ -675,6 +677,21 @@ The
 .I geninfo_follow_symlinks
 config file option.  See man
 .B lcovrc(5) for more information.
+.RE
+
+.RE
+
+.B \-\-sort\-input
+.br
+.RS
+Specify whether to sort file names before capture and/or aggregation.
+Sorting reduces certain types of processing order-dependent output differences.
+See the
+.BI sort_input
+section in
+man
+.B lcovrc(5).
+
 .RE
 
 .B \-\-gcov\-tool

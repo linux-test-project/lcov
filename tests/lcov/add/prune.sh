@@ -1,70 +1,11 @@
 #!/usr/bin/env bash
+set +x
+: ${USER:="$(id -u -n)"}
 
-COVER_DB='cover_db'
-LOCAL_COVERAGE=1
-KEEP_GOING=0
-COVER=
+source ../../common.tst
 
-echo "LCOV = $LCOV"
-while [ $# -gt 0 ] ; do
-
-    OPT=$1
-    shift
-    case $OPT in
-
-        --clean | clean )
-            CLEAN_ONLY=1
-            ;;
-
-        -v | --verbose | verbose )
-            set -x
-            ;;
-
-        --keep-going )
-            KEEP_GOING=1
-            ;;
-
-        --coverage )
-            if [[ "$1"x != 'x' && $1 != "-"*  ]] ; then
-               COVER_DB=$1
-               LOCAL_COVERAGE=0
-               shift
-            fi
-            echo $LCOV
-            if [[ $LCOV =~ 'perl' ]] ; then
-                # cover command already included - don't include again
-                COVER=
-            else
-                COVER="perl -MDevel::Cover=-db,$COVER_DB,-coverage,statement,branch,condition,subroutine "
-            fi
-            KEEP_GOING=1
-            ;;
-
-        --home | -home )
-            LCOV_HOME=$1
-            shift
-            if [ ! -f $LCOV_HOME/bin/lcov ] ; then
-                echo "LCOV_HOME '$LCOV_HOME' does not exist"
-                exit 1
-            fi
-            ;;
-
-
-        * )
-            echo "Error: unexpected option '$OPT'"
-            exit 1
-            ;;
-    esac
-done
-
-if [ 'x' == "x$GENHTML_TOOL" ] ; then
-    GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
-    LCOV_TOOL=${LCOV_HOME}/bin/lcov
-    GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
-fi
-
-if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
-    cover -delete
+if [[ 1 == $CLEAN_ONLY ]] ; then
+    exit 0
 fi
 
 # adding zero does not change anything
@@ -90,7 +31,33 @@ fi
 PRUNED2=`cat prune2`
 EXP=$(printf "$PART1INFO\n$PART2INFO\n$FULLINFO\n")
 if [ "$PRUNED2" != "$EXP" ] ; then
-        echo "Expected '$EXP' - got '$PRUNED2'"
+        echo "Expected 1 '$EXP' - got '$PRUNED2'"
+        exit 1
+fi
+
+# sorting the input changes order so different file is pruned (only 'full' remains)
+$COVER $LCOV_TOOL -o prune3s -a $PART1INFO -a $PART2INFO -a $FULLINFO --prune --ignore inconsistent --rc sort_input=1
+if [[ $? != 0 && $KEEP_GOING != 1 ]] ; then
+    echo "lcov -prune2 failed"
+    exit 1
+fi
+PRUNED3S=`cat prune3s`
+EXP2=$(printf "$FULLINFO\n")
+if [ "$PRUNED3S" != "$EXP2" ] ; then
+        echo "Expected 1 '$EXP2' - got '$PRUNED3S'"
+        exit 1
+fi
+
+# using the --sort-input flag
+$COVER $LCOV_TOOL -o prune3t -a $PART1INFO -a $PART2INFO -a $FULLINFO --prune --ignore inconsistent --sort-input
+if [[ $? != 0 && $KEEP_GOING != 1 ]] ; then
+    echo "lcov -prune2 failed"
+    exit 1
+fi
+PRUNED3T=`cat prune3t`
+EXP3=$(printf "$FULLINFO\n")
+if [ "$PRUNED3T" != "$EXP3" ] ; then
+        echo "Expected 2 '$EXP3' - got '$PRUNED3T'"
         exit 1
 fi
 

@@ -4,7 +4,7 @@ set +x
 source ../../common.tst
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err*
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels sortTables
 
 clean_cover
 
@@ -285,6 +285,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+
 for arg in "--select-script $SELECT_SCRIPT,--range,0:10" \
                "--criteria-script $CRITERIA_SCRIPT,--signoff" \
                "--annotate-script $ANNOTATE_SCRIPT" \
@@ -318,6 +319,23 @@ for arg in "--select-script $SELECT_SCRIPT,--range,0:10" \
         fi
     fi
 done
+
+echo genhtml $DIFCOV_OPTS initial.info -o sortTables --sort
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o sortTables --sort 2>&1 | tee sort.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml --sort failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "is deprecated and will be removed" sort.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing --sort message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 echo genhtml $DIFCOV_OPTS initial.info -o p4err --version-script $P4VERSION_SCRIPT,-x
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o p4err --version-script $P4VERSION_SCRIPT,-x 2>&1 | tee p4err.log

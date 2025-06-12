@@ -1288,7 +1288,18 @@ sub gen_info(@)
         $builder->find_files(2, @_);
     }
     my $filelist = $builder->worklist();
-    my $total    = scalar(@$filelist);
+    my @sorted_filelist;
+    if ($lcovutil::sort_inputs) {
+        @sorted_filelist = sort({
+                                    my $na = $a->[0] .
+                                        (defined($a->[1]) ? $a->[1] : $a->[2]);
+                                    my $nb = $b->[0] .
+                                        (defined($b->[1]) ? $b->[1] : $b->[2]);
+                                    $na cmp $nb
+        } @$filelist);
+        $filelist = \@sorted_filelist;
+    }
+    my $total = scalar(@$filelist);
     if (1 < $lcovutil::maxParallelism) {
         my $floor =
             $lcovutil::maxParallelism ?
@@ -1326,7 +1337,7 @@ sub gen_info(@)
     FILE: foreach my $j (@$filelist) {
         my ($dir, $gcda, $gcno) = @$j;
         foreach my $f ($gcda, $gcno) {
-            next unless defined($f); # might not be a GCDA file 
+            next unless defined($f);    # might not be a GCDA file
             my $filename = $dir . $lcovutil::dirseparator . $f;
             if (grep({ $filename =~ $_ } @main::large_files)) {
                 lcovutil::info(1, "large file: $filename\n");

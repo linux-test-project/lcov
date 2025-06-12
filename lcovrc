@@ -490,6 +490,11 @@ lcov_json_module = auto
 #  directives, etc
 #case_insensitive = 0
 
+# sort file names before capture and/or aggregation - to reduce certain
+#  types of processing order dependencies which can affect coverage results.
+#  see the lcovrc man page for more details.
+#sort_input = 1
+
 # override line default line exclusion regexp
 #lcov_excl_line = LCOV_EXCL_LINE
 

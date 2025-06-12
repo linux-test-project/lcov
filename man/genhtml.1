@@ -71,7 +71,7 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .IR extension ]
 .br
 .RB [ \-\-html\-gzip ]
-.RB [ \-\-sort ]
+.RB [ \-\-sort\-tables ]
 .RB [ \-\-no\-sort ]
 .br
 .RB [ \-\-function\-coverage ]
@@ -212,6 +212,8 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-preserve ]
 .br
 .RB [ \-\-save ]
+.br
+.RB [ \-\-sort\-input ]
 .br
 .RB [ \-\-serialize
 .IR serialize_output_file ]
@@ -2671,14 +2673,22 @@ option
 .IR genhtml_html_gzip .
 
 .RE
-.B \-\-sort
+.B \-\-sort-tables
 .br
 .B \-\-no\-sort
 .RS
 Specify whether to include sorted views of file and directory overviews.
 
+This option replaces the deprecated
+.I "\-\-sort"
+option.
+.I "\-\-sort"
+is still supported and is treated as an alias of
+.I "\-\-sort\-tables"
+but will be removed in a subsequent LCOV release.
+
 Use
-.B \-\-sort
+.B \-\-sort-tables
 to include sorted views or
 .B \-\-no\-sort
 to not include them.
@@ -3356,7 +3366,7 @@ Show counts of missed lines, functions, branches, and MC/DC expressions.
 Use this option to change overview pages to show the count of lines, functions,
 branches, or MC/DC expressions that were not hit. These counts are represented by negative numbers.
 
-When specified together with \-\-sort, file and directory views will be sorted
+When specified together with \-\-sort\-tables, file and directory views will be sorted
 by missed counts.
 
 This option can also be configured permanently using the configuration file
@@ -3394,6 +3404,19 @@ to
 output\-directory.
 
 Keeping copies of the input data files may help to debug any issues or to regenerate report files later.
+
+.RE
+
+.B \-\-sort\-input
+.br
+.RS
+Specify whether to sort file names before capture and/or aggregation.
+Sorting reduces certain types of processing order-dependent output differences.
+See the
+.BI sort_input
+section in
+man
+.B lcovrc(5).
 
 .RE
 

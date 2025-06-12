@@ -58,6 +58,8 @@ format is described in man
 .RB [ \-\-no\-recursion ]
 .RB [ \-f | \-\-follow ]
 .br
+.RB [ \-\-sort\-input ]
+.br
 .RB [ \-\-compat\-libtool ]
 .RB [ \-\-no\-compat\-libtool ]
 .br
@@ -158,6 +160,8 @@ Aggregate multiple coverage tracefiles into one:
 .br
 .RB [ \-\-checksum ]
 .RB [ \-\-no\-checksum ]
+.br
+.RB [ \-\-sort\-input ]
 .br
 .RE
 
@@ -1211,6 +1215,19 @@ instead of kernel or directory.
 Use this option if you have separate machines for build and test and
 want to perform the .info file creation on the build machine. See
 \-\-to\-package for more information.
+.RE
+
+.B \-\-sort\-input
+.br
+.RS
+Specify whether to sort file names before capture and/or aggregation.
+Sorting reduces certain types of processing order-dependent output differences.
+See the
+.BI sort_input
+section in
+man
+.B lcovrc(5).
+
 .RE
 
 .B \-\-gcov\-tool
