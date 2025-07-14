@@ -156,10 +156,6 @@ sub parse
                     if (defined($version) && $version ne "");
 
                 my $lineData = $fileInfo->test($testname);
-                # use branch data to derive MC/DC expression - so need
-                # it, even if user didn't ask
-                my $branchData = $fileInfo->testbr($testname)
-                    if $lcovutil::br_coverage || $lcovutil::mcdc_coverage;
                 my $mcdcData = $fileInfo->testcase_mcdc($testname)
                     if $lcovutil::mcdc_coverage;
 
@@ -170,129 +166,239 @@ sub parse
                 my $mcdc       = $f->{mcdc_records}
                     if $lcovutil::mcdc_coverage && exists($f->{mcdc_records});
 
-                foreach my $s (@$segments) {
-                    die("unexpected segment data") unless scalar(@$s) == 6;
-                    my ($line, $col, $count, $hasCount, $isRegion, $isGap) =
-                        @$s;
-                    next unless $hasCount;
-                    $lineData->append($line, $count);
-                }
+                my $index       = 0;
+                my $currentLine = 0;
 
-                if ($branchData) {
-                    my $currentLine = -1;
-                    my $branchIdx;
+                while ($index < $#$segments) {
+                    my $segment = $segments->[$index];
+                    die("unexpected segment data")
+                        unless scalar(@$segment) == 6;
+                    my ($line, $col, $count, $hasCount, $isRegionEntry, $isGap)
+                        = @$segment;
+                    $currentLine = $line if !$currentLine;
+                    if ($hasCount) {
+                        $segment = $segments->[$index + 1];
+                        die("unexpected segment data")
+                            unless scalar(@$segment) == 6;
+                        my ($next_line, $next_col, $next_count, $next_hasCount,
+                            $next_isRegionEntry, $next_isGap)
+                            = @$segment;
+                        if ($currentLine == $next_line && !$next_isRegionEntry)
+                        {
+                            while ($next_line == $currentLine &&
+                                   ++$index < $#$segments) {
+                                $segment = $segments->[$index + 1];
+                                die("unexpected segment data")
+                                    unless scalar(@$segment) == 6;
+                                $next_line = $segment->[0];
+                                $count     = $next_count
+                                    if ($count &&
+                                        $next_count > $count &&
+                                        $currentLine == $next_line);
+                                $next_count = $segment->[2];
+                            }
+                            $lineData->append($currentLine, $count);
+                            ++$currentLine;
+                        } else {
+                            my $bound = $next_line;
+                            my $i     = $index;
+                            while (!$next_isRegionEntry &&
+                                   $next_line == $bound &&
+                                   ++$i < $#$segments) {
+                                $segment = $segments->[$i + 1];
+                                die("unexpected segment data")
+                                    unless scalar(@$segment) == 6;
+                                $next_line          = $segment->[0];
+                                $next_isRegionEntry = $segment->[4];
+                            }
+                            --$bound
+                                if ($next_isRegionEntry &&
+                                    $next_line == $bound &&
+                                    !($isRegionEntry && $line == $next_line));
+                            $count = $next_count
+                                if $next_count > $count && $line == $next_line;
+                            while ($currentLine <= $bound) {
+                                $lineData->append($currentLine, $count);
+                                ++$currentLine;
+                            }
+                            ++$index;
+                        }
+                    } else {
+                        do {
+                            ++$index;
+                            $segment = $segments->[$index];
+                            die("unexpected segment data")
+                                unless scalar(@$segment) == 6;
+                            ($line, $col, $count, $hasCount,
+                             $isRegionEntry, $isGap) = @$segment;
+                        } while (!$hasCount && $index < $#$segments);
+                        $currentLine = $isRegionEntry ? $line : $line + 1;
+                    }
+                }
+                if ($mcdc) {
+                    my @mcdcBranches;       # array (start line, start column, expression)
                     foreach my $branch (@$branches) {
                         die("unexpected branch data")
                             unless scalar(@$branch) == 9;
+                        # Consider only branches of "MCDCBranchRegion" kind.
+                        next if ($branch->[-1] != 6);
                         my ($line, $startCol, $endline,
                             $endcol, $trueCount, $falseCount,
                             $fileId, $expandedId, $kind) = @$branch;
-                        if ($line != $currentLine &&
-                            defined($lineData->value($line))) {
-                            $branchIdx   = 0;       # restart counter
-                            $currentLine = $line;
-                        } else {
-                            # this branch is part of the current group
-                            ++$branchIdx;
-                        }
                         my $expr =
                             $srcReader->getExpr($line, $startCol, $endline,
                                                 $endcol)
                             if $srcReader->notEmpty();
-
-                        my $br =
-                            BranchBlock->new($branchIdx, $trueCount, $expr);
-                        $branchData->append($line, 0, $br, $filename);
+                        push(@mcdcBranches, [$line, $startCol, $expr]);
                     }
-                }
-                if ($mcdc) {
                     foreach my $m (@$mcdc) {
-                        # what are fileID and kind?
                         die("unexpected MC/DC data") unless scalar(@$m) == 7;
-                        my ($line, $startCol, $endLine, $endcol, $fileId,
+                        my ($line, $startCol, $endLine, $endCol, $expandedId,
                             $kind, $cov)
                             = @$m;
                         die("unexpected MC/DC cov")
                             unless 'ARRAY' eq ref($cov);
-                        my $groupSize = scalar(@$cov);
 
                         # read the source line and extract the expression...
                         my $expr =
                             $srcReader->getExpr($line, $startCol, $endLine,
-                                                $endcol)
+                                                $endCol)
                             if ($srcReader->notEmpty());
-
+                        my @brExprs;
+                        foreach my $branch (@mcdcBranches) {
+                            my ($brLine, $brCol, $brExpr) = @$branch;
+                            if (($brLine > $line ||
+                                 ($brLine == $line && $brCol >= $startCol))
+                                &&
+                                ($brLine < $endLine ||
+                                 ($brLine == $endLine && $brCol <= $endCol))
+                            ) {
+                                push(@brExprs, [$brLine, $brCol, $brExpr]);
+                            }
+                        }
+                        @brExprs =
+                            sort { $a->[0] <=> $b->[0] || $a->[1] <=> $b->[1] }
+                            @brExprs;
                         my $current_mcdc =
                             $mcdcData->new_mcdc($mcdcData, $line);
-                        my $branch = $branchData->value($line);
-                        my $idx    = 0;
+                        my $groupSize = scalar(@$cov);
+                        my $idx       = 0;
                         foreach my $c (@$cov) {
-                            my $branchExpr =
-                                $branch->getBlock(0)->[$idx]->expr()
-                                if $branch &&
-                                (scalar(@{$branch->getBlock(0)}) > $idx);
-                            $branchExpr =
-                                defined($branchExpr) ?
-                                "'$branchExpr' in '$expr'" :
+                            my $branchExpr = $brExprs[$idx]->[2]
+                                if $groupSize == scalar(@brExprs);
+                            my $fullExpr =
+                                defined($branchExpr) &&
+                                defined($expr) ? "'$branchExpr' in '$expr'" :
                                 $idx;
-
                             $current_mcdc->insertExpr($filename, $groupSize, 0,
-                                                      $c, $idx, $branchExpr);
+                                                      $c, $idx, $fullExpr);
                             $current_mcdc->insertExpr($filename, $groupSize, 1,
-                                                      $c, $idx, $branchExpr);
+                                                      $c, $idx, $fullExpr);
                             ++$idx;
                         }
                         $mcdcData->close_mcdcBlock($current_mcdc);
                     }
-                }    # MCDC
-                $fileInfo->testbr()->remove($testname)
-                    if $lcovutil::mcdc_coverage && !$lcovutil::br_coverage;
+                }
                 lcovutil::info(2, "finished parsing $filename\n");
             }
 
-            next unless $lcovutil::func_coverage;
             foreach my $f (@{$k->{functions}}) {
                 my $name      = $f->{name};
                 my $filenames = $f->{filenames};    # array
-                if ($#$filenames != 0) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                        "unsupported: function $name associated with multiple files"
-                    );
-                    next;
-                }
                 my $filename =
                     ReadCurrentSource::resolve_path($filenames->[0], 1);
-                if (TraceFile::skipCurrentFile($filename)) {
-                    if (!exists($lcovutil::excluded_files{$filename})) {
-                        $lcovutil::excluded_files{$filename} = 1;
-                        lcovutil::info("Excluding $filename\n");
-                    }
-                    next;
-                }
+                next if (TraceFile::skipCurrentFile($filename));
                 die('unexpected unknown file \'' . $filenames->[0] . '\'')
                     unless $top->file_exists($filename);
-                my $info    = $top->data($filename);
-                my $count   = $f->{count};
-                my $regions = $f->{regions};    # startline/col, endline/col/
+                $srcReader->open($filename);
+
+                my $info     = $top->data($filename);
+                my $count    = $f->{count};
+                my $regions  = $f->{regions};    # startline/col, endline/col/
+                my $branches = $f->{branches};
 
                 my $functionMap = $info->testfnc($testname);
+                # use branch data to derive MC/DC expression - so need
+                # it, even if user didn't ask
+                my $branchData = $info->testbr($testname)
+                    if $lcovutil::br_coverage;
                 my $startLine = $regions->[0]->[0];  # startline of first region
-                 # NOTE:  might be a mistake to grab the end line of the last region -
-                 #  LCOV follows GCC behaviour and associates lines with where they
-                 #  start - not where they end...
-                my $endline = $regions->[-1]->[2];    # endline of last region
-                my $func =
-                    $functionMap->define_function($name, $startLine, $endline)
-                    unless defined($functionMap->findName($name));
-                $functionMap->add_count($name, $count);
+                my $endline   = $regions->[0]->[2];  # endline of last region
+                if ($lcovutil::func_coverage) {
+                    my $func =
+                        $functionMap->define_function($name, $startLine,
+                                                      $endline)
+                        unless defined($functionMap->findName($name));
+                    $functionMap->add_count($name, $count);
+                }
+                if ($branchData) {
+                    my $funcBranchData = BranchData->new();
+                    my $regionIdx      = 0;
+                    foreach my $b (@$branches) {
+                        die("unexpected branch data") unless scalar(@$b) == 9;
+                        my ($brStartLine, $brStartCol, $endLine,
+                            $endCol, $trueCount, $falseCount,
+                            $fileId, $expandedId, $kind) = @$b;
+                        my ($line, $col) = ($brStartLine, $brStartCol);
+                        my $expr;
 
-                # for the moment - don't worry about the coverpoints in the function
-                #my $branches = $f->{branches};
-                #my $mcdc = $f->{mcdc_records} if exists($f->{mcdc_records});
-                #foreach my $r (@$regions) {
-                #  my ($startLine, $startCol, $endLine, $endCol, $count, $fileId,
-                #      $expandedId, $kind) = @$r;
-                #}
+                        if ($fileId == 0) {
+                            $expr =
+                                $srcReader->getExpr($line, $col, $endLine,
+                                                    $endCol)
+                                if $srcReader->notEmpty();
+                        } else {
+                            # Find a source range, which contains the branch.
+                            while ($regionIdx < scalar(@$regions)) {
+                                my ($rStartLine, $rStartCol, $rEndLine,
+                                    $rEndCol, $rCount, $rFileId,
+                                    $rExpandedId, $rKind
+                                ) = @{$regions->[$regionIdx]};
+                                if ($rExpandedId == $fileId && $rKind == 1) {
+                                    if ($rFileId != 0) {
+                                        # Check previous regions to find one
+                                        # that describes lines of the function's
+                                        # source file.
+                                        my $rIdx = $regionIdx - 1;
+                                        $fileId = $rFileId;
+                                        while ($fileId != 0 && $rIdx >= 0) {
+                                            ($rStartLine, $rStartCol,
+                                             $rEndLine, $rEndCol,
+                                             $rCount, $rFileId,
+                                             $rExpandedId, $rKind
+                                            ) = @{$regions->[$rIdx]};
+                                            $fileId = $rFileId
+                                                if ($rExpandedId == $fileId &&
+                                                    $rKind == 1);
+                                            --$rIdx;
+                                        }
+                                    }
+                                    ($line, $col) = ($rStartLine, $rStartCol);
+                                    last;
+                                }
+                                ++$regionIdx;
+                            }
+                        }
+                        # Processed branch on the same line doesn't have to be the previous.
+                        my $brEntry = $funcBranchData->value($line);
+                        my $branchIdx =
+                            !defined($brEntry) ? 0 :
+                            scalar(@{$brEntry->getBlock(0)});
+                        my $br =
+                            BranchBlock->new($branchIdx, $trueCount,
+                                             !defined($expr) ? $branchIdx :
+                                                 "(" . $expr . ") == True");
+                        $funcBranchData->append($line, 0, $br, $filename);
+
+                        ++$branchIdx;
+                        $br =
+                            BranchBlock->new($branchIdx, $falseCount,
+                                            !defined($expr) ? $branchIdx :
+                                                "(" . $expr . ") == False");
+                        $funcBranchData->append($line, 0, $br, $filename);
+                    }
+                    $branchData->union($funcBranchData);
+                }
             }
         }
         lcovutil::info(2, "finished $jsonFile\n");
@@ -324,7 +430,8 @@ my %opts = ('test-name|t=s'       => \$testname,
             'output-filename|o=s' => \$output_filename,);
 my %rc_opts;
 if (!lcovutil::parseOptions(\%rc_opts, \%opts, \$output_filename)) {
-    print(STDERR "argparse failed");
+    print(STDERR "argparse failed\n");
+    exit(1);
 }
 
 my $info = parse($testname, @ARGV);
