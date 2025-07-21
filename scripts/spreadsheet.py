@@ -175,10 +175,16 @@ class GenerateSpreadsheet(object):
                 continue
 
             try:
-                tool = data['config']['tool']
+                cfg = data['config']
+
+                try:
+                    tool = data['config']['tool']
+                except:
+                    tool = 'unknown'
+                    print("%s: unknown tool" %(name))
             except:
-                tool = 'unknown'
-                print("%s: unknown tool" %(name))
+                print("%s: no 'config' data key - I think this is not lcov performance data - skipping" % (name))
+                continue
 
             p, f = os.path.split(name)
             if os.path.splitext(f)[0] == tool:
