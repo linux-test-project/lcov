@@ -1947,7 +1947,8 @@ The
 .B \-\-date\-bins
 option is used to specify age boundaries (cutpoints) for date\-binning classification.  Each
 .I age
-element is expected to be an integer number of days prior to today (or SOURCE_DATE_EPOCH, if specified).  If not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days.
+element is expected to be an integer number of days prior to today (or prior to your SOURCE_DATE_EPOCH environment variable, if set).  If
+.I \-\-date\-bins is not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days.
 This option is equivalent to the
 .I genhtml_date_bins
 config file option.  See man
