@@ -5471,12 +5471,19 @@ sub _computeAge
     if ($then > $now) {
         if (lcovutil::warn_once($lcovutil::ERROR_INCONSISTENT_DATA, $path)) {
             # issue annotation warning at most once per file
+	    # also attempt to clarify where the date comes from
             my $data =
                 exists($ENV{SOURCE_DATE_EPOCH}) ?
-                "'SOURCE_DATE_EPOCH=$ENV{SOURCE_DATE_EPOCH}'" :
+                (
+                lcovutil::warn_once($lcovutil::ERROR_INCONSISTENT_DATA,
+                                    'SOURCE_DATE_EPOCH') ?
+                    "computed from your 'SOURCE_DATE_EPOCH=$ENV{SOURCE_DATE_EPOCH}' environment variable - see 'man genhtml'"
+                :
+                    "'SOURCE_DATE_EPOCH=$ENV{SOURCE_DATE_EPOCH}'") :
                 "'now'";
+
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                "File \"$path\": $data ($now) is older than annotate time '$when'"
+                "File \"$path\": '$now' ($data) is older than annotate time '$when'"
             );
         }
         return 0;
