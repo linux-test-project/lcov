@@ -35,11 +35,14 @@
 #   - enable MC/DC instrumentation in your compile/link steps, and
 #   - pass the '--mcdc-coverage' flag to llvm2lcov
 #
+# You can also use LLVM/21 or newer to generate MC/DC data more cleanly.
+#
 # See 'llvm2lcov --help' for more usage information
 #
 # See the LLVM documentation for more information on flags and compilation options.
 
 use strict;
+use version;
 use warnings;
 require Exporter;
 
@@ -131,6 +134,7 @@ sub parse
             unless (defined($json) &&
                     exists($json->{data}) &&
                     'ARRAY' eq ref($json->{data}));
+        my $json_version = version->parse($json->{version});
 
         lcovutil::info("read $jsonFile\n");
 
@@ -156,8 +160,6 @@ sub parse
                     if (defined($version) && $version ne "");
 
                 my $lineData = $fileInfo->test($testname);
-                my $mcdcData = $fileInfo->testcase_mcdc($testname)
-                    if $lcovutil::mcdc_coverage;
 
                 my $summary    = $f->{summary};
                 my $branches   = $f->{branches};
@@ -235,7 +237,8 @@ sub parse
                         $currentLine = $isRegionEntry ? $line : $line + 1;
                     }
                 }
-                if ($mcdc) {
+                if ($mcdc && $json_version < version->parse("3.0.1")) {
+                    my $mcdcData = $fileInfo->testcase_mcdc($testname);
                     my @mcdcBranches;       # array (start line, start column, expression)
                     foreach my $branch (@$branches) {
                         die("unexpected branch data")
@@ -316,12 +319,21 @@ sub parse
                 my $count    = $f->{count};
                 my $regions  = $f->{regions};    # startline/col, endline/col/
                 my $branches = $f->{branches};
+                # The version "3.0.1" adds fileId to mcdc.
+                # This allows using MC/DC branches from expansions for placing MC/DC entries defined in expansions to expansions call sites.
+                my $mcdc = $f->{mcdc_records}
+                    if ($lcovutil::mcdc_coverage &&
+                        $json_version >= version->parse("3.0.1") &&
+                        exists($f->{mcdc_records}));
 
                 my $functionMap = $info->testfnc($testname);
                 # use branch data to derive MC/DC expression - so need
                 # it, even if user didn't ask
                 my $branchData = $info->testbr($testname)
-                    if $lcovutil::br_coverage;
+                    if $lcovutil::br_coverage || $mcdc;
+                my $mcdcData = $info->testcase_mcdc($testname)
+                    if ($json_version >= version->parse("3.0.1") &&
+                        $lcovutil::mcdc_coverage);
                 my $startLine = $regions->[0]->[0];  # startline of first region
                 my $endline   = $regions->[0]->[2];  # endline of last region
                 if ($lcovutil::func_coverage) {
@@ -331,6 +343,10 @@ sub parse
                         unless defined($functionMap->findName($name));
                     $functionMap->add_count($name, $count);
                 }
+
+                my @mcdcBranches;           # array (fileId, start line, start column, expression)
+                my %expanded_mcdcBranches;  # hash of branch's fileId -> branch's start line
+
                 if ($branchData) {
                     my $funcBranchData = BranchData->new();
                     my $regionIdx      = 0;
@@ -379,26 +395,99 @@ sub parse
                                 ++$regionIdx;
                             }
                         }
-                        # Processed branch on the same line doesn't have to be the previous.
-                        my $brEntry = $funcBranchData->value($line);
-                        my $branchIdx =
-                            !defined($brEntry) ? 0 :
-                            scalar(@{$brEntry->getBlock(0)});
-                        my $br =
-                            BranchBlock->new($branchIdx, $trueCount,
-                                             !defined($expr) ? $branchIdx :
-                                                 "(" . $expr . ") == True");
-                        $funcBranchData->append($line, 0, $br, $filename);
+                        $fileId = $b->[6];
+                        # Consider only branches of "MCDCBranchRegion" kind.
+                        if ($mcdc &&
+                            $kind == 6 &&
+                            !defined($expanded_mcdcBranches{$fileId})) {
+                            if ($fileId &&
+                                scalar(@mcdcBranches) &&
+                                $fileId == $mcdcBranches[-1]->[0]) {
+                                pop(@mcdcBranches);
+                                $expanded_mcdcBranches{$fileId} = $line;
+                            } else {
+                                push(@mcdcBranches,
+                                     [$fileId, $line, $col, $expr]);
+                            }
+                        }
 
-                        ++$branchIdx;
-                        $br =
-                            BranchBlock->new($branchIdx, $falseCount,
-                                            !defined($expr) ? $branchIdx :
-                                                "(" . $expr . ") == False");
-                        $funcBranchData->append($line, 0, $br, $filename);
+                        if ($lcovutil::br_coverage) {
+                            # Processed branch on the same line doesn't have to be the previous.
+                            my $brEntry = $funcBranchData->value($line);
+                            my $branchIdx =
+                                !defined($brEntry) ? 0 :
+                                scalar(@{$brEntry->getBlock(0)});
+                            my $br =
+                                BranchBlock->new($branchIdx, $trueCount,
+                                                 !defined($expr) ? $branchIdx :
+                                                     "(" . $expr . ") == True");
+                            $funcBranchData->append($line, 0, $br, $filename);
+
+                            ++$branchIdx;
+                            $br =
+                                BranchBlock->new($branchIdx, $falseCount,
+                                                !defined($expr) ? $branchIdx :
+                                                    "(" . $expr . ") == False");
+                            $funcBranchData->append($line, 0, $br, $filename);
+                        }
                     }
-                    $branchData->union($funcBranchData);
+                    $branchData->union($funcBranchData)
+                        if $lcovutil::br_coverage;
                 }
+                if ($mcdc) {
+                    foreach my $m (@$mcdc) {
+                        die("unexpected MC/DC data") unless scalar(@$m) == 10;
+                        my ($line, $col, $endLine, $endCol,
+                            $trueCount, $falseCount, $fileId, $expandedId,
+                            $kind, $cov) = @$m;
+                        die("unexpected MC/DC cov")
+                            unless 'ARRAY' eq ref($cov);
+                        my $expr;
+                        my @brExprs;
+                        if ($fileId == $expandedId) {
+                            foreach my $branch (@mcdcBranches) {
+                                my ($brFileId, $brLine, $brCol, $brExpr) =
+                                    @$branch;
+                                if (($brLine > $line ||
+                                     ($brLine == $line && $brCol >= $col))
+                                    &&
+                                    ($brLine < $endLine ||
+                                     ($brLine == $endLine && $brCol <= $endCol))
+                                ) {
+                                    push(@brExprs, [$brLine, $brCol, $brExpr]);
+                                }
+                            }
+                            @brExprs = sort {$a->[0] <=> $b->[0] ||
+                                             $a->[1] <=> $b->[1]
+                                            } @brExprs;
+                            $expr =
+                                $srcReader->getExpr($line, $col,
+                                                    $endLine, $endCol)
+                                if $srcReader->notEmpty();
+                        } else {
+                            $line = $expanded_mcdcBranches{$fileId};
+                        }
+                        my $current_mcdc =
+                            $mcdcData->new_mcdc($mcdcData, $line);
+                        my $groupSize = scalar(@$cov);
+                        my $idx       = 0;
+                        foreach my $c (@$cov) {
+                            my $brExpr = $brExprs[$idx]->[2]
+                                if ($fileId == $expandedId &&
+                                    $idx < scalar(@brExprs));
+                            my $fullExpr = defined($brExpr) &&
+                                defined($expr) ? "'$brExpr' in '$expr'" : $idx;
+                            $current_mcdc->insertExpr($filename, $groupSize, 0,
+                                                      $c, $idx, $fullExpr);
+                            $current_mcdc->insertExpr($filename, $groupSize, 1,
+                                                      $c, $idx, $fullExpr);
+                            ++$idx;
+                        }
+                        $mcdcData->close_mcdcBlock($current_mcdc);
+                    }
+                }
+                $info->testbr()->remove($testname)
+                    if $mcdc && !$lcovutil::br_coverage;
             }
         }
         lcovutil::info(2, "finished $jsonFile\n");

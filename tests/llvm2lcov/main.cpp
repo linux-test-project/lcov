@@ -36,7 +36,7 @@ int main() {
     macro_2(i, i < 10, i > 0);
     i = 0;
     macro_3(i < 0);
-    macro_4(i > 0 && i < 10);
+    macro_4(i < 0 || i > 0 && i < 10);
     if (BOOL(i > 0) ||
         i <= 0)
         ;

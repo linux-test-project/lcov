@@ -190,7 +190,7 @@ for line in 33 36 39 44 ; do
 done
 
 # check branches total number
-grep -E "BRF:54$" test.info
+grep -E "BRF:56$" test.info
 if [ $? != 0 ] ; then
     echo "unexpected total number of branches"
     if [ 0 == $KEEP_GOING ] ; then
@@ -198,7 +198,7 @@ if [ $? != 0 ] ; then
     fi
 fi
 # check branches hit number
-grep -E "BRH:34$" test.info
+grep -E "BRH:35$" test.info
 if [ $? != 0 ] ; then
     echo "unexpected hit number of branches"
     if [ 0 == $KEEP_GOING ] ; then
@@ -206,58 +206,115 @@ if [ $? != 0 ] ; then
     fi
 fi
 
-# line main.cpp:70 should contain 2 groups of MC/DC entries
-line=70
-MCDC_1=`grep -c "MCDC:$line,2," test.info`
-MCDC_2=`grep -c "MCDC:$line,3," test.info`
-if [ 4 != "$MCDC_1" ] || [ 6 != "$MCDC_2" ] ; then
-    echo "did not find expected MC/DC entries on line $line"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+# LLVM/21 and later generate JSON data files in the new format.
+# So, these files should be processed differently.
+IFS='.' read -r -a LLVM_VER <<< `clang -dumpversion`
+if [ "${LLVM_VER[0]}" -ge 21 ] ; then
+    # line main.cpp:70 should contain 2 groups of MC/DC entries
+    line=70
+    MCDC_1=`grep -c "MCDC:$line,2," test.info`
+    MCDC_2=`grep -c "MCDC:$line,3," test.info`
+    if [ 4 != "$MCDC_1" ] || [ 6 != "$MCDC_2" ] ; then
+        echo "did not find expected MC/DC entries on line $line"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
-# check that MC/DC entries have right <expressions>
-N=`grep -c "MCDC:63,2,[tf],1,1,'i < 1' in 'a\[i\] && i < 1'" test.info`
-if [ 2 != "$N" ] ; then
-    echo "did not find expected MC/DC entries on line 63"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+    # check that MC/DC entries have right <expressions>
+    N=`grep -c "MCDC:40,2,[tf],0,1,'i <= 0' in 'BOOL(i > 0) ||        i <= 0)'" test.info`
+    if [ 2 != "$N" ] ; then
+        echo "did not find expected MC/DC entries on line 40"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
-# check MC/DC defined in macros
-grep -E "MCDC:6,2,[tf]" test.excl.info
-if [ 0 != $? ] ; then
-    echo "did not find expected MC/DC"
-    if [ 0 == $KEEP_GOING ] ; then
-    exit 1
+    # check MC/DC defined in macros
+    grep -E "MCDC:" test.excl.info
+    if [ 0 == $? ] ; then
+        echo "find unexpected MC/DC"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
-for m in \
-    "MCDC:6,2,[tf]" \
-    "MCDC:15,2,[tf]" \
-    ; do
-    grep -E $m test.info
+    for line in 33 36 39 ; do
+        grep -E "MCDC:$line,[23],[tf]" test.info
+        if [ 0 != $? ] ; then
+            echo "did not find expected MC/DC on line $line"
+            if [ 0 == $KEEP_GOING ] ; then
+                exit 1
+            fi
+        fi
+    done
+    # check MC/DC total number
+    grep -E "MCF:40$" test.info
+    if [ $? != 0 ] ; then
+        echo "unexpected total number of MC/DC entries"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    # check MC/DC hit number
+    grep -E "MCH:10$" test.info
+    if [ $? != 0 ] ; then
+        echo "unexpected hit number of MC/DC entries"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+else
+    # line main.cpp:70 should contain 2 groups of MC/DC entries
+    line=70
+    MCDC_1=`grep -c "MCDC:$line,2," test.info`
+    MCDC_2=`grep -c "MCDC:$line,3," test.info`
+    if [ 4 != "$MCDC_1" ] || [ 6 != "$MCDC_2" ] ; then
+        echo "did not find expected MC/DC entries on line $line"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    # check that MC/DC entries have right <expressions>
+    N=`grep -c "MCDC:63,2,[tf],1,1,'i < 1' in 'a\[i\] && i < 1'" test.info`
+    if [ 2 != "$N" ] ; then
+        echo "did not find expected MC/DC entries on line 63"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    # check MC/DC defined in macros
+    grep -E "MCDC:6,3,[tf]" test.excl.info
     if [ 0 != $? ] ; then
         echo "did not find expected MC/DC"
         if [ 0 == $KEEP_GOING ] ; then
         exit 1
         fi
     fi
-done
-# check MC/DC total number
-grep -E "MCF:34$" test.info
-if [ $? != 0 ] ; then
-    echo "unexpected total number of MC/DC entries"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+    for m in \
+        "MCDC:6,2,[tf]" \
+        "MCDC:15,2,[tf]" \
+        ; do
+        grep -E $m test.info
+        if [ 0 != $? ] ; then
+            echo "did not find expected MC/DC"
+            if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+            fi
+        fi
+    done
+    # check MC/DC total number
+    grep -E "MCF:34$" test.info
+    if [ $? != 0 ] ; then
+        echo "unexpected total number of MC/DC entries"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
-fi
-# check MC/DC hit number
-grep -E "MCH:10$" test.info
-if [ $? != 0 ] ; then
-    echo "unexpected hit number of MC/DC entries"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+    # check MC/DC hit number
+    grep -E "MCH:10$" test.info
+    if [ $? != 0 ] ; then
+        echo "unexpected hit number of MC/DC entries"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
     fi
 fi
 
