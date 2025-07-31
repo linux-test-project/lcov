@@ -2102,14 +2102,14 @@ sub update_state
     while (my ($f, $v) = each(%$updateVersionCache)) {
         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                   "unexpected version entry")
-            if exists($versionCache{$f}) && !($versionCache{$f} eq $v);
+            if exists($versionCache{$f}) && $versionCache{$f} ne $v;
         $versionCache{$f} = $v;
     }
     my $updateResolveCache = shift;
     while (my ($f, $v) = each(%$updateResolveCache)) {
         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                   "unexpected resolve entry")
-            if exists($resolveCache{$f}) && !($resolveCache{$f} eq $v);
+            if exists($resolveCache{$f}) && $resolveCache{$f} ne $v;
         $resolveCache{$f} = $v;
     }
     my $msgTypes = shift;
