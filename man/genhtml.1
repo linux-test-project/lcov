@@ -1158,16 +1158,13 @@ callback to verify that source versions match before source-based filtering is a
 It is almost always a better idea to filter at capture or aggregate time - not at report generation.
 
 A suitable
-.I diff\-file
-can be generated using the command:
-.br
+.I \"universal diff\"
+input file for the
+.I \-\-diff\-file
+option
+can be generated using either the "p4udiff" or "gitdiff" sample scripts that are provided as part of this package, or by using revision control commands directly.
 
-.RS
-git diff \-\-relative <SHA_base> <SHA_current>
-.RE
-
-or using the "p4udiff" or "gitdiff" sample scripts that are provided as part of this package in the following locations:
-.br
+The "p4udiff" or "gitdiff" sample scripts are found in:
 
 .RS
 \*[scriptdir]/p4udiff
@@ -1181,10 +1178,18 @@ and
 .br
 .RE
 
+
+These scripts simply post\-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly note files which have not changed.
+
 .B p4udiff
 accepts either a changelist ID or the literal string "sandbox"; "sandbox" indicates that there are modified files which have not been checked in.
+See "
+.I gitdiff \-\- help
+" and "
+.I p4udiff \-\- help
+" for more information.
 
-These scripts post\-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly note files which have not changed.  It is useful to note unchanged files denoted by lines of the form:
+It is useful to note unchanged files denoted by lines of the form:
 .br
 
 .RS
