@@ -5102,7 +5102,7 @@ sub removeBranches
 
 sub _checkCounts
 {
-    # some consistenc checking
+    # some consistency checking
     my $self = shift;
 
     my $data  = $self->[BranchMap::DATA];
