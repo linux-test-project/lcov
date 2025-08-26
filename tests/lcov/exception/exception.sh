@@ -48,6 +48,24 @@ if [ $NO_INITIAL_CAPTURE != $? ] ; then
     fi
 fi
 
+# enable branch filter without line/region filter - to hit some additional code
+$COVER $CAPTURE $LCOV_OPTS --initial -o initial_br.info $IGNORE_EMPTY $IGNORE_USAGE --filter branch_region
+if [ $NO_INITIAL_CAPTURE != $? ] ; then
+    echo "Error:  unexpected error code from lcov --initial"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+for info in initial.info initial_br.info ; do
+    grep 'BRDA:8,e0' $info
+    if [ 0 == $? ] ; then
+	echo "Error:  exception branch should be filtered out of $info"
+	if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+	fi
+    fi
+done
+
 ./a.out
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error return from a.out"

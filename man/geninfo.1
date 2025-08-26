@@ -233,13 +233,29 @@ man page for more information on .gcda, .gcno and .gcov output formats.
 .SS "Exclusion markers"
 
 To exclude specific lines of code from a tracefile, you can add exclusion
-markers to the source code. Additionally you can exclude specific branches from
-branch coverage without excluding the involved lines from line and function
-coverage. Exclusion markers are keywords which can for example be added in the
+markers to the source code. Similarly, you can mark specific regions of code
+as "unreachable".  An "unreachable" error message is generated if any
+coverpoints in unreachable regions are executed (
+.I i.e.,
+have non-zero hit counts.
+See the
+.I retain_unreachable_coverpoints_if_executed
+section in man
+.B lcovrc(1)
+for a description of the actions taken in this case.
+
+Additionally you can exclude specific branches or MC/DC expressions from
+without excluding the involved lines from line and function
+coverage.
+
+ Exclusion markers are keywords which can for example be added in the
 form of a comment.
 See man
 .BR lcovrc (5)
-how to override some of them.
+how to override the exclusion keywords (
+.I e.g.,
+to reuse markers inserted for other tools or to generate reports with different
+sets of excluded regions).
 
 The following markers are recognized by geninfo:
 
@@ -264,6 +280,34 @@ section.
 Marks the end of an excluded section. The current line not part of this
 section.
 .br
+.RE
+
+.B LCOV_UNREACHABLE_LINE
+.br
+.RS
+If the marked line is 'hit', then generate an error:  we believe the marked code
+is unreachable and so there is a bug in the code, the plaement of the directive, or both.
+Lines containing this marker will be excluded from reporting.
+.br
+Apart from error reporting, this directive is equivalent to
+.I LCOV_EXCL_LINE.
+.RE
+
+.B LCOV_UNREACHABLE_START
+.br
+.RS
+Marks the beginning of an unreachable section of code. The current line in part of this region.
+.br
+As described in the
+.I LCOV_UNREACHABLE_LINE
+section, above: an error is generated if any code in the region is hit, but the code is excluded from reporting.
+.RE
+
+.B LCOV_UNREACHABLE_STOP
+.br
+.RS
+Marks the end of the region of unreachable code. The current line not part of this
+section.
 .RE
 
 .B LCOV_EXCL_BR_LINE
@@ -319,7 +363,9 @@ The current line not part of this section
 In general, (almost) all
 .B geninfo
 options can also be specified in your personal, group, project, or site
-configuration file - see man
+configuration file - see the
+.I \-\-config\-file
+section, below, and man
 .B lcovrc(5)
 for details.
 
@@ -1013,7 +1059,19 @@ data.
 .IP source: 3
 the source code file for a data set could not be found.
 .PP
-`<
+
+.IP unreachable: 3
+a coverpoint (line, branch, function, or MC/DC) within an "unreachable" region is executed (hit); either the code, directive placement, or both are wrong.
+If the error is ignored, the offending coverpoint is retained (not excluded) or not, depending on the value of the
+.I retain_unreachable_coverpoints_if_executed
+configuration parameter.
+See man
+.B lcovrc(5)
+and the
+.I "Exclusion markers"
+section, above.
+.PP
+
 .IP unsupported: 3
 the requested feature is not supported for this tool configuration.  For example, function begin/end line range exclusions use some GCOV features that are not available in older GCC releases.
 .PP

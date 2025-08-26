@@ -1445,6 +1445,20 @@ data.
 the source code file for a data set could not be found.
 .PP
 
+.IP unreachable: 3
+a coverpoint (line, branch, function, or MC/DC) within an "unreachable" region is executed (hit); either the code, directive placement, or both are wrong.
+If the error is ignored, the offending coverpoint is retained (not excluded) or not, depending on the value of the
+.I retain_unreachable_coverpoints_if_executed
+configuration parameter.
+See man
+.B lcovrc(5)
+and the
+.I "Exclusion markers"
+section of man
+.B geninfo(1)
+for more information.
+.PP
+
 .IP unsupported: 3
 the requested feature is not supported for this tool configuration.  For example, function begin/end line range exclusions use some GCOV features that are not available in older GCC releases.
 .PP

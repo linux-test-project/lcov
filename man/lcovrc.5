@@ -715,6 +715,24 @@ maximum during parallel processing.
 .br
 
 .br
+# override unreachable line default line exclusion regexp
+.br
+#lcov_unreachable_line = LCOV_UNREACHABLE_LINE
+.br
+.br
+# override start of unreachable region regexp
+.br
+#lcov_unreachable_start = LCOV_UNREACHABLE_START
+.br
+
+.br
+# override end of unreachable region regexp
+.br
+#lcov_unreachable_stop = LCOV_UNREACHABLE_STOP
+.br
+
+
+.br
 # override start of branch exclude region regexp
 .br
 #lcov_excl_br_start = LCOV_EXCL_BR_START
@@ -2551,6 +2569,37 @@ Specify the regexp used to mark the end of a region where exception-related bran
 
 Default is 'LCOV_EXCL_EXECEPTION_BR_STOP'.
 
+.BR lcov_unreachable_line " ="
+.I expression
+.IP
+Specify the regular expression of unreachable line which should be excluded from reporting, but should generate an "inconsistent" error if hit.
+That is:  we believe that the marked code is unreachable, so there is a bug in the code, the placement of the directive, or both if the "unreachable" code is executed.
+Line, branch, and function coverpoints are associated with lines where this regexp is found are dropped.
+.br
+
+Default is 'LCOV_UNREACHABLE_LINE'.
+.PP
+
+.BR lcov_unreachable_start " ="
+.IR expression
+.IP
+Specify the regexp mark the start of an unreachable code block.
+All coverpoints within exception regions are dropped, but the tool will generate
+an "inconsistent" error if any code in the block is executed.
+.br
+
+Default is 'LCOV_UNREACHABLE_START'.
+
+.PP
+
+.BR lcov_unreachable_stop " ="
+.IR expression
+.IP
+Specify the regexp mark the end of the unreachable code block.
+.br
+
+Default is 'LCOV_UNREACHABLE_STOP'.
+
 .PP
 
 .BR fail_under_branches " ="
@@ -2565,7 +2614,21 @@ for more detailes.
 
 .br
 The default is 0 (no threshold).
+.PP
 
+.BR retain_unreachable_coverpoints_if_executed " ="
+.I [0 | 1]
+.IP
+Specify whether coverpoints in "unreachable" regions which are 'hit' are
+dropped (0) - because the region is excluded - or retained (1) - because
+the directive appears to be incorrect.
+.br
+See the "Exclusion markers" section in man
+.B geninfo(1)
+for more details.
+
+
+The default is 1 (retain the coverpoints).
 .PP
 
 .BR fail_under_lines " ="

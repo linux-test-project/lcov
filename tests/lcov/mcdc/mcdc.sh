@@ -35,6 +35,7 @@ STATUS=0
 function runClang()
 (
     # runClang exeName srcFile flags
+    echo "clang++ -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc -o $1 main.cpp test.cpp $2"
     clang++ -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc -o $1 main.cpp test.cpp $2
     if [ $? != 0 ] ; then
         echo "ERROR from clang++ $1"
@@ -81,6 +82,7 @@ function runGcc()
     shift
     ARG=$1
     shift
+    echo "g++ --coverage -fcondition-coverage -o $NAME main.cpp test.cpp $ARG"
     # runGcc exeName srcFile flags
     eval g++ --coverage -fcondition-coverage -o $NAME main.cpp test.cpp $ARG
     if [ $? != 0 ] ; then
@@ -88,6 +90,7 @@ function runGcc()
         return 1
     fi
     ./$NAME
+    echo "$GENINFO_TOOL -o $NAME.info --mcdc --branch $NAME-test.gcda $@"
     $COVER $GENINFO_TOOL -o $NAME.info --mcdc --branch $NAME-test.gcda $@
     if [ $? != 0 ] ; then
         echo "ERROR from geninfo $NAME"

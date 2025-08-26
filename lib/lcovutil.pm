@@ -58,6 +58,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
      $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
      $EXCL_LINE $EXCL_BR_LINE $EXCL_EXCEPTION_LINE
+     $UNREACHABLE_START $UNREACHABLE_STOP $UNREACHABLE_LINE
      @exclude_file_patterns @include_file_patterns %excluded_files
      @omit_line_patterns @exclude_function_patterns $case_insensitive
      munge_file_patterns warn_file_patterns transform_pattern
@@ -79,7 +80,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
      $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE $ERROR_INTERNAL
      $ERROR_PARALLEL $ERROR_PARENT $ERROR_CHILD $ERROR_FORK
-     $ERROR_EXCESSIVE_COUNT $ERROR_MISSING
+     $ERROR_EXCESSIVE_COUNT $ERROR_MISSING $ERROR_UNREACHABLE
      report_parallel_error report_exit_status check_parent_process
      report_unknown_child
 
@@ -148,6 +149,7 @@ our $ERROR_PARALLEL;             # error in fork/join
 our $ERROR_DEPRECATED;           # deprecated feature
 our $ERROR_CALLBACK;             # callback produced an error
 our $ERROR_INCONSISTENT_DATA;    # something wrong with .info
+our $ERROR_UNREACHABLE;          # coverpoint hit in "unreachable" region
 our $ERROR_RANGE;                # line number out of range
 our $ERROR_UTILITY;              # some tool failed - e.g., 'find'
 our $ERROR_USAGE;                # misusing some feature
@@ -189,6 +191,7 @@ my @lcovErrs = (["annotate", \$ERROR_ANNOTATE_SCRIPT],
                 ["range", \$ERROR_RANGE],
                 ["source", \$ERROR_SOURCE],
                 ["unmapped", \$ERROR_UNMAPPED_LINE],
+                ["unreachable", \$ERROR_UNREACHABLE],
                 ["unsupported", \$ERROR_UNSUPPORTED],
                 ["unused", \$ERROR_UNUSED],
                 ['usage', \$ERROR_USAGE],
@@ -329,6 +332,12 @@ our @cov_filter;    # 'undef' if filter is not enabled,
 
 our $EXCL_START = "LCOV_EXCL_START";
 our $EXCL_STOP  = "LCOV_EXCL_STOP";
+# Marker to say that this code is unreachable - so exclude from
+#   report, but also generate error if anything in the region is hit
+our $UNREACHABLE_START                = "LCOV_UNREACHABLE_START";
+our $UNREACHABLE_STOP                 = "LCOV_UNREACHABLE_STOP";
+our $UNREACHABLE_LINE                 = "LCOV_UNREACHABLE_LINE";
+our $retainUnreachableCoverpointIfHit = 1;
 # Marker to exclude branch coverage but keep function and line coverage
 our $EXCL_BR_START = "LCOV_EXCL_BR_START";
 our $EXCL_BR_STOP  = "LCOV_EXCL_BR_STOP";
@@ -351,6 +360,11 @@ our $trivial_function_threshold         = 5;
 
 # list of regexps applied to line text - if exclude if matched
 our @omit_line_patterns;
+# HGC: does not really make sense to support command-line '--unreachable-line
+#  patterns.  Unreachable is typically a branch clause/structural feature -
+#  as opposed to an 'omit' pattern is typically trace/debug or logging code
+#  which may or may not be executed (and we don't care)
+#our @unreachable_line_patterns;
 our @exclude_function_patterns;
 # need a pattern copy that we don't disable for function message suppressions
 our @suppress_function_patterns;
@@ -1070,6 +1084,11 @@ my %rc_common = (
              "lcov_excl_br_stop"           => \$lcovutil::EXCL_BR_STOP,
              "lcov_excl_exception_br_start" => \$lcovutil::EXCL_EXCEPTION_BR_START,
              "lcov_excl_exception_br_stop" => \$lcovutil::EXCL_EXCEPTION_BR_STOP,
+             'lcov_unreachable_start'      => \$lcovutil::UNREACHABLE_START,
+             'lcov_unreachable_stop'       => \$lcovutil::UNREACHABLE_STOP,
+             'lcov_unreachable_line'       => \$lcovutil::UNREACHABLE_LINE,
+             'retain_unreachable_coverpoints_if_executed' =>
+        \$lcovutil::retainUnreachableCoverpointIfHit,
              "lcov_function_coverage" => \$lcovutil::func_coverage,
              "lcov_branch_coverage"   => \$lcovutil::br_coverage,
              "ignore_errors"          => \@rc_ignore,
@@ -1695,7 +1714,10 @@ sub munge_file_patterns
                     ],
                     ["lcov_excl_exception_br_stop",
                      \$lcovutil::EXCL_EXCEPTION_BR_STOP
-                    ]
+                    ],
+                    ["lcov_unreachable_start", \$lcovutil::UNREACHABLE_START],
+                    ["lcov_unreachable_stop", \$lcovutil::UNREACHABLE_STOP],
+                    ["lcov_excl_line", \$lcovutil::UNREACHABLE_LINE],
     ) {
         eval 'qr/' . $regexp->[1] . '/';
         my $error = $@;
@@ -5450,6 +5472,13 @@ sub difference
 
 package FilterBranchExceptions;
 
+use constant {
+              EXCEPTION_f => 0,
+              ORPHAN_f    => 1,
+              REGION_f    => 2,
+              BRANCH_f    => 3    # branch filter
+};
+
 sub new
 {
     my $class = shift;
@@ -5464,11 +5493,15 @@ sub new
 
 sub removeBranches
 {
-    my ($self, $line, $branches, $filter, $isMasterData) = @_;
+    my ($self, $line, $branches, $filter, $unreachable, $isMasterData) = @_;
 
     my $brdata = $branches->value($line);
     return 0 unless defined($brdata);
-
+    # 'unreachable' and 'excluded' branches have already been removed
+    #   by 'region' filter along with their parent line - so no need to
+    #   do anything here
+    die("unexpected unreachable branch")
+        if ($unreachable && 0 != $brdata->count());
     my $modified = 0;
     my $count    = 0;
     foreach my $block_id ($brdata->blocks()) {
@@ -5500,14 +5533,14 @@ sub removeBranches
             lcovutil::info("$line: remove exception block $block_id\n");
             $brdata->removeBlock($block_id, $branches);
         } elsif (1 == scalar(@replace) &&
-                 defined($self->[1])) {    # filter orphan
+                 defined($self->[ORPHAN_f])) {    # filter orphan
             lcovutil::info(2,
                            "$line: remove orphan exception block $block_id\n");
             $brdata->removeBlock($block_id, $branches);
 
-            ++$self->[1]->[-2]
+            ++$self->[ORPHAN_f]->[-2]
                 if $isMasterData;
-            ++$self->[1]->[-1];
+            ++$self->[ORPHAN_f]->[-1];
         }
     }
     if (0 == scalar($brdata->blocks())) {
@@ -5520,12 +5553,13 @@ sub removeBranches
 
 sub applyFilter
 {
-    my ($self, $filter, $line, $branches, $perTestBranches) = @_;
-    my $modified = $self->removeBranches($line, $branches, $filter, 1);
+    my ($self, $filter, $line, $branches, $perTestBranches, $unreachable) = @_;
+    my $modified =
+        $self->removeBranches($line, $branches, $filter, $unreachable, 1);
     foreach my $tn ($perTestBranches->keylist()) {
         # want to remove matching branches everytwhere - so we don't want short-circuit evaluation
         my $m = $self->removeBranches($line, $perTestBranches->value($tn),
-                                      $filter, 0);
+                                      $filter, $unreachable, 0);
         $modified ||= $m;
     }
     return $modified;
@@ -5535,22 +5569,32 @@ sub filter
 {
     my ($self, $line, $srcReader, $branches, $perTestBranches) = @_;
 
-    if ($srcReader->isExcluded($line, 4)) {
+    my $reason;
+    if (0 != ($reason = $srcReader->isExcluded($line, $srcReader->e_EXCEPTION)))
+    {
         # exception branch excluded..
-        if (defined($self->[2])) {    # exclude region
+        if (defined($self->[REGION_f])) {    # exclude region
+                # don't filter out if this line is "unreachable" and
+                #  some branch here is hit
             return
-                $self->applyFilter($self->[2], $line, $branches,
-                                   $perTestBranches);
-        } elsif (defined($self->[3])) {    # exclude branches
+                $self->applyFilter($self->[REGION_f],
+                                   $line,
+                                   $branches,
+                                   $perTestBranches,
+                                   0 != ($reason & $srcReader->e_UNREACHABLE));
+        } elsif (defined($self->[BRANCH_f])) {    # exclude branches
+                # filter out bogus branches - even if this region is unreachable
             return
-                $self->applyFilter($self->[3], $line, $branches,
-                                   $perTestBranches);
+                $self->applyFilter($self->[BRANCH_f], $line, $branches,
+                                   $perTestBranches, 0);
         }
     }
     # apply if filtering exceptions, orphans, or both
-    if (defined($self->[0]) || defined($self->[1])) {
-        return $self->applyFilter($self->[0], $line, $branches,
-                                  $perTestBranches);
+    if (defined($self->[EXCEPTION_f]) || defined($self->[ORPHAN_f])) {
+        # filter exceptions and orphans - even if the region is "unreachable"
+        return
+            $self->applyFilter($self->[EXCEPTION_f], $line, $branches,
+                               $perTestBranches, 0);
     }
     return 0;
 }
@@ -5961,6 +6005,12 @@ use constant {
               EXCLUDE_BRANCH_REGION => 0x20,
               EXCLUDE_DIRECTIVE     => 0x40,
               OMIT_LINE             => 0x80,
+
+              # recorded exclusion markers
+              e_LINE        => 0x1,
+              e_BRANCH      => 0x2,
+              e_EXCEPTION   => 0x4,
+              e_UNREACHABLE => 0x8,
 };
 
 sub new
@@ -6053,16 +6103,19 @@ sub parseLines
     my $exclude_region;
     my $exclude_br_region;
     my $exclude_exception_region;
-    my $line          = 0;
-    my $excl_start    = qr($lcovutil::EXCL_START);
-    my $excl_stop     = qr($lcovutil::EXCL_STOP);
-    my $excl_line     = qr($lcovutil::EXCL_LINE);
-    my $excl_br_start = qr($lcovutil::EXCL_BR_START);
-    my $excl_br_stop  = qr($lcovutil::EXCL_BR_STOP);
-    my $excl_br_line  = qr($lcovutil::EXCL_BR_LINE);
-    my $excl_ex_start = qr($lcovutil::EXCL_EXCEPTION_BR_START);
-    my $excl_ex_stop  = qr($lcovutil::EXCL_EXCEPTION_BR_STOP);
-    my $excl_ex_line  = qr($lcovutil::EXCL_EXCEPTION_LINE);
+    my $line              = 0;
+    my $excl_start        = qr(\b$lcovutil::EXCL_START\b);
+    my $excl_stop         = qr(\b$lcovutil::EXCL_STOP\b);
+    my $excl_line         = qr(\b$lcovutil::EXCL_LINE\b);
+    my $excl_br_start     = qr(\b$lcovutil::EXCL_BR_START\b);
+    my $excl_br_stop      = qr(\b$lcovutil::EXCL_BR_STOP\b);
+    my $excl_br_line      = qr(\b$lcovutil::EXCL_BR_LINE\b);
+    my $excl_ex_start     = qr(\b$lcovutil::EXCL_EXCEPTION_BR_START\b);
+    my $excl_ex_stop      = qr(\b$lcovutil::EXCL_EXCEPTION_BR_STOP\b);
+    my $excl_ex_line      = qr(\b$lcovutil::EXCL_EXCEPTION_LINE\b);
+    my $unreachable_start = qr(\b$lcovutil::UNREACHABLE_START\b);
+    my $unreachable_stop  = qr(\b$lcovutil::UNREACHABLE_STOP\b);
+    my $unreachable_line  = qr(\b$lcovutil::UNREACHABLE_LINE\b);
     # @todo:  if we had annotated data here, then we could whine at the
     #   author of the unmatched start, extra end, etc.
 
@@ -6075,23 +6128,29 @@ sub parseLines
     if (defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_REGION])) {
         push(@excludes,
              [$excl_start, $excl_stop,
-              \$exclude_region, 3 | EXCLUDE_REGION,
+              \$exclude_region, e_LINE | e_BRANCH | EXCLUDE_REGION,
               $lcovutil::EXCL_START, $lcovutil::EXCL_STOP
              ]);
+        push(@excludes,
+             [$unreachable_start, $unreachable_stop,
+              \$exclude_region, e_UNREACHABLE | EXCLUDE_REGION,
+              $lcovutil::UNREACHABLE_START, $lcovutil::UNREACHABLE_STOP
+             ]);
     } else {
-        $excl_line = undef;
+        $excl_line        = undef;
+        $unreachable_line = undef;
     }
 
     if (defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])) {
         push(@excludes,
              [$excl_ex_start, $excl_ex_stop,
-              \$exclude_exception_region, 4 | EXCLUDE_BRANCH_REGION,
+              \$exclude_exception_region, e_EXCEPTION | EXCLUDE_BRANCH_REGION,
               $lcovutil::EXCL_BR_START, $lcovutil::EXCL_BR_STOP,
              ],
              [$excl_br_start,
               $excl_br_stop,
               \$exclude_br_region,
-              2 | EXCLUDE_BRANCH_REGION,
+              e_BRANCH | EXCLUDE_BRANCH_REGION,
               $lcovutil::EXCL_EXCEPTION_BR_START,
               $lcovutil::EXCL_EXCEPTION_BR_STOP,
              ]);
@@ -6108,13 +6167,15 @@ sub parseLines
         s/\r//;    # remove carriage return
         if (defined($exclude_directives) &&
             $_ =~ $exclude_directives) {
-            push(@excluded, 3 | EXCLUDE_DIRECTIVE);    #everything excluded
+            # line contains compiler directive - exclude everything
+            push(@excluded, e_LINE | e_BRANCH | EXCLUDE_DIRECTIVE);
             lcovutil::info(2, "directive '#$1' on $filename:$line\n");
             next;
         }
 
         foreach my $d (@excludes) {
-            # note:  $d->[4] is the 'start' string (not converted to perl regexp)
+            # note:  $d->[3] is the exclude reason (mask)
+            #        $d->[4] is the 'start' string (not converted to perl regexp)
             #        $d->[5] is the 'stop' string
             my ($start, $stop, $ref, $reason) = @$d;
             if ($_ =~ $start) {
@@ -6124,33 +6185,42 @@ sub parseLines
                                " at line $line - but no matching " . $d->[5] .
                                ' for ' . $d->[4] . ' at line ' . $$ref->[0])
                     if $$ref;
-                $$ref = [$line, $reason];
+                $$ref = [$line, $reason, $d->[4], $d->[5]];
                 last;
             } elsif ($_ =~ $stop) {
                 lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                               "$filename: found " . $d->[5] .
                                   " directive at line $line without matching " .
-                                  $d->[4] . ' directive')
-                    unless $$ref;
+                                  ($$ref ? $$ref->[2] : $d->[4]) . ' directive')
+                    unless $$ref &&
+                    $$ref->[2] eq $d->[4] &&
+                    $$ref->[3] eq $d->[5];
                 $$ref = undef;
                 last;
             }
         }
         if (defined($excl_line) &&
             $_ =~ $excl_line) {
-            push(@excluded, 3 | EXCLUDE_REGION);    #everything excluded
+            push(@excluded, e_LINE | e_BRANCH | EXCLUDE_REGION)
+                ;    #everything excluded
+            next;
+        } elsif (defined($unreachable_line) &&
+                 $_ =~ $unreachable_line) {
+            push(@excluded, e_UNREACHABLE | EXCLUDE_REGION)
+                ;    #everything excluded
             next;
         } elsif (defined($excl_br_line) &&
                  $_ =~ $excl_br_line) {
-            $exclude_branch_line = 2 | EXCLUDE_BRANCH_REGION;
+            $exclude_branch_line = e_BRANCH | EXCLUDE_BRANCH_REGION;
         } elsif (defined($excl_ex_line) &&
                  $_ =~ $excl_ex_line) {
-            $exclude_branch_line = 4 | EXCLUDE_BRANCH_REGION;
+            $exclude_branch_line = e_EXCEPTION | EXCLUDE_BRANCH_REGION;
         } elsif (0 != scalar(@lcovutil::omit_line_patterns)) {
             foreach my $p (@lcovutil::omit_line_patterns) {
                 my $pat = $p->[0];
                 if ($_ =~ $pat) {
-                    push(@excluded, 3 | OMIT_LINE);    #everything excluded
+                    push(@excluded, e_LINE | e_BRANCH | OMIT_LINE)
+                        ;    #everything excluded
                      #lcovutil::info("'" . $p->[-2] . "' matched \"$_\", line \"$filename\":"$line\n");
                     ++$p->[-1];
                     next LINES;
@@ -6163,9 +6233,20 @@ sub parseLines
                   $exclude_exception_region ? $exclude_exception_region->[1] : 0
                  ) | $exclude_branch_line | $exclude_exception_branch_line);
     }
-    foreach my $t ([$exclude_region, $lcovutil::EXCL_START,
-                    $lcovutil::EXCL_STOP
-                   ],
+    my @dangling;
+    if ($exclude_region) {
+        if ($exclude_region->[1] & e_UNREACHABLE) {
+            push(@dangling,
+                 [$exclude_region, $lcovutil::UNREACHABLE_START,
+                  $lcovutil::UNREACHABLE_STOP
+                 ]);
+        } else {
+            push(@dangling,
+                 [$exclude_region, $lcovutil::EXCL_START, $lcovutil::EXCL_STOP]
+            );
+        }
+    }
+    foreach my $t (@dangling,
                    [$exclude_br_region, $lcovutil::EXCL_BR_START,
                     $lcovutil::EXCL_BR_STOP
                    ],
@@ -6305,13 +6386,24 @@ sub excludeReason
 
 sub isExcluded
 {
-    my ($self, $lineNo, $branch) = @_;
+    # returns:  the value of the matched flags
+    #   - non-zero if the line is excluded (in an excluded or unreachable
+    #     region), or if '$flags" is set and the exclusion reason includes
+    #     at least one of the flags.
+    #   - The latter condition is used to check for branch-only or execption-
+    #     only exclusions, as well as to check whether this line is
+    #     unreachable (as opposed to excluded).
+    my ($self, $lineNo, $flags, $skipRangeCheck) = @_;
     my $data = $self->[0];
-    if (!defined($data->[EXCLUDE]) ||
-        scalar(@{$data->[EXCLUDE]}) < $lineNo) {
+    if (!defined($data->[EXCLUDE]) || scalar(@{$data->[EXCLUDE]}) < $lineNo) {
         # this can happen due to version mismatches:  data extracted with
         # version N of the file, then generating HTML with version M
         # "--version-script callback" option can be used to detect this
+
+        # if we are just checking whether this line in in an unreachable region,
+        #   then don't check for out-of-range (that check happens later)
+        return 0
+            if $skipRangeCheck;
         my $key = $self->filename();
         $key .= $lineNo unless ($lcovutil::warn_once_per_file);
         my $suffix = lcovutil::explain_once(
@@ -6333,10 +6425,12 @@ sub isExcluded
                   $suffix) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
         return 0;    # even though out of range - this is not excluded by filter
     }
-    return 1
-        if ($branch &&
-            0 != ($data->[EXCLUDE]->[$lineNo - 1] & $branch));
-    return 0 != ($data->[EXCLUDE]->[$lineNo - 1] & 1);
+    my $reason;
+    if ($flags &&
+        0 != ($reason = ($data->[EXCLUDE]->[$lineNo - 1] & $flags))) {
+        return $reason;
+    }
+    return $data->[EXCLUDE]->[$lineNo - 1] & (e_LINE | e_UNREACHABLE);
 }
 
 sub removeComments
@@ -7036,6 +7130,25 @@ sub _eraseFunctions
                 }    # if match
             }    # foreach alias
         }    # foreach pattern
+             # warn if the function is in an unreachable region but is hit -
+             #  easiest to check here so we emit only one message per function
+        my $line;
+        my $reason;
+        if ($srcReader &&
+            0 != ($reason =
+                      $srcReader->isExcluded(($line = $fcn->line()),
+                                             $srcReader->e_UNREACHABLE, 1)) &&
+            0 != ($reason & $srcReader->e_UNREACHABLE) &&
+            0 != $fcn->hit()
+        ) {
+
+            lcovutil::ignorable_error($lcovutil::ERROR_UNREACHABLE,
+                "\"$source_file\":$line:  function $name is executed but was marked unreachable."
+            );
+            next
+                if $lcovutil::retainUnreachableCoverpointIfHit;
+        }
+
     }    # foreach function
     return $modified;
 }
@@ -7465,7 +7578,8 @@ sub _filterFile
 
     if (defined($lcovutil::func_coverage) &&
         (0 != scalar(@lcovutil::exclude_function_patterns) ||
-            defined($trivial_histogram))
+            defined($trivial_histogram) ||
+            defined($region))
     ) {
         # filter excluded function line ranges
         my $funcData   = $traceInfo->testfnc();
@@ -7473,7 +7587,7 @@ sub _filterFile
         my $branchData = $traceInfo->testbr();
         my $mcdcData   = $traceInfo->testcase_mcdc();
         my $checkData  = $traceInfo->check();
-        my $reader     = defined($trivial_histogram) &&
+        my $reader     = (defined($trivial_histogram) || defined($region)) &&
             $srcReader->notEmpty() ? $srcReader : undef;
 
         foreach my $tn ($lineData->keylist()) {
@@ -7509,6 +7623,7 @@ sub _filterFile
         my $testbrcount  = $testbrdata->value($testname);
         my $mcdc_count   = $testmcdc->value($testname);
 
+        my $reason;
         my $functionMap = $testfncdata->{$testname};
         if ($lcovutil::func_coverage &&
             $functionMap &&
@@ -7526,12 +7641,18 @@ sub _filterFile
                                    "filter FN " . $data->name() .
                                        ' ' . $data->file() . ":$line\n");
                     ++$range->[-2];    # one location where this applied
-                } elsif ($srcReader->isExcluded($line)) {
+                } elsif (0 != ($reason = $srcReader->isExcluded($line))) {
+                    # we already warned about this one
+                    next
+                        if (0 != ($reason & $srcReader->e_UNREACHABLE) &&
+                            0 != $data->hit() &&
+                            $lcovutil::retainUnreachableCoverpointIfHit);
+
                     $remove = 1;
-                    my $reason = $srcReader->excludeReason($line);
+                    my $r = $srcReader->excludeReason($line);
                     foreach my $f ([ReadCurrentSource::EXCLUDE_REGION, $region],
                                    [ReadCurrentSource::OMIT_LINE, $omit]) {
-                        if ($reason & $f->[0]) {
+                        if ($r & $f->[0]) {
                             $f->[1]->[-2] += scalar(keys %{$data->aliases()});
                             last;
                         }
@@ -7578,9 +7699,14 @@ sub _filterFile
                     # only counting line coverpoints that got excluded
                     die("inconsistent state") unless $range;
                     $remove = $range;
-                } elsif ($srcReader->isExcluded($line, 2)) {
+                } elsif (
+                     0 != (
+                         $reason =
+                             $srcReader->isExcluded($line, $srcReader->e_BRANCH)
+                     )
+                ) {
                     # all branches here
-                    my $reason = $srcReader->excludeReason($line);
+                    my $r = $srcReader->excludeReason($line);
                     foreach my $f ([ReadCurrentSource::EXCLUDE_REGION, $region],
                                    [ReadCurrentSource::OMIT_LINE, $omit],
                                    [ReadCurrentSource::EXCLUDE_DIRECTIVE,
@@ -7590,7 +7716,7 @@ sub _filterFile
                                     $branch_region
                                    ]
                     ) {
-                        if ($reason & $f->[0]) {
+                        if ($r & $f->[0]) {
                             $remove = $f->[1];
                             last;
                         }
@@ -7608,6 +7734,17 @@ sub _filterFile
                         my $brdata = $sumCount->value($line);
                         # might not be MCDC here, even if there is a branch
                         next unless $brdata;
+
+                        if ($reason &&
+                            0 != ($reason & $srcReader->e_UNREACHABLE) &&
+                            0 != ($brdata->totals())[1]) {
+                            lcovutil::ignorable_error(
+                                $lcovutil::ERROR_UNREACHABLE,
+                                "\"$source_file\":$line: $str record in 'unreachable' region has non-zero hit count."
+                            );
+                            next
+                                if $lcovutil::retainUnreachableCoverpointIfHit;
+                        }
                         ++$remove->[-2];    # one line where we skip
                         $remove->[-1] += ($brdata->totals())[0];
                         lcovutil::info(2,
@@ -7651,6 +7788,7 @@ sub _filterFile
                     ++$mcdc_single->[-2];    # one MC/DC skipped
 
                     $mcdc->remove($line);    # remove at top
+                    $modified = 1;
                 }
             }
         }
@@ -7666,6 +7804,23 @@ sub _filterFile
         # Line related data
         my %initializerListRange;
         foreach my $line ($testcount->keylist()) {
+
+            # warn about inconsistency if executed line is marked unreachable
+            my $l_hit = $testcount->value($line);
+            if ($l_hit &&
+                0 != ($reason =
+                          $srcReader->isExcluded(
+                                             $line, $srcReader->e_UNREACHABLE, 1
+                          )) &&
+                0 != ($reason & $srcReader->e_UNREACHABLE)
+            ) {
+                lcovutil::ignorable_error($lcovutil::ERROR_UNREACHABLE,
+                    "\"$source_file\":$line:  'unreachable' line has non-zero hit count."
+                );
+                next
+                    if $lcovutil::retainUnreachableCoverpointIfHit;
+            }
+
             # don't suppresss if this line has associated branch or MC/DC data
             next
                 if (
@@ -7718,7 +7873,6 @@ sub _filterFile
                     }
                 }
             }
-            my $l_hit = $testcount->value($line);
             my $isCloseBrace =
                 ($brace_histogram &&
                  $srcReader->suppressCloseBrace($line, $l_hit, $testcount))
