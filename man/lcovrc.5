@@ -1147,6 +1147,20 @@ This option is used by genhtml, lcov, and geninfo.
 
 .PP
 
+.BR message_log " ="
+.IR filename
+.IP
+Specify location to store error and warning messages (in addition to writing to STDERR).
+If not specified, then the default location is used.
+.br
+
+.br
+This attribute is equivalent to the
+.I \-\-msg\-log
+command line option.  The command line option takes precedence if both are specified.
+
+.PP
+
 .BR stop_on_error " = "
 .IR 0|1
 .IP
