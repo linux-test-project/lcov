@@ -371,7 +371,7 @@ LCOV features and capabilities fall into 7 major categories:
           --baseline-title, --baseline-date, --current-date,
           --flat, --hierarchical,
           --show-owners, --show-noncode, --show-navigation, --show-proportion,
-          --suppress-aliases
+          --suppress-aliases --simplify-script
 
   d) Data manipulation
 
@@ -421,8 +421,10 @@ LCOV features and capabilities fall into 7 major categories:
            the changes caused by a particular commit or range of commits,
            or to review changes in a particular release.
            Sample script:  select.pm
-         vi) keep track of environment and other settings - to aid
+        vi) keep track of environment and other settings - to aid
             infrastructure debugging in more complicated use cases.
+        vii) compress the 'function detail' table to improve readability
+             by shortening long C++ template and function names.
 
      The callback may be any desired script or executable - but there
      may be performance advantages if it is written as a Perl module.
@@ -436,6 +438,7 @@ LCOV features and capabilities fall into 7 major categories:
      Related options:
        --annotate-script, --criteria-script, --version-script
        --resolve-script, --select-script, --context-script
+       --simplify-script
 
   f) Performance
 

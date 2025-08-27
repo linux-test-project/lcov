@@ -22,6 +22,7 @@ CRITERIA_SCRIPT=$SCRIPT_DIR/criteria.pm
 GITBLAME_SCRIPT=$SCRIPT_DIR/gitblame.pm
 GITVERSION_SCRIPT=$SCRIPT_DIR/gitversion.pm
 P4VERSION_SCRIPT=$SCRIPT_DIR/P4version.pm
+SIMPLIFY_SCRIPT=$SCRIPT_DIR/simplify.pm
 
 if [ 1 == "$USE_GIT" ] ; then
     # this is git
@@ -544,10 +545,65 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# invalid regexp
+for flag in --substitute ; do
+    echo genhtml $DIFFCOV_OPTS -o foo initial.info $flag 's#aBc#AbC' --ignore source --rc max_message_count=1
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS -o foo initial.info $flag 's#aBc#AbC' --ignore source --rc max_message_count=1 2>&1 | tee invalid_regexp.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+	echo "ERROR: genhtml invalid $flag"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+    grep "Invalid regexp \"$flag " invalid_regexp.log
+    if [ 0 != $? ] ; then
+	echo "ERROR: missing regexp message for $flag"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+done
+
+echo genhtml $DIFFCOV_OPTS -o foo initial.info --simplify $SIMPLIFY_SCRIPT,--re, 's#aBc#AbC' --ignore source --rc max_message_count=1
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS -o foo initial.info --simplify $SIMPLIFY_SCRIPT,--re, 's#aBc#AbC' --ignore source --rc max_message_count=1 2>&1 | tee script_err.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml invalid $flag"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+for str in 'Invalid regexp' 'unable to create callback from module ' ; do
+    grep "$str" script_err.log
+    if [ 0 != $? ] ; then
+	echo "ERROR: missing err message for '$str'"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+done
+
+# script errors
+for args in '' ',--file,a,--re,s/a/b/' ',--file,a' ; do
+    echo genhtml $DIFFCOV_OPTS -o foo initial.info --simplify ${SIMPLIFY_SCRIPT}${args} --ignore source --rc max_message_count=1
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS -o foo initial.info --simplify ${SIMPLIFY_SCRIPT}${args} --ignore source --rc max_message_count=1 2>&1 | tee invalid_callback.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+	echo "ERROR: genhtml invalid '$args'"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+    grep "unable to create callback from module " invalid_callback.log
+    if [ 0 != $? ] ; then
+	echo "ERROR: missing regexp message for '$args'"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+done
 
 # callback error testing
 #  die() in 'extract' callback:
-echo lcov $LCOV_OPTS --summary version.info --filter line--version-script ./genError.pm
+echo lcov $LCOV_OPTS --summary version.info --filter line --version-script ./genError.pm
 $COVER $LCOV_TOOL $LCOV_OPTS --summary version.info --filter line --version-script ./genError.pm 2>&1 | tee extract_err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: lcov extract passed by accident"
@@ -599,7 +655,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-for callback in select annotate criteria ; do
+for callback in select annotate criteria simplify ; do
 
   echo genhtml $DIFCOV_OPTS initial.info -o $callback --${callback}-script ./genError.pm
   $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o $callback --${callback}-script ./genError.pm 2>&1 | tee ${callback}_err.log

@@ -146,6 +146,9 @@ genhtml \- Generate HTML view from LCOV coverage data files
 .RB [ \-\-select\-script
 .IR script  ]
 .br
+.RB [ \-\-simplify\-script
+.IR script ]
+.br
 .RB [ \-\-checksum ]
 .br
 .RB [ \-\-fail\-under\-branches
@@ -432,6 +435,8 @@ following options:
 .br
 .B \-\-select\-script
 .br
+.B \-\-simplify\-script
+.br
 .B \-\-version\-script
 .br
 .RE
@@ -602,6 +607,23 @@ where
 is the correct path to the indicated source file or
 .I undef
 if the source file is not found by the callback.
+.PP
+
+.IP simplify\-script
+$new_func_name = $callback_obj->simplify($orig_func_name)
+.br
+.br
+
+where
+.I $new_func_name
+is the function name which will appear in the function detail table and
+.I $orig_func_name
+is the (possibly demangled) function name found in the coverage DB.
+
+.br
+Note that the modified name is only used in the "function detail" table
+and does not modify information in the coveage DB.
+
 .PP
 
 .RE
@@ -1818,6 +1840,28 @@ config file option. See man
 for details.
 .RE
 
+.B \-\-simplify\-script
+.I callback
+.br
+.RS
+Use
+.I callback
+to shorten/simplify long demangled C++ function and template names to make the function detail table more compact and readable - for example, to
+remove nested namespace names.
+
+Note that the simplifications affect only the display and not the actual names
+stored in the coverage DB.  In particular, the DB name (not the simplified name)
+is the one used to match
+.I \-\-erase\-function
+patterns.
+
+This option is equivalent to the
+.B simplify_script
+config file option. See man
+.B lcovrc(5)
+for details
+.RE
+
 .BI "\-\-checksum "
 .RS
 Specify whether to compare stored tracefile checksum to checksum computed from the source code.
@@ -2127,9 +2171,8 @@ Note that this option requires that you use a compiler version which is new enou
 .BI derive_function_end_line
 discussion in man
 .B lcovrc(5).
-
-
 .RE
+
 .B \-\-substitute
 .I regexp_pattern
 .br
@@ -3538,6 +3581,22 @@ feature can instead be realized by
 .I "genhtml --criteria-script \*[scriptdir]/threshold.pm,--line,75 ..."
 .RE
 .br
+.RE
+.RE
+
+Sample
+.I \-\-simplify\-script
+callback Perl module:
+.RS
+
+.I \*[scriptdir]/simplify.pm
+.RS
+Sample script written as Perl module for use with
+.B \-\-simplify\-script
+that implements regular expression substitutions for function name simplification.
+.br
+.RE
+
 .RE
 .RE
 

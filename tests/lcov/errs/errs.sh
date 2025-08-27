@@ -156,7 +156,7 @@ for f in exceptionBranch ; do
         fi
     fi
 
-    echo lcov $LCOV_OPTS -a ${f}1.info -a ${f}2.info --ignroe mismatch -o ${f}2.log
+    echo lcov $LCOV_OPTS -a ${f}1.info -a ${f}2.info --ignore mismatch -o ${f}2.log
     $COVER $LCOV_TOOL $LCOV_OPTS -a ${f}1.info -a ${f}2.info --ignore mismatch -o $f.log
 
     if [ 0 != ${PIPESTATUS[0]} ] ; then
