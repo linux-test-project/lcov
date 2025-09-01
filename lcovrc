@@ -510,6 +510,15 @@ lcov_json_module = auto
 # override end of exclude region regexp
 #lcov_excl_stop = LCOV_EXCL_STOP
 
+# override unreachable line default line exclusion regexp
+#lcov_unreachable_line = LCOV_UNREACHABLE_LINE
+
+# override start of unreachable region regexp
+#lcov_unreachable_start = LCOV_UNREACHABLE_START
+
+# override end of unreachable region regexp
+#lcov_unreachable_stop = LCOV_UNREACHABLE_STOP
+
 # override start of branch exclude region regexp
 #lcov_excl_br_start = LCOV_EXCL_BR_START
 

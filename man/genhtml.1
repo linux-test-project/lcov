@@ -2301,12 +2301,12 @@ Ignore line and branch coverpoints on lines which are out-of range/whose line nu
 .PP
 
 .IP region: 3
-apply LCOV_EXCL_START/LCOV_EXCL_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
+apply LCOV_EXCL_START/LCOV_EXCL_STOP/LCOV_EXCL_LINE and LCOV_UNREACHABLE_START/LCOV_UNREACHABLE_STOP/LCOV_UNREACHABLE_LINE directives found in source text to the coverpoints found in the current and baseline .info files.
 This option may be useful in cases that the source code was not found during 'lcov \-\-capture ...' but is accessible now.
 .PP
 
 .IP branch_region: 3
-apply LCOV_EXCL_BR_START/LCOV_EXCL_BR_STOP directives found in source text to the coverpoints found in the current and baseline .info files.
+apply LCOV_EXCL_BR_START/LCOV_EXCL_BR_STOP/LCOV_EXCL_BR_LINE directives found in source text to the coverpoints found in the current and baseline .info files.
 This is similar to the 'region option, above - but applies to branch coverpoints only.
 .PP
 
@@ -3128,6 +3128,20 @@ The source code file for a data set could not be found.
 Coverage data for a particular line cannot be found, possibly because the source code was not found, or because the line number mapping in the \.info file is wrong.
 
 This can happen if the source file used in HTML generation is not the same as the file used to generate the coverage data - for example, lines have been added or removed.
+.PP
+
+.IP unreachable: 3
+a coverpoint (line, branch, function, or MC/DC) within an "unreachable" region is executed (hit); either the code, directive placement, or both are wrong.
+If the error is ignored, the offending coverpoint is retained (not excluded) or not, depending on the value of the
+.I retain_unreachable_coverpoints_if_executed
+configuration parameter.
+See man
+.B lcovrc(5)
+and the
+.I "Exclusion markers"
+section of man
+.B geninfo(1)
+for more information.
 .PP
 
 .IP unsupported: 3
