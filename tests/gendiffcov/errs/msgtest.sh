@@ -3,7 +3,7 @@ set +x
 
 source ../../common.tst
 
-rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err*
+rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err* readThis.rc testing.rc
 rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels sortTables
 
 clean_cover
@@ -172,6 +172,12 @@ if [ 0 != $? ] ; then
 fi
 echo lcov $LCOV_OPTS --summary initial.info --prune --ignore usage
 $COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --prune --ignore usgae 2>&1 | tee prune_warn.log
+if [ 0 != $? ] ; then
+    echo "ERROR: lcov prune faled"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 
 echo lcov $LCOV_OPTS --capture -d . -o build.info --build-dir x/y
 $COVER $LCOV_TOOL $LCOV_OPTS --capture -d . -o build.info --build-dir x/y 2>&1 | tee build_dir_err.log
@@ -207,10 +213,34 @@ fi
 
 
 echo lcov $LCOV_OPTS --summary initial.info --config-file noSuchFile --ignore usage
-$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file noSuchFile --ignore usgae 2>&1 | tee err_missing.log
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file noSuchFile 2>&1 | tee err_missing.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: didn't exit after self missing config file error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 grep "cannot read configuration file 'noSuchFile'" err_missing.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing config file message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# read a config file which is there...
+echo "message_log = message_file.log" > testing.rc
+echo "config_file = testing.rc" > readThis.rc
+echo lcov $LCOV_OPTS --summary initial.info --config-file readThis.rc
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file readThis.rc
+if [ ! == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: didn't read config file"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ !-f message_file.log] ; then
+    echo "ERROR: didn't honor message_log"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
@@ -220,6 +250,12 @@ fi
 echo "config_file = loop1.rc" > loop1.rc
 echo lcov $LCOV_OPTS --summary initial.info --config-file loop1.rc --ignore usage
 $COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file loop1.rc --ignore usage 2>&1 | tee err_selfloop.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: skipped self loop error - which isn't supposed to be possible right now"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 grep "config file inclusion loop" err_selfloop.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing config file message"
@@ -232,6 +268,12 @@ echo "config_file = loop3.rc" > loop2.rc
 echo 'config_file = $ENV{PWD}/loop2.rc' > loop3.rc
 echo lcov $LCOV_OPTS --summary initial.info --config-file loop2.rc --ignore usage
 $COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file loop2.rc --ignore usage 2>&1 | tee err_loop.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: skipped self loop error2 - which isn't supposed to be possible"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 grep "config file inclusion loop" err_loop.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing config file message"

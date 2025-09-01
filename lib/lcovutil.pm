@@ -1093,6 +1093,7 @@ my %rc_common = (
              "lcov_branch_coverage"   => \$lcovutil::br_coverage,
              "ignore_errors"          => \@rc_ignore,
              "max_message_count"      => \$lcovutil::suppressAfter,
+             "message_log"            => \$lcovutil::message_log,
              'expected_message_count' => \@rc_expected_msg_counts,
              'stop_on_error'          => \$lcovutil::stop_on_error,
              'treat_warning_as_error' => \$lcovutil::treat_warning_as_error,
@@ -1305,13 +1306,22 @@ sub read_config($$)
                                   'config file inclusion loop detected: "' .
                                       join('" -> "', @include_stack) .
                                       '" -> "' . $filename . '"');
-        return 0;
+        # this line is unreachable as we can't ignore the 'usage' error
+        #   because it is generated when we parse the config-file options
+        #   but the '--ignore-errors' option isn't parsed until later, after
+        #   the GetOptions call.
+        # This could be fixed by doing some early processing on the command
+        #   line (similar to how config file options are handled) - but that
+        #   seems like overkill.  Just force the user to fix the issues.
+        return 0;    # LCOV_UNREACHABLE_LINE
     }
 
     if (!open(HANDLE, "<", $filename)) {
         lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
                               "cannot read configuration file '$filename': $!");
-        return 0;    # didn't set anything
+        # similarly, this line is also unreachable for the same reasons as
+        #   described above.
+        return 0;    # didn't set anything LCOV_UNREACHABLE_LINE
     }
     $included_config_files{abs_path($filename)} = 1;
     push(@include_stack, $filename);
