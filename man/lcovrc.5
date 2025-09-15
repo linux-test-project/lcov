@@ -3154,6 +3154,21 @@ This option is used by genhtml, lcov, and geninfo.
 
 .PP
 
+.BR simplify_script " ="
+.IR path_to_executable | parameter
+.IP
+
+This option is equivalent to the genhtml
+.I \-\-simplify\-script
+ option. 
+This option can be used multiple times in the lcovrc file to specify both a simplify script and additional options which are passed to the script.
+
+See man
+.B genhtml(1)
+for details.
+
+.PP
+
 .BR substitute " ="
 .IR regexp
 .IP
@@ -3162,7 +3177,8 @@ This option is equivalent to the \-\-substitute option to geninfo, lcov, and gen
 See the lcov man page for details.;
 
 This option can be used multiple times in the lcovrc file to specify multiple substitution patterns.
-The patterns specified in the lcovrc file are appended to the list specified on the command line.
+If patterns are specified on both the command line and in the lcovrc file, then
+the command line patterns are used and the lcovrc patterns are dropped.
 
 .br
 This option is used by genhtml, lcov, and geninfo.

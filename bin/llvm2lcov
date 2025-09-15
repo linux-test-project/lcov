@@ -239,7 +239,8 @@ sub parse
                 }
                 if ($mcdc && $json_version < version->parse("3.0.1")) {
                     my $mcdcData = $fileInfo->testcase_mcdc($testname);
-                    my @mcdcBranches;       # array (start line, start column, expression)
+                    my @mcdcBranches
+                        ;    # array (start line, start column, expression)
                     foreach my $branch (@$branches) {
                         die("unexpected branch data")
                             unless scalar(@$branch) == 9;
@@ -273,8 +274,8 @@ sub parse
                             if (($brLine > $line ||
                                  ($brLine == $line && $brCol >= $startCol))
                                 &&
-                                ($brLine < $endLine ||
-                                 ($brLine == $endLine && $brCol <= $endCol))
+                                (   $brLine < $endLine ||
+                                    ($brLine == $endLine && $brCol <= $endCol))
                             ) {
                                 push(@brExprs, [$brLine, $brCol, $brExpr]);
                             }
@@ -344,8 +345,10 @@ sub parse
                     $functionMap->add_count($name, $count);
                 }
 
-                my @mcdcBranches;           # array (fileId, start line, start column, expression)
-                my %expanded_mcdcBranches;  # hash of branch's fileId -> branch's start line
+                my @mcdcBranches
+                    ;    # array (fileId, start line, start column, expression)
+                my %expanded_mcdcBranches
+                    ;    # hash of branch's fileId -> branch's start line
 
                 if ($branchData) {
                     my $funcBranchData = BranchData->new();
@@ -451,15 +454,17 @@ sub parse
                                 if (($brLine > $line ||
                                      ($brLine == $line && $brCol >= $col))
                                     &&
-                                    ($brLine < $endLine ||
-                                     ($brLine == $endLine && $brCol <= $endCol))
+                                    (   $brLine < $endLine ||
+                                        ($brLine == $endLine &&
+                                            $brCol <= $endCol))
                                 ) {
                                     push(@brExprs, [$brLine, $brCol, $brExpr]);
                                 }
                             }
-                            @brExprs = sort {$a->[0] <=> $b->[0] ||
-                                             $a->[1] <=> $b->[1]
-                                            } @brExprs;
+                            @brExprs = sort {
+                                $a->[0]     <=> $b->[0] ||
+                                    $a->[1] <=> $b->[1]
+                            } @brExprs;
                             $expr =
                                 $srcReader->getExpr($line, $col,
                                                     $endLine, $endCol)

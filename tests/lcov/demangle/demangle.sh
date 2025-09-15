@@ -5,7 +5,7 @@ source ../../common.tst
 
 LCOV_OPTS="--branch-coverage --no-external $PARALLEL $PROFILE"
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log simplify
 
 clean_cover
 
@@ -24,6 +24,7 @@ if [ 'x' == "x$GENHTML_TOOL" ] ; then
     GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
 fi
 
+SIMPLIFY_SCRIPT=${SCRIPT_DIR}/simplify.pm
 
 ${CXX} -std=c++1y --coverage demangle.cpp
 ./a.out 1
@@ -57,6 +58,35 @@ for k in FNA ; do
     fi
 done
 
+# see if we can "simplify" the function names..
+for callback in './simplify.pl' "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/;s/Cat::Cat/subst2/;s/subst2/subst3/" "${SIMPLIFY_SCRIPT},--file,simplify.cmd" ; do
+
+    $COVER $GENHTML_TOOL --branch $PARLLEL $PROFILE -o simplify demangle.info --flat --simplify $callback
+    if [ $? != 0 ] ; then
+	echo "genhtml --simplify '$callback' failed"
+	exit 1
+    fi
+    grep subst1 simplify/demangle/demangle.cpp.func.html
+    if [ $? != 0 ] ; then
+	echo "didn't find subst1 pattern after $callback"
+	exit 1
+    fi
+    grep Animal::Animal simplify/demangle/demangle.cpp.func.html
+    if [ $? == 0 ] ; then
+	echo "found pattern that was supposed to be substituted after $callback"
+	exit 1
+    fi
+    grep subst3 simplify/demangle/demangle.cpp.func.html
+    if [ $? != 0 ] ; then
+	echo "didn't find subst3 pattern after $callback"
+	exit 1
+    fi
+    grep subst2 simplify/demangle/demangle.cpp.func.html
+    if [ $? == 0 ] ; then
+	echo "iteratative substitute failed after $callback "
+	exit 1
+    fi
+done
 
 $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --directory . -o vanilla.info
 

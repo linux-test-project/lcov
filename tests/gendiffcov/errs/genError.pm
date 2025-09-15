@@ -47,4 +47,9 @@ sub check_criteria
     die("die in check_criteria");
 }
 
+sub simplify
+{
+    die("die in simplify");
+}
+
 1;

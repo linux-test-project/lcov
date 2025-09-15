@@ -291,6 +291,8 @@ sub write_overview(*$$$$);
 # External prototype (defined in genpng)
 sub gen_png($$$$$@);
 
+sub simplify_function_name($);
+
 package SummaryInfo;
 
 our @selectCallbackScript;
@@ -5471,7 +5473,7 @@ sub _computeAge
     if ($then > $now) {
         if (lcovutil::warn_once($lcovutil::ERROR_INCONSISTENT_DATA, $path)) {
             # issue annotation warning at most once per file
-	    # also attempt to clarify where the date comes from
+            # also attempt to clarify where the date comes from
             my $data =
                 exists($ENV{SOURCE_DATE_EPOCH}) ?
                 (
@@ -6853,10 +6855,14 @@ our @rate_png     = ("ruby.png", "amber.png", "emerald.png");
 our $rc_desc_html = 0;      # lcovrc: genhtml_desc_html
 our $deprecated_highlight;    # ignored former option
 
-our $cwd = cwd();             # Current working directory
+# simplify/shorten names in 'function detail table'
+our @simplifyFunctionScript;      # the arg list
+our $simplifyFunctionCallback;    # the actual callback
+
+our $cwd = cwd();                 # Current working directory
 
 # for debugging
-our $verboseScopeRegexp;      # dump categorization processing if match
+our $verboseScopeRegexp;          # dump categorization processing if match
 
 #
 # Code entry point
@@ -6869,7 +6875,8 @@ STDERR->autoflush;
 STDOUT->autoflush;
 
 my @datebins;
-my (@rc_date_bins, @rc_annotate_script, @rc_select_script, @rc_date_labels);
+my (@rc_date_bins, @rc_annotate_script, @rc_select_script, @rc_date_labels,
+    @rc_simplifyFunctionScript);
 
 my %genhtml_rc_opts = (
                "genhtml_css_file"            => \$css_filename,
@@ -6925,6 +6932,7 @@ my %genhtml_rc_opts = (
                'genhtml_annotate_script'     => \@rc_annotate_script,
                'genhtml_annotate_tooltip'    => \$SourceFile::annotateTooltip,
                "select_script"               => \@rc_select_script,
+               "simplify_function"           => \@rc_simplifyFunctionScript,
                'num_context_lines' => \$InInterestingRegion::num_context_lines,
                'genhtml_date_bins' => \@rc_date_bins,
                'genhtml_date_labels'        => \@rc_date_labels,
@@ -6938,60 +6946,62 @@ my $save;
 my $serialize;
 my $validateHTML = exists($ENV{LCOV_VALIDATE});
 
-my %genhtml_options = ("output-directory|o=s" => \$output_directory,
-                       "header-title=s"       => \$header_title,
-                       "footer=s"             => \$footer,
-                       "title|t=s"            => \$test_title,
-                       "description-file|d=s" => \$desc_filename,
-                       "keep-descriptions|k"  => \$keep_descriptions,
-                       "css-file|c=s"         => \$css_filename,
-                       "baseline-file|b=s"    => \@base_filenames,
-                       "baseline-title=s"     => \$baseline_title,
-                       "baseline-date=s"      => \$baseline_date,
-                       "current-date=s"       => \$current_date,
-                       "diff-file=s"          => \$diff_filename,
-                       "annotate-script=s"    => \@SourceFile::annotateScript,
-                       "select-script=s"      => \@selectCallbackScript,
-                       "new-file-as-baseline" => \$treatNewFileAsBaseline,
-                       'elide-path-mismatch'  => \$elide_path_mismatch,
-                       'synthesize-missing'   => \$synthesizeMissingFile,
-                       # if 'show-owners' is set: generate the owner table
-                       #    if it is passed a value: show all the owners,
-                       #    regardless of whether they have uncovered code or not
-                       'show-owners:s'     => \$show_ownerBins,
-                       'show-noncode'      => \$show_nonCodeOwners,
-                       'show-zero-columns' => \$show_zeroTlaColumns,
-                       'simplified-colors' => \$show_simplifiedColors,
-                       "date-bins=s"       => \@datebins,
-                       'date-labels=s'     => \@SummaryInfo::ageGroupHeader,
-                       "prefix|p=s"        => \@opt_dir_prefix,
-                       "num-spaces=i"      => \$tab_size,
-                       "no-prefix"         => \$no_prefix,
-                       "no-sourceview"     => \$no_sourceview,
-                       'no-html'           => \$no_html,
-                       "show-details|s"    => \$show_details,
-                       "frames|f"          => \$frames,
-                       "highlight"         => \$deprecated_highlight,
-                       "legend"            => \$legend,
-                       'save'              => \$save,
-                       'serialize=s'       => \$serialize,
-                       'scheduler+'        => \$debugScheduler,
-                       "html-prolog=s"     => \$html_prolog_file,
-                       "html-epilog=s"     => \$html_epilog_file,
-                       "html-extension=s"  => \$html_ext,
-                       "html-gzip"         => \$html_gzip,
-                       "hierarchical"      => \$hierarchical,
-                       "flat"              => \$flat,
-                       "sort-tables"       => \$sort_tables,
-                       "no-sort"           => \$no_sort,
-                       "precision=i"       => \$lcovutil::default_precision,
-                       "missed"            => \$opt_missed,
-                       "dark-mode"         => \$dark_mode,
-                       "show-navigation"   => \$show_tla,
-                       "show-proportion"   => \$show_functionProportions,
-                       "merge-aliases"     => \$merge_function_aliases,
-                       "suppress-aliases"  => \$suppress_function_aliases,
-                       'validate'          => \$validateHTML,);
+my %genhtml_options = (
+                     "output-directory|o=s" => \$output_directory,
+                     "header-title=s"       => \$header_title,
+                     "footer=s"             => \$footer,
+                     "title|t=s"            => \$test_title,
+                     "description-file|d=s" => \$desc_filename,
+                     "keep-descriptions|k"  => \$keep_descriptions,
+                     "css-file|c=s"         => \$css_filename,
+                     "baseline-file|b=s"    => \@base_filenames,
+                     "baseline-title=s"     => \$baseline_title,
+                     "baseline-date=s"      => \$baseline_date,
+                     "current-date=s"       => \$current_date,
+                     "diff-file=s"          => \$diff_filename,
+                     "annotate-script=s"    => \@SourceFile::annotateScript,
+                     "select-script=s"   => \@SummaryInfo::selectCallbackScript,
+                     "simplify-script=s" => \@simplifyFunctionScript,
+                     "new-file-as-baseline" => \$treatNewFileAsBaseline,
+                     'elide-path-mismatch'  => \$elide_path_mismatch,
+                     'synthesize-missing'   => \$synthesizeMissingFile,
+                     # if 'show-owners' is set: generate the owner table
+                     #    if it is passed a value: show all the owners,
+                     #    regardless of whether they have uncovered code or not
+                     'show-owners:s'     => \$show_ownerBins,
+                     'show-noncode'      => \$show_nonCodeOwners,
+                     'show-zero-columns' => \$show_zeroTlaColumns,
+                     'simplified-colors' => \$show_simplifiedColors,
+                     "date-bins=s"       => \@datebins,
+                     'date-labels=s'     => \@SummaryInfo::ageGroupHeader,
+                     "prefix|p=s"        => \@opt_dir_prefix,
+                     "num-spaces=i"      => \$tab_size,
+                     "no-prefix"         => \$no_prefix,
+                     "no-sourceview"     => \$no_sourceview,
+                     'no-html'           => \$no_html,
+                     "show-details|s"    => \$show_details,
+                     "frames|f"          => \$frames,
+                     "highlight"         => \$deprecated_highlight,
+                     "legend"            => \$legend,
+                     'save'              => \$save,
+                     'serialize=s'       => \$serialize,
+                     'scheduler+'        => \$debugScheduler,
+                     "html-prolog=s"     => \$html_prolog_file,
+                     "html-epilog=s"     => \$html_epilog_file,
+                     "html-extension=s"  => \$html_ext,
+                     "html-gzip"         => \$html_gzip,
+                     "hierarchical"      => \$hierarchical,
+                     "flat"              => \$flat,
+                     "sort-tables"       => \$sort_tables,
+                     "no-sort"           => \$no_sort,
+                     "precision=i"       => \$lcovutil::default_precision,
+                     "missed"            => \$opt_missed,
+                     "dark-mode"         => \$dark_mode,
+                     "show-navigation"   => \$show_tla,
+                     "show-proportion"   => \$show_functionProportions,
+                     "merge-aliases"     => \$merge_function_aliases,
+                     "suppress-aliases"  => \$suppress_function_aliases,
+                     'validate'          => \$validateHTML,);
 
 # remove ambiguous entry from common table -
 #   (genhtml has '--sort-inputs' and '--sort-tables')
@@ -7041,17 +7051,27 @@ $frames         = undef unless (defined($frames) && $frames);
 foreach my $rc ([\@datebins, \@rc_date_bins],
                 [\@SummaryInfo::ageGroupHeader, \@rc_date_labels],
                 [\@SourceFile::annotateScript, \@rc_annotate_script],
-                [\@selectCallbackScript, \@rc_select_script]
+                [\@SummaryInfo::selectCallbackScript, \@rc_select_script],
+                [\@simplifyFunctionScript, \@rc_simplifyFunctionScript],
 
 ) {
     @{$rc->[0]} = @{$rc->[1]} unless (@{$rc->[0]});
 }
 
 foreach my $cb ([\$SourceFile::annotateCallback, \@SourceFile::annotateScript],
-                [\$selectCallback, \@selectCallbackScript]) {
+                [\$SummaryInfo::selectCallback,
+                 \@SummaryInfo::selectCallbackScript
+                ],
+                [\$simplifyFunctionCallback, \@simplifyFunctionScript],
+) {
     lcovutil::configure_callback($cb->[0], @{$cb->[1]})
         if scalar(@{$cb->[1]});
 }
+
+# we won't apply simplifications if we don't generate the table
+#  (we still check that the callback is valid - even though we don't use it)
+$simplifyFunctionCallback = undef
+    if $no_sourceview;
 
 if (defined($lcovutil::stop_on_error) &&
     !$lcovutil::stop_on_error) {
@@ -8384,7 +8404,7 @@ sub read_testfile($)
     local *TEST_HANDLE;
 
     open(TEST_HANDLE, "<", $file) or
-        die("cannot open $file]: $!\n");
+        die("cannot open description file '$file': $!\n");
 
     while (<TEST_HANDLE>) {
         chomp($_);
@@ -13322,7 +13342,7 @@ sub write_source($$$$$$$$)
     my $cbdata      = PrintCallback->new($srcfile, $fileCovInfo);
 
     my ($region, $empty);
-    if ($selectCallback) {
+    if ($SummaryInfo::selectCallback) {
         $region = InInterestingRegion->new($srcfile, $fileCovInfo->lineMap());
         $empty  = '';
         if ($srcfile->isProjectFile()) {
@@ -13583,7 +13603,7 @@ END_OF_HTML
         next
             if grep(/^$tla$/, ('DUB', 'DCB')); # don't display deleted functions
         my $startline = $funcEntry->line() - $func_offset;
-        my $name      = $func;
+        my $name      = simplify_function_name($func);
         my $countstyle;
 
         # Escape special characters
@@ -13701,7 +13721,7 @@ END_OF_HTML
                 }
 
                 # Escape special characters
-                $alias = escape_html($alias);
+                $alias = escape_html(simplify_function_name($alias));
 
                 write_html(*HTML_HANDLE, <<END_OF_HTML);
             <tr>
@@ -13877,4 +13897,25 @@ sub parse_dir_prefix(@)
             push(@dir_prefix, $item);
         }
     }
+}
+
+#
+# simplify_function_name($name)
+#
+# apply @function_simplify_patterns to $name and return
+#  goal is to shorten really long demangled names/template expansions
+#
+sub simplify_function_name($)
+{
+    my $name = shift;
+    if ($simplifyFunctionCallback) {
+
+        eval { $name = $simplifyFunctionCallback->simplify($name); };
+        if ($@) {
+            my $context = MessageContext::context();
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                      "simplify($name) failed$context: $@");
+        }
+    }
+    return $name;
 }

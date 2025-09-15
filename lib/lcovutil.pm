@@ -1656,6 +1656,30 @@ sub transform_pattern($)
     return qr($pattern);
 }
 
+sub verify_regexp_patterns
+{
+    my ($flag, $list, $checkInsensitive) = @_;
+    PAT: foreach my $pat (@$list) {
+        my $text = 'abc';
+        my $str  = eval "\$text =~ $pat ;";
+        die("Invalid regexp \"$flag $pat\":\n$@")
+            if $@;
+
+        if ($checkInsensitive) {
+            for (my $i = length($pat) - 1; $i >= 0; --$i) {
+                my $char = substr($pat, $i, 1);
+                next PAT
+                    if ($char eq 'i');
+                last    # didn't see the 'i' character
+                    if ($char =~ /[\/#!@%]/);
+            }
+            lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+                "$flag pattern '$pat' does not seem to be case insensitive - but you asked for case insensitive matching"
+            );
+        }
+    }
+}
+
 sub munge_file_patterns
 {
     # Need perlreg expressions instead of shell pattern
@@ -1683,30 +1707,12 @@ sub munge_file_patterns
             if $@;
     }
     # sadly, substitutions aren't regexps and can't be precompiled
-    foreach my $p (['substitute', \@file_subst_patterns]) {
-        my ($flag, $list) = @$p;
-        next unless @$list;
-        PAT: foreach my $pat (@$list) {
-            my $text = 'abc';
-            my $str  = eval { '$test =~ ' . $pat . ';' };
-            die("Invalid regexp \"$flag $pat\":\n$@")
-                if $@;
+    if (@file_subst_patterns) {
+        verify_regexp_patterns('--substitute', \@file_subst_patterns,
+                               \$lcovutil::case_insensitive);
 
-            if ($lcovutil::case_insensitive) {
-                for (my $i = length($pat) - 1; $i >= 0; --$i) {
-                    my $char = substr($pat, $i, 1);
-                    next PAT
-                        if ($char eq 'i');
-                    last    # didn't see the 'i' character
-                        if ($char =~ /[\/#!@%]/);
-                }
-                lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
-                    "--$flag pattern '$pat' does not seem to be case insensitive - but you asked for case insensitive matching"
-                );
-            }
-        }
         # keep track of number of times this was applied
-        @$list = map({ [$_, 0]; } @$list);
+        @file_subst_patterns = map({ [$_, 0]; } @file_subst_patterns);
     }
 
     # and check for valid region patterns
@@ -1745,7 +1751,7 @@ sub warn_file_patterns
                    ['exclude', \@exclude_file_patterns],
                    ['substitute', \@file_subst_patterns],
                    ['omit-lines', \@omit_line_patterns],
-                   ['exclude-functions', \@exclude_function_patterns]
+                   ['exclude-functions', \@exclude_function_patterns],
     ) {
         my ($type, $patterns) = @$p;
         foreach my $pat (@$patterns) {
@@ -2068,7 +2074,7 @@ sub initial_state
                          \@lcovutil::include_file_patterns,
                          \@lcovutil::file_subst_patterns,
                          \@lcovutil::omit_line_patterns,
-                         \@lcovutil::exclude_function_patterns
+                         \@lcovutil::exclude_function_patterns,
     ) {
         foreach my $p (@$patType) {
             $p->[-1] = 0;
@@ -2111,7 +2117,7 @@ sub compute_update
                          \@lcovutil::include_file_patterns,
                          \@lcovutil::file_subst_patterns,
                          \@lcovutil::omit_line_patterns,
-                         \@lcovutil::exclude_function_patterns
+                         \@lcovutil::exclude_function_patterns,
     ) {
         my @count;
         foreach my $p (@$patType) {
@@ -2171,7 +2177,7 @@ sub update_state
                          \@lcovutil::include_file_patterns,
                          \@lcovutil::file_subst_patterns,
                          \@lcovutil::omit_line_patterns,
-                         \@lcovutil::exclude_function_patterns
+                         \@lcovutil::exclude_function_patterns,
     ) {
         my $count = shift;
         die("unexpected pattern count") unless $#$count == $#$patType;
@@ -3337,6 +3343,22 @@ sub select
                   $filename,
                   $lineNo);
     return $self->call(@params);
+}
+
+sub simplify
+{
+    my ($self, $func) = @_;
+
+    my $name;
+    my $pipe = $self->pipe('simplify', $func);
+    die("broken 'simplify' callback")
+        unless ($pipe &&
+                ($name = $pipe->next()));
+
+    chomp($name);
+    $name =~ s/\r//;
+    lcovutil::info(1, "  simplify: $name\n");
+    return $name;
 }
 
 package JsonSupport;
