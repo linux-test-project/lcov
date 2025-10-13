@@ -88,6 +88,32 @@ for callback in './simplify.pl' "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Anima
     fi
 done
 
+# test unused regexp in simplify callback
+for PAR in '' '--parallel' ; do
+    $COVER $GENHTML_TOOL --branch $PARLLEL $PROFILE -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/;s/Cat::Cat/subst2/;s/subst2/subst3/;s/foo/bar/" $PAR 2>&1 | tee simplifyErr.log
+    if [ ${PIPESTATUS[0]} == 0 ] ; then
+	echo "genhtml --simplify unused regexp didn't fail"
+	exit 1
+    fi
+    grep "'simplify' pattern 's/foo/bar/' is unused" simplifyErr.log
+    if [ $? != 0 ] ; then
+	echo "didn't find expected unused error"
+	exit 1
+    fi
+
+    $COVER $GENHTML_TOOL --branch $PARLLEL $PROFILE -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/;s/Cat::Cat/subst2/;s/subst2/subst3/;s/foo/bar/" $PAR --ignore unused 2>&1 | tee simplifyWarn.log
+    if [ ${PIPESTATUS[0]} != 0 ] ; then
+	echo "genhtml --simplify unused regexp warn didn't pass"
+	exit 1
+    fi
+    grep "'simplify' pattern 's/foo/bar/' is unused" simplifyWarn.log
+    if [ $? != 0 ] ; then
+	echo "didn't find expected unused error"
+	exit 1
+    fi
+done
+
+
 $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --directory . -o vanilla.info
 
 $COVER $LCOV_TOOL $LCOV_OPTS --list vanilla.info

@@ -92,8 +92,9 @@ EOF
 
     # verify that the patterns are valid...
     lcovutil::verify_regexp_patterns($script, \@patterns);
+    my @munged = map({ [$_, 0]; } @patterns);
 
-    return bless \@patterns, $class;
+    return bless \@munged, $class;
 }
 
 sub simplify
@@ -101,14 +102,53 @@ sub simplify
     my ($self, $name) = @_;
 
     foreach my $p (@$self) {
+        my $orig = $name;
         # sadly, no support for pre-compiled patterns
-        eval "\$name =~ $p ;";    # apply pattern that user provided...
+        eval "\$name =~ $p->[0] ;";    # apply pattern that user provided...
             # $@ should never match:  we already checked pattern validity during
             #   initialization - above.  Still: belt and braces.
         die("invalid 'simplify' regexp '$p->[0]': $@")
             if ($@);
+        ++$p->[1]
+            if ($name ne $orig);
     }
     return $name;
+}
+
+sub start
+{
+    my $self = shift;
+    foreach my $p (@$self) {
+        $p->[1] = 0;
+    }
+}
+
+sub save
+{
+    my $self = shift;
+    my @data;
+    foreach my $p (@$self) {
+        push(@data, $p->[1]);
+    }
+    return \@data;
+}
+
+sub restore
+{
+    my ($self, $data) = @_;
+    die("unexpected restore: (" .
+        join(' ', @$self) . ") <- [" .
+        join(' ', @$data) . "]\n")
+        unless $#$self == $#$data;
+    for (my $i = 0; $i <= $#$self; ++$i) {
+        $self->[$i]->[-1] += $data->[$i];
+    }
+}
+
+sub finalize
+{
+    my $self = shift;
+    lcovutil::warn_pattern_list("simplify", $self);
 }
 
 1;

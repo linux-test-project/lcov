@@ -27,6 +27,7 @@ report:
                --version-script $(VERSION_SCRIPT)                   \
 	       --exclude genError.pm --exclude filter.pl            \
                --exclude brokenCallback.pm --exclude MsgContext.pm  \
+	       --exclude missingRestore.pm --exclude parallelFail.pm \
                --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b' \
 	       --ignore unsupported,unused,inconsistent             \
                --filter region ;                                    \

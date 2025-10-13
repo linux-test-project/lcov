@@ -4,7 +4,7 @@ set +x
 source ../../common.tst
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err* readThis.rc testing.rc
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels sortTables
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels sortTables simplify_* simplify missingRestore
 
 clean_cover
 
@@ -673,6 +673,56 @@ for callback in select annotate criteria simplify ; do
       fi
   fi
 done
+
+# check callback fails in save/restore/start/finalize callbacks
+SKIP_ARG=''
+for cb in start save restore finalize ; do
+  echo genhtml $DIFCOV_OPTS initial.info -o simplify_$cb --simplify-script ./parallelFail.pm$SKIP_ARG --parallel
+  LCOV_FORCE_PARALLEL=1 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o simplify_$cb --simplify-script ./parallelFail.pm$SKIP_ARG --parallel 2>&1 | tee simplify_${cb}_err.log
+  if [ 0 == ${PIPESTATUS[0]} ] ; then
+      echo "ERROR: genhtml simplify '$cb' passed by accident"
+      if [ 0 == $KEEP_GOING ] ; then
+          exit 1
+      fi
+  fi
+  SKIP_ARG="$SKIP_ARG,$cb"
+  grep -E "parallelFail->${cb}.* failed" simplify_${cb}_err.log
+  if [ 0 != $? ] ; then
+      echo "ERROR: $cb message"
+      if [ 0 == $KEEP_GOING ] ; then
+          exit 1
+      fi
+  fi
+done
+
+for ignore in '' '--ignore package' ; do
+    echo genhtml $DIFCOV_OPTS initial.info -o missingRestore --simplify-script ./missingRestore.pm --parallel $ignore
+    LCOV_FORCE_PARALLEL=1 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o missingRestore --simplify-script ./missingRestore.pm --parallel $ignore 2>&1 | tee missingRestore.log
+    status=${PIPESTATUS[0]}
+    if [ '' == "$ignore" ] ; then
+	if [ 0 == $status ] ; then
+	    echo "ERROR: genhtml missing restore passed by accident"
+	    if [ 0 == $KEEP_GOING ] ; then
+		exit 1
+	    fi
+	fi
+    else
+	if [ 0 != $status ] ; then
+	    echo "ERROR: genhtml ignore missing restore failed"
+	    if [ 0 == $KEEP_GOING ] ; then
+		exit 1
+	    fi
+	fi
+    fi
+    grep "implements 'save' but not 'restore'" missingRestore.log
+    if [ 0 != $? ] ; then
+	echo "ERROR: missingRestore message"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+done
+
 
 echo genhtml $DIFCOV_OPTS initial.info -o unused_src --source-dir ../..
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o unused_src --source-dir ../.. 2>&1 | tee src_err.log
