@@ -1709,7 +1709,7 @@ sub munge_file_patterns
     # sadly, substitutions aren't regexps and can't be precompiled
     if (@file_subst_patterns) {
         verify_regexp_patterns('--substitute', \@file_subst_patterns,
-                               \$lcovutil::case_insensitive);
+                               $lcovutil::case_insensitive);
 
         # keep track of number of times this was applied
         @file_subst_patterns = map({ [$_, 0]; } @file_subst_patterns);
@@ -7558,8 +7558,6 @@ sub _filterFile
             return [$traceInfo, $modified];
         }
     }
-    # @todo: if MCDC has just one expression, then drop it -
-    #  it is equivalent to branch coverage.
     my $region           = $cov_filter[$FILTER_EXCLUDE_REGION];
     my $branch_region    = $cov_filter[$FILTER_EXCLUDE_BRANCH];
     my $range            = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
@@ -7818,6 +7816,7 @@ sub _filterFile
                     next unless $branch && ($branch->totals())[0] == 2;
                     $mcdc_count->remove($line);
                     ++$mcdc_single->[-2];    # one MC/DC skipped
+                    ++$mcdc_single->[-1];    # one coverpoint
 
                     $mcdc->remove($line);    # remove at top
                     $modified = 1;

@@ -973,7 +973,7 @@ sub append
                                  $record->branchCovCount($key, "age", $ageval));
                     } elsif ($covType == MCDC_DATA) {
                         $self->mcdcCovCount($key, "age", $ageval,
-                                 $record->branchCovCount($key, "age", $ageval));
+                                   $record->mcdcCovCount($key, "age", $ageval));
                     } else {
                         $self->functionCovCount($key, 'age', $ageval,
                                $record->functionCovCount($key, "age", $ageval));
@@ -4773,7 +4773,7 @@ sub _countMcdcTlaData
             $developer = $srcLine->owner();
 
             if (defined($developer)) {
-                my $shash = $self->[BRANCH_OWNERS];
+                my $shash = $self->[MCDC_OWNERS];
                 if (!exists($shash->{$developer})) {
                     $shash->{$developer} = {};
                     $shash->{$developer}->{lines} = [];
@@ -5822,7 +5822,7 @@ sub new
                             # use 'current' count...
                             my ($tla, $b_count, $c_count) =
                                 @{$expr->count($sense)};
-                            die("unexpected branch TLA $tla for count $c_count at "
+                            die("unexpected MC/DC TLA $tla for count $c_count at "
                                     . $fileDetails->path()
                                     . ":$line")
                                 unless (
@@ -11719,8 +11719,17 @@ sub buildOwnerSummaryTable($$$$$$$$$$)
     my $first = 1;
     # owners are sorted from most uncovered lines to least
     foreach my $od (@$ownerList) {
-        my ($name, $lineData, $branchData) = @$od;
-        my $d = ($covType == SummaryInfo::LINE_DATA) ? $lineData : $branchData;
+        my ($name, $lineData, $branchData, $funcData, $mcdcData) = @$od;
+        my $d;
+        if ($covType == SummaryInfo::LINE_DATA) {
+            $d = $lineData;
+        } elsif ($covType == SummaryInfo::BRANCH_DATA) {
+            $d = $branchData;
+        } else {
+            die("unexpected type '$covType'")
+                unless ($covType == SummaryInfo::MCDC_DATA);
+            $d = $mcdcData;
+        }
         my ($missed, $found) = @$d;
 
         # only put user in table if they are responsible for at least one point
@@ -12337,8 +12346,8 @@ END_OF_HTML
         if ($main::show_tla) {
             my @tlaRow =
                 buildHeaderSummaryTableRow($summary, SummaryInfo::MCDC_DATA,
-                                  $fileDetail, \&SourceFile::nextBranchTlaGroup,
-                                  $tlaSummaryTypes);
+                                    $fileDetail, \&SourceFile::nextMcdcTlaGroup,
+                                    $tlaSummaryTypes);
             push(@dataRow, @tlaRow);
         }
         push(@row_right, \@dataRow)
@@ -12457,7 +12466,7 @@ END_OF_HTML
                                            $summary,
                                            SummaryInfo::MCDC_DATA,
                                            $fileDetail,
-                                           \&SourceFile::nextBranchInOwnerBin,
+                                           \&SourceFile::nextMcdcInOwnerBin,
                                            "MC/DC coverage ownership bins",
                                            $ownerBinDetailPage,
                                            scalar(@dataRow),
