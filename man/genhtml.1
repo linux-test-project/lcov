@@ -631,7 +631,7 @@ and does not modify information in the coveage DB.
 .IP 2. 3
 The option may be specified as a single
 .I split_char
-separated string which is divied into words (see
+separated string which is divided into words (see
 .B man lcovrc(5)
 ), or as a list of arguments.
 The resulting command line is passed
@@ -777,6 +777,75 @@ The callback will occur in the child process (possibly simultaneously with other
 .PP
 As a result:  if your callback needs to pass data back to the parent, you will need to arrange a communication mechanism to do so.
 .br
+
+.SS Callbacks and parallel execution
+
+Because callbacks may need to record data -
+.I e.g.,
+for error reporting or action summaries in the presence of parallel execution -
+.B genhtml (and
+.B lcov and
+.B geninfo
+) can call certain optional callback methods:
+
+.IP \- 3
+.I $callback->start()
+.br
+is called when the child process begins execution.  This method can be
+used to capture initial state -
+.I e.g.,
+to set the count of events in this child to zero.
+This method is optional.
+.PP
+
+.IP \- 3
+.I my $data = $callback->save()
+.br
+is called when processing is complete, just before the child process exits.
+The scalar
+.I $data
+returned by your
+.I $callback->save()
+method
+.I $callback->restore()
+method when the child process is reaped.
+.PP
+
+.IP \- 3
+.I $callback->restore($data)
+.br
+is called in the parent process when the child is reaped.
+.I $data
+is the data that was returned when your
+.I $callback->save()
+method was called in the child.  (Serialization/deserialization has happened under the covers.)
+.PP
+
+.IP \- 3
+.I $callback->finalize()
+.br
+is called in the parent process when all calculalations are complete
+and the parent setting up to report final results.
+This method is optional.
+.br
+Note that, unlike the other callback methods described in this section,
+.I finalize()
+is called in both parallel and serial execution contexts.
+.PP
+
+Note that your callback must implement
+.I $callback->restore()
+if it implements
+.I $callback->save().
+.I $callback->start()
+and
+.I $callback->finalize()
+are optional:  if they are implemented, then they will be called.
+
+These methods are available only for callbacks implemented a perl modules.
+If you callback is implemented as an executable script (say) - then you
+are free to implement parent/child data passing however you prefer.
+
 
 .SS Additional considerations
 

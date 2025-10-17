@@ -62,6 +62,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      @exclude_file_patterns @include_file_patterns %excluded_files
      @omit_line_patterns @exclude_function_patterns $case_insensitive
      munge_file_patterns warn_file_patterns transform_pattern
+     warn_pattern_list
      parse_cov_filters summarize_cov_filters
      disable_cov_filters reenable_cov_filters is_filter_enabled
      filterStringsAndComments simplifyCode balancedParens
@@ -219,6 +220,15 @@ our $opt_no_external;
 our @build_directory;
 
 our @configured_callbacks;
+# list of callbacks which support save/restore
+our @callback_save_restore;
+# list of callbacks which support 'finalize'
+our @callback_finalize;
+# list of callbacks which implement 'start' - which gets called when
+#  child process starts
+our @callback_start_list;
+# the callback data which is saved from child process/restored from child process
+our @callback_state;
 
 # optional callback to keep track of whatever user decides is important
 our @contextCallback;
@@ -988,6 +998,26 @@ sub configure_callback
             #$package->import(qw(new));
             # the first value in @_ is the script name
             $$cb = $class->new(@args);
+            if (exists($ENV{LCOV_FORCE_PARALLEL}) ||
+                (defined($lcovutil::maxParallelism) &&
+                    1 != $lcovutil::maxParallelism)
+            ) {
+                # don't set up for parallel processing if we aren't going to fork
+                if ($$cb->can('save')) {
+                    if ($$cb->can('restore')) {
+                        push(@callback_save_restore, [$class, $$cb]);
+                        push(@callback_start_list, [$class, $$cb])
+                            if ($$cb->can('start'));
+                    } else {
+                        lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
+                                 "$class implements 'save' but not 'restore'.");
+                        return;
+                    }
+                }
+            }
+            # implement 'finalize', regardless of parallel/not parallel
+            push(@callback_finalize, [$class, $$cb])
+                if ($$cb->can('finalize'));
         };
         if ($@ ||
             !defined($$cb)) {
@@ -1745,23 +1775,40 @@ sub munge_file_patterns
     @suppress_function_patterns = map({ $_->[0] } @exclude_function_patterns);
 }
 
+sub warn_pattern_list
+{
+    my ($type, $patterns) = @_;
+    foreach my $pat (@$patterns) {
+        my $count = $pat->[-1];
+        if (0 == $count) {
+            my $str = $pat->[-2];
+            lcovutil::ignorable_error($ERROR_UNUSED,
+                                      "'$type' pattern '$str' is unused.");
+        }
+    }
+}
+
 sub warn_file_patterns
 {
+    # a bit of a hack...we need a place to call the 'finalize' methods
+    #  (if any are registered) - and this method is called very late in
+    #  the game, by lcov/genhtml/geninfo - so is a workable location
+    for (my $i = 0; $i <= $#lcovutil::callback_finalize; ++$i) {
+        my ($class, $cb) = @{$lcovutil::callback_finalize[$i]};
+        eval { $cb->finalize(); };
+        if ($@) {
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                      "\"$class->finalize()\" failed: $@");
+        }
+    }
+
     foreach my $p (['include', \@include_file_patterns],
                    ['exclude', \@exclude_file_patterns],
                    ['substitute', \@file_subst_patterns],
                    ['omit-lines', \@omit_line_patterns],
                    ['exclude-functions', \@exclude_function_patterns],
     ) {
-        my ($type, $patterns) = @$p;
-        foreach my $pat (@$patterns) {
-            my $count = $pat->[scalar(@$pat) - 1];
-            if (0 == $count) {
-                my $str = $pat->[scalar(@$pat) - 2];
-                lcovutil::ignorable_error($ERROR_UNUSED,
-                                          "'$type' pattern '$str' is unused.");
-            }
-        }
+        warn_pattern_list(@$p);
     }
 }
 
@@ -2081,14 +2128,24 @@ sub initial_state
         }
     }
 
+    for (my $i = 0; $i <= $#lcovutil::callback_start_list; ++$i) {
+        my ($class, $cb) = @{$lcovutil::callback_start_list[$i]};
+        eval { $cb->start(); };
+        if ($@) {
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                      "\"$class->start()\" failed: $@");
+        }
+    }
+
     return Storable::dclone([\@message_count, \%versionCache, \%resolveCache]);
 }
 
 sub compute_update
 {
     my $state = shift;
-    my @new_count;
     my ($initialCount, $initialVersionCache, $initialResolveCache) = @$state;
+
+    my @new_count;
     my $id = 0;
     foreach my $count (@message_count) {
         my $v = $count - $initialCount->[$id++];
@@ -2104,7 +2161,20 @@ sub compute_update
         $resolveUpdate{$f} = $v
             unless exists($initialResolveCache->{$f});
     }
-    my @rtn = (\@new_count,
+    my @cbData;
+    for (my $i = 0; $i <= $#lcovutil::callback_save_restore; ++$i) {
+        my ($class, $cb) = @{$lcovutil::callback_save_restore[$i]};
+        eval {
+            my $data = $cb->save();
+            push(@cbData, $data);
+        };
+        if ($@) {
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                      "\"$class->save(...)\" failed: $@");
+        }
+    }
+    my @rtn = (\@cbData,
+               \@new_count,
                \%versionUpdate,
                \%resolveUpdate,
                \%message_types,
@@ -2131,6 +2201,15 @@ sub compute_update
 
 sub update_state
 {
+    my $callbackData = shift;
+    for (my $i = 0; $i <= $#$callbackData; ++$i) {
+        my ($class, $cb) = @{$lcovutil::callback_save_restore[$i]};
+        eval { $cb->restore($callbackData->[$i]); };
+        if ($@) {
+            lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                      "\"$class->restore(...)\" failed: $@");
+        }
+    }
     my $updateCount = shift;
     my $id          = 0;
     foreach my $count (@$updateCount) {
