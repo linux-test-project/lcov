@@ -145,7 +145,7 @@ test_overflow:
 #   code and rerun some tests.
 # The differential coverage report is categorizes the code based on
 #   what changed in the source code and what changed in the tests.
-# Note that we are suing perl module for callbacks here - but could use
+# Note that we are using perl module for callbacks here - but could use
 #   script or executable if desired.
 # Could use --verbose and --quiet flags to make the execution less noisy -
 #   but verbosity can help to debug configuration issues.

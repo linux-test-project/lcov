@@ -19,7 +19,15 @@ fi
 
 LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
-clang++ -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc -o test main.cpp
+IFS='.' read -r -a LLVM_VER <<< `clang -dumpversion`
+if [ "${LLVM_VER[0]}" -ge 18 ] ; then
+    ENABLE_MCDC=1
+    CLANG_FLAGS="-fcoverage-mcdc"
+    MCDC_FLAG=--mcdc
+fi
+
+
+clang++ -fprofile-instr-generate -fcoverage-mapping $CLANG_FLAGS -o test main.cpp
 if [ $? != 0 ] ; then
     echo "clang++ exec failed"
     exit 1
@@ -50,28 +58,30 @@ if [ $? != 0 ] ; then
     exit 1
 fi
 
-# disable branch coverage
-$COVER $LLVM2LCOV_TOOL --mcdc -o test.info test.json
-if [ $? != 0 ] ; then
-    echo "llvm2lcov failed"
-    exit 1
+if [ "$ENABLE_MCDC" == "1" ] ; then
+    # disable branch coverage
+    $COVER $LLVM2LCOV_TOOL --mcdc -o test.info test.json
+    if [ $? != 0 ] ; then
+	echo "llvm2lcov failed"
+	exit 1
+    fi
 fi
 
-$COVER $LLVM2LCOV_TOOL --branch --mcdc -o test.info test.json
+$COVER $LLVM2LCOV_TOOL --branch $MCDC_FLAG -o test.info test.json
 if [ $? != 0 ] ; then
     echo "llvm2lcov failed"
     exit 1
 fi
 
 # should be valid data to generate HTML
-$COVER $GENHTML_TOOL --flat --branch --mcdc -o report test.info
+$COVER $GENHTML_TOOL --flat --branch $MCDC_FLAG -o report test.info
 if [ $? != 0 ] ; then
     echo "genhtml failed"
     exit 1
 fi
 
 # run again, excluding 'main.cpp'
-$COVER $LLVM2LCOV_TOOL --branch --mcdc -o test.excl.info test.json --exclude '*/main.cpp'
+$COVER $LLVM2LCOV_TOOL --branch $MCDC_FLAG -o test.excl.info test.json --exclude '*/main.cpp'
 if [ $? != 0 ] ; then
     echo "llvm2lcov --exclude failed"
     exit 1
@@ -189,26 +199,27 @@ for line in 33 36 39 44 ; do
     fi
 done
 
-# check branches total number
-grep -E "BRF:56$" test.info
-if [ $? != 0 ] ; then
-    echo "unexpected total number of branches"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+if [ "${LLVM_VER[0]}" -ge 16 ] ; then
+    # check branches total number
+    grep -E "BRF:56$" test.info
+    if [ $? != 0 ] ; then
+	echo "unexpected total number of branches"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
     fi
-fi
-# check branches hit number
-grep -E "BRH:35$" test.info
-if [ $? != 0 ] ; then
-    echo "unexpected hit number of branches"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+    # check branches hit number
+    grep -E "BRH:35$" test.info
+    if [ $? != 0 ] ; then
+	echo "unexpected hit number of branches"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
     fi
 fi
 
 # LLVM/21 and later generate JSON data files in the new format.
 # So, these files should be processed differently.
-IFS='.' read -r -a LLVM_VER <<< `clang -dumpversion`
 if [ "${LLVM_VER[0]}" -ge 21 ] ; then
     # line main.cpp:70 should contain 2 groups of MC/DC entries
     line=70
@@ -261,7 +272,7 @@ if [ "${LLVM_VER[0]}" -ge 21 ] ; then
             exit 1
         fi
     fi
-else
+elif [ "$ENABLE_MCDC" == "1" ] ; then
     # line main.cpp:70 should contain 2 groups of MC/DC entries
     line=70
     MCDC_1=`grep -c "MCDC:$line,2," test.info`

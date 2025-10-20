@@ -110,7 +110,7 @@ Example:
    For backward compatibility, py2lcov also supports translation to LCOV
    format from intermediate XML:
 
-       # first translate from Python coerage data to XML:
+       # first translate from Python coverage data to XML:
      $ coverage xml --data-file=${PYCOV_DATA} -o pydata.xml |& tee pydata.log
        # or - if your Coverage.py module is too old to support '--data-file':
      $ COVERAGE_FILE=${PYCOV_DATA} coverage xml -o pydata.xml |& tee pydata.log
