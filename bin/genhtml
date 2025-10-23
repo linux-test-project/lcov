@@ -13806,7 +13806,7 @@ sub apply_prefix($@)
             return 'root';
         }
         if ($prefix ne "" &&
-            $filename =~ /^\Q$prefix\E$lcovutil::dirseparator(.*)$/) {
+            $filename =~ /^\Q$prefix$lcovutil::dirseparator\E(.*)$/) {
             return substr($filename, length($prefix) + 1);
         }
     }
