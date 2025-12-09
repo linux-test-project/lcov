@@ -20,7 +20,8 @@
 #
 #   This script is used as a genhtml "--criteria-script criteria" callback.
 #   It is called by genhtml at each level of hierarchy - but ignores all but
-#   the top level, and looks only at line coverage.
+#   the top level, and looks at line coverage and zero or more of function,
+#   branch, and MC/DC coverage.
 #
 #   Format of the JSON input is:
 #     {"line":{"found":10,"hit:2,"UNC":2,..},"function":{...},"branch":{}"
@@ -33,9 +34,11 @@
 #
 #   If passed the "--suppress" flag, this script will exit with status 0,
 #   even if the coverage criteria is not met.
-#     genhtml --criteria-script 'path/criteria --signoff' ....
+#     genhtml --criteria-script \
+#        'path/criteria --signoff [--function] [--branch] [--mcdc]' ....
 #
 #   It is not hard to envision much more complicated coverage criteria.
+
 package criteria;
 
 use strict;
@@ -44,7 +47,8 @@ use Getopt::Long qw(GetOptionsFromArray);
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(new);
 
-use constant {SIGNOFF => 0,};
+use constant {SIGNOFF => 0,
+	      TYPES =>1,};
 
 sub new
 {
@@ -53,17 +57,29 @@ sub new
     my $script     = shift;
     my $standalone = $script eq $0;
     my @options    = @_;
+    my $function = 0;
+    my $branch = 0;
+    my $mcdc = 0;
 
-    if (!GetOptionsFromArray(\@_, ('signoff' => \$signoff)) ||
+    if (!GetOptionsFromArray(\@_, ('signoff' => \$signoff,
+				   'function' => \$function,
+				   'branch' => \$branch,
+				   'mcdc' => \$mcdc,
+			     )) ||
         (!$standalone && @_)) {
         print(STDERR "Error: unexpected option:\n  " .
               join(' ', @options) .
-              "\nusage: name type json-string [--signoff]\n");
+              "\nusage: name type json-string [--signoff] [--branch] [--mcdc] [--function]\n");
         exit(1) if $standalone;
         return undef;
     }
-
-    my $self = [$signoff];
+    my @types = ('line');
+    foreach my $t (['function', $function],
+		   ['MC/DC', $mcdc],
+		   ['branch', $branch]) {
+	push(@types, $t->[0]) if $t->[1];
+    }
+    my $self = [$signoff, \@types];
     return bless $self, $class;
 }
 
@@ -76,18 +92,25 @@ sub check_criteria
     if ($type eq 'top') {
         # for the moment - only worry about the top-level coverage
 
-        if (exists($db->{'line'})) {
+	my $s = '';
+	foreach my $t (@{$self->[TYPES]}) {
+	    next unless exists($db->{$t});
+
             # our criteria is LBC + UNC + UIC == 0
             my $sep    = '';
             my $sum    = 0;
             my $msg    = '';
             my $counts = '';
-            my $lines  = $db->{'line'};
+            my $data  = $db->{$t};
+	    # say which type - if there is more than one
+	    $msg .= "$s$t: " if 1 <= $#{$self->[TYPES]};
+	    $s = ' ';
+	    
             foreach my $tla ('UNC', 'LBC', 'UIC') {
                 $msg    .= $sep . $tla;
                 $counts .= $sep;
-                if (exists $lines->{$tla}) {
-                    my $count = $lines->{$tla};
+                if (exists $data->{$tla}) {
+                    my $count = $data->{$tla};
                     $sum += $count;
                     $counts .= "$count";
                 } else {
@@ -95,9 +118,9 @@ sub check_criteria
                 }
                 $sep = ' + ';
             }
-            $fail = $sum != 0;
+            $fail ||= $sum != 0;
             push(@messages, $msg . " != 0: " . $counts . "\n")
-                if $fail;
+                if $sum != 0;
         }
     }
 
