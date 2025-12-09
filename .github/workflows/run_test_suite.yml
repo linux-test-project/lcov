@@ -47,9 +47,12 @@ jobs:
           - runs-on: ubuntu-24.04
             gcc: 14
             install:
-          - runs-on: ubuntu-24.04
-            gcc: 15
-            install: binutils g++-15 gcc-15 cpp-15
+          # gcc-15 no longer available on ubuntu-24.04
+          # and job hangs if I try to use 25.10
+          # Simply comment out/disable gcc-15 test for now
+          # - runs-on: ubuntu-25.10
+          #  gcc: 15
+          #  install: binutils g++-15 gcc-15 cpp-15
     steps:
       - uses: actions/checkout@v5
 
