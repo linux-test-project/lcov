@@ -54,7 +54,7 @@ jobs:
           #  gcc: 15
           #  install: binutils g++-15 gcc-15 cpp-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Add repository "ubuntu-toolchain-r" for GCC 15
         if: "${{ matrix.gcc == '15' }}"
@@ -134,14 +134,14 @@ jobs:
           make check
 
       - name: Upload test log as an artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: "lcov-${{ github.sha }}-${{ runner.os }}-GCC-${{ matrix.gcc }}-test-log"  # .zip
           path: tests/test.log
           if-no-files-found: error
 
       - name: Upload test directory shrapnel  as an artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: "lcov-${{ github.sha }}-${{ runner.os }}-GCC-${{ matrix.gcc }}-shrapnel"  # .zip
           path: tests
