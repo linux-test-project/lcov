@@ -51,7 +51,7 @@ jobs:
             gcc: 15
             install: binutils g++-15 gcc-15 cpp-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Add repository "ubuntu-toolchain-r" for GCC 15
         if: "${{ matrix.gcc == '15' }}"
