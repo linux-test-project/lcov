@@ -134,14 +134,14 @@ jobs:
           make check
 
       - name: Upload test log as an artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: "lcov-${{ github.sha }}-${{ runner.os }}-GCC-${{ matrix.gcc }}-test-log"  # .zip
           path: tests/test.log
           if-no-files-found: error
 
       - name: Upload test directory shrapnel  as an artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: "lcov-${{ github.sha }}-${{ runner.os }}-GCC-${{ matrix.gcc }}-shrapnel"  # .zip
           path: tests
