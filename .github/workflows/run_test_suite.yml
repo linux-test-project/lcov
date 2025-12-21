@@ -47,23 +47,20 @@ jobs:
           - runs-on: ubuntu-24.04
             gcc: 14
             install:
-          # gcc-15 no longer available on ubuntu-24.04
-          # and job hangs if I try to use 25.10
-          # Simply comment out/disable gcc-15 test for now
-          # - runs-on: ubuntu-25.10
-          #  gcc: 15
-          #  install: binutils g++-15 gcc-15 cpp-15
+          - runs-on: ubuntu-24.04
+            gcc: 16
+            install: binutils g++-16 gcc-16 cpp-16
     steps:
       - uses: actions/checkout@v6
 
-      - name: Add repository "ubuntu-toolchain-r" for GCC 15
-        if: "${{ matrix.gcc == '15' }}"
+      - name: Add repository "ubuntu-toolchain-r" for GCC 16
+        if: "${{ matrix.gcc == '16' }}"
         run: |
           set -x
           # The repository is at home at https://launchpad.net/~ubuntu-toolchain-r/+archive/ubuntu/test .
-          # NOTE: plucky is 25.04 (not 24.04 LTS)
+          # NOTE: resolute is future 26.04 (not 24.04 LTS)
           wget -O - 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xc8ec952e2a0e1fbdc5090f6a2c277a0a352154e5' | sudo apt-key add -
-          sudo add-apt-repository 'deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu plucky main'
+          sudo add-apt-repository 'deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu resolute main'
 
       - name: Install dependencies
         run: |-
