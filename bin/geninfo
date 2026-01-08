@@ -338,7 +338,7 @@ if (0 == scalar(@gcov_tool)) {
     } elsif (!file_name_is_absolute($tool)) {
         $tool = abs_path($tool);
     }
-    if (!-x $tool) {
+    unless (defined($tool) && -x $tool) {
         die("cannot access gcov tool '$gcov_tool[0]'");
     }
     $gcov_tool[0] = $tool;
