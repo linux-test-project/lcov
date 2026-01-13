@@ -4,7 +4,7 @@ set +x
 source ../../common.tst
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err* readThis.rc testing.rc
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels sortTables simplify_* simplify missingRestore
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels sortTables simplify_* simplify missingRestore selectErr1 selectErr2 selectErr3
 
 clean_cover
 
@@ -13,7 +13,7 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
 fi
 
 if ! type "${CXX}" >/dev/null 2>&1 ; then
-        echo "Missing tool: $CXX" >&2
+        echo "Missing CXX tool: $CXX" >&2
         exit 2
 fi
 
@@ -341,8 +341,62 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# test some 'select.pm' errors:
+#   - --cl without annotate callback
+echo genhtml $DIFCOV_OPTS initial.info -o selectErr1 --select-script $SELECT_SCRIPT,--cl,123
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o selectErr1 --select-script $SELECT_SCRIPT,--cl,123 2>&1 | tee selectErr1.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml selectErr1 passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "cannot select date/owner/" selectErr1.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing script selectErr1 message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
 
-for arg in "--select-script $SELECT_SCRIPT,--range,0:10" \
+#   - --tla LBC without baseline data
+echo genhtml $DIFCOV_OPTS initial.info -o selectErr2 --select-script $SELECT_SCRIPT,--tla,LBC
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o selectErr2 --select-script $SELECT_SCRIPT,--tla,LBC 2>&1 | tee selectErr2.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml selectErr2 passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "Will never see TLA other than" selectErr2.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing script selectErr2 message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+#   - --tla GNC without diff data
+echo genhtml $DIFCOV_OPTS --baseline-file initial.info build.info -o selectErr3 --select-script $SELECT_SCRIPT,--tla,GNC
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file initial.info build.info -o selectErr3 --select-script $SELECT_SCRIPT,--tla,GNC 2>&1 | tee selectErr3.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml selectErr3 passed by accident"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "Will never see 'GNC' category without --diff-file" selectErr3.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing script selectErr3 message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
+# note:  select.pm checks that annotation happened (requires annotation
+#  in order to check date range)
+for arg in "--annotate-script $ANNOTATE_SCRIPT --select-script $SELECT_SCRIPT,--range,0:10" \
                "--criteria-script $CRITERIA_SCRIPT,--signoff" \
                "--annotate-script $ANNOTATE_SCRIPT" \
                "--annotate-script $GITBLAME_SCRIPT,mediatek.com,--p4" \
@@ -499,6 +553,8 @@ if [ '' == $IGNORE_ANNOTATE ] ; then
         fi
     fi
 fi
+
+
 
 # differential report with empty diff file
 touch diff.txt
