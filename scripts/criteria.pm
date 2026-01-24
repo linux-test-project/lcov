@@ -47,8 +47,10 @@ use Getopt::Long qw(GetOptionsFromArray);
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(new);
 
-use constant {SIGNOFF => 0,
-	      TYPES =>1,};
+use constant {
+              SIGNOFF => 0,
+              TYPES   => 1,
+};
 
 sub new
 {
@@ -57,27 +59,28 @@ sub new
     my $script     = shift;
     my $standalone = $script eq $0;
     my @options    = @_;
-    my $function = 0;
-    my $branch = 0;
-    my $mcdc = 0;
+    my $function   = 0;
+    my $branch     = 0;
+    my $mcdc       = 0;
 
-    if (!GetOptionsFromArray(\@_, ('signoff' => \$signoff,
-				   'function' => \$function,
-				   'branch' => \$branch,
-				   'mcdc' => \$mcdc,
-			     )) ||
-        (!$standalone && @_)) {
+    if (!GetOptionsFromArray(\@_,
+                             ('signoff'  => \$signoff,
+                              'function' => \$function,
+                              'branch'   => \$branch,
+                              'mcdc'     => \$mcdc,)) ||
+        (!$standalone && @_)
+    ) {
         print(STDERR "Error: unexpected option:\n  " .
-              join(' ', @options) .
-              "\nusage: name type json-string [--signoff] [--branch] [--mcdc] [--function]\n");
+                join(' ', @options) .
+                "\nusage: name type json-string [--signoff] [--branch] [--mcdc] [--function]\n"
+        );
         exit(1) if $standalone;
         return undef;
     }
     my @types = ('line');
-    foreach my $t (['function', $function],
-		   ['MC/DC', $mcdc],
-		   ['branch', $branch]) {
-	push(@types, $t->[0]) if $t->[1];
+    foreach
+        my $t (['function', $function], ['MC/DC', $mcdc], ['branch', $branch]) {
+        push(@types, $t->[0]) if $t->[1];
     }
     my $self = [$signoff, \@types];
     return bless $self, $class;
@@ -92,20 +95,20 @@ sub check_criteria
     if ($type eq 'top') {
         # for the moment - only worry about the top-level coverage
 
-	my $s = '';
-	foreach my $t (@{$self->[TYPES]}) {
-	    next unless exists($db->{$t});
+        my $s = '';
+        foreach my $t (@{$self->[TYPES]}) {
+            next unless exists($db->{$t});
 
             # our criteria is LBC + UNC + UIC == 0
             my $sep    = '';
             my $sum    = 0;
             my $msg    = '';
             my $counts = '';
-            my $data  = $db->{$t};
-	    # say which type - if there is more than one
-	    $msg .= "$s$t: " if 1 <= $#{$self->[TYPES]};
-	    $s = ' ';
-	    
+            my $data   = $db->{$t};
+            # say which type - if there is more than one
+            $msg .= "$s$t: " if 1 <= $#{$self->[TYPES]};
+            $s = ' ';
+
             foreach my $tla ('UNC', 'LBC', 'UIC') {
                 $msg    .= $sep . $tla;
                 $counts .= $sep;

@@ -1118,6 +1118,13 @@ if [ 0 != $? ] ; then
     fi
 fi
 FILE=`find select -name test.cpp.gcov.html`
+if [ 'x' == "x$FILE" ] ; then
+    echo "did not find expected output HTML"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi    
 for owner in roderick.glossop ; do #expect to filter these guys out
     grep $owner $FILE
     if [ 0 == $? ] ; then
@@ -1130,14 +1137,14 @@ for owner in roderick.glossop ; do #expect to filter these guys out
 done
 COUNT=`grep -c 'ignored lines' $FILE`
 if [ 0 != $? ] ; then
-    echo "ERROR: did not find elided message"
+    echo "ERROR: did not find elided message 'ignored lines'"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
 if [ 2 != $COUNT ] ; then
-    echo "ERROR: did not find elided messages"
+    echo "ERROR: wrong elided message count"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -1146,8 +1153,8 @@ fi
 
 
 # check select script
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --valideate
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --validate
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --validate
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --validate 2>&1 | tee selectNone.log
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml select did not pass"
     status=1
@@ -1168,6 +1175,15 @@ fi
 NAME=`(cd select2 ; ls *.html | grep -v -E '(cmdline|profile)')`
 if [ "index.html" != "$NAME" ] ; then
     echo "ERROR: expected to find only one HTML file"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep "your '--select-script' criteria may not match any coverpoints" selectNone.log
+if [ 0 != $? ] ; then
+    echo "ERROR: did not no selection message"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1

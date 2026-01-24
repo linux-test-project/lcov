@@ -267,9 +267,7 @@ test: check
 #   once without - so we can merge the result
 check:
 	if [ "x$(COVERAGE)" != 'x' ] ; then                                 \
-	  if [ ! -d $(COVER_DB) ]; then                                     \
-	    mkdir $(COVER_DB) ;                                             \
-	  fi ;                                                              \
+	  mkdir -p $(COVER_DB) ;                                            \
 	  echo "*** Run once, force parallel ***" ;                         \
 	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C tests check LCOV_HOME=`pwd` ; \
 	  echo "*** Run again, no force ***" ;                              \
@@ -278,6 +276,10 @@ check:
 	@if [ "x$(COVERAGE)" != 'x' ] ; then       \
 	  $(MAKE) -s -C example LCOV_HOME=`pwd`;   \
 	  $(MAKE) -s -C tests report ;             \
+	fi
+	grep uninitialized tests/test.log ; \
+	if [ 1 != $$? ] ; then              \
+	   echo "found 'uninitialized'" ;   \
 	fi
 
 # Files to be checked for coding style issue issues -

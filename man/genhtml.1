@@ -639,6 +639,12 @@ to a shell interpreter to be executed.
 The command line includes the script path followed by optional additional parameters
 separated by spaces. Care must be taken to provide proper quoting if script
 path or any parameter contains spaces or shell special characters.
+.br
+Note that module callbacks must be called via the 'list' method: they cannot be called as an executable with a space-separated set of arguments.
+.br
+For convenience: your callback module may need to implement its own
+'split_char' so that you can pass multiple parameters to your callback
+without interacting with genhtml's split mechanism.
 .PP
 
 .IP 3. 3

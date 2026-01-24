@@ -7538,11 +7538,17 @@ sub print_overall_rate($$$$$$)
         my $plural = "ch" eq substr($name, -2, 2) ? "es" : "s";
         my $label  = "$name$plural";
         my $fill   = '.' x ($width - length($label));
+        my $found  = $summary->get("found", $type);
+        # user was confused about why there was no coverage data
+        my $explain =
+            ($type == SummaryInfo::LINE_DATA &&
+             0 == $found &&
+             $SummaryInfo::selectCallback) ?
+            " (your '--select-script' criteria may not match any coverpoints)" :
+            '';
         info(-1,
-             "  $name$plural$fill: %s\n",
-             get_overall_line($summary->get("found", $type),
-                              $summary->get("hit", $type),
-                              $name));
+             "  $name$plural$fill: %s$explain\n",
+             get_overall_line($found, $summary->get("hit", $type), $name));
         if ($main::show_tla) {
             for my $tla (@SummaryInfo::tlaPriorityOrder) {
                 my $v = $summary->get($tla, $type);
