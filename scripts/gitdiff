@@ -1,5 +1,12 @@
 #!/usr/bin/env perl
 
+# gitudiff
+#
+#   This script extracts a unified-diff between two git SHAs
+#   See
+#      $ gitdiff --help
+#
+
 use Getopt::Long;
 use strict;
 use Cwd /realpath/;
@@ -41,6 +48,7 @@ my $suppress_unchanged;
 my $prefix = '';
 my $ignore_whitespace;
 my $repo = '.';    # cwd
+my $help;
 
 if (!GetOptions("exclude=s"    => \@exclude_patterns,
                 "include=s"    => \@include_patterns,
@@ -48,12 +56,40 @@ if (!GetOptions("exclude=s"    => \@exclude_patterns,
                 'prefix=s'     => \$prefix,
                 'b|blank'      => \$ignore_whitespace,
                 'repo=s'       => \$repo,
-                'verbose+'     => \$verbose) ||
+                'verbose+'     => \$verbose,
+                'help'         => \$help) ||
+    $help ||
     (2 != scalar(@ARGV) &&
         3 != scalar(@ARGV))
 ) {
-    print(STDERR
-            "usage: [(--exclude|include) regexp[,regexp]] [--repo repo] [-b] [dir] base_changelist current_changelist\n'exclude' wins if both exclude and include would match.\n"
+    print(STDERR<<EOF
+Usage:
+  $0 \\
+      [(--exclude|include) regexp[,regexp]] [--repo repo_directory] \\
+      [-b] [dir] base_SHA current_SHA
+
+ --repo repo_directory:
+          your git repo directory.  Default is '.'.
+ --prefix:
+          leading path to strip from file pathnames in the diff report
+ --no-unchanged:
+          In order to eliminate potential ambiguities caused by multiple
+          source files with the same basename, by default, we include
+          unchanged file references in the diff report.
+          This option removes those entries.
+   -b|--blank:
+          ignore whitespace changes.
+ --include regexp:
+          regexp compared to the Perforce path (i.e., starting in
+          //p4_repo/...).  If 'include' regexps are specified, then only
+          Matching references are included in the report; if no
+          'include' regexps are specified, then entries are included unless
+          they have been excluded.
+ --exclude regexp:
+          regexp compared to the Perforce path (i.e., starting in
+          //p4_repo/...).  Matching entries are removed from the report.
+         'exclude' wins if both exclude and include would match.
+EOF
     );
     exit(1);
 }

@@ -20,29 +20,39 @@
 # p4udiff
 #
 #   This script extracts a unified-diff between two Perforce changelists.
+#   See
+#      $ p4udiff --help
+#
 
 use strict;
 use DateTime;
 use Getopt::Long;
 
+my $verbose = 0;
+
 package P4File;
+
+use constant {
+              PATH       => 0,
+              NAME       => 1,
+              REVISION   => 2,
+              ACTION     => 3,
+              CHANGELIST => 4,
+              TYPE       => 5,
+};
 
 sub new
 {
-    my $class       = shift;
-    my $description = shift;
+    my ($class, $description) = @_;
     if ($description =~
         m/([^#]+)#([0-9]+)\s+-\s+(\S+)\s+change\s+([0-9]+)\s+\(([^)]+)\).*$/) {
-        my $self = {};
-        bless $self, $class;
 
-        $self->{path}       = $1;
-        $self->{rev}        = $2;
-        $self->{action}     = $3;
-        $self->{changelist} = $4;
-        $self->{type}       = $5;
+        my $self = [$1, undef, $2, $3, $4, $5];
+        my $name = $1;
+        $name =~ s/$main::depot_path/$main::sandbox_path/;
+        $self->[NAME] = $name;
 
-        return $self;
+        return bless $self, $class;
     }
     return undef;
 }
@@ -50,125 +60,179 @@ sub new
 sub path
 {
     my $self = shift;
-    return $self->{path};
+    return $self->[PATH];
+}
+
+sub name
+{
+    my $self = shift;
+    return $self->[NAME];
 }
 
 sub rev
 {
     my $self = shift;
-    return $self->{rev};
+    return $self->[REVISION];
 }
 
 sub action
 {
     my $self = shift;
-    return $self->{action};
+    return $self->[ACTION];
 }
 
 sub changelist
 {
     my $self = shift;
-    return $self->{changelist};
+    return $self->[CHANGELIST];
 }
 
 sub type
 {
     my $self = shift;
-    return $self->{type};
+    return $self->[TYPE];
 }
 
 package P4FileList;
 
+use constant {
+              HASH    => 0,
+              INCLUDE => 1,
+              EXCLUDE => 2,
+};
+
 sub new
 {
-    my ($class, $include, $exclude) = @_;
-    my $self = [{}, $include, $exclude];
+    my ($class, $p4tag) = @_;
+    my $cmd = "p4 files $p4tag";
+    open(HANDLE, "-|", $cmd) or
+        die("unable to execute '$cmd': $!");
+
+    my $self = [{}, \@main::include_patterns, \@main::exclude_patterns];
     bless $self, $class;
 
+    while (my $line = <HANDLE>) {
+        chomp $line;
+        s/\015$//;
+
+        $self->append(P4File->new($line));
+    }
+    close(HANDLE) or die("unable to close 'p4 files $p4tag' pipe: $!\n");
+    if (0 != $?) {
+        $? & 0x7F & die("p4 files $p4tag died from signal ", ($? & 0x7F), "\n");
+        die("p4 files $p4tag exited with error ", ($? >> 8), "\n");
+    }
     return $self;
 }
 
 sub include_me
 {
-    my ($path, $include, $exclude) = @_;
+    my ($self, $path) = @_;
 
-    if (defined($exclude)) {
-        foreach my $pat (@$exclude) {
-            return 0
-                if $path =~ /$pat/;
-        }
+    foreach my $pat (@{$self->[EXCLUDE]}) {
+        return 0
+            if $path =~ /$pat/;
     }
-    return 1
-        if (!defined($include) || 0 == scalar(@$include));
-
-    foreach my $pat (@$include) {
+    foreach my $pat (@{$self->[INCLUDE]}) {
         return 1
             if ($path =~ /$pat/);
     }
-    return 0;
+    # true if no include patterns specified (everything included),
+    # false if there were no 'include' matches
+    return scalar(@{$self->[INCLUDE]}) == 0;
 }
 
 sub append
 {
-    my $self  = shift;
-    my $entry = shift;
+    my ($self, $entry, $overwrite) = @_;
 
-    return $self if (!defined($entry));
-    my ($hash, $include, $exclude) = @$self;
-    my $key = $entry->path();
-    if (defined($hash->{$key})) {
+    return $self unless (defined($entry) &&
+                         $entry->type() ne 'binary');
+    my $hash = $self->[HASH];
+    my $key  = $entry->path();
+    if (!defined($overwrite) && defined($hash->{$key})) {
         warn("WARNING: skipping duplicated path $key\n");
         return $self;
     }
     $hash->{$key} = $entry
-        if include_me($key, $include, $exclude);
+        if $self->include_me($key);
     return $self;
 }
 
 sub files
 {
     my $self = shift;
-    return sort keys %{$self->[0]};
+    return sort keys %{$self->[HASH]};
 }
 
 sub get
 {
-    my $self = shift;
-    my $key  = shift;
+    my ($self, $key) = @_;
 
-    if (!defined($self->[0]->{$key})) {
+    if (!defined($self->[HASH]->{$key})) {
         return undef;
     }
-    return $self->[0]->{$key};
+    return $self->[HASH]->{$key};
 }
 
 sub remove
 {
-    my $self = shift;
-    my $key  = shift;
-    delete $self->[0]->{$key};
+    my ($self, $key) = @_;
+
+    delete $self->[HASH]->{$key};
     return $self;
 }
 
 package main;
 
-my @exclude_patterns;
-my @include_patterns;
+our @exclude_patterns;
+our @include_patterns;
 my $suppress_unchanged;
 my $ignore_whitespace;
+my $help;
 
 if (!GetOptions("exclude=s"    => \@exclude_patterns,
                 "include=s"    => \@include_patterns,
                 'b|blank'      => \$ignore_whitespace,
-                'no-unchanged' => \$suppress_unchanged) ||
+                'no-unchanged' => \$suppress_unchanged,
+                'help'         => \$help) ||
+    $help ||
     3 != scalar(@ARGV)
 ) {
     print(STDERR<<EOF
-usage: [(--exclude|include) regexp[,regexp]] [-b] [--no-unchanged] sandbox_directory base_changelist current_changelist
- 'exclude' wins if both exclude and include would match.
- 'current_changelist' may be a changelist number or "sandbox".
- "sandbox" indicates that there may be changes in 'sandbox_directory' which have not ben committed to perforce yet.
- '-b' ignores whitespace changes
+Usage:
+  $0 \\
+    [(--exclude|include) regexp[,regexp]] [-b] [--no-unchanged] \\
+    sandbox_directory base_changelist current_changelist
+
+ sandbox_directory:
+          the top level directory in your your perforce
+          checkout area.
+ base_changelist:
+          changelist number or label corresponding to your 'baseline'
+          coverage data.
+ current_changelist:
+          may be a changelist number, label, or or the literal string "sandbox".
+          "sandbox" indicates that there may be changes in 'sandbox_directory'
+          which have not ben committed to perforce yet.
+
+ -b|--blank:
+          ignore whitespace changes.
+ --no-unchanged:
+          In order to eliminate potential ambiguities caused by multiple
+          source files with the same basename, by default, we include
+          unchanged file references in the diff report.
+          This option removes those entries.
+ --include regexp:
+          regexp compared to the Perforce path (i.e., starting in
+          //p4_repo/...).  If 'include' regexps are specified, then only
+          Matching references are included in the report; if no
+          'include' regexps are specified, then entries are included unless
+          they have been excluded.
+ --exclude regexp:
+          regexp compared to the Perforce path (i.e., starting in
+          //p4_repo/...).  Matching entries are removed from the report.
+         'exclude' wins if both exclude and include would match.
 EOF
     );
     exit(1);
@@ -179,8 +243,6 @@ EOF
 my $top_directory   = shift @ARGV;
 my $base_changelist = shift @ARGV;
 my $curr_changelist = shift @ARGV;
-my $base_files      = P4FileList->new(\@include_patterns, \@exclude_patterns);
-my $curr_files      = P4FileList->new(\@include_patterns, \@exclude_patterns);
 
 # need "/..." on the pathname if this is a directory.
 #  - depot_path may not be the same as the client workspace path.
@@ -200,122 +262,147 @@ if (-e $p4_path) {
     }
 }
 
-if (open(HANDLE, "-|", "p4 files ${p4_path}\@$base_changelist")) {
-    DIFF_FILE:
+#my $workspace = `p4 -F \%clientRoot\% -ztag info`;
+my $where =
+    `p4 where $p4_path`;    # need the "..." in the path or p4 gets confused
+$where =~ s/\/\.\.\.//g;
+our ($depot_path, $workspace_path, $sandbox_path) = split(' ', $where);
+
+my $base_files = P4FileList->new("${p4_path}\@$base_changelist");
+my $curr_files = P4FileList->new(
+        $p4_path . ($curr_changelist eq "sandbox" ? "" : "\@$curr_changelist"));
+
+if ($curr_changelist eq 'sandbox') {
+
+    # first, remove all the files that seem to appear in 'current' that are
+    # not in baseline
+
+    foreach my $f ($base_files->files()) {
+        my $c = $curr_files->get($f);
+
+        print("removing baseline $f\n") if $verbose;
+        $base_files->remove($f) unless defined($c);
+    }
+
+    # now remove files in current that aren't in baseline
+    foreach my $f ($curr_files->files()) {
+        my $b = $base_files->get($f);
+
+        print("removing current $f\n") if $verbose;
+        $curr_files->remove($f) unless defined($b);
+    }
+
+    # now query the sandbox to see what is here...
+    my $cmd = "p4 opened $top_directory/...";
+
+    open(HANDLE, "-|", $cmd) or
+        die("unable to execute '$cmd': $!");
+
     while (my $line = <HANDLE>) {
         chomp $line;
         s/\015$//;
-
-        $base_files->append(P4File->new($line));
+        $curr_files->append(P4File->new($line), 1);    # overwrite
     }
-    close(HANDLE) or die("unable to close p4 files (baseline) pipe: $!\n");
+    close(HANDLE) or die("unable to close 'p4 opened' pipe: $!\n");
     if (0 != $?) {
-        $? & 0x7F &
-            die("p4 files (baseline) died from signal ", ($? & 0x7F), "\n");
-        die("p4 files (baseline) exited with error ", ($? >> 8), "\n");
+        $? & 0x7F & die("p4 opened died from signal ", ($? & 0x7F), "\n");
+        die("'p4 opened' exited with error ", ($? >> 8), "\n");
     }
 }
 
-my $curr = $curr_changelist eq "sandbox" ? "" : "\@$curr_changelist";
-if (open(HANDLE, "-|", "p4 files ${p4_path}$curr")) {
-    DIFF_FILE:
-    while (my $line = <HANDLE>) {
-        chomp $line;
-        s/\015$//;
-        $curr_files->append(P4File->new($line));
-    }
-    close(HANDLE) or die("unable to close p4 files (current) pipe: $!\n");
-    if (0 != $?) {
-        $? & 0x7F &
-            die("p4 files (current) died from signal ", ($? & 0x7F), "\n");
-        die("p4 files (current) exited with error ", ($? >> 8), "\n");
-    }
-}
-
-my @unchanged;
+my %union;
 
 # prune files at the same rev; no difference to report
 foreach my $f ($base_files->files()) {
     my $b = $base_files->get($f);
     my $c = $curr_files->get($f);
-
-    if (defined($c) &&
-        $b->rev() eq $c->rev()       &&
-        $b->action() eq $c->action() &&
-        $b->changelist() eq $c->changelist()) {
+    if ($b->action() =~ /delete/ && !(defined($c) && $c->action !~ /delete/)) {
         $curr_files->remove($f);
-        $base_files->remove($f);
-        push(@unchanged, $c)
-            unless ($c->action() eq 'delete' ||
-                    $c->type() eq 'binary');
+        print("skipping $f\n") if $verbose;
+        next;
     }
+    $union{$f} = defined($c) && 'delete' ne $c->action();    # present or not?
 }
 
-# prune files already deleted in base list
-foreach my $f (grep {
-                   $base_files->get($_)->action() eq "delete" ||
-                       $base_files->get($_)->action() eq "move/delete"
-               } $base_files->files()
-) {
-    my $b = $base_files->get($f);
+foreach my $f ($curr_files->files()) {
     my $c = $curr_files->get($f);
 
-    if (defined($c) && $b->action() eq $c->action()) {
-        # deleted again in curr with a different rev
-        $curr_files->remove($f);
+    next if (exists($union{$f}));
+    $union{$f} = 2;
+}
+
+my $diff_cmd = "p4 diff -du ${top_directory}/...\@$base_changelist";
+if ($curr_changelist ne 'sandbox') {
+    $diff_cmd .= " ${top_directory}/...\@$curr_changelist";
+}
+open(HANDLE, "-|", $diff_cmd) or
+    die("unable to execute $diff_cmd: $!");
+
+my $time =
+    '[1-9]{1}[0-9]{3}\-[0-9]{2}\-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]*)?( .[0-9]+)?';
+my $prev_filename;
+
+my $skip = 0;
+while (my $line = <HANDLE>) {
+    chomp $line;
+    s/\015$//;
+
+    # the 'diff' new/old file name line may be followed by a timestamp
+    #   If so, remove it so our regexp matches more easily.
+    # p4 and git diff outputs do not have the timestamp
+    if ($line =~ /^[-+=]{3} \S.*(\s+$time)$/) {
+        $line =~ s/\Q$1\E$//;
     }
-
-    $base_files->remove($f);
+    if ($line =~ /^--- (.+)$/) {
+        # P4 path to file:
+        # --- <filename>
+        my $p4entry = $1;
+        die("unexpected entry $p4entry") unless exists($union{$p4entry});
+        delete $union{$p4entry};
+        $prev_filename = $1;
+        $prev_filename =~ s/$depot_path/$sandbox_path/;
+        if ($curr_files->include_me($p4entry)) {
+            print("--- $prev_filename\n");
+            $skip = 0;
+        } else {
+            $skip = 1;
+        }
+    } elsif ($line =~ /^\+\+\+ (.+)$/) {
+        my $filename = $1;
+        print("+++ $filename\n")
+            unless ($skip);
+        die("unexpected '$filename' - expected '$prev_filename'")
+            unless ($prev_filename eq $filename);
+        $prev_filename = undef;
+    } else {
+        print("$line\n")
+            unless $skip;
+    }
 }
-
-# prune files deleted in curr list
-foreach my $f (grep {
-                   $curr_files->get($_)->action() eq "delete" ||
-                       $curr_files->get($_)->action() eq "move/delete"
-               } $curr_files->files()
-) {
-    my $c = $curr_files->get($f);
-
-    $curr_files->remove($f);
-}
-
-my %union;
-
-foreach my $k ($base_files->files()) {
-    #my $b = $base_files->get($k);
-    #printf("base: %s#%d %s change %d\n", $k, $b->rev(), $b->action(), $b->changelist());
-    $union{$k} = 1;
-}
-foreach my $k ($curr_files->files()) {
-    #my $b = $curr_files->get($k);
-    #printf("curr: %s#%d %s change %d\n", $k, $b->rev(), $b->action(), $b->changelist());
-    $union{$k} = 1;
-}
-#exit;
-
-#my $workspace = `p4 -F \%clientRoot\% -ztag info`;
-my $where =
-    `p4 where $p4_path`;    # need the "..." in the path or p4 gets confused
-$where =~ s/\/\.\.\.//g;
-my ($depot_path, $workspace_path, $sandbox_path) = split(' ', $where);
-
-sub reloc
-{
-    my $path = shift;
-    $path =~ s/$depot_path/$sandbox_path/;
-    return $path;
+close(HANDLE) or die("unable to close p4 files (current) pipe: $!\n");
+if (0 != $?) {
+    $? & 0x7F & die("p4 files (current) died from signal ", ($? & 0x7F), "\n");
+    die("p4 files (current) exited with error ", ($? >> 8), "\n");
 }
 
 foreach my $f (sort keys %union) {
-    my $b = $base_files->get($f);
-    my $c = $curr_files->get($f);
-
-    if (defined($b) && !defined($c)) {
-        # deleted
-        next if ($b->type() eq "binary");
-        printf("p4 diff $f#%d $f\n", $b->rev());
+    # excluded file have already been deleted from the file lists - no need to
+    #  check again
+    if ($union{$f} == 1) {
+        # defined in both..
+        next if defined($suppress_unchanged);
+        my $c = $curr_files->get($f);
+        die("oops") unless defined($c);
+        my $name = $c->name();
+        printf("p4 diff $f#%d $name\n", $c->rev());
+        printf("=== %s\n", $name);
+    } elsif ($union{$f} == 0) {
+        # present in baseline, absent in current: deleted
+        my $b    = $base_files->get($f);
+        my $name = $b->name();
+        printf("p4 diff $f#%d $name\n", $b->rev());
         printf("index %d..0\n", $base_changelist);
-        printf("--- %s\n", reloc($f));
+        printf("--- %s\n", $b->name());
         printf("+++ /dev/null\n");
         # p4 print -q $b->path() . '#' . $b->rev() |sed -e 's/^/-/'
         my @lines;
@@ -334,70 +421,41 @@ foreach my $f (sort keys %union) {
         }
         printf("@@ 1,%d 0,0 @@\n", scalar(@lines));
         printf("%s\n", join("\n", @lines));
-    } elsif (!defined($b) && defined($c)) {
+    } elsif ($union{$f} == 2) {
         # added
-        next if ($c->type() eq "binary");
-        printf("p4 diff $f $f#%d\n", $c->rev());
+        my $c    = $curr_files->get($f);
+        my $name = $c->name();
+        printf("p4 diff $f#%d $name\n", $c->rev());
         printf("new file mode\n");
         printf("index 0..%d\n", $curr_changelist);
         printf("--- /dev/null\n");
-        printf("+++ %s\n", reloc($f));
+        printf("+++ %s\n", $c->name());
+        my $err;
+
+        if (-f $name) {
+            $err = "'$name'";
+            open(HANDLE, '<', $name) or die("unable open $err: $!");
+        } else {
+            $err = "'p4 print -q " . $c->path() . '#' . $c->rev() . "' pipe";
+            open(HANDLE, '-|', "p4", "print", "-q",
+                 $c->path() . '#' . $c->rev()) or
+                die("open $err failed: $!");
+        }
         my @lines;
-        open(HANDLE, "-|", "p4", "print", "-q", $c->path() . '#' . $c->rev())
-            or
-            die("p4 print failed: $!\n");
 
         while (my $line = <HANDLE>) {
             chomp $line;
             $line =~ s/^/+/;
             push @lines, $line;
         }
-        close(HANDLE) or die("unable to close p4 print pipe: $!\n");
+        close(HANDLE) or die("unable to close $err: $!\n");
         if (0 != $?) {
-            $? & 0x7F & die("p4 print died from signal ", ($? & 0x7F), "\n");
-            die("p4 print exited with error ", ($? >> 8), "\n");
+            $? & 0x7F & die("close $err died from signal ", ($? & 0x7F), "\n");
+            die("close $err exited with error ", ($? >> 8), "\n");
         }
         printf("@@ 0,0 1,%d @@\n", scalar(@lines));
         printf("%s\n", join("\n", @lines));
-    } elsif (defined($b) && defined($c)) {
-        # check diff
-        next if ($b->type() eq "binary" || $c->type() eq "binary");
-        # "p4 diff $ignore_whitespace -du ". $c->path() . '#' . $c->rev() . " " . $b->path() . '#' . $b->rev()
-        printf("p4 diff $f#%d $f#%d\n", $b->rev(), $c->rev());
-        printf("index %d..%d\n", $base_changelist, $curr_changelist);
-        my @lines;
-        my @cmd = ("p4", "diff", "-du",
-                   $b->path() . '#' . $b->rev(),
-                   $c->path() . '#' . $c->rev());
-        splice(@cmd, 2, 0, '-db') if $ignore_whitespace;
-        open(HANDLE, "-|", @cmd) or
-            die("p4 diff failed: $!\n");
-        while (my $line = <HANDLE>) {
-            chomp $line;
-            if ($line =~ m/^(---|\+\+\+)/) {
-                $line =~ s/^(---\s+\S+).*$/$1/;
-                $line =~ s/^(\+\+\+\s+\S+).*$/$1/;
-                $line = reloc($line);
-            }
-            printf("%s\n", $line);
-        }
-        close(HANDLE) or die("unable to close p4 diff pipe: $!\n");
-        if (0 != $?) {
-            $? & 0x7F & die("p4 diff died from signal ", ($? & 0x7F), "\n");
-            die("p4 diff exited with error ", ($? >> 8), "\n");
-        }
-    } else {
-        warn("WARNING: not in base or current for $f\n");
     }
 }
 
-exit 0 if defined($suppress_unchanged);
-
-foreach my $f (@unchanged) {
-    my $name = $f->path();
-    next
-        unless P4FileList::include_me($name, \@include_patterns,
-                                      \@exclude_patterns);
-    printf("p4 diff $name#%d $name\n", $f->rev());
-    printf("=== %s\n", reloc($name));
-}
+exit 0;
