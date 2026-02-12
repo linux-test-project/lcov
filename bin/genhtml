@@ -7254,12 +7254,6 @@ if ($css_filename) {
     }
 }
 
-# Make sure tab_size is within valid range
-if ($tab_size < 1) {
-    print(STDERR "ERROR: invalid number of spaces specified: $tab_size!\n");
-    exit(1);
-}
-
 # Get HTML prolog and epilog
 $html_prolog = get_html_prolog($html_prolog_file);
 $html_epilog = get_html_epilog($html_epilog_file);
@@ -7474,7 +7468,10 @@ HTML OUTPUT
       --header-title BANNER         Banner at top of each HTML page
       --footer FOOTER               Footer at bottom of each HTML page
       --no-sourceview               Do not create source code view
-      --num-spaces NUM              Replace tabs with NUM spaces in source view
+      --num-spaces NUM              change apperance of tabs in source view
+                                    NUM == 0 will not touch tabs
+                                    NUM > 0 will replace them with NUM spaces
+                                    NUM < 0 will only change their apperance
       --legend                      Include color legend in HTML output
       --html-prolog FILE            Use FILE as HTML prolog for generated pages
       --html-epilog FILE            Use FILE as HTML epilog for generated pages
@@ -8477,9 +8474,11 @@ sub escape_html($)
     $string =~ s/>/&gt;/g;       # > -> &gt;
     $string =~ s/\"/&quot;/g;    # " -> &quot;
 
-    while ($string =~ /^([^\t]*)(\t)/) {
-        my $replacement = " " x ($tab_size - (length($1) % $tab_size));
-        $string =~ s/^([^\t]*)(\t)/$1$replacement/;
+    if ($tab_size > 0) {
+        while ($string =~ /^([^\t]*)(\t)/) {
+            my $replacement = " " x ($tab_size - (length($1) % $tab_size));
+            $string =~ s/^([^\t]*)(\t)/$1$replacement/;
+        }
     }
 
     $string =~ s/\n/<br>/g;      # \n -> <br>
@@ -9358,6 +9357,7 @@ sub write_css_file()
           font-family: monospace;
           white-space: pre;
           margin-top: 2px;
+          tab-size: #TAB_SIZE;
         }
 
         /* elided/removed code */
@@ -9557,6 +9557,13 @@ END_OF_DATE_SPAN
 
     while (my ($key, $color) = each(%$palette)) {
         $css_data =~ s/$key/$color/gm;
+    }
+
+    if ($tab_size < 0) {
+        my $abs_tab_size = abs($tab_size);
+        $css_data =~ s/#TAB_SIZE/$abs_tab_size/gm;
+    } else {
+        $css_data =~ s/^.*#TAB_SIZE.*\n//gm;
     }
 
     print(CSS_HANDLE $css_data);
