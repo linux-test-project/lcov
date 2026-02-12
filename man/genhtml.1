@@ -2686,8 +2686,17 @@ the coverage criteria check or the serialized coverage DB,
 .RE
 .BI "\-\-num\-spaces " spaces
 .RS
-Replace tabs in source view with
-.I num
+Change appearance of tabs in source view according to
+.IR spaces .
+
+When set to 0, tabs and their behaviour will be the browser's default.
+.br
+Negative values will set the rendered width in the source view to
+.I spaces
+spaces.
+.br
+Positive values will replace tabs with
+.I spaces
 spaces.
 
 Default value is 8.
