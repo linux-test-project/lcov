@@ -130,7 +130,8 @@ sub annotate
             (-f $pathname || -l $pathname) &&
             -r $pathname) {
         $context = ':' . $context if $context;
-        die($self->[SCRIPT] . $context . ' expected readable file, found \'' .
+        die($self->[SCRIPT] .
+            $context . ' expected readable file, found \'' .
             (defined($pathname) ? $pathname : '<undef>') . "'");
     }
 

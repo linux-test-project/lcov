@@ -223,6 +223,7 @@ our $defaultChunkSize;
 our $defaultInterval;
 our %childRetryCounts;
 our @large_files;
+our $callFromLcov;
 
 our $cwd = getcwd();
 chomp($cwd);
@@ -243,6 +244,7 @@ $ENV{"LC_ALL"} = "C";
 
 # retrieve settings from RC file - use these if not overridden on command line
 my %geninfo_opts = ("test-name|t=s"       => \$test_name,
+                    'call-from-lcov'      => \$callFromLcov,
                     "output-filename|o=s" => \$output_filename,
                     "base-directory|b=s"  => \$base_directory,
                     "follow|f"            => \$lcovutil::opt_follow,
@@ -906,15 +908,15 @@ sub add_worklist_entry
 {
     my ($self, $filename, $directory) = @_;
     if (exists($self->[1]->{$filename})) {
-        lcovutil::ignorable_error(
-                                 $lcovutil::ERROR_USAGE,
-                                 "duplicate file $filename in both " .
-                                     $self->[1]->{$filename} . " and $directory"
-                                     .
-                                     (lcovutil::is_ignored(
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                                  "duplicate file $filename in both " .
+                                      $self->[1]->{$filename} .
+                                      " and $directory"
+                                      .
+                                      (lcovutil::is_ignored(
                                                        $lcovutil::ERROR_USAGE) ?
-                                          ' (skip latter)' :
-                                          ''));
+                                           ' (skip latter)' :
+                                           ''));
         return;
     }
     $self->[1]->{$filename} = $directory;
@@ -1333,8 +1335,45 @@ sub gen_info(@)
     }
     my @worklist;
     my $serialChunk = [1, []];
-    my $chunk       = [0, []];    # [isSerial, [fileList]]
-    FILE: foreach my $j (@$filelist) {
+    my $nChunks =
+        int(floor((scalar(@$filelist) + $chunkSize - 1) / $chunkSize));
+    for (my $i = 0; $i < $nChunks; ++$i) {
+        push(@worklist, [0, []]);
+    }
+    my $work = $filelist;    # default to the original order
+    if ($lcovutil::profileHistoryCallback &&
+        ($chunkSize > 1 || exists($ENV{LCOV_FORCE_PARALLEL}))) {
+        my (@predicted, @unknown);
+        foreach my $j (@$filelist) {
+            my ($dir, $gcda, $gcno) = @$j;
+            my $key       = defined($gcda) ? $gcda : $gcno;
+            my $k         = substr($key, length($dir) + 1);
+            my $predicted = $lcovutil::profileHistoryCallback->history($k);
+            if (defined($predicted)) {
+                push(@predicted, [$j, $predicted, $key]);
+            } else {
+                # put the ones we don't know about at the start of the list
+                #  - work on them first, trusting that we will have parallelism
+                #    capacity for the ones we know about
+                push(@unknown, $j);
+            }
+        }
+        @predicted =
+            sort({ $b->[1] <=> $a->[1] or $a->[2] cmp $b->[2] } @predicted);
+
+        lcovutil::info(scalar(@unknown) .
+                           ' (of ' . (scalar(@predicted) + scalar(@unknown)) .
+                           ") files do not appear in \'--history\' profile.\n")
+            if (@unknown);
+        if (@predicted) {
+            my @order = map({ $_->[0] } @predicted);
+            # unknown to the back...
+            push(@order, @unknown);
+            $work = \@order;
+        }
+    }
+    my $chunkId = 0;
+    FILE: foreach my $j (@$work) {
         my ($dir, $gcda, $gcno) = @$j;
         foreach my $f ($gcda, $gcno) {
             next unless defined($f);    # might not be a GCDA file
@@ -1345,15 +1384,15 @@ sub gen_info(@)
                 next FILE;
             }
         }
+        die("unexpected chunkId $chunkId") if $chunkId >= $nChunks;
+        my $chunk = $worklist[$chunkId++];
         push(@{$chunk->[1]}, $j);
-        if (scalar(@{$chunk->[1]}) == $chunkSize) {
-            push(@worklist, $chunk);
-            $chunk = [0, []];
+        if ($chunkId == $nChunks) {
+            $chunkId = 0;
         }
     }    #foreach DATA_FILE
-    push(@worklist, $chunk) if @{$chunk->[1]};
-    # serial chunk is at the top of the stack - so serial processing
-    #  happens before we fork multiple processes
+         # serial chunk is at the top of the stack - so serial processing
+         #  happens before we fork multiple processes
     push(@worklist, $serialChunk)
         if (@{$serialChunk->[1]});
 

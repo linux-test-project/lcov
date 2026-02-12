@@ -490,7 +490,12 @@ our %pngMap = ('=' => ['CBC', 'LBC']
 our @opt_rc;        # list of command line RC overrides
 
 our %profileData;
-our $profile;       # the 'enable' flag/name of output file
+our $profile;    # the 'enable' flag/name of output file
+# historical profile - optimize performance by somewhat carefully sorting
+# job list - use callback mechanism to provide more configurable support
+# for complex build environments
+our @profileHistoryCallback;
+our $profileHistoryCallback;
 
 # need to defer any errors until after the options have been
 #  processed as user might have suppressed the error we were
@@ -998,6 +1003,8 @@ sub configure_callback
             #$package->import(qw(new));
             # the first value in @_ is the script name
             $$cb = $class->new(@args);
+            die("callback constructor returned 'undef'")
+                unless defined($$cb);
             if (exists($ENV{LCOV_FORCE_PARALLEL}) ||
                 (defined($lcovutil::maxParallelism) &&
                     1 != $lcovutil::maxParallelism)
@@ -1030,7 +1037,8 @@ sub configure_callback
         # not module
         $$cb = ScriptCaller->new(@args);
     }
-    push(@configured_callbacks, $cb);
+    push(@configured_callbacks, $cb)
+        if defined($$cb);
 }
 
 sub cleanup_callbacks
@@ -1258,8 +1266,9 @@ our %argCommon = ("tempdir=s"         => \$tempdirname,
                   "config-file=s"          => \@unsupported_config,
                   "rc=s%"                  => \%unsupported_rc,
                   "profile:s"              => \$lcovutil::profile,
-                  "exclude=s"              => \@lcovutil::exclude_file_patterns,
-                  "include=s"              => \@lcovutil::include_file_patterns,
+                  'history-script=s'  => \@lcovutil::profileHistoryCallback,
+                  "exclude=s"         => \@lcovutil::exclude_file_patterns,
+                  "include=s"         => \@lcovutil::include_file_patterns,
                   "erase-functions=s" => \@lcovutil::exclude_function_patterns,
                   "omit-lines=s"      => \@lcovutil::omit_line_patterns,
                   "substitute=s"      => \@lcovutil::file_subst_patterns,
@@ -1325,24 +1334,13 @@ my @include_stack;
 sub read_config($$)
 {
     my ($filename, $opts) = @_;
-    my $key;
-    my $value;
-    local *HANDLE;
-
     my $set_value = 0;
     info(1, "read_config: $filename\n");
-    my $path = abs_path($filename);
-    if (!defined($path)) {
+    my $f;
+    eval { $f = InOutFile->in($filename); };
+    if ($@) {
         lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                                  "config file '$filename' does not exist");
-        # as below - this line is unreachable because we can't ignore
-        # the message due to order of processing - see below.
-        return 0;    # LCOV_UNREACHABLE_LINE
-    } elsif (exists($included_config_files{$path})) {
-        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                                  'config file inclusion loop detected: "' .
-                                      join('" -> "', @include_stack) .
-                                      '" -> "' . $filename . '"');
+                              "cannot read configuration file '$filename': $!");
         # this line is unreachable as we can't ignore the 'usage' error
         #   because it is generated when we parse the config-file options
         #   but the '--ignore-errors' option isn't parsed until later, after
@@ -1350,18 +1348,21 @@ sub read_config($$)
         # This could be fixed by doing some early processing on the command
         #   line (similar to how config file options are handled) - but that
         #   seems like overkill.  Just force the user to fix the issues.
-        return 0;    # LCOV_UNREACHABLE_LINE
-    }
-
-    if (!open(HANDLE, "<", $filename)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                              "cannot read configuration file '$filename': $!");
-        # similarly, this line is also unreachable for the same reasons as
-        #   described above.
         return 0;    # didn't set anything LCOV_UNREACHABLE_LINE
+    }
+    my $path = abs_path($filename);
+    die("abs_path returned undef for $filename") unless defined($path);
+    if (exists($included_config_files{$path})) {
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                                  'config file inclusion loop detected: "' .
+                                      join('" -> "', @include_stack) .
+                                      '" -> "' . $filename . '"');
+        return 0;    # LCOV_UNREACHABLE_LINE
     }
     $included_config_files{$path} = 1;
     push(@include_stack, $filename);
+
+    local *HANDLE = $f->hdl();
     VAR: while (<HANDLE>) {
         chomp;
         # Skip comments
@@ -1371,7 +1372,7 @@ sub read_config($$)
         # Remove trailing blanks
         s/\s+$//;
         next unless length;
-        ($key, $value) = split(/\s*=\s*/, $_, 2);
+        my ($key, $value) = split(/\s*=\s*/, $_, 2);
         # is this an environment variable?
         while (defined($value) &&
                $value =~ /\$ENV\{([^}]+)\}/) {
@@ -1413,7 +1414,6 @@ sub read_config($$)
                 ]);
         }
     }
-    close(HANDLE) or die("unable to close $filename: $!\n");
     delete $included_config_files{$path};
     pop(@include_stack);
     return $set_value;
@@ -1591,12 +1591,22 @@ sub parseOptions
     $lcovutil::verify_checksum = 0
         if (defined($rc_no_checksum));
 
+    # Determine which errors the user wants us to ignore
+    parse_ignore_errors(@opt_ignore_errors);
+
+    # if lcov --capture:  no further initialization required - is handled
+    #   in geninfo call
+    return 1 if $lcov_capture;
+
     foreach my $cb ([\$versionCallback, \@lcovutil::extractVersionScript],
                     [\$resolveCallback, \@lcovutil::resolveCallback],
                     [\$CoverageCriteria::criteriaCallback,
                      \@CoverageCriteria::coverageCriteriaScript
                     ],
                     [\$contextCallback, \@lcovutil::contextCallback],
+                    [\$profileHistoryCallback,
+                     \@lcovutil::profileHistoryCallback
+                    ],
     ) {
         lcovutil::configure_callback($cb->[0], @{$cb->[1]})
             if (@{$cb->[1]});
@@ -1623,35 +1633,30 @@ sub parseOptions
     $lcovutil::profile = ''
         if ($contextCallback && !defined($lcovutil::profile));
 
-    if (!$lcov_capture) {
-        if ($lcovutil::compute_file_version &&
-            !defined($versionCallback)) {
-            lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
-                "'compute_file_version=1' option has no effect without either '--version-script' or 'version_script=...'."
-            );
-        }
-        lcovutil::munge_file_patterns();
-        lcovutil::init_parallel_params();
-        # Determine which errors the user wants us to ignore
-        parse_ignore_errors(@opt_ignore_errors);
-        parse_expected_message_counts(@opt_expected_message_counts);
-        # Determine what coverpoints the user wants to filter
-        push(@opt_filter, 'exception') if $lcovutil::exclude_exception_branch;
-        parse_cov_filters(@opt_filter);
+    if ($lcovutil::compute_file_version &&
+        !defined($versionCallback)) {
+        lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+            "'compute_file_version=1' option has no effect without either '--version-script' or 'version_script=...'."
+        );
+    }
+    lcovutil::munge_file_patterns();
+    lcovutil::init_parallel_params();
+    parse_expected_message_counts(@opt_expected_message_counts);
+    # Determine what coverpoints the user wants to filter
+    push(@opt_filter, 'exception') if $lcovutil::exclude_exception_branch;
+    parse_cov_filters(@opt_filter);
 
-        # Ensure that the c++filt tool is available when using --demangle-cpp
-        lcovutil::do_mangle_check();
+    # Ensure that the c++filt tool is available when using --demangle-cpp
+    lcovutil::do_mangle_check();
 
-        foreach my $entry (@deferred_rc_errors) {
-            my ($isErr, $type, $msg) = @$entry;
-            if ($isErr) {
-                lcovutil::ignorable_error($type, $msg);
-            } else {
-                lcovutil::ignorable_warning($type, $msg);
-            }
+    foreach my $entry (@deferred_rc_errors) {
+        my ($isErr, $type, $msg) = @$entry;
+        if ($isErr) {
+            lcovutil::ignorable_error($type, $msg);
+        } else {
+            lcovutil::ignorable_warning($type, $msg);
         }
     }
-
     return 1;
 }
 
@@ -1785,13 +1790,23 @@ sub munge_file_patterns
 sub warn_pattern_list
 {
     my ($type, $patterns) = @_;
+    my $unused = 0;
     foreach my $pat (@$patterns) {
         my $count = $pat->[-1];
         if (0 == $count) {
             my $str = $pat->[-2];
             lcovutil::ignorable_error($ERROR_UNUSED,
                                       "'$type' pattern '$str' is unused.");
+            ++$unused;
         }
+    }
+    if ($unused) {
+        lcovutil::ignorable_error($ERROR_UNUSED,
+                                  "$unused of " .
+                                      scalar(@$patterns) .
+                                      " '$type' pattern" .
+                                      (scalar(@$patterns) == 1 ? '' : 's') .
+                                      ' were never applied.');
     }
 }
 
@@ -1927,7 +1942,8 @@ sub summarize_messages
     foreach my $type ('error', 'warning', 'ignore') {
         next unless $total{$type};
         $found = 1;
-        my $leader = $header . '  ' . $total{$type} . " $type message" .
+        my $leader =
+            $header . '  ' . $total{$type} . " $type message" .
             ($total{$type} > 1 ? 's' : '') . ":\n";
         my $h = $message_types{$type};
         foreach my $k (sort keys %$h) {
@@ -2586,7 +2602,8 @@ sub summarize_cov_filters
         next if 0 == $histogram->[-2];
         my $points = '';
         if ($histogram->[-2] != $histogram->[-1]) {
-            $points = '    ' . $histogram->[-1] . ' coverpoint' .
+            $points =
+                '    ' . $histogram->[-1] . ' coverpoint' .
                 ($histogram->[-1] > 1 ? 's' : '') . "\n";
         }
         info(-1,
@@ -3403,7 +3420,6 @@ sub annotate
 sub check_criteria
 {
     my ($self, $name, $type, $data) = @_;
-
     my $iter =
         $self->pipe('criteria', $name, $type, JsonSupport::encode($data));
     return (0) unless $iter;    # constructor will have given error message
@@ -3420,7 +3436,6 @@ sub check_criteria
 sub select
 {
     my ($self, $lineData, $annotateData, $filename, $lineNo) = @_;
-
     my @params = ('select',
                   defined($lineData) ?
                       JsonSupport::encode($lineData->to_list()) : '',
@@ -3434,17 +3449,30 @@ sub select
 sub simplify
 {
     my ($self, $func) = @_;
-
     my $name;
     my $pipe = $self->pipe('simplify', $func);
     die("broken 'simplify' callback")
         unless ($pipe &&
                 ($name = $pipe->next()));
-
     chomp($name);
     $name =~ s/\r//;
     lcovutil::info(1, "  simplify: $name\n");
     return $name;
+}
+
+sub history
+{
+    my ($self, $item) = @_;
+
+    my $time;
+    my $pipe = $self->pipe('history', $item);
+    die("broken 'history' callback")
+        unless ($pipe &&
+                ($time = $pipe->next()));
+    chomp($time);
+    $time =~ s/\r//;
+    lcovutil::info(1, "  history: $item = $time\n");
+    return $time eq '' ? undef : $time;
 }
 
 package JsonSupport;
@@ -4143,9 +4171,9 @@ sub merge
     # return 1 if something changed, 0 if nothing new covered or discovered
     my ($self, $that, $filename, $line) = @_;
     # should have called 'iscompatible' first
-    die('attempt to merge incompatible expressions for id' .
-        $self->id() . ', ' . $that->id() .
-        ": '" . $self->exprString() . "' -> '" . $that->exprString() . "'")
+    die("$filename:$line: attempt to merge incompatible expressions for id" .
+        $self->id() . ', ' . $that->id() . ": '" .
+        $self->exprString() . "' -> '" . $that->exprString() . "'")
         if ($self->exprString() ne $that->exprString());
 
     if ($self->is_exception() != $that->is_exception()) {
@@ -4656,7 +4684,8 @@ sub merge
 {
     my ($self, $that) = @_;
     lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                              $self->name() . " has different location than " .
+                              $self->name() .
+                                  " has different location than " .
                                   $that->name() . " during merge")
         if ($self->line() != $self->line());
     while (my ($name, $count) = each(%{$that->[ALIASES]})) {
@@ -4831,7 +4860,8 @@ sub define_function
         ) {
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                                       "mismatched end line for $fnName at " .
-                                          $self->filename() . ":$start_line: "
+                                          $self->filename() .
+                                          ":$start_line: "
                                           .
                                           (defined($data->end_line()) ?
                                                $data->end_line() : 'undef') .
@@ -4941,8 +4971,8 @@ sub union
         my $thisData;
         if (!exists($myData->{$key})) {
             $thisData =
-                $self->define_function($thatData->name(),
-                                      $thatData->line(), $thatData->end_line());
+                $self->define_function($thatData->name(), $thatData->line(),
+                                       $thatData->end_line());
             $changed = 1;    # something new...
         } else {
             $thisData = $myData->{$key};
@@ -6300,7 +6330,8 @@ sub parseLines
                 lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                            "$filename: overlapping exclude directives. Found " .
                                $d->[4] .
-                               " at line $line - but no matching " . $d->[5] .
+                               " at line $line - but no matching " .
+                               $d->[5] .
                                ' for ' . $d->[4] . ' at line ' . $$ref->[0])
                     if $$ref;
                 $$ref = [$line, $reason, $d->[4], $d->[5]];
@@ -6309,7 +6340,8 @@ sub parseLines
                 lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                               "$filename: found " . $d->[5] .
                                   " directive at line $line without matching " .
-                                  ($$ref ? $$ref->[2] : $d->[4]) . ' directive')
+                                  ($$ref ? $$ref->[2] : $d->[4]) .
+                                  ' directive')
                     unless $$ref &&
                     $$ref->[2] eq $d->[4] &&
                     $$ref->[3] eq $d->[5];
@@ -6531,16 +6563,17 @@ sub isExcluded
                     lcovutil::message_count($lcovutil::ERROR_RANGE) == 0
             ]);
         lcovutil::store_deferred_message(
-              $lcovutil::ERROR_RANGE,
-              1, $key,
-              "unknown line '$lineNo' in " . $self->filename()
-                  .
-                  (
-                  defined($data->[EXCLUDE]) ?
-                      (" there are only " .
-                       scalar(@{$data->[EXCLUDE]}) . " lines in the file.") :
-                      "") .
-                  $suffix) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
+                                $lcovutil::ERROR_RANGE,
+                                1, $key,
+                                "unknown line '$lineNo' in " . $self->filename()
+                                    .
+                                    (defined($data->[EXCLUDE]) ?
+                                         (" there are only " .
+                                          scalar(@{$data->[EXCLUDE]}) .
+                                          " lines in the file.") :
+                                         "") .
+                                    $suffix
+        ) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
         return 0;    # even though out of range - this is not excluded by filter
     }
     my $reason;
@@ -6991,8 +7024,13 @@ sub print_summary
 
 sub skipCurrentFile
 {
-    my $filename = shift;
+    my ($filename, $fileTypeName) = @_;
 
+    if (defined($fileTypeName)) {
+        $fileTypeName .= ' ';
+    } else {
+        $fileTypeName = '';
+    }
     my $filt = $lcovutil::cov_filter[$lcovutil::FILTER_MISSING_FILE];
     if ($filt) {
         my $missing = !-r $filename;
@@ -7005,7 +7043,8 @@ sub skipCurrentFile
 
         if ($missing) {
             lcovutil::info(
-                   "Excluding \"$filename\": does not exist/is not readable\n");
+                "Excluding $fileTypeName\"$filename\": does not exist/is not readable\n"
+            );
             ++$filt->[-2];
             ++$filt->[-1];
             return 1;
@@ -7016,7 +7055,8 @@ sub skipCurrentFile
     foreach my $p (@lcovutil::exclude_file_patterns) {
         my $pattern = $p->[0];
         if ($filename =~ $pattern) {
-            lcovutil::info(1, "exclude $filename: matches '" . $p->[1] . "\n");
+            lcovutil::info(1,
+                  "exclude $fileTypeName$filename: matches '" . $p->[1] . "\n");
             ++$p->[-1];
             return 1;    # all done - explicitly excluded
         }
@@ -7026,13 +7066,15 @@ sub skipCurrentFile
             my $pattern = $p->[0];
             if ($filename =~ $pattern) {
                 lcovutil::info(1,
-                              "include: $filename: matches '" . $p->[1] . "\n");
+                               "include: $fileTypeName$filename: matches '" .
+                                   $p->[1] . "\n");
                 ++$p->[-1];
                 return 0;    # explicitly included
             }
         }
-        lcovutil::info(1, "exclude $filename: no include matches\n");
-        return 1;            # not explicitly included - so exclude
+        lcovutil::info(1,
+                       "exclude $fileTypeName$filename: no include matches\n");
+        return 1;    # not explicitly included - so exclude
     }
     return 0;
 }
@@ -7236,9 +7278,8 @@ sub _eraseFunctions
                         lcovutil::info(
                                   1 + (0 == $isMasterList),
                                   "exclude FN $name line range $source_file:[" .
-                                      $fcn->line() .
-                                      ":$end_line] due to '" . $p->[-2] . "'\n"
-                        );
+                                      $fcn->line() . ":$end_line] due to '" .
+                                      $p->[-2] . "'\n");
                     }
                     _eraseFunction($fcn, $alias, $end_line,
                                    $source_file, $functionMap, $lineData,
@@ -7379,9 +7420,10 @@ sub _deriveFunctionEndLines
                 lcovutil::explain_once('derive_end_line',
                       "  See lcovrc man entry for 'derive_function_end_line'.");
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                '"' . $func->filename() . '":' . $func->line() .
-                                    ': failed to set end line for function ' .
-                                    $func->name() . '.' . $suffix);
+                                  '"' .
+                                      $func->filename() . '":' . $func->line() .
+                                      ': failed to set end line for function ' .
+                                      $func->name() . '.' . $suffix);
             next FUNC;
         }
 
@@ -8659,8 +8701,8 @@ sub _read_info
     }
 
     # Check for .gz extension
-    my $inFile  = InOutFile->in($tracefile, $lcovutil::demangle_cpp_cmd);
-    my $infoHdl = $inFile->hdl();
+    my $inFile = InOutFile->in($tracefile, $lcovutil::demangle_cpp_cmd);
+    local *INFO = $inFile->hdl();
 
     $testname = "";
     my $fileData;
@@ -8678,7 +8720,7 @@ sub _read_info
     my %excludedFunction;
     my $skipCurrentFile = 0;
     my %fnIdxMap;
-    while (<$infoHdl>) {
+    while (<INFO>) {
         chomp($_);
         my $line = $_;
         $line =~ s/\s+$//;    # whitespace

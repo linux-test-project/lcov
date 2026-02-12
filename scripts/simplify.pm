@@ -92,7 +92,18 @@ EOF
 
     # verify that the patterns are valid...
     lcovutil::verify_regexp_patterns($script, \@patterns);
-    my @munged = map({ [$_, 0]; } @patterns);
+    # pre-compile the regexps (to the extent that we can)
+    my @munged;
+    foreach my $p (@patterns) {
+        my $sep = substr($p, 1, 1);
+        my @s   = split($sep, $p);
+        die("unexpected substitution pattern '$p'")
+            unless ($s[0] eq 's' &&
+                    $#s == 3 &&
+                    $s[3] eq 'g');
+
+        push(@munged, [qr/$s[1]/, $s[2], $p, 0]);
+    }
 
     return bless \@munged, $class;
 }
@@ -103,13 +114,12 @@ sub simplify
 
     foreach my $p (@$self) {
         my $orig = $name;
-        # sadly, no support for pre-compiled patterns
-        eval "\$name =~ $p->[0] ;";    # apply pattern that user provided...
-            # $@ should never match:  we already checked pattern validity during
-            #   initialization - above.  Still: belt and braces.
-        die("invalid 'simplify' regexp '$p->[0]': $@")
+        eval { $name =~ s/$p->[0]/$p->[1]/g; };
+        # $@ should never match:  we already checked pattern validity during
+        #   initialization - above.  Still: belt and braces.
+        die("invalid 'simplify' regexp '$p->[-2]': $@")
             if ($@);
-        ++$p->[1]
+        ++$p->[-1]
             if ($name ne $orig);
     }
     return $name;
@@ -119,7 +129,7 @@ sub start
 {
     my $self = shift;
     foreach my $p (@$self) {
-        $p->[1] = 0;
+        $p->[-1] = 0;
     }
 }
 
@@ -128,7 +138,7 @@ sub save
     my $self = shift;
     my @data;
     foreach my $p (@$self) {
-        push(@data, $p->[1]);
+        push(@data, $p->[-1]);
     }
     return \@data;
 }

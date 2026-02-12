@@ -83,7 +83,7 @@ gauss.o: methods/gauss.c gauss.h
 output: example descriptions test_noargs test_2_to_2000 test_overflow test_differential
 	@echo
 	@echo '*'
-	@echo '* Generating HTML output'
+	@echo '* Generating HTML output from data captured from tests'
 	@echo '*'
 	@echo
 	$(GENHTML) trace_noargs.info trace_args.info trace_overflow.info \
@@ -95,7 +95,7 @@ output: example descriptions test_noargs test_2_to_2000 test_overflow test_diffe
 	@echo '* See '`pwd`/output/index.html
 	@echo '*'
 	@echo
-	@echo "Generate HTML with hierarchical report and additional navigation features"
+	@echo "Generate HTML with hierarchical report and additional navigation features (same testcase data)"
 	@echo '*'
 	$(GENHTML) trace_noargs.info trace_args.info trace_overflow.info \
 		   --output-directory hierarchical \
@@ -175,7 +175,8 @@ test_differential:
 
 	@echo "Step 2: Capture initial coverage"
 	(cd $(REPO) ; \
-	$(LCOV) --capture -o baseline.info -d . --version-script $(SCRIPTDIR)/gitversion.pm )
+	$(LCOV) --capture -o baseline.info -d . \
+		--version-script $(SCRIPTDIR)/gitversion.pm --profile )
 
 	@echo "Step 3: Modify source code"
 	@(cd $(REPO) ; \
@@ -192,27 +193,34 @@ test_differential:
 	./example )
 
 	@echo "Step 5: Capture new coverage (after source changes)"
+	@echo "   (note that this example is too tiny for history reuse"
+	@echo "   to affect runtime performance)"
 	(cd $(REPO) ; \
-	 $(LCOV) --capture -o current.info -d . --version-script $(SCRIPTDIR)/gitversion.pm )
+	$(LCOV) --capture -o current.info -d .              \
+		--version-script $(SCRIPTDIR)/gitversion.pm \
+		--profile                                   \
+		--history $(SCRIPTDIR)/history.pm,baseline.info.json )
 	@echo "Compute source diffs"
 	(cd $(REPO) ;                                          \
 	$(SCRIPTDIR)/gitdiff -b . `git rev-list -n 1 baseline` \
 	  `git rev-list -n 1 current` > udiff.txt )
 
 	@echo "Step 6: Generate differential coverage report"
-	@echo "        (caching revision control data may result in improved runtime performance)"
+	@echo "      - caching revision control data may result in improved runtime performance)"
+	@echo "      - capture 'genhtml' execution profile that we can use later"
 	(cd $(REPO) ;                                            \
 	$(GENHTML) -o differential --baseline-file baseline.info \
 	  --diff-file udiff.txt --show-owners                    \
 	  --title "Differential coverage example"                \
 	  --annotate $(SCRIPTDIR)/gitblame.pm,--cache,./my_cache \
-	  --version-script $(SCRIPTDIR)/gitversion.pm            \
+	  --version-script $(SCRIPTDIR)/gitversion.pm --profile  \
 	  -- current.info )
 
 	@echo "point your browser to `realpath $(REPO)`/differential/index.html"
 
 	@echo "Step 7: Generate subset report for code review:"
-	@echo "        (reuse revision control data cached in previous step)"
+	@echo "      - reuse execution profile and cached revision control data"
+	@echo "        captured in previous step"
 	(cd $(REPO) ;                                            \
 	$(GENHTML) -o review --baseline-file baseline.info       \
 	  --diff-file udiff.txt --show-owners                    \
@@ -221,7 +229,9 @@ test_differential:
 	  --version-script $(SCRIPTDIR)/gitversion.pm            \
 	  --select-script $(SCRIPTDIR)/select.pm                 \
 	  --select-script --tla --select-script UNC,UIC,LBC      \
-	  -- current.info )
+	  --history-script $(SCRIPTDIR)/history.pm               \
+	  --history-script ./differential/genhtml.json --profile \
+          -- current.info )
 
 	@echo "point your browser to `realpath $(REPO)`/review/index.html"
 

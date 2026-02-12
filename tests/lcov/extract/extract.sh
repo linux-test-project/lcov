@@ -64,7 +64,7 @@ if [ "${VER[0]}" -lt 8 ] ; then
 fi
 
 if [ 1 != "$NO_INITIAL_CAPTURE" ] ; then
-    $COVER $CAPTURE . $LCOV_OPTS --initial -o initial.info $IGNORE_EMPTY $IGNORE_USAGE
+    $COVER $CAPTURE . $LCOV_OPTS --initial -o initial.info $IGNORE_EMPTY $IGNORE_USAGE --profile
     if [ 0 != $? ] ; then
         echo "Error:  unexpected error code from lcov --initial"
         if [ $KEEP_GOING == 0 ] ; then
@@ -81,7 +81,7 @@ fi
 
 if [ "$NO_INITIAL_CAPTURE" != 1 ] ; then
     # capture 'all' - which will pick up the unused file
-    $COVER $CAPTURE . $LCOV_OPTS --all -o all_initial.info $IGNORE_EMPTY $IGNORE_USAGE
+    $COVER $CAPTURE . $LCOV_OPTS --all -o all_initial.info $IGNORE_EMPTY $IGNORE_USAGE --history $SCRIPT_DIR/history.pm,initial.info.json --profile
     if [ 0 != $? ] ; then
         echo "Error:  unexpected error code from lcov --capture --all"
         if [ $KEEP_GOING == 0 ] ; then
@@ -105,7 +105,8 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-$COVER $CAPTURE . $LCOV_OPTS -o external.info $FILTER $IGNORE
+# test an empty/trivial history callback
+$COVER $CAPTURE . $LCOV_OPTS -o external.info $FILTER $IGNORE --profile --histor ./history.sh
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --capture"
     if [ $KEEP_GOING == 0 ] ; then
@@ -130,7 +131,7 @@ fi
 
 # callback tests
 echo $COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100
-$COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 2>&1 | tee callback_fail.log
+$COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 --history $SCRIPT_DIR/history.pm,external.info.json 2>&1 | tee callback_fail.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "Error:  expected criteria fail from lcov --capture - but not found"
     if [ $KEEP_GOING == 0 ] ; then
@@ -144,15 +145,14 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-echo $COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20
-$COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20
+echo $COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20 --history $SCRIPT_DIR/history.pm,external.info.json,callback.info.json
+$COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20 --history $SCRIPT_DIR/history.pm,external.info.json,callback.info.json
 if [ 0 != $? ] ; then
     echo "Error:  expected criteria pass from lcov --capture - but failed"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
 fi
-
 
 echo $COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100
 $COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 2>&1 | tee callback_fail2.log

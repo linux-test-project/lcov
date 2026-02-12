@@ -19,6 +19,12 @@ fi
 
 LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
+which clang
+if [ $? != 0 ] ; then
+    echo "clang unavailable - skipping test"
+    exit 0
+fi
+
 IFS='.' read -r -a LLVM_VER <<< `clang -dumpversion`
 if [ "${LLVM_VER[0]}" -ge 18 ] ; then
     ENABLE_MCDC=1

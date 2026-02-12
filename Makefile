@@ -270,6 +270,7 @@ check:
 	  mkdir -p $(COVER_DB) ;                                            \
 	  echo "*** Run once, force parallel ***" ;                         \
 	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C tests check LCOV_HOME=`pwd` ; \
+	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C example LCOV_HOME=`pwd` ;     \
 	  echo "*** Run again, no force ***" ;                              \
 	fi
 	@$(MAKE) -s -C tests check LCOV_HOME=`pwd`
@@ -293,7 +294,7 @@ else
 	@echo "Checking changes in source files for coding style issues (MODE=diff):"
 endif
 	@RC=0 ;                                                  \
-	CHECKFILES=`find . -path ./.git -prune -o \( \( -type f -exec grep -q '^#!.*perl' {} \; \) -o -name '*.pm' \) -not \( -name '*.tdy' -o -name '*.orig' -o -name '*~' \) -print `; \
+	CHECKFILES=`find bin lib scripts tests -path ./.git -prune -o \( \( -type f -exec grep -q '^#!.*perl' {} \; \) -o -name '*.pm' \) -not \( -name '*.tdy' -o -name '*.orig' -o -name '*~' \) -print `; \
 	for FILE in $$CHECKFILES ; do                            \
 	  $(CHECKSTYLE) "$$FILE";                                \
 	  if [ 0 != $$? ] ; then                                 \

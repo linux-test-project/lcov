@@ -24,7 +24,7 @@ class GenerateSpreadsheet(object):
 
         # keep a list of sheets so we can insert a summary..
         geninfoSheets = []
-        summarySheet = s.add_worksheet("geninfo_summary") if 1 < len(files) else None
+        summarySheet = s.add_worksheet("capture_summary") if 1 < len(files) else None
 
         # order:  order of processing
         # file: time to process one GCDA file
@@ -41,7 +41,7 @@ class GenerateSpreadsheet(object):
         # queue: time between child finish and start of merge in parent
         # merge: time to merge returned chunk info
         geninfoChunkKeys = ('work', 'chunk', 'queue', 'child', 'process', 'undump', 'merge')
-        geninfoSpecialKeys = ('total', 'parallel', 'filter', 'write')
+        geninfoSpecialKeys = ('total', 'parallel', 'filter', 'write', 'history')
 
         # keys related to filtering
         filterKeys = ('filt_chunk', 'filt_queue',  'filt_child', 'filt_proc', 'filt_undump', 'filt_merge', 'derive_end')
@@ -166,6 +166,7 @@ class GenerateSpreadsheet(object):
             insertConditional(sheet, avgRow, devRow,
                               beginRow, firstCol, endRow, col)
 
+        activeSheet = None
         for name in files:
             try:
                 with open(name) as f:
@@ -179,6 +180,9 @@ class GenerateSpreadsheet(object):
 
                 try:
                     tool = data['config']['tool']
+                    if (tool == 'lcov' and
+                        -1 != data['config']['cmdLine'].find('--call-from-lcov')):
+                        tool = 'geninfo'
                 except:
                     tool = 'unknown'
                     print("%s: unknown tool" %(name))
@@ -198,6 +202,8 @@ class GenerateSpreadsheet(object):
             for i in range(1000):
                 try:
                     sheet = s.add_worksheet(sn[-31:])
+                    if activeSheet == None:
+                        activeSheet = sheet
                     break
                 except:
                     sn = sheetname + "_" + str(i)
@@ -217,7 +223,7 @@ class GenerateSpreadsheet(object):
             for n in sorted(data['config'].keys()):
                 try:
                     sheet.write_string(row, 1, n)
-                    if n in ("tool", 'date', ):
+                    if n in ("tool", 'cmdLine', 'date', ):
                         sheet.write_string(row, 2, data['config'][n])
                     else:
                         sheet.write_number(row, 2, data['config'][n], intFormat)
@@ -266,7 +272,7 @@ class GenerateSpreadsheet(object):
                                     effectiveParallelism += sep + xl_rowcol_to_cell(row, 2)
                                     sep = "+"
                             except:
-                                print("%s: failed to write %s for lcov[seg %d][%s]" % (
+                                print("Warning: %s: unable to write %s for lcov[seg %d][%s]" % (
                                     name, str(d[k]) if k in d else "??", seg, k))
                             row += 1
                         begin = row
@@ -280,10 +286,10 @@ class GenerateSpreadsheet(object):
                                     try:
                                         sheet.write_number(row, 3, float(d2[f]), twoDecimal)
                                     except:
-                                        print("%s: failed to write %s for lcov[seg %d][%s][$s]" % (name, str(d2[f]), seg, k, f))
+                                        print("Warning: %s: unable to write %s for lcov[seg %d][%s][$s]" % (name, str(d2[f]), seg, k, f))
                                 row += 1
                             except:
-                                print("%s: failed to write %s for lcov[seg %d]" % (name, k, seg))
+                                print("Warning: %s: unable to write %s for lcov[seg %d]" % (name, k, seg))
                     effectiveParallelism += ")/%(total)s" % {
                         'total': total,
                     }
@@ -300,7 +306,7 @@ class GenerateSpreadsheet(object):
                             val = data[k]
                             sheet.write_number(row, 2, float(val), twoDecimal)
                         except:
-                            print("%s: failed to write %s for lcov[%s]" % (name, str(val), k))
+                            print("Warning: %s: unable to write %s for lcov[%s]" % (name, str(val), k))
                             row += 1
                     for k in ('parse', 'append'):
                         try:
@@ -311,10 +317,10 @@ class GenerateSpreadsheet(object):
                                 try:
                                     sheet.write_number(row, 3, float(d2[f]), twoDecimal)
                                 except:
-                                    print("%s: failed to write %s for lcov[%s][$s]" % (name, str(d2[f]), k, f))
+                                    print("Warning: %s: unable to write %s for lcov[%s][$s]" % (name, str(d2[f]), k, f))
                             row += 1
                         except:
-                            print("%s: failed to find key '%s'" %(name, k))
+                            print("Warning: %s: failed to find key '%s'" %(name, k))
 
                 # go on to the next file
                 continue
@@ -557,11 +563,15 @@ class GenerateSpreadsheet(object):
             elif tool == 'genhtml':
 
                 for k in ('parse_source', 'parse_diff',
-                          'parse_current', 'parse_baseline'):
+                          'parse_current', 'parse_baseline',
+                          'history'):
                     if k in data:
-                        sheet.write_string(row, 0, k)
-                        sheet.write_number(row, 1, data[k], twoDecimal)
-                        row += 1
+                        try:
+                            sheet.write_string(row, 0, k)
+                            sheet.write_number(row, 1, data[k], twoDecimal)
+                            row += 1
+                        except:
+                            pass # 'history' key might not be there
 
                 # total: time from start to end of the particular unit -
                 # child: time from start to end of child process
@@ -625,7 +635,7 @@ class GenerateSpreadsheet(object):
                                 else:
                                     sawData[k] = 1
                             except:
-                                print("%s: failed to write %s" %(name, data[k][name]))
+                                print("Warning: %s: unable to write %s" %(name, data[k][name]))
                         col += 1
 
                 def visitScope(f):
@@ -674,7 +684,7 @@ class GenerateSpreadsheet(object):
                         try:
                             sheet.write_number(row, 2, float(d[n]), twoDecimal)
                         except:
-                            print("%s: failed to write %s for [%s][%s]" %(name, str(d[n]), k, n))
+                            print("Warning: %s: unable to write %s for [%s][%s]" %(name, str(d[n]), k, n))
                         row += 1;
                     continue
                 elif k in ('config', 'overall', 'total'):
@@ -684,6 +694,7 @@ class GenerateSpreadsheet(object):
 
         if summarySheet:
             if len(geninfoSheets) < 2:
+                activeSheet.activate()
                 summarySheet.hide()
 
             # insert the average and variance data...
