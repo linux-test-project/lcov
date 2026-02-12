@@ -2544,10 +2544,6 @@ sub new
                                   $diffMap, $verbose)
         if ($lcovutil::func_coverage);
 
-    while (my ($lineNo, $deleted) = each(%{$self->[DELETED_LINE_LEADER]})) {
-        @$deleted =
-            sort({ $a->lineNo('base') <=> $b->lineNo('base') } @$deleted);
-    }
     return $self;
 }
 
@@ -2813,6 +2809,12 @@ sub _categorizeLineCov
         my $val      = $lineCovBase->value($bline);
         $linedata->base_count($val);
     }
+    # walk the diff data here to mark deleted regions so we can highlight
+    #   them in the source view
+    my $deletedLineData = $diffMap->compute_deleted_lines($filename);
+    $self->[DELETED_LINE_LEADER] = $deletedLineData
+        if $deletedLineData;
+
     if ($verbose) {
         print("  line data map:\n");
         foreach my $line (sort keys %$lineDataMap) {
@@ -2946,6 +2948,7 @@ sub _categorizeBranchCov
         } else {
             # the line has been deleted...just record the data
             my $deleteKey = "<<<" . $base_line;
+            $branchCovLines{$deleteKey} = 1;
         }
         my $baseBranchData = $branchBaseline->value($base_line);
         $data->baseline_branch($baseBranchData, $filename);
@@ -2953,7 +2956,6 @@ sub _categorizeBranchCov
 
     # go through all the branch data for each line, and categorize everything
     foreach my $line (keys(%branchCovLines)) {
-        next if ($line <= 0);    # ignore bogus
         my $data        = $self->lineMap()->{$line};
         my $type        = $data->type();
         my $curr        = $data->current_branch();
@@ -3119,6 +3121,7 @@ sub _categorizeMcdcCov
         } else {
             # the line has been deleted...just record the data
             my $deleteKey = "<<<" . $base_line;
+            $mcdcCovLines{$deleteKey} = 1;
         }
         my $baseMcdcData = $mcdcBaseline->value($base_line);
         $data->baseline_mcdc($baseMcdcData, $filename);
@@ -3583,16 +3586,35 @@ sub recreateBaseline
 
     my $deleted = $self->[BASELINE]->{$self->findName($filename)};
     my @lines;
+    my $didWarn = 0;
     foreach my $chunk (@$diffs) {
         if ($chunk->[TYPE] eq 'equal') {
             my ($from, $to) = @{$chunk->[NEW]};
-            push(@lines, @{$currentSrcLines}[($from - 1) .. ($to - 1)]);
+            my $f = $from - 1;
+            my $t = $to - 1;
+            if ($t <= $#$currentSrcLines) {
+                push(@lines, @{$currentSrcLines}[$f .. $t]);
+            } else {
+                lcovutil::ignorable_error(
+                    $lcovutil::ERROR_INCONSISTENT_DATA,
+
+                    "$filename: inconsistent diff data vs current source code: diff refers to 'current' line range [$f:$t] but source code has only "
+                        . scalar(@$currentSrcLines)
+                        . " lines") unless $didWarn;
+                $didWarn = 1;
+                # if error is ignored, then append up to the data we have
+                while ($f <= $#$currentSrcLines) {
+                    push(@lines, $currentSrcLines->[$f++]);
+                }
+            }
         } elsif ($chunk->[TYPE] eq 'delete') {
             my $r = $chunk->[OLD];
             for (my $i = $r->[_START]; $i <= $r->[_END]; ++$i) {
                 die("missing baseline line $i")
                     unless defined($deleted) && exists($deleted->{$i});
-                push(@lines, $deleted->{$i});
+                my $d = $deleted->{$i};
+                die("undef deleted line $filename:$i") unless defined($d);
+                push(@lines, $d);
             }
         }
         # else 'insert':  nothing to do/those lines are not in baseline
@@ -3670,6 +3692,21 @@ sub type
         return "undef type";
     }
     return $chunk->[TYPE];
+}
+
+sub compute_deleted_lines
+{
+    my ($self, $filename) = @_;
+    my $file    = $self->findName($filename);
+    my $lineMap = $self->[LINEMAP]->{$file};
+    return undef unless defined($lineMap);
+    my %hash;
+    foreach my $chunk (@$lineMap) {
+        next unless $chunk->[TYPE] eq 'delete';
+
+        $hash{$chunk->[NEW]->[_START]} = $chunk->[OLD];
+    }
+    return %hash ? \%hash : undef;
 }
 
 sub baseline_file_name
@@ -3965,7 +4002,7 @@ sub _read_udiff
         }
         foreach ($line) {
             /^Git Root: (.+)$/ && do {
-                $self->[DIFF_ROOT] = $1;
+                $self->[DIFF_ROOT] = ReadCurrentSource::resolve_path($1, 1);
                 last;
             };
 
@@ -4637,29 +4674,34 @@ sub _countBranchTlaData
     my %foundBranchTlas;
     my ($src_age, $developer, $srcLine);
     my $lineTla = $lineData->tla();
-    $srcLine = $self->line($line);
-    if (!defined($srcLine)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                       "no data for 'branch' line:$line, file:" . $self->path())
-            if (!$lcovutil::warn_once_per_file ||
-            lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE, $self->path()));
-    } else {
-        $srcLine->branchElem($differentialData);
-        if (@SourceFile::annotateScript &&
-            !grep(/^$lineTla$/, ('DUB', 'DCB'))) {
-            # deleted lines don't have owner data...
-            # if this line is not in the project (e.g., from some 3rd party
-            #   library - then we might not have file history for it.
-            $src_age   = $srcLine->age();
-            $developer = $srcLine->owner();
 
-            if (defined($developer)) {
-                my $shash = $self->[BRANCH_OWNERS];
-                if (!exists($shash->{$developer})) {
-                    $shash->{$developer} = {};
-                    $shash->{$developer}->{lines} = [];
+    if ($SummaryInfo::tlaLocation{$lineTla} & 0x1) {
+        # skip check if line was deleted - no age/owner data for deleted code
+        $srcLine = $self->line($line);
+        if (!defined($srcLine)) {
+            lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
+                       "no data for 'branch' line:$line, file:" . $self->path())
+                if (!$lcovutil::warn_once_per_file ||
+                    lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                        $self->path()));
+        } else {
+            $srcLine->branchElem($differentialData);
+            if (@SourceFile::annotateScript &&
+                !grep(/^$lineTla$/, ('DUB', 'DCB'))) {
+                # deleted lines don't have owner data...
+                # if this line is not in the project (e.g., from some 3rd party
+                #   library - then we might not have file history for it.
+                $src_age   = $srcLine->age();
+                $developer = $srcLine->owner();
+
+                if (defined($developer)) {
+                    my $shash = $self->[BRANCH_OWNERS];
+                    if (!exists($shash->{$developer})) {
+                        $shash->{$developer} = {};
+                        $shash->{$developer}->{lines} = [];
+                    }
+                    push(@{$shash->{$developer}->{lines}}, $line);
                 }
-                push(@{$shash->{$developer}->{lines}}, $line);
             }
         }
     }
@@ -4756,29 +4798,33 @@ sub _countMcdcTlaData
     my %foundMcdcTlas;
     my ($src_age, $developer, $srcLine);
     my $lineTla = $lineData->tla();
-    $srcLine = $self->line($line);
-    if (!defined($srcLine)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
+    if ($SummaryInfo::tlaLocation{$lineTla} & 0x1) {
+        # skip check if line was deleted - no age/owner data for deleted code
+        $srcLine = $self->line($line);
+        if (!defined($srcLine)) {
+            lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
                         "no data for 'MC/DC' line:$line, file:" . $self->path())
-            if (!$lcovutil::warn_once_per_file ||
-            lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE, $self->path()));
-    } else {
-        $srcLine->mcdcElem($differentialData);
-        if (@SourceFile::annotateScript &&
-            !grep(/^$lineTla$/, ('DUB', 'DCB'))) {
-            # deleted lines don't have owner data...
-            # if this line is not in the project (e.g., from some 3rd party
-            #   library - then we might not have file history for it.
-            $src_age   = $srcLine->age();
-            $developer = $srcLine->owner();
+                if (!$lcovutil::warn_once_per_file ||
+                    lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
+                                        $self->path()));
+        } else {
+            $srcLine->mcdcElem($differentialData);
+            if (@SourceFile::annotateScript &&
+                !grep(/^$lineTla$/, ('DUB', 'DCB'))) {
+                # deleted lines don't have owner data...
+                # if this line is not in the project (e.g., from some 3rd party
+                #   library - then we might not have file history for it.
+                $src_age   = $srcLine->age();
+                $developer = $srcLine->owner();
 
-            if (defined($developer)) {
-                my $shash = $self->[MCDC_OWNERS];
-                if (!exists($shash->{$developer})) {
-                    $shash->{$developer} = {};
-                    $shash->{$developer}->{lines} = [];
+                if (defined($developer)) {
+                    my $shash = $self->[MCDC_OWNERS];
+                    if (!exists($shash->{$developer})) {
+                        $shash->{$developer} = {};
+                        $shash->{$developer}->{lines} = [];
+                    }
+                    push(@{$shash->{$developer}->{lines}}, $line);
                 }
-                push(@{$shash->{$developer}->{lines}}, $line);
             }
         }
     }
@@ -11313,12 +11359,14 @@ sub write_source_line(*$$$$$$$)
     my $lineNumTag   = 'lineNum';
     my $lineNumTitle = '';
     if (defined($deletedLines)) {
-        my $first = $deletedLines->[0]->lineNo('base');
-        my $last  = $deletedLines->[-1]->lineNo('base');
+        my $first = $deletedLines->[0];
+        my $last  = $deletedLines->[1];
         die("invalid deleted lines array") unless $first <= $last;
+        my $count = $last - $first + 1;
         $lineNumTitle = ' title="'
             .
-            (($first != $last) ? "removed lines [$first:$last]" :
+            (($first != $last) ?
+                 "removed $count lines ([$first:$last] inclusive)" :
                  "removed line $first") .
             ' from baseline version"';
         $lineNumTag = 'lineNumWithDelete';

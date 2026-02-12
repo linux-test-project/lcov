@@ -37,7 +37,7 @@
 1|henry.cox|274|    std::cout << " this code will be EUB" << std::endl;
 1|henry.cox|274|#endif
 1|henry.cox|274|  }
-1|henry.cox|274|  if (cond == 1)
+1|henry.cox|3|  if (1 == cond)
 7|roderick.glossop|122|    std::cout << "cond == " << cond << "... code exercised" << std::endl;// LBC
 1|henry.cox|274|  else if (cond == 2)
 1|henry.cox|274|    std::cout << "cond == " << cond << "... code exercised" << std::endl;

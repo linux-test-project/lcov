@@ -275,11 +275,12 @@ sub save
 sub restore
 {
     my ($self, $data) = @_;
-    $self->[TOTAL] += $data->[TOTAL];
-    foreach my $i (0 .. $#$data) {
+    $self->[TOTAL] += $data->[0];
+    my $d = $data->[1];
+    foreach my $i (0 .. $#$d) {
         my $l = $self->[COUNTS]->[$i];
         foreach my $j (0 .. $#$l) {
-            $l->[$j] += $data->[$i]->[$j];
+            $l->[$j] += $d->[$i]->[$j];
         }
     }
 }

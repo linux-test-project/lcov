@@ -654,15 +654,37 @@ for opt in "" "--show-details" "--hier"; do
     for o in "" $opt ; do
         OPTS="$TEST_OPTS $o"
         outdir=./differential${EXT}${o}
+	outFile=differential${EXT}${o}.log
         echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $IGNORE $POPUP
-        $COVER ${GENHTML_TOOL} $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $GENHTML_PORT $IGNORE $POPUP
-        if [ 0 != $? ] ; then
+        $COVER ${GENHTML_TOOL} $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $GENHTML_PORT $IGNORE $POPUP  2>&1 | tee $outFile
+        if [ 0 != ${PIPESTATUS[0]} ] ; then
             echo "ERROR: genhtml $outdir failed (2)"
             status=1
             if [ 0 == $KEEP_GOING ] ; then
                 exit 1
             fi
         fi
+	# expect to see non-zero deleted branch count
+	for tla in DUB DCB ; do
+	    grep -E branch:.+$(tla):1 $outFile
+	    if [ 0 != $? ] ; then
+		echo "ERROR:  did not find expected $tla branches"
+		status = 1
+		if [ 0 != $KEEP_GOING ] ; then
+		    exit 1
+		fi
+	    fi
+	    if [ "$ENABLE_MCDC" == '1' ] ; then
+		grep -E mcdc:.+$(tla):1 $outFile
+		if [ 0 != $? ] ; then
+		    echo "ERROR:  did not find expected $tla branches"
+		    status = 1
+		    if [ 0 != $KEEP_GOING ] ; then
+			exit 1
+		    fi
+		fi
+	    fi
+	done
 
         if [[ $OPTS =~ "show-details" ]] ; then
             found=0
