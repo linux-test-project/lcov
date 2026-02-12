@@ -7468,10 +7468,10 @@ HTML OUTPUT
       --header-title BANNER         Banner at top of each HTML page
       --footer FOOTER               Footer at bottom of each HTML page
       --no-sourceview               Do not create source code view
-      --num-spaces NUM              change apperance of tabs in source view
+      --num-spaces NUM              change appearance of tabs in source view
                                     NUM == 0 will not touch tabs
                                     NUM > 0 will replace them with NUM spaces
-                                    NUM < 0 will only change their apperance
+                                    NUM < 0 will only change their appearance
       --legend                      Include color legend in HTML output
       --html-prolog FILE            Use FILE as HTML prolog for generated pages
       --html-epilog FILE            Use FILE as HTML epilog for generated pages
