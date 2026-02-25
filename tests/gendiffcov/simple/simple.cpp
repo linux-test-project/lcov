@@ -37,7 +37,7 @@ main(int ac, char ** av)
 #endif
     std::cout << " this code will be DUB" << std::endl;
   }
-  if (cond == 1)
+  if (1 == cond)
     std::cout << "cond == " << cond << "... code exercised" << std::endl;// LBC
   else if (cond == 2)
     std::cout << "cond == " << cond << "... code not exercised" << std::endl;

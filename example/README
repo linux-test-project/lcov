@@ -1,5 +1,13 @@
-To see some examples of LCOV generated HTML coverage reports,
-and point a web browser into the resulting reports:
+To see some examples of LCOV generated HTML coverage reports, run
+
+   $ make
+
+in the .../examples directory, review the 'make' log and the generated
+data, and then point a web browser into the resulting reports.
+
+The example builds with GCC by default.
+You will need to make a few changes if you want to use LLVM instead.
+
 
 Default view:
 
@@ -40,7 +48,7 @@ Differential coverage:
 Code review:
 
   - point your browser to
-      exampleRepo/differential/index.html
+      exampleRepo/review/index.html
 
   - This example builds on the "Differential coverage" example, above
     to emulate a possible code review methodology in which adds code
