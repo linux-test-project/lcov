@@ -53,15 +53,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Add repository "ubuntu-toolchain-r" for GCC 16
-        if: "${{ matrix.gcc == '16' }}"
-        run: |
-          set -x
-          # The repository is at home at https://launchpad.net/~ubuntu-toolchain-r/+archive/ubuntu/test .
-          # NOTE: resolute is future 26.04 (not 24.04 LTS)
-          wget -O - 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xc8ec952e2a0e1fbdc5090f6a2c277a0a352154e5' | sudo apt-key add -
-          sudo add-apt-repository 'deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu resolute main'
-
       - name: Install dependencies
         run: |-
           ubuntu_packages=(
@@ -92,6 +83,13 @@ jobs:
           sudo apt-get install --no-install-recommends --yes -V "${ubuntu_packages[@]}"
 
           sudo perl -MCPAN -e 'install(Memory::Process)'  # no package in Ubuntu
+
+      - name: Add repository "resolute" for GCC 16
+        if: "${{ matrix.gcc == '16' }}"
+        run: |
+          set -x
+          # NOTE: resolute is future 26.04 (not 24.04 LTS)
+          sudo add-apt-repository 'deb https://archive.ubuntu.com/ubuntu/ resolute main universe'
 
       - name: "Make GCC ${{ matrix.gcc }} systemwide default"
         run: |-
