@@ -53,13 +53,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Add repository "resolute" for GCC 16
-        if: "${{ matrix.gcc == '16' }}"
-        run: |
-          set -x
-          # NOTE: resolute is future 26.04 (not 24.04 LTS)
-          sudo add-apt-repository 'deb https://archive.ubuntu.com/ubuntu/ resolute main universe'
-
       - name: Install dependencies
         run: |-
           ubuntu_packages=(
@@ -90,6 +83,13 @@ jobs:
           sudo apt-get install --no-install-recommends --yes -V "${ubuntu_packages[@]}"
 
           sudo perl -MCPAN -e 'install(Memory::Process)'  # no package in Ubuntu
+
+      - name: Add repository "resolute" for GCC 16
+        if: "${{ matrix.gcc == '16' }}"
+        run: |
+          set -x
+          # NOTE: resolute is future 26.04 (not 24.04 LTS)
+          sudo add-apt-repository 'deb https://archive.ubuntu.com/ubuntu/ resolute main universe'
 
       - name: "Make GCC ${{ matrix.gcc }} systemwide default"
         run: |-
