@@ -1331,7 +1331,14 @@ sub read_config($$)
 
     my $set_value = 0;
     info(1, "read_config: $filename\n");
-    if (exists($included_config_files{abs_path($filename)})) {
+    my $path = abs_path($filename);
+    if (!defined($path)) {
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                                  "config file '$filename' does not exist");
+        # as below - this line is unreachable because we can't ignore
+        # the message due to order of processing - see below.
+        return 0;    # LCOV_UNREACHABLE_LINE
+    } elsif (exists($included_config_files{$path})) {
         lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
                                   'config file inclusion loop detected: "' .
                                       join('" -> "', @include_stack) .
@@ -1353,7 +1360,7 @@ sub read_config($$)
         #   described above.
         return 0;    # didn't set anything LCOV_UNREACHABLE_LINE
     }
-    $included_config_files{abs_path($filename)} = 1;
+    $included_config_files{$path} = 1;
     push(@include_stack, $filename);
     VAR: while (<HANDLE>) {
         chomp;
@@ -1407,7 +1414,7 @@ sub read_config($$)
         }
     }
     close(HANDLE) or die("unable to close $filename: $!\n");
-    delete $included_config_files{abs_path($filename)};
+    delete $included_config_files{$path};
     pop(@include_stack);
     return $set_value;
 }
