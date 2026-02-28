@@ -212,22 +212,29 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-
-echo lcov $LCOV_OPTS --summary initial.info --config-file noSuchFile --ignore usage
-$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file noSuchFile 2>&1 | tee err_missing.log
-if [ 0 == ${PIPESTATUS[0]} ] ; then
-    echo "ERROR: didn't exit after self missing config file error"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+for missing in noSuchFile missingDirectory/nofile ; do
+    echo lcov $LCOV_OPTS --summary initial.info --config-file $missing --ignore usage
+    $COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file $missing 2>&1 | tee err_missing.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+	echo "ERROR: didn't exit after self missing config file '$missing' error"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
     fi
-fi
-grep "cannot read configuration file 'noSuchFile'" err_missing.log
-if [ 0 != $? ] ; then
-    echo "ERROR: missing config file message"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
+    grep "cannot read configuration file '$missing'" err_missing.log
+    FOUND=$?
+    if [ 0 != $FOUND ] ; then
+	# look for alternate message found with some perl versions...see #450
+	grep "config file '$missing' does not exist" err_missing.log
+	FOUND=$?
     fi
-fi
+    if [ 0 != $FOUND ] ; then
+	echo "ERROR: missing config file '$missing' message"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+done
 
 # read a config file which is there...
 echo "message_log = message_file.log" > testing.rc
