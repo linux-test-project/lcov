@@ -66,5 +66,16 @@ Code review:
       - Real use cases are likely to use more sophisticated select-script
         callbacks (e.g., to select from a range of changelists).
 
+      - The example uses caching and profile history to improve runtime
+        performance - see the man pages for a more detailed description
+        of the features.  There is no effect with a tiny example - but
+        a real project may see benefit.
+        The 'spreadsheet.py' application script can be used to convert
+        JSON profile files into more readable excel spreadsheets.  This
+        can be useful to see the effect (if any) of the caching and/or
+        history features, and can show where time is spent for your example.
+        This can be helpful, to suggest opportunities to optimize the LCOV
+        implementation.
+
 Feel free to edit the Makefile or to run the lcov utilities directly,
 to see the effect of other options that you find in the lcov man pages.

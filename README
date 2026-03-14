@@ -1,6 +1,6 @@
 -------------------------------------------------
 - README file for the LTP GCOV extension (LCOV) -
-- Last changes: 2025-10-01
+- Last changes: 2026-02-10
 -------------------------------------------------
 
 Description
@@ -430,6 +430,9 @@ LCOV features and capabilities fall into 7 major categories:
         vii) compress the 'function detail' table to improve readability
              by shortening long C++ template and function names.
              Sample script:  simplify.pm
+        viii) use history from previous execution to improve runtime
+             performance of current execution by improving load balancing.
+             Sample script:  history.pm
 
      The callback may be any desired script or executable - but there
      may be performance advantages if it is written as a Perl module.
@@ -445,7 +448,7 @@ LCOV features and capabilities fall into 7 major categories:
      Related options:
        --annotate-script, --criteria-script, --version-script
        --resolve-script, --select-script, --context-script
-       --simplify-script
+       --simplify-script --history-script
 
   f) Performance
 
@@ -466,7 +469,7 @@ LCOV features and capabilities fall into 7 major categories:
 
      See the genhtml/lcov/geninfo man pages for details
 
-     Related options: --parallel, --memory, --profile
+     Related options: --parallel, --memory, --profile, --history-script
 
   g) Language/tool support
 

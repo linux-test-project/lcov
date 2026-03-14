@@ -26,6 +26,7 @@ echo *
 
 CRITERIA=${SCRIPT_DIR}/criteria
 SELECT=${SCRIPT_DIR}/select.pm
+HISTORY=${SCRIPT_DIR}/history.pm
 
 #PARALLEL=''
 #PROFILE="''
@@ -248,7 +249,7 @@ gzip -c baseline_nobranch.info > baseline_nobranch.info.gz
 #genhtml baseline.info --output-directory ./baseline
 
 echo genhtml $DIFFCOV_OPTS baseline_orig.info --output-directory ./baseline $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline_orig.info --output-directory ./baseline --save $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline_orig.info --output-directory ./baseline --save $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat --profile
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline failed"
     status=1
@@ -279,7 +280,7 @@ fi
 gzip -c baseline-filter.info > baseline-filter.info.gz
 #genhtml baseline.info --output-directory ./baseline
 echo genhtml $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter $IGNORE --missed
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter $IGNORE --missed
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline-filter.info --output-directory ./baseline-filter $IGNORE --missed --profile --history $HISTORY,baseline/genhtml.json,baseline/genhtml.json
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline-filter failed"
     status=1
@@ -290,7 +291,7 @@ fi
 
 #genhtml baseline.info --dark --output-directory ./baseline
 echo genhtml $DIFFCOV_OPTS --dark baseline-filter.info --output-directory ./baseline-filter-dark $IGNORE
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --dark baseline-filter.info --output-directory ./baseline-filter-dark $IGNORE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --dark baseline-filter.info --output-directory ./baseline-filter-dark $IGNORE --history $HISTORY,baseline-filter/genhtml.json
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline-filter-dark failed"
     status=1

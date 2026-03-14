@@ -4,7 +4,7 @@ set +x
 source ../../common.tst
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err* readThis.rc testing.rc
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels sortTables simplify_* simplify missingRestore selectErr1 selectErr2 selectErr3
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels sortTables simplify_* simplify missingRestore selectErr1 selectErr2 selectErr3 mcdc
 
 clean_cover
 
@@ -23,6 +23,7 @@ GITBLAME_SCRIPT=$SCRIPT_DIR/gitblame.pm
 GITVERSION_SCRIPT=$SCRIPT_DIR/gitversion.pm
 P4VERSION_SCRIPT=$SCRIPT_DIR/P4version.pm
 SIMPLIFY_SCRIPT=$SCRIPT_DIR/simplify.pm
+HISTORY_SCRIPT=$SCRIPT_DIR/history.pm
 
 if [ 1 == "$USE_GIT" ] ; then
     # this is git
@@ -222,13 +223,7 @@ for missing in noSuchFile missingDirectory/nofile ; do
 	fi
     fi
     grep "cannot read configuration file '$missing'" err_missing.log
-    FOUND=$?
-    if [ 0 != $FOUND ] ; then
-	# look for alternate message found with some perl versions...see #450
-	grep "config file '$missing' does not exist" err_missing.log
-	FOUND=$?
-    fi
-    if [ 0 != $FOUND ] ; then
+    if [ 0 != $? ] ; then
 	echo "ERROR: missing config file '$missing' message"
 	if [ 0 == $KEEP_GOING ] ; then
             exit 1
@@ -241,7 +236,7 @@ echo "message_log = message_file.log" > testing.rc
 echo "config_file = testing.rc" > readThis.rc
 echo lcov $LCOV_OPTS --summary initial.info --config-file readThis.rc
 $COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file readThis.rc
-if [ ! == ${PIPESTATUS[0]} ] ; then
+if [ 0 != $? ] ; then
     echo "ERROR: didn't read config file"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -428,7 +423,7 @@ for arg in "--annotate-script $ANNOTATE_SCRIPT --select-script $SELECT_SCRIPT,--
     fi
     # run again  without error
     echo genhtml $DIFCOV_OPTS initial.info -o scriptFixed ${arg}
-    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o scriptFixed ${arg} --ignore annotate 2>&1 | tee script_err.log
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o scriptFixed ${arg} --ignore annotate --profile 2>&1 | tee script_err.log
     if [ 0 != ${PIPESTATUS[0]} ] ; then
         echo "ERROR: genhtml scriptFixed failed"
         if [ 0 == $KEEP_GOING ] ; then
@@ -971,8 +966,60 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# test profile history fails
+for f in noFile initial.info ; do
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o history --parallel --history $HISTORY_SCRIPT,$f 2>&1 | tee history.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+	echo "ERROR: genhtml --history $f didn't fail"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+    grep -E "ERROR.*usage.*--history.* is not a valid genhtml profile file" history.log
+    if [ 0 != $? ] ; then
+	echo "ERROR: didn't find expected --history message"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+done
+
+# wrong profile type
+$COVER $GENINFO_TOOL $LCOV_OPTS . -o profileTest.info --parallel --history $HISTORY_SCRIPT,scriptFixed.info.json 2>&1 | tee geninfo_history.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: geninfo --history scriptFixed.info.json didn't fail"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR.*usage.*--history.* is not a valid geninfo profile file" geninfo_history.log
+if [ 0 != $? ] ; then
+    echo "ERROR: didn't find expected geninfo --history message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# ignore the wrong history message - also need to ignore the resulting
+# 'package' error when the callback can't be installed
+$COVER $GENINFO_TOOL $LCOV_OPTS . -o profileTest.info --parallel --history $HISTORY_SCRIPT,scriptFixed.info.json --ignore usage,package 2>&1 | tee geninfo_history_ignore.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: geninfo --history --ignore failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "WARNING.*usage.*--history.* profile history not found" geninfo_history_ignore.log
+if [ 0 != $? ] ; then
+    echo "ERROR: didn't find expected geninfo --history --ignore message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
 if [ "$ENABLE_MCDC" != 1 ] ; then
-    $COVER $GENINFO_TOOL . -o mccd --mcdc-coverage $LCOV_OPTS --msg-log mcdc_errs.log
+    $COVER $GENINFO_TOOL . -o mcdc --mcdc-coverage $LCOV_OPTS --msg-log mcdc_errs.log
     if [ 0 == $? ] ; then
         echo "ERROR: no error for unsupported MC/DC"
         if [ 0 == $KEEP_GOING ] ; then

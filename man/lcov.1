@@ -96,6 +96,9 @@ format is described in man
 .RB [ \-\-version\-script
 .IR script_file ]
 .br
+.RB [ \-\-history\-script
+.IR callback ]
+.br
 .RB [ \-\-comment
 .IR comment_string ]
 .br
@@ -103,7 +106,7 @@ format is described in man
 .IR regexp ]
 .br
 .RE
-.RE
+RE
 
 Generate tracefile (from compiler-generated data) with all counter values set to zero:
 .br
@@ -258,7 +261,6 @@ such that coverpoints found only in the set on the left will be retained and all
 .RE
 
 .RE
-
 
 
 Summarize tracefile content:
@@ -704,6 +706,29 @@ basename as the
 .I \-\-output\-filename, with suffix
 .I ".json"
 appended.
+Profile data is useful if you are trying to optimize the
+.B lcov
+implementation (see
+.B $LCOV_ROOT/share/lcov/support\-scripts/spreadsheet.py
+), and can also enable faster 
+.I --parallel
+execution (see the
+.I "\-\-history\-script"
+ section of this man page).
+
+.B \-\-history-script
+.I callback
+.br
+.RS
+Use
+.I callback
+to predict current runtime cost using observed cost from prior execution.
+
+See man
+.B genhtml(1)
+for more information.
+.RE
+
 
 .RE
 
@@ -1723,6 +1748,12 @@ and
 .I fork_fail_timeout
 entries in man
 .B lcovrc(5).
+A previously generated execution profile may help to enable better utilization
+and faster parallel execution.  See the
+.I "\-\-profile"
+and
+.I "\-\-history"
+sections of this man page.
 
 .RE
 .BI "\-\-memory "

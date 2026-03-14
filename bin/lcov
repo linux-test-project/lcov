@@ -821,6 +821,7 @@ sub lcov_geninfo(@)
     @param = (File::Spec->catfile($tool_dir, 'geninfo'), @dir);
     # make things less confusing for user, by using the name they actually invoked
     push(@param, '--toolname', $lcovutil::tool_name);
+    push(@param, '--call-from-lcov');
     if ($output_filename) {
         push(@param, "--output-filename", $output_filename);
     }
@@ -914,6 +915,9 @@ sub lcov_geninfo(@)
     # memory has not been multiplied by Mb yet - so just pass the integer value
     push(@param, '--memory', $lcovutil::maxMemory)
         if defined($lcovutil::maxMemory);
+    # function coverage was enabled by default
+    push(@param, '--no-function-coverage')
+        if (!$lcovutil::func_coverage);
     push(@param, "--branch-coverage") if $lcovutil::br_coverage;
     push(@param, "--mcdc") if $lcovutil::mcdc_coverage;
     push(@param, '--fail-under-lines', $lcovutil::fail_under_lines)
@@ -935,6 +939,9 @@ sub lcov_geninfo(@)
                          ['--version-script', \@lcovutil::extractVersionScript],
                          ['--resolve-script', \@lcovutil::resolveCallback],
                          ['--substitute', \@lcovutil::file_subst_patterns],
+                         ['--history-script',
+                          \@lcovutil::profileHistoryCallback
+                         ],
                          ['--omit-lines', \@lcovutil::omit_line_patterns],
                          ['--erase-functions',
                           \@lcovutil::exclude_function_patterns

@@ -4,6 +4,8 @@ set +x
 
 source ../../common.tst
 
+rm -f prune3s prune3t prune3
+
 if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi

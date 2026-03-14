@@ -8,4 +8,4 @@ TESTS := zero.sh zero2.sh full.sh full2.sh  prune.sh track.sh
 DISABLED: part.sh part2.sh concatenated4.sh
 
 clean:
-	rm -f *.info prune prune2 prune3 track
+	rm -f *.info prune prune2 prune3 track prune3s prune3t

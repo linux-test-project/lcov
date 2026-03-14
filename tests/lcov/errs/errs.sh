@@ -3,7 +3,7 @@ set +x
 
 source ../../common.tst
 
-rm -f  *.log *.json dumper* *.out
+rm -f  *.log *.json dumper* *.out emptyDir.info
 rm -rf emptyDir
 
 clean_cover
