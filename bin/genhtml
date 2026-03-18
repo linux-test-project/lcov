@@ -13685,6 +13685,7 @@ sub write_source($$$$$$$$)
             my $l = $empty;
             my $c = $line_number - ($prevLine + 1);
             $l =~ s/NUM_LINES/$c/;
+            $l =~ s/lines/line/ if $c == 1;
             push(@result, $l);
             write_html(*HTML_HANDLE, $l . "\n");
         }
