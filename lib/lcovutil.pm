@@ -1981,7 +1981,7 @@ sub parse_expected_message_counts(@)
     my @constraints = split($split_char, join($split_char, @_));
     # parse the list and look for errors..
     foreach my $c (@constraints) {
-        if ($c =~ /^s*(\S+?)\s*:\s*((\d+)|(.+?))\s*$/) {
+        if ($c =~ /^\s*(\S+?)\s*:\s*((\d+)|(.+?))\s*$/) {
             unless (exists($ERROR_ID{lc($1)})) {
                 lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
                        "unknown 'expected-message-count' message type \"$1\".");
