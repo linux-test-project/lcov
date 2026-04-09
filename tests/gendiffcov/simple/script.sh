@@ -1591,6 +1591,20 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 
+for pat in 'Excluded 1 MC/DC condition from 1 line.' 'Excluded 2 branches from 2 lines.' ; do
+    if [[ "$ENABLE_MCDC" == "1" || ! $pat =~ "MC/DC" ]] ; then
+	grep "$pat" unreach.log
+	if [ 0 != $? ] ; then
+	    echo "ERROR: did not find '$pat' in unreach.log"
+	    status=1
+	    if [ 0 == $KEEP_GOING ] ; then
+		exit 1
+	    fi
+	fi
+    fi
+done
+	
+
 # create 'diff' file which refers to out-of-range lines - to generate
 #  error message
 sed -E 's/22,24 \+23,23/32,34 \+33,33/' < diff.txt > diff_err.txt

@@ -226,14 +226,14 @@ sub annotate
                         #  so use it as a delimiter
                         push(@lines,
                              [$text, $owner, $fullname, $when, $commit]);
-                        # expect all lines to eitehr match the git blame regexp
+                        # expect all lines to either match the git blame regexp
                         # or none of them to match
                         die("$basename has both matching and not matching lines$context"
                         ) if defined($matched) && !$matched;
                         $matched = 1;
                     } else {
                         push(@lines, [$line, "NONE", undef, "NONE", "NONE"]);
-                        # expect all lines to eitehr match the git blame regexp
+                        # expect all lines to either match the git blame regexp
                         # or none of them to match
                         die("$basename has both not matching and matching lines$context"
                         ) if defined($matched) && $matched;

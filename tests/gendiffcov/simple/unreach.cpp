@@ -37,7 +37,7 @@ main(int ac, char ** av)
     std::cout << " this code will be EUB" << std::endl;
 #endif
   }
-  if (cond == 1)  // LCOV_UNREACHABLE_COND 1,0f
+  if (cond == 1)  // LCOV_UNREACHABLE_COND 1,0f // LCOV_UNREACHABLE_BRANCH 1
     std::cout << "cond == " << cond << "... code exercised" << std::endl;// LBC
   else if (cond == 2)
     std::cout << "cond == " << cond << "... code exercised" << std::endl;

@@ -128,17 +128,24 @@ EOF
         return undef;
     }
     unless (defined($branch) || defined($mcdc)) {
-        $branch = 1;
-        $mcdc   = 1;
+        $branch = $lcovutil::br_coverage;
+        $mcdc   = $lcovutil::mcdc_coverage;
     }
+    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                "--unreachable-script has no effect without --branch or --mcdc")
+        unless $lcovutil::br_coverage || $lcovutil::mcdc_coverage;
 
     my $self = [undef, undef];
-    $self->[0] =
-        qr/LCOV_UNREACHABLE_BRANCH\s+([0-9]+(,[0-9]+)?\s*(;\s*[0-9]+(,[0-9]+)?)*)/
-        if $branch;
-    $self->[1] =
-        qr/LCOV_UNREACHABLE_COND\s+([0-9]+(,[0-9]+)?([tf])\s*(;\s*[0-9]+(,[0-9]+)?[tf])*)/
-        if $mcdc;
+    $self->[0] = [
+        qr/LCOV_UNREACHABLE_BRANCH\s+([0-9]+(,[0-9]+)?\s*(;\s*[0-9]+(,[0-9]+)?)*)/,
+        [0, 0]
+        ]
+        if $branch && $lcovutil::br_coverage;
+    $self->[1] = [
+        qr/LCOV_UNREACHABLE_COND\s+([0-9]+(,[0-9]+)?([tf])\s*(;\s*[0-9]+(,[0-9]+)?[tf])*)/,
+        [0, 0]
+        ]
+        if $mcdc && $lcovutil::mcdc_coverage;
 
     return bless $self, $class;
 }
@@ -153,7 +160,7 @@ sub exclude_branch
     my $rtn = 0;
     unless ($br->is_excluded()) {
         $br->set_excluded();
-        lcovutil::info("excluded branch $blockId, $expr\n");
+        lcovutil::info(1, "excluded branch $blockId, $expr\n");
         --$map->[BranchMap::FOUND];
         --$map->[BranchMap::HIT] if 0 != $br->count();
         $rtn = 1;
@@ -175,8 +182,8 @@ sub exclude_cond
     my $cond = $mcdc->expr($groupSize, $expr);
     my $rtn  = 0;
     unless ($cond->is_excluded($sense)) {
-        $cond->set_excluded($map, $sense);
-        lcovutil::info("excluded cond $groupSize,$expr,$sense\n");
+        $cond->set_excluded($sense);
+        lcovutil::info(1, "excluded cond $groupSize,$expr,$sense\n");
         --$map->[BranchMap::FOUND];
         --$map->[BranchMap::HIT] if 0 != $cond->count();
         $rtn = 1;
@@ -187,31 +194,36 @@ sub exclude_cond
 sub exclude
 {
     my ($self, $type, $reader, $testdata, $summary) = @_;
-
-    my $re = $self->[$type eq 'mcdc'];
+    my $d = $self->[$type eq 'mcdc'];
     return 0
-        unless ($reader->notEmpty() && defined($re));
+        unless ($reader->notEmpty() && defined($d));
+    my ($re, $count) = @$d;
 
     my $changed = 0;
     foreach my $line ($summary->keylist()) {
         my $source = $reader->getLine($line);
         next
             unless ($source =~ $re);
-
         my @exclude = split(/\s*;\s*/, $1);
-        die("no $type regexp match in '$line'") unless @exclude;
-
+        die("no $type regexp match in line $line '$source'") unless @exclude;
+        my $found = 0;
         if ($type eq 'branch') {
-            lcovutil::info(
-                    "$line: exclude_branch str: " . join(' ', @exclude) . "\n");
+            lcovutil::info(1,
+                           "$line: exclude_branch $line str: " .
+                               join(' ', @exclude) . "\n");
             foreach my $e (@exclude) {
                 $e =~ /^\s*(([0-9]+),)?([0-9]+)\s*$/ or
                     die("did not match MC/DC regexp: $e");
                 my $block = defined($1) ? $2 : 0;
                 my $expr  = $3;
-                $changed = 1
-                    if $self->exclude_branch($summary, $summary->value($line),
-                                             $block, $expr);
+                if ($self->exclude_branch($summary, $summary->value($line),
+                                          $block, $expr)) {
+                    $changed = 1;
+                    ++$count->[1]
+                        unless $found;
+                    $found = 1;
+                    ++$count->[0];
+                }
                 foreach my $testname ($testdata->keylist()) {
                     my $d  = $testdata->value($testname);
                     my $br = $d->value($line);
@@ -222,7 +234,8 @@ sub exclude
                 }
             }
         } else {
-            lcovutil::info("exclude_cond str: " . join(' ', @exclude) . "\n");
+            lcovutil::info(1,
+                       "exclude_cond $line str: " . join(' ', @exclude) . "\n");
             foreach my $e (@exclude) {
                 $e =~ /^\s*(([0-9]+),)?([0-9]+)([tf])\s*$/ or
                     die("did not match MC/DC regexp: $e");
@@ -230,9 +243,16 @@ sub exclude
                 my $idx   = $3;
                 my $sense = $4 eq 't';
 
-                $changed = 1
-                    if $self->exclude_cond($summary, $summary->value($line),
-                                           $group, $idx, $sense);
+                if ($self->exclude_cond($summary, $summary->value($line),
+                                        $group, $idx,
+                                        $sense
+                )) {
+                    $changed = 1;
+                    ++$count->[1]
+                        unless $found;
+                    $found = 1;
+                    ++$count->[0];
+                }
                 foreach my $testname ($testdata->keylist()) {
                     my $d    = $testdata->value($testname);
                     my $cond = $d->value($line);
@@ -244,6 +264,54 @@ sub exclude
         }
     }
     return $changed;
+}
+
+sub start
+{
+    my $self = shift;
+    foreach my $p (@$self) {
+        next unless defined($p);
+        my $c = $p->[1];
+        $c->[0] = 0;
+        $c->[1] = 0;
+    }
+}
+
+sub save
+{
+    my $self = shift;
+    my @data;
+    foreach my $p (@$self) {
+        push(@data, $p->[1]) if defined($p);
+    }
+    return \@data;
+}
+
+sub restore
+{
+    my ($self, $data) = @_;
+    for (my $i = 0; $i <= $#$self; ++$i) {
+        my $p = $self->[$i];
+        next unless defined($p);
+        my $count = $p->[1];
+        my $d     = shift(@$data);
+        $count->[0] += $d->[0];
+        $count->[1] += $d->[1];
+    }
+}
+
+sub finalize
+{
+    my $self = shift;
+    foreach my $d (['branch', $self->[0]], ['MC/DC condition', $self->[1]]) {
+        my ($type, $l) = @$d;
+        next unless defined($l);
+        my $count = $l->[1];
+        my $pt    = $count->[0] != 1 ? ($type eq 'branch' ? 'es' : 's') : '';
+        my $pl    = $count->[1] != 1 ? 's' : '';
+        lcovutil::info("Excluded " .
+                 $count->[0] . " $type$pt from " . $count->[1] . " line$pl.\n");
+    }
 }
 
 1;
