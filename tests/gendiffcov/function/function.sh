@@ -45,7 +45,7 @@ ${CXX} --coverage -DCALL_FUNCTIONS test.cpp
 
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_call.info --test-name myTest --ignore empty
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -56,7 +56,7 @@ gzip -c baseline_call.info > baseline_call.info.gz
 
 # run again - without version info:
 echo lcov $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest
-$COVER $LCOV_TOOL $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest
+$COVER $LCOV_TOOL $LCOV_BASE --capture --directory . --output-file baseline_no_vers.info --test-name myTest --ignore empty
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture no version failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -70,6 +70,7 @@ if [ 0 == $? ] ; then
         exit 1
     fi
 fi
+
 # insert the version info
 echo lcov $VERSION_OPTS --rc compute_file_version=1 --add-tracefile baseline_no_vers.info --output-file baseline_vers.info
 $COVER $LCOV_TOOL $VERSION_OPTS --rc compute_file_version=1 --add-tracefile baseline_no_vers.info --output-file baseline_vers.info
@@ -87,13 +88,13 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-rm -f test.gcno test.gcda a.out
+rm -f *.gcda *.gcno a.out
 
 ${CXX} --coverage test.cpp
 ./a.out
 
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_nocall.info --test-name myTest --ignore empty
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (2) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -105,12 +106,12 @@ gzip -c baseline_call.info > baseline_call.info.gz
 export PWD=`pwd`
 echo $PWD
 
-rm -f test.cpp test.gcno test.gcda a.out
+rm -f test.cpp *.gcno *.gcda a.out
 ln -s current.cpp test.cpp
 ${CXX} --coverage -DADD_CODE -DREMOVE_CODE -DCALL_FUNCTIONS test.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current_call.info
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current_call.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current_call.info --ignore empty
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (3) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -119,11 +120,12 @@ if [ 0 != $? ] ; then
 fi
 gzip -c current_call.info > current_call.info.gz
 
-rm -f test.gcno test.gcda a.out
+rm -f *.gcda *.gcno a.out
+
 ${CXX} --coverage -DADD_CODE -DREMOVE_CODE test.cpp
 ./a.out
 echo lcov $LCOV_OPTS --capture --directory . --output-file current_nocall.info
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current_nocall.info
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current_nocall.info --ignore empty
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (4) failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -131,7 +133,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 gzip -c current_nocall.info > current_nocall.info.gz
-
+rm -f *.gcda *.gcno
 
 diff -u initial.cpp current.cpp | perl -pi -e "s#(initial|current)*\.cpp#$ROOT/test.cpp#g" > diff.txt
 
@@ -158,8 +160,9 @@ fi
 for base in baseline_call baseline_nocall ; do
     for curr in current_call current_nocall ; do
         OUT=${base}_${curr}
-        echo genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --ignore inconsistent
-        $COVER $GENHTML_TOOL -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --elide-path --ignore inconsistent
+	# ignore version mismatch which might happen due to network delays
+        echo genhtml -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --ignore inconsistent,version --save
+        $COVER $GENHTML_TOOL -o $OUT $DIFFCOV_OPTS --baseline-file ${base}.info --diff-file diff.txt ${curr}.info --elide-path --ignore inconsistent,version --save
         if [ $? != 0 ] ; then
             echo "genhtml $OUT failed"
             if [ 0 == $KEEP_GOING ] ; then
@@ -171,6 +174,8 @@ for base in baseline_call baseline_nocall ; do
         diff -b $OUT.txt ${OUT}${SUFFIX}.gold | tee $OUT.diff
 
         if [ ${PIPESTATUS[0]} != 0 ] ; then
+	    UPDATE=0
+	    #UPDATE=1
             if [ $UPDATE != 0 ] ; then
                 echo "update $out"
                 cp $OUT.txt ${OUT}${SUFFIX}.gold
@@ -189,7 +194,7 @@ rm *.gcda *.gcno
 ${CXX} --coverage -std=c++11 -o template template.cpp
 ./template
 echo lcov $LCOV_OPTS --capture --directory . --demangle --output-file template.info --no-external --branch-coverage --test-name myTest
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --demangle --directory . --output-file template.info --no-external --branch-coverage --test-name myTest
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --demangle --directory . --output-file template.info --no-external --branch-coverage --test-name myTest --ignore empty
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     if [ 0 == $KEEP_GOING ] ; then

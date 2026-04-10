@@ -53,6 +53,7 @@ elif [ "${VER[0]}" -ge 14 ] ; then
 fi
 
 ${CXX} -std=c++1y $COMPILE_OPTS extract.cpp
+
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error from g++"
     exit 1
@@ -80,9 +81,13 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
+if [ "${VER[0]}" -lt 5 ] ; then
+    EMPTY_BRANCH="--ignore empty"
+fi
+
 if [ "$NO_INITIAL_CAPTURE" != 1 ] ; then
     # capture 'all' - which will pick up the unused file
-    $COVER $CAPTURE . $LCOV_OPTS --all -o all_initial.info $IGNORE_EMPTY $IGNORE_USAGE --history $SCRIPT_DIR/history.pm,initial.info.json --profile
+    $COVER $CAPTURE . $LCOV_OPTS --all -o all_initial.info $IGNORE_EMPTY $IGNORE_USAGE --history $SCRIPT_DIR/history.pm,initial.info.json --profile $EMPTY_BRANCH
     if [ 0 != $? ] ; then
         echo "Error:  unexpected error code from lcov --capture --all"
         if [ $KEEP_GOING == 0 ] ; then
@@ -108,7 +113,7 @@ fi
 
 # test an empty/trivial history callback
 # exclude code that some gcc versions suck in, from /usr/include/...
-$COVER $CAPTURE . $LCOV_OPTS -o external.info $FILTER $IGNORE --profile --histor ./history.sh
+$COVER $CAPTURE . $LCOV_OPTS -o external.info $FILTER $IGNORE --profile --histor ./history.sh $EMPTY_BRANCH
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --capture"
     if [ $KEEP_GOING == 0 ] ; then
@@ -857,7 +862,15 @@ if [ 0 == $? ] ; then
     fi
 fi
 
-$COVER $LCOV_TOOL $LCOV_OPTS -a unreachLine.info  --rc lcov_unreachable_line=TEST_UNREACH_FUNCTION --filter region --ignore unreachable --rc retain_unreachable_coverpoints_if_executed=0 -o removeUnreachFunc.info 2>&1 | tee unreachFunc.txt
+if [ "${VER[0]}" -lt 9 ] ; then
+    # explicitly remove the '..static_initialization_and_destruction...'
+    #   function which appears with old compilers -
+    # otherwise, the "function coveage enabled but no corresponding..."
+    #   fails because that function appears in the data
+    IGNORE_STATIC="--erase-function .*static.*"
+fi
+
+$COVER $LCOV_TOOL $LCOV_OPTS -a unreachLine.info  --rc lcov_unreachable_line=TEST_UNREACH_FUNCTION --filter region --ignore unreachable --rc retain_unreachable_coverpoints_if_executed=0 -o removeUnreachFunc.info --ignore empty $IGNORE_STATIC 2>&1 | tee unreachFunc.txt
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  lcov unreached failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -874,6 +887,13 @@ fi
 grep -E "\(unreachable\) .+ 'unreachable' line has non-zero hit count" unreachFunc.txt
 if [ 0 != $? ] ; then
     echo "Error:  didn't find expected unreachable DA warning"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E "\(empty\).+function coverage enabled but no corresponding coverpoints found." unreachFunc.txt
+if [ 0 != $? ] ; then
+    echo "Error:  didn't find expected empty function"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
@@ -990,9 +1010,12 @@ fi
 
 chmod -R ug+rxw separate
 
+if [ "${VER[0]}" -lt 9 ] ; then
+    IGNORE_NO_FUNC="--ignore empty"
+fi
 # try filtering missing files
 sed -e s/extract.cpp/notfound.cpp/ external.info > missing_file.info
-$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing.info -a missing_file.info --filter missing $DERIVE_END
+$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing.info -a missing_file.info --filter missing $DERIVE_END $IGNORE_NO_FUNC
 if [ 0 != $? ] ; then
     echo "filter missing failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -1007,7 +1030,7 @@ if [ 0 == $? ] ; then
     fi
 fi
 
-$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,live,missing $DERIVE_END
+$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,live,missing $DERIVE_END $IGNORE_NO_FUNC
 if [ 0 != $? ] ; then
     echo "filter missing callback failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -1022,7 +1045,7 @@ if [ 0 == $? ] ; then
     fi
 fi
 
-$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb2.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,live,present --ignore source $DERIVE_END
+$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb2.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,live,present --ignore source $DERIVE_END $IGNORE_NO_FUNC
 if [ 0 != $? ] ; then
     echo "filter missing callback failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -1037,7 +1060,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb3.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,die --ignore callback $DERIVE_END 2>&1 | tee removeMissing.log
+$COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb3.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,die --ignore callback $DERIVE_END $IGNORE_NO_FUNC 2>&1 | tee removeMissing.log
 if [ ${PIPESTATUS[0]} != $? ] ; then
     echo "filter missing callback failed"
     if [ $KEEP_GOING == 0 ] ; then

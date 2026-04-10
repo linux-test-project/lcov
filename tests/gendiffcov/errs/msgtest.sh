@@ -82,7 +82,13 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-grep -- "'--all' ignored" initial_all.log
+
+IGNORE_MSG="'--all' ignored"
+if [ "${VER[0]}" -lt 5 ] ; then
+    IGNORE_MSG="--initial cannot generate branch coverage data with this compiler/toolchain version"
+fi
+
+grep -- "$IGNORE_MSG" initial_all.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing ignore message"
     if [ 0 == $KEEP_GOING ] ; then

@@ -24,12 +24,23 @@ if [ 'x' == "x$GENHTML_TOOL" ] ; then
     GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
 fi
 
+IFS='.' read -r -a VER <<< `${CC} -dumpversion`
+if [ "${VER[0]}" -lt 5 ] ; then
+    echo "need at least gcc/5 to run this test: -std=c++1y"
+    exit 0
+fi
+
 SIMPLIFY_SCRIPT=${SCRIPT_DIR}/simplify.pm
 
 ${CXX} -std=c++1y --coverage demangle.cpp
 ./a.out 1
 
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info --rc derive_function_end_line=0
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info --rc derive_function_end_line=0 --ignore empty
+
+if [ 0 != $? ] ; then
+    echo "capture failed"
+    exit 1
+fi
 
 $COVER $LCOV_TOOL $LCOV_OPTS --list demangle.info
 
@@ -152,7 +163,7 @@ if [ $? == 0 ] ; then
     echo "   compiler version support start/end reporting - testing erase"
 
     # end line is captured - so we should be able to filter
-    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main -o exclude.info -v -v
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main -o exclude.info -v -v --ignore empty
     if [ $? != 0 ] ; then
         echo "geninfo with exclusion failed"
         if [ $KEEP_GOING == 0 ] ; then
@@ -170,7 +181,7 @@ if [ $? == 0 ] ; then
     done
 
     # check that the same lines are removed by 'aggregate'
-    $COVER $LCOV_TOOL $LCOV_OPTS -o aggregate.info -a demangle.info --erase-functions main -v
+    $COVER $LCOV_TOOL $LCOV_OPTS -o aggregate.info -a demangle.info --erase-functions main -v --ignore empty
 
     diff exclude.info aggregate.info
     if [ $? != 0 ] ; then
@@ -179,14 +190,14 @@ if [ $? == 0 ] ; then
     fi
 
     perl -pe 's/(FNL:[0-9]+),([0-9]+),[0-9]+/$1,$2/' demangle.info > munged.info
-    $COVER $LCOV_TOOL $LCOV_OPTS  --filter branch --demangle-cpp -a munged.info --erase-functions main -o munged_exclude.info --rc derive_function_end_line=0
+    $COVER $LCOV_TOOL $LCOV_OPTS  --filter branch --demangle-cpp -a munged.info --erase-functions main -o munged_exclude.info --rc derive_function_end_line=0 --ignore empty
     if [ $? == 0 ] ; then
         echo "lcov exclude with no function end lines passed"
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
     fi
-    $COVER $LCOV_TOOL $LCOV_OPTS  --filter branch --demangle-cpp -a munged.info --erase-functions main -o munged_exclude.info --rc derive_function_end_line=0 --ignore unsupported
+    $COVER $LCOV_TOOL $LCOV_OPTS  --filter branch --demangle-cpp -a munged.info --erase-functions main -o munged_exclude.info --rc derive_function_end_line=0 --ignore unsupported,empty
     if [ $? != 0 ] ; then
         echo "didn't ignore exclusion message"
         if [ $KEEP_GOING == 0 ] ; then
@@ -214,7 +225,7 @@ else
         fi
     fi
 
-    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude2.info --rc derive_function_end_line=1 --msg-log exclude2.log
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude2.info --rc derive_function_end_line=1 --msg-log exclude2.log --ignore empty
     if [ 0 != $? ] ; then
         echo "Error:  unexpected exit when 'derive' enabled"
         if [ $KEEP_GOING == 0 ] ; then
@@ -228,10 +239,9 @@ else
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
-
     fi
     
-    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --rc derive_function_end_line=0 --ignore unsupported,unused -o ignore.info --msg-log=exclude3.log
+    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --rc derive_function_end_line=0 --ignore unsupported,unused -o ignore.info --msg-log=exclude3.log --ignore empty
     if [ 0 != $? ] ; then
         echo "Error:  expected to ignore unsupported message"
         if [ $KEEP_GOING == 0 ] ; then

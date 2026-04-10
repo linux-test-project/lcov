@@ -25,6 +25,13 @@ if [ $? != 0 ] ; then
     exit 0
 fi
 
+# just check if clang works in this shell
+clang --version
+if [ $? != 0 ] ; then
+    echo "clang seems to not work in this shell - skipping test"
+    exit 0
+fi
+
 IFS='.' read -r -a LLVM_VER <<< `clang -dumpversion`
 if [ "${LLVM_VER[0]}" -ge 18 ] ; then
     ENABLE_MCDC=1
@@ -87,11 +94,14 @@ if [ $? != 0 ] ; then
 fi
 
 # run again, excluding 'main.cpp'
-$COVER $LLVM2LCOV_TOOL --branch $MCDC_FLAG -o test.excl.info test.json --exclude '*/main.cpp'
-if [ $? != 0 ] ; then
+#   - this removes all the branch points, so we need to ignore the message
+$COVER $LLVM2LCOV_TOOL --branch $MCDC_FLAG -o test.excl.info test.json --exclude '*/main.cpp' --ignore empty 2>&1 | tee exclude.log
+if [ "${PIPESTATUS[0]}" != 0 ] ; then
     echo "llvm2lcov --exclude failed"
     exit 1
 fi
+
+grep "branch coverage enabled but no corresponding coverpoints found" exclude.log
 
 # should be 3 functions
 N=`grep -c "FNA:" test.info`
@@ -205,19 +215,27 @@ for line in 33 36 39 44 ; do
     fi
 done
 
+BR_FOUND=56
+BR_HIT=35
+if [ "${LLVM_VER[0]}" -lt 18 ] ; then
+    BR_FOUND=58
+    BR_HIT=36
+fi
+    
+
 if [ "${LLVM_VER[0]}" -ge 16 ] ; then
     # check branches total number
-    grep -E "BRF:56$" test.info
+    grep -E "BRF:$BR_FOUND$" test.info
     if [ $? != 0 ] ; then
-	echo "unexpected total number of branches"
+	echo "unexpected total number of branches - expected $BR_FOUND"
 	if [ 0 == $KEEP_GOING ] ; then
             exit 1
 	fi
     fi
     # check branches hit number
-    grep -E "BRH:35$" test.info
+    grep -E "BRH:$BR_HIT$" test.info
     if [ $? != 0 ] ; then
-	echo "unexpected hit number of branches"
+	echo "unexpected hit number of branches - expected $BR_HIT"
 	if [ 0 == $KEEP_GOING ] ; then
             exit 1
 	fi

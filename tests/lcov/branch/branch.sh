@@ -38,7 +38,7 @@ if ! type ${CXX} >/dev/null 2>&1 ; then
         exit 2
 fi
 
-${CXX} -std=c++1y --coverage branch.cpp -o no_macro
+${CXX} --coverage branch.cpp -o no_macro
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error from gcc -o no_macro"
     exit 1
@@ -95,6 +95,7 @@ if [ $COUNT2 != 6 ] ; then
         exit 1
     fi
 fi
+rm -f *.gcda *.gcno
 
 $COVER $LCOV_TOOL $LCOV_OPTS -a no_macro.info -a macro.info -o total.info $IGNORE $FILTER
 if [ 0 != $? ] ; then

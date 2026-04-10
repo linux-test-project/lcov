@@ -63,6 +63,10 @@ else
 .SILENT: clean
 endif
 
+# old version of gcc has inconsistent line/function data
+EXTRA_IGNORE = $(shell VER=`$(CC) -dumpversion | perl -pe 's/^(\d+)\..+$$/$$1/'` ; if [ $$VER -lt 5 ] ; then echo "--ignore inconsistent" ; fi )
+
+C99 = $(shell VER=`$(CC) -dumpversion | perl -pe 's/^(\d+)\..+$$/$$1/'` ; if [ $$VER -lt 5 ] ; then echo "-std=c99" ; fi )
 
 .PHONY: clean output test_noargs test_2_to_2000 test_overflow test_differential
 
@@ -89,7 +93,7 @@ output: example descriptions test_noargs test_2_to_2000 test_overflow test_diffe
 	$(GENHTML) trace_noargs.info trace_args.info trace_overflow.info \
 		   --output-directory output --title "Basic example" \
 		   --show-details --description-file descriptions $(FRAMES) \
-		   --legend
+		   --legend $(EXTRA_IGNORE)
 	@echo
 	@echo '*'
 	@echo '* See '`pwd`/output/index.html
@@ -102,7 +106,7 @@ output: example descriptions test_noargs test_2_to_2000 test_overflow test_diffe
 		   --title "Basic example - hierarchical" \
 		   --show-details --hierarchical --show-navigation \
 		   --description-file descriptions $(FRAMES) \
-		   --legend
+		   --legend $(EXTRA_IGNORE)
 	@echo
 	@echo '* See '`pwd`/hierarchical/index.html
 
@@ -129,7 +133,7 @@ test_2_to_2000:
 	@echo
 	$(LCOV) --zerocounters --directory .
 	./example 2 2000
-	$(LCOV) --capture --directory . --output-file trace_args.info --test-name test_2_to_2000 --no-external
+	$(LCOV) --capture --directory . --output-file trace_args.info --test-name test_2_to_2000 --no-external $(EXTRA_IGNORE)
 
 test_overflow:
 	@echo
@@ -139,7 +143,7 @@ test_overflow:
 	@echo
 	$(LCOV) --zerocounters --directory .
 	./example 0 100000 || true
-	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "test_overflow" --no-external
+	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "test_overflow" --no-external $(EXTRA_IGNORE)
 
 # This test pretends to write some code, run some tests, then modify
 #   code and rerun some tests.
@@ -168,7 +172,7 @@ test_differential:
 	git commit -m baseline ; git tag baseline )
 	@echo "Build example and run some tests"
 	(cd $(REPO) ; \
-	$(CC) -o example $(CFLAGS) -I. example.c methods/gauss.c methods/iterate.c ; \
+	$(CC) -o example $(CFLAGS) $(C99) -I. example.c methods/gauss.c methods/iterate.c ; \
 	./example ; \
 	./example 2 1000 ; \
 	./example 2 100000 || true )
@@ -189,7 +193,7 @@ test_differential:
 	@echo "Step 4: Rebuild and run tests (fewer tests this time)"
 	( cd $(REPO) ; \
 	find . -name '*.gc*' -delete ; \
-	$(CC) -o example $(CFLAGS) -I. example.c methods/gauss.c methods/iterate.c ; \
+	$(CC) -o example $(CFLAGS) $(C99) -I. example.c methods/gauss.c methods/iterate.c ; \
 	./example )
 
 	@echo "Step 5: Capture new coverage (after source changes)"

@@ -132,6 +132,8 @@ This is a problem in at least 2 ways:
                 "--branch-coverage",
                 "--ignore", "inconsistent",
             ]
+            if not self._args.deriveFunctions:
+                cmd.append("--no-function-coverage")
             try:
                 x = subprocess.run(cmd, shell=False, check=True, stdout=True, stderr=True)
             except subprocess.CalledProcessError as err:

@@ -91,12 +91,12 @@ function runGcc()
     fi
     ./$NAME
     echo "$GENINFO_TOOL -o $NAME.info --mcdc --branch $NAME-test.gcda $@"
-    $COVER $GENINFO_TOOL -o $NAME.info --mcdc --branch $NAME-test.gcda $@
+    $COVER $GENINFO_TOOL -o $NAME.info --mcdc --branch $NAME-test.gcda $@ --ignore empty
     if [ $? != 0 ] ; then
         echo "ERROR from geninfo $NAME"
         return 1
     fi
-    $COVER $GENHTML_TOOL --flat --branch --mcdc -o ${NAME}_rpt $NAME.info
+    $COVER $GENHTML_TOOL --flat --branch --mcdc -o ${NAME}_rpt $NAME.info --ignore empty
     if [ $? != 0 ] ; then
         echo "ERROR from genhtml $NAME"
         return 1

@@ -142,7 +142,7 @@ for count in 'DA:6,0' 'LF:8' 'LH:2' ; do
 done
 
 
-$COVER $LCOV_TOOL $LCOV_OPTS -o func.info -a functionBug_1.dat -a functionBug_2.dat --ignore inconsistent
+$COVER $LCOV_TOOL $LCOV_OPTS -o func.info -a functionBug_1.dat -a functionBug_2.dat --ignore inconsistent,empty
 if [ 0 != $? ] ; then
     echo "Error:  function merge failed"
 
@@ -163,7 +163,7 @@ for count in 'FNF:2' 'FNH:2' ; do
     fi
 done
 
-$COVER $LCOV_TOOL $LCOV_OPTS -o inconsistent.info -a a.dat -a b.dat --ignore inconsistent --msg-log inconsistent.log
+$COVER $LCOV_TOOL $LCOV_OPTS -o inconsistent.info -a a.dat -a b.dat --ignore inconsistent,empty --msg-log inconsistent.log
 if [ 0 != $? ] ; then
     echo "Error:  function merge2 failed"
 

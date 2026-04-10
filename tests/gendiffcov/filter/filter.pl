@@ -10,6 +10,8 @@ use lcovutil;
 
 lcovutil::parseOptions({}, {});
 
+lcovutil::parse_ignore_errors('empty');
+
 foreach my $example (glob('expr*.c')) {
     print("checking conditional in $example\n");
     my $file = ReadCurrentSource->new($example);

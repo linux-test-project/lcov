@@ -66,10 +66,12 @@ cp simple.cpp test.cpp
 ${CXX} --coverage $COVERAGE_OPTS test.cpp
 ./a.out
 
+if [ "${VER[0]}" -lt 5 ] ; then
+    EMPTY_BRANCH="--ignore empty"
+fi
 
-
-echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --memory 20
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --comment "this is the baseline" --memory 20
+echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --memory 20 $EMPTY_BRANCH
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --comment "this is the baseline" --memory 20 $EMPTY_BRANCH
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     status=1
@@ -108,7 +110,7 @@ fi
 echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_name.info --test-name myTest $IGNORE
 $COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_name.info --test-name myTest $IGNORE
 if [ 0 != $? ] ; then
-    echo "ERROR: lcov --capture with namefailed"
+    echo "ERROR: lcov --capture with name failed"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -1284,8 +1286,8 @@ done
 # test file substitution option
 #  need to ignore the 'missing source' error which will happen when we try to
 #  filter for exclude patterns - the file 'pwd/test.cpp' does not exist
-echo lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source $IGNORE
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source $LCOV_PORT $IGNORE
+echo lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source $IGNORE $EMPTY_BRANCH
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source $LCOV_PORT $IGNORE $EMPTY_BRANCH
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     status=1
@@ -1591,7 +1593,13 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 
-for pat in 'Excluded 1 MC/DC condition from 1 line.' 'Excluded 2 branches from 2 lines.' ; do
+BRANCH_COUNT_MSG='Excluded 2 branches from 2 lines.'
+if [ "${VER[0]}" -lt 5 ] ; then
+    # gcc/4.8.3 is different...
+    BRANCH_COUNT_MSG='Excluded 1 branches from 1 line.'
+fi
+
+for pat in 'Excluded 1 MC/DC condition from 1 line.' $BRANCH_COUNT_MSG ; do
     if [[ "$ENABLE_MCDC" == "1" || ! $pat =~ "MC/DC" ]] ; then
 	grep "$pat" unreach.log
 	if [ 0 != $? ] ; then
@@ -1603,15 +1611,21 @@ for pat in 'Excluded 1 MC/DC condition from 1 line.' 'Excluded 2 branches from 2
 	fi
     fi
 done
-	
+
+INCONSISTENT_STATUS="ERROR"
+if [ "${VER[0]}" -lt 5 ] ; then
+    # gcc/4.8.3 inconsistent WRT function vs line coverpoint
+    IGNORE_INCONSISTENT="--ignore inconsistent"
+    INCONSISTENT_STATUS="WARNING"
+fi
 
 # create 'diff' file which refers to out-of-range lines - to generate
 #  error message
 sed -E 's/22,24 \+23,23/32,34 \+33,33/' < diff.txt > diff_err.txt
 # specify a source filter - so "ReadBaselineSource" will try to recreate 
 #   the file
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info  --filter branch
-$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info --filter branch 2>&1 | tee diff_range_err.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info  --filter branch $IGNORE_INCONSISTENT
+$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info --filter branch $IGNORE_INCONSISTENT 2>&1 | tee diff_range_err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml diff range didn't error out"
     status=1
@@ -1619,10 +1633,10 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep -E "ERROR: .inconsistent.+: inconsistent diff data vs current source code: diff refers to 'current' line range" diff_range_err.log
+grep -E "$INCONSISTENT_STATUS: .inconsistent.+: inconsistent diff data vs current source code: diff refers to 'current' line range" diff_range_err.log
 if [ 0 != $? ] ; then
-    echo "did not file expected range error"
-    status = 1
+    echo "did not find expected range error"
+    status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
@@ -1652,7 +1666,6 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-
 
 
 echo $SPREADSHEET_TOOL -o results.xlsx `find . -name "*.json"`

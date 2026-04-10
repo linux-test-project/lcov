@@ -6932,6 +6932,17 @@ sub empty
 {
     my $self = shift;
 
+    my @totals = $self->count_totals();
+    foreach my $d (['function', $lcovutil::func_coverage, 3],
+                   ['branch', $lcovutil::br_coverage, 2],
+                   ['MC/DC', $lcovutil::mcdc_coverage, 4]
+    ) {
+        my ($type, $flag, $idx) = @$d;
+        next unless $flag;
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+               "$type coverage enabled but no corresponding coverpoints found.")
+            if 0 == $totals[$idx]->[0];
+    }
     return !keys(%{$self->[FILES]});
 }
 
