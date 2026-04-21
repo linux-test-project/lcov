@@ -22,6 +22,7 @@ use DateTime;
 use Config;
 use POSIX;
 use Fcntl qw(:flock SEEK_END);
+use Devel::StackTrace;
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
@@ -641,9 +642,17 @@ sub _msg_handler
 {
     my ($msg, $error) = @_;
 
-    if (!($debug || $verbose > 0 || exists($ENV{LCOV_SHOW_LOCATION}))) {
-        $msg =~ s/ at \S+ line \d+\.$//;
-    }
+    my $details = $ENV{LCOV_SHOW_LOCATION}
+        if exists($ENV{LCOV_SHOW_LOCATION});
+
+    $msg =~ s/ at \S+ line \d+\.$//
+        unless ($debug || $verbose > 0 || defined($details));
+    # stacktrace in developer mode if LCOV_SHOW_LOCATION set to 2 or higher
+    $msg .=
+        ("\n" ne substr($msg, -1) ? "\n" : '') .
+        Devel::StackTrace->new->as_string
+        if (defined($error) && $error > 1 && defined($details) && $details > 1);
+
     # Enforce consistent "WARNING/ERROR:" message prefix
     $msg =~ s/^(error|warning):\s+//i;
     my $type = $error ? 'ERROR' : 'WARNING';
@@ -666,7 +675,7 @@ sub warn_handler($$)
 
 sub die_handler($)
 {
-    die(_msg_handler(@_, 1));
+    die(_msg_handler(@_, 2));
 }
 
 sub abort_handler($)
@@ -845,6 +854,7 @@ sub merge_child_profile($)
                         &&
                         grep(/^$key$/,
                              (   'version', 'parse',
+                                 'filt_proc', 'filt_child',
                                  'append', 'total',
                                  'resolve', 'derive_end',
                                  'check_consistency'))
@@ -2914,12 +2924,14 @@ sub checkVersionMatch
         lcovutil::info(1, "compare_version: $status\n");
         return 1 unless $status;    # match if return code was zero
     }
-    lcovutil::ignorable_error($ERROR_VERSION,
+    unless ($silent) {
+        lcovutil::ignorable_error($ERROR_VERSION,
                           (defined($reason) ? ($reason . ' ') : '') .
                               "$filename: revision control version mismatch: " .
-                              (defined($me) ? $me : 'undef') .
-                              ' <- ' . (defined($you) ? $you : 'undef'))
-        unless $silent;
+                              (defined($me) ? $me : 'undef') . ' <- ' .
+                              (defined($you) ? $you : 'undef'));
+        return 1;                   # ignore the mismatch
+    }
     # claim mismatch unless $me and $you are both undef
     return !(defined($me) || defined($you));
 }
@@ -4014,34 +4026,27 @@ sub remove
         delete $data->{$key} unless $retainElement;
         return 1;
     }
-
     return 0;
 }
 
 sub found
 {
-    my $self = shift;
-
-    return $self->[FOUND];
+    return $_[0]->[FOUND];
 }
 
 sub hit
 {
-    my $self = shift;
-
-    return $self->[HIT];
+    return $_[0]->[HIT];
 }
 
 sub keylist
 {
-    my $self = shift;
-    return keys(%{$self->[HASH]});
+    return keys(%{$_[0]->[HASH]});
 }
 
 sub entries
 {
-    my $self = shift;
-    return scalar(keys(%{$self->[HASH]}));
+    return scalar(keys(%{$_[0]->[HASH]}));
 }
 
 sub union
@@ -4050,8 +4055,8 @@ sub union
     my $info = shift;
 
     my $changed = 0;
-    foreach my $key ($info->keylist()) {
-        if ($self->append($key, $info->value($key))) {
+    while (my ($key, $value) = each(%{$info->[HASH]})) {
+        if ($self->append($key, $value)) {
             $changed = 1;
         }
     }
@@ -4110,27 +4115,36 @@ sub get_found_and_hit
     return ($self->[FOUND], $self->[HIT]);
 }
 
-package BranchBlock;
+package BranchElement;
 # branch element:  index, taken/not-taken count, optional expression
 # for baseline or current data, 'taken' is just a number (or '-')
 # for differential data: 'taken' is an array [$taken, tla]
 
 use constant {
-              ID        => 0,
-              TAKEN     => 1,
-              EXPR      => 2,
-              EXCEPTION => 3,
-              EXCLUDED  => 4,
+              ID       => 0,
+              TAKEN    => 1,
+              EXPR     => 2,
+              TYPE     => 3,
+              EXCLUDED => 4,
+              # 'genhtml' appends some additional data onto the element -
+              #   for differential coverage reporting
+              TLA        => 5,
+              DIFF_COUNT => 6,    # [base_count, currentCount]
+
+              # possible branch types
+              VANILLA     => 0,
+              EXCEPT      => 1,
+              FALLTHROUGH => 2,
 };
 
 sub new
 {
-    my ($class, $id, $taken, $expr, $is_exception, $excluded) = @_;
+    my ($class, $id, $taken, $expr, $type, $excluded) = @_;
     # if branchID is not an expression - go back to legacy behaviour
     my $self = [$id,
                 $taken,
                 (defined($expr) && $expr eq $id) ? undef : $expr,
-                defined($is_exception) && $is_exception ? 1 : 0,
+                defined($type) ? $type : VANILLA,
                 defined($excluded) && $excluded ? 1 : 0,
     ];
     bless $self, $class;
@@ -4189,10 +4203,27 @@ sub exprString
     return defined($e) ? $e : 'undef';
 }
 
+sub type
+{
+    return $_[0]->[TYPE];
+}
+
+sub type_name
+{
+    my $type = $_[0]->type();
+    return $type == VANILLA ? '' :
+        ($type == EXCEPT ? 'exception' : 'fallthrough');
+}
+
+sub signature
+{
+    my $t = $_[0]->type();
+    return $t == VANILLA ? 'b' : ($t == EXCEPT ? 'e' : 'f');
+}
+
 sub is_exception
 {
-    my $self = shift;
-    return $self->[EXCEPTION];
+    return $_[0]->type() == EXCEPT;
 }
 
 sub is_excluded
@@ -4204,7 +4235,34 @@ sub is_excluded
 sub set_excluded
 {
     my $self = shift;
-    $self->[EXCLUDED] = 1;
+    if (!$self->[EXCLUDED]) {
+        $self->[EXCLUDED] = 1;
+        return 1;
+    }
+    return 0;
+}
+
+sub isDifferential
+{
+    my $self = shift;
+
+    return $#$self == DIFF_COUNT;
+}
+
+sub tla
+{
+    my $self = shift;
+    die("unexpected tla() call with non-differential data")
+        unless $self->isDifferential();
+    return $self->[TLA];
+}
+
+sub diff_count
+{
+    my $self = shift;
+    die("unexpected diff_count() call with non-differential data")
+        unless $self->isDifferential();
+    return @{$self->[DIFF_COUNT]};
 }
 
 sub merge
@@ -4212,12 +4270,21 @@ sub merge
     # return 1 if something changed, 0 if nothing new covered or discovered
     my ($self, $that, $filename, $line) = @_;
     # should have called 'iscompatible' first
-    die("$filename:$line: attempt to merge incompatible expressions for id" .
-        $self->id() . ', ' . $that->id() . ": '" .
-        $self->exprString() . "' -> '" . $that->exprString() . "'")
-        if ($self->exprString() ne $that->exprString());
+    # LCOV_EXCL_START
+    if (0) {
+        # keep track of code->block list - then pick the compatible
+        #  block, or add new one
+        lcovutil::ignorable_warning($lcovutil::ERROR_MISMATCH,
+             "$filename:$line: attempt to merge incompatible expressions for id"
+                 . $self->id()
+                 . ', ' . $that->id() . ": '" .
+                 $self->exprString() . "' -> '" . $that->exprString() . "'.")
+            if ($self->exprString() ne $that->exprString());
+    }
+    # LCOV_EXCL_STOP
 
-    if ($self->is_exception() != $that->is_exception()) {
+    # LCOV_EXCL_START
+    if ($self->type() != $that->type()) {
         my $loc = defined($filename) ? "\"$filename\":$line: " : '';
         lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                                   "${loc}mismatched exception tag for id " .
@@ -4227,8 +4294,11 @@ sub merge
         # set 'self' to 'not related to exception' - to give a consistent
         #  answer for the merge operation.  Otherwise, we pick whatever
         #  was seen first - which is unpredictable during threaded execution.
-        $self->[EXCEPTION] = 0;
+        $self->[TYPE] = VANILLA;
+        die("this is no longer reachable...we split hold multiple blocks");
     }
+    # LCOV_EXCL_STOP
+
     my $changed = 0;
     if ($self->is_excluded() != $that->is_excluded()) {
         # if 'ignore_unreachable_flag' is disabled, then 'unreachable' flag is
@@ -4260,13 +4330,101 @@ sub merge
     return $changed;
 }
 
-package BranchEntry;
-# hash of blockID -> array of BranchBlock refs for each sequential branch ID
+package BranchBlock;
+
+# container for list of branch elements + some data
+use constant {
+              IDX       => 0,
+              SIGNATURE => 1,
+              LIST      => 2,
+};
+
+sub new
+{
+    my $class = shift;
+
+    my $self = [undef, '', []];
+    return bless $self, $class;
+}
+
+sub idx
+{
+    return $_[0]->[IDX];
+}
+
+sub signature
+{
+    return $_[0]->[SIGNATURE];
+}
+
+sub empty
+{
+    return !@{$_[0]->[LIST]};
+}
+
+sub elements
+{
+    return $_[0]->[LIST];
+}
+
+sub getElement
+{
+    my ($self, $idx) = @_;
+    die("index out of range") if $idx > $#{$self->[LIST]};
+    return $self->[LIST]->[$idx];
+}
+
+sub setIdx
+{
+    my ($self, $idx) = @_;
+    # moving block from one list to another - index may or may not
+    #  be the same in the new list as the old.
+    $self->[IDX] = $idx;
+}
+
+sub appendElement
+{
+    my ($self, $element) = @_;
+    # 'element' is either a BranchElement instance or
+    #    an array ref containing categorized coverage: (TLA, count differences)
+    push(@{$self->[LIST]}, $element);
+    die("unexpected element type") unless ('BranchElement' eq ref($element));
+    $self->[SIGNATURE] .= $element->signature();
+}
+
+sub merge
+{
+    my ($self, $you, $filename, $line) = @_;
+
+    my $m = $self->[LIST];
+    my $y = $you->[LIST];
+    die("expected identical block")
+        unless ($#$m == $#$y &&
+                $self->[SIGNATURE] eq $you->[SIGNATURE]);
+    my $changed = 0;
+
+    for (my $idx = 0; $idx <= $#$m; ++$idx) {
+        my $e = $m->[$idx];
+        my $f = $y->[$idx];
+        $changed = 1
+            if $e->merge($f, $filename, $line);
+    }
+    return $changed;
+}
+
+package BranchLocation;
+# hash of blockID -> array of BranchElement refs for each sequential branch ID
+
+use constant {
+              LINE  => 0,
+              INDEX => 1,    # list of BranchBlock
+              CODE  => 2,    # code -> list of BranchBlock
+};
 
 sub new
 {
     my ($class, $line) = @_;
-    my $self = [$line, {}];
+    my $self = [$line, [], {}];
     bless $self, $class;
     return $self;
 }
@@ -4274,66 +4432,180 @@ sub new
 sub line
 {
     my $self = shift;
-    return $self->[0];
+    return $self->[LINE];
+}
+
+sub containsCode
+{
+    my ($self, $code) = @_;
+    return exists($self->[CODE]->{$code});
 }
 
 sub hasBlock
 {
     my ($self, $id) = @_;
-    return exists($self->[1]->{$id});
+    return $#{$self->[INDEX]} >= $id;
 }
 
 sub removeBlock
 {
-    my ($self, $id, $branchData) = @_;
-    $self->hasBlock($id) or die("unknown block $id");
+    my ($self, $block, $branchData) = @_;
+    'BranchBlock' eq ref($block) or die("expected block - got " . ref($block));
+    my $list = $self->[INDEX];
+    my $id   = $block->idx();
+    $id <= $#$list && $list->[$id] == $block or
+        die("remove:  unknown block ID '$id'");
 
-    # remove list of branches and adjust counts
-    $branchData->removeBranches($self->[1]->{$id});
-    delete($self->[1]->{$id});
+    my @removed = splice(@$list, $id, 1);
+    $block == $removed[0] or die("huh?");
+    for (my $i = $id; $i <= $#$list; ++$i) {
+        $list->[$i]->setIdx($i);
+    }
+    my $code  = $block->signature();
+    my $table = $self->[CODE];
+    my @list  = grep({ $_->idx() != $id } @{$table->{$code}});
+    if (@list) {
+        $table->{$code} = \@list;
+    } else {
+        delete($table->{$code});
+    }
+    # adjust counts
+    $branchData->removeBranches($block);
+}
+
+sub getList
+{
+    my ($self, $code) = @_;
+    my $table = $self->[CODE];
+    die("$code not found") unless exists($table->{$code});
+    return $table->{$code};
+}
+
+sub numBlocks
+{
+    return scalar(@{$_[0]->[INDEX]});
 }
 
 sub getBlock
 {
     my ($self, $id) = @_;
-    $self->hasBlock($id) or die("unknown block $id");
-    return $self->[1]->{$id};
+    my $list = $self->[INDEX];
+    $id <= $#$list or die("getBlock: unknown block $id");
+
+    return $list->[$id];
 }
 
 sub blocks
 {
-    my $self = shift;
-    return keys %{$self->[1]};
+    my ($self, $sort) = @_;
+    my $list = $self->[INDEX];
+
+    if (defined($sort) && $sort) {
+        # shortest code first, lowest block number first - in order
+        # of appearance
+        return
+            sort({
+                     my $codeA = $a->signature();
+                     my $codeB = $b->signature();
+                     length($codeA) <=> length($codeB) or
+                         $codeA cmp $codeB or
+                         $a->idx() <=> $b->idx();
+            } @$list);
+    }
+    return @$list;
 }
 
-sub addBlock
+sub codes
 {
-    my ($self, $blockId) = @_;
+    my ($self, $sort) = @_;
+    my @keys = keys(%{$self->[CODE]});
+    # shortest code first
+    return $sort ?
+        sort({ length($a) <=> length($b) or $a cmp $b } @keys) :
+        @keys;
+}
 
-    !exists($self->[1]->{$blockId}) or die "duplicate block $blockId";
-    my $blockData = [];
-    $self->[1]->{$blockId} = $blockData;
-    return $blockData;
+sub insertBlock
+{
+    my ($self, $branchBlock) = @_;
+    my $list     = $self->[INDEX];
+    my $blockIdx = $#$list + 1;
+    die('unexpected empty block') if $branchBlock->empty();
+    $branchBlock->setIdx($blockIdx);
+    push(@$list, $branchBlock);
+
+    my $code  = $branchBlock->signature();
+    my $table = $self->[CODE];
+
+    if (exists($table->{$code})) {
+        $list = $table->{$code};
+    } else {
+        $list = [];
+        $table->{$code} = $list;
+    }
+    push(@$list, $branchBlock);
 }
 
 sub totals
 {
-    my $self = shift;
+    my ($self, $countExcluded) = @_;
     # return (found, hit) counts of coverpoints in this entry
     my $found = 0;
     my $hit   = 0;
-    foreach my $blockId ($self->blocks()) {
-        my $bdata = $self->getBlock($blockId);
-
-        foreach my $br (@$bdata) {
+    foreach my $blk ($self->blocks()) {
+        my $elements = $blk->elements();
+        foreach my $br (@$elements) {
             next
-                if $br->is_excluded();
+                if ($br->is_excluded() &&
+                    !(defined($countExcluded) && $countExcluded));
             my $count = $br->count();
             ++$found;
             ++$hit if (0 != $count);
         }
     }
     return ($found, $hit);
+}
+
+sub merge
+{
+    my ($self, $that, $filename) = @_;
+
+    my $changed   = 0;
+    my $numBlocks = $self->numBlocks();
+    # walk the list of signatures at this location
+    foreach my $code ($that->codes()) {
+        my $yourList = $that->getList($code);
+        if ($self->containsCode($code)) {
+            # I contain this code...walk the set of blocks with the
+            # matching code and merge in order.
+            # If you have more blocks than me, then simply copy the
+            # additional blocks
+            my $myList = $self->getList($code);
+            for (my $idx = 0; $idx <= $#$yourList; ++$idx) {
+                my $yourBlock = $yourList->[$idx];
+                if ($idx <= $#$myList) {
+                    # I have this block index...just merge
+                    my $myBlock = $myList->[$idx];
+                    $changed = 1
+                        if $myBlock->merge($yourBlock, $filename,
+                                           $self->line());
+                } else {
+                    # I don't have this block..copy it and assign new index
+                    $changed = 1;
+                    my $myBlock = Storable::dclone($yourBlock);
+                    $self->insertBlock($myBlock);
+                }
+            }
+        } else {
+            # I don't have this code...clone all the blocks
+            $changed = 1;
+            foreach my $yourBlock (@$yourList) {
+                my $myBlock = Storable::dclone($yourBlock);
+                $self->insertBlock($myBlock);
+            }
+        }
+    }
+    return $changed;
 }
 
 package MCDC_Block;
@@ -4396,13 +4668,19 @@ sub line
 
 sub totals
 {
-    my $self  = shift;
+    # sometimes, we want to keep excluded branches in the count - e.g.,
+    # when we are checking consistency between branch- and line coverage.
+    # We don't want to complain about inconsistency, if some branches are
+    # excluded
+    my ($self, $countExcluded) = @_;
     my $found = 0;
     my $hit   = 0;
     while (my ($size, $group) = each(%{$self->groups()})) {
         foreach my $expr (@$group) {
             foreach my $sense (0, 1) {
-                next if $expr->is_excluded($sense);
+                next
+                    if ($expr->is_excluded($sense) &&
+                        !(defined($countExcluded) && $countExcluded));
                 my $count = $expr->count($sense);
                 if ('ARRAY' eq ref($count)) {
                     # differential number - report 'current'
@@ -4563,7 +4841,12 @@ sub is_excluded
 sub set_excluded
 {
     my ($self, $sense) = @_;
-    $self->[$sense ? EXCLUDED_true : EXCLUDED_false] = 1;
+    my $idx = $sense ? EXCLUDED_true : EXCLUDED_false;
+    if (!$self->[$idx]) {
+        $self->[$idx] = 1;
+        return 1;
+    }
+    return 0;
 }
 
 sub count
@@ -5176,8 +5459,8 @@ use constant {
 sub new
 {
     my $class = shift;
-    my $self = [{},    #  hash of lineNo -> BranchEntry/MCDC_Element
-                       #   BranchEntry:
+    my $self = [{},    #  hash of lineNo -> BranchLocation/MCDC_Element
+                       #   BranchLocation:
                        #      hash of blockID ->
                        #         array of 'taken' entries for each sequential
                        #           branch ID
@@ -5218,7 +5501,7 @@ sub hit
     return $self->[HIT];
 }
 
-# return BranchEntry struct (or undef)
+# return BranchLocation struct (or undef)
 sub value
 {
     my ($self, $lineNo) = @_;
@@ -5252,112 +5535,50 @@ sub new
     return $self;
 }
 
-sub append
+sub findOrCreate
 {
-    my ($self, $line, $block, $br, $filename) = @_;
-    # HGC:  might be good idea to pass filename so we could give better
-    #   error message if the data is inconsistent.
-    # OTOH:  unclear what a normal user could do about it anyway.
-    #   Maybe exclude that file?
+    my ($self, $line) = @_;
     my $data = $self->[BranchMap::DATA];
-    $filename = '<stdin>' if (defined($filename) && $filename eq '-');
-    if (!defined($br)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_BRANCH,
-                            (defined $filename ? "\"$filename\":$line: " : "")
-                                . "expected 'BranchEntry' or 'integer, BranchBlock'"
-        ) unless ('BranchEntry' eq ref($block));
-
-        die("line $line already contains element")
-            if exists($data->{$line});
-        # this gets called from 'apply_diff' method:  the new line number
-        # which was assigned might be different than the original - so we
-        # have to fix up the branch entry.
-        $block->[0] = $line;
-        my ($f, $h) = $block->totals();
-        $self->[BranchMap::FOUND] += $f;
-        $self->[BranchMap::HIT]   += $h;
-        $data->{$line} = $block;
-        return 1;    # we added something
+    unless (exists($data->{$line})) {
+        $data->{$line} = BranchLocation->new($line);
     }
+    return $data->{$line};
+}
 
-    # this cannot happen unless inconsistent branch data was generated by gcov
-    die((defined $filename ? "\"$filename\":$line: " : "") .
-        "BranchData::append expected BranchBlock got '" .
-        ref($br) .
-        "'.\nThis may be due to mismatched 'gcc' and 'gcov' versions.\n")
-        unless ('BranchBlock' eq ref($br));
+sub insertBlock
+{
+    my ($self, $branchBlock, $line) = @_;
 
-    my $branch = $br->id();
-    my $branchElem;
-    my $changed = 0;
-    if (exists($data->{$line})) {
-        $branchElem = $data->{$line};
-        $line == $branchElem->line() or die("wrong line mapping");
-    } else {
-        $branchElem    = BranchEntry->new($line);
-        $data->{$line} = $branchElem;
-        $changed       = 1;                         # something new
-    }
-
-    if (!$branchElem->hasBlock($block)) {
-        $branch == 0
-            or
-            lcovutil::ignorable_error($lcovutil::ERROR_BRANCH,
-                                      "unexpected non-zero initial branch");
-        $branch = 0;
-        my $l = $branchElem->addBlock($block);
-        push(@$l,
-             BranchBlock->new($branch, $br->data(),
-                              $br->expr(), $br->is_exception(),
-                              $br->is_excluded()));
-        if (!$br->is_excluded()) {
-            ++$self->[BranchMap::FOUND];                       # found one
-            ++$self->[BranchMap::HIT] if 0 != $br->count();    # hit one
-        }
-        $changed = 1;                                          # something new..
-    } else {
-        $block = $branchElem->getBlock($block);
-
-        if ($branch > scalar(@$block)) {
-            lcovutil::ignorable_error($lcovutil::ERROR_BRANCH,
-                (defined $filename ? "\"$filename\":$line: " : "") .
-                    "unexpected non-sequential branch ID $branch for block $block"
-                    . (defined($filename) ? "" : " of line $line: ")
-                    . ": found " .
-                    scalar(@$block) . " blocks");
-            $branch = scalar(@$block);
-        }
-
-        if (!exists($block->[$branch])) {
-            $block->[$branch] =
-                BranchBlock->new($branch, $br->data(), $br->expr(),
-                                 $br->is_exception());
-            ++$self->[BranchMap::FOUND];                       # found one
-            ++$self->[BranchMap::HIT] if 0 != $br->count();    # hit one
-
-            $changed = 1;
-        } else {
-            my $me = $block->[$branch];
-            if (0 == $me->count() && 0 != $br->count()) {
-                ++$self->[BranchMap::HIT];                     # hit one
-                $changed = 1;
-            }
-            if ($me->merge($br, $filename, $line)) {
-                $changed = 1;
-            }
-        }
-    }
-    return $changed;
+    my $branchLocation = $self->findOrCreate($line);
+    $branchLocation->insertBlock($branchBlock);
 }
 
 sub removeBranches
 {
-    my ($self, $branchList) = @_;
+    my ($self, $block) = @_;
 
-    foreach my $b (@$branchList) {
+    foreach my $b (@{$block->elements()}) {
         --$self->[BranchMap::FOUND];
         --$self->[BranchMap::HIT] if 0 != $b->count();
     }
+}
+
+sub updateCounts
+{
+    my $self = shift;
+
+    my $data  = $self->[BranchMap::DATA];
+    my $found = 0;
+    my $hit   = 0;
+
+    while (my ($line, $branch) = each(%$data)) {
+        $line == $branch->line() or die("lost track of line");
+        my ($f, $h) = $branch->totals();
+        $found += $f;
+        $hit   += $h;
+    }
+    $self->[BranchMap::FOUND] = $found;
+    $self->[BranchMap::HIT]   = $hit;
 }
 
 sub _checkCounts
@@ -5381,114 +5602,28 @@ sub _checkCounts
                 $self->[BranchMap::HIT] == $hit);
 }
 
-sub compatible($$)
-{
-    my ($myBr, $yourBr) = @_;
-
-    # same number of branches
-    return 0 unless ($#$myBr == $#$yourBr);
-    for (my $i = 0; $i <= $#$myBr; ++$i) {
-        my $me  = $myBr->[$i];
-        my $you = $yourBr->[$i];
-        if ($me->exprString() ne $you->exprString()) {
-            # this one doesn't match
-            return 0;
-        }
-    }
-    return 1;
-}
-
 sub union
 {
     my ($self, $info, $filename) = @_;
     my $changed = 0;
 
     my $mydata = $self->[BranchMap::DATA];
-    while (my ($line, $yourBranch) = each(%{$info->[BranchMap::DATA]})) {
+    while (my ($line, $yourLocation) = each(%{$info->[BranchMap::DATA]})) {
         # check if self has corresponding line:
         #  no: just copy all the data for this line, from 'info'
         #  yes: check for matching blocks
-        my $myBranch = $self->value($line);
-        if (!defined($myBranch)) {
-            $mydata->{$line} = Storable::dclone($yourBranch);
-            my ($f, $h) = $yourBranch->totals();
-            $self->[BranchMap::FOUND] += $f;
-            $self->[BranchMap::HIT]   += $h;
+        my $myLocation = $mydata->{$line}
+            if exists($mydata->{$line});
+        if (!defined($myLocation)) {
+            $mydata->{$line} = Storable::dclone($yourLocation);
             $changed = 1;
-            next;
-        }
-        # keep track of which 'myBranch' blocks have already been merged in
-        #  this pass.  We don't want to merge multiple distinct blocks from $info
-        #  into the same $self block (even if it appears compatible) - because
-        #  those blocks were distinct in the input data
-        my %merged;
-
-        # we don't expect there to be a huge number of distinct blocks
-        #  in each branch:  most often, just one -
-        # Thus, we simply walk the list to find a matching block, if one exists
-        # The matching block will have the same number of branches, and the
-        #  branch expressions will be the same.
-        #    - expression only used in Verilog code at the moment -
-        #      other languages will just have a (matching) integer
-        #      branch index
-
-        # first:  merge your blocks which seem to exist in me:
-        my @yourBlocks = sort($yourBranch->blocks());
-        foreach my $yourId (@yourBlocks) {
-            my $yourBr = $yourBranch->getBlock($yourId);
-
-            # Do I have a block with matching name, which is compatible?
-            my $myBr = $myBranch->getBlock($yourId)
-                if $myBranch->hasBlock($yourId);
-            if (defined($myBr) &&    # I have this one
-                compatible($myBr, $yourBr)
-            ) {
-                foreach my $br (@$yourBr) {
-                    if ($self->append($line, $yourId, $br, $filename)) {
-                        $changed = 1;
-                    }
-                }
-                $merged{$yourId} = 1;
-                $yourId = undef;
-            }
-        }
-        # now look for compatible blocks that aren't identical
-        BLOCK: foreach my $yourId (@yourBlocks) {
-            next unless defined($yourId);
-            my $yourBr = $yourBranch->getBlock($yourId);
-
-            # See if we can find a compatible block in $self
-            #   if found: merge.
-            #   no match:  this is a different block - assign new ID
-
-            foreach my $myId ($myBranch->blocks()) {
-                next if exists($merged{$myId});
-
-                my $myBr = $myBranch->getBlock($myId);
-                if (compatible($myBr, $yourBr)) {
-                    # we match - so merge our data
-                    $merged{$myId} = 1;    # used this one
-                    foreach my $br (@$yourBr) {
-                        if ($self->append($line, $myId, $br, $filename)) {
-                            $changed = 1;
-                        }
-                    }
-                    next BLOCK;            # merged this one - go to next
-                }
-            }    # end search for your block in my blocklist
-                 # we didn't find a match - so this needs to be a new block
-            my $newID = scalar($myBranch->blocks());
-            $merged{$newID} = 1;    # used this one
-            foreach my $br (@$yourBr) {
-                if ($self->append($line, $newID, $br, $filename)) {
-                    $changed = 1;
-                }
-            }
+        } else {
+            $changed = 1
+                if $myLocation->merge($yourLocation, $filename);
         }
     }
-    if ($lcovutil::debug) {
-        $self->_checkCounts();    # some paranoia
-    }
+    $self->updateCounts()
+        if $changed;
     return $changed;
 }
 
@@ -5503,35 +5638,43 @@ sub intersect
         if (exists($yourdata->{$line})) {
             # look at all my blocks.  If you have a compatible block, merge them
             #   - else delete mine
-            my $myBranch   = $mydata->{$line};
-            my $yourBranch = $yourdata->{$line};
-            my @myBlocks   = $myBranch->blocks();
-            foreach my $myId (@myBlocks) {
-                my $myBr = $myBranch->getBlock($myId);
+            my $myLoc   = $mydata->{$line};
+            my $yourLoc = $yourdata->{$line};
 
-                # Do you have a block with matching name, which is compatible?
-                my $yourBlock = $yourBranch->getBlock($myId)
-                    if $yourBranch->hasBlock($myId);
-                if (defined($yourBlock) &&    # you have this one
-                    compatible($myBr, $yourBlock)
-                ) {
-                    foreach my $br (@$yourBlock) {
-                        if ($self->append($line, $myId, $br, $filename)) {
-                            $changed = 1;
-                        }
+            my $replace     = BranchLocation->new($line);
+            my $blkIdx      = 0;
+            my $changedHere = 0;
+            foreach my $code ($myLoc->codes(1)) {
+                if ($yourLoc->containsCode($code)) {
+                    my $myList   = $myLoc->getList($code);
+                    my $yourList = $yourLoc->getList($code);
+                    my $idx      = 0;
+                    foreach my $yours (@$yourList) {
+                        last if ($idx > $#$myList);
+                        my $mine = $myList->[$idx++];
+                        $changedHere = 1
+                            if $mine->merge($yours, $filename, $line);
+                        my $catBlock = Storable::dclone($mine);
+                        $replace->insertBlock($catBlock);
                     }
                 } else {
-                    # block not found...remove this one
-                    $myBranch->removeBlock($myId, $self);
-                    $changed = 1;
+                    # remove all these blocks...
+                    $changedHere = 1;
                 }
-            }    # foreach block
+            }
+            if ($changedHere) {
+                $changed = 1;
+                $self->remove($line);
+                $mydata->{$line} = $replace
+                    if $replace->numBlocks() != 0;
+            }
         } else {
             # my line not found in your data - so remove this one
             $changed = 1;
             $self->remove($line);
         }
     }
+    $self->updateCounts() if $changed;
     return $changed;
 }
 
@@ -5546,25 +5689,41 @@ sub difference
         # keep everything here if you don't have this line
         next unless exists($yourdata->{$line});
 
-        #  look at all my blocks.  If you have a compatible block, remove it:
-        my $myBranch   = $mydata->{$line};
-        my $yourBranch = $yourdata->{$line};
-        my @myBlocks   = $myBranch->blocks();
-        foreach my $myId (@myBlocks) {
-            my $myBr = $myBranch->getBlock($myId);
+        # look at all my blocks.  If you have a compatible block, remove it
+        #   - else keep mine
+        my $myLoc   = $mydata->{$line};
+        my $yourLoc = $yourdata->{$line};
 
-            # Do you have a block with matching name, which is compatible?
-            my $yourBlock = $yourBranch->getBlock($myId)
-                if $yourBranch->hasBlock($myId);
-            if (defined($yourBlock) &&    # you have this one
-                compatible($myBr, $yourBlock)
-            ) {
-                # remove common block
-                $myBranch->removeBlock($myId, $self);
-                $changed = 1;
+        my $replace     = BranchLocation->new($line);
+        my $blkIdx      = 0;
+        my $changedHere = 0;
+        foreach my $code ($myLoc->codes(1)) {
+            if ($yourLoc->containsCode($code)) {
+                my $myList    = $myLoc->getList($code);
+                my $yourCount = scalar(@{$yourLoc->getList($code)});
+                $changedHere = 1;
+                # ignore all the leading common blocks...
+                for (my $idx = $yourCount; $idx <= $#$myList; ++$idx) {
+                    my $mine     = $myList->[$idx++];
+                    my $catBlock = Storable::dclone($mine);
+                    $replace->insertBlock($catBlock);
+                }
+            } else {
+                # keep these blocks..
+                foreach my $mine (@{$myLoc->getList($code)}) {
+                    my $catBlock = Storable::dclone($mine);
+                    $replace->insertBlock($catBlock);
+                }
             }
-        }    # foreach block
+        }
+        if ($changedHere) {
+            $changed = 1;
+            $self->remove($line);
+            $mydata->{$line} = $replace
+                if $replace->numBlocks() != 0;
+        }
     }
+    $self->updateCounts() if $changed;
     return $changed;
 }
 
@@ -5711,10 +5870,13 @@ sub difference
 package FilterBranchExceptions;
 
 use constant {
-              EXCEPTION_f => 0,
-              ORPHAN_f    => 1,
-              REGION_f    => 2,
-              BRANCH_f    => 3    # branch filter
+              EXCEPTION_f       => 0,
+              ORPHAN_f          => 1,
+              REGION_f          => 2,
+              BRANCH_f          => 3,    # branch filter
+              SRC_READER        => 4,
+              BRANCHES          => 5,
+              PER_TEST_BRANCHES => 6,
 };
 
 sub new
@@ -5726,7 +5888,10 @@ sub new
                 $lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH]
     ];
     bless $self, $class;
-    return grep({ defined($_) } @$self) ? $self : undef;
+    # check case that no filters are defines
+    return undef unless grep({ defined($_) } @$self);
+    push(@$self, @_);
+    return $self;
 }
 
 sub removeBranches
@@ -5738,51 +5903,64 @@ sub removeBranches
     # 'unreachable' and 'excluded' branches have already been removed
     #   by 'region' filter along with their parent line - so no need to
     #   do anything here
-    die("unexpected unreachable branch")
+    my $filename = $self->[SRC_READER]->filename();
+    die("$filename:$line: unexpected unreachable branch")
         if ($unreachable && 0 != $brdata->count());
     my $modified = 0;
-    my $count    = 0;
-    foreach my $block_id ($brdata->blocks()) {
-        my $blockData = $brdata->getBlock($block_id);
-        my @replace;
-        foreach my $br (@$blockData) {
+    my $blkIdx   = 0;
+    foreach my $block ($brdata->blocks()) {
+        my $elements = $block->elements();
+        my $nElems   = 0;
+        my $count    = 0;
+        for (my $idx = 0; $idx <= $#$elements; ++$idx) {
+            my $br = $elements->[$idx];
+            next if $br->is_excluded();
+            ++$nElems;
             if (defined($filter) && $br->is_exception()) {
-                --$branches->[BranchMap::FOUND];
-                --$branches->[BranchMap::HIT] if 0 != $br->count();
-                #lcovutil::info($srcReader->fileanme() . ": $line: remove exception branch\n");
+                next
+                    unless $br->set_excluded();
                 $modified = 1;
+                lcovutil::info(2, "$filename:$line: remove exception branch\n");
                 ++$count;
-            } else {
-                push(@replace, $br);
+                # Previous 'fallthrough' element is related to this exception.
+                # We expect the exception branch to have a prececessor -
+                #  but it is possible that other tools have a different idea.
+                if ($idx != 0) {
+                    my $prev = $elements->[$idx - 1];
+                    if ($prev->type() == BranchElement::FALLTHROUGH &&
+                        $prev->set_excluded()) {
+                        ++$count;
+                    }
+                }
             }
         }
         if ($count) {
-            @$blockData = @replace;
             ++$filter->[-2] if $isMasterData;
             lcovutil::info(2,
-                           "$line: remove $count exception branch" .
+                           "$filename:$line: remove $count exception branch" .
                                (1 == $count ? '' : 'es') . "\n")
                 if $isMasterData;
             $filter->[-1] += $count;
         }
+        my $remaining = $nElems - $count;
         # If there is only one branch left - then this is not a conditional
-        if (0 == scalar(@replace)) {
-            lcovutil::info(2, "$line: remove exception block $block_id\n");
-            lcovutil::info("$line: remove exception block $block_id\n");
-            $brdata->removeBlock($block_id, $branches);
-        } elsif (1 == scalar(@replace) &&
+        if (0 == $remaining) {
+            lcovutil::info(2,
+                           "$filename:$line: remove exception block $blkIdx\n");
+            $brdata->removeBlock($block, $branches);
+        } elsif (1 == $remaining &&
                  defined($self->[ORPHAN_f])) {    # filter orphan
             lcovutil::info(2,
-                           "$line: remove orphan exception block $block_id\n");
-            $brdata->removeBlock($block_id, $branches);
-
+                    "$filename:$line: remove orphan exception block $blkIdx\n");
+            $brdata->removeBlock($block, $branches);
             ++$self->[ORPHAN_f]->[-2]
                 if $isMasterData;
             ++$self->[ORPHAN_f]->[-1];
         }
+        ++$blkIdx;
     }
     if (0 == scalar($brdata->blocks())) {
-        lcovutil::info(2, "$line: no branches remain\n");
+        lcovutil::info(2, "$filename:$line: no branches remain\n");
         $branches->remove($line);
         $modified = 1;
     }
@@ -5791,9 +5969,11 @@ sub removeBranches
 
 sub applyFilter
 {
-    my ($self, $filter, $line, $branches, $perTestBranches, $unreachable) = @_;
+    my ($self, $filter, $line, $unreachable) = @_;
     my $modified =
-        $self->removeBranches($line, $branches, $filter, $unreachable, 1);
+        $self->removeBranches($line, $self->[BRANCHES], $filter, $unreachable,
+                              1);
+    my $perTestBranches = $self->[PER_TEST_BRANCHES];
     foreach my $tn ($perTestBranches->keylist()) {
         # want to remove matching branches everytwhere - so we don't want short-circuit evaluation
         $modified = 1
@@ -5805,8 +5985,8 @@ sub applyFilter
 
 sub filter
 {
-    my ($self, $line, $srcReader, $branches, $perTestBranches) = @_;
-
+    my ($self, $line) = @_;
+    my $srcReader = $self->[SRC_READER];
     my $reason;
     if (0 != ($reason = $srcReader->isExcluded($line, $srcReader->e_EXCEPTION)))
     {
@@ -5817,22 +5997,16 @@ sub filter
             return
                 $self->applyFilter($self->[REGION_f],
                                    $line,
-                                   $branches,
-                                   $perTestBranches,
                                    0 != ($reason & $srcReader->e_UNREACHABLE));
         } elsif (defined($self->[BRANCH_f])) {    # exclude branches
                 # filter out bogus branches - even if this region is unreachable
-            return
-                $self->applyFilter($self->[BRANCH_f], $line, $branches,
-                                   $perTestBranches, 0);
+            return $self->applyFilter($self->[BRANCH_f], $line, 0);
         }
     }
     # apply if filtering exceptions, orphans, or both
     if (defined($self->[EXCEPTION_f]) || defined($self->[ORPHAN_f])) {
         # filter exceptions and orphans - even if the region is "unreachable"
-        return
-            $self->applyFilter($self->[EXCEPTION_f], $line, $branches,
-                               $perTestBranches, 0);
+        return $self->applyFilter($self->[EXCEPTION_f], $line, 0);
     }
     return 0;
 }
@@ -6058,7 +6232,7 @@ sub testbr
 
 sub sumbr
 {
-    # return BranchData map of line number -> BranchEntry
+    # return BranchData map of line number -> BranchLocation
     #   data is merged over all testcases
     my $self = shift;
     return $self->[BRANCH_DATA]->[0];
@@ -7735,17 +7909,8 @@ sub _checkConsistency
                           . _consistencySuffix());
             }
 
-            my $brHit = 0;
-            my $brd   = $brData->value($line);
-            BLOCK: foreach my $id ($brd->blocks()) {
-                my $block = $brd->getBlock($id);
-                foreach my $br (@$block) {
-                    if (0 != $br->count()) {
-                        $brHit = 1;
-                        last BLOCK;
-                    }
-                }
-            }
+            my ($brFound, $brHit) = $brData->value($line)->totals(1);
+
             if (!defined($lineHit)) {
                 # must have ignored the above error - so build fake line data here
                 #  (maybe should delete the branch instead?)
@@ -7871,10 +8036,11 @@ sub _filterFile
         unless ($srcReader->notEmpty() &&
                 lcovutil::is_filter_enabled());
 
-    my $filterExceptionBranches = FilterBranchExceptions->new();
-
     my ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
         $testbrdata, $sumbrcount, $mcdc, $testmcdc) = $traceInfo->get_info();
+
+    my $filterExceptionBranches =
+        FilterBranchExceptions->new($srcReader, $sumbrcount, $testbrdata);
 
     foreach my $testname (sort($testdata->keylist())) {
         my $testcount    = $testdata->value($testname);
@@ -8030,10 +8196,15 @@ sub _filterFile
                     defined($sumbrcount->value($line))) {
                     # exclude exception branches here
                     $modified = 1
-                        if $filterExceptionBranches->filter($line, $srcReader,
-                                  $sumbrcount, $testbrdata, $mcdc, $mcdc_count);
+                        if $filterExceptionBranches->filter($line);
                 }
             }    # foreach line
+            if ($modified) {
+                $sumbrcount->updateCounts();
+                foreach my $tn ($testbrdata->keylist()) {
+                    $testbrdata->value($tn)->updateCounts();
+                }
+            }
         }    # if branch_coverage
 
         if ($mcdc_single) {
@@ -8810,10 +8981,10 @@ sub _read_info
     my $testbrdata;    # hash of testname -> branch data
     my $testMcdc;      #     -> MC/DC data
 
-    my $testcount;     # line coverage for particular testcase
-    my $testfnccount;  # func coverage   "    "
-    my $testbrcount;   # branch coverage "   "
-    my $testcase_mcdc; # MC/DC coverage  "   "
+    my $lineMap;       # line coverage for particular testcase
+    my $funcMap;       # func coverage   "    "
+    my $branchMap;     # branch coverage "   "
+    my $mcdcMap;       # MC/DC coverage  "   "
 
     my $testname;            # Current test name
     my $filename;            # Current filename
@@ -8839,20 +9010,16 @@ sub _read_info
 
     $testname = "";
     my $fileData;
-    # HGC:  somewhat of a hack.
-    # There are duplicate lines in the geninfo output result - for example,
-    #   line '2095' may have multiple DA (line) entries, and may have multiple
-    #   'BRDA' entries - each with a different number of branches and different
-    #   count
-    # The hack is to put branches into a hash keyed by branch ID - and
-    #   merge elements with the same key if we run into them in the multiple
-    #   times in the same 'file' data (within an SF entry).
-    my %nextBranchId;    # line -> integer ID
     my ($currentBranchLine, $skipBranch);
     my $functionMap;
     my %excludedFunction;
     my $skipCurrentFile = 0;
     my %fnIdxMap;
+    my $branchBlock;
+    my $currentBlockLine;
+    my $currentBlock;
+    my $branchIndex;
+
     while (<INFO>) {
         chomp($_);
         my $line = $_;
@@ -8887,9 +9054,11 @@ sub _read_info
             }
 
             # Retrieve data for new entry
-            %nextBranchId     = ();
             %excludedFunction = ();
             %fnIdxMap         = ();
+            $branchBlock      = undef;
+            $currentBlockLine = -1;
+            $currentBlock     = -1;
 
             if ($verify_checksum) {
                 # unconditionally 'close' the current file - in case we don't
@@ -8908,18 +9077,12 @@ sub _read_info
              $checkdata, $testfncdata, $testbrdata,
              $sumbrcount, $mcdcCount, $testMcdc) = $fileData->get_info();
 
-            if (defined($testname)) {
-                $testcount     = $fileData->test($testname);
-                $functionMap   = $fileData->testfnc($testname);
-                $testbrcount   = $fileData->testbr($testname);
-                $testcase_mcdc = $fileData->testcase_mcdc($testname);
-            } else {
-                $testcount     = CountData->new($filename, 1);
-                $testfnccount  = CountData->new($filename, 0);
-                $testbrcount   = BranchData->new();
-                $testcase_mcdc = MCDC_Data->new();
-                $functionMap   = FunctionMap->new($filename);
-            }
+            die("expected testname") unless defined($testname);
+
+            $lineMap     = $fileData->test($testname);
+            $functionMap = $fileData->testfnc($testname);
+            $branchMap   = $fileData->testbr($testname);
+            $mcdcMap     = $fileData->testcase_mcdc($testname);
             next;
         }
         next if $skipCurrentFile;
@@ -8999,17 +9162,8 @@ sub _read_info
                     }
                 }
 
-                # hold line, count and testname for postprocessing?
-                my $linesum = $fileData->sum();
-
-                # Execution count found, add to structure
-                # Add summary counts
-                $linesum->append($line, $count);
-
                 # Add test-specific counts
-                if (defined($testname)) {
-                    $fileData->test($testname)->append($line, $count, 1);
-                }
+                $lineMap->append($line, $count);
 
                 # Store line checksum if available
                 if (defined($checksum) &&
@@ -9089,19 +9243,54 @@ sub _read_info
                 last;
             };
 
-            /^BRDA:(\d+),(e?)(U?)(\d+),(.+)$/ && do {
+            /^BRDA:(\d+),([ef]?)(U?)(\d+),(.+)$/ && do {
                 last if (!$lcovutil::br_coverage);
 
                 # Branch coverage data found
                 # line data is "lineNo,blockId,(branchIdx|branchExpr),taken
                 #   - so grab the last two elements, split on the last comma,
                 #     and check whether we found an integer or an expression
+                # NOTES:
+                #   - we re-derive block IDs such that they start at zero
+                #     and are contiguous.
+                #   - we keep track of the order of appearance of new blocks
+                #     (both when reading the .info file and when parsing
+                #     gcov output).
+                #   - when merging branch data:
+                #      - two blocks are identical if their signature is
+                #        identical AND either
+                #          - there is exactly one block in each DB with
+                #            that signatuure, OR
+                #          - the two blocks with the same signature appear
+                #            in the same order.
+                #      - that is: within branches with 'code0', the first
+                #        block is merged into the first block, the second
+                #        into the second and so forth.
+                #          - if there is no Nth block in one of the DBs,
+                #            then it is simply copied.
+                #      - This means that there is no way for the tool to
+                #        know that two blocks with identical signatures
+                #        in different DBs are actually different (e.g.,
+                #        due to template instantiation)
                 my ($line, $block, $d) = ($1, $4, $5);
-                my $is_exception = defined($2) && 'e' eq $2;
-                my $unreachable  = !$lcovutil::ignore_unreachable_flag &&
-                    defined($3) &&
-                    'U' eq $3;
-
+                my $type;
+                if (!defined($2) || '' eq $2) {
+                    $type = BranchElement::VANILLA;
+                } elsif ($2 eq 'f') {
+                    $type = BranchElement::FALLTHROUGH;
+                } else {
+                    die("unexpected type '$2'") unless $2 eq 'e';
+                    $type = BranchElement::EXCEPT;
+                }
+                # open question...if this is an exception branch and is
+                #   excluded - should we keep the mark?  Or only if
+                #   the exception exclusion filter is enabled?
+                # At present:  once the flag is set, then it remains...we
+                #   won't clear it when we read or write the .info file
+                my $unreachable =
+                    (!$lcovutil::ignore_unreachable_flag &&
+                     defined($3) &&
+                     'U' eq $3);
                 if ($line <= 0) {
                     # Python coverage.py emits line number 0 (zero) for branches
                     #  - which is bogus, as there is no line number zero,
@@ -9119,8 +9308,11 @@ sub _read_info
                     # just keep invalid line number if error ignored
                     # last;
                 }
+                $unreachable = 1
+                    if defined($type) &&
+                    $type == BranchElement::EXCEPT &&
+                    $lcovutil::exclude_exception_branch;
 
-                last if $is_exception && $lcovutil::exclude_exception_branch;
                 my $comma = rindex($d, ',');
                 my $taken = substr($d, $comma + 1);
                 my $expr  = substr($d, 0, $comma);
@@ -9144,22 +9336,21 @@ sub _read_info
                 #     generate an CNF or truth-table like entry corresponding
                 #     to the branch.
 
-                my $key = "$line,$block";
-                my $branch =
-                    exists($nextBranchId{$key}) ? $nextBranchId{$key} :
-                    0;
-                $nextBranchId{$key} = $branch + 1;
-
-                my $br =
-                    BranchBlock->new($branch, $taken, $expr, $is_exception,
-                                     $unreachable);
-                $fileData->sumbr()->append($line, $block, $br, $filename);
-
-                # Add test-specific counts
-                if (defined($testname)) {
-                    $fileData->testbr($testname)
-                        ->append($line, $block, $br, $filename);
+                if (!defined($branchBlock) ||
+                    $block != $currentBlock ||
+                    $line != $currentBlockLine) {
+                    if (defined($branchBlock)) {
+                        $branchMap->insertBlock($branchBlock,
+                                                $currentBlockLine);
+                    }
+                    $branchBlock      = BranchBlock->new();
+                    $currentBlockLine = $line;
+                    $currentBlock     = $block;
+                    $branchIndex      = 0;
                 }
+                $branchBlock->appendElement(
+                               BranchElement->new($branchIndex++, $taken, $expr,
+                                                  $type, $unreachable));
                 last;
             };
 
@@ -9212,11 +9403,16 @@ sub _read_info
                         $fileData->version($version)
                             if (defined($version) && $version ne "");
                     }
+                    $sumcount->union($lineMap);
                     if ($lcovutil::func_coverage) {
+                        $funcdata->union($functionMap);
+                    }
+                    if ($lcovutil::br_coverage) {
+                        $branchMap->insertBlock($branchBlock, $currentBlockLine)
+                            if $branchBlock;
+                        $branchMap->updateCounts();
 
-                        if ($funcdata != $functionMap) {
-                            $funcdata->union($functionMap);
-                        }
+                        $fileData->sumbr()->union($branchMap);
                     }
                     if ($current_mcdc) {
                         # close the current expression in case the next file
@@ -9334,10 +9530,10 @@ sub write_info($$$)
         #   then please make corresponding changes to the '_read_info' method, above
         #   and update the format description found in .../man/geninfo.1.
         foreach my $testname (sort($testdata->keylist())) {
-            my $testcount    = $testdata->value($testname);
-            my $testfnccount = $testfncdata->value($testname);
-            my $testbrcount  = $testbrdata->value($testname);
-            my $mcdc         = $testmcdc->value($testname);
+            my $lineMap   = $testdata->value($testname);
+            my $funcMap   = $testfncdata->value($testname);
+            my $branchMap = $testbrdata->value($testname);
+            my $mcdc      = $testmcdc->value($testname);
 
             print(INFO_HANDLE "TN:$testname\n");
             print(INFO_HANDLE "SF:$source_file\n");
@@ -9394,46 +9590,46 @@ sub write_info($$$)
                 print(INFO_HANDLE "FNF:$f_found\n");
                 print(INFO_HANDLE "FNH:$f_hit\n");
             }
-            # $testbrcount is undef if there are no branches in the scope
+            # $branchMap is undef if there are no branches in the scope
             if ($lcovutil::br_coverage &&
-                defined($testbrcount)) {
+                defined($branchMap)) {
                 # Write branch related data
                 my $br_found = 0;
                 my $br_hit   = 0;
 
-                foreach my $line (sort({ $a <=> $b } $testbrcount->keylist())) {
+                foreach my $line (sort({ $a <=> $b } $branchMap->keylist())) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                        "\"$source_file\": unexpected line number '$line' in branch data record."
+                    ) if ($line <= 0);    # keep bogus data if error ignored
+                    my $brdata = $branchMap->value($line);
 
-                    if ($line <= 0) {
-                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                            "\"$source_file\": unexpected line number '$line' in branch data record."
-                        );
-                        # keep bogus data if error ignored
-                        # last;
-                    }
-                    my $brdata = $testbrcount->value($line);
-                    # want the block_id to be treated as 32-bit unsigned integer
-                    #  (need masking to match regression tests)
-                    my $mask = (1 << 32) - 1;
-                    foreach my $block_id (sort(($brdata->blocks()))) {
-                        my $blockData = $brdata->getBlock($block_id);
-                        $block_id &= $mask;
-                        foreach my $br (@$blockData) {
+                    # sort the branch data on each line first by number
+                    # of branches and then by type (exception vs normal)
+                    my $blockId = 0;
+                    foreach my $block ($brdata->blocks(1)) {
+                        foreach my $br (@{$block->elements()}) {
                             my $taken       = $br->data();
                             my $branch_id   = $br->id();
                             my $branch_expr = $br->expr();
                             # mostly for Verilog:  if there is a branch expression: use it.
+                            my $type = $br->signature();
+                            $type = '' if 'b' eq $type;
                             printf(INFO_HANDLE "BRDA:%u,%s%s%u,%s,%s\n",
                                    $line,
-                                   $br->is_exception() ? 'e' : '',
+                                   $type,
                                    $br->is_excluded() ? 'U' : '',
-                                   $block_id,
+                                   $blockId,
                                    defined($branch_expr) ? $branch_expr :
                                        $branch_id,
                                    $taken);
-                            $br_found++;
-                            $br_hit++
-                                if ($taken ne '-' && $taken > 0);
+                            unless ($br->is_excluded()) {
+                                # count does not include the excluded ones
+                                $br_found++;
+                                $br_hit++
+                                    if ($taken ne '-' && $taken > 0);
+                            }
                         }
+                        ++$blockId;
                     }
                 }
                 if ($br_found > 0) {
@@ -9481,13 +9677,13 @@ sub write_info($$$)
             # Write line related data
             my $found = 0;
             my $hit   = 0;
-            foreach my $line (sort({ $a <=> $b } $testcount->keylist())) {
+            foreach my $line (sort({ $a <=> $b } $lineMap->keylist())) {
                 if ($line <= 0) {
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$source_file\": unexpected line number '$line' in 'line' data record."
                     );
                 }
-                my $l_hit = $testcount->value($line);
+                my $l_hit = $lineMap->value($line);
                 my $chk   = '';
                 if ($verify_checksum) {
                     if (exists($checkdata->{$line})) {

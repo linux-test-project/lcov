@@ -313,6 +313,7 @@ foreach my $db (@ARGV) {
                         }
                         push(@expr, $simplified);
                         #@expr = split(/\s+(and|or|xor|&&|\|\|)\s+/, $simplified);
+                        $block = BranchBlock->new();
                         my $branchID = 0;
                         foreach my $entry (@$counts) {
                             my $taken =
@@ -340,13 +341,12 @@ foreach my $db (@ARGV) {
                                 # expressions.  Hope the user can sort it out
                                 $branchExpr = $expr;
                             }
-                            my $br =
-                                BranchBlock->new($branchID++, $taken,
-                                                 $branchExpr, 0);
-                            $branchMap->append($line, $blockID, $br, $file);
+                            $block->appendElement(BranchElement->new(
+                                             $branchID++, $taken, $branchExpr, 0
+                            ));
                         }
+                        $branchMap->insertBlock($block, $line);
                         push(@subst, [$expr, '__' . scalar(@subst) . '__']);
-                        ++$blockID;
                     }
                     # condition data is more compreshensive than branch
                     # if both exist on the line.
@@ -358,19 +358,20 @@ foreach my $db (@ARGV) {
                 if (defined($br)) {
                     my ($true, $false) = @{$br->[0]->[0]};
                     my $expr = $br->[0]->[1]->{'text'};
-                    my $id   = 0;
+                    # blockID is always zero
+                    my $block = BranchBlock->new();
+                    my $id    = 0;
                     for my $c ([$true, $expr], [$false, '! ' . $expr]) {
                         # this is not an exception...
-                        my $b =
-                            BranchBlock->new($id++,
-                                             $lineCount == 0 ? '-' : $c->[0],
-                                             $c->[1], 0);
-                        # blockID is always zero
-                        $branchMap->append($line, 0, $b, $file);
+                        $block->appendElement(BranchElement->new(
+                                         $id++, $lineCount == 0 ? '-' : $c->[0],
+                                         $c->[1], 0));
                     }
+                    $branchMap->insertBlock($block, $line);
                 }
             }
         }
+        $branchMap->updateCounts();
         $fileData->sum()->union($lineMap);
         $fileData->sumbr()->union($branchMap);
         $fileData->func()->union($functionMap);

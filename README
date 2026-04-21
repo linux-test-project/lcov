@@ -130,6 +130,7 @@ These perl packages include:
   - Capture::Tiny
   - DateTime
   - Devel::Cover
+  - Devel::StackTrace
   - Digest::MD5
   - File::Spec
   - at least one flavor of JSON module.
@@ -343,6 +344,13 @@ LCOV features and capabilities fall into 7 major categories:
 
      Note that some errors are unrecoverable - and cannot be suppressed or
      ignored.
+
+     If environment variable 'LCOV_SHOW_LOCATION' is set to a non-zero
+     integer, then the error manager will emit more detailed debugging
+     information into the error log.  Higher values generate more
+     information.
+     More detail is useful to developers in case of a bug in lcov - but is
+     unlikely to helpful to regular users.
 
      Related options:
         --ignore-error, --expect-message-count, --keep-going, --msg-log

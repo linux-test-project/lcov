@@ -152,15 +152,12 @@ EOF
 
 sub exclude_branch
 {
-    my ($self, $map, $brdata, $blockId, $expr, $testdata, $summary) = @_;
+    my ($self, $map, $brdata, $blockId, $idx, $testdata, $summary) = @_;
     my $block = $brdata->getBlock($blockId);
-    die("invalid branch expr '$expr' for branch $blockId")
-        if $expr > $#$block;
-    my $br  = $block->[$expr];
-    my $rtn = 0;
-    unless ($br->is_excluded()) {
-        $br->set_excluded();
-        lcovutil::info(1, "excluded branch $blockId, $expr\n");
+    my $br    = $block->getElement($idx);
+    my $rtn   = 0;
+    if ($br->set_excluded()) {
+        lcovutil::info(1, "excluded branch $blockId, $idx\n");
         --$map->[BranchMap::FOUND];
         --$map->[BranchMap::HIT] if 0 != $br->count();
         $rtn = 1;
@@ -181,8 +178,7 @@ sub exclude_cond
 
     my $cond = $mcdc->expr($groupSize, $expr);
     my $rtn  = 0;
-    unless ($cond->is_excluded($sense)) {
-        $cond->set_excluded($sense);
+    if ($cond->set_excluded($sense)) {
         lcovutil::info(1, "excluded cond $groupSize,$expr,$sense\n");
         --$map->[BranchMap::FOUND];
         --$map->[BranchMap::HIT] if 0 != $cond->count();

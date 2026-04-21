@@ -131,41 +131,26 @@ done
 
 
 for f in exceptionBranch ; do
+    # this test no longer errors out:  instead, builds different blocks
+    #  for the different exception markers
     echo lcov $LCOV_OPTS -a ${f}1.info -a ${f}2.info -o $f.out
     $COVER $LCOV_TOOL $LCOV_OPTS -a ${f}1.info -a ${f}2.info -o $f.out 2>&1 | tee $f.log
-    if [ 0 == ${PIPESTATUS[0]} ] ; then
-        echo "failed to notice incorrect decl in $f"
-        status=1
-        if [ 0 == $KEEP_GOING ] ; then
-            exit $status
-        fi
-    fi
-    grep -E 'mismatched exception tag' $f.log
-    if [ 0 != $? ] ; then
-        echo "missing error message"
-        status=1
-        if [ 0 == $KEEP_GOING ] ; then
-            exit $status
-        fi
-    fi
-    if [ -f $f.out ] ; then
-        echo "should not have created file, on error"
-        status=1
-        if [ 0 == $KEEP_GOING ] ; then
-            exit $status
-        fi
-    fi
-
-    echo lcov $LCOV_OPTS -a ${f}1.info -a ${f}2.info --ignore mismatch -o ${f}2.log
-    $COVER $LCOV_TOOL $LCOV_OPTS -a ${f}1.info -a ${f}2.info --ignore mismatch -o $f.log
-
     if [ 0 != ${PIPESTATUS[0]} ] ; then
-        echo "failed to ignore message ${f}2.log"
+        echo "failed to handle differing exception branches in $f"
         status=1
         if [ 0 == $KEEP_GOING ] ; then
             exit $status
         fi
     fi
+    grep "3 of 8 branches" $f.log
+    if [ 0 != $? ] ; then
+        echo "didn't split exception branches $f.log"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit $status
+        fi
+    fi
+
 done
 
 mkdir -p emptyDir

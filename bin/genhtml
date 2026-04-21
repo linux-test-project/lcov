@@ -2213,12 +2213,12 @@ sub to_list
         my @data;
         push(@rtn, \@data);
         foreach my $block ($branch->blocks()) {
-            my $br = $branch->getBlock($block);
+            my $elements = $block->elements();
             my @b;
             push(@data, \@b);
-            foreach my $b (@$br) {
-                my ($br, $tla, $d) = @$b;
-                my ($base_count, $curr_count) = @$d;
+            foreach my $br (@$elements) {
+                my $tla = $br->tla();
+                my ($base_count, $curr_count) = $br->diff_count();
                 push(@b, [$tla, $curr_count, $base_count]);
             }
         }
@@ -2228,8 +2228,9 @@ sub to_list
             my @data;
             push(@rtn, \@data);
             foreach my $block ($branch->blocks()) {
-                my $br = $branch->getBlock($block);
-                push(@data, $br->count());
+                foreach my $br (@{$block->elements()}) {
+                    push(@data, $br->count());
+                }
             }
         } else {
             push(@rtn, undef);
@@ -2334,67 +2335,19 @@ sub curr_count
 
 sub _mergeBranchData
 {
-    my ($self, $loc, $branchData, $filename) = @_;
+    my ($self, $loc, $branchData) = @_;
     my $branch = $self->[BRANCH_DATA];
-    if (defined($branch->[$loc])) {
-
-        my $current = $branch->[$loc];
-        foreach my $branchId ($current->blocks()) {
-            # LCOV_EXCL_START
-            if (!$branchData->hasBlock($branchId)) {
-                # don't know how to get here...but someone on the internet
-                # managed to do it - so we need to handle the error
-                my $which = $loc == DATA_BASELINE ? 'base' : 'current';
-                lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                                        $filename . ':' . $current->line() .
-                                            ": '$which' line " .
-                                            $self->lineNo($which) .
-                                            " merge block (line " .
-                                            $branchData->line() .
-                                            ") does not contain branch $branchId."
-                );
-                next;
-            }
-            # LCOV_EXCL_STOP
-
-            my $c = $current->getBlock($branchId);
-            my $d = $branchData->getBlock($branchId);
-            # handle case of inconsistent branch data
-            my $nc = scalar(@$c);
-            my $nd = scalar(@$d);
-            # LCOV_EXCL_START
-            if ($nc != $nd) {
-                #  similarly: this should not happen - but it might
-                my $which = $loc == DATA_BASELINE ? 'base' : 'current';
-                lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                    $filename . ':' . $current->line() .
-                        ": '$which' line " . $self->lineNo($which) .
-                        " branch $branchId contains $nc elements but merge data contains $nd."
-                );
-            }
-            # LCOV_EXCL_STOP
-            for (my $i = ($nc > $nd ? $nd : $nc) - 1; $i >= 0; --$i) {
-                my $br = $d->[$i];
-                $c->[$i]->merge($br, $filename, $current->line());
-            }
-            # now append any new values from 'branchData':
-            #  (go here only if |D| > |C| and we ignore the mismatch error
-            for (my $i = $nc; $i < $nd; ++$i) {
-                push(@$c, Storable::dclone($d->[$i]));
-            }
-        }
-    } else {
-        $branch->[$loc] = Storable::dclone($branchData);
-    }
+    die("unexpected $loc branch data") if defined($branch->[$loc]);
+    $branch->[$loc] = Storable::dclone($branchData);
 }
 
 sub baseline_branch
 {
-    my ($self, $branchData, $filename) = @_;
+    my ($self, $branchData) = @_;
     die("has baseline branch data but not in baseline")
         if (defined($branchData) && !defined($self->[LINENO_BASE]));
     if (defined($branchData)) {
-        $self->_mergeBranchData(DATA_BASELINE, $branchData, $filename);
+        $self->_mergeBranchData(DATA_BASELINE, $branchData);
     }
     my $branch = $self->[BRANCH_DATA];
     return $branch->[DATA_BASELINE];
@@ -2402,12 +2355,12 @@ sub baseline_branch
 
 sub current_branch
 {
-    my ($self, $branchData, $filename) = @_;
+    my ($self, $branchData) = @_;
     die("has current branch data but not in current")
         if (defined($branchData) &&
             (!defined($self->[LINENO_CURRENT]) || $self->[LINENO_CURRENT] < 0));
     if (defined($branchData)) {
-        $self->_mergeBranchData(DATA_CURRENT, $branchData, $filename);
+        $self->_mergeBranchData(DATA_CURRENT, $branchData);
     }
     my $branch = $self->[BRANCH_DATA];
     return $branch->[DATA_CURRENT];
@@ -2426,24 +2379,19 @@ sub differential_branch
 sub _mergeMcdcData
 {
     # this is nearly identical to 'function' implementation...maybe share
-    my ($self, $loc, $mcdcData, $filename) = @_;
+    my ($self, $loc, $mcdcData) = @_;
     my $mcdc = $self->[MCDC_DATA];
-    if (defined($mcdc->[$loc])) {
-
-        my $current = $mcdc->[$loc];
-        $current->merge($mcdcData);
-    } else {
-        $mcdc->[$loc] = Storable::dclone($mcdcData);
-    }
+    die("unexpected $loc MC/DC data") if defined($mcdc->[$loc]);
+    $mcdc->[$loc] = Storable::dclone($mcdcData);
 }
 
 sub baseline_mcdc
 {
-    my ($self, $mcdcData, $filename) = @_;
+    my ($self, $mcdcData) = @_;
     die("has baseline MC/DC data but not in baseline")
         if (defined($mcdcData) && !defined($self->[LINENO_BASE]));
     if (defined($mcdcData)) {
-        $self->_mergeMcdcData(DATA_BASELINE, $mcdcData, $filename);
+        $self->_mergeMcdcData(DATA_BASELINE, $mcdcData);
     }
     my $mcdc = $self->[MCDC_DATA];
     return $mcdc->[DATA_BASELINE];
@@ -2451,12 +2399,12 @@ sub baseline_mcdc
 
 sub current_mcdc
 {
-    my ($self, $mcdcData, $filename) = @_;
+    my ($self, $mcdcData) = @_;
     die("has current MC/DC data but not in current")
         if (defined($mcdcData) &&
             (!defined($self->[LINENO_CURRENT]) || $self->[LINENO_CURRENT] < 0));
     if (defined($mcdcData)) {
-        $self->_mergeMcdcData(DATA_CURRENT, $mcdcData, $filename);
+        $self->_mergeMcdcData(DATA_CURRENT, $mcdcData);
     }
     my $mcdc = $self->[MCDC_DATA];
     return $mcdc->[DATA_CURRENT];
@@ -2478,13 +2426,9 @@ sub _mergeFunctionData
     die('expected FunctionEntry found ' . ref($functionData))
         unless 'FunctionEntry' eq ref($functionData);
     my $function = $self->[FUNCTION_DATA];
-    if (defined($function->[$loc])) {
-        my $current = $function->[$loc];
-        $current->merge($functionData);
-    } else {
-        # also clone hit count data
-        $function->[$loc] = $functionData->cloneWithEndLine(1, 1);
-    }
+    die("unexpected $loc function data") if defined($function->[$loc]);
+    # also clone hit count data
+    $function->[$loc] = $functionData->cloneWithEndLine(1, 1);
 }
 
 sub baseline_function
@@ -2566,16 +2510,13 @@ sub new
 
     # line coverage categorization includes date- and owner- bins in
     #   the vanilla case when there is no baseline.
-    $self->_categorizeLineCov($filename, $base_data, $current_data,
-                              $diffMap, $verbose);
-    $self->_categorizeBranchCov($filename, $base_data, $current_data,
-                                $diffMap, $verbose)
+    my @args = ($filename, $base_data, $current_data, $diffMap, $verbose);
+    $self->_categorizeLineCov(@args);
+    $self->_categorizeBranchCov(@args)
         if ($lcovutil::br_coverage);
-    $self->_categorizeMcdcCov($filename, $base_data, $current_data,
-                              $diffMap, $verbose)
+    $self->_categorizeMcdcCov(@args)
         if ($lcovutil::mcdc_coverage);
-    $self->_categorizeFunctionCov($filename, $base_data, $current_data,
-                                  $diffMap, $verbose)
+    $self->_categorizeFunctionCov(@args)
         if ($lcovutil::func_coverage);
 
     return $self;
@@ -2644,12 +2585,12 @@ sub recategorizeTlaAsBaseline
         if ($lcovutil::br_coverage && defined($data->differential_branch())) {
             my $br = $data->differential_branch();
 
-            foreach my $branchId ($br->blocks()) {
-                my $diff = $br->getBlock($branchId);
+            foreach my $block ($br->blocks()) {
+                my $diff = $block->elements();
                 foreach my $b (@$diff) {
-                    my $tla = $b->[1];
+                    my $tla = $b->tla();
                     if (exists($remap{$tla})) {
-                        $b->[1] = $remap{$tla};
+                        $b->[BranchElement::TLA] = $remap{$tla};
                     }
                 }
             }
@@ -2906,18 +2847,29 @@ sub _categorizeLineCov
     }
 }
 
-sub _cloneBranchEntry
+sub cloneBlock
 {
     my ($cloneInto, $cloneFrom, $missTla, $hitTla, $categorizeExcluded) = @_;
-    foreach my $branchId ($cloneFrom->blocks()) {
-        my $block = $cloneInto->addBlock($branchId);
-        foreach my $br (@{$cloneFrom->getBlock($branchId)}) {
-            my $count = $br->count();
-            my $tla =
-                _categorizeIfExcluded($count,
-                                      $categorizeExcluded && $br->is_excluded(),
-                                      $missTla, $hitTla);
-            push(@$block, [$br, $tla, [undef, $count]]);
+
+    foreach my $br (@{$cloneFrom->elements()}) {
+        my $count = $br->count();
+        my $tla =
+            _categorizeIfExcluded($count,
+                                  $categorizeExcluded && $br->is_excluded(),
+                                  $missTla, $hitTla);
+        push(@$br, $tla, [undef, $count]);    # undef == "not in baseline"
+        $cloneInto->appendElement($br);
+    }
+}
+
+sub _cloneBranchLocation
+{
+    my ($cloneInto, $cloneFrom, $missTla, $hitTla, $categorizeExcluded) = @_;
+    foreach my $code ($cloneFrom->codes(1)) {
+        foreach my $from (@{$cloneFrom->getList($code)}) {
+            my $to = BranchBlock->new();
+            cloneBlock($to, $from, $missTla, $hitTla, $categorizeExcluded);
+            $cloneInto->insertBlock($to);
         }
     }
 }
@@ -2957,13 +2909,14 @@ sub _categorizeBranchCov
         $data->lineNo("current", $line, $filename);
         # append this branch data for the line
         my $currBranchData = $branchCurrent->value($line);
-        $data->current_branch($currBranchData, $filename);
+        $data->current_branch($currBranchData);
         if (!defined($branchBaseline)) {
-            my $categorized = BranchEntry->new($line);
+            my $categorized = BranchLocation->new($line);
             $data->differential_branch($categorized);
             die("no branch data for deleted $filename:$line")
                 unless defined($currBranchData);
-            _cloneBranchEntry($categorized, $currBranchData, 'UNC', 'GNC', 1);
+            _cloneBranchLocation($categorized, $currBranchData, 'UNC', 'GNC',
+                                 1);
         }
     }    # foreach line in 'current' branch data
 
@@ -2983,7 +2936,7 @@ sub _categorizeBranchCov
             $branchCovLines{$deleteKey} = 1;
         }
         my $baseBranchData = $branchBaseline->value($base_line);
-        $data->baseline_branch($baseBranchData, $filename);
+        $data->baseline_branch($baseBranchData);
     }    # foreach line in baseline data
 
     # go through all the branch data for each line, and categorize everything
@@ -2992,11 +2945,8 @@ sub _categorizeBranchCov
         my $type        = $data->type();
         my $curr        = $data->current_branch();
         my $base        = $data->baseline_branch();
-        my $categorized = BranchEntry->new($line);
+        my $categorized = BranchLocation->new($line);
         $data->differential_branch($categorized);
-        # handle case that baseline and/or current do not contain branch data
-        my @currBlocks = defined($curr) ? $curr->blocks() : ();
-        my @baseBlocks = defined($base) ? $base->blocks() : ();
 
         if ($type == DiffMap::INSERT) {
             # can get here if diff data vs baseline/current is not consistent
@@ -3004,7 +2954,7 @@ sub _categorizeBranchCov
                 "baseline branch data should not be defined for inserted line $filename:$line"
             ) if defined($base);
             if (defined($curr)) {
-                _cloneBranchEntry($categorized, $curr, 'UNC', 'GNC', 1);
+                _cloneBranchLocation($categorized, $curr, 'UNC', 'GNC', 1);
             } else {
                 # LCOV_EXCL_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
@@ -3019,7 +2969,7 @@ sub _categorizeBranchCov
             ) if defined($curr);
 
             if (defined($base)) {
-                _cloneBranchEntry($categorized, $base, 'DUB', 'DCB');
+                _cloneBranchLocation($categorized, $base, 'DUB', 'DCB');
             } else {
                 # LCOV_EXCL_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
@@ -3031,71 +2981,71 @@ sub _categorizeBranchCov
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                      "unexpected branch coverage type $type at $filename:$line")
                 if $type != DiffMap::EQUAL;
+            # go through all the codes baseline - handle whether in
+            #   current or not
+            my $numCurr = $curr->numBlocks()
+                if defined($curr);
+            # sort the set of codes - so blocks get created in an easily
+            #  explained order
+            my @baselineCodes = $base->codes(1)
+                if defined($base);
 
-            # branch might or might not be in both baseline and current
-            foreach my $branchId (@baseBlocks) {
-                my $b          = $base->getBlock($branchId);
-                my $branchData = $categorized->addBlock($branchId);
-                if (defined($curr) &&
-                    $curr->hasBlock($branchId)) {
-                    my $c = $curr->getBlock($branchId);
+            foreach my $code (@baselineCodes) {
+                my $baseList = $base->getList($code);
+                if (defined($curr) && $curr->containsCode($code)) {
+                    my $currList = $curr->getList($code);
+                    my $blkIdx   = 0;
+                    foreach my $baseBlock (@$baseList) {
+                        my $catBlock = BranchBlock->new();
+                        if ($blkIdx <= $#$currList) {
+                            my $currBlock = $currList->[$blkIdx++];
+                            my $elemIdx   = 0;
+                            foreach my $base_br (@{$baseBlock->elements()}) {
+                                my $curr_br =
+                                    $currBlock->getElement($elemIdx++);
+                                my $baseCount = $base_br->count();
+                                my $currCount = $curr_br->count();
+                                my $tla =
+                                    _categorize($baseCount, $currCount,
+                                                $curr_br->is_excluded());
 
-                    my $num_base = scalar(@$b);
-                    my $num_curr = scalar(@$c);
-                    my $max = $num_base > $num_curr ? $num_base : $num_curr;
-                    my $tla;
-                    for (my $i = 0; $i < $max; ++$i) {
-                        if ($i < $num_base &&
-                            $i < $num_curr) {
-                            my $base_br = $b->[$i];
-                            my $curr_br = $c->[$i];
-                            $tla =
-                                _categorize($base_br->count(),
-                                    $curr_br->count(), $curr_br->is_excluded());
-                            push(@$branchData,
-                                 [$curr_br, $tla,
-                                  [$base_br->count(), $curr_br->count()]
-                                 ]);
-                        } elsif ($i < $num_base) {
-                            my $base_br = $b->[$i];
-                            $tla = (0 == $base_br->count()) ? 'EUB' : 'ECB';
-                            push(@$branchData,
-                                 [$base_br, $tla, [$base_br->count(), undef]]);
+                                push(@$curr_br, $tla, [$baseCount, $currCount]);
+                                $catBlock->appendElement($curr_br);
+                            }
                         } else {
-                            my $curr_br = $c->[$i];
-                            $tla =
-                                _categorizeIfExcluded($curr_br->count(),
-                                                      $curr_br->is_excluded(),
-                                                      'UIC', 'GIC');
-                            push(@$branchData,
-                                 [$curr_br, $tla, [undef, $curr_br->count()]]);
+                            # this block not in current - clone and mark
+                            #   that it was deleted
+                            cloneBlock($catBlock, $baseBlock, 'DUB', 'DCB');
                         }
+                        $categorized->insertBlock($catBlock);
+                    }
+                    # now handle any blocks that are in current but not base
+                    while ($blkIdx <= $#$currList) {
+                        my $catBlock  = BranchBlock->new();
+                        my $currBlock = $currList->[$blkIdx++];
+                        cloneBlock($catBlock, $currBlock, 'UIC', 'GIC', 1);
+                        $categorized->insertBlock($catBlock);
                     }
                 } else {
-                    # branch not found in current...
-                    foreach my $base_br (@$b) {
-                        my $tla = (0 == $base_br->count()) ? 'EUB' : 'ECB';
-                        push(@$branchData,
-                             [$base_br, $tla, [$base_br->count(), undef]]);
+                    # this code not in current - so clone/mark as deleted
+                    foreach my $baseBlock (@$baseList) {
+                        my $b = BranchBlock->new();
+                        cloneBlock($b, $baseBlock, 'DUB', 'DCB');
+                        $categorized->insertBlock($b);
                     }
                 }
             }
-            # now check for branches that are in current but not in baseline...
-            foreach my $branchId (@currBlocks) {
-                next
-                    if defined($base) &&
-                    $base->hasBlock($branchId);    # already processed
-                my $c          = $curr->getBlock($branchId);
-                my $branchData = $categorized->addBlock($branchId);
-                foreach my $curr_br (@$c) {
-                    my $tla =
-                        _categorizeIfExcluded($curr_br->count(),
-                                              $curr_br->is_excluded(),
-                                              'UIC', 'GIC');
-                    push(@$branchData,
-                         [$curr_br, $tla, [undef, $curr_br->count()]]);
+            # now find all the codes in current that were not in base..
+            if (defined($curr)) {
+                foreach my $code ($curr->codes(1)) {
+                    next if defined($base) && $base->containsCode($code);
+                    foreach my $currBlock (@{$curr->getList($code)}) {
+                        my $b = BranchBlock->new();
+                        cloneBlock($b, $currBlock, 'UIC', 'GIC', 1);
+                        $categorized->insertBlock($b);
+                    }
                 }
-            }    # foreach branchId in current that isn't in base
+            }
         }
     }
 }
@@ -3156,7 +3106,7 @@ sub _categorizeMcdcCov
         $data->lineNo("current", $line, $filename);
         # append this MC/DC data for the line (this is an MCDC_Block)
         my $currMcdcData = $mcdcCurrent->value($line);
-        $data->current_mcdc($currMcdcData, $filename);
+        $data->current_mcdc($currMcdcData);
         if (!defined($mcdcBaseline)) {
             my $categorized = MCDC_Block->new($line);
             $data->differential_mcdc($categorized);
@@ -3181,7 +3131,7 @@ sub _categorizeMcdcCov
             $mcdcCovLines{$deleteKey} = 1;
         }
         my $baseMcdcData = $mcdcBaseline->value($base_line);
-        $data->baseline_mcdc($baseMcdcData, $filename);
+        $data->baseline_mcdc($baseMcdcData);
     }    # foreach line in baseline data
 
     # go through all the MC/DC data for each line, and categorize everything
@@ -4917,16 +4867,17 @@ sub _countBranchTlaData
         }
     }
 
-    foreach my $branchId ($differentialData->blocks()) {
-        my $diff = $differentialData->getBlock($branchId);
-        foreach my $b (@$diff) {
-            my $tla = $b->[1];
+    foreach my $block ($differentialData->blocks()) {
+        my $diff    = $block->elements();
+        my $blockId = $block->idx();
+        foreach my $br (@$diff) {
+            my $tla = $br->tla();
             # don't count excluded coverpoints
             # LCOV_EXCL_START
             unless (defined($tla)) {
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                          "undef TLA for branch $branchId of " . $self->path() .
-                              ":$line - lineTLA:$lineTla taken:" . $b->[0]);
+                          "undef TLA for branch $blockId of " . $self->path() .
+                              ":$line - lineTLA:$lineTla taken:" . $br->data());
                 next;
             }
             # LCOV_EXCL_STOP
@@ -5393,21 +5344,32 @@ sub binarySearchLine
     my $mid;
     while (1) {
         $mid = int(($max + $min) / 2);
-        my $v = $list->[$mid];
+        my ($v) = $list->[$mid] =~ /^<*([0-9]+)$/; # handle deleted line markers
         if ($v > $after) {
             $max = $mid;
         } elsif ($v < $after) {
             $min = $mid;
         } else {
+            while ($list->[$mid] =~ /<<</) {
+                # skip deleted
+                ++$mid;
+                return undef if $mid > $#$list;
+            }
             return $mid;
         }
         my $diff = $max - $min;
         if ($diff <= 1) {
             $mid = $min;
+            my ($v) = $list->[$min] =~ /^<*([0-9]+)$/;
             $mid = $max
-                if $list->[$min] < $after;
+                if $v < $after;
             last;
         }
+    }
+    while ($list->[$mid] =~ /<<</) {
+        # skip deleted
+        ++$mid;
+        return undef if $mid > $#$list;
     }
     return $list->[$mid] >= $after ? $mid : undef;
 }
@@ -6052,10 +6014,10 @@ sub new
                 my $lineData =
                     $fileDetails->line($line);    # "SourceLine" structure
                 my $branchEntry = $lineData->branchElem();
-                foreach my $id ($branchEntry->blocks()) {
-                    my $block = $branchEntry->getBlock($id);
-                    foreach my $data (@$block) {
-                        my ($br, $tla) = @$data;
+                foreach my $blk ($branchEntry->blocks()) {
+                    my $block = $blk->elements();
+                    foreach my $br (@$block) {
+                        my $tla   = $br->tla();
                         my $count = $br->count();
                         die("unexpected branch TLA $tla for count $count at " .
                             $fileDetails->path() . ":$line")
@@ -10898,24 +10860,25 @@ sub get_block_list($)
 
     my @blocks;
 
-    if ('BranchEntry' eq ref($data)) {
+    if ('BranchLocation' eq ref($data)) {
 
         my $block = [];
-        my $last_block_num;
+        my $last_blkId;
 
         # Group branches
-        foreach my $block_num (sort $data->blocks()) {
-            my $blockData = $data->getBlock($block_num);
+        foreach my $blk ($data->blocks(1)) {
+            my $blockData = $blk->elements();
+            my $blkId     = $blk->idx();
             my $branch    = 0;
             foreach my $br (@$blockData) {
 
-                if (defined($last_block_num) && $block_num != $last_block_num) {
+                if (defined($last_blkId) && $blkId ne $last_blkId) {
                     push(@blocks, $block);
                     $block = [];
                 }
-                my $br = [$block_num, $branch, $br, 3, 0, 0];
+                my $br = [$blkId, $branch, $br, 3, 0, 0];
                 push(@{$block}, $br);
-                $last_block_num = $block_num;
+                $last_blkId = $blkId;
                 ++$branch;
             }
         }
@@ -10976,9 +10939,14 @@ sub distribute_blocks($$)
             $line     = [@{$block}];
             next;
         }
+        my $split = ($block_len / $field_width) > 2;
+        # this block is going to take up a bunch of lines -
+        # add it to a new line
+
         # Split the block into several lines
         foreach my $branch (@{$block}) {
-            if ($line_len + $branch->[$BR_LEN] >= $field_width) {
+            if ($line_len + $branch->[$BR_LEN] >= $field_width ||
+                $split) {
                 # Start a new line
                 if (($line_len + 1 <= $field_width) &&
                     scalar(@{$line}) > 0 &&
@@ -10990,6 +10958,7 @@ sub distribute_blocks($$)
                 push(@lines, $line);
                 $line_len = 0;
                 $line     = [];
+                $split    = 0;
             }
             push(@{$line}, $branch);
             $line_len += $branch->[$BR_LEN];
@@ -11042,17 +11011,12 @@ sub get_branch_html($$)
                 $current_len++;
                 next;
             }
-
             my ($block_num, $br_num, $br, $len, $open, $close) = @{$branch};
-
             my $class;
             my $prefix;
-            my $tla;
-            my $base_count;
-            if ('ARRAY' ne ref($br)) {
+            my ($tla, $base_count);
+            unless (defined($differentialBranch)) {
                 # vanilla case - no differential coverage info
-                die("differential branch coverage but no TLA")
-                    if defined($differentialBranch);
                 if ($br->data() eq '-') {
                     $class = "tlaUNC";
                 } elsif ($br->data() == 0) {
@@ -11062,11 +11026,8 @@ sub get_branch_html($$)
                 }
                 $prefix = '';
             } else {
-                die("differential branch coverage but no TLA")
-                    unless defined($differentialBranch);
-                $tla        = $br->[1];
-                $base_count = $br->[2]->[0];
-                $br         = $br->[0];
+                $tla        = $br->tla;
+                $base_count = ($br->diff_count())[0];
                 $class      = "tla$tla";
                 my $label =
                     $main::use_legacyLabels ?
@@ -11076,16 +11037,19 @@ sub get_branch_html($$)
             }
             my ($char, $title);
 
-            my $br_name =
+            my $br_name = $br->type_name();
+            $br_name .= ' ' if $br_name;
+            $br_name .= 'branch ';
+            $br_name .=
                 defined($br->expr()) ? '"' . $br->expr() . '"' : $br_num;
             my $taken = $br->data();
             if ($br->is_excluded()) {
                 $class = 'tla' . ($br->count() ? 'ECC' : 'EUC');
                 $char  = 'x';
-                $title = "Branch $br_name marked unreachable";
+                $title = "$br_name marked unreachable";
             } elsif ($taken eq '-') {
                 $char  = "#";
-                $title = "${prefix}Branch $br_name was not executed";
+                $title = "${prefix}$br_name was not executed";
                 $title .=
                     " (previously taken $base_count time" .
                     (1 == $base_count ? '' : 's') . ')'
@@ -11093,7 +11057,7 @@ sub get_branch_html($$)
                         ($tla eq 'LBC' || $tla eq 'ECB'));
             } elsif ($taken == 0) {
                 $char  = "-";
-                $title = "${prefix}Branch $br_name was not taken";
+                $title = "${prefix}$br_name was not taken";
                 $title .=
                     " (previously taken $base_count time" .
                     (1 == $base_count ? '' : 's') . ')'
@@ -11101,7 +11065,7 @@ sub get_branch_html($$)
                         ($tla eq 'LBC' || $tla eq 'ECB'));
             } else {
                 $char  = "+";
-                $title = "${prefix}Branch $br_name was taken $taken time" .
+                $title = "${prefix}$br_name was taken $taken time" .
                     (($taken > 1) ? "s" : "");
             }
             $title = escape_html($title) if defined($br->expr());

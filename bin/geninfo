@@ -145,8 +145,6 @@ our %COMPAT_MODE_AUTO = ($COMPAT_MODE_HAMMER    => 0,    # no gcc/3.3 support
                          $COMPAT_MODE_SPLIT_CRC => 1,    # will be done later
 );
 
-our $UNNAMED_BLOCK = -1;
-
 our $trace_data;
 
 # Prototypes
@@ -159,7 +157,7 @@ sub split_filename($);
 sub solve_relative_path($$);
 sub compute_internal_directories(@);
 sub read_gcov_header($);
-sub read_gcov_file($$$);
+sub read_gcov_file($$$$$);
 sub my_info(@);
 set_info_callback(\&my_info);
 sub process_intermediate($$$$);
@@ -209,8 +207,7 @@ our $opt_no_compat_libtool;
 our $initial;
 our $no_recursion = 0;
 our $maxdepth;
-our $no_markers           = 0;
-our $opt_derive_func_data = 0;
+our $no_markers = 0;
 our $gcov_caps;
 our %compat_value;
 our $intermediate;
@@ -255,7 +252,6 @@ my %geninfo_opts = ("test-name|t=s"       => \$test_name,
                     "all"                 => \$lcovutil::geninfo_captureAll,
                     "no-recursion"        => \$no_recursion,
                     "no-markers"          => \$no_markers,
-                    "derive-func-data"    => \$opt_derive_func_data,
                     "external|e"          => \$lcovutil::opt_external,
                     "no-external"         => \$lcovutil::opt_no_external,
                     "compat=s"            => \$lcovutil::geninfo_opt_compat,
@@ -286,7 +282,7 @@ if (defined($lcovutil::rc_adjust_src_path)) {
     my $p = "s#$pattern#$replace#g";
     $p .= 'i' if $lcovutil::case_insensitive;
     my $text = 'abc';
-    my $str  = eval { '$test =~ ' . $p . ';' };
+    my $str  = eval "\$text =~ $p ;";
     if ($@) {
         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
             "Invalid 'geninfo_adjust_src_path=$lcovutil::rc_adjust_src_path' syntax: '$@'"
@@ -391,11 +387,6 @@ if ($gcov_version >= (9 << 16) &&
 
 if ($intermediate) {
     info("Using intermediate gcov format\n");
-    if ($opt_derive_func_data) {
-        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-               "--derive-func-data is not compatible with intermediate format");
-        $opt_derive_func_data = 0;
-    }
     if ($lcovutil::exclude_exception_branch && !$gcov_caps->{'json-format'}) {
         die("excluding exception branches is not compatible with " .
             "text intermediate format\n");
@@ -541,6 +532,7 @@ if ($initial && $lcovutil::br_coverage && !$intermediate) {
     lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
         "--initial cannot generate branch coverage data with this compiler/toolchain version."
     );
+    $lcovutil::br_coverage = 0;
 }
 
 lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
@@ -689,7 +681,6 @@ OPTIONS
       --demangle-cpp [PARAM]        Demangle C++ function names
       --no-recursion                Exclude subdirectories from processing
       --no-markers                  Ignore exclusion markers in source code
-      --derive-func-data            Generate function data from line data
       --(no-)external               Include (ignore) data for external files
       --compat MODE=on|off|auto     Set compat MODE (libtool, hammer, split_crc)
       --include PATTERN             Include files matching PATTERN
@@ -1512,7 +1503,7 @@ sub gen_info(@)
                     lcovutil::check_parent_process();
 
                     # print stdout and stderr ...
-                    foreach my $d (['kog', $stdout], ['err', $stderr]) {
+                    foreach my $d (['log', $stdout], ['err', $stderr]) {
                         my ($ext, $str) = @$d;
                         # only print if there is something to print
                         next
@@ -1617,81 +1608,10 @@ sub gen_info(@)
 }
 
 #
-# derive_data(contentdata, funcdata, bbdata)
-#
-# Calculate function coverage data by combining line coverage data and the
-# list of lines belonging to a function.
-#
-# contentdata: [ instr1, count1, source1, instr2, count2, source2, ... ]
-# instr<n>: Instrumentation flag for line n
-# count<n>: Execution count for line n
-# source<n>: Source code for line n
-#
-# funcdata: [ count1, func1, count2, func2, ... ]
-# count<n>: Execution count for function number n
-# func<n>: Function name for function number n
-#
-# bbdata: function_name -> [ line1, line2, ... ]
-# line<n>: Line number belonging to the corresponding function
-#
-
-sub derive_data($$$)
-{
-    my ($contentdata, $funcdata, $bbdata) = @_;
-    my @gcov_content   = @{$contentdata};
-    my @gcov_functions = @{$funcdata};
-    my %fn_count;
-
-    if (!defined($bbdata)) {
-        return @gcov_functions;
-    }
-
-    # First add existing function data
-    while (@gcov_functions) {
-        my $count = shift(@gcov_functions);
-        my $fn    = shift(@gcov_functions);
-
-        $fn_count{$fn} = $count;
-    }
-
-    # Convert line coverage data to function data
-    foreach my $fn (keys(%{$bbdata})) {
-        my $line_data = $bbdata->{$fn};
-        my $line;
-        my $fninstr = 0;
-
-        if ($fn eq "") {
-            next;
-        }
-        # Find the lowest line count for this function
-        my $count = 0;
-        foreach my $line (@$line_data) {
-            my $linstr = $gcov_content[($line - 1) * 3 + 0];
-            my $lcount = $gcov_content[($line - 1) * 3 + 1];
-
-            next if (!$linstr);
-            $fninstr = 1;
-            if (($lcount > 0) &&
-                (($count == 0) || ($lcount < $count))) {
-                $count = $lcount;
-            }
-        }
-        next if (!$fninstr);
-        $fn_count{$fn} = $count;
-    }
-
-    # Convert hash to list in @gcov_functions format
-    foreach my $fn (sort(keys(%fn_count))) {
-        push(@gcov_functions, $fn_count{$fn}, $fn);
-    }
-
-    return @gcov_functions;
-}
-
-#
 # process_dafile(dirname, da_filename, gcno_filename, tempdir)
 #
 # Create a .info file for a single data file.
+# Used by gcc/4.8.3
 #
 # Die on error.
 #
@@ -1871,27 +1791,6 @@ sub process_dafile($$$$)
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
-
-            # Read in contents of gcov file
-            my @result = read_gcov_file($gcov_file, $da_filename, $source);
-            if (!defined($result[0])) {
-                lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
-                                          "$gcov_file is unreadable");
-                unlink($gcov_file) unless $lcovutil::preserve_intermediates;
-                next;
-            }
-            @gcov_content = @{$result[0]};
-            my $branchData = $result[1];
-            @gcov_functions = @{$result[2]};
-
-            # Skip empty files
-            if (!@gcov_content) {
-                lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
-                                          "$gcov_file is empty");
-                unlink($gcov_file) unless $lcovutil::preserve_intermediates;
-                next;
-            }
-
             if (scalar(@matches) == 1) {
                 # Just one match
                 $source_filename = $matches[0];
@@ -1916,30 +1815,19 @@ sub process_dafile($$$$)
                 next;
             }
 
-            my $fileData    = $traceFile->data($source_filename);
-            my $functionMap = $fileData->testfnc($test_name);
-            my $branchMap   = $fileData->testbr($test_name);
-            my $lineMap     = $fileData->test($test_name);
-
+            my $fileData = $traceFile->data($source_filename);
             if (@lcovutil::extractVersionScript) {
                 my $version = lcovutil::extractFileVersion($source_filename);
                 $fileData->version($version)
                     if (defined($version) && $version ne "");
             }
 
-            # If requested, derive function coverage data from
-            # line coverage data of the first line of a function
-            if ($opt_derive_func_data) {
-                @gcov_functions =
-                    derive_data(\@gcov_content, \@gcov_functions,
-                                $graph->{$source_filename});
-            }
-
-            # Hold function-related information
-            my %functionData;
-            if (defined($graph->{$source_filename})) {
+            # read the GCNO file to find function decls
+            if ($lcovutil::func_coverage &&
+                exists($graph->{$source_filename})) {
                 my $fn_data = $graph->{$source_filename};
 
+                my $functionMap = $fileData->testfnc($test_name);
                 while (my ($fn, $ln_data) = each(%$fn_data)) {
                     next if ($fn eq "");
                     my $line = $ln_data->[0];
@@ -1949,83 +1837,25 @@ sub process_dafile($$$$)
                     # demangled already
                     $fn = filter_fn_name($fn,
                                          defined($lcovutil::demangle_cpp_cmd));
-                    $functionData{$fn} =
-                        $functionMap->define_function($fn, $line);
+                    $functionMap->define_function($fn, $line);
                 }
             }
 
-            while (@gcov_functions) {
-                my $count = shift(@gcov_functions);
-                my $fn    = shift(@gcov_functions);
+            # Read in contents of gcov file
+            my ($lineMap, $branchMap, $functionMap) =
+                read_gcov_file($fileData, $gcov_file, $da_filename,
+                               $source, $test_name);
 
-                # don't need to demangle here because this came from reading
-                #  the gcov result - and we demangled that.
-                $fn = filter_fn_name($fn, 0);
-                next unless exists($functionData{$fn});
-                $functionData{$fn}->addAlias($fn, $count);
+            # Skip empty files
+            if (0 == $lineMap->found()) {
+                lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                          "$gcov_file is empty");
+                $traceFile->remove($source_filename);
+                unlink($gcov_file) unless $lcovutil::preserve_intermediates;
+                next;
             }
 
-            # Coverage information for each instrumented branch:
-            foreach my $line ($branchData->keylist()) {
-
-                my $branchEntry = $branchData->value($line);
-
-                # gcov extraction block numbers can be strange - so
-                #  just renumber them.
-                my $blockRenumber = 0;
-                foreach my $blockId ($branchEntry->blocks()) {
-                    my $blockData = $branchEntry->getBlock($blockId);
-                    foreach my $br (@$blockData) {
-                        $branchMap->append($line, $blockRenumber,
-                                           $br, $source_filename);
-                    }
-                    ++$blockRenumber;
-                }
-            }    # end for each branch
-
-            # Reset line counters
-            $line_number = 0;
-
-            # Write coverage information for each instrumented line
-            # Note: @gcov_content contains a list of (flag, count, source)
-            # tuple for each source code line
-            while (@gcov_content) {
-
-                $line_number++;
-
-                # Check for instrumented line
-                if ($gcov_content[0]) {
-                    my $hit = $gcov_content[1];
-                    # do we have branch data on this line?
-                    # if no branch data and this line was marked as
-                    # 'unexecuted' - then set its hit count to zero
-                    if ('ARRAY' eq ref($hit)) {
-                        die("unexpected 'unexec' count") unless $hit->[1] == 1;
-                        $hit = $hit->[0];
-                        if ($hit != 0 &&
-                            !defined($branchMap->value($line_number))) {
-                            lcovutil::debug(
-                                "$source_filename:$line_number: unexecuted block on non-branch line with count=$hit\n"
-                            );
-                            if ($lcovutil::opt_adjust_unexecuted_blocks) {
-                                $hit = 0;
-                            } elsif (lcovutil::warn_once(
-                                                        "unexecuted block",
-                                                        $ERROR_INCONSISTENT_DATA
-                            )) {
-                                lcovutil::ignorable_warning(
-                                    $ERROR_INCONSISTENT_DATA,
-                                    "$source_filename:$line_number: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
-                                );
-                            }
-                        }
-                    }
-                    $lineMap->append($line_number, $hit);
-                }
-                # Remove already processed data from array
-                splice(@gcov_content, 0, 3);
-            }
-            # now go through lines, functions, branches - append to test_name data
+            # append test-specific coverage to summary DB
             $fileData->sum()->union($lineMap);
             $fileData->sumbr()->union($branchMap);
             $fileData->func()->union($functionMap);
@@ -2344,6 +2174,7 @@ sub read_gcov_header($)
 #
 # Parse file GCOV_FILENAME (.gcov file format) and return the list:
 # (reference to gcov_content, reference to gcov_branch, reference to gcov_func)
+# Used by gcc/5.2.0
 #
 # gcov_content is a list of 3 elements
 # (flag, count, source) for each source code line:
@@ -2360,25 +2191,21 @@ sub read_gcov_header($)
 # Die on error.
 #
 
-sub read_gcov_file($$$)
+sub read_gcov_file($$$$$)
 {
-    my ($filename, $da_filename, $source_filename) = @_;
-    my @result     = ();
-    my $branchData = BranchData->new();
-    my @functions  = ();
-    my $number;
-    my $last_block = $UNNAMED_BLOCK;
-    my $last_line  = 0;
-    my $branchId;
-    my $unexec;
+    my ($fileData, $gcovFilename, $da_filename, $source_filename, $test_name) =
+        @_;
+    my $lineMap   = $fileData->test($test_name);
+    my $branchMap = $fileData->testbr($test_name)
+        if $lcovutil::br_coverage;
+    my $functionMap = $fileData->testfnc($test_name)
+        if $lcovutil::func_coverage;
 
-    my $f     = InOutFile->in($filename, $lcovutil::demangle_cpp_cmd);
+    my $f     = InOutFile->in($gcovFilename, $lcovutil::demangle_cpp_cmd);
     my $input = $f->hdl();
 
-    my $currentBlock;
-
     # Expect gcov format as used in gcc >= 3.3
-    debug("reading $filename\n");
+    debug("reading $gcovFilename\n");
     # line content "/*EOF*/" occurs when gcov knows the
     # number of lines in the file but can't find the source code -
     # most of the time, that is deliberate because we run gcov in a
@@ -2387,41 +2214,94 @@ sub read_gcov_file($$$)
     # - e.g., if we find the file due to fully qualified paths, and find
     # a non-EOF line following an EOF line.
     my $foundEOF = 0;
+    my %hasUnexecBlock;    # hash of lines which have 'unexec' marker
+    my $branchBlock;
+    my $branchId;
+    my $branchLine  = -1;
+    my $gcovBlockId = -1;
+    my $prevLine    = 0;
+
     while (<$input>) {
         chomp($_);
         # Also remove CR from line-end
         s/\015$//;
 
         if (/^\s*(\d+|\$+|\%+):\s*(\d+)-block\s+(\d+)\s*$/) {
+            next unless $lcovutil::br_coverage;
             # Block information - used to group related branches
+            # line=$2, blockId=$3
+            if ($branchLine != $2 ||
+                $gcovBlockId != $3) {
+                # gcov data contains "block ..." leaders in places which
+                #   don't contain any branches
+                if (defined($branchBlock) && !$branchBlock->empty()) {
+                    $branchMap->insertBlock($branchBlock, $branchLine);
+                    $branchBlock = undef;
+                }
+            }
+            # 'block' doesn't necessarily contain any branches - e.g.,
+            #  testcase 'genhtml/exception':  sees:
+            #    - 2 blocks on line 11 both containing 2 branches (blocks 0
+            #      and 1), followed by
+            #    - 3 blocks which do not contain branches (blocks 2, 3, 4),
+            #      followed by
+            #    - blocks 5, 6, and 7 which contain 2 branches each, followed
+            #      by
+            #    - blocks 8, 9, 10, 11, 12 - containing no branches.
+            $gcovBlockId = $3;
+            my $existing = $branchMap->value($2);
+            if (defined($branchBlock)) {
+                die("expected empty reused block")
+                    unless $branchBlock->empty();
+            } else {
+                $branchBlock = BranchBlock->new();
+            }
+            $branchLine = $2;
             $branchId   = 0;
-            $last_line  = $2;
-            $last_block = $3;
         } elsif (/^branch\s+(\d+)\s+taken\s+(\d+)(?:\s+\(([^)]*)\))?/) {
             next unless $lcovutil::br_coverage;
-            # $1 is block ID, $2 is hit count
-            my $count = $2;
-            my $br    = BranchBlock->new($branchId, $count, undef,
-                                      defined($3) && $3 eq 'throw');
-            $branchData->append($last_line, $last_block, $br, $filename);
-            ++$branchId;
+            # $1 is branch ID, $2 is hit count
+            my ($id, $count, $t) = ($1, $2, $3);
+            $t =~ /^(throw|fallthrough)?$/ or
+                die("unexpected $t")
+                if defined($t);
+            my $type;
+            if (!defined($t) || '' eq $t) {
+                $type = BranchElement::VANILLA;
+            } elsif ($t eq 'throw') {
+                $type = BranchElement::EXCEPT;
+            } else {
+                die("unexpected type '$t'") unless $t eq 'fallthrough';
+                $type = BranchElement::FALLTHROUGH;
+            }
+            # expect that all branches within the block are contiguous -
+            #   not interleaved with branches from other blocks
+            $branchBlock->appendElement(
+                         BranchElement->new($branchId++, $count, undef, $type));
         } elsif (/^branch\s+(\d+)\s+never\s+executed/) {
             next unless $lcovutil::br_coverage;
             # this branch not taken
-            my $br = BranchBlock->new($branchId, '-');
-            $branchData->append($last_line, $last_block, $br, $filename);
-            ++$branchId;
+            $branchBlock->appendElement(BranchElement->new($branchId++, '-'));
         } elsif (/^function\s+(.+)\s+called\s+(\d+)\s+/) {
             next unless $lcovutil::func_coverage;
             my $name  = $1;
             my $count = $2;
-            push(@functions, $count, $name);
+            my $fn    = filter_fn_name($name, 0);
+            my $func  = $functionMap->findName($fn);
+            if ($func) {
+                $func->addAlias($fn, $count);
+            } else {
+                lcovutil::info("$source_filename: unknown function '$fn'" .
+                               ($name ne $fn ? " ($name)" : '') .
+                               " not in GCNO file  - skipped\n");
+            }
         } elsif (/^call/) {
             # Function call return data
         } elsif (/^\s*([^:]+):\s*([^:]+):(.*)$/) {
             my ($count, $line, $code) = ($1, $2, $3);
             # Skip instance-specific counts
-            next if ($line <= (scalar(@result) / 3));
+            next if $line <= $prevLine;
+            $prevLine = $line;
             # skip fake line inserted by gcov
             if ($code eq '/*EOF*/') {
                 $foundEOF = 1;
@@ -2429,42 +2309,62 @@ sub read_gcov_file($$$)
                 # data looks inconsistent...we started finding some EOF entries
                 # and now we found a following entry which claims not to be EOF
                 lcovutil::ignorable_error($ERROR_FORMAT,
-                    "non-EOF for $source_filename:$line at $filename:$. while processing $da_filename: '$code'"
+                    "non-EOF for $source_filename:$line at $gcovFilename:$. while processing $da_filename: '$code'"
                 );
             }
-            $branchId   = 0;                # if $last_line != $line;
-            $last_line  = $line;
-            $last_block = $UNNAMED_BLOCK;
             # Strip unexecuted basic block marker
             if ($count =~ /^([^*]+)\*$/) {
                 # need to do something about lines which have non-zero count
                 #  but unexecuted block.  If there are no branches associated
                 #  with this line, then we should mark the line as not hit.
                 # Otherwise, result is misleading because we can see
-                #  (for example) a non-zero hit could for the the 'if' clause
+                #  (for example) a non-zero hit count for the 'if' clause
                 #  of an untaken branch.
-                $unexec = 1;
-                $count  = $1;
-            } else {
-                $unexec = 0;
+                $count = $1;
+                $hasUnexecBlock{$line} = $1
+                    unless $count == 0;
             }
-
             # <exec count>:<line number>:<source code>
             if ($line eq "0") {
                 # Extra data
+                next;
             } elsif ($count eq "-") {
                 # Uninstrumented line
-                push(@result, 0, 0, $code);
+                next;
             } else {
                 # Check for zero count
                 if ($count =~ /^[#=]/) {
                     $count = 0;
                 }
-                push(@result, 1, $unexec ? [$count, $unexec] : $count, $code);
+                $lineMap->append($line, $count);
             }
+
         }
     }
-    return (\@result, $branchData, \@functions);
+    if (defined($branchMap)) {
+        $branchMap->insertBlock($branchBlock, $branchLine)
+            if defined($branchBlock) && !$branchBlock->empty();
+        $branchMap->updateCounts();
+    }
+    foreach my $line (sort keys %hasUnexecBlock) {
+        my $hit = $hasUnexecBlock{$line};
+        die("unexpected 'unexec' count") unless $hit != 0;
+        next unless defined($branchMap->value($line));
+        lcovutil::debug(
+            "$source_filename:$line: unexecuted block on non-branch line with count=$hit\n"
+        );
+
+        if ($lcovutil::opt_adjust_unexecuted_blocks) {
+            $lineMap->remove($line);
+            $lineMap->append($line, 0);
+        } elsif (lcovutil::warn_once(
+                                "unexecuted block", $ERROR_INCONSISTENT_DATA)) {
+            lcovutil::ignorable_warning($ERROR_INCONSISTENT_DATA,
+                "$source_filename:$line: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
+            );
+        }
+    }
+    return ($lineMap, $branchMap, $functionMap);
 }
 
 #
@@ -2554,18 +2454,19 @@ sub read_intermediate_json($$$)
 
 sub intermediate_text_to_info($)
 {
-    my $data       = shift;
-    my $branch_num = 0;
-
+    my $data = shift;
     return if (!%{$data});
 
     my $traceFile = TraceFile->new();
-
     while (my ($filename, $fileStr) = each(%$data)) {
         # note that we already substituted the source file name and handled
         # include/exclude directives - so no need to check here
         # see 'adjust_source_filenames() and 'filter_source_files()
 
+        if (TraceFile::skipCurrentFile($filename)) {
+            $lcovutil::excluded_files{$filename} = 1;
+            next;
+        }
         lcovutil::info(1, "emit data for $filename\n");
 
         # there is no meaningful parse location for this data
@@ -2579,6 +2480,9 @@ sub intermediate_text_to_info($)
             $fileData->version($version)
                 if (defined($version) && $version ne "");
         }
+        my $branch_num;
+        my $branchBlock;
+        my $branchLine = -1;
         for my $line (split(/\n/, $fileStr)) {
             if ($line =~ /^lcount:(\d+),(\d+),?/) {
                 # lcount:<line>,<count>
@@ -2605,9 +2509,9 @@ sub intermediate_text_to_info($)
                     $functionMap->define_function($name, $lineNo, $endline);
                 $func->addAlias($name, $hit);
             } elsif ($line =~ /^branch:(\d+),(taken|nottaken|notexec)/) {
-                my $lineNo = $1;
                 next
                     unless $lcovutil::br_coverage;
+                my $lineNo = $1;
                 my $c;
                 # branch:<line>,taken|nottaken|notexec
                 if ($2 eq "taken") {
@@ -2617,18 +2521,66 @@ sub intermediate_text_to_info($)
                 } else {
                     $c = "-";
                 }
-                my $br = BranchBlock->new($branch_num, $c);
-                # "block" is always zero for intermedaite text
-                $branchMap->append($lineNo, 0, $br, $filename);
-                ++$branch_num;
+                if (!defined($branchBlock) ||
+                    $lineNo != $branchLine) {
+                    $branchMap->insertBlock($branchBlock, $branchLine)
+                        if $branchBlock;
+
+                    # "block" is always zero for intermediate text
+                    $branchBlock = BranchBlock->new();
+                    $branch_num  = 0;
+                    $branchLine  = $lineNo;
+                }
+                $branchBlock->appendElement(
+                                         BranchElement->new($branch_num++, $c));
             }
         }
+        $branchMap->insertBlock($branchBlock, $branchLine)
+            if $branchBlock;
+        $branchMap->updateCounts();
         # now go through lines, functions, branches - append to test_name data
         $fileData->sum()->union($lineMap);
         $fileData->sumbr()->union($branchMap);
         $fileData->func()->union($functionMap);
     }
     return $traceFile;
+}
+
+package ExprMap;
+
+sub new
+{
+    my ($class, $filename) = shift;
+    return bless [{}, $filename], $class;
+}
+
+sub recordOrMergeBlock
+{
+    # if new block has same expression as an existing block on this line,
+    #   then merge the new one into the existing block and return undef.
+    # Otherwise, return the new block (so it can be inserted into this
+    #   location)
+    my ($self, $line, $block) = @_;
+
+    my $key = "$line:";
+    my $sep = '';
+
+    foreach my $br (@{$block->elements()}) {
+        my $expr = $br->expr();
+        $key .= $sep . $br->signature();
+        $key .= $expr
+            if defined($expr);
+        $sep = '#';
+    }
+    my $table = $self->[0];
+    if (exists($table->{$key})) {
+        my $existing = $table->{$key};
+        $existing->merge($block, $self->[1], $line);
+        return undef;
+    } else {
+        $table->{$key} = $block;
+        return $block;
+    }
 }
 
 #
@@ -2644,10 +2596,11 @@ sub intermediate_text_to_info($)
 #       This is done by lcov/genhtml when reading the data files.
 #
 
+package main;
+
 sub intermediate_json_to_info($)
 {
-    my $data       = shift;
-    my $branch_num = 0;
+    my $data = shift;
 
     return if (!%{$data});
 
@@ -2659,12 +2612,20 @@ sub intermediate_json_to_info($)
         # include/exclude directives - so no need to check here
         # see 'adjust_source_filenames() and 'filter_source_files()
         # there is no meaningful parse location for this data
-        my $fileData    = $traceFile->data($filename);
-        my $functionMap = $fileData->testfnc($test_name);
-        my $branchMap   = $fileData->testbr($test_name);
-        my $lineMap     = $fileData->test($test_name);
-        my $mcdcMap     = $fileData->testcase_mcdc($test_name);
         lcovutil::debug(1, "parse $filename\n");
+        if (TraceFile::skipCurrentFile($filename)) {
+            $lcovutil::excluded_files{$filename} = 1;
+            next;
+        }
+        my $fileData    = $traceFile->data($filename);
+        my $lineMap     = $fileData->test($test_name);
+        my $functionMap = $fileData->testfnc($test_name)
+            if $lcovutil::func_coverage;
+        my $branchMap = $fileData->testbr($test_name)
+            if $lcovutil::br_coverage;
+        my $mcdcMap = $fileData->testcase_mcdc($test_name)
+            if $lcovutil::mcdc_coverage;
+        my $branchExprMap = ExprMap->new($filename);
 
         if (@lcovutil::extractVersionScript) {
             my $version = lcovutil::extractFileVersion($filename);
@@ -2687,7 +2648,7 @@ sub intermediate_json_to_info($)
                 $func->addAlias($name, $count);
             }
         }
-        for my $d (@{$file_data->{"lines"}}) {
+        foreach my $d (@{$file_data->{"lines"}}) {
             my $line  = $d->{"line_number"};
             my $count = $d->{"count"};
 
@@ -2723,24 +2684,59 @@ sub intermediate_json_to_info($)
 
                 # there may be compiler-generated branch data on
                 #  the closing brace of the function...
-                $branch_num = 0;
-                $unexec     = (defined($unexec) && $unexec && $count == 0);
+                $unexec = (defined($unexec) && $unexec && $count == 0);
 
-                for my $b (@$branches) {
-                    my $brcount      = $b->{"count"};
-                    my $is_exception = $b->{"throw"};
-                    # need to keep track of whether compiler thinks this
-                    #  branch is an exception - so we can skip it later.
+                # build a BranchEntry from this data - then either
+                #  - insert it into the map:
+                #     - if this is the first block we saw on this line, OR
+                #     - this BranchEntry is not compatible with any existing
+                #       entry on this line (different number of elements
+                #       or elements have different expression or different
+                #       'exception' tag
+                #  - merge it into an existing compatible element
+                if (@$branches) {
 
-                    if (!defined($brcount) || $unexec) {
-                        $brcount = "-";
+                    # branch data is not necessarily contiguous
+                    #  e.g., 'genhtml/lambda' with gcc/14.2 sees 5
+                    #  branches on functional:513, then one at 514
+                    #  followed by another at 513 -
+                    # so we check to see if we already have a block
+                    # here - and merge (rather than appending) if we do
+                    my $branchLocation = $branchMap->findOrCreate($line);
+
+                    my $block      = BranchBlock->new();
+                    my $branch_num = 0;
+                    for my $b (@$branches) {
+                        my $brcount = $b->{"count"};
+                        if (!defined($brcount) || $unexec) {
+                            $brcount = "-";
+                        }
+                        # need to keep track of whether compiler thinks this
+                        #  branch is an exception - so we can skip it later.
+                        my $type;
+                        if (exists($b->{"throw"}) && $b->{"throw"}) {
+                            $type = BranchElement::EXCEPT;
+                        } elsif (exists($b->{"fallthrough"}) &&
+                                 $b->{"fallthrough"}) {
+                            $type = BranchElement::FALLTHROUGH;
+                        } else {
+                            $type = BranchElement::VANILLA;
+                        }
+                        my $from = $b->{'source_block_id'}
+                            if exists($b->{'source_block_id'});
+                        my $to = $b->{'destination_block_id'}
+                            if exists($b->{'destination_block_id'});
+                        # could record the from/to block address as the
+                        #  expression?
+                        my $expr = "$from -> $to"
+                            if defined($from) && defined($to);
+                        $block->appendElement(BranchElement->new(
+                                           $branch_num++, $brcount, $expr, $type
+                        ));
                     }
-                    my $entry =
-                        BranchBlock->new($branch_num, $brcount, undef,
-                                  defined($is_exception) && $is_exception != 0);
-                    # "block" is always zero for intermediate JSON data
-                    $branchMap->append($line, 0, $entry, $filename);
-                    ++$branch_num;
+                    my $blk = $branchExprMap->recordOrMergeBlock($line, $block);
+                    $branchLocation->insertBlock($block, $line)
+                        if $blk;
                 }
             }
             if ($conditions && @$conditions) {
@@ -2776,11 +2772,17 @@ sub intermediate_json_to_info($)
                 $mcdcMap->close_mcdcBlock($mcdc);
             }
         }
+        # update the branch counts in this file
         # now go through lines, functions, branches - append to test_name data
         $fileData->sum()->union($lineMap);
-        $fileData->sumbr()->union($branchMap);
-        $fileData->mcdc()->union($mcdcMap);
-        $fileData->func()->union($functionMap);
+        if ($lcovutil::br_coverage) {
+            $branchMap->updateCounts();
+            $fileData->sumbr()->union($branchMap);
+        }
+        $fileData->mcdc()->union($mcdcMap)
+            if $lcovutil::mcdc_coverage;
+        $fileData->func()->union($functionMap)
+            if $lcovutil::func_coverage;
     }
     return $traceFile;
 }

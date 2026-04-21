@@ -180,10 +180,12 @@ sub new
             # file is locally edited...append modify time or MD5 signature to the version ID
             my $data;
             if (exists($filehash{$1})) {
-                die("unexpected 'add' state") if 'add' eq $3;
+                die("$1: file exists 'add' state $3") if 'add' eq $3;
                 $data = $filehash{$1};
+            } elsif ('delete' eq $3) {
+                next;
             } else {
-                die("unexpected 'add' state") unless 'add' eq $3;
+                die("unexpected 'add' state '$4'") unless 'add' eq $3;
                 my $trimmed   = substr($1, length($depot_path));
                 my $full_name = $workspace_dir . $trimmed;
                 $data                 = [$full_name, $1, $trimmed, '#add'];
