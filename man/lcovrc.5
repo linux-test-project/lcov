@@ -451,22 +451,6 @@ genhtml_desc_html=0
 #demangle_cpp = c++filt
 .br
 
-# Name of the tool used for demangling C++ function names
-.br
-# This argument is deprecated - please use demangle_cpp' instead
-.br
-#genhtml_demangle_cpp_tool = c++filt
-.br
-
-# Specify extra parameters to be passed to the demangling tool
-.br
-#  this argument is deprecated - use Xlinker-like demangle_cpp
-.br
-#  parameter instead
-.br
-#genhtml_demangle_cpp_params = ""
-.br
-
 # Location of the gcov tool
 .br
 #geninfo_gcov_tool = gcov
@@ -522,14 +506,6 @@ geninfo_compat_libtool = 0
 .br
 #geninfo_compat = libtool=on, hammer=auto, split_crc=auto
 .br
-
-# Adjust path to source files by removing or changing path
-.br
-# components that match the specified pattern (Perl regular
-.br
-# expression format)
-.br
-#geninfo_adjust_src_path = /tmp/build => /usr/src
 
 # Specify if geninfo should try to automatically determine
 .br
@@ -1703,38 +1679,6 @@ This option corresponds to the \-\-demangle\-cpp command line option of
 Default is not set (C++ demangling is disabled).
 .PP
 
-.BR genhtml_demangle_cpp_tool " ="
-.I path_to_c++filt
-.IP
-Specify the location of the demangle tool (see
-.BR c++filt (1))
-used to convert C++ internal function names to human readable format
-for display on the HTML function overview page.
-
-This option is deprecated and will be removed from a future lcov release.
-Please use
-.I demangle_cpp = path_to_c++filt
-instead.
-
-.PP
-
-.BR genhtml_demangle_cpp_params " ="
-.I parameters
-.IP
-Specify extra parameters to be passed to the demangling tool
-
-Use this option if your environment requires additional parameters such
-as --no-strip-underscore for correctly demangling C++ internal function
-names. See also
-.BR c++filt (1)).
-.br
-
-This argument is deprecated.  Please use the Xlinker-like
-.I demangle_cpp
-argument instead.
-
-.PP
-
 .BR genhtml_desc_html " ="
 .IR 0 | 1
 .IP
@@ -1936,9 +1880,6 @@ This is equivalent to the "\-\-forget\-test\-names" lcov/genhtml option.
 Default is 0.
 .PP
 
-.BR geninfo_checksum " ="
-.IR 0 | 1
-.br
 .BR checksum " ="
 .IR 0 | 1
 .IP
@@ -1946,13 +1887,6 @@ If non\-zero, generate source code checksums when capturing coverage data.
 Checksums are useful to prevent merging coverage data from incompatible
 source code versions but checksum generation increases the size of coverage
 files and the time used to generate those files.
-.br
-
-The backward compatible
-.I geninfo_checksum
-option is deprecated.  Please use
-.I checksum
-instead.  The new option is preferred as it is more clear that the option is used by lcov and genhtml as well as geninfo,
 .br
 
 This option can be overridden by the \-\-checksum and \-\-no\-checksum command line
@@ -2255,9 +2189,6 @@ use immediate format when supported by gcov.
 Default is "auto".
 .PP
 
-.BR geninfo_no_exception_branch " ="
-.IR 0 | 1
-.br
 .BR no_exception_branch " ="
 .IR 0 | 1
 .IP
@@ -2271,13 +2202,6 @@ The value
 is equivalent to the
 .I \-\-filter exception
 command line option.
-
-The backward compatible
-.I geninfo_no_exception_branch
-option is deprecated.  Please use
-.I no_exception_branch
-instead.  The new option is preferred as it is more clear that the option is used by lcov and genhtml as well as geninfo,
-.br
 
 Default is 0.
 .PP
@@ -2428,14 +2352,6 @@ and
 command line options.
 .br
 
-
-Backward-compatible RC options
-.B lcov_function_coverage
-and
-.B genhtml_function_coverage
-are supported but deprecated.  Please use the new option instead.
-.br
-
 Default is 1.
 .PP
 
@@ -2458,14 +2374,6 @@ and
 .I \-\-no\-branch\-coverage
  command line options.
 .br
-
-Backward-compatible RC options
-.B lcov_branch_coverage
-and
-.B genhtml_branch_coverage
-are supported but deprecated.  Please use the new option instead.
-.br
-
 
 Default is 0.
 .PP

@@ -512,46 +512,7 @@ if [ 0 != $? ] ; then
 fi
 
 
-# use legacy RC 'geninfo_adjust_src_path option (had been a bug)
-$COVER $CAPTURE . $LCOV_OPTS --no-external -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_adjust_src_path='/tmp/foo => /build/bar'" --ignore unused 2>&1 | tee rcOptBug.log
-if [ 0 != ${PIPESTATUS[0]} ] ; then
-    echo "Error:  extract with RC option failed"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
-    fi
-fi
-grep -E "'substitute' pattern .+ is unused" rcOptBug.log
-if [ 0 != $? ] ; then
-    echo "Error:  missing RC pattern unused message"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
-    fi
-fi
-grep -E "RC option 'geninfo_adjust_src_path' is deprecated" rcOptBug.log
-if [ 0 != $? ] ; then
-    echo "Error:  missing RC pattern unused message"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
-    fi
-fi
-
-# syntax error in 'adjust_src_path'
-$COVER $CAPTURE . $LCOV_OPTS --no-external -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_adjust_src_path='[0-9 => foo'" --ignore unused 2>&1 | tee adjustErr.log
-if [ 0 == ${PIPESTATUS[0]} ] ; then
-    echo "Error:  extract with RC error didn't fail"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
-    fi
-fi
-grep -E "Invalid.+geninfo_adjust_src_path.+syntax" adjustErr.log
-if [ 0 != $? ] ; then
-    echo "Error:  missing RC pattern syntax error message"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
-    fi
-fi
-
-# syntax error in 'adjust_src_path'
+# syntax error in 'geninfo_chunk_size'
 $COVER $CAPTURE . $LCOV_OPTS --no-external -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_chunk_size=a" --ignore unused 2>&1 | tee chunkErr.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "Error:  extract with RC chunk error didn't fail"

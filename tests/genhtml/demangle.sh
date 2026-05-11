@@ -127,7 +127,7 @@ IGNORE="--ignore deprecated"
 echo
 echo "Run 3: Demangle using custom demangling tool"
 # mycppfilt.sh with no parameters prepends aaa to each function name
-run "--demangle-cpp --rc genhtml_demangle_cpp_tool=$MYFILT $IGNORE"
+run "--demangle-cpp $MYFILT $IGNORE"
 if grep -q 'aaamyfunc' ${HTML} ; then
         echo "Success - found myfunc prefixed by mycppfilt.sh"
 else
@@ -135,17 +135,7 @@ else
 fi
 
 echo
-echo "Run 4: Demangle with params set"
-# mycppfilt.sh with parameter prepends that parameter to to each function name
-run "--demangle-cpp --rc genhtml_demangle_cpp_tool=$MYFILT --rc genhtml_demangle_cpp_params='bbb' $IGNORE"
-if grep -q 'bbbmyfunc' ${HTML} ; then
-        echo "Success - found myfunc prefixed by custom prefix"
-else
-        die "Missing converted function name 'bbbmyfunc' in output"
-fi
-
-echo
-echo "Run 5: Demangle with params set from command line"
+echo "Run 4: Demangle with params set from command line"
 # mycppfilt.sh with parameter prepends that parameter to to each function name
 run "--demangle-cpp $MYFILT --demangle-cpp 'bbb'"
 if grep -q 'bbbmyfunc' ${HTML} ; then

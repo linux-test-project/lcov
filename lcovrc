@@ -237,13 +237,6 @@ genhtml_desc_html=0
 #  ('-Xlinker'-like behaviour)
 #demangle_cpp = c++filt
 
-# Name of the tool used for demangling C++ function names
-# This argument is deprecated - please use 'demangle_cpp' instead
-#genhtml_demangle_cpp_tool = c++filt
-# Specify extra parameters to be passed to the demangling tool
-# This argument is deprecated - please use 'demangle_cpp' instead
-#genhtml_demangle_cpp_params = ""
-
 # Location of the gcov tool (same as --gcov-info option of geninfo)
 #geninfo_gcov_tool = gcov
 
@@ -278,10 +271,6 @@ genhtml_desc_html=0
 
 # Specify compatibility modes (same as --compat option of geninfo).
 #geninfo_compat = libtool=on, hammer=auto, split_crc=auto
-
-# Adjust path to source files by removing or changing path components that
-# match the specified pattern (Perl regular expression format)
-#geninfo_adjust_src_path = /tmp/build => /usr/src
 
 # Specify if geninfo should try to automatically determine the base-directory
 # when collecting coverage data.

@@ -5765,9 +5765,7 @@ sub _load
         (defined($lcovutil::versionCallback) ||
          !lcovutil::fileExistenceBeforeCallbackError($repo_path))
     ) {
-        my $begin   = Time::HiRes::gettimeofday();
-        my $lineNum = 0;
-
+        my $begin = Time::HiRes::gettimeofday();
         my ($status, $lines);
         eval { ($status, $lines) = $annotateCallback->annotate($repo_path); };
         if ($@) {
@@ -5780,17 +5778,15 @@ sub _load
         }
         if (!$status && defined($lines)) {
             my $found;   # check that either all lines are annotated or none are
+            my $lineNum = 0;
             foreach my $line (@$lines) {
-
                 my ($text, $abbrev, $full, $when, $commit) = @$line;
-                ++$lineNum;
-
+                ++$lineNum;    # source line numbers start at 1 (one)
                 my $age = _computeAge($when, $path);
                 if ($commit ne 'NONE') {
                     die("inconsistent 'annotate' data for '$repo_path': both 'commit' and 'no commit' lines"
                     ) if (defined($found) && !$found);
                     $found = 1;
-
                     defined($abbrev) or
                         die("owner is undef for $repo_path:$lineNum");
                 } else {
@@ -5804,23 +5800,21 @@ sub _load
                     SourceLine->new($lineNum, $text, $abbrev, $full,
                                     $when, $age, $commit);
             }
-
             my $end = Time::HiRes::gettimeofday();
-
             $lcovutil::profileData{annotate}{$self->path()} = $end - $begin;
 
             ++$annotatedFiles if $found;
             $self->_synthesize($fileCovInfo, 1);    # fake annotations too
             return $self;
         } else {
-
             # non-zero exit status:  something bad happened in annotation
-            # if we ignore the error - then fall through and just try to load the file
+            # if we ignore the error - then fall through and just try to
+            # load the file
             my $text = '';
             $text = ': ' . $lines->[0]->[0] . '...'
                 if $lines && @$lines;
-            # might be useful to provide more than one line of context - if there is more than one line?
-
+            # might be useful to provide more than one line of context - if
+            #  there is more than one line?
             lcovutil::report_exit_status($lcovutil::ERROR_ANNOTATE_SCRIPT,
                                          "annotate command failed",
                                          $status, '', $text);
@@ -7128,7 +7122,6 @@ our @funcview_sortlist;
 our @rate_name    = ("Lo", "Med", "Hi");
 our @rate_png     = ("ruby.png", "amber.png", "emerald.png");
 our $rc_desc_html = 0;      # lcovrc: genhtml_desc_html
-our $deprecated_highlight;    # ignored former option
 
 # simplify/shorten names in 'function detail table'
 our @simplifyFunctionScript;      # the arg list
@@ -7201,13 +7194,10 @@ my %genhtml_rc_opts = (
                "genhtml_show_noncode_owners" => \$show_nonCodeOwners,
                "genhtml_show_function_proportion" => \$show_functionProportions,
                'genhtml_show_owner_table'         => \$show_ownerBins,
-               "genhtml_demangle_cpp"             => \@lcovutil::cpp_demangle,
-               "genhtml_demangle_cpp_tool"   => \$lcovutil::cpp_demangle_tool,
-               "genhtml_demangle_cpp_params" => \$lcovutil::cpp_demangle_params,
-               'genhtml_annotate_script'     => \@rc_annotate_script,
-               'genhtml_annotate_tooltip'    => \$SourceFile::annotateTooltip,
-               "select_script"               => \@rc_select_script,
-               "simplify_function"           => \@rc_simplifyFunctionScript,
+               'genhtml_annotate_script'          => \@rc_annotate_script,
+               'genhtml_annotate_tooltip' => \$SourceFile::annotateTooltip,
+               "select_script"            => \@rc_select_script,
+               "simplify_function"        => \@rc_simplifyFunctionScript,
                'num_context_lines' => \$InInterestingRegion::num_context_lines,
                'genhtml_date_bins' => \@rc_date_bins,
                'genhtml_date_labels'        => \@rc_date_labels,
@@ -7256,7 +7246,6 @@ my %genhtml_options = (
                      'no-html'           => \$no_html,
                      "show-details|s"    => \$show_details,
                      "frames|f"          => \$frames,
-                     "highlight"         => \$deprecated_highlight,
                      "legend"            => \$legend,
                      'save'              => \$save,
                      'serialize=s'       => \$serialize,
@@ -7278,12 +7267,6 @@ my %genhtml_options = (
                      "suppress-aliases"  => \$suppress_function_aliases,
                      'validate'          => \$validateHTML,);
 
-# remove ambiguous entry from common table -
-#   (genhtml has '--sort-inputs' and '--sort-tables')
-# handle the (now obsolete) '--sort' option
-Getopt::Long::Configure("pass_through", "no_auto_abbrev");
-my $obsoleteSort;
-Getopt::Long::GetOptions('sort' => \$obsoleteSort);
 Getopt::Long::Configure('default');
 
 # Parse command line options
@@ -7295,20 +7278,10 @@ if (
     exit(1);
 }
 
-if (defined($obsoleteSort)) {
-    $sort_tables = $obsoleteSort;
-    lcovutil::ignorable_warning($lcovutil::ERROR_DEPRECATED,
-        "option '--sort' is deprecated and will be removed in a future release;  please use '--sort-tables' instead."
-    );
-}
-
 $merge_function_aliases = 1
     if ($suppress_function_aliases ||
         defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]));
 
-lcovutil::ignorable_error($lcovutil::ERROR_DEPRECATED,
-                          "option '--highlight' has been removed.")
-    if ($deprecated_highlight);
 $buildSerializableDatabase = 1 if $serialize;
 $no_sourceview             = 1 if $no_html;
 

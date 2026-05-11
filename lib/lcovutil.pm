@@ -46,7 +46,6 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
 
      $br_coverage $func_coverage $mcdc_coverage
      @cpp_demangle do_mangle_check $demangle_cpp_cmd
-     $cpp_demangle_tool $cpp_demangle_params
      get_overall_line rate
 
      $FILTER_BRANCH_NO_COND $FILTER_FUNCTION_ALIAS
@@ -245,10 +244,6 @@ our %resolveCache;
 # C++ demangling
 our @cpp_demangle;        # the options passed in
 our $demangle_cpp_cmd;    # the computed command string
-# deprecated: demangler for C++ function names is c++filt
-our $cpp_demangle_tool;
-# Deprecated:  prefer -Xlinker approach with @cpp_dmangle_tool
-our $cpp_demangle_params;
 
 # version extract may be expensive - so only do it once
 our %versionCache;
@@ -972,23 +967,8 @@ sub do_mangle_check
     if (1 == scalar(@lcovutil::cpp_demangle)) {
         if ('' eq $lcovutil::cpp_demangle[0]) {
             # no demangler specified - use c++filt by default
-            if (defined($lcovutil::cpp_demangle_tool)) {
-                $lcovutil::cpp_demangle[0] = $lcovutil::cpp_demangle_tool;
-            } else {
-                $lcovutil::cpp_demangle[0] = 'c++filt';
-            }
+            $lcovutil::cpp_demangle[0] = 'c++filt';
         }
-    } elsif (1 < scalar(@lcovutil::cpp_demangle)) {
-        die("unsupported usage:  --demangle-cpp with genhtml_demangle_cpp_tool")
-            if (defined($lcovutil::cpp_demangle_tool));
-        die(
-          "unsupported usage:  --demangle-cpp with genhtml_demangle_cpp_params")
-            if (defined($lcovutil::cpp_demangle_params));
-    }
-    if ($lcovutil::cpp_demangle_params) {
-        # deprecated usage
-        push(@lcovutil::cpp_demangle,
-             split(' ', $lcovutil::cpp_demangle_params));
     }
     # Extra flag necessary on OS X so that symbols listed by gcov get demangled
     # properly.
@@ -1124,7 +1104,10 @@ my %deprecated_rc = ("genhtml_demangle_cpp"        => "demangle_cpp",
                      "genhtml_branch_coverage"     => "branch_coverage",
                      'genhtml_criteria_script'     => 'criteria_script',
                      "lcov_fail_under_lines"       => 'fail_under_lines',
-                     'genhtml_highlight'           => undef,);
+                     'lcov_func_coverage'          => "function_coverage",
+                     'lcov_br_coverage'            => 'branch_coverage',
+                     'geninfo_adjust_src_path'     => 'substitute',
+                     'geninfo_no_exception_branch' => 'no_exception_branch');
 
 my ($cExtensions, $rtlExtensions, $javaExtensions,
     $perlExtensions, $pythonExtensions);
@@ -1154,8 +1137,6 @@ my %rc_common = (
              'retain_unreachable_coverpoints_if_executed' =>
         \$lcovutil::retainUnreachableCoverpointIfHit,
              "ignore_unreachable_flag" => \$lcovutil::ignore_unreachable_flag,
-             "lcov_function_coverage"  => \$lcovutil::func_coverage,
-             "lcov_branch_coverage"    => \$lcovutil::br_coverage,
              "ignore_errors"           => \@rc_ignore,
              "max_message_count"       => \$lcovutil::suppressAfter,
              "message_log"             => \$lcovutil::message_log,
@@ -1232,29 +1213,25 @@ our $opt_compat_libtool;
 our $opt_gcov_all_blocks          = 1;
 our $opt_adjust_unexecuted_blocks = 0;
 our $geninfo_opt_compat;
-our $rc_adjust_src_path;    # Regexp specifying parts to remove from source path
 our $rc_auto_base    = 1;
 our $rc_intermediate = "auto";
 our $geninfo_captureAll;    # look for both .gcda and lone .gcno files
 
 our %geninfo_rc_opts = (
-          "geninfo_gcov_tool"           => \@rc_gcov_tool,
-          "geninfo_adjust_testname"     => \$geninfo_adjust_testname,
-          "geninfo_checksum"            => \$lcovutil::verify_checksum,
-          "geninfo_compat_libtool"      => \$opt_compat_libtool,
-          "geninfo_external"            => \$opt_external,
-          "geninfo_follow_symlinks"     => \$opt_follow,
-          "geninfo_follow_file_links"   => \$opt_follow_file_links,
-          "geninfo_gcov_all_blocks"     => \$opt_gcov_all_blocks,
-          "geninfo_unexecuted_blocks"   => \$opt_adjust_unexecuted_blocks,
-          "geninfo_compat"              => \$geninfo_opt_compat,
-          "geninfo_adjust_src_path"     => \$rc_adjust_src_path,
-          "geninfo_auto_base"           => \$rc_auto_base,
-          "geninfo_intermediate"        => \$rc_intermediate,
-          "geninfo_no_exception_branch" => \$lcovutil::exclude_exception_branch,
-          'geninfo_chunk_size'          => \$defaultChunkSize,
-          'geninfo_interval_update'     => \$defaultInterval,
-          'geninfo_capture_all'         => \$geninfo_captureAll);
+                  "geninfo_gcov_tool"         => \@rc_gcov_tool,
+                  "geninfo_adjust_testname"   => \$geninfo_adjust_testname,
+                  "geninfo_compat_libtool"    => \$opt_compat_libtool,
+                  "geninfo_external"          => \$opt_external,
+                  "geninfo_follow_symlinks"   => \$opt_follow,
+                  "geninfo_follow_file_links" => \$opt_follow_file_links,
+                  "geninfo_gcov_all_blocks"   => \$opt_gcov_all_blocks,
+                  "geninfo_unexecuted_blocks" => \$opt_adjust_unexecuted_blocks,
+                  "geninfo_compat"            => \$geninfo_opt_compat,
+                  "geninfo_auto_base"         => \$rc_auto_base,
+                  "geninfo_intermediate"      => \$rc_intermediate,
+                  'geninfo_chunk_size'        => \$defaultChunkSize,
+                  'geninfo_interval_update'   => \$defaultInterval,
+                  'geninfo_capture_all'       => \$geninfo_captureAll);
 
 our %argCommon = ("tempdir=s"         => \$tempdirname,
                   "version-script=s"  => \@lcovutil::extractVersionScript,
@@ -1311,18 +1288,11 @@ our %argCommon = ("tempdir=s"         => \$tempdirname,
 sub warnDeprecated
 {
     my ($key, $replacement) = @_;
-    my $opt_used = defined($replacement);
-    my $suffix =
-        $opt_used ?
-        ".  Consider using '$replacement'. instead.  (Backward-compatible support will be removed in the future.)"
-        :
-        ' and ignored.';
-
     push(@deferred_rc_errors,
-         [0, $lcovutil::ERROR_DEPRECATED,
-          "RC option '$key' is deprecated$suffix"
+         [1,
+          $lcovutil::ERROR_DEPRECATED,
+          "RC option '$key' is deprecated.  Please use '$replacement' instead."
          ]);
-    return $opt_used;
 }
 
 sub _set_config($$$)
@@ -1420,8 +1390,8 @@ sub read_config($$)
         }
         if (defined($key) &&
             exists($deprecated_rc{$key})) {
-            next unless warnDeprecated($key, $deprecated_rc{$key});
-            $key = $deprecated_rc{$key};
+            warnDeprecated($key, $deprecated_rc{$key});
+            next;
         }
         if (defined($key) && defined($value)) {
             info(2, "  set: $key = $value\n");
@@ -1502,6 +1472,13 @@ sub apply_rc_params($)
         my $key   = substr($v, 0, $index);
         my $value = substr($v, $index + 1);
         $key =~ s/^\s+|\s+$//g;
+        # can't complain about deprecated uses here because the user
+        #  might have suppressed that message - but we haven't looked at
+        #  the suppressions in the parameter list yet.
+        if (exists($deprecated_rc{$key})) {
+            warnDeprecated($key, $deprecated_rc{$key});
+            next;
+        }
         unless (exists($rcHash{$key})) {
             push(
                 @deferred_rc_errors,
@@ -1514,12 +1491,6 @@ sub apply_rc_params($)
         info(1, "apply --rc overrides\n")
             unless defined($first);
         $first = 1;
-        # can't complain about deprecated uses here because the user
-        #  might have suppressed that message - but we haven't looked at
-        #  the suppressions in the parameter list yet.
-        if (exists($deprecated_rc{$key})) {
-            next unless warnDeprecated($key, $deprecated_rc{$key});
-        }
         # strip spaces
         $value =~ s/^\s+|\s+$//g;
         _set_config(\%rcHash, $key, $value);
