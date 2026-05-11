@@ -174,9 +174,8 @@ sub new
     open(EDITS, '-|', "$cd p4 opened $depot$dots") or
         die("unable to execute p4 opened: $!");
     while (<EDITS>) {
-        if (
-           /^(.+?)(#[0-9]+) - (edit|add|delete) (default change|change (\S+)) /)
-        {
+        if (/^(.+?)(#[0-9]+) - (edit|add|delete|integrate) (default change|change (\S+)) /
+        ) {
             # file is locally edited...append modify time or MD5 signature to the version ID
             my $data;
             if (exists($filehash{$1})) {
@@ -185,7 +184,7 @@ sub new
             } elsif ('delete' eq $3) {
                 next;
             } else {
-                die("unexpected 'add' state '$4'") unless 'add' eq $3;
+                die("unexpected state '$3' for $1 '$5'") unless 'add' eq $3;
                 my $trimmed   = substr($1, length($depot_path));
                 my $full_name = $workspace_dir . $trimmed;
                 $data                 = [$full_name, $1, $trimmed, '#add'];

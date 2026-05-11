@@ -18,15 +18,15 @@
 #
 # annotateutil.pm:  some common utilities used by sample 'annotate' scripts
 #
-package annotateutil;
 
 use strict;
+
+package annotateutil;
+
 use POSIX qw(strftime);
-use Cwd qw(abs_path);
 
 our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw(get_modify_time compute_md5 not_in_repo
-                    resolve_cache_dir find_in_cache store_in_cache
+our @EXPORT_OK = qw(get_modify_time compute_md5
                     call_annotate call_get_version);
 
 sub get_modify_time($)
@@ -95,6 +95,49 @@ sub call_get_version
     exit 0;
 }
 
+package AnnotateBase;
+
+use Cwd qw(abs_path);
+use Fcntl qw(:flock);
+
+use constant {
+              SCRIPT  => 0,
+              CACHE   => 1,
+              LOG     => 2,
+              LOGFILE => 3,
+              VERIFY  => 4,
+};
+
+sub new
+{
+    my $class  = shift;
+    my $script = shift;
+    my ($cache, $logfile, $verify) = @_;
+
+    my $self = [$script, resolve_cache_dir($cache), undef, $logfile, $verify];
+
+    bless $self, $class;
+
+    if ($logfile) {
+        open($self->[LOG], ">>", $logfile) or
+            die("unable to open $logfile");
+        $self->printlog("$script " . join(" ", @_) . "\n");
+    }
+    return $self;
+}
+
+sub printlog
+{
+    my ($self, $msg) = @_;
+    my $fh = $self->[LOG];
+    return unless $fh;
+    flock($fh, Fcntl::LOCK_EX) or
+        die('cannot lock ' . $self->[LOGFILE] . ": $!");
+    print($fh $msg);
+    flock($fh, Fcntl::LOCK_UN) or
+        die('cannot unlock ' . $self->[LOGFILE] . ": $!");
+}
+
 sub resolve_cache_dir
 {
     my $cache_dir = shift;
@@ -116,14 +159,14 @@ sub resolve_cache_dir
 
 sub find_in_cache
 {
-    my ($cache_dir, $filename) = @_;
-
+    my ($self, $filename) = @_;
+    my $cache_dir = $self->[CACHE];
     my ($cachepath, $version);
-    my $cachepath = File::Spec->catfile($cache_dir,
-                                        File::Spec->file_name_is_absolute(
-                                                                    $filename) ?
-                                            substr($filename, 1) :
-                                            $filename);
+    my $cachepath =
+        File::Spec->catfile($cache_dir,
+                            File::Spec->file_name_is_absolute($filename) ?
+                                substr($filename, 1) :
+                                $filename);
     if (-f $cachepath) {
         # matching version?
         my ($cache_version, $lines);
@@ -132,6 +175,7 @@ sub find_in_cache
             if (defined($data)) {
                 ($cache_version, $lines) = @$data;
                 $version = lcovutil::extractFileVersion($filename);
+                $self->printlog("cache hit: $filename:$cache_version\n");
             }
         };
         if ($@) {
@@ -149,6 +193,7 @@ sub find_in_cache
                         $filename, $version, $cache_version, "annotate-cache", 1
                     ));
             lcovutil::info(1, "annotate: cache version check failed\n");
+            $self->printlog("  version mismatch: $version\n");
         }
     }
     return ($cachepath, $version);
@@ -156,8 +201,7 @@ sub find_in_cache
 
 sub store_in_cache
 {
-    my ($cache_path, $filename, $version, $lines) = @_;
-
+    my ($self, $cache_path, $filename, $version, $lines) = @_;
     $version = lcovutil::extractFileVersion($filename)
         unless $version;
     my $parent = File::Basename::dirname($cache_path);
@@ -167,6 +211,57 @@ sub store_in_cache
     }
     Storable::store([$version, $lines], $cache_path) or
         die("unable to store $cache_path");
+}
+
+sub verify_annotation
+{
+    my ($self, $filepath, $lines) = @_;
+    open(DEBUG, "<", $filepath) or
+        die("unable to read $filepath: $!");
+    my $lineNo = 0;
+    while (my $line = <DEBUG>) {
+        chomp($line);
+        die('mismatched annotation: local line ' .
+            ($lineNo + 1) . " does not exist in annotated data")
+            if $lineNo > $#$lines;
+        my $a = $lines->[$lineNo]->[0];
+        die("mismatched annotation at $filepath:$lineNo: '$line' -> '$a'")
+            unless $line eq $a;
+        ++$lineNo;
+    }
+    die('mismatched annotation: local file does not contain annotated line ' .
+        ($lineNo + 1))
+        if $lineNo <= $#$lines;
+}
+
+sub annotate
+{
+    my ($self, $pathname) = @_;
+    defined($pathname) or die("expected filename");
+
+    my ($cache_path, $version, $lines, $status);
+    if ($self->[CACHE]) {
+        ($cache_path, $version, $lines) = $self->find_in_cache($pathname);
+        return (0, $lines) if defined($lines);    # cache hit
+    }
+
+    my $rtn = $self->annotate_callback($pathname, $version);
+    if (!defined($rtn)) {
+        # did not find the file in the repo
+        $self->printlog("  $pathname not in repo\n");
+        my @lines;
+        annotateutil::not_in_repo($pathname, \@lines);
+        return (0, \@lines);
+    }
+    ($status, $lines, $version) = @$rtn;
+    if ($self->[VERIFY]) {
+        $self->verify_annotation($pathname, $lines);
+    }
+    if ($self->[CACHE] &&
+        0 == $status) {
+        $self->store_in_cache($cache_path, $pathname, $version, $lines);
+    }
+    return ($status, $lines);
 }
 
 1;

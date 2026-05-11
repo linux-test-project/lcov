@@ -40,7 +40,7 @@
 #   checking when merging local edits into the annotated file.
 #
 #   The '--log' flag specifies a file where the tool writes various annotation-
-#   related log messages.
+#   related log messages - primarily useful for debugging environment issues.
 #
 #   This utility is implemented so that it can be loaded as a Perl module such
 #   that the callback can be executed without incurring an additional process
@@ -50,36 +50,17 @@
 #   It can also be called directly, as
 #       p4annotate [--log logfile] [--verify] filename
 
+use strict;
+
+use annotateutil qw(get_modify_time call_annotate);
+
 package p4annotate;
 
-use strict;
-use File::Basename;
+use File::Basename qw(basename dirname);
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
-use Fcntl qw(:flock);
-use annotateutil qw(get_modify_time not_in_repo call_annotate
-                    resolve_cache_dir find_in_cache store_in_cache);
 
-our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw(new);
-
-use constant {
-              SCRIPT  => 0,
-              CACHE   => 1,
-              VERIFY  => 2,
-              LOGFILE => 3,
-              LOG     => 4,
-};
-
-sub printlog
-{
-    my ($self, $msg) = @_;
-    my $fh = $self->[LOG];
-    return unless $fh;
-    flock($fh, LOCK_EX) or die('cannot lock ' . $self->[LOGFILE] . ": $!");
-    print($fh $msg);
-    flock($fh, LOCK_UN) or die('cannot unlock ' . $self->[LOGFILE] . ": $!");
-}
+use base 'AnnotateBase';
 
 sub new
 {
@@ -90,18 +71,18 @@ sub new
     my $logfile;
     my $cache_dir;
     my $verify     = 0;   # if set, check that we merged local changes correctly
-    my $exe        = basename($script ? $script : $0);
+    my $exe        = File::Basename::basename($script ? $script : $0);
     my $standalone = $0 eq $script;
 
     if (exists($ENV{LOG_P4ANNOTATE})) {
         $logfile = $ENV{LOG_P4ANNOTATE};
     }
     my $help;
-    if (!GetOptionsFromArray(\@_,
-                             ("verify"  => \$verify,
-                              "log=s"   => \$logfile,
-                              'cache:s' => \$cache_dir,
-                              'help'    => \$help)) ||
+    if (!Getopt::Long::GetOptionsFromArray(\@_,
+                                           ("verify"  => \$verify,
+                                            "log:s"   => \$logfile,
+                                            'cache:s' => \$cache_dir,
+                                            'help'    => \$help)) ||
         (!$standalone && scalar(@_)) ||
         $help
     ) {
@@ -122,33 +103,13 @@ sub new
             (1 < scalar(@notset) ? 's' : '') . ' ' .
             join(' ', @notset) . " to be set.");
     }
-    $cache_dir = resolve_cache_dir($cache_dir);
 
-    my $self = [$exe, $cache_dir, $verify];
-    bless $self, $class;
-    if ($logfile) {
-        open(LOGFILE, ">>", $logfile) or
-            die("unable to open $logfile");
-
-        $self->[LOG]     = \*LOGFILE;
-        $self->[LOGFILE] = $logfile;
-        $self->printlog("$exe " . join(" ", @args) . "\n");
-    }
-    return $self;
+    return $class->SUPER::new($exe, $cache_dir, $logfile, $verify);
 }
 
-sub annotate
+sub annotate_callback
 {
-    my ($self, $pathname) = @_;
-    defined($pathname) or die("expected filename");
-
-    my ($cache_path, $version);
-    if ($self->[CACHE]) {
-        my $lines;
-        ($cache_path, $version, $lines) =
-            find_in_cache($self->[CACHE], $pathname);
-        return (0, $lines) if defined($lines);    # cache hit
-    }
+    my ($self, $pathname, $computed_version) = @_;
 
     if (-e $pathname && -l $pathname) {
         $pathname = File::Spec->catfile(File::Basename::dirname($pathname),
@@ -179,20 +140,19 @@ sub annotate
         }
         $self->printlog("  have $pathname:$version\n");
 
-        my @annotated;
         # check if this file is open in the current sandbox...
         #  redirect stderr because p4 print "$path not opened on this client" if file not opened
         my $opened = `p4 opened $pathname 2>$null`;
         my %localAdd;
         my %localDelete;
         my ($localChangeList, $owner, $now);
-        if ($opened =~ /edit (default change|change (\S+)) /) {
-            $localChangeList = $2 ? $2 : 'default';
+        if ($opened =~ /(edit|integrate) (default change|change (\S+)) /) {
+            $localChangeList = $3 ? $3 : 'default';
 
-            $self->printlog("  local edit in CL $localChangeList\n");
+            $self->printlog("  local $1 in CL $localChangeList\n");
 
             $owner = $ENV{P4USER};    # current user is responsible for changes
-            $now   = get_modify_time($pathname)
+            $now   = annotateutil::get_modify_time($pathname)
                 ;    # assume changes happened when file was liast modified
 
             # what is different in the local file vs the one we started with
@@ -249,7 +209,6 @@ sub annotate
                 while (exists $localAdd{$emitLineNo}) {
                     my $l = $localAdd{$emitLineNo};
                     push(@lines, [$l, $owner, undef, $now, $localChangeList]);
-                    push(@annotated, $l) if ($self->[VERIFY]);
                     delete $localAdd{$emitLineNo};
                     ++$emitLineNo;
                 }
@@ -268,10 +227,8 @@ sub annotate
                     $when  =~ s:/:-:g;
                     $when  =~ s/$/T00:00:00-05:00/;
                     push(@lines, [$text, $owner, undef, $when, $changelist]);
-                    push(@annotated, $text) if ($self->[VERIFY]);
                 } else {
                     push(@lines, [$line, 'NONE', undef, 'NONE', 'NONE']);
-                    push(@annotated, $line) if ($self->[VERIFY]);
                 }
                 ++$emitLineNo;
             }    # while (HANDLE)
@@ -285,40 +242,22 @@ sub annotate
                 my $l = $localAdd{$emitLineNo};
                 push(@lines, [$l, $owner, undef, $now, $localChangeList]);
                 delete $localAdd{$emitLineNo};
-                push(@annotated, $l) if ($self->[VERIFY]);
                 ++$emitLineNo;
                 die("lost track of lines")
                     unless (0 == scalar(%localAdd) ||
                             exists($localAdd{$emitLineNo}));
             }
-            if ($self->[VERIFY]) {
-                if (open(DEBUG, "<", $pathname)) {
-                    my $lineNo = 0;
-                    while (my $line = <DEBUG>) {
-                        chomp($line);
-                        my $a = $annotated[$lineNo];
-                        die("mismatched annotation at $pathname:$lineNo: '$line' -> '$a'"
-                        ) unless $line eq $a;
-                        ++$lineNo;
-                    }
-                }
-            }
             close(HANDLE) or die("unable to close p4 annotate pipe: $!\n");
             $status = $?;
+
+            return [$status, \@lines, $version];
         }
-        if ($self->[CACHE] &&
-            0 == $status) {
-            store_in_cache($cache_path, $pathname, $version, \@lines);
-        }
-    } else {
-        $self->printlog("  $pathname not in P4\n");
-        not_in_repo($pathname, \@lines);
     }
-    return ($status, \@lines);
+    return undef;
 }
 
 unless (caller) {
-    call_annotate("p4annotate", @ARGV);
+    annotateutil::call_annotate("p4annotate", @ARGV);
 }
 
 1;

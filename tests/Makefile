@@ -23,7 +23,7 @@ report:
 	$(SPREADSHEET_TOOL) -o report.xlsx `find . -name "*.json"`
 	if [ "x$(COVERAGE)" != 'x' ] ; then                         \
 	  cover $(COVER_DB) ;                                       \
-	  $(BINDIR)/perl2lcov -o perlcov.info $(COVER_DB)           \
+	  $(PERL2LCOV_TOOL) -o perlcov.info $(COVER_DB)             \
                --version-script $(VERSION_SCRIPT)                   \
 	       --exclude genError.pm --exclude filter.pl            \
                --exclude brokenCallback.pm --exclude MsgContext.pm  \
@@ -32,10 +32,10 @@ report:
 	       --ignore unsupported,unused,inconsistent             \
                --filter region ;                                    \
 	  if [ -f $(PYCOV_DB) ] ; then                              \
-	    $(BINDIR)/py2lcov -o pycov.info $(PYCOV_DB)             \
+	    $(PY2LCOV_TOOL) -o pycov.info $(PYCOV_DB)               \
                  --version-script $(VERSION_SCRIPT) ;               \
 	  fi ;                                                      \
-	  $(BINDIR)/genhtml --parallel -o $(HTML_RPT)               \
+	  $(GENHTML_TOOL) --parallel -o $(HTML_RPT)                 \
               perlcov.info pycov.info                               \
               --save --title 'LCOV regression tests'                \
               --show-navigation --flat --branch --show-proportion   \
@@ -43,7 +43,9 @@ report:
 	      --annotate-script $(ANNOTATE_SCRIPT)                  \
 	      --filter region                                       \
               --ignore empty,inconsistent ;                         \
-	  cp p*cov.info $(HTML_RPT) ;                               \
+	  if [ -d $(HTML_RPT) ] ; then                              \
+	      cp p*cov.info $(HTML_RPT) ;                           \
+          fi ;                                                      \
 	  echo "Wrote HTML report to ${HTML_RPT}" ;                 \
 	fi
 

@@ -34,7 +34,7 @@ use Cwd qw(abs_path);
 use FindBin;
 
 use lib "$FindBin::RealBin";
-use annotateutil qw(get_modify_time not_in_repo compute_md5);
+use annotateutil qw(get_modify_time compute_md5);
 
 sub usage
 {

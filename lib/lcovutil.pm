@@ -899,6 +899,10 @@ sub save_profile($@)
         $lcovutil::profileData{config}{version}     = $lcovutil::lcov_version;
         $lcovutil::profileData{config}{tool_dir}    = $lcovutil::tool_dir;
         $lcovutil::profileData{config}{url}         = $lcovutil::lcov_url;
+        foreach my $var ('USER', 'HOSTNAME', 'MACHTYPE', 'PWD') {
+            $lcovutil::profileData{config}{$var} = $ENV{$var}
+                if exists($ENV{$var});
+        }
         foreach my $t ('date', 'uname -a', 'hostname') {
             my $v = `$t`;
             chomp($v);
