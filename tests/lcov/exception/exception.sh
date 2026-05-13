@@ -105,8 +105,17 @@ if [ $EXCEPTIONS != '0' ] ; then
             exit 1
         fi
     fi
-    FILTER_BRANCHES=`grep -c BRDA: filter.info`
-    FILTER_EXCEPTIONS=`grep -c ',e' filter.info`
+    FILTER_BRANCHES=`grep BRDA: filter.info | grep -v U | wc -l`
+    FILTER_EXCEPTIONS=`grep BRDA: filter.info | grep -v U | grep -c ',e'`
+    [[ `grep BRF filter.info` =~ ([0-9]+)$ ]]
+    FOUND=${BASH_REMATCH[1]}
+    [[ `grep BRH filter.info` =~ ([0-9]+)$ ]]
+    HIT=${BASH_REMATCH[1]}
+    if [ $FILTER_BRANCHES != "$FOUND" ] ; then
+	echo "Error: wrong branch count after exception filter"
+	exit 1;
+    fi
+
     # we expect the number of exception branches found in 'filter.info'
     #  (when we applied 'exception branch markers') should be the less than
     # the number of total branches (when we excluded nothing)
@@ -139,7 +148,7 @@ if [ $EXCEPTIONS != '0' ] ; then
             exit 1
         fi
     fi
-    OVERRIDE_BRANCHES=`grep -c BRDA: override.info`
+    FILTER_BRANCHES=`grep BRDA: override.info | grep -v U | wc -l`
     if [ $OVERRIDE_BRANCHES != $BRANCHES ] ; then
         echo "did not honor exception overrides.  Expected $BRANCHES found $OVERRIDE_BRANCHES"
         if [ $KEEP_GOING == 0 ] ; then
@@ -211,7 +220,7 @@ fi
 
 
 $COVER $LCOV_TOOL $LCOV_OPTS -o filtExceptOrphan.info -a example.data --filter exception,orphan 2>&1 | tee exceptOrphanFilter.log
-if [ 0 != $? ] ; then
+if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  unexpected error code from except/orphan filtering"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
@@ -229,14 +238,14 @@ fi
 
 
 $COVER $LCOV_TOOL $LCOV_OPTS -o filtExcept.info -a example.data --filter exception 2>&1 | tee exceptFilter.log
-if [ 0 != $? ] ; then
+if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  unexpected error code from except filering"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
 fi
 $COVER $LCOV_TOOL $LCOV_OPTS -o filtOrphan.info -a example.data --filter orphan 2>&1 | tee orphanFilter.log
-if [ 0 != $? ] ; then
+if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  unexpected error code from orphan filering"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1

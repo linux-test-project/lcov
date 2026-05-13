@@ -66,19 +66,46 @@ if [ "${VER[0]}" -lt 8 ] ; then
 fi
 
 if [ 1 != "$NO_INITIAL_CAPTURE" ] ; then
-    $COVER $CAPTURE . $LCOV_OPTS --initial -o initial.info $IGNORE_EMPTY $IGNORE_USAGE --profile
-    if [ 0 != $? ] ; then
+    $COVER $CAPTURE . $LCOV_OPTS --initial -o initial.info $IGNORE_EMPTY --profile --all --ignore usage 2>&1 | tee initial.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
         echo "Error:  unexpected error code from lcov --initial"
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
     fi
+    # did we find the expected message
+    grep "'--all' ignored when '--initial' is used" initial.log
+    if [ 0 != $? ] ; then
+	echo "ERROR: did not find expected --all message"
+        if [ $KEEP_GOING == 0 ] ; then
+	    exit 1
+	fi
+    fi
+else
+    if [ "$VER[0]" -lt 5 ; then
+	   $COVER $CAPTURE . $LCOV_OPTS --initial -o initial2.info $IGNORE_EMPTY --profile 2>&1 | tee initial2.log
+	   if [ 0 == ${PIPESTATUS[0]} ] ; then
+               echo "Error:  unexpected error code from lcov --initial"
+               if [ $KEEP_GOING == 0 ] ; then
+		   exit 1
+	       fi
+	   fi
+	   grep -- "--initial cannot generate branch coverage" initial2.log
+	   if [ 0 != $? ] ; then
+	       echo "Error:  didn't find expected --initial message"
+               if [ $KEEP_GOING == 0 ] ; then
+		   exit 1
+	       fi
+	   fi
+       fi
 fi
 
 ${CC} -c --coverage $COMPILE_OPTS unused.c
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error from gcc"
-    exit 1
+    if [ $KEEP_GOING == 0 ] ; then
+	exit 1
+    fi
 fi
 
 if [ "${VER[0]}" -lt 5 ] ; then
@@ -88,14 +115,14 @@ fi
 if [ "$NO_INITIAL_CAPTURE" != 1 ] ; then
     # capture 'all' - which will pick up the unused file
     $COVER $CAPTURE . $LCOV_OPTS --all -o all_initial.info $IGNORE_EMPTY $IGNORE_USAGE --history $SCRIPT_DIR/history.pm,initial.info.json --profile $EMPTY_BRANCH
-    if [ 0 != $? ] ; then
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
         echo "Error:  unexpected error code from lcov --capture --all"
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
     fi
 
-    # does the result contain file 'uused'
+    # does the result contain file 'unused'
     grep -E "SF:.+unused.c$" all_initial.info
     if [ $? != 0 ] ; then
         echo "Error: did not find 'unused'"
@@ -415,7 +442,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 if [ "$NO_INITIAL_CAPTURE" != 1 ] ; then
-    # does the result contain file 'uused'
+    # does the result contain file 'unused'
     grep -E "SF:.+unused.c$" all_internal.info
     if [ $? != 0 ] ; then
         echo "Error: did not find 'unused' 2"
@@ -487,7 +514,7 @@ fi
 
 # use legacy RC 'geninfo_adjust_src_path option (had been a bug)
 $COVER $CAPTURE . $LCOV_OPTS --no-external -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_adjust_src_path='/tmp/foo => /build/bar'" --ignore unused 2>&1 | tee rcOptBug.log
-if [ 0 != $? ] ; then
+if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  extract with RC option failed"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
@@ -507,6 +534,39 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+# syntax error in 'adjust_src_path'
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_adjust_src_path='[0-9 => foo'" --ignore unused 2>&1 | tee adjustErr.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  extract with RC error didn't fail"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E "Invalid.+geninfo_adjust_src_path.+syntax" adjustErr.log
+if [ 0 != $? ] ; then
+    echo "Error:  missing RC pattern syntax error message"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# syntax error in 'adjust_src_path'
+$COVER $CAPTURE . $LCOV_OPTS --no-external -o rcOptBug $PARALLEL $PROFILE --rc "geninfo_chunk_size=a" --ignore unused 2>&1 | tee chunkErr.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  extract with RC chunk error didn't fail"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -E "geninfo_chunk_size .+ is not recognized" chunkErr.log
+if [ 0 != $? ] ; then
+    echo "Error:  missing RC chunk message"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
 
 
 # workaround:  depending on compiler version, we see a coverpoint on the

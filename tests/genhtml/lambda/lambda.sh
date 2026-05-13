@@ -23,6 +23,9 @@ if [ "${VER[0]}" -lt 5 ] ; then
     # gcc older than 5 doesn't support lambda
     echo "Compiler version is too old - skipping lambda test"
     exit 0
+elif [ "${VER[0]}" == 5 ] ; then
+    # we see the static initializer callback on line 0
+    IGNORE="--ignore format"
 fi
 
 if ! type ${CXX} >/dev/null 2>&1 ; then
@@ -40,7 +43,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-$COVER $LCOV_TOOL $LCOV_OPTS -o lambda.info --capture -d . --demangle --rc derive_function_end_line=0
+$COVER $LCOV_TOOL $LCOV_OPTS $IGNORE -o lambda.info --capture -d . --demangle --rc derive_function_end_line=0
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov"
     if [ $KEEP_GOING == 0 ] ; then

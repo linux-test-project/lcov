@@ -353,6 +353,9 @@ sub parse
                 if ($branchData) {
                     my $funcBranchData = BranchData->new();
                     my $regionIdx      = 0;
+                    my $branchBlock;
+                    my $branchLine = -1;
+                    my $branchExprIndex;
                     foreach my $b (@$branches) {
                         die("unexpected branch data") unless scalar(@$b) == 9;
                         my ($brStartLine, $brStartCol, $endLine,
@@ -415,27 +418,41 @@ sub parse
                         }
 
                         if ($lcovutil::br_coverage) {
-                            # Processed branch on the same line doesn't have to be the previous.
-                            my $brEntry = $funcBranchData->value($line);
-                            my $branchIdx =
-                                !defined($brEntry) ? 0 :
-                                scalar(@{$brEntry->getBlock(0)});
-                            my $br =
-                                BranchBlock->new($branchIdx, $trueCount,
-                                                 !defined($expr) ? $branchIdx :
-                                                     "(" . $expr . ") == True");
-                            $funcBranchData->append($line, 0, $br, $filename);
-
-                            ++$branchIdx;
-                            $br =
-                                BranchBlock->new($branchIdx, $falseCount,
-                                                !defined($expr) ? $branchIdx :
-                                                    "(" . $expr . ") == False");
-                            $funcBranchData->append($line, 0, $br, $filename);
+                            # Processed branch on the same line
+                            #   doesn't have to be the previous.
+                            if ($branchLine != $line) {
+                                # block ID is always 0..not enough information
+                                # to know if there are independent expressions
+                                # here
+                                $funcBranchData->insertBlock($branchBlock,
+                                                             $branchLine)
+                                    if $branchBlock;
+                                $branchBlock     = BranchBlock->new();
+                                $branchLine      = $line;
+                                $branchExprIndex = 0;
+                            }
+                            $expr = "($expr) == "
+                                if defined($expr);
+                            $branchBlock->appendElement(BranchElement->new(
+                                            $branchExprIndex++,
+                                            $trueCount,
+                                            !defined($expr) ? $branchExprIndex :
+                                                $expr . 'True'
+                            ));
+                            $branchBlock->appendElement(BranchElement->new(
+                                            $branchExprIndex++,
+                                            $falseCount,
+                                            !defined($expr) ? $branchExprIndex :
+                                                $expr . 'False'
+                            ));
                         }
                     }
-                    $branchData->union($funcBranchData)
-                        if $lcovutil::br_coverage;
+                    if ($lcovutil::br_coverage) {
+                        $funcBranchData->insertBlock($branchBlock, $branchLine)
+                            if $branchBlock;
+                        $funcBranchData->updateCounts();
+                        $branchData->union($funcBranchData);
+                    }
                 }
                 if ($mcdc) {
                     foreach my $m (@$mcdc) {

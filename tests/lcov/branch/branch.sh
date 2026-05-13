@@ -3,7 +3,7 @@ set +x
 
 source ../../common.tst
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* no_macro* macro* total.*
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* no_macro* macro* total.* rpt *.log
 if [ -d separate ] ; then
     chmod -R u+w separate
     rm -rf separate
@@ -50,7 +50,7 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-$COVER $CAPTURE $LCOV_OPTS . -o no_macro.info $FILTER $IGNORE --no-external
+$COVER $CAPTURE $LCOV_OPTS -o no_macro.info $FILTER $IGNORE --no-external
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --capture"
     if [ $KEEP_GOING == 0 ] ; then
@@ -141,6 +141,26 @@ if [ $TOTAL2 != $EXPECT ] ; then
     fi
 fi
 
+$COVER $GENHTML_TOOL $LCOV_OPTS --baseline-file macro.info no_macro.info -o rpt 2>&1 | tee rpt.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR:  error from genhtml"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# should see all of UIC,GIC,DCB,DUB branches (and no others)
+if [ "${VER[0]}" -ge 5 ] ; then
+    TYPES="DCB"
+fi
+for t in UIC GIC DUB $TYPES ; do
+    grep -E "branch:.+${t}" rpt.log
+    if [ 0 != $? ] ; then
+	echo "Error:  didn't find $t branches in report"
+	if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+	fi
+    fi
+done
 
 echo "Tests passed"
 

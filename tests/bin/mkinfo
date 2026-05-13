@@ -340,19 +340,41 @@ sub gen_branches($$)
     @brlines = @$lines;
     reduce_list_per(\@brlines, $percent);
 
+    my @branchData;
+
     foreach my $brline (@brlines) {
         my @blocks    = @allblocks;
         my $numblocks = int(rand(scalar(@blocks))) + 1;
 
         reduce_list_num(\@blocks, $numblocks);
+        my @blkList;
 
+        my $blockId = 0;
         foreach my $block (@blocks) {
             my $numbranch = rand_dist($branchdist);
+            my @block;
+            push(@blkList, \@block);
 
             for (my $branch = 0; $branch < $numbranch; $branch++) {
-                push(@branches, [$brline, $block, $branch]);
+                #push(@branches, [$brline, $blockId, $branch]);
+                push(@block, $branch);
             }
+            ++$blockId;
         }
+        # sort the list of branches by number of branch elements
+        foreach my $i (sort({
+                                my $A = $blkList[$a];
+                                my $B = $blkList[$b];
+                                $#$A <=> $#$B or $a <=> $b
+                       } 0 .. $#blkList)
+        ) {
+            my $blockId = 0;
+            foreach my $b (@{$blkList[$i]}) {
+                push(@branches, [$brline, $blockId, $b]);
+            }
+            ++$blockId;
+        }
+
     }
 
     return \@branches;
@@ -445,6 +467,7 @@ sub write_branches($$$$)
     my ($fd, $branches, $brhits, $iref) = @_;
     my ($found, $hit) = (0, 0);
 
+    # generates some very large numbers sometimes...easier to mask than to fix
     # Line coverage data
     foreach my $brdata (@$branches) {
         my $brhit = $brhits->[$$iref++];

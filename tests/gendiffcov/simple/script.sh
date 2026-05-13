@@ -61,6 +61,12 @@ DIFFCOV_NOFRAME_OPTS="$BASE_OPTS --demangle-cpp --prefix $PARENT --version-scrip
 DIFFCOV_OPTS="$DIFFCOV_NOFRAME_OPTS --frame"
 DIFFCOV_NO_VERSION_OPTS="$BASE_OPTS --demangle-cpp --prefix $PARENT --frame"
 
+if [ "$COVER" != '' ] ; then
+    CAPTURE=$GENINFO_TOOL
+else
+    CAPTURE="$LCOV_TOOL --capture --directory"
+fi
+
 status=0
 cp simple.cpp test.cpp
 ${CXX} --coverage $COVERAGE_OPTS test.cpp
@@ -70,8 +76,8 @@ if [ "${VER[0]}" -lt 5 ] ; then
     EMPTY_BRANCH="--ignore empty"
 fi
 
-echo lcov $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --memory 20 $EMPTY_BRANCH
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline.info $IGNORE --comment "this is the baseline" --memory 20 $EMPTY_BRANCH
+echo $CAPTURE . $LCOV_OPTS --output-file baseline.info $IGNORE --memory 20 $EMPTY_BRANCH
+$COVER $CAPTURE . $LCOV_OPTS --output-file baseline.info $IGNORE --comment "this is the baseline" --memory 20 $EMPTY_BRANCH
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     status=1
@@ -104,11 +110,11 @@ grep './test.cpp' baseline.info
 if [ 0 == $? ] ; then
     # found - need some flags
     GENHTML_PORT='--elide-path-mismatch'
-    LCOV_PORT='--substitute s#./#pwd/# --ignore unused'
+    LCOV_PORT='--substitute s#^[.]/#pwd/# --ignore unused'
 fi
 
-echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_name.info --test-name myTest $IGNORE
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_name.info --test-name myTest $IGNORE
+echo $CAPTURE . $LCOV_OPTS --output-file baseline_name.info --test-name myTest $IGNORE
+$COVER $CAPTURE . $LCOV_OPTS --output-file baseline_name.info --test-name myTest $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture with name failed"
     status=1
@@ -237,8 +243,8 @@ if [ 0 == $? ] ; then
 fi
 
 
-echo lcov $LCOV_OPTS --capture --directory . --output-file baseline_nobranch.info $IGNORE --rc memory=1024
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file baseline_nobranch.info $IGNORE --rc memory=1024
+echo $CAPTURE . $LCOV_OPTS --output-file baseline_nobranch.info $IGNORE --rc memory=1024
+$COVER $CAPTURE . $LCOV_OPTS --output-file baseline_nobranch.info $IGNORE --rc memory=1024
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (2) failed"
     status=1
@@ -271,8 +277,8 @@ fi
 
 # expect not to see differential categories...
 
-echo lcov $LCOV_OPTS --filter branch,line --capture --directory . --output-file baseline-filter.info $IGNORE
-$COVER $LCOV_TOOL $LCOV_OPTS --filter branch,line --capture --directory . --output-file baseline-filter.info $IGNORE
+echo $CAPTURE . $LCOV_OPTS --filter branch,line --output-file baseline-filter.info $IGNORE
+$COVER $CAPTURE . $LCOV_OPTS --filter branch,line --output-file baseline-filter.info $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (3) failed"
     status=1
@@ -311,8 +317,8 @@ rm -f test.cpp test.gcno test.gcda a.out
 ln -s simple2.cpp test.cpp
 ${CXX} --coverage $COVERAGE_OPTS -DADD_CODE -DREMOVE_CODE test.cpp
 ./a.out
-echo lcov $LCOV_OPTS --capture --directory . --output-file current.info $IGNORE
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current.info $IGNORE
+echo $CAPTURE . $LCOV_OPTS --output-file current.info $IGNORE
+$COVER $CAPTURE . $LCOV_OPTS --output-file current.info $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (4) failed"
     status=1
@@ -322,8 +328,8 @@ if [ 0 != $? ] ; then
 fi
 gzip -c current.info > current.info.gz
 
-echo lcov $LCOV_OPTS --capture --directory . --output-file current_name.info.gz --test-name myTest $IGNORE
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file current_name.info.gz --test-name myTest $IGNORE
+echo $CAPTURE . $LCOV_OPTS --output-file current_name.info.gz --test-name myTest $IGNORE
+$COVER $CAPTURE . $LCOV_OPTS --output-file current_name.info.gz --test-name myTest $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture (name) failed"
     status=1
@@ -1286,8 +1292,8 @@ done
 # test file substitution option
 #  need to ignore the 'missing source' error which will happen when we try to
 #  filter for exclude patterns - the file 'pwd/test.cpp' does not exist
-echo lcov $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source $IGNORE $EMPTY_BRANCH
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source $LCOV_PORT $IGNORE $EMPTY_BRANCH
+echo $CAPTURE . $LCOV_OPTS --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source $IGNORE $EMPTY_BRANCH
+$COVER $CAPTURE . $LCOV_OPTS --output-file subst.info --substitute "s#${PWD}#pwd#g" --exclude '*/iostream' --ignore source,source $LCOV_PORT $IGNORE $EMPTY_BRANCH
 if [ 0 != $? ] ; then
     echo "ERROR: lcov --capture failed"
     status=1
