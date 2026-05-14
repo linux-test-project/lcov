@@ -16,7 +16,7 @@ if ! type "${CXX}" >/dev/null 2>&1 ; then
         echo "Missing tool: $CXX" >&2
         exit 2
 fi
-1
+
 if ! python3 -c "import xlsxwriter" >/dev/null 2>&1 ; then
         echo "Missing python module: xlsxwriter" >&2
         exit 2
@@ -513,8 +513,8 @@ for opt in "" --dark-mode --flat ; do
   # but not augustus.finknottle - who should have been truncated
   OUT='augustus.finknottle'
   FILES=$outDir/index.html
-  if [ -d $outDir/simiple/index.html ] ; then
-      FILES="$FILES $outDir/simiple/index.html"
+  if [ -d $outDir/simple/index.html ] ; then
+      FILES="$FILES $outDir/simple/index.html"
   fi
   for FILE in $FILES ; do
       for owner in henry.cox roderick.glossop ; do
@@ -540,7 +540,7 @@ for opt in "" --dark-mode --flat ; do
       for owner in augustus.finknottle ; do
           grep $owner $FILE
           if [ 0 == $? ] ; then
-              echo "ERROR: unexpectedly found $owner in $outDir $FILEannotations"
+              echo "ERROR: unexpectedly found $owner in $outDir $FILE annotations"
               status=1
               if [ 0 == $KEEP_GOING ] ; then
                   exit 1
@@ -677,20 +677,20 @@ for opt in "" "--show-details" "--hier"; do
         fi
 	# expect to see non-zero deleted branch count
 	for tla in DUB DCB ; do
-	    grep -E branch:.+$(tla):1 $outFile
+	    grep -E branch:.+${tla}:[1-9] $outFile
 	    if [ 0 != $? ] ; then
 		echo "ERROR:  did not find expected $tla branches"
-		status = 1
-		if [ 0 != $KEEP_GOING ] ; then
+		status=1
+		if [ 0 == $KEEP_GOING ] ; then
 		    exit 1
 		fi
 	    fi
 	    if [ "$ENABLE_MCDC" == '1' ] ; then
-		grep -E mcdc:.+$(tla):1 $outFile
+		grep -E mcdc:.+${tla}:1 $outFile
 		if [ 0 != $? ] ; then
 		    echo "ERROR:  did not find expected $tla branches"
-		    status = 1
-		    if [ 0 != $KEEP_GOING ] ; then
+		    status=1
+		    if [ 0 == $KEEP_GOING ] ; then
 			exit 1
 		    fi
 		fi
@@ -814,7 +814,7 @@ done
 
 
 # with no sourceview
-echo genhtml $DIFFCOV_OPTS --no-sourceview -branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nosource ./current.info $IGNORE $POPUP
+echo genhtml $DIFFCOV_OPTS --no-sourceview --branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nosource ./current.info $IGNORE $POPUP
 $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --no-sourceview --branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nosource ./current.info $GENHTML_PORT $IGNORE $POPUP
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential_nosource failed"
@@ -1269,7 +1269,7 @@ done
 for tla in GNC UNC ; do
     grep "next $tla in" ./navigation/simple/test.cpp.gcov.html
     if [ 0 == $? ] ; then
-        echo "ERROR: found unexpected tla $TLA in result"
+        echo "ERROR: found unexpected tla $tla in result"
         status=1
         if [ 0 == $KEEP_GOING ] ; then
             exit 1
@@ -1280,7 +1280,7 @@ done
 for tla in HIT MIS ; do
     grep "next $tla in" ./navigation/simple/test.cpp.gcov.html
     if [ 0 != $? ] ; then
-        echo "ERROR: did not find expected tla $TLA in result"
+        echo "ERROR: did not find expected tla $tla in result"
         status=1
         if [ 0 == $KEEP_GOING ] ; then
             exit 1
@@ -1675,7 +1675,7 @@ fi
 grep -E "WARNING: .inconsistent.+: inconsistent diff data vs current source code: diff refers to 'current' line range" diff_range.log
 if [ 0 != $? ] ; then
     echo "did not file expected range warning"
-    status = 1
+    status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi

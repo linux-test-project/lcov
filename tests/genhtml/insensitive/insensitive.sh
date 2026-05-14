@@ -175,7 +175,7 @@ if [ 0 != $? ] ; then
 fi
 
 # just ignore the version check error this time..
-echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential3 ./current.info --ignore-source,annotate,version $IGNORE
+echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential3 ./current.info --ignore-source,annotate,version $IGNORE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential3 ./current.info $GENHTML_PORT --ignore source,annotate,version $IGNORE 2>&1 | tee fail2.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: expected synthesize  error but didn't find"
@@ -194,7 +194,7 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATATE --show-owners all --show-noncode -o differential4 ./current.info --ignore-source,annotate,version --synthesize $IGNORE
+echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential4 ./current.info --ignore-source,annotate,version --synthesize $IGNORE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script $ANNOTATE --show-owners all --show-noncode -o differential4 ./current.info $GENHTML_PORT --ignore source,annotate,version --synthesize $IGNORE 2>&1 | tee fail3.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: unexpected synthesize  error"

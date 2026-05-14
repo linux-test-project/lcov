@@ -159,7 +159,7 @@ sub annotate_callback
     while (my $line = <HANDLE>) {
         chomp $line;
         # Also remove CR from line-end
-        s/\015$//;
+        $line =~ s/\015$//;
 
         if ($line =~
             m/^(\S+)[^(]+\(<([^>]*)>\s+([-0-9]+\s+[0-9:]+\s+[-+0-9]+)\s+([0-9]+)\) (.*)$/

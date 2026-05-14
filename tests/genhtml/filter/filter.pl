@@ -5,7 +5,8 @@ use warnings;
 use FindBin;
 
 use lib "$FindBin::RealBin/../../../lib";    # build dir testcase
-use lib (exists($ENV{LCOV_HOME}) ? $ENV{LCOV_HOME} : "../../../lib") . '/lib/lcov';
+use lib (exists($ENV{LCOV_HOME}) ? $ENV{LCOV_HOME} : "../../../lib") .
+    '/lib/lcov';
 use lcovutil;
 
 lcovutil::parseOptions({}, {});

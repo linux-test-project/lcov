@@ -113,13 +113,14 @@ sub new
 
     while (my $line = <HANDLE>) {
         chomp $line;
-        s/\015$//;
+        $line =~ s/\015$//;
 
         $self->append(P4File->new($line));
     }
     close(HANDLE) or die("unable to close 'p4 files $p4tag' pipe: $!\n");
     if (0 != $?) {
-        $? & 0x7F & die("p4 files $p4tag died from signal ", ($? & 0x7F), "\n");
+        ($? & 0x7F) &&
+            die("p4 files $p4tag died from signal ", ($? & 0x7F), "\n");
         die("p4 files $p4tag exited with error ", ($? >> 8), "\n");
     }
     return $self;
@@ -300,12 +301,12 @@ if ($curr_changelist eq 'sandbox') {
 
     while (my $line = <HANDLE>) {
         chomp $line;
-        s/\015$//;
+        $line =~ s/\015$//;
         $curr_files->append(P4File->new($line), 1);    # overwrite
     }
     close(HANDLE) or die("unable to close 'p4 opened' pipe: $!\n");
     if (0 != $?) {
-        $? & 0x7F & die("p4 opened died from signal ", ($? & 0x7F), "\n");
+        ($? & 0x7F) && die("p4 opened died from signal ", ($? & 0x7F), "\n");
         die("'p4 opened' exited with error ", ($? >> 8), "\n");
     }
 }
@@ -345,7 +346,7 @@ my $prev_filename;
 my $skip = 0;
 while (my $line = <HANDLE>) {
     chomp $line;
-    s/\015$//;
+    $line =~ s/\015$//;
 
     # the 'diff' new/old file name line may be followed by a timestamp
     #   If so, remove it so our regexp matches more easily.
@@ -381,7 +382,8 @@ while (my $line = <HANDLE>) {
 }
 close(HANDLE) or die("unable to close p4 files (current) pipe: $!\n");
 if (0 != $?) {
-    $? & 0x7F & die("p4 files (current) died from signal ", ($? & 0x7F), "\n");
+    ($? & 0x7F) &&
+        die("p4 files (current) died from signal ", ($? & 0x7F), "\n");
     die("p4 files (current) exited with error ", ($? >> 8), "\n");
 }
 
@@ -416,7 +418,7 @@ foreach my $f (sort keys %union) {
         }
         close(HANDLE) or die("unable to close p4 print pipe: $!\n");
         if (0 != $?) {
-            $? & 0x7F & die("p4 print died from signal ", ($? & 0x7F), "\n");
+            ($? & 0x7F) && die("p4 print died from signal ", ($? & 0x7F), "\n");
             die("p4 print exited with error ", ($? >> 8), "\n");
         }
         printf("@@ 1,%d 0,0 @@\n", scalar(@lines));
@@ -450,7 +452,8 @@ foreach my $f (sort keys %union) {
         }
         close(HANDLE) or die("unable to close $err: $!\n");
         if (0 != $?) {
-            $? & 0x7F & die("close $err died from signal ", ($? & 0x7F), "\n");
+            ($? & 0x7F) &&
+                die("close $err died from signal ", ($? & 0x7F), "\n");
             die("close $err exited with error ", ($? >> 8), "\n");
         }
         printf("@@ 0,0 1,%d @@\n", scalar(@lines));

@@ -230,7 +230,7 @@ genhtml_desc_html=0
 
 # Set threshold for hit count which tool should deem likely to indicate
 # a toolchain bug (corrupt coverage data)
-# excessive_count_theshold = number
+# excessive_count_threshold = number
 
 # Demangle C++ symbols
 # Call multiple times to specify command and command line arguments
@@ -336,7 +336,7 @@ mcdc_coverage = 0
 # set to empty to elide tooltip
 # Substitutions:
 #  %d:  line number
-#  %C:  commit ID (from annotate callback - see --anotate-script entry in
+#  %C:  commit ID (from annotate callback - see --annotate-script entry in
 #       genhtml documentation)
 #  %U:  commit author abbreviated name
 #  %F:  commit author full name

@@ -82,7 +82,7 @@ if [ 1 != "$NO_INITIAL_CAPTURE" ] ; then
 	fi
     fi
 else
-    if [ "$VER[0]" -lt 5 ; then
+    if [ "${VER[0]}" -lt 5 ] ; then
 	   $COVER $CAPTURE . $LCOV_OPTS --initial -o initial2.info $IGNORE_EMPTY --profile 2>&1 | tee initial2.log
 	   if [ 0 == ${PIPESTATUS[0]} ] ; then
                echo "Error:  unexpected error code from lcov --initial"
@@ -140,7 +140,7 @@ fi
 
 # test an empty/trivial history callback
 # exclude code that some gcc versions suck in, from /usr/include/...
-$COVER $CAPTURE . $LCOV_OPTS -o external.info $FILTER $IGNORE --profile --histor ./history.sh $EMPTY_BRANCH
+$COVER $CAPTURE . $LCOV_OPTS -o external.info $FILTER $IGNORE --profile --history ./history.sh $EMPTY_BRANCH
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from lcov --capture"
     if [ $KEEP_GOING == 0 ] ; then
@@ -1043,7 +1043,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-grep -E 'SF:.*notfound.cpp' removeMissingb.info
+grep -E 'SF:.*notfound.cpp' removeMissing.info
 if [ 0 == $? ] ; then
     echo "expected to remove missing file"
     if [ $KEEP_GOING == 0 ] ; then
@@ -1082,7 +1082,7 @@ if [ 0 != $? ] ; then
 fi
 
 $COVER $LCOV_TOOL $LCOV_OPTS -o removeMissing_cb3.info -a missing_file.info --filter missing --resolve-script brokenCallback.pm,die --ignore callback $DERIVE_END $IGNORE_NO_FUNC 2>&1 | tee removeMissing.log
-if [ ${PIPESTATUS[0]} != $? ] ; then
+if [ ${PIPESTATUS[0]} != 0 ] ; then
     echo "filter missing callback failed"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
@@ -1116,7 +1116,7 @@ if [ 0 == $? ] ; then
 fi
 grep ERROR: err1.msg
 if [ 0 != $? ] ; then
-    echo "Error:  expected error message not foune"
+    echo "Error:  expected error message not found"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
@@ -1131,7 +1131,7 @@ if [ 0 == $? ] ; then
 fi
 grep ERROR: err2.msg
 if [ 0 != $? ] ; then
-    echo "Error:  expected error message 2 not foune"
+    echo "Error:  expected error message 2 not found"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
@@ -1146,7 +1146,7 @@ if [ 0 == $? ] ; then
 fi
 grep ERROR: err.3.msg
 if [ 0 != $? ] ; then
-    echo "Error:  expected error message 3 not foune"
+    echo "Error:  expected error message 3 not found"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi

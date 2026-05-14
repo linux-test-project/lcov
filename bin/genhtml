@@ -7992,7 +7992,7 @@ sub html_create($$)
     $filename = lc($filename) if $lcovutil::case_insensitive;
 
     if ($html_gzip) {
-        open($handle, "|-", "gzip -c > $filename'") or
+        open($handle, "|-", "gzip -c > $filename") or
             die("cannot open $filename for writing (gzip): $!\n");
     } else {
         open($handle, ">", $filename) or
@@ -11513,7 +11513,7 @@ sub write_source_line(*$$$$$$$)
                 #     between code lines owned by '$src_owner', such that the
                 #     all the code lines have the same TLA.
                 # In that case, we just insert an href at the top of the
-                # block to take us past all of of them - to the next code block
+                # block to take us past all of them - to the next code block
                 # owned by $src_owner with this TLA, which separated by at least
                 # one line of code either owned by someone else, or with a different
                 # TLA.

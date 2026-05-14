@@ -85,7 +85,7 @@ sub new
     $thresh{branch}   = $branch if defined($branch);
     $thresh{function} = $function if defined($function);
     $thresh{mcdc}     = $mcdc if defined($mcdc);
-    die("$script:  must specify at least of of --line, --branch, --function, --mcdc"
+    die("$script:  must specify at least one of --line, --branch, --function, --mcdc"
     ) unless (%thresh);
     foreach my $key (keys %thresh) {
         my $v = $thresh{$key};

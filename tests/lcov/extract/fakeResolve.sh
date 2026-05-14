@@ -1,2 +1,2 @@
 #!/bin/sh
-echo $1
+printf '%s\n' "$1"

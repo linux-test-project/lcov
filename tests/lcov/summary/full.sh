@@ -52,7 +52,7 @@ if [[ ! -s "${STDOUT}" ]] ; then
 fi
 
 # There must not be any output on stderr
-if [[ -s "${FILTERED}" && $COVER == '' ]] ; then
+if [[ -s "${STDERR}" && $COVER == '' ]] ; then
         echo "Error: Unexpected output on standard error"
         exit 1
 fi

@@ -64,7 +64,7 @@ for k in FNA ; do
     grep $k: demangle.info | grep ::
     COUNT=`grep $k: demangle.info | grep -c ::`
     if [ $COUNT != '4' ] ; then
-        echo "expected 4 $k function entries in demangele.info - found $COUNT"
+        echo "expected 4 $k function entries in demangle.info - found $COUNT"
         exit 1
     fi
 done
@@ -72,7 +72,7 @@ done
 # see if we can "simplify" the function names..
 for callback in './simplify.pl' "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g" "${SIMPLIFY_SCRIPT},--file,simplify.cmd" ; do
 
-    $COVER $GENHTML_TOOL --branch $PARLLEL $PROFILE -o simplify demangle.info --flat --simplify $callback
+    $COVER $GENHTML_TOOL --branch $PARALLEL $PROFILE -o simplify demangle.info --flat --simplify $callback
     if [ $? != 0 ] ; then
 	echo "genhtml --simplify '$callback' failed"
 	exit 1
@@ -94,14 +94,14 @@ for callback in './simplify.pl' "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Anima
     fi
     grep subst2 simplify/demangle/demangle.cpp.func.html
     if [ $? == 0 ] ; then
-	echo "iteratative substitute failed after $callback "
+	echo "iterative substitute failed after $callback "
 	exit 1
     fi
 done
 
 # test unused regexp in simplify callback
 for PAR in '' '--parallel' ; do
-    $COVER $GENHTML_TOOL --branch $PARLLEL $PROFILE -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g;s/foo/bar/g" $PAR 2>&1 | tee simplifyErr.log
+    $COVER $GENHTML_TOOL --branch $PARALLEL $PROFILE -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g;s/foo/bar/g" $PAR 2>&1 | tee simplifyErr.log
     if [ ${PIPESTATUS[0]} == 0 ] ; then
 	echo "genhtml --simplify unused regexp didn't fail"
 	exit 1
@@ -112,7 +112,7 @@ for PAR in '' '--parallel' ; do
 	exit 1
     fi
 
-    $COVER $GENHTML_TOOL --branch $PARLLEL $PROFILE -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g;s/foo/bar/g" $PAR --ignore unused 2>&1 | tee simplifyWarn.log
+    $COVER $GENHTML_TOOL --branch $PARALLEL $PROFILE -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g;s/foo/bar/g" $PAR --ignore unused 2>&1 | tee simplifyWarn.log
     if [ ${PIPESTATUS[0]} != 0 ] ; then
 	echo "genhtml --simplify unused regexp warn didn't pass"
 	exit 1
@@ -139,10 +139,10 @@ fi
 for k in FNA ; do
     # how many functions reported?
     grep $k: vanilla.info
-    COUNT=`grep -v __ demangle.info | grep -c $k: vanilla.info`
+    COUNT=`grep -v __ demangle.info | grep -c $k:`
     # gcc may generate multiple entries for the inline functions..
     if [ $COUNT -lt 5 ] ; then
-        echo "expected 5 $k function entries in $vanilla.info - found $COUNT"
+        echo "expected 5 $k function entries in vanilla.info - found $COUNT"
         exit 1
     fi
 

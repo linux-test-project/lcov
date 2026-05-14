@@ -149,7 +149,7 @@ BRH_th=${BASH_REMATCH[1]}  # 5
 bf=$(($BRF_no + $BRF_th))
 bh=$(($BRH_no + $BRH_th))
 if [ "$bf" != "$BRF" ] ; then
-    echo "unexpected BRF total: founr $bf expected $BRF"
+    echo "unexpected BRF total: found $bf expected $BRF"
     STATUS=1
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
@@ -157,7 +157,7 @@ if [ "$bf" != "$BRF" ] ; then
     
 fi
 if [ "$bh" != "$BRH" ] ; then
-    echo "unexpected BRH total: founr $bh expected $BRH"
+    echo "unexpected BRH total: found $bh expected $BRH"
     STATUS=1
     if [ $KEEP_GOING == 0 ] ; then
         exit 1

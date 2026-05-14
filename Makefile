@@ -32,6 +32,8 @@
 VERSION := $(shell bin/get_version.sh --version)
 RELEASE := $(shell bin/get_version.sh --release)
 FULL    := $(shell bin/get_version.sh --full)
+# Tool name - can be overridden from command line
+TOOL_NAME ?= LCOV
 
 # Set this variable during 'make install' to specify the interpreters used in
 # installed scripts, or leave empty to keep the current interpreter.
@@ -49,13 +51,15 @@ CFG_DIR := $(PREFIX)/etc
 BIN_DIR := $(PREFIX)/bin
 LIB_DIR := $(PREFIX)/lib/lcov
 MAN_DIR := $(PREFIX)/share/man
-SHARE_DIR := $(PREFIX)/share/lcov/
+SHARE_DIR := $(PREFIX)/share/lcov
+HTML_DIR := $(SHARE_DIR)/html
 SCRIPT_DIR := $(SHARE_DIR)/support-scripts
 
 CFG_INST_DIR := $(DESTDIR)$(CFG_DIR)
 BIN_INST_DIR := $(DESTDIR)$(BIN_DIR)
 LIB_INST_DIR := $(DESTDIR)$(LIB_DIR)
 MAN_INST_DIR := $(DESTDIR)$(MAN_DIR)
+HTML_INST_DIR := $(DESTDIR)$(HTML_DIR)
 SHARE_INST_DIR := $(DESTDIR)$(SHARE_DIR)
 SCRIPT_INST_DIR := $(SHARE_INST_DIR)/support-scripts
 
@@ -94,7 +98,7 @@ else
 .SILENT:
 endif
 
-.PHONY: all info clean install uninstall rpms test
+.PHONY: all info clean install uninstall rpms test doc
 
 all: info
 
@@ -114,9 +118,14 @@ clean:
 	$(RM) -r ./bin/__pycache__
 	$(MAKE) -C example -s clean
 	$(MAKE) -C tests -s clean
+	$(MAKE) -C docs -s clean
 	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
 
-install:
+doc:
+	$(MAKE) -C docs RELEASE=${VERSION} TOOL_NAME=$(TOOL_NAME) man html
+	find docs/_build -type d -exec chmod u+x {} \; # apparent permissions bug??
+
+install: doc
 	$(INSTALL) -d -m 755 $(BIN_INST_DIR)
 	for b in $(EXES) ; do \
 		$(call echocmd,"  INSTALL $(BIN_INST_DIR)/$$b") \
@@ -148,21 +157,26 @@ install:
 	for section in $(MAN_SECTIONS) ; do \
 		DEST=$(MAN_INST_DIR)/man$$section ; \
 		$(INSTALL) -d -m 755 $$DEST ; \
-		for m in man/*.$$section ; do  \
+		for m in docs/_build/man/*.$$section ; do  \
 			F=`basename $$m` ; \
 			$(call echocmd,"  INSTALL $$DEST/$$F") \
-			  $(INSTALL) -m 644 man/$$F $$DEST/$$F ; \
+			  $(INSTALL) -m 644 docs/_build/man/$$F $$DEST/$$F ; \
 			$(FIX) --version $(VERSION) --fixver --fixdate \
 		         --fixscriptdir --scriptdir $(SCRIPT_DIR) \
 		         --manpage $$DEST/$$F ; \
 		done ;  \
 	done
-	mkdir -p $(SHARE_INST_DIR)
+	for f in `( cd ./docs/_build ; find html -type f )` ; do \
+		DEST=$(SHARE_DIR)/`dirname $$f` ;                \
+		$(INSTALL) -d -m 755 $$DEST ;                    \
+		$(INSTALL) -m 644 ./docs/_build/$$f $$DEST ;     \
+	done
+
 	for d in example tests ; do \
 		( cd $$d ; make clean ) ; \
-		find $$d -type d -exec mkdir -p "$(SHARE_INST_DIR){}" \; ; \
-		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_INST_DIR){}" \; ; \
-	done ;
+		find $$d -type d -exec mkdir -p -m 755 "$(SHARE_INST_DIR)/{}" \; ; \
+		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_INST_DIR)/{}" \; ; \
+	done
 	@chmod -R ugo+x $(SHARE_INST_DIR)/tests/bin
 	@find $(SHARE_INST_DIR)/tests \( -name '*.sh' -o -name '*.pl' \) -exec chmod ugo+x {} \;
 	$(INSTALL) -d -m 755 $(CFG_INST_DIR)
@@ -210,7 +224,7 @@ dist: lcov-$(VERSION).tar.gz lcov-$(VERSION)-$(RELEASE).noarch.rpm \
 lcov-$(VERSION).tar.gz: $(FILES)
 	$(call echocmd,"  DIST    lcov-$(VERSION).tar.gz")
 	$(RM) -r $(TMP_DIR)/lcov-$(VERSION)
-	mkdir -p $(TMP_DIR)/lcov-$(VERSION)
+	mkdir -p -m 755 $(TMP_DIR)/lcov-$(VERSION)
 	cp -r $(DIST_CONTENT) $(TMP_DIR)/lcov-$(VERSION)
 	./bin/copy_dates.sh . $(TMP_DIR)/lcov-$(VERSION)
 	$(MAKE) -s -C $(TMP_DIR)/lcov-$(VERSION) clean >/dev/null
@@ -232,11 +246,11 @@ lcov-$(VERSION)-$(RELEASE).src.rpm: rpms
 
 rpms: lcov-$(VERSION).tar.gz
 	$(call echocmd,"  DIST    lcov-$(VERSION)-$(RELEASE).noarch.rpm")
-	mkdir -p $(TMP_DIR)
-	mkdir $(TMP_DIR)/BUILD
-	mkdir $(TMP_DIR)/RPMS
-	mkdir $(TMP_DIR)/SOURCES
-	mkdir $(TMP_DIR)/SRPMS
+	mkdir -p -m 755 $(TMP_DIR)
+	mkdir -m 755 $(TMP_DIR)/BUILD
+	mkdir -m 755 $(TMP_DIR)/RPMS
+	mkdir -m 755 $(TMP_DIR)/SOURCES
+	mkdir -m 755 $(TMP_DIR)/SRPMS
 	cp lcov-$(VERSION).tar.gz $(TMP_DIR)/SOURCES
 	( \
 	  cd $(TMP_DIR)/BUILD ; \
@@ -267,7 +281,7 @@ test: check
 #   once without - so we can merge the result
 check:
 	if [ "x$(COVERAGE)" != 'x' ] ; then                                 \
-	  mkdir -p $(COVER_DB) ;                                            \
+	  mkdir -p -m 755 $(COVER_DB) ;                                     \
 	  echo "*** Run once, force parallel ***" ;                         \
 	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C tests check LCOV_HOME=`pwd` ; \
 	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C example LCOV_HOME=`pwd` ;     \

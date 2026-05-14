@@ -73,6 +73,8 @@ jobs:
             llvm                       # for command "llvm-profdata"
             python3-coverage           # PyPI coverage
             python3-xlsxwriter         # PyPI xlsxwriter
+            python3-sphinx             # doc build
+            python3-sphinx-rtd-theme   # doc build
 
             # Additional dependencies for "make check"
             libgd-perl                 # CPAN GD

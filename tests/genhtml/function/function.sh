@@ -212,7 +212,7 @@ fi
 for opt in '' '--forget-test-names' ; do
     outdir="alias$opt"
     echo genhtml -o $outdir $opt $DIFFCOV_OPTS template.info --show-proportion
-    $COVER $GENHTML_TOOL -o $outdir $pt $DIFFCOV_OPTS  template.info --show-proportion
+    $COVER $GENHTML_TOOL -o $outdir $opt $DIFFCOV_OPTS  template.info --show-proportion
     if [ $? != 0 ] ; then
         echo "genhtml $outdir failed"
         if [ 0 == $KEEP_GOING ] ; then

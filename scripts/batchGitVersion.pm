@@ -90,7 +90,7 @@ EOF
   might have expected.
 
   The second call queries DB to find 'pathname'.
-    - 'pathname' may be be a file name which is found in the git repo, but
+    - 'pathname' may be a file name which is found in the git repo, but
       with some prefix prepended.  For example:
          pathname: /build/directory/path/repo/dir/file
          filename: repo/dir/file
@@ -189,7 +189,7 @@ sub new
             $db{File::Spec->catfile(@prepend, $2)} = $1;
         } elsif (/^\d+\s+commit\s+(\S+)\s+(\S+)$/) {
             # line format:  mode commit sha path
-            die("duplicate submodule etnry for $2") if exists($submodule{$2});
+            die("duplicate submodule entry for $2") if exists($submodule{$2});
             $submodule{$2} = $1;
         } else {
             print(STDERR "$errLeader$_");

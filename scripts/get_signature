@@ -63,7 +63,7 @@ unless (-e $filename) {
     die("Error: $filename does not exist - perhaps you need the '--allow-missing' flag"
     );
 }
-$pathname = abs_path($filename);
+my $pathname = abs_path($filename);
 
 #my $sum = `sha512sum $pathname`;
 my $sum = `md5sum $pathname`;

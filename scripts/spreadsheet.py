@@ -31,7 +31,7 @@ class GenerateSpreadsheet(object):
         # parse:  time to generate and read gcov data
         # exec: time to execute gcov
         # append: to merge file info into parent
-        geninfoKeys = ('order', 'file', 'parse', 'exec', 'append')
+        geninfoKeys = ['order', 'file', 'parse', 'exec', 'append']
 
         # work: productive time: process_one_chunk + merge chunk
         # chunk: everything from fork() to end of filesystem cleanup after child merge
@@ -121,7 +121,6 @@ class GenerateSpreadsheet(object):
             good = '=AND(NOT(OR(ISBLANK(%(cell)s),ISBLANK(%(dev)s))), (%(cell)s - %(avg)s) < (%(devMaxThresh)f * -%(dev)s), %(threshold)s)' % {
                 'cell' : dataCell,
                 'threshold' : threshold,
-                'cell' : dataCell,
                 'avg' : avgCell,
                 'dev' : devCell,
                 'devMaxThresh': devMaxThreshold,
@@ -286,7 +285,7 @@ class GenerateSpreadsheet(object):
                                     try:
                                         sheet.write_number(row, 3, float(d2[f]), twoDecimal)
                                     except:
-                                        print("Warning: %s: unable to write %s for lcov[seg %d][%s][$s]" % (name, str(d2[f]), seg, k, f))
+                                        print("Warning: %s: unable to write %s for lcov[seg %d][%s][%s]" % (name, str(d2[f]), seg, k, f))
                                 row += 1
                             except:
                                 print("Warning: %s: unable to write %s for lcov[seg %d]" % (name, k, seg))
@@ -317,7 +316,7 @@ class GenerateSpreadsheet(object):
                                 try:
                                     sheet.write_number(row, 3, float(d2[f]), twoDecimal)
                                 except:
-                                    print("Warning: %s: unable to write %s for lcov[%s][$s]" % (name, str(d2[f]), k, f))
+                                    print("Warning: %s: unable to write %s for lcov[%s][%s]" % (name, str(d2[f]), k, f))
                             row += 1
                         except:
                             print("Warning: %s: failed to find key '%s'" %(name, k))
@@ -746,7 +745,7 @@ Example usage:
                         help="difference from average smaller than this percentage is ignored (not colorized).  Default %0.2f" % (thresholdPercent))
     parser.add_argument("--low", dest='devMinThreshold', type=float,
                         help="difference from average larger than this * stddev colored yellow.  Default: %0.2f" %(devMinThreshold))
-    parser.add_argument("--high", dest='devMinThreshold', type=float,
+    parser.add_argument("--high", dest='devMaxThreshold', type=float,
                         help="difference from average larger than this * stddev colored red.  Default: %0.2f" %(devMaxThreshold))
     parser.add_argument('-v', '--verbose', dest='verbose', default=0,
                         action='count', help='verbosity of report: more data');

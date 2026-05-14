@@ -27,7 +27,7 @@ fi
 
 # error check:  try to run perl2lcov before running 'cover':
 $COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output err.info --testname test1 ./cover_one 2>&1 | tee err.log
-if [ 0 == ${PIPESTATUS[0} ] ; then
+if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "expected to fail - but passed"
     exit 1
 fi
@@ -103,9 +103,10 @@ if [ 0 != $? ] ; then
 fi
 # how many lines now?
 BREGION_DA=`grep -c -E '^DA:' br_region.info`
-BREGION_BR=`grep -c -E '^BRDA:' br_egion.info`
-if [ $REGION_BR != $BREGION_BR ] ; then
-    echo "wrong branch region branch count $BR -> $BREGION_BR"
+BREGION_BR=`grep -c -E '^BRDA:' br_region.info`
+if [ $REGION_BR != $BR ] ; then
+    # 'region' filter shouldn't have taken out any branches
+    echo "wrong branch region branch count $REGION_BR -> $BR"
     exit 1
 fi
 if [ $DA != $BREGION_DA ] ; then
@@ -147,7 +148,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-if [ `test ! -z x.info` ] ; then
+if [ -s x.info ] ; then
     echo 'expected empty file - but not empty'
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
