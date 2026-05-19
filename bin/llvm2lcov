@@ -456,7 +456,17 @@ sub parse
                 }
                 if ($mcdc) {
                     foreach my $m (@$mcdc) {
-                        die("unexpected MC/DC data") unless scalar(@$m) == 10;
+                        my $mSize = scalar(@$m);
+                        # Version '3.1.0' adds to entries a field which contains the
+                        # 'Executed MC/DC Test Vectors' table.
+                        # However, this is not used for presenting MC/DC data,
+                        # so we ignore this field.
+                        die("unsupported MC/DC entry size $mSize in JSON file version '$json_version'"
+                            )
+                            unless ($json_version > version->parse("3.0.1") &&
+                                    $mSize == 11) ||
+                            ($json_version == version->parse("3.0.1") &&
+                             $mSize == 10);
                         my ($line, $col, $endLine, $endCol,
                             $trueCount, $falseCount, $fileId, $expandedId,
                             $kind, $cov) = @$m;
