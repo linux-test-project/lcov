@@ -461,12 +461,17 @@ sub parse
                         # 'Executed MC/DC Test Vectors' table.
                         # However, this is not used for presenting MC/DC data,
                         # so we ignore this field.
-                        die("unsupported MC/DC entry size $mSize in JSON file version '$json_version'"
-                            )
-                            unless ($json_version > version->parse("3.0.1") &&
-                                    $mSize == 11) ||
-                            ($json_version == version->parse("3.0.1") &&
-                             $mSize == 10);
+                        if (!( $json_version > version->parse("3.0.1") &&
+                               $mSize == 11)
+                            &&
+                            !(  $json_version == version->parse("3.0.1") &&
+                                $mSize == 10)
+                        ) {
+                            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                "unsupported MC/DC entry size $mSize in JSON file version '$json_version'"
+                            );
+                            last;
+                        }
                         my ($line, $col, $endLine, $endCol,
                             $trueCount, $falseCount, $fileId, $expandedId,
                             $kind, $cov) = @$m;
