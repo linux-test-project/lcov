@@ -211,12 +211,13 @@ test_differential:
 
 	@echo "Step 6: Generate differential coverage report"
 	@echo "      - caching revision control data may result in improved runtime performance)"
+	@echo "      - verify revision control data vs local edits"
 	@echo "      - capture 'genhtml' execution profile that we can use later"
 	(cd $(REPO) ;                                            \
 	$(GENHTML) -o differential --baseline-file baseline.info \
 	  --diff-file udiff.txt --show-owners                    \
 	  --title "Differential coverage example"                \
-	  --annotate $(SCRIPTDIR)/gitblame.pm,--cache,./my_cache \
+	  --annotate $(SCRIPTDIR)/gitblame.pm,--cache,./my_cache,--verify \
 	  --version-script $(SCRIPTDIR)/gitversion.pm --profile  \
 	  -- current.info )
 
@@ -229,7 +230,7 @@ test_differential:
 	$(GENHTML) -o review --baseline-file baseline.info       \
 	  --diff-file udiff.txt --show-owners                    \
 	  --title "Differential report for code review"          \
-	  --annotate $(SCRIPTDIR)/gitblame.pm,--cache,./my_cache \
+	  --annotate $(SCRIPTDIR)/gitblame.pm,--cache,./my_cache,--verify \
 	  --version-script $(SCRIPTDIR)/gitversion.pm            \
 	  --select-script $(SCRIPTDIR)/select.pm                 \
 	  --select-script --tla --select-script UNC,UIC,LBC      \

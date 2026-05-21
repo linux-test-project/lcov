@@ -1485,10 +1485,18 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-echo genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $ANNOTATE annotate.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./annotate --annotate $ANNOTATE annotate.info
+echo genhtml $DIFFCOV_OPTS --output-directory ./annotate --annotate $ANNOTATE,--log,ann.log annotate.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --output-directory ./annotate --annotate $ANNOTATE,--log,ann.log annotate.info
 if [ 0 == $? ] ; then
     echo "ERROR: annotate with no annotation"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep 'annotate.cpp not in repo' ann.log
+if [ 0 != $? ] ; then
+    echo "Error:  expected message not in 'ann.log'"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1

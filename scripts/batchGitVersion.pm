@@ -38,7 +38,7 @@ use Cwd qw/getcwd/;
 
 use FindBin;
 use lib "$FindBin::RealBin";
-use annotateutil qw(get_modify_time not_in_repo compute_md5 call_get_version);
+use annotateutil qw(get_modify_time compute_md5 call_get_version);
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(new extract_version compare_version usage);
