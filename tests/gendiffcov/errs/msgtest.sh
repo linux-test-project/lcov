@@ -3,8 +3,8 @@ set +x
 
 source ../../common.tst
 
-rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err* readThis.rc testing.rc
-rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight etc mycache cacheFail expect subset context labels sortTables simplify_* simplify missingRestore selectErr1 selectErr2 selectErr3 mcdc unreachable
+rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err* readThis.rc testing.rc configErr.rc incFile.rc
+rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight mycache cacheFail expect subset context labels sortTables simplify_* simplify missingRestore selectErr1 selectErr2 selectErr3 mcdc unreachable
 
 clean_cover
 
@@ -440,13 +440,13 @@ done
 
 echo genhtml $DIFCOV_OPTS initial.info -o sortTables --sort
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o sortTables --sort 2>&1 | tee sort.log
-if [ 0 != ${PIPESTATUS[0]} ] ; then
-    echo "ERROR: genhtml --sort failed"
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml --sort passed but should not have"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
 fi
-grep "is deprecated and will be removed" sort.log
+grep "Option sort is ambiguous" sort.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing --sort message"
     if [ 0 == $KEEP_GOING ] ; then
@@ -892,7 +892,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-# deprecated messages
+# removed option
 echo genhtml $DIFFCOV_OPTS initial.info -o highlight --highlight
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT --highlight -o highlight 2>&1 | tee highlight.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
@@ -901,27 +901,9 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep -E "ERROR: \(deprecated\) .*option .+ has been removed" highlight.log
+grep -E "Unknown option: highlight" highlight.log
 if [ 0 != $? ] ; then
     echo "ERROR: missing highlight message"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
-    fi
-fi
-
-mkdir -p etc
-echo "genhtml_highlight = 1" > etc/lcovrc
-echo genhtml $DIFFCOV_OPTS initial.info -o highlight --config-file LCOV_HOME/etc/lcovrc $IGNORE_ANNOTATE
-LCOV_HOME=. $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT -o highlight $IGNORE_ANNOTATE 2>&1 | tee highlight2.log
-if [ 0 != ${PIPESTATUS[0]} ] ; then
-    echo "ERROR: deprecated error was fatal"
-    if [ 0 == $KEEP_GOING ] ; then
-        exit 1
-    fi
-fi
-grep -E "WARNING: \(deprecated\) .+ deprecated and ignored" highlight2.log
-if [ 0 != $? ] ; then
-    echo "ERROR: missing decrecated message"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
@@ -1043,6 +1025,64 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+for opt in 'genhtml_demangle_cpp'        \
+           'genhtml_demangle_cpp_tool'   \
+           'genhtml_demangle_cpp_params' \
+           'geninfo_checksum'            \
+           'geninfo_no_exception_branch' \
+           'geninfo_adjust_src_path'     \
+           'lcov_branch_coverage'        \
+           'lcov_function_coverage'      \
+           'genhtml_function_coverage'   \
+           'genhtml_branch_coverage'     \
+           'genhtml_criteria_script'     \
+           'lcov_fail_under_lines'       \
+           'lcov_func_coverage'          \
+           'lcov_br_coverage'            \
+           'geninfo_adjust_src_path'     \
+           'geninfo_no_exception_branch' \
+	   ; do
+
+    echo genhtml $DIFFCOV_OPTS initial.info -o rcErr --rc "$opt=err"
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o rcErr --rc "$opt=err" 2>&1 | tee rcOptErr.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+        echo "ERROR: no error for deprecated RC opt $opt"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    grep -E "$opt.+is deprecated.+ use" rcOptErr.log
+    if [ 0 != $? ] ; then
+        echo "ERROR: didn't find expected message for $opt"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+
+echo "config_file = configErr.rc" > incFile.rc
+for opt in 'lcov_func_coverage' ; do
+    echo "$opt = 1" > configErr.rc
+
+    echo genhtml $DIFFCOV_OPTS initial.info -o rcErr --config-file incFile.rc "$opt=err"
+    $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o rcErr --config-file incFile.rc "$opt=err" 2>&1 | tee rcOptErr2.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+        echo "ERROR: no error for included deprecated RC opt $opt"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    grep -E "$opt.+is deprecated.+ use" rcOptErr2.log
+    if [ 0 != $? ] ; then
+        echo "ERROR: didn't find expected message for included RC $opt"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+
 
 if [ "$ENABLE_MCDC" != 1 ] ; then
     $COVER $GENINFO_TOOL . -o mcdc --mcdc-coverage $LCOV_OPTS --msg-log mcdc_errs.log
@@ -1052,7 +1092,7 @@ if [ "$ENABLE_MCDC" != 1 ] ; then
             exit 1
         fi
     fi
-    
+
     grep -E "MC/DC coverage enabled .* does not support the .* option" mcdc_errs.log
     if [ 0 != $? ] ; then
         echo "ERROR: didn't find expected MCDC error"

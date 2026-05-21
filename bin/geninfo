@@ -274,24 +274,6 @@ eval {
 die("invalid 'large-file' regexp: $@")
     if ($@);
 
-# Check regexp
-if (defined($lcovutil::rc_adjust_src_path)) {
-    my ($pattern, $replace) = split(/\s*=>\s*/, $lcovutil::rc_adjust_src_path);
-    # If no replacement is specified, simply remove pattern
-    $replace = '' unless defined($replace);
-    my $p = "s#$pattern#$replace#g";
-    $p .= 'i' if $lcovutil::case_insensitive;
-    my $text = 'abc';
-    my $str  = eval "\$text =~ $p ;";
-    if ($@) {
-        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-            "Invalid 'geninfo_adjust_src_path=$lcovutil::rc_adjust_src_path' syntax: '$@'"
-        );
-    } else {
-        push(@lcovutil::file_subst_patterns, [$p, 0]);
-    }
-}
-
 if ($lcovutil::geninfo_captureAll && $initial) {
     lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
                               "'--all' ignored when '--initial' is used");
