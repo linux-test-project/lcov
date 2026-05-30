@@ -58,7 +58,7 @@ for f in badFncLine badFncEndLine fncMismatch badBranchLine badLine ; do
     fi
     # and print the data out again..
     echo lcov $LCOV_OPTS -o $f.out -a $f.info --ignore format,inconsistent
-    $COVER $LCOV_TOOL $LCOV_OPTS -o $f.out -a $f.info --ignore format,inconsistent --msg-log $f{3}.log
+    $COVER $LCOV_TOOL $LCOV_OPTS -o $f.out -a $f.info --ignore format,inconsistent --msg-log ${f}3.log
     if [ 0 != $? ] ; then
         echo "failed to ignore message ${f}3.log"
         status=1
@@ -167,6 +167,7 @@ fi
 grep 'no files matching' emptyDir.log
 if [ 0 != $? ] ; then
     echo "did not find expected empty dir message"
+    status=1
 fi
 echo lcov $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info --ignore empty
 $COVER $LCOV_TOOL $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info --ignore empty 2>&1 | tee emptyDir2.log
@@ -192,6 +193,7 @@ fi
 grep 'error in "find' noRead.log
 if [ 0 != $? ] ; then
     echo "did not find expected unreadable dir message"
+    status=1
 fi
 echo lcov $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info --ignore utility,empty
 $COVER $LCOV_TOOL $LCOV_OPTS -a emptyDir -a exceptionBranch1.info -o emptyDir.info --ignore utility,empty 2>&1 | tee noRead2.log

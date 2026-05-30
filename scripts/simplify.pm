@@ -1,4 +1,4 @@
-#!/usr/bin/end perl
+#!/usr/bin/env perl
 
 #   Copyright (c) MediaTek USA Inc., 2025
 #

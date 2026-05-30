@@ -115,7 +115,7 @@ our $tool_name = basename($0);          # import from lcovutil module
 our $VERSION   = `"$tool_dir"/get_version.sh --full`;
 chomp($VERSION);
 our $lcov_version = 'LCOV version ' . $VERSION;
-our $lcov_url     = "https://github.com//linux-test-project/lcov";
+our $lcov_url     = "https://github.com/linux-test-project/lcov";
 our @temp_dirs;
 our $tmp_dir = '/tmp';          # where to put temporary/intermediate files
 our $preserve_intermediates;    # this is useful only for debugging
@@ -287,7 +287,7 @@ our $FILTER_BRANCH_NO_COND;
 # don't report line coverage for closing brace of a function
 #   or basic block, if the immediate predecessor line has the same count.
 our $FILTER_LINE_CLOSE_BRACE;
-# merge functions which appear on same file/line - guess that that
+# merge functions which appear on same file/line - guess that
 #   they are all the same
 our $FILTER_FUNCTION_ALIAS;
 # region between LCOV EXCL_START/STOP
@@ -2468,7 +2468,7 @@ sub report_exit_status
         MessageContext::context();
     if ($signal) {
         $explain =
-            "$prefix died died due to signal $signal (SIG" .
+            "$prefix died due to signal $signal (SIG" .
             (split(' ', $Config{sig_name}))[$signal] .
             ')' . MessageContext::context() .
             ': possibly killed by OS due to out-of-memory';
@@ -3346,10 +3346,10 @@ sub context
         $line =~ s/\r//g;    # remove CR from line-end
                              # first word on line is the key..
         my ($key, $value) = split(/ +/, $line, 2);
-        if (exists($context{key})) {
-            $context{key} .= "\n" . $value;
+        if (exists($context{$key})) {
+            $context{$key} .= "\n" . $value;
         } else {
-            $context{key} = $value;
+            $context{$key} = $value;
         }
     }
     my $status = $iter->close(1);    # check error return
@@ -3517,7 +3517,7 @@ sub load_json_module($)
         }
 
         if (!defined($did_init)) {
-            die("No Perl JSON module found on your system.  Please install of of the following supported modules: "
+            die("No Perl JSON module found on your system.  Please install one of the following supported modules: "
                     . join(" ", @alternatives)
                     . " - for example (as root):\n  \$ perl -MCPAN -e 'install "
                     . $alternatives[0]
@@ -4625,7 +4625,7 @@ sub insertExpr
     } else {
         if ($idx != scalar(@$group)) {
             lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                "\"$filename\":" . '":' . $self->line() .
+                "\"$filename\":" . $self->line() .
                     ": MC/DC group $groupSize: non-contiguous expression '$idx' found - should be '"
                     . scalar(@$group)
                     . "'.");
@@ -5032,7 +5032,7 @@ sub merge
                               $self->name() .
                                   " has different location than " .
                                   $that->name() . " during merge")
-        if ($self->line() != $self->line());
+        if ($self->line() != $that->line());
     while (my ($name, $count) = each(%{$that->[ALIASES]})) {
         $self->addAlias($name, $count);
     }
@@ -5679,7 +5679,7 @@ sub difference
                 $changedHere = 1;
                 # ignore all the leading common blocks...
                 for (my $idx = $yourCount; $idx <= $#$myList; ++$idx) {
-                    my $mine     = $myList->[$idx++];
+                    my $mine     = $myList->[$idx];
                     my $catBlock = Storable::dclone($mine);
                     $replace->insertBlock($catBlock);
                 }
@@ -5788,7 +5788,7 @@ sub union
             $changed += $myBranch->merge($yourBranch, $filename);
         } else {
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                      "cannot merge iconsistent MC/DC record");
+                                      "cannot merge inconsistent MC/DC record");
             # possibly remove this record?
         }
     }
@@ -5813,7 +5813,7 @@ sub intersect
                 $changed += $myBranch->merge($yourBranch, $filename);
             } else {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                       "cannot merge iconsistent MC/DC record");
+                                      "cannot merge inconsistent MC/DC record");
                 # possibly remove this record?
             }
         } else {
@@ -6531,16 +6531,16 @@ sub parseLines
 
     if (defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_BRANCH])) {
         push(@excludes,
-             [$excl_ex_start, $excl_ex_stop,
-              \$exclude_exception_region, e_EXCEPTION | EXCLUDE_BRANCH_REGION,
-              $lcovutil::EXCL_BR_START, $lcovutil::EXCL_BR_STOP,
-             ],
-             [$excl_br_start,
-              $excl_br_stop,
-              \$exclude_br_region,
-              e_BRANCH | EXCLUDE_BRANCH_REGION,
+             [$excl_ex_start,
+              $excl_ex_stop,
+              \$exclude_exception_region,
+              e_EXCEPTION | EXCLUDE_BRANCH_REGION,
               $lcovutil::EXCL_EXCEPTION_BR_START,
               $lcovutil::EXCL_EXCEPTION_BR_STOP,
+             ],
+             [$excl_br_start, $excl_br_stop,
+              \$exclude_br_region, e_BRANCH | EXCLUDE_BRANCH_REGION,
+              $lcovutil::EXCL_BR_START, $lcovutil::EXCL_BR_STOP,
              ]);
     } else {
         $excl_br_line = undef;
@@ -6780,7 +6780,7 @@ sub isExcluded
     #   - non-zero if the line is excluded (in an excluded or unreachable
     #     region), or if '$flags" is set and the exclusion reason includes
     #     at least one of the flags.
-    #   - The latter condition is used to check for branch-only or execption-
+    #   - The latter condition is used to check for branch-only or exception-
     #     only exclusions, as well as to check whether this line is
     #     unreachable (as opposed to excluded).
     my ($self, $lineNo, $flags, $skipRangeCheck) = @_;
@@ -6790,7 +6790,7 @@ sub isExcluded
         # version N of the file, then generating HTML with version M
         # "--version-script callback" option can be used to detect this
 
-        # if we are just checking whether this line in in an unreachable region,
+        # if we are just checking whether this line is in an unreachable region,
         #   then don't check for out-of-range (that check happens later)
         return 0
             if $skipRangeCheck;
@@ -7972,7 +7972,7 @@ sub _filterFile
                                      $fileVersion, 'filter')
     ) {
         lcovutil::info(1,
-                      '$source_file: skip filtering due to version mismatch\n');
+                      "$source_file: skip filtering due to version mismatch\n");
         return ($traceInfo, 0);
     }
 
@@ -9177,7 +9177,7 @@ sub _read_info
                 #  (for the same file)
                 $functionMap->define_function($fnName, $lineNo,
                                               $end_line ? $end_line : undef,
-                                              , "\"$tracefile\":$.");
+                                              "\"$tracefile\":$.");
                 last;
             };
 
@@ -9490,7 +9490,7 @@ sub write_info($$$)
     foreach my $filename (sort($self->files())) {
         my $entry       = $self->data($filename);
         my $source_file = $entry->filename();
-        die("expected to have have filtered $source_file out")
+        die("expected to have filtered $source_file out")
             if lcovutil::is_external($source_file);
         die("expected TraceInfo, got '" . ref($entry) . "'")
             unless ('TraceInfo' eq ref($entry));

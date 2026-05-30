@@ -136,7 +136,7 @@ fi
 
 echo
 echo "Run 4: Demangle with params set from command line"
-# mycppfilt.sh with parameter prepends that parameter to to each function name
+# mycppfilt.sh with parameter prepends that parameter to each function name
 run "--demangle-cpp $MYFILT --demangle-cpp 'bbb'"
 if grep -q 'bbbmyfunc' ${HTML} ; then
         echo "Success - found myfunc prefixed by custom prefix"

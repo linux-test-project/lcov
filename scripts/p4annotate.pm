@@ -164,7 +164,7 @@ sub annotate_callback
                 while ($line = <PIPE>) {
                     chomp $line;
                     # Also remove CR from line-end
-                    s/\015$//;
+                    $line =~ s/\015$//;
                     if ($line =~
                         m/^([0-9]+)(,([0-9]+))?([acd])([0-9]+)(,([0-9]+))?/) {
                         # change
@@ -184,7 +184,7 @@ sub annotate_callback
                 }
                 close(PIPE) or die("unable to close p4 diff pipe: $!\n");
                 if (0 != $?) {
-                    $? & 0x7F &
+                    ($? & 0x7F) &&
                         die("p4 pipe died from signal ", ($? & 0x7F), "\n");
                     die("p4 pipe exited with error ", ($? >> 8), "\n");
                 }
@@ -215,7 +215,7 @@ sub annotate_callback
 
                 chomp $line;
                 # Also remove CR from line-end
-                s/\015$//;
+                $line =~ s/\015$//;
 
                 if ($line =~ m/([0-9]+):\s+(\S+)\s+([0-9\/]+)\s(.*)/) {
                     my $changelist = $1;

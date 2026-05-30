@@ -46,6 +46,8 @@ GENDESC := $(EXEC_COVER) $(BINDIR)/gendesc
 GENPNG  := $(EXEC_COVER) $(BINDIR)/genpng
 SCRIPTDIR = $(shell if [ -d ../scripts ] ; then echo $(SCRIPTS) ; else echo $(LCOV_HOME)/share/lcov/support-scripts ; fi)
 
+GITDIFF  := $(EXEC_COVER) $(SCRIPTDIR)/gitdiff
+
 # Depending on the presence of the GD.pm perl module, we can use the
 # special option '--frames' for genhtml
 USE_GENPNG := $(shell $(GENPNG) --help >/dev/null 2>/dev/null; echo $$?)
@@ -206,7 +208,7 @@ test_differential:
 		--history $(SCRIPTDIR)/history.pm,baseline.info.json )
 	@echo "Compute source diffs"
 	(cd $(REPO) ;                                          \
-	$(SCRIPTDIR)/gitdiff -b . `git rev-list -n 1 baseline` \
+	$(GITDIFF) -b . `git rev-list -n 1 baseline` \
 	  `git rev-list -n 1 current` > udiff.txt )
 
 	@echo "Step 6: Generate differential coverage report"

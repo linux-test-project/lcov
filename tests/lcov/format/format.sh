@@ -123,7 +123,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep "ERROR: (excessive) Unexpected excessive hit count" excessive.log
+grep "ERROR: (excessive) Unexpected excessive hit count" keepGoing.log
 if [ 0 != $? ] ; then
     echo "Error:  expected excessive hit count message but didn't find it"
     if [ $KEEP_GOING == 0 ] ; then

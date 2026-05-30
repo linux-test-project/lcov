@@ -620,8 +620,8 @@ sub userspace_reset()
                 unlink($_) or die("cannot remove file $_: $!\n");
             }
         }
-        ignorable_error($ERROR_EMPTY,
-                        "$pattern does not match any directory entries")
+        lcovutil::ignorable_error($ERROR_EMPTY,
+                                "$pattern does not match any directory entries")
             if 0 == $count;
     }
 }
@@ -1287,7 +1287,7 @@ sub kernel_capture_initial()
     $base_directory = $build;
     if (@kernel_directory) {
         foreach my $dir (@kernel_directory) {
-            push(@params, File::Scpec->catdir($build, $dir));
+            push(@params, File::Spec->catdir($build, $dir));
         }
     } else {
         push(@params, $build);

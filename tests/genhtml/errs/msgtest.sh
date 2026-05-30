@@ -179,9 +179,9 @@ if [ 0 != $? ] ; then
     fi
 fi
 echo lcov $LCOV_OPTS --summary initial.info --prune --ignore usage
-$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --prune --ignore usgae 2>&1 | tee prune_warn.log
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --prune --ignore usage 2>&1 | tee prune_warn.log
 if [ 0 != $? ] ; then
-    echo "ERROR: lcov prune faled"
+    echo "ERROR: lcov prune failed"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
@@ -213,7 +213,7 @@ if [ 0 == $? ] ; then
 fi
 grep "use new '--filter' option or old" markers.err
 if [ 0 != $? ] ; then
-    echo "ERROR: didint find usage error"
+    echo "ERROR: didn't find usage error"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
@@ -248,7 +248,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-if [ !-f message_file.log] ; then
+if [ ! -f message_file.log ] ; then
     echo "ERROR: didn't honor message_log"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -333,7 +333,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 
-echo genhtml $DIFCOV_OPTS initial.info -o select --select-script $SELECT_SCRIPT --select-script -x
+echo genhtml $DIFFCOV_OPTS initial.info -o select --select-script $SELECT_SCRIPT --select-script -x
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script $SELECT_SCRIPT --select-script -x 2>&1 | tee script_err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml select passed by accident"
@@ -351,7 +351,7 @@ fi
 
 # test some 'select.pm' errors:
 #   - --cl without annotate callback
-echo genhtml $DIFCOV_OPTS initial.info -o selectErr1 --select-script $SELECT_SCRIPT,--cl,123
+echo genhtml $DIFFCOV_OPTS initial.info -o selectErr1 --select-script $SELECT_SCRIPT,--cl,123
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o selectErr1 --select-script $SELECT_SCRIPT,--cl,123 2>&1 | tee selectErr1.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml selectErr1 passed by accident"
@@ -368,7 +368,7 @@ if [ 0 != $? ] ; then
 fi
 
 #   - --tla LBC without baseline data
-echo genhtml $DIFCOV_OPTS initial.info -o selectErr2 --select-script $SELECT_SCRIPT,--tla,LBC
+echo genhtml $DIFFCOV_OPTS initial.info -o selectErr2 --select-script $SELECT_SCRIPT,--tla,LBC
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o selectErr2 --select-script $SELECT_SCRIPT,--tla,LBC 2>&1 | tee selectErr2.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml selectErr2 passed by accident"
@@ -385,7 +385,7 @@ if [ 0 != $? ] ; then
 fi
 
 #   - --tla GNC without diff data
-echo genhtml $DIFCOV_OPTS --baseline-file initial.info build.info -o selectErr3 --select-script $SELECT_SCRIPT,--tla,GNC
+echo genhtml $DIFFCOV_OPTS --baseline-file initial.info build.info -o selectErr3 --select-script $SELECT_SCRIPT,--tla,GNC
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file initial.info build.info -o selectErr3 --select-script $SELECT_SCRIPT,--tla,GNC 2>&1 | tee selectErr3.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml selectErr3 passed by accident"
@@ -412,7 +412,7 @@ for arg in "--annotate-script $ANNOTATE_SCRIPT --select-script $SELECT_SCRIPT,--
                "--annotate-script $GITBLAME_SCRIPT" \
                " --ignore version --version-script $GITVERSION_SCRIPT,--md5,--p4" \
            ; do
-    echo genhtml $DIFCOV_OPTS initial.info -o scriptErr ${arg},-x
+    echo genhtml $DIFFCOV_OPTS initial.info -o scriptErr ${arg},-x
     $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o scriptErr ${arg},-x 2>&1 | tee script_err.log
     if [ 0 == ${PIPESTATUS[0]} ] ; then
         echo "ERROR: genhtml scriptErr passed by accident"
@@ -428,7 +428,7 @@ for arg in "--annotate-script $ANNOTATE_SCRIPT --select-script $SELECT_SCRIPT,--
         fi
     fi
     # run again  without error
-    echo genhtml $DIFCOV_OPTS initial.info -o scriptFixed ${arg}
+    echo genhtml $DIFFCOV_OPTS initial.info -o scriptFixed ${arg}
     $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o scriptFixed ${arg} --ignore annotate --profile 2>&1 | tee script_err.log
     if [ 0 != ${PIPESTATUS[0]} ] ; then
         echo "ERROR: genhtml scriptFixed failed"
@@ -438,7 +438,7 @@ for arg in "--annotate-script $ANNOTATE_SCRIPT --select-script $SELECT_SCRIPT,--
     fi
 done
 
-echo genhtml $DIFCOV_OPTS initial.info -o sortTables --sort
+echo genhtml $DIFFCOV_OPTS initial.info -o sortTables --sort
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o sortTables --sort 2>&1 | tee sort.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml --sort passed but should not have"
@@ -455,7 +455,7 @@ if [ 0 != $? ] ; then
 fi
 
 
-echo genhtml $DIFCOV_OPTS initial.info -o p4err --version-script $P4VERSION_SCRIPT,-x
+echo genhtml $DIFFCOV_OPTS initial.info -o p4err --version-script $P4VERSION_SCRIPT,-x
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o p4err --version-script $P4VERSION_SCRIPT,-x 2>&1 | tee p4err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml select passed by accident"
@@ -472,7 +472,7 @@ if [ 0 != $? ] ; then
 fi
 
 
-echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --rc compute_file_version=1
+echo genhtml $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --rc compute_file_version=1
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh  --rc compute_file_version=1 2>&1 | tee select_scr.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml compute_version failed"
@@ -501,7 +501,7 @@ fi
 # and again, as a differential report with annotation
 NOW=`date`
 rm -rf mycache
-echo genhtml $DIFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info $IGNORE_ANNOTATE
+echo genhtml $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info $IGNORE_ANNOTATE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o select --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix  $IGNORE_ANNOTATE 2>&1 | tee select_scr.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml cache failed"
@@ -520,7 +520,7 @@ for i in `find mycache -type f` ; do
     echo xyz > $i
 done
 # have to ignore version mismatch becaure p4annotate also computes version
-echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --ignore version $IGNORE_ANNOTATE
+echo genhtml $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --ignore version $IGNORE_ANNOTATE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --ignore version $IGNORE_ANNOTATE 2>&1 | tee cacheFail.log
 
 if [ '' == $IGNORE_ANNOTATE ] ; then
@@ -542,7 +542,7 @@ fi
 
 # make cache file unreadable
 find mycache -type f -exec chmod ugo-r {} \;
-echo genhtml $DIFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info $IGNORE_ANNOTATE
+echo genhtml $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info $IGNORE_ANNOTATE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x $IGNORE_ANNOTATE --no-prefix 2>&1 | tee cacheFail2.log
 
 if [ '' == $IGNORE_ANNOTATE ] ; then
@@ -566,7 +566,7 @@ fi
 
 # differential report with empty diff file
 touch diff.txt
-echo genhtml $DIFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCTIPT --baseline-file initial.info
+echo genhtml $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info 2>&1 | tee empty_diff.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml did not fail empty diff eheck"
@@ -721,7 +721,7 @@ fi
 
 for callback in select annotate criteria simplify unreachable ; do
 
-  echo genhtml $DIFCOV_OPTS initial.info -o $callback --${callback}-script ./genError.pm
+  echo genhtml $DIFFCOV_OPTS initial.info -o $callback --${callback}-script ./genError.pm
   $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o $callback --${callback}-script ./genError.pm 2>&1 | tee ${callback}_err.log
   if [ 0 == ${PIPESTATUS[0]} ] ; then
       echo "ERROR: genhtml $callback error passed by accident"
@@ -741,7 +741,7 @@ done
 # check callback fails in save/restore/start/finalize callbacks
 SKIP_ARG=''
 for cb in start save restore finalize ; do
-  echo genhtml $DIFCOV_OPTS initial.info -o simplify_$cb --simplify-script ./parallelFail.pm$SKIP_ARG --parallel
+  echo genhtml $DIFFCOV_OPTS initial.info -o simplify_$cb --simplify-script ./parallelFail.pm$SKIP_ARG --parallel
   LCOV_FORCE_PARALLEL=1 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o simplify_$cb --simplify-script ./parallelFail.pm$SKIP_ARG --parallel 2>&1 | tee simplify_${cb}_err.log
   if [ 0 == ${PIPESTATUS[0]} ] ; then
       echo "ERROR: genhtml simplify '$cb' passed by accident"
@@ -760,8 +760,8 @@ for cb in start save restore finalize ; do
 done
 
 # test help message in 'unreach.pm'
-echo genhtml $DIFCOV_OPTS initial.info -o help --unreachable $SCRIPT_DIR/unreach.pm,--help --parallel $ignore
-LCOV_FORCE_PARALLEL=1 $COVER $GENHTML_TOOL $DIFCOV_OPTS initial.info -o help --unreachable $SCRIPT_DIR/unreach.pm,--help --parallel $ignore 2>&1 | tee unreach_help.log
+echo genhtml $DIFFCOV_OPTS initial.info -o help --unreachable $SCRIPT_DIR/unreach.pm,--help --parallel $ignore
+LCOV_FORCE_PARALLEL=1 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o help --unreachable $SCRIPT_DIR/unreach.pm,--help --parallel $ignore 2>&1 | tee unreach_help.log
 
 if [ 0 == ${PIPESTATUS[0]} ] ; then
 
@@ -780,7 +780,7 @@ fi
 
 
 for ignore in '' '--ignore package' ; do
-    echo genhtml $DIFCOV_OPTS initial.info -o missingRestore --simplify-script ./missingRestore.pm --parallel $ignore
+    echo genhtml $DIFFCOV_OPTS initial.info -o missingRestore --simplify-script ./missingRestore.pm --parallel $ignore
     LCOV_FORCE_PARALLEL=1 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o missingRestore --simplify-script ./missingRestore.pm --parallel $ignore 2>&1 | tee missingRestore.log
     status=${PIPESTATUS[0]}
     if [ '' == "$ignore" ] ; then
@@ -808,7 +808,7 @@ for ignore in '' '--ignore package' ; do
 done
 
 
-echo genhtml $DIFCOV_OPTS initial.info -o unused_src --source-dir ../..
+echo genhtml $DIFFCOV_OPTS initial.info -o unused_src --source-dir ../..
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o unused_src --source-dir ../.. 2>&1 | tee src_err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml source-dir error passed by accident"
@@ -910,7 +910,7 @@ if [ 0 != $? ] ; then
 fi
 
 for err in "--rc truncate_owner_table=top,x" "--rc owner_table_entries=abc" "--rc owner_table_entries=-1" ; do
-    echo genhtml $DIFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --show-owners $IGNORE_ANNOTATE
+    echo genhtml $DIFFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --show-owners $IGNORE_ANNOTATE
     $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o subset --annotate $ANNOTATE_SCRIPT --baseline-file initial.info --title 'subset' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix $err --show-owners $IGNORE_ANNOTATE
     if [ 0 == $? ] ; then
         echo "ERROR: genhtml $err unexpectedly passed"

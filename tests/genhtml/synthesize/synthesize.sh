@@ -60,7 +60,7 @@ perl munge2.pl current.info > munged2.info
 
 echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info 2>&1 | tee err.log
-if [ 0 == ${[PIPESTATUS[0]} ] ; then
+if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml did not return error"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -142,7 +142,7 @@ done
 
 echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr2 ./munged2.info
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr2 ./munged2.info 2>&1 | tee err2.log
-if [ 0 == ${[PIPESTATUS[0]} ] ; then
+if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml did not return error"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1

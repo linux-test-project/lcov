@@ -9,7 +9,7 @@
 
 use Getopt::Long;
 use strict;
-use Cwd /realpath/;
+use Cwd qw(realpath);
 
 my $verbose = 0;
 
@@ -155,7 +155,7 @@ while (<HANDLE>) {
 }
 close(HANDLE) or die("failed to close git diff pipe: $!");
 if (0 != $?) {
-    $? & 0x7F & die("git diff died from signal ", ($? & 0x7F), "\n");
+    $? & 0x7F && die("git diff died from signal ", ($? & 0x7F), "\n");
     die("git diff exited with error ", ($? >> 8), "\n");
 }
 
@@ -181,7 +181,7 @@ while (<HANDLE>) {
 }
 close(HANDLE) or die("failed to close git ls-tree pipe: $!");
 if (0 != $?) {
-    $? & 0x7F & die("git ls-tree died from signal ", ($? & 0x7F), "\n");
+    $? & 0x7F && die("git ls-tree died from signal ", ($? & 0x7F), "\n");
     die("git ls-tree exited with error ", ($? >> 8), "\n");
 }
 exit 0;

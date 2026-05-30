@@ -191,7 +191,7 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-COUNT=`grep -c FNL: no_function.info`
+COUNT=`grep -c FNL: no_functions.info`
 if [ 0 != $COUNT ] ; then
     echo "--no-function flag had no effect"
     if [ 0 == $KEEP_GOING ] ; then

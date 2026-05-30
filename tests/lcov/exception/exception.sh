@@ -149,8 +149,8 @@ if [ $EXCEPTIONS != '0' ] ; then
         fi
     fi
     FILTER_BRANCHES=`grep BRDA: override.info | grep -v U | wc -l`
-    if [ $OVERRIDE_BRANCHES != $BRANCHES ] ; then
-        echo "did not honor exception overrides.  Expected $BRANCHES found $OVERRIDE_BRANCHES"
+    if [ $FILTER_BRANCHES != $BRANCHES ] ; then
+        echo "did not honor exception overrides.  Expected $BRANCHES found $FILTER_BRANCHES"
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi
@@ -168,7 +168,8 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-VANILLA_LINES=`grep -c '^DA:' vanialla.info`
+VANILLA_LINES=`grep -c '^DA:' vanilla.info`
+VANILLA_FILES=`grep -c 'SF:' vanilla.info`
 
 $COVER $CAPTURE $LCOV_OPTS -o no_external.info --no-external
 if [ 0 != $? ] ; then
@@ -179,10 +180,19 @@ if [ 0 != $? ] ; then
 fi
 NO_EXTERNAL_LINES=`grep -c '^DA:' no_external.info`
 
-if [ "$NO_EXTERNAL_LINES" -ge "$VANILLA_LINES" ] ; then
-   echo "Error: no_external had no effect"
-    if [ $KEEP_GOING == 0 ] ; then
-        exit 1
+if [ $VANILLA_FILES == 1 ]  ; then
+    if ["$NO_EXTERNAL_LINES" != "$VANILLA_LINES" ] ; then
+	echo "Error: unexpected line count when there are no external files (gcc/5.2.0, say)"
+	if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+	fi
+    fi
+else
+    if [ "$NO_EXTERNAL_LINES" -ge "$VANILLA_LINES" ] ; then
+	echo "Error: no_external had no effect $NO_EXTERNAL_LINES -> $VANILLA_LINES"
+	if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+	fi
     fi
 fi
 

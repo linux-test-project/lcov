@@ -105,14 +105,11 @@ This is a problem in at least 2 ways:
         self._versionScript = scriptArgs.version.split(',') if scriptArgs.version else None
         if self._versionScript and self._versionScript[0][-3:] == ".pm":
             # hard to handle Perl module in python - so we hack it
-            self._vesionModule = self._versionScript
+            self._versionModule = self._versionScript
             self._versionScript = None
 
         self._outf = open(scriptArgs.output, "w")
-        try:
-            self._isPython = scriptArgs.isPython
-        except:
-            self._isPython = False
+        self._isPython = getattr(scriptArgs, 'isPython', False)
 
         self._outf.write("TN:%s\n" % scriptArgs.testName)
 
@@ -236,7 +233,7 @@ This is a problem in at least 2 ways:
             try:
                 with open(filename, 'r') as f:
                     sourceCode = f.read().split('\n')
-            except:
+            except (IOError, OSError) as e:
                 feature = ' compute line checksum' if self._args.checksum else ''
                 if self._isPython and self._args.deriveFunctions:
                    if feature != '':
@@ -258,7 +255,7 @@ This is a problem in at least 2 ways:
             return count
 
         def buildFunction(functions, objStack, currentObj, lastLine):
-            if currentObj and prevLine:
+            if currentObj and lastLine:
                 currentObj['end'] = lastLine # last line
                 prefix = ''
                 sep = ''
@@ -268,10 +265,7 @@ This is a problem in at least 2 ways:
                 if currentObj['type'] == 'def':
                     fullname = prefix + sep + currentObj['name']
                     # function might be unreachable dead code
-                    try:
-                        hit = currentObj['hit']
-                    except:
-                        hit = 0
+                    hit = currentObj.get('hit', 0)
                     functions.append({'name'  : fullname,
                                       'start' : currentObj['start'],
                                       'end'   : currentObj['end'],

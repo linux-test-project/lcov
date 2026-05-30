@@ -51,7 +51,7 @@ sub not_in_repo
     while (my $line = <HANDLE>) {
         chomp $line;
         # Also remove CR from line-end
-        s/\015$//;
+        $line =~ s/\015$//;
 
         push(@$lines, [$line, $owner, undef, $mtime, "NONE"]);
     }
