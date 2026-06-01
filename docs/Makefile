@@ -20,3 +20,6 @@ help:
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
 %: Makefile
 	@LCOV_BUILD_DATE=$(BUILD_DATE) LCOV_RELEASE=$(RELEASE) TOOL_NAME=$(TOOL_NAME) $(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+
+clean::
+	rm -rf __pycache__

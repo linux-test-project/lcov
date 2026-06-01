@@ -50,5 +50,5 @@ report:
 	fi
 
 clean:
-	rm -rf *.info *.counts test.log src report.xlsx \
+	rm -rf *.info *.counts *.gcov test.log test.time src report.xlsx \
 		$(COVER_DB) $(HTML_RPT) $(PYCOV_DB)
