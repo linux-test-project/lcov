@@ -64,11 +64,12 @@ SHARE_INST_DIR := $(DESTDIR)$(SHARE_DIR)
 SCRIPT_INST_DIR := $(SHARE_INST_DIR)/support-scripts
 
 TMP_DIR := $(shell mktemp -d)
-FILES   := README Makefile lcovrc \
+FILES   := README.rst Makefile lcovrc \
 	   $(wildcard bin/*) $(wildcard example/*) $(wildcard lib/*) \
-	   $(wildcard man/*) $(wildcard rpm/*) $(wildcard scripts/*)
-DIST_CONTENT := CONTRIBUTING COPYING README Makefile lcovrc \
-	bin example lib man rpm scripts tests
+	   $(wildcard docs/man/*) $(wildcard docs/*.rst) docs/conf.py \
+	   $(wildcard rpm/*) $(wildcard scripts/*)
+DIST_CONTENT := CONTRIBUTING COPYING README.rst Makefile lcovrc \
+	bin example lib docs rpm scripts tests
 
 EXES = \
 	lcov genhtml geninfo genpng gendesc \
@@ -80,7 +81,7 @@ SCRIPTS = $(shell ls scripts | grep -v -E '([\#\~]|\.orig|\.bak|\.BAK)' )
 LIBS = lcovutil.pm
 MAN_SECTIONS = 1 5
 # similarly, lets not talk about man pages
-MANPAGES = $(foreach s, $(MAN_SECTIONS), $(foreach m, $(shell cd man ; ls *.$(s)), man$(s)/$(m)))
+MANPAGES = $(foreach s, $(MAN_SECTIONS), $(foreach m, $(shell cd docs/_build/man ; ls *.$(s) 2>/dev/null), docs/_build/man/$(m)))
 
 # Program for checking coding style
 CHECKSTYLE = $(CURDIR)/bin/checkstyle.sh
@@ -127,47 +128,47 @@ doc:
 
 install: doc
 	$(INSTALL) -d -m 755 $(BIN_INST_DIR)
-	for b in $(EXES) ; do \
-		$(call echocmd,"  INSTALL $(BIN_INST_DIR)/$$b") \
-		$(INSTALL) -m 755 bin/$$b $(BIN_INST_DIR)/$$b ; \
+	for b in $(EXES) ; do                                    \
+		$(call echocmd,"  INSTALL $(BIN_INST_DIR)/$$b")  \
+		$(INSTALL) -m 755 bin/$$b $(BIN_INST_DIR)/$$b ;  \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
-		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
-		       --fixver --fixlibdir --fixbindir \
-		       --exec $(BIN_INST_DIR)/$$b ; \
+		       --libdir $(LIB_DIR) --bindir $(BIN_DIR)   \
+		       --fixver --fixlibdir --fixbindir          \
+		       --exec $(BIN_INST_DIR)/$$b ;              \
 	done
 	$(INSTALL) -d -m 755 $(SCRIPT_INST_DIR)
-	for s in $(SCRIPTS) ; do \
-		$(call echocmd,"  INSTALL $(SCRIPT_INST_DIR)/$$s") \
+	for s in $(SCRIPTS) ; do                                       \
+		$(call echocmd,"  INSTALL $(SCRIPT_INST_DIR)/$$s")     \
 		$(INSTALL) -m 755 scripts/$$s $(SCRIPT_INST_DIR)/$$s ; \
-		$(FIX) --version $(VERSION) --release $(RELEASE) \
-		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
-		       --fixver --fixlibdir \
-		       --fixscriptdir --scriptdir $(SCRIPT_DIR) \
-		       --exec $(SCRIPT_INST_DIR)/$$s ; \
+		$(FIX) --version $(VERSION) --release $(RELEASE)       \
+		       --libdir $(LIB_DIR) --bindir $(BIN_DIR)         \
+		       --fixver --fixlibdir                            \
+		       --fixscriptdir --scriptdir $(SCRIPT_DIR)        \
+		       --exec $(SCRIPT_INST_DIR)/$$s ;                 \
 	done
 	$(INSTALL) -d -m 755 $(LIB_INST_DIR)
-	for l in $(LIBS) ; do \
-		$(call echocmd,"  INSTALL $(LIB_INST_DIR)/$$l") \
-		$(INSTALL) -m 644 lib/$$l $(LIB_INST_DIR)/$$l ; \
+	for l in $(LIBS) ; do                                    \
+		$(call echocmd,"  INSTALL $(LIB_INST_DIR)/$$l")  \
+		$(INSTALL) -m 644 lib/$$l $(LIB_INST_DIR)/$$l ;  \
 		$(FIX) --version $(VERSION) --release $(RELEASE) \
-		       --libdir $(LIB_DIR) --bindir $(BIN_DIR) \
-		       --fixver --fixlibdir --fixbindir \
-		       --exec $(LIB_INST_DIR)/$$l ; \
+		       --libdir $(LIB_DIR) --bindir $(BIN_DIR)   \
+		       --fixver --fixlibdir --fixbindir          \
+		       --exec $(LIB_INST_DIR)/$$l ;              \
 	done
-	for section in $(MAN_SECTIONS) ; do \
-		DEST=$(MAN_INST_DIR)/man$$section ; \
-		$(INSTALL) -d -m 755 $$DEST ; \
-		for m in docs/_build/man/*.$$section ; do  \
-			F=`basename $$m` ; \
+	for section in $(MAN_SECTIONS) ; do                    \
+		DEST=$(MAN_INST_DIR)/man$$section ;            \
+		$(INSTALL) -d -m 755 $$DEST ;                  \
+		for m in docs/_build/man/*.$$section ; do      \
+			F=`basename $$m` ;                     \
 			$(call echocmd,"  INSTALL $$DEST/$$F") \
 			  $(INSTALL) -m 644 docs/_build/man/$$F $$DEST/$$F ; \
 			$(FIX) --version $(VERSION) --fixver --fixdate \
-		         --fixscriptdir --scriptdir $(SCRIPT_DIR) \
-		         --manpage $$DEST/$$F ; \
-		done ;  \
+		         --fixscriptdir --scriptdir $(SCRIPT_DIR)      \
+		         --manpage $$DEST/$$F ;                \
+		done ;                                         \
 	done
 	for f in `( cd ./docs/_build ; find html -type f )` ; do \
-		DEST=$(SHARE_DIR)/`dirname $$f` ;                \
+		DEST=$(SHARE_INST_DIR)/`dirname $$f` ;           \
 		$(INSTALL) -d -m 755 $$DEST ;                    \
 		$(INSTALL) -m 644 ./docs/_build/$$f $$DEST ;     \
 	done
@@ -200,13 +201,13 @@ uninstall:
 	$(call echocmd,"  UNINST  $(SHARE_INST_DIR)")
 	$(RM) -r $(SHARE_INST_DIR)
 	$(call echocmd,"  UNINST  $(MAN_INST_DIR) pages")
-	for section in $(MAN_SECTIONS) ; do \
+	for section in $(MAN_SECTIONS) ; do         \
 		DEST=$(MAN_INST_DIR)/man$$section ; \
-		for m in man/*.$$section ; do  \
-			F=`basename $$m` ; \
-			$(RM) $$DEST/$$F ; \
-		done ;  \
-		$(RMDIR) $$DEST || true; \
+		for m in man/*.$$section ; do       \
+			F=`basename $$m` ;          \
+			$(RM) $$DEST/$$F ;          \
+		done ;                              \
+		$(RMDIR) $$DEST || true;            \
 	done
 	$(call echocmd,"  UNINST $(MAN_INST_DIR) (if empty)")
 	$(RMDIR) $(MAN_INST_DIR) || true;
@@ -230,10 +231,10 @@ lcov-$(VERSION).tar.gz: $(FILES)
 	$(MAKE) -s -C $(TMP_DIR)/lcov-$(VERSION) clean >/dev/null
 	cd $(TMP_DIR)/lcov-$(VERSION) ; \
 	$(FIX) --version $(VERSION) --release $(RELEASE) \
-	       --verfile .version --fixver --fixdate \
+	       --verfile .version --fixver --fixdate     \
 	       $(patsubst %,bin/%,$(EXES)) $(patsubst %,scripts/%,$(SCRIPTS)) \
-	       $(patsubst %,lib/%,$(LIBS)) \
-	       $(patsubst %,man/%,$(notdir $(MANPAGES))) README rpm/lcov.spec
+	       $(patsubst %,lib/%,$(LIBS))               \
+	       README.rst rpm/lcov.spec
 	./bin/get_changes.sh > $(TMP_DIR)/lcov-$(VERSION)/CHANGES || true
 	cd $(TMP_DIR) ; \
 	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION) \
@@ -244,7 +245,7 @@ lcov-$(VERSION).tar.gz: $(FILES)
 lcov-$(VERSION)-$(RELEASE).noarch.rpm: rpms
 lcov-$(VERSION)-$(RELEASE).src.rpm: rpms
 
-rpms: lcov-$(VERSION).tar.gz
+rpms: doc lcov-$(VERSION).tar.gz
 	$(call echocmd,"  DIST    lcov-$(VERSION)-$(RELEASE).noarch.rpm")
 	mkdir -p -m 755 $(TMP_DIR)
 	mkdir -m 755 $(TMP_DIR)/BUILD
@@ -331,8 +332,8 @@ release:
 	git checkout master
 	bin/copy_dates.sh . .
 	$(FIX) --version $(VERSION) --release $(RELEASE) \
-	       --fixver --fixdate $(patsubst %,man/%,$(notdir $(MANPAGES))) \
-	       README rpm/lcov.spec
+	       --fixver --fixdate \
+	       README.rst rpm/lcov.spec
 	git commit -a -s -m "lcov: Finalize release $(VERSION)"
 	git tag v$(VERSION) -m "LCOV version $(VERSION)"
 	@echo "**********************************************"
