@@ -39,7 +39,7 @@ STDERR="target_stderr.log"
 rm -rf "${OUTDIR}"
 
 # Run genhtml
-$GENHTML $TARGETINFO -o ${OUTDIR} 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
+$COVER $GENHTML $TARGETINFO -o ${OUTDIR} 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
 RC=$?
 
 echo "STDOUT_START"

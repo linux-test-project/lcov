@@ -71,7 +71,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-eval COVERAGE_COMMAND=$CMD ${PYCOV} ${PY2LCOV_TOOL} -o functions.info --cmd $CMD functions.dat $VERSION
+eval COVERAGE_COMMAND=$CMD ${PYCOVER} ${PY2LCOV_TOOL} -o functions.info --cmd $CMD functions.dat $VERSION
 if [ 0 != $? ] ; then
     echo "py2lcov failed function example"
     if [ 0 == $KEEP_GOING ] ; then
@@ -130,7 +130,7 @@ if [ 0 != $? ] ; then
     exit 1
 fi
 
-eval ${PYCOV} ${PY2LCOV_TOOL} -i functions.xml -o functions2.info $VERSION
+eval ${PYCOVER} ${PY2LCOV_TOOL} -i functions.xml -o functions2.info $VERSION
 if [ 0 != $? ] ; then
     echo "coverage extract XML failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -148,7 +148,7 @@ if [ 0 != $? ] ; then
 fi
 
 # run again, generating checksum data...
-eval ${PYCOV} ${PY2LCOV_TOOL} --cmd $CMD -o checksum.info functions.dat $VERSION --checksum
+eval ${PYCOVER} ${PY2LCOV_TOOL} --cmd $CMD -o checksum.info functions.dat $VERSION --checksum
 if [ 0 != $? ] ; then
     echo "py2lcov failed function example"
     if [ 0 == $KEEP_GOING ] ; then
@@ -183,7 +183,7 @@ fi
 
 
 # run without generating function data:
-eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat --cmd $CMD -o no_functions.info $VERSION --no-function
+eval ${PYCOVER} ${PY2LCOV_TOOL} functions.dat --cmd $CMD -o no_functions.info $VERSION --no-function
 if [ 0 != $? ] ; then
     echo "coverage no_functions failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -200,7 +200,7 @@ if [ 0 != $COUNT ] ; then
 fi
 
 # run without extracting version
-eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat --cmd $CMD -o no_version.info
+eval ${PYCOVER} ${PY2LCOV_TOOL} functions.dat --cmd $CMD -o no_version.info
 if [ 0 != $? ] ; then
     echo "coverage no_functions failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -217,7 +217,7 @@ if [ 0 != $COUNT ] ; then
 fi
 
 # test exclusion
-eval ${PYCOV} ${PY2LCOV_TOOL} -o excl.info --cmd $CMD --exclude test.py functions.dat
+eval ${PYCOVER} ${PY2LCOV_TOOL} -o excl.info --cmd $CMD --exclude test.py functions.dat
 if [ 0 != $? ] ; then
     echo "coverage no_functions failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -235,7 +235,7 @@ fi
 
 
 # generate help message:
-eval ${PYCOV} ${PY2LCOV_TOOL} --help 2>&1 | tee help.txt
+eval ${PYCOVER} ${PY2LCOV_TOOL} --help 2>&1 | tee help.txt
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "help failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -253,7 +253,7 @@ fi
 if [ $IS_GIT == 1 ] || [ $IS_P4 == 1 ] ; then
 
     # some usage errors
-    eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat -o paramErr.info --cmd $CMD ${VERSION},-x
+    eval ${PYCOVER} ${PY2LCOV_TOOL} functions.dat -o paramErr.info --cmd $CMD ${VERSION},-x
     if [ 0 == $? ] ; then
         echo "coverage version did not see error"
         if [ 0 == $KEEP_GOING ] ; then
@@ -262,7 +262,7 @@ if [ $IS_GIT == 1 ] || [ $IS_P4 == 1 ] ; then
     fi
 
     # run again with --keep-going flag - should generate same result as we see without version script
-    eval ${PYCOV} ${PY2LCOV_TOOL} functions.dat -o keepGoing.info --cmd $CMD ${VERSION},-x --keep-going --verbose
+    eval ${PYCOVER} ${PY2LCOV_TOOL} functions.dat -o keepGoing.info --cmd $CMD ${VERSION},-x --keep-going --verbose
     if [ 0 != $? ] ; then
         echo "keepGoing version saw error"
         if [ 0 == $KEEP_GOING ] ; then
@@ -282,10 +282,10 @@ fi
 # usage error:
 # can't run this unless we have a new enough 'coverage' version
 #   to support the --data-file input
-if [[ "${PYCOV}" =~ "COVERAGE_FILE=" || "${PY2LCOV_TOOL}" =~ "COVERAGE_FILE=" ]] ; then
+if [[ "${PYCOVER}" =~ "COVERAGE_FILE=" || "${PY2LCOV_TOOL}" =~ "COVERAGE_FILE=" ]] ; then
     ${LCOV_HOME}/bin/py2lcov -o missing.info --cmd $CMD
 else
-    eval ${PYCOV} ${PY2LCOV_TOOL} -o missing.info --cmd $CMD
+    eval ${PYCOVER} ${PY2LCOV_TOOL} -o missing.info --cmd $CMD
 fi
 if [ 0 == $? ] ; then
     echo "did not see error with missing input data"
@@ -295,7 +295,7 @@ if [ 0 == $? ] ; then
 fi
 
 # usage error:
-eval ${PYCOV} ${PY2LCOV_TOOL} -o noFile.info run.dat y.xml --cmd $CMD
+eval ${PYCOVER} ${PY2LCOV_TOOL} -o noFile.info run.dat y.xml --cmd $CMD
 if [ 0 == $? ] ; then
     echo "did not see error with missing input file"
     if [ 0 == $KEEP_GOING ] ; then
@@ -304,7 +304,7 @@ if [ 0 == $? ] ; then
 fi
 
 # usage error:
-eval ${PYCOV} ${PY2LCOV_TOOL} -o badArg.info --noSuchParam run_help.dat --cmd $CMD
+eval ${PYCOVER} ${PY2LCOV_TOOL} -o badArg.info --noSuchParam run_help.dat --cmd $CMD
 if [ 0 == $? ] ; then
     echo "did not see error with unsupported param"
     if [ 0 == $KEEP_GOING ] ; then
@@ -314,12 +314,12 @@ fi
 
 # can't run this unless we have a new enough 'coverage' version
 #   to support the --data-file input
-if [[ "${PYCOV}" =~ "COVERAGE_FILE=" || "${PY2LCOV_TOOL}" =~ "COVERAGE_FILE=" ]] ; then
+if [[ "${PYCOVER}" =~ "COVERAGE_FILE=" || "${PY2LCOV_TOOL}" =~ "COVERAGE_FILE=" ]] ; then
     # can't generate coverage report for this feature...
     COVERAGE_FILE=functions.dat ${LCOV_HOME}/bin/py2lcov -o fromEnv.info --cmd $CMD
 else
     # get input from environment var:
-    eval COVERAGE_FILE=functions.dat ${PYCOV} ${PY2LCOV_TOOL} -o fromEnv.info --cmd $CMD
+    eval COVERAGE_FILE=functions.dat ${PYCOVER} ${PY2LCOV_TOOL} -o fromEnv.info --cmd $CMD
 fi
 
 if [ 0 != $? ] ; then
@@ -399,11 +399,15 @@ if [ "$DA" -le "$REGION_DA" ] ; then
 fi
 
 
-echo "Tests passed"
-
 if [[ "x$COVER" != "x" && $LOCAL_COVERAGE == 1 ]] ; then
     cover
     ${LCOV_HOME}/bin/perl2lcov -o perlcov.info --testname py2lcov $VERSION ./cover_db
     ${PY2LCOV_TOOL} -o pycov.info --testname py2lcov --cmd $CMD $VERSION ${PYCOV_DB}
-    ${GENHTML_TOOL} -o pycov pycov.info perlcov.info --flat --show-navigation --show-proportion --branch $VERSION $ANNOTATE --ignore inconsistent,version
+    INPUTS='pycov.info'
+    if [ -f perlcov.info ] ; then
+	INPUTS="$INPUTS perlcov.info"
+    fi
+    ${GENHTML_TOOL} -o pycov $INPUTS --flat --show-navigation --show-proportion --branch $VERSION $ANNOTATE --ignore inconsistent,version
 fi
+
+echo "Tests passed"

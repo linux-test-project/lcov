@@ -3,7 +3,7 @@ set +x
 
 source ../../common.tst
 
-rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err* readThis.rc testing.rc configErr.rc incFile.rc
+rm -f test.cpp *.gcno *.gcda a.out *.info *.log *.json diff.txt loop*.rc markers.err* readThis.rc testing.rc configErr.rc incFile.rc skipErr*.rc
 rm -rf select criteria annotate empty unused_src scriptErr scriptFixed epoch inconsistent highlight mycache cacheFail expect subset context labels sortTables simplify_* simplify missingRestore selectErr1 selectErr2 selectErr3 mcdc unreachable
 
 clean_cover
@@ -237,6 +237,35 @@ for missing in noSuchFile missingDirectory/nofile ; do
     fi
 done
 
+# now skip the error, by setting 'stop_on_error = 0' in the RC file
+#  (can't skip it by using '--ignore usage' because the ignore options
+#  aren't processed until after the config file is read).
+printf "stop_on_error = 0\nconfig_file = noSuchFile\n" > skipErr.rc
+
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file skipErr.rc 2>&1 | tee skip_missing.log
+# return error code when 'keep-going'
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: skip  missing config file error"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "usage: 1" skip_missing.log
+if [ 0 != $? ] ; then
+    echo "ERROR: did not run to completion when 'keep-going'"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR.+\(usage\).+cannot read configuration file" skip_missing.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing config file warning message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+
 # read a config file which is there...
 echo "message_log = message_file.log" > testing.rc
 echo "config_file = testing.rc" > readThis.rc
@@ -272,6 +301,32 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+# skip the config loop message - see 'skipErr.rc' discussion, above
+printf "stop_on_error = 0\nconfig_file = loop1.rc\n" > skipErr2.rc
+echo lcov $LCOV_OPTS --summary initial.info --config-file skipErr2.rc
+$COVER $LCOV_TOOL $LCOV_OPTS --summary initial.info --config-file skipErr2.rc 2>&1 | tee skipSelfLoop.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: didn't return error code when keep-going"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep "usage: 1" skip_missing.log
+if [ 0 != $? ] ; then
+    echo "ERROR: did not run to completion when 'keep-going'"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E "ERROR.+\(usage\).+config file inclusion loop" skipSelfLoop.log
+if [ 0 != $? ] ; then
+    echo "ERROR: missing config file warning message"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 
 echo "config_file = loop3.rc" > loop2.rc
 echo 'config_file = $ENV{PWD}/loop2.rc' > loop3.rc

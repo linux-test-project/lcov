@@ -219,7 +219,7 @@ sub new
                       " => $1\n");
                 print("$prefix ...\n") unless $countdown;
             }
-        } elsif (/^\d+\s+commit(\S+)\s+(\s+)$/) {
+        } elsif (/^\d+\s+commit(\S+)\s+(\S+)$/) {
             # line format:  mode commit sha path
             my $s = File::Spec->catfile(@prepend, $current, $2);
             die("duplicate submodule etnry for $s") if exists($submodule{$s});

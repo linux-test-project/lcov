@@ -107,7 +107,7 @@ sub print
     } else {
         print($dest "  ", $self->size(), " line",
               $self->size() == 1 ? '' : 's', "\n");
-        if (%$code) {
+        if (@$code) {
             if ($main::verbose) {
                 print($dest "\tcode:\n\t\t" .
                       join("\n\t\t", toNames($code)) . "\n");
@@ -115,7 +115,7 @@ sub print
                 print($dest "\tcode:  " . join(' ', @$code) . "\n");
             }
         }
-        if (%$nonCode) {
+        if (@$nonCode) {
             if ($main::verbose) {
                 print($dest "\tnot code:\n\t\t" .
                       join("\n\t\t", toNames($nonCode)) . "\n");

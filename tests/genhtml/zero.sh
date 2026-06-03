@@ -37,7 +37,7 @@ STDERR="zero_stderr.log"
 rm -rf "${OUTDIR}"
 
 # Run genhtml
-$GENHTML $ZEROINFO -o ${OUTDIR} 2> >(grep -v Devel::Cover: 1>&1 > $STDERR) >${STDOUT}
+$COVER $GENHTML $ZEROINFO -o ${OUTDIR} 2> >(grep -v Devel::Cover: 1>&1 > $STDERR) >${STDOUT}
 RC=$?
 
 echo "STDOUT_START"

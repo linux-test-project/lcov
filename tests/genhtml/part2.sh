@@ -37,7 +37,7 @@ STDERR="part2_stderr.log"
 rm -rf "${OUTDIR}"
 
 # Run genhtml
-$GENHTML $PART2INFO -o ${OUTDIR} 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
+$COVER $GENHTML $PART2INFO -o ${OUTDIR} 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
 RC=$?
 
 echo "STDOUT_START"

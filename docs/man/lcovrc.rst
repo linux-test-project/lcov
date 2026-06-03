@@ -453,7 +453,7 @@ By default, a standard CSS file is generated.
 ``genhtml_header`` = *string*
 -----------------------------
 
-Specify header text to use ta top of each HTML page.
+Specify header text to use at top of each HTML page.
 
 This option corresponds to the \-\-header\-title command line option of ``genhtml``.
 
@@ -878,7 +878,7 @@ Default is 0.
 ``genhtml_show_owner_table`` = *0 | 1 | all*
 ---------------------------------------------
 
-If non-zero, equivalent to the genhtml *\-\-shwow\-owners* flag: see :manpage:`genhtml(1)` for details.
+If non-zero, equivalent to the genhtml *\-\-show\-owners* flag: see :manpage:`genhtml(1)` for details.
 
 Default is 0.
 
@@ -916,7 +916,7 @@ Default is to not truncate the list.
 ``genhtml_show_noncode_owners`` = *0 | 1*
 -----------------------------------------
 
-If non-zero, equivalent to the genhtml *\-\-shwow\-noncode* flag: see :manpage:`genhtml(1)` for details.
+If non-zero, equivalent to the genhtml *\-\-show\-noncode* flag: see :manpage:`genhtml(1)` for details.
 
 Default is 0.
 
@@ -977,7 +977,7 @@ Default is 1.
 ``merge_function_aliases`` =  *0 | 1*
 -------------------------------------
 
-If non-zero, group function aliases in the function detail tabile. See man(1) genhtml.
+If non-zero, group function aliases in the function detail table. See man(1) genhtml.
 
 Default is 0.
 
@@ -1275,7 +1275,7 @@ This option has no effect unless the *\-\-parallel* option has been specified.
 ``geninfo_interval_update`` = *integer*
 ---------------------------------------
 
-Seet the percentage of GCDA files which should be processed between console/progress updates. This setting may be useful for parameter tuning and debugging apparent performance issues.
+Set the percentage of GCDA files which should be processed between console/progress updates. This setting may be useful for parameter tuning and debugging apparent performance issues.
 
 The default is 5%.
 
@@ -1343,7 +1343,7 @@ Default is 20.
 
 Specify whether lcov/geninfo/genhtml should generate, process, and display function coverage data.
 
-Turning off function coverage by setting this option to 0 can sligly reduce memory and CPU time consumption when lcov is collecting and processing coverage data, as well as reduce the size of the resulting data files.
+Turning off function coverage by setting this option to 0 can slightly reduce memory and CPU time consumption when lcov is collecting and processing coverage data, as well as reduce the size of the resulting data files.
 
 This option can be overridden by the *\-\-function\-coverage* and *\-\-no\-function\-coverage* command line options.
 
@@ -1448,7 +1448,7 @@ Default is 'LCOV_EXCL_EXCEPTION_BR_START'.
 
 Specify the regexp used to mark the end of a region where exception-related branch coverpoints are excluded.
 
-Default is 'LCOV_EXCL_EXECEPTION_BR_STOP'.
+Default is 'LCOV_EXCL_EXCEPTION_BR_STOP'.
 
 ``lcov_unreachable_line`` = *expression*
 -----------------------------------------
@@ -1476,7 +1476,7 @@ Default is 'LCOV_UNREACHABLE_STOP'.
 
 Specify branch coverage threshold: if the branch coverage is below this threshold, lcov/genhtml/geninfo will generate all the normal result files and messages, but will return a non-zero exit code.
 
-This option is equivalent to the \-\-fail\-under\-branches lcov/genhtml/geninfo command line argument. See :manpage:`lcov(1)` for more detailes.
+This option is equivalent to the \-\-fail\-under\-branches lcov/genhtml/geninfo command line argument. See :manpage:`lcov(1)` for more details.
 
 The default is 0 (no threshold).
 
@@ -1526,7 +1526,7 @@ This option is used by genhtml, lcov, and geninfo.
 
 Tells genhtml, lcov, or geninfo the maximum memory to use during parallel processing operations. Maximum is computed as a percentage of the total memory available on the system; for example, '75' would use limit to 75% of total memory, whereas 150.5 would limit to 150.5% (*i.e.,* larger than the total available. Effectively, the process will not fork() if this limit would be exceeded. Note that this value is used only if the maximum memory value is not set explicitly - either by a the *\-\-memory* command line option or the *memory = integer* configuration file setting.
 
-The default is not not set.
+The default is not set.
 
 This option is used by genhtml, lcov, and geninfo.
 
@@ -1577,11 +1577,11 @@ See the genhtml man page for details.
 ``genhtml_annotate_tooltip`` = *tooltip\_string*
 -------------------------------------------------
 
-This option sets the 'tooltip' popup which appears if user hovers mouse over the associated source code. Note that the tooltop is generated only if the annotation-script callback is successful and returns a commit ID other than "NONE". Set *tooltip\_string* to "" (empty string) to force genhtml to not produce the tooltip.
+This option sets the 'tooltip' popup which appears if user hovers mouse over the associated source code. Note that the tooltip is generated only if the annotation-script callback is successful and returns a commit ID other than "NONE". Set *tooltip\_string* to "" (empty string) to force genhtml to not produce the tooltip.
 
 Substitutions are performed on *tooltip\_string:*
 
--  ``%C:`` commit ID (from annotate callback - see *\--anotate-script* entry in the ``genhtml`` man page)
+-  ``%C:`` commit ID (from annotate callback - see *\--annotate-script* entry in the ``genhtml`` man page)
 
 -  ``%U:`` commit author abbreviated name (returned by annotate callback)
 

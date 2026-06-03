@@ -189,7 +189,7 @@ def generate_index_rst(app, docname, source):
 
 {ToolName} is a graphical tool which collects and aggregates
 coverage data from multiple sources then generates HTML reports to
-visualizae the data.
+visualize the data.
 It supports line, function, branch and MC/DC coverage.
 {ToolName} was originally written to display coverage data GCC's coverage testing tool gcov - but has been enhanced to support multiple tools and languages - including C/C++, Perl, Python, Java and SystemVerilog.
 
@@ -254,7 +254,7 @@ to support their specific environment and requirements.
 
 For details, see the ``*-script`` option section in the individual tool man pages 
 (``genhtml``, ``llvm2lcov``, *etc.*)
-Note that not all tools support all options.  For example, `--diff-file` and ``--annotate-script`` are supported ``genhtml`` only.
+Note that not all tools support all options.  For example, ``--diff-file`` and ``--annotate-script`` are supported by ``genhtml`` only.
 
 Getting Started
 ===============

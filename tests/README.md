@@ -15,13 +15,16 @@ This directory contains a number of regression tests for LCOV. To start it:
 
        - (optional):  cp -r $LCOV_HOME/share/lcov/tests myTestDir ; cd myTestDir
 
-       - make [COVERAGE=1]
+       - make [COVERAGE=1] [PARALLEL=8] [PER_TEST_COVERAGE=dirName]
 
          - to generate coverage data for the lcov module, the 'Devel::Cover'
            perl package must be available.
 
           - the Devel::Cover result is written to the terminal and stored in
             'test.log'
+
+	  - if `PER_TEST_COVERGE` is set, then coverage data for each
+	    testcase is written to the indicated directory.
 
        - Results:
 
@@ -52,6 +55,12 @@ This directory contains a number of regression tests for LCOV. To start it:
         if set, force parallel processing, regardless of number of tasks -
         even if only one.  This is useful for regression testing - to make
         sure that we cover both serial and parallel execution.
+
+  - parallel execution:
+    - `make PARALLEL=N check`
+
+  - coverage data collection
+    - `make COVERAGE=1 check`
 
 You can modify some aspects of testing by specifying additional parameters on
 `make` invocation:
@@ -86,7 +95,7 @@ Each test case is implemented as a stand-alone executable that is run by a
 Makefile. The Makefile has the following content:
 
 ```
-include ../test.mak
+include ../common.mak
 
 TESTS := test1 test2
 ```

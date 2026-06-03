@@ -64,7 +64,7 @@ EOF
 
 function run() {
     export LCOV_SHOW_LOCATION=1
-        local CMDLINE="${GENHTML} --ignore unmapped,unmapped,category,category,source,source ${INFO} -o ${OUTDIR} $*"
+        local CMDLINE="${COVER} ${GENHTML} --ignore unmapped,unmapped,category,category,source,source ${INFO} -o ${OUTDIR} $*"
 
         rm -rf "${OUTDIR}"
 

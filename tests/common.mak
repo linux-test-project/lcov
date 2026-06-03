@@ -100,10 +100,15 @@ else
 endif
 
 ifneq ($(COVER_DB),)
-#OPTS += --coverage $(COVER_DB)
+OPTS += --coverage $(COVER_DB)
 endif
 ifneq ($(TESTCASE_ARGS),)
 OPTS += --script-args "$(TESTCASE_ARGS)"
+endif
+
+# Parallel execution support
+ifneq ($(PARALLEL),)
+OPTS += --parallel $(PARALLEL)
 endif
 
 # Do not pass TESTS= specified on command line to subdirectories to allow
@@ -113,7 +118,7 @@ MAKEOVERRIDES := $(filter-out TESTS=%,$(MAKEOVERRIDES))
 # Default target
 check:
 	#echo "found tests '$(TESTS)'"
-	runtests "$(MAKE)" $(TESTS) $(OPTS)
+	$(TOPDIR)/bin/runtests.py $(TESTS) $(OPTS)
 
 ifeq ($(_ONCE),)
 
@@ -139,6 +144,6 @@ clean_echo:
 	$(call echocmd,"  CLEAN   lcov/$(patsubst %/,%,$(RELDIR))")
 
 clean_subdirs:
-	cleantests "$(MAKE)" $(TESTS)
+	$(TOPDIR)/bin/cleantests.py $(TESTS)
 
 .PHONY: check prepare clean clean_common
