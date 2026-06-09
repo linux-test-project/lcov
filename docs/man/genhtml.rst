@@ -317,7 +317,7 @@ While each script performs a separate function there are some common aspects in 
    unreachable-script
       ``$data_changed = $callback_obj->exclude($type, $source, $summary, $testdata);``
 
-      where *$data_changed* is non-zero if coverage data was changed in the callback, *$type* is either "branch" or "mcdc", *$source* is a "ReadCurrentSource" object, *$summary* is the coverage summary across all testcases, and *$testdata* is the per-tescase coverage data.
+      where *$data_changed* is non-zero if coverage data was changed in the callback, *$type* is either "branch" or "mcdc", *$source* is a "ReadCurrentSource" object, *$summary* is the coverage summary across all testcases, and *$testdata* is the per-testcase coverage data.
 
       See the sample implementation ``.../scripts/unreach.pm``
       for a simple example callback which uses source code annotations to indicate branch expressions and/or MC/DC conditions which are excluded. See the comment at the top of the file for script usage directions.
@@ -1026,7 +1026,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
    Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (*e.g.*, some complicated macro). See the lcov man page for details.
 
 ``--parallel`` [*integer*], ``-j`` [*integer*]
-   Specify parallelism to use during processing (maximum number of forked child processes). If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine. Default is to use a single process (no parallelism).
+   Specify parallelism to use during processing (maximum number of forked child processes). If the optional integer parallelism parameter is zero or is missing, then use up the number of cores on the machine. Default is to use a single process (no parallelism).
 
    Also see the *memory, memory_percentage, max_fork_fails* and *fork_fail_timeout* entries in :manpage:`lcovrc(5)`.
 
@@ -1042,7 +1042,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 ``--filter`` *filters*
    Specify a list of coverpoint filters to apply to input data.
 
-   Note that certain filters apply only to C/C++ source files. ``genhtml`` associates the file extension ('.c', '.vhd', *etc.*) with its source language. See the *c_file_extentions* and *rtl_file_extensions* sections of :manpage:`lcovrc(5)` for a description of the default associations and how they can be changed.
+   Note that certain filters apply only to C/C++ source files. ``genhtml`` associates the file extension ('.c', '.vhd', *etc.*) with its source language. See the *c_file_extensions* and *rtl_file_extensions* sections of :manpage:`lcovrc(5)` for a description of the default associations and how they can be changed.
 
    Note that filters are applied to both 'branch' and 'MC/DC' coverpoints, where appropriate: if a particular filter would remove some branch, then it will also remove corresponding MC/DC coverpoints - for example, *--filter branch* will remove MC/DC coverpoints if there is no conditional expression on the corresponding line, and *--filter branch_region* will remove both branch and MC/DC coverpoints in the marked region.
 
@@ -1080,7 +1080,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
       alias for "--filter brace,blank".
 
    mcdc:
-      Remove MC/DC coverpoint which contains single expression, if 'branch' coverpoint is present on the same line. Singe-element MC/DC coverpoints are identical to the corresponding branch - except in the case of compile-time expression evaluation, for example, in a template function.
+      Remove MC/DC coverpoint which contains single expression, if 'branch' coverpoint is present on the same line. Single-element MC/DC coverpoints are identical to the corresponding branch - except in the case of compile-time expression evaluation, for example, in a template function.
 
    orphan:
       Remove branches which appear by themselves - *i.e.*, the branch has only one destination and so cannot be a conditional.
@@ -1304,7 +1304,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
    This option can also be configured permanently using the configuration file option *branch_coverage*.
 
 ``--mcdc-coverage``
-   Specify whether to display Modifie Condition / Decision Coverage (MC/DC) data in HTML output.
+   Specify whether to display Modified Condition / Decision Coverage (MC/DC) data in HTML output.
 
    MC/DC data display is **disabled** by default.
 
@@ -1350,7 +1350,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
       That is: the testcase must sensitize both values in order to be marked covered by LLVM, whereas GCC will independently mark each. Consequently: in LLVM-generated ``lcov`` reports, either both 'true' and 'false' sensitizations will be covered, or neither will be.
 
-      See the examples in tesctcase *.../tests/lcov/mcdc*.
+      See the examples in testcase *.../tests/lcov/mcdc*.
 
 ``--demangle-cpp`` [ *param* ]
    Specify whether to demangle C++ function names.
@@ -1399,7 +1399,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
       The patch file specified by the ``--diff-file`` argument does not contain any differences. This may be OK if there were no source code changes between 'baseline' and 'current' (*e.g.*, the only change was to modify a Makefile) - or may indicate an unsupported file format.
 
    excessive:
-      your coverage data contains a suspiciously large 'hit' count which is unlikely to be correct - possibly indicating a bug in your toolchain. See the *excessive_count_threshold* section in :manpage:`lcorc(5)` for details.
+      your coverage data contains a suspiciously large 'hit' count which is unlikely to be correct - possibly indicating a bug in your toolchain. See the *excessive_count_threshold* section in :manpage:`lcovrc(5)` for details.
 
    fork:
       Unable to create child process during *--parallel* execution.
@@ -1566,7 +1566,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
    This option can also be configured permanently using the configuration file option *genhtml_precision*.
 
 ``--merge-aliases``
-   Functions whose file/line is the same are considered to be aliases; ``genthml`` uses the shortest name in the list of aliases (fewest characters) as the leader.
+   Functions whose file/line is the same are considered to be aliases; ``genhtml`` uses the shortest name in the list of aliases (fewest characters) as the leader.
 
    This option counts each alias group as a single object - so the 'function' count will be the number of distinct function groups rather than the total number of aliases of all functions - and displays them as groups in the 'function detail table.
 
@@ -1577,7 +1577,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 ``--suppress-aliases``
    Suppress list of aliases in function detail table.
 
-   Functions whose file/line is the same are considered to be aliases; ``genthml`` uses the shortest name in the list of aliases (fewest characters) as the leader.
+   Functions whose file/line is the same are considered to be aliases; ``genhtml`` uses the shortest name in the list of aliases (fewest characters) as the leader.
 
    The number of aliases can be large, for example due to instantiated templates - which can make function coverage results difficult to read. This option removes the list of aliases, making it easier to focus on the overall function coverage number, which is likely more interesting.
 

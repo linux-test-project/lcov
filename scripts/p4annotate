@@ -38,7 +38,7 @@ use lib "$FindBin::RealBin";
 use p4annotate qw(new);
 use annotateutil qw(call_annotate);
 
-if (-f $ARGV[-1] || '-' ne index($ARGV[-1], 1)) {
+if (-f $ARGV[-1] || 0 != index($ARGV[-1], '-')) {
     call_annotate('p4annotate', $0, @ARGV);
 } else {
     p4annotate->new($0, @ARGV);

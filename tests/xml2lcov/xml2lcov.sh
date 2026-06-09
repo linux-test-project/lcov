@@ -47,7 +47,7 @@ LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 # in the remove data that was significant from a test perspective.
 
 # no source - so can't compute version
-eval ${PYCOV} ${XML2LCOV_TOOL} -o test.info coverage.xml -v -v # $VERSION
+eval ${PYCOVER} ${XML2LCOV_TOOL} -o test.info coverage.xml -v -v # $VERSION
 if [ 0 != $? ] ; then
     echo "xml2lcov failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -56,7 +56,7 @@ if [ 0 != $? ] ; then
 fi
 
 # run with verbosity turned on...
-eval ${PYCOV} ${XML2LCOV_TOOL} --verbose --verbose -o test.info coverage.xml
+eval ${PYCOVER} ${XML2LCOV_TOOL} --verbose --verbose -o test.info coverage.xml
 if [ 0 != $? ] ; then
     echo "xml2lcov failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -65,7 +65,7 @@ if [ 0 != $? ] ; then
 fi
 
 # version check should fail - because we have no source
-eval ${PYCOV} ${XML2LCOV_TOOL} -o noSource.info coverage.xml $VERSION
+eval ${PYCOVER} ${XML2LCOV_TOOL} -o noSource.info coverage.xml $VERSION
 if [ 0 == $? ] ; then
     echo "xml2lcov missing source for version check "
     if [ 0 == $KEEP_GOING ] ; then
@@ -74,7 +74,7 @@ if [ 0 == $? ] ; then
 fi
 
 # generate help message:
-eval ${PYCOV} ${XML2LCOV_TOOL} --help 2>&1 | tee help.txt
+eval ${PYCOVER} ${XML2LCOV_TOOL} --help 2>&1 | tee help.txt
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "help failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -90,7 +90,7 @@ if [ 0 != $? ] ; then
 fi
 
 # some usage errors
-eval ${PYCOV} ${XML2LCOV_TOOL} coverage.xml -o paramErr.info ${VERSION},-x
+eval ${PYCOVER} ${XML2LCOV_TOOL} coverage.xml -o paramErr.info ${VERSION},-x
 if [ 0 == $? ] ; then
     echo "coverage version did not see error"
     if [ 0 == $KEEP_GOING ] ; then
@@ -102,7 +102,7 @@ if [ 0 == 1 ] ; then
     # disable this one for now
 
     # run again with --keep-going flag - should generate same result as we see without version script
-    eval ${PYCOV} ${XML2LCOV_TOOL} coverage.xml -o keepGoing.info ${VERSION},-x --keep-going --verbose
+    eval ${PYCOVER} ${XML2LCOV_TOOL} coverage.xml -o keepGoing.info ${VERSION},-x --keep-going --verbose
     if [ 0 != $? ] ; then
         echo "keepGoing version saw error"
         if [ 0 == $KEEP_GOING ] ; then
@@ -120,7 +120,7 @@ fi
 
 
 # usage error:
-eval ${PYCOV} ${XML2LCOV_TOOL} -o missing.info
+eval ${PYCOVER} ${XML2LCOV_TOOL} -o missing.info
 if [ 0 == $? ] ; then
     echo "did not see error with missing input data"
     if [ 0 == $KEEP_GOING ] ; then
@@ -129,7 +129,7 @@ if [ 0 == $? ] ; then
 fi
 
 # usage error:
-eval ${PYCOV} ${XML2LCOV_TOOL} -o noFile.info y.xml
+eval ${PYCOVER} ${XML2LCOV_TOOL} -o noFile.info y.xml
 if [ 0 == $? ] ; then
     echo "did not see error with missing input file"
     if [ 0 == $KEEP_GOING ] ; then
@@ -138,7 +138,7 @@ if [ 0 == $? ] ; then
 fi
 
 # usage error:
-eval ${PYCOV} ${XML2LCOV_TOOL} -o badArg.info --noSuchParam coverage.xml
+eval ${PYCOVER} ${XML2LCOV_TOOL} -o badArg.info --noSuchParam coverage.xml
 if [ 0 == $? ] ; then
     echo "did not see error with unsupported param"
     if [ 0 == $KEEP_GOING ] ; then
@@ -158,10 +158,10 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-echo "Tests passed"
-
 if [[ "x$COVER" != "x" && $LOCAL_COVERAGE == 1 ]] ; then
     cover
     ${PY2LCOV_TOOL} -o pycov.info --testname xml2lcov $VERSION ${PYCOV_DB}
     ${GENHTML_TOOL} -o pycov pycov.info --flat --show-navigation --show-proportion --branch $VERSION $ANNOTATE --ignore inconsistent,version,annotate
 fi
+
+echo "Tests passed"

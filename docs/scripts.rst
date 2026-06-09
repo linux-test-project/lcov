@@ -379,10 +379,10 @@ Find source files - in nontrivial build environment:  ``--resolve-script`` optio
 .. _resolve:
 
 In a complicated build environment - for example, to build the LLVM toolchain -
-it can be difficult to tell |TOOL_NAME| how to find your your source
+it can be difficult to tell |TOOL_NAME| how to find your source
 code using only ``--build-directory``, ``--source-directory``, and
 ``--substitute`` options.
-The ``--resolve-script`` callback can be and easier to understand.
+The ``--resolve-script`` callback can be easier to understand.
 
 
 

@@ -5,4 +5,4 @@ include ../../common.mak
 TESTS := prune.sh track.sh
 
 clean:
-	rm -f *.info prune prune2 prune3 track prune3s prune3t
+	rm -f *.info *.log prune prune2 prune3 track prune3s prune3t

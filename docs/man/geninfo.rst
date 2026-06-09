@@ -81,7 +81,7 @@ Unless the ``--output-filename`` option is specified ``geninfo`` writes its outp
 
 Note also that the current user needs write access to both *directory* as well as to the original source code location. This is necessary because some temporary files have to be created there during the conversion process.
 
-By default, ``geninfo`` collects line and function coverage data. Neither branch nor MC/DC data is not collected by default; you can use the ``--branch-coverage`` and ``--mcdc-coverage`` command line options to enable them, or you can permanently enable them by adding ``branch_coverage = 1`` and/or ``mcdc_coverage = 1`` to your personal, group, or site lcov configuration file. See :manpage:`lcovrc(5)` for details.
+By default, ``geninfo`` collects line and function coverage data. Neither branch nor MC/DC data is collected by default; you can use the ``--branch-coverage`` and ``--mcdc-coverage`` command line options to enable them, or you can permanently enable them by adding ``branch_coverage = 1`` and/or ``mcdc_coverage = 1`` to your personal, group, or site lcov configuration file. See :manpage:`lcovrc(5)` for details.
 
 File types
 ~~~~~~~~~~
@@ -237,12 +237,12 @@ In general, (almost) all ``geninfo`` options can also be specified in your perso
     This option can be specified multiple times, to add more directories to the source search path.
 
 ``--branch-coverage``
-    Collect retain branch coverage data.
+    Collect and retain branch coverage data.
 
     This is equivalent to using the option "--rc branch_coverage=1"; the option was added to better match the genhtml interface.
 
 ``--mcdc-coverage``
-    Collect retain MC/DC data.
+    Collect and retain MC/DC data.
 
     This is equivalent to using the option "--rc mcdc_coverage=1". MC/DC coverage capture is supported for GCC versions 14.2 and higher, or LLVM versions 18.1 and higher.
 
@@ -640,7 +640,7 @@ In general, (almost) all ``geninfo`` options can also be specified in your perso
 ``--memory`` *integer*
     Specify the maximum amount of memory to use during parallel processing, in Mb. Effectively, the process will not fork() if this limit would be exceeded. Default is 0 (zero) - which means that there is no limit.
 
-    This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is. This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
+    This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does not know a priori what the permissible maximum is. This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
 
     The configuration file *memory_percentage* option provided another way to set the maximum memory consumption. See :manpage:`lcovrc(5)` for details.
 
@@ -838,7 +838,7 @@ where:
     is either *"f"* or *"t"*, indicating whether the condition is sensitive to the indicated change - that is, does the condition outcome change if the corresponding changes from 'false' to 'true' or from 'true to false, respectively.
 
 *<taken>*
-    is a count - 0 (zero) if the expression was not senstized, non-zero if it was senstized. Note that tome tools may treat *<taken>* as the number of times that the expression was sensitized where others may treat it as a boolean - 1:sensitized or 0: not sensitized.
+    is a count - 0 (zero) if the expression was not sensitized, non-zero if it was sensitized. Note that some tools may treat *<taken>* as the number of times that the expression was sensitized where others may treat it as a boolean - 1:sensitized or 0: not sensitized.
 
 *<expression>*
     is an arbitrary string, intended to be a meaningful string which will help the user to understand the condition context - see below. *<expression>* appears in the 'tooltip' popup of the associated MC/DC condition in the ``genhtml`` output - so human-readable values are helpful to users who are trying to understand coverage results - for example, in order to develop additional regression tests, to improve coverage.

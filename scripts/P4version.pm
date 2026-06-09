@@ -93,7 +93,6 @@ sub new
     my @args = @_;
     my $use_md5;    # if set, append md5 checksum to the P4 version string
     my $prefix;
-    my $depot;
     my $allow_missing;
     my $help;
     my $local_edit;

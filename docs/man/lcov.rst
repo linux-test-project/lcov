@@ -50,7 +50,7 @@ The lcov tracefile (".info" file) format is described in :manpage:`geninfo(1)`.
        [ --context-script *script_file* ]
        [ --criteria-script *script_file* ]
        [ --history-script *callback* ]
-       [ --resolve--script *script_file* ]
+       [ --resolve-script *script_file* ]
        [ --version-script *script_file* ]
        [ --unreachable-script *callback* ]
        [ --comment *comment_string* ]
@@ -275,7 +275,7 @@ options can also be specified in a configuration file - see man
    adjacent to the corresponding .gcda file.
 
    See man
-   :manpage:`geninfo(1)`)
+   :manpage:`geninfo(1)`
    for details.
 
 ``--source-directory`` *dirname*
@@ -331,7 +331,7 @@ options can also be specified in a configuration file - see man
 
 ``--mcdc-coverage``
 
-   Collect retain MC/DC data.
+   Collect and retain MC/DC data.
 
    This is equivalent to using the option "--rc mcdc_coverage=1".
    MC/DC coverage is supported for GCC versions 14.2 and higher, or
@@ -536,7 +536,7 @@ specified at a time.
 
    Exclude coverage data from lines which fall within a function whose name matches the supplied regexp.  Note that this is a mangled or demangled name, depending on whether the --demangle-cpp option is used or not.
 
-   Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports or that you configure the tool to derive the required dta - see the
+   Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports or that you configure the tool to derive the required data - see the
    ``derive_function_end_line``
    discussion in man
    :manpage:`lcovrc(5)`.
@@ -852,7 +852,7 @@ specified at a time.
    generated:  host, date, environment,
    *etc.*
 
-   Note that this option has no effect for lcov overations which do not write an
+   Note that this option has no effect for lcov operations which do not write an
    output result file:
    *--list*
    *--summary*,

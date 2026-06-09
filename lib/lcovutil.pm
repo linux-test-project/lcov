@@ -1352,7 +1352,7 @@ sub read_config($$)
         # This could be fixed by doing some early processing on the command
         #   line (similar to how config file options are handled) - but that
         #   seems like overkill.  Just force the user to fix the issues.
-        return 0;    # didn't set anything LCOV_UNREACHABLE_LINE
+        return 0;    # didn't set anything
     }
     my $path = abs_path($filename);
     die("abs_path returned undef for $filename") unless defined($path);
@@ -1361,7 +1361,7 @@ sub read_config($$)
                                   'config file inclusion loop detected: "' .
                                       join('" -> "', @include_stack) .
                                       '" -> "' . $filename . '"');
-        return 0;    # LCOV_UNREACHABLE_LINE
+        return 0;
     }
     $included_config_files{$path} = 1;
     push(@include_stack, $filename);

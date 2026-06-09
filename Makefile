@@ -120,7 +120,7 @@ clean:
 	$(MAKE) -C example -s clean
 	$(MAKE) -C tests -s clean
 	$(MAKE) -C docs -s clean
-	find . -name '*.tdy' -o -name '*.orig' | xargs rm -f
+	find . \( -name '*.tdy' -o -name '*.orig' \) -a -type f | xargs rm -f
 
 doc:
 	$(MAKE) -C docs RELEASE=${VERSION} TOOL_NAME=$(TOOL_NAME) man html
@@ -286,12 +286,18 @@ check:
 	  echo "*** Run once, force parallel ***" ;                         \
 	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C tests check LCOV_HOME=`pwd` ; \
 	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C example LCOV_HOME=`pwd` ;     \
+	  mv tests/test.log tests/test.parallel.log ;                       \
 	  echo "*** Run again, no force ***" ;                              \
 	fi
 	@$(MAKE) -s -C tests check LCOV_HOME=`pwd`
-	@if [ "x$(COVERAGE)" != 'x' ] ; then       \
-	  $(MAKE) -s -C example LCOV_HOME=`pwd`;   \
-	  $(MAKE) -s -C tests report ;             \
+	@if [ "x$(COVERAGE)" != 'x' ] ; then                    \
+	  $(MAKE) -s -C example LCOV_HOME=`pwd`;                \
+	  $(MAKE) -s -C tests report ;                          \
+	  ( cd tests ;                                          \
+	    echo " ----- parallel execution ----" >> test.log ; \
+	    cat test.parallel.log >> test.log ;                 \
+	    rm test.parallel.log                                \
+	  ) ;                                                   \
 	fi
 	grep uninitialized tests/test.log ; \
 	if [ 1 != $$? ] ; then              \

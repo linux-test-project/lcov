@@ -4,9 +4,11 @@ export COVER_DB := $(shell echo `pwd`/cover_db)
 export PYCOV_DB := $(shell echo `pwd`/pycov.dat)
 export HTML_RPT := $(shell echo `pwd`/lcov_coverage)
 endif
+# set to directory name - where to put individual testcase data
+PER_TEST_COVERAGE =
 endif
 
-.PHONY: report
+.PHONY: excel info report
 
 all: check report
 
@@ -19,36 +21,74 @@ TESTS := genhtml lcov llvm2lcov py2lcov perl2lcov xml2lcov
 #  report - but they might not have been generated, so we need to
 #  ignore the potential 'empty glob pattern' error message and a
 #  potential remote repo timestamp issue
-report:
+EXCLUDES = genError.pm filter.pl brokenCallback.pm MsgContext.pm \
+	 missingRestore.pm parallelFail.pm 
+EXCL_OPTS = $(foreach e, $(EXCLUDES), --exclude $(e))
+OMIT_OPTS = --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b'
+IGNORE_OPTS = --ignore unsupported,unused,inconsistent
+
+excel:
 	$(SPREADSHEET_TOOL) -o report.xlsx `find . -name "*.json"`
-	if [ "x$(COVERAGE)" != 'x' ] ; then                         \
-	  cover $(COVER_DB) ;                                       \
-	  $(PERL2LCOV_TOOL) -o perlcov.info $(COVER_DB)             \
-               --version-script $(VERSION_SCRIPT)                   \
-	       --exclude genError.pm --exclude filter.pl            \
-               --exclude brokenCallback.pm --exclude MsgContext.pm  \
-	       --exclude missingRestore.pm --exclude parallelFail.pm \
-               --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b' \
-	       --ignore unsupported,unused,inconsistent             \
-               --filter region ;                                    \
-	  if [ -f $(PYCOV_DB) ] ; then                              \
-	    $(PY2LCOV_TOOL) -o pycov.info $(PYCOV_DB)               \
-                 --version-script $(VERSION_SCRIPT) ;               \
-	  fi ;                                                      \
-	  $(GENHTML_TOOL) --parallel -o $(HTML_RPT)                 \
-              perlcov.info pycov.info                               \
-              --save --title 'LCOV regression tests'                \
-              --show-navigation --flat --branch --show-proportion   \
-              --version-script $(VERSION_SCRIPT)                    \
-	      --annotate-script $(ANNOTATE_SCRIPT)                  \
-	      --filter region                                       \
-              --ignore empty,inconsistent ;                         \
-	  if [ -d $(HTML_RPT) ] ; then                              \
-	      cp p*cov.info $(HTML_RPT) ;                           \
-          fi ;                                                      \
-	  echo "Wrote HTML report to ${HTML_RPT}" ;                 \
+
+info:
+	if [ "x$(COVERAGE)" != 'x' ] ; then                          \
+	  if [ -d cover_db.d ] ; then                                \
+	    rm -f cover_db.d/*.log ;                                 \
+	    DBS=cover_db.d/* ;                                       \
+	    cover -write $(COVER_DB) $$DBS 2>&1 > cover.log ;        \
+	    if [ "x$(PER_TEST_COVERAGE)" != 'x' ] ; then             \
+	      mkdir -p $(PER_TEST_COVERAGE) ;                        \
+              for db in $$DBS ; do                                   \
+	         echo ----- $$db ------------- ;                     \
+	         cover $$db 2>&1 > $$db.log ;                        \
+	         $(PERL2LCOV_TOOL)                                   \
+	           -o $(PER_TEST_COVERAGE)/`basename $$db`_cov.info $$db \
+                   --version-script $(VERSION_SCRIPT)                \
+		   $(EXCL_OPTS) $(OMIT_OPTS) $(IGNORE_OPTS)          \
+                   --filter region ;                                 \
+	      done ;                                                 \
+	      ( cd $(PER_TEST_COVERAGE);                             \
+	        $(LCOV_TOOL) -o total.info                           \
+		  --branch --keep-going                              \
+		  --version-script $(VERSION_SCRIPT)                 \
+		  $(foreach f, $(shell ls *.info), -a $$f)           \
+	      ) ;                                                    \
+	    fi ;                                                     \
+	  fi ;                                                       \
+	  cover $(COVER_DB) ;                                        \
+	  $(PERL2LCOV_TOOL) -o perlcov.info $(COVER_DB)              \
+               --version-script $(VERSION_SCRIPT)                    \
+	       $(EXCL_OPTS) $(OMIT_OPTS) $(IGNORE_OPTS)              \
+               --filter region ;                                     \
+	  if [ -f $(PYCOV_DB) ] ; then                               \
+	    $(PY2LCOV_TOOL) -o pycov.info $(PYCOV_DB)                \
+                 --version-script $(VERSION_SCRIPT) ;                \
+	  fi ;                                                       \
+	  if [ "x$(PER_TEST_COVERAGE)" != 'x' ] ; then               \
+	    cp perlcov.info $(PER_TEST_COVERAGE) ;                   \
+	    if [ -f $(PYCOV_DB) ] ; then                             \
+	      cp pycov.info $(PER_TEST_COVERAGE) ;                   \
+	    fi                                                       \
+	  fi                                                         \
 	fi
 
-clean:
-	rm -rf *.info *.counts *.gcov test.log test.time src report.xlsx \
-		$(COVER_DB) $(HTML_RPT) $(PYCOV_DB)
+report: excel info
+	if [ "x$(COVERAGE)" != 'x' ] ; then                          \
+	  $(GENHTML_TOOL) --parallel -o $(HTML_RPT)                  \
+              perlcov.info pycov.info                                \
+              --save --title 'LCOV regression tests'                 \
+              --show-navigation --flat --branch --show-proportion    \
+              --version-script $(VERSION_SCRIPT)                     \
+	      --annotate-script $(ANNOTATE_SCRIPT)                   \
+	      --filter region                                        \
+              --ignore empty,inconsistent --keep-going ;             \
+	  if [ -d $(HTML_RPT) ] ; then                               \
+	      cp p*cov.info $(HTML_RPT) ;                            \
+          fi ;                                                       \
+	  echo "Wrote HTML report to ${HTML_RPT}" ;                  \
+	fi
+
+clean: clean_echo clean_subdirs
+	rm -f *.info *.log *.counts *.gcov test.log test.time report.xlsx \
+	    $(PYCOV_DB)
+	rm -rf $(COVER_DB) $(HTML_RPT) $(PER_TEST_COVERAGE) cover_db.d src

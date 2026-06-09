@@ -2,6 +2,6 @@
    The content is replaced at build time from man/ directory entries.
 
 |TOOL_NAME| Documentation
-==================
+=========================
 
 .. This placeholder content is replaced at build time.

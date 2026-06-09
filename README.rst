@@ -2,7 +2,7 @@
 README file for the LTP GCOV extension (LCOV)
 =================================================
 
-Last changes: 2026-05-22
+Last changes: 2026-05-30
 
 Description
 ===========
@@ -46,45 +46,56 @@ In addition, several other features and capabilities are available. See
 section 6, below, for a brief description - and also see the man pages and
 the test cases.
 
+.. _table-of-contents:
 
 Table of Contents
 =================
 
-1. Included files
-2. Installing LCOV
-3. Dependencies
-4. An example of how to access kernel coverage data
-5. An example of how to access coverage data for a user space program
-6. LCOV features
-7. Questions and Comments
-8. Filing a new issue
+1. `Included files <#section-1-included-files>`_
+2. `Installing LCOV <#section-2-installing-lcov>`_
+3. `Dependencies <#section-3-dependencies>`_
+4. `How to access coverage data for a user space program <#section-4-user-space>`_
+5. `How to access Linux kernel coverage data <#section-5-linux-kernel>`_
+6. `LCOV Features <#section-6-lcov-features>`_
+7. `Questions and comments <#section-7-questions-comments>`_
+8. `Filing a new issue <#section-8-filing-issue>`_
 
+.. _section-1-included-files:
 
 1. Included files
 =================
 
-======================  ======================================================
-README.rst              This README file
-bin/lcov                Tool for capturing LCOV coverage data
-bin/genhtml             Tool for creating HTML output from LCOV data
-bin/perl2lcov           Tool to translate Perl Devel::Cover data to lcov format
-bin/llvm2lcov           Tool to translate LLVM 'llvm-cov' JSON data to LCOV format
-bin/py2lcov             Tool to translate Python Coverage.py to lcov format
-bin/xml2lcov            Tool to translate Cobertura-like XML coverage data
-                        to lcov format
-bin/geninfo             Internal tool (creates LCOV data files)
-bin/gendesc             Tool for creating description files as used by genhtml
-bin/genpng              Internal tool (creates png overviews of source files)
-lcovrc                  LCOV configuration file
-docs                    Directory containing documentation source
-example                 Directory containing an example to demonstrate LCOV
-tests                   Directory containing lcov regression tests
-Makefile                Makefile providing 'install' and 'uninstall' targets
-======================  ======================================================
+`Back to Table of Contents <#table-of-contents>`_
 
+=================  ==========================================================
+README.rst         This README file
+bin/lcov           Tool to capture and manipulate LCOV coverage data
+bin/genhtml        Tool to generate HTML report from LCOV data
+bin/perl2lcov      Tool to translate Perl ``Devel::Cover`` data to lcov format
+bin/llvm2lcov      Tool to translate LLVM ``llvm-cov`` JSON data to LCOV format
+bin/py2lcov        Tool to translate Python ``Coverage.py`` to lcov format
+bin/xml2lcov       Tool to translate Cobertura-like XML coverage data
+                   to lcov format
+bin/geninfo        Internal tool (creates LCOV data files)
+bin/gendesc        Tool for creating description files as used by genhtml
+bin/genpng         Internal tool (creates png overviews of source files)
+lcovrc             Sample LCOV configuration file
+docs               Directory containing documentation source
+example            Directory containing examples which demonstrate LCOV
+                   features
+scripts            Example callback implementations - see
+                   `section 4.e <#section-4e-callbacks>`_, below
+tests              Directory containing lcov regression tests
+Makefile           Makefile providing 'install' and 'uninstall' targets
+=================  ==========================================================
+
+
+.. _section-2-installing-lcov:
 
 2. Installing LCOV
 ==================
+
+`Back to Table of Contents <#table-of-contents>`_
 
 The LCOV package is available as either RPM or tarball from:
 
@@ -138,8 +149,12 @@ Note that the testcases are primarily intended to test LCOV functionality
 and not to be easily readable tutorial examples.
 
 
+.. _section-3-dependencies:
+
 3. Dependencies
 ===============
+
+`Back to Table of Contents <#table-of-contents>`_
 
 The lcov module is implemented primarily in Perl - and requires both a
 moderately up-to-date Perl installation and multiple Perl packages.
@@ -190,32 +205,12 @@ Your platform may support other mechanisms to install and/or update
 required packages.
 
 
-4. An example of how to access Linux kernel coverage data
-==========================================================
+.. _section-4-user-space:
 
-Requirements: Follow the Linux kernel coverage setup instructions at:
+4. How to access coverage data for a user space program
+=======================================================
 
-https://docs.kernel.org/dev-tools/gcov.html
-
-As root, do the following:
-
-a) Resetting counters::
-
-       lcov --zerocounters
-
-b) Capturing the current coverage state to a file::
-
-       lcov --capture --output-file kernel.info
-
-c) Getting HTML output::
-
-       genhtml kernel.info
-
-Point the web browser of your choice to the resulting index.html file.
-
-
-5. An example of how to access coverage data for a user space program
-======================================================================
+`Back to Table of Contents <#table-of-contents>`_
 
 a) Capture current coverage state to a file:
 
@@ -334,8 +329,41 @@ c) Generate a differential coverage report:
    as well as the examples in ``.../tests/genhtml``.
 
 
+
+.. _section-5-linux-kernel:
+
+5. How to access Linux kernel coverage data
+===========================================
+
+`Back to Table of Contents <#table-of-contents>`_
+
+Requirements: Follow the Linux kernel coverage setup instructions at:
+
+https://docs.kernel.org/dev-tools/gcov.html
+
+As root, do the following:
+
+a) Resetting counters::
+
+       lcov --zerocounters
+
+b) Capturing the current coverage state to a file::
+
+       lcov --capture --output-file kernel.info
+
+c) Getting HTML output::
+
+       genhtml kernel.info
+
+Point the web browser of your choice to the resulting index.html file.
+
+
+.. _section-6-lcov-features:
+
 6. LCOV Features
 ================
+
+`Back to Table of Contents <#table-of-contents>`_
 
 LCOV features and capabilities fall into 7 major categories:
 
@@ -353,7 +381,7 @@ a) Categorization
 
    Related options:
 
-   - ``--baseline-file``, ``--diff-file``, ``--annotate-script``, ``--select-script``,
+     ``--baseline-file``, ``--diff-file``, ``--annotate-script``, ``--select-script``,
      ``--date-bins``, ``--date-labels``, ``--new-file-as-baseline``,
      ``--elide-path-mismatch``
 
@@ -379,7 +407,7 @@ b) Error handling
 
    Related options:
 
-   - ``--ignore-error``, ``--expect-message-count``, ``--keep-going``, ``--msg-log``
+     ``--ignore-error``, ``--expect-message-count``, ``--keep-going``, ``--msg-log``
 
 c) Navigation and display
 
@@ -403,7 +431,7 @@ c) Navigation and display
 
    Related options:
 
-   - ``--baseline-title``, ``--baseline-date``, ``--current-date``,
+     ``--baseline-title``, ``--baseline-date``, ``--current-date``,
      ``--flat``, ``--hierarchical``,
      ``--show-owners``, ``--show-noncode``, ``--show-navigation``,
      ``--show-proportion``,
@@ -434,9 +462,11 @@ d) Data manipulation
 
    Related options:
 
-   - ``--include``, ``--exclude``, ``--erase-functions``, ``--omit-lines``,
+     ``--include``, ``--exclude``, ``--erase-functions``, ``--omit-lines``,
      ``--substitute``, ``--filter``, ``--build-directory``,
      ``--source-directory``
+
+.. _section-4e-callbacks:
 
 e) Callbacks/customization
 
@@ -504,7 +534,7 @@ e) Callbacks/customization
 
    Related options:
 
-   - ``--annotate-script``, ``--criteria-script``, ``--version-script``,
+     ``--annotate-script``, ``--criteria-script``, ``--version-script``,
      ``--resolve-script``, ``--select-script``, ``--context-script``,
      ``--simplify-script``, ``--history-script``, ``--unreachable-script``
 
@@ -580,8 +610,12 @@ using either command line options or by setting defaults in your 'lcovrc'
 file. See the lcovrc man page for details.
 
 
+.. _section-7-questions-comments:
+
 7. Questions and comments
-==========================
+=========================
+
+`Back to Table of Contents <#table-of-contents>`_
 
 See the included man pages for more information on how to use the LCOV tools.
 
@@ -591,8 +625,12 @@ the issue tracker on the LCOV code repository site at:
 https://github.com/linux-test-project/lcov
 
 
+.. _section-8-filing-issue:
+
 8. Filing a new issue
-======================
+=====================
+
+`Back to Table of Contents <#table-of-contents>`_
 
 Before filing a new issue - and if you are using an LCOV release (as opposed
 to using a clone of the github repo) - please verify whether the issue is

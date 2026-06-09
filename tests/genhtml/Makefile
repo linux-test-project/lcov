@@ -9,5 +9,5 @@ TESTS := full.sh zero.sh demangle.sh relative lambda exception \
 
 DISABLED := part1.sh part2.sh target.sh
 
-clean:
+clean: clean_echo clean_subdirs
 	rm -rf *.log out_* *.tmp
