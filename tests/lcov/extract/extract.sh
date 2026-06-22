@@ -225,9 +225,12 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# exclude some un-covered standard includes
+EXCLUDE='--exclude */include/c++/* --ignore unused'
+
 # callback tests
-echo $COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100
-$COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 --history $SCRIPT_DIR/history.pm,external.info.json 2>&1 | tee callback_fail.log
+echo $COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 $EXCLUDE
+$COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 $EXCLUDE --history $SCRIPT_DIR/history.pm,external.info.json 2>&1 | tee callback_fail.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "Error:  expected criteria fail from lcov --capture - but not found"
     if [ $KEEP_GOING == 0 ] ; then
@@ -241,8 +244,8 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-echo $COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20 --history $SCRIPT_DIR/history.pm,external.info.json,callback.info.json
-$COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20 --history $SCRIPT_DIR/history.pm,external.info.json,callback.info.json
+echo $COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20 --history $SCRIPT_DIR/history.pm,external.info.json,callback.info.json $EXCLUDE
+$COVER $CAPTURE . $LCOV_OPTS -o callback2.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20 --history $SCRIPT_DIR/history.pm,external.info.json,callback.info.json $EXCLUDE
 if [ 0 != $? ] ; then
     echo "Error:  expected criteria pass from lcov --capture - but failed"
     if [ $KEEP_GOING == 0 ] ; then
@@ -250,8 +253,8 @@ if [ 0 != $? ] ; then
     fi
 fi
 
-echo $COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100
-$COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 2>&1 | tee callback_fail2.log
+echo $COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 $EXCLUDE
+$COVER $LCOV_TOOL $LCOV_OPTS -o aggregata.info -a callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 $EXCLUDE 2>&1 | tee callback_fail2.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "Error:  expected criteria fail from lcov --aggregate - but not found"
     if [ $KEEP_GOING == 0 ] ; then
@@ -265,7 +268,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-$COVER $LCOV_TOOL $LCOV_OPTS -o aggregate2.info -a callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20
+$COVER $LCOV_TOOL $LCOV_OPTS -o aggregate2.info -a callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,20 $EXCLUDE
 if [ 0 != $? ] ; then
     echo "Error:  expected criteria pass from lcov --aggregate - but failed"
     if [ $KEEP_GOING == 0 ] ; then

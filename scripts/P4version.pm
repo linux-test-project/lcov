@@ -48,6 +48,7 @@
 package P4version;
 
 use strict;
+use warnings;
 use POSIX qw(strftime);
 use File::Spec;
 use Cwd qw(abs_path);
@@ -116,14 +117,14 @@ sub new
     if (@_) {
         $depot = $_[0];
         die("depot root '$depot' is not a directory") unless -d $depot;
-        $cd   = "cd $depot ; ";
+        $cd   = "cd '$depot' ; ";
         $dots = '/...';
     }
     my $root = Cwd::abs_path($depot ? $depot : '.');
     my $len  = length($root);
 
     my %filehash;
-    open(P4, '-|', "$cd p4 have $depot$dots") or
+    open(P4, '-|', "$cd p4 have '$depot$dots'") or
         die("unable to execute 'p4 have': $!");
     while (<P4>) {
         if (/^(.+?)#([0-9]+) - (.+)$/) {
@@ -132,7 +133,7 @@ sub new
             my $filename   = $3;
             next unless -e $filename;    # filename has been deleted
             my $full = Cwd::abs_path($filename);
-            die("unexpected depot filename $filename")
+            die("unexpected depot filename[:$len]: '$filename' != '$root'")
                 unless $root eq substr($filename, 0, $len);
             my $trimmed = substr($filename, $len);
             die("unexpected duplicate $trimmed") if exists($filehash{$trimmed});
@@ -183,7 +184,8 @@ sub new
             } elsif ('delete' eq $3) {
                 next;
             } else {
-                die("unexpected state '$3' for $1 '$5'") unless 'add' eq $3;
+                die("unexpected state '$3' for $1 '" . ($5 // 'default') . "'")
+                    unless 'add' eq $3;
                 my $trimmed   = substr($1, length($depot_path));
                 my $full_name = $workspace_dir . $trimmed;
                 $data                 = [$full_name, $1, $trimmed, '#add'];

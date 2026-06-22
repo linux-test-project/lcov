@@ -62,6 +62,7 @@
 
 package select;
 use strict;
+use warnings;
 use File::Basename qw(dirname basename);
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
@@ -100,7 +101,7 @@ sub new
     my (@range, @tla, @owner, @sha);
     my @args       = @_;
     my $exe        = basename($script ? $script : $0);
-    my $standalone = $script eq $0;
+    my $standalone = (defined($script) && $script eq $0);
     my $help;
     my $delim = ',';
     if (!GetOptionsFromArray(\@_,
@@ -161,7 +162,7 @@ EOF
         die("expected $min <= $max in \"$exe " . join(' ', @args) . '"')
             unless $min <= $max;
         $range = [$min, $max];
-        push(@{$plaintext[1]}, "$min - $max days");
+        push(@{$plaintext[AGE]}, "$min - $max days");
     }
     # some error checking:
     #  - can't look for date range, CL/SHA, or owner if there are no
@@ -196,9 +197,9 @@ EOF
                 \@sha,
                 \@tla,
                 [[(0) x scalar(@range)],
-                 [(0) x scalar(@tla)],
                  [(0) x scalar(@owner)],
-                 [(0) x scalar(@sha)]
+                 [(0) x scalar(@sha)],
+                 [(0) x scalar(@tla)]
                 ],
                 \@plaintext,
                 0
@@ -251,7 +252,7 @@ sub select
         }
 
         my $fullname = $annotateData->full_name();
-        my $list     = $self->[OWNER];
+        $list    = $self->[OWNER];
         @matches = grep({ $fullname =~ $list->[$_] } 0 .. $#$list);
         return 1 if $self->_check_match(\@matches, OWNER);
     }

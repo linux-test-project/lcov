@@ -38,7 +38,6 @@ import subprocess
 import copy
 import base64
 import hashlib
-import pdb
 
 def line_hash(line: str) -> str:
     """Produce a hash of a source line for use in the LCOV file."""
@@ -103,6 +102,7 @@ This is a problem in at least 2 ways:
 
         self._excludePatterns = scriptArgs.excludePatterns.split(',') if scriptArgs.excludePatterns else None
         self._versionScript = scriptArgs.version.split(',') if scriptArgs.version else None
+        self._versionModule = None
         if self._versionScript and self._versionScript[0][-3:] == ".pm":
             # hard to handle Perl module in python - so we hack it
             self._versionModule = self._versionScript
@@ -117,7 +117,7 @@ This is a problem in at least 2 ways:
 
         self._outf.close()
 
-        if self._args.version and None == self._versionScript:
+        if self._args.version and self._versionScript is None:
             lcov = os.path.join(os.path.split(sys.argv[0])[0], 'lcov')
             cmd = [
                 lcov,
@@ -129,10 +129,10 @@ This is a problem in at least 2 ways:
                 "--branch-coverage",
                 "--ignore", "inconsistent",
             ]
-            if not self._args.deriveFunctions:
+            if not getattr(self._args, 'deriveFunctions', False):
                 cmd.append("--no-function-coverage")
             try:
-                x = subprocess.run(cmd, shell=False, check=True, stdout=True, stderr=True)
+                x = subprocess.run(cmd, shell=False, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             except subprocess.CalledProcessError as err:
                 print("Error during lcov version append operation: %s" % (
                     str(err)))
@@ -162,12 +162,13 @@ This is a problem in at least 2 ways:
             else:
                 print("Error: parse xml fail: no 'sources' in %s" %(xml_file))
                 sys.exit(1)
-            if(root[1].tag == 'packages'):
-                if (self._args.verbose):
-                    print("packages: " + str(root[1].attrib))
-            else:
+            if len(root) < 2 or root[1].tag != 'packages':
                 print("Error: parse xml fail: no 'packages' in %s" %(xml_file))
-                sys.exit(1)
+                if not self._args.keepGoing:
+                    sys.exit(1)
+                return
+            if self._args.verbose:
+                print("packages: " + str(root[1].attrib))
         except Exception as err:
             print("Error: parse xml fail in %s: %s" % (xml_file, str(err)))
             if not self._args.keepGoing:
@@ -202,7 +203,7 @@ This is a problem in at least 2 ways:
                                 s[1] += 1 # this source path used for something
                                 break
                         else:
-                            print("did not find %s in search path" % (path))
+                            print("did not find %s in search path" % (name))
 
                     self._outf.write("SF:%s\n" % name)
                     if self._versionScript:
@@ -222,7 +223,7 @@ This is a problem in at least 2 ways:
 
         for s in source_paths:
             if s[1] == 0:
-                print("Warning: XM file '%s': source_path '%s' is unused" %(xml_file, s[0]))
+                print("Warning: XML file '%s': source_path '%s' is unused" %(xml_file, s[0]))
 
 
     def process_file(self, fileNode, filename):
@@ -416,8 +417,8 @@ This is a problem in at least 2 ways:
                                     # mark that function decl line is not
                                     #  hit if the function is not hit
                                     if 0 == hit:
-                                        assert(currentObj['start'] in lineData)
-                                        lineData[currentObj['start']] = 0
+                                        if currentObj['start'] in lineData:
+                                            lineData[currentObj['start']] = 0
 
                         prevLine = lineNo
                     else:

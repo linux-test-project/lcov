@@ -128,7 +128,6 @@ sub add_traces();
 sub merge_traces($$);
 sub remove_file_patterns($);
 sub list();
-sub get_common_filename($$);
 sub read_diff($);
 sub diff();
 sub system_no_output($@);
@@ -247,7 +246,7 @@ if (!lcovutil::parseOptions(\%mergedRcOpts, \%lcov_options, \$output_filename))
 }
 
 if (defined($no_compat_libtool)) {
-    $compat_libtool    = ($no_compat_libtool ? 0 : 1);
+    $compat_libtool    = $no_compat_libtool ? 0 : 1;
     $no_compat_libtool = undef;
 }
 
@@ -701,7 +700,7 @@ sub lcov_copy_single($$)
     open(HANDLE, "<", $from) or die("cannot read $from: $!\n");
     $content = <HANDLE>;
     close(HANDLE);
-    open(HANDLE, ">", $to) or die("cannot write $from: $!\n");
+    open(HANDLE, ">", $to) or die("cannot write $to: $!\n");
     if (defined($content)) {
         print(HANDLE $content);
     }
@@ -744,7 +743,7 @@ sub lcov_find($$$;@)
         $result = &$fn($dir, $filename, $data);
     };
     if (scalar(@pattern) == 0) {
-        @pattern = ".*";
+        @pattern = (".*");
     }
     find({wanted => $_fn, no_chdir => 1}, $dir);
 
@@ -1006,7 +1005,8 @@ sub get_package($)
     info("Reading package $file:\n");
     $file = abs_path($file);
     chdir($dir);
-    open(HANDLE, "-|", "tar xvfz '$file' 2>$lcovutil::devnull") or
+    open(HANDLE, "-|", "tar xvfz " . quotemeta($file) . " 2>$lcovutil::devnull")
+        or
         die("could not process package $file: $!\n");
     $count = 0;
     while (<HANDLE>) {
@@ -1069,7 +1069,7 @@ sub count_package_data($)
     local *HANDLE;
     my $count = 0;
 
-    open(HANDLE, "-|", "tar tfz '$filename'") or return undef;
+    open(HANDLE, "-|", "tar tfz " . quotemeta($filename)) or return undef;
     while (<HANDLE>) {
         if (/\.da$/ || /\.gcda$/) {
             $count++;
@@ -1119,7 +1119,7 @@ sub create_package($$$;$)
     # Create package
     $file = abs_path($file);
     chdir($dir);
-    system("tar cfz $file .") and
+    system("tar", "cfz", $file, ".") and
         die("could not create package $file\n");
     chdir($cwd);
 
@@ -1368,7 +1368,6 @@ sub link_data_cb($$$)
     my $absfrom = catfile($datadir, $rel);
     my $absto   = catfile($graphdir, $rel);
     my $base;
-    my $dir;
 
     if (-e $absto) {
         die("could not create symlink at $absto: " . "File already exists!\n");
@@ -1582,7 +1581,7 @@ sub merge_traces($$)
     info('.. found: ' .
          scalar(@data) . " 'base' trace file" .
          (1 == scalar(@data) ? '' : 's') . ".\n");
-    die("must specify at lease one 'base' tracefile")
+    die("must specify at least one 'base' tracefile")
         unless @data;
     my @merge = AggregateTraces::find_from_glob(@$list);
     info('          ' .
@@ -1706,13 +1705,11 @@ sub shorten_number($$)
 
     return $result if (length($result) <= $width);
     $number = $number / 1000;
-    return $result if (length($result) <= $width);
     $result = sprintf("%*dk", $width - 1, $number);
     return $result if (length($result) <= $width);
     $number = $number / 1000;
     $result = sprintf("%*dM", $width - 1, $number);
-    return $result if (length($result) <= $width);
-    return '#';
+    return (length($result) <= $width) ? $result : '#';
 }
 
 sub shorten_rate($$$)
@@ -1722,8 +1719,7 @@ sub shorten_rate($$$)
 
     return $result if (length($result) <= $width);
     $result = rate($hit, $found, "%", 0, $width);
-    return $result if (length($result) <= $width);
-    return "#";
+    return (length($result) <= $width) ? $result : "#";
 }
 
 #
@@ -1921,47 +1917,6 @@ sub list()
 }
 
 #
-# get_common_filename(filename1, filename2)
-#
-# Check for filename components which are common to FILENAME1 and FILENAME2.
-# Upon success, return
-#
-#   (common, path1, path2)
-#
-#  or 'undef' in case there are no such parts.
-#
-
-sub get_common_filename($$)
-{
-    my ($vol1, $dir1, $file1) = File::Spec->splitpath($_[0]);
-    my ($vol2, $dir2, $file2) = File::Spec->splitpath($_[1]);
-    my @list1 = ($vol1, File::Spec->splitdir($dir1), $file1);
-    my @list2 = ($vol2, File::Spec->splitdir($dir2), $file2);
-    my @result;
-
-    # Work in reverse order, i.e. beginning with the filename itself
-    while (
-        @list1 &&
-        @list2 &&
-        (   (!$lcovutil::case_insensitive && $list1[$#list1] eq $list2[$#list2])
-            ||
-            ($lcovutil::case_insensitive &&
-                lc($list1[$#list1]) eq lc($list2[$#list2])))
-    ) {
-        unshift(@result, pop(@list1));
-        pop(@list2);
-    }
-
-    # Did we find any similarities?
-    if (scalar(@result) > 0) {
-        return (File::Spec->catfile(@result),
-                File::Spec->catfile(@list1),
-                File::Spec->catfile(@list2));
-    } else {
-        return undef;
-    }
-}
-
 #
 # summary()
 #

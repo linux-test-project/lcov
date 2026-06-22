@@ -48,6 +48,7 @@
 package threshold;
 
 use strict;
+use warnings;
 use Getopt::Long qw(GetOptionsFromArray);
 use Scalar::Util qw/looks_like_number/;
 
@@ -74,7 +75,7 @@ sub new
         (!$standalone && @_)
     ) {
         print(STDERR "Error: unexpected option:\n  " .
-                join(' ', @options) .
+                join(' ', @_) .
                 "\nusage: name type json-string [--signoff] [--line l_threshold] [--branch b_threshold] [--function f_threshold] [--mcdc -m_threshold]\n"
         );
         exit(1) if $standalone;
@@ -108,9 +109,9 @@ sub check_criteria
         next unless exists($db->{$key});
 
         my $map   = $db->{$key};
-        my $found = $map->{found};
+        my $found = $map->{found} // 0;
         next if $found == 0;
-        my $hit    = $map->{hit};
+        my $hit    = $map->{hit} // 0;
         my $v      = 100.0 * $hit / $found;
         my $thresh = $self->[1]->{$key};
 

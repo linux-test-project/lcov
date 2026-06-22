@@ -158,7 +158,7 @@ sub gen_desc()
     while (<INPUT_HANDLE>) {
         chomp($_);
 
-        if (/^(\w[\w-]*)(\s*)$/) {
+        if (/^(\w[\w-]*)\s*$/) {
             # Matched test name
             # Name starts with alphanum or _, continues with
             # alphanum, _ or -
