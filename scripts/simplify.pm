@@ -37,6 +37,7 @@
 package simplify;
 
 use strict;
+use warnings;
 use Getopt::Long qw(GetOptionsFromArray);
 use File::Basename qw(dirname basename);
 use lcovutil;
@@ -51,7 +52,7 @@ sub new
     my (@patterns, $file, $sep);
     my @args       = @_;
     my $exe        = basename($script ? $script : $0);
-    my $standalone = $script eq $0;
+    my $standalone = defined($script) && $script eq $0;
     my $help;
     if (!GetOptionsFromArray(\@_,
                              ("file:s"      => \$file,
@@ -87,7 +88,7 @@ EOF
         }
         close(HANDLE) or die("unable to close pattern file handle: $!\n");
     } elsif (defined($sep)) {
-        @patterns = split($sep, join($sep, @patterns));
+        @patterns = split(quotemeta($sep), join($sep, @patterns));
     }
 
     # verify that the patterns are valid...
@@ -96,7 +97,7 @@ EOF
     my @munged;
     foreach my $p (@patterns) {
         my $sep = substr($p, 1, 1);
-        my @s   = split($sep, $p);
+        my @s   = split(quotemeta($sep), $p);
         die("unexpected substitution pattern '$p'")
             unless ($s[0] eq 's' &&
                     $#s == 3 &&

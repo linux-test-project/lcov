@@ -91,6 +91,7 @@
 
 package unreach;
 use strict;
+use warnings;
 use File::Basename qw(dirname basename);
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);

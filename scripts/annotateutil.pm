@@ -20,6 +20,7 @@
 #
 
 use strict;
+use warnings;
 
 package annotateutil;
 
@@ -33,8 +34,9 @@ sub get_modify_time($)
 {
     my $filename = shift;
     my @stat     = stat $filename;
-    my $tz       = strftime("%z", localtime($stat[9]));
-    $tz =~ s/([0-9][0-9])$/:\1/;
+    die("stat failed for '$filename': $!") unless @stat;
+    my $tz = strftime("%z", localtime($stat[9]));
+    $tz =~ s/([0-9][0-9])$/:$1/;
     return strftime("%Y-%m-%dT%H:%M:%S", localtime($stat[9])) . $tz;
 }
 
@@ -63,8 +65,8 @@ sub compute_md5
     my $filename = shift;
     die("$filename not found") unless -e $filename;
     my $null = File::Spec->devnull();
-    my $md5  = `md5sum $filename 2>$null`;
-    $md5 =~ /^(\S+)/;
+    my $md5  = `md5sum \Q$filename\E 2>$null`;
+    die("md5sum failed for '$filename'") unless $md5 =~ /^(\S+)/;
     return $1;
 }
 
@@ -121,7 +123,8 @@ sub new
     if ($logfile) {
         open($self->[LOG], ">>", $logfile) or
             die("unable to open $logfile");
-        $self->printlog("$script " . join(" ", @_) . "\n");
+        $self->printlog(
+                    "$script " . join(" ", map({ $_ // '<undef>' } @_)) . "\n");
     }
     return $self;
 }
@@ -161,7 +164,7 @@ sub find_in_cache
 {
     my ($self, $filename) = @_;
     my $cache_dir = $self->[CACHE];
-    my ($cachepath, $version);
+    my $version;
     my $cachepath =
         File::Spec->catfile($cache_dir,
                             File::Spec->file_name_is_absolute($filename) ?
@@ -175,7 +178,8 @@ sub find_in_cache
             if (defined($data)) {
                 ($cache_version, $lines) = @$data;
                 $version = lcovutil::extractFileVersion($filename);
-                $self->printlog("cache hit: $filename:$cache_version\n");
+                $self->printlog("cache hit: $filename:" .
+                                ($cache_version // 'undef') . "\n");
             }
         };
         if ($@) {
@@ -216,16 +220,17 @@ sub store_in_cache
 sub verify_annotation
 {
     my ($self, $filepath, $lines) = @_;
-    open(DEBUG, "<", $filepath) or
+    open(my $debug_fh, "<", $filepath) or
         die("unable to read $filepath: $!");
     my $lineNo = 0;
-    while (my $line = <DEBUG>) {
+    while (my $line = <$debug_fh>) {
         chomp($line);
         die('mismatched annotation: local line ' .
             ($lineNo + 1) . " does not exist in annotated data")
             if $lineNo > $#$lines;
         my $a = $lines->[$lineNo]->[0];
-        die("mismatched annotation at $filepath:$lineNo: '$line' -> '$a'")
+        die("mismatched annotation at $filepath:" .
+            ($lineNo + 1) . ": '$line' -> '$a'")
             unless $line eq $a;
         ++$lineNo;
     }

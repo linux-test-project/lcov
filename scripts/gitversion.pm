@@ -40,6 +40,7 @@
 package gitversion;
 
 use strict;
+use warnings;
 use POSIX qw(strftime);
 use File::Spec;
 use Cwd qw(abs_path);
@@ -83,7 +84,7 @@ sub new
     my $help;
     my $local_change;
 
-    if (!GetOptionsFromArray(\@_,
+    if (!GetOptionsFromArray(\@args,
                              "--compare"       => \$compare,
                              "--md5"           => \$use_md5,
                              "--p4"            => \$mapp4,
@@ -92,7 +93,7 @@ sub new
                              '--local-change'  => \$local_change,
                              '--help'          => \$help) ||
         $help ||
-        $compare && scalar(@_) != 3
+        $compare && scalar(@args) != 3
     ) {
         usage($script);
         exit(defined($help) ? 0 : 1) if ($script eq $0);
@@ -127,14 +128,18 @@ sub extract_version
     -d $dir or die("no such directory '$dir'");
 
     my $version;
-    if (0 == system("cd $dir ; git rev-parse --show-toplevel >$null 2>&1")) {
+    if (0 == system("git -C '$dir' rev-parse --show-toplevel >$null 2>&1")) {
         # in a git repo - use full SHA.
-        my $log = `cd $dir ; git log --no-abbrev --oneline -1 $file 2>$null`;
+        my $log =
+            qx(git -C \Q$dir\E log --no-abbrev --oneline -1 \Q$file\E 2>$null);
         if (0 == $? &&
             $log =~ /^(\S+) /) {
             $version = $1;
             if ($self->[P4]) {
-                if (open(GITLOG, '-|', "cd $dir ; git show -s $version")) {
+                if (
+                    open(GITLOG, '-|', 'git', '-C',
+                         $dir, 'show', '-s', $version)
+                ) {
                     while (my $l = <GITLOG>) {
                         # p4sync puts special comment in commit log.
                         #  pull the CL out of that.
@@ -148,7 +153,7 @@ sub extract_version
                 }
                 close(GITLOG) or die("unable to close");
                 if (0 != $?) {
-                    $? & 0x7F &
+                    ($? & 0x7F) &&
                         die("git show died from signal ", ($? & 0x7F), "\n");
                     die("git show exited with error ", ($? >> 8), "\n");
                 }
@@ -159,7 +164,7 @@ sub extract_version
             if ($self->[CHECK_LOCAL_CHANGE]) {
                 my $diff = `cd $dir ; git diff $file 2>$null`;
                 if ('' ne $diff) {
-                    $version .= ' edited ' . get_modify_time($file);
+                    $version .= ' edited ' . get_modify_time($pathname);
                     $version .= ' md5:' . compute_md5($pathname)
                         if $self->[MD5];
                 }

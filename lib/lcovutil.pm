@@ -5057,7 +5057,12 @@ sub removeAliases
         %$aliases) {
         my $name;
         foreach my $alias (keys %$aliases) {
-            $name = $alias if !defined($name) || length($alias) < length($name);
+            my $alen = length($alias);
+            $alen += 1000 if $alias =~ /(?:\{lambda\(|\.lambda\$)/;
+            my $curlen = defined($name) ? length($name) : 1_000_000;
+            $curlen += 1000
+                if defined($name) && $name =~ /(?:\{lambda\(|\.lambda\$)/;
+            $name = $alias if $alen < $curlen;
         }
         $self->[NAME] = $name;
     }
@@ -7224,11 +7229,12 @@ sub checkCoverageCriteria
         my $entry = $self->data($filename);
         my @data = ($entry->found(), $entry->hit(),
                     $entry->branch_found(), $entry->branch_hit(),
+                    $entry->mcdc_found(), $entry->mcdc_hit(),
                     $entry->function_found(), $entry->function_hit());
         my $idx = 0;
-        foreach my $t ('line', 'branch', 'function') {
+        foreach my $t ('line', 'branch', 'condition', 'function') {
             foreach my $x ('found', 'hit') {
-                $data{$t}->{$t} = $data[$idx] if $perFile;
+                $data{$t}->{$x} = $data[$idx] if $perFile;
                 $total{$t}->{$x} += $data[$idx++];
             }
         }
@@ -8629,14 +8635,14 @@ sub _processFilterWorklist
                 }
             } else {
                 lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
-                    "lcov_filter_chunk_size '$lcovutil::lcov_filter_chunk_size not recognized - ignoring\n"
+                    "lcov_filter_chunk_size '$lcovutil::lcov_filter_chunk_size' not recognized - ignoring\n"
                 );
             }
         }
 
         if (!defined($chunkSize)) {
             $chunkSize =
-                $maxParallelism ?
+                $lcovutil::maxParallelism ?
                 (int(0.8 * scalar(@$fileList) / $lcovutil::maxParallelism)) :
                 1;
             if ($chunkSize > 100) {
@@ -8879,7 +8885,7 @@ sub applyFilters
 sub is_language
 {
     my ($lang, $filename) = @_;
-    my $idx = index($filename, '.');
+    my $idx = rindex($filename, '.');
     my $ext = $idx == -1 ? '' : substr($filename, $idx);
     foreach my $l (split('\|', $lang)) {
         die("unknown language '$l'")
@@ -9735,7 +9741,7 @@ sub find_from_glob
                 next;
             }
 
-            unless (-r $f || -f $f) {
+            unless (-f $f && -r $f) {
                 lcovutil::ignorable_error($lcovutil::ERROR_MISSING,
                      "'$f' found from pattern '$pattern' is not a readable file"
                 );
@@ -10020,7 +10026,8 @@ sub merge
             foreach (@pending) {
                 my $child       = wait();
                 my $now         = Time::HiRes::gettimeofday();
-                my $childstatus = $? >> 8;
+                my $raw_status  = $?;
+                my $childstatus = $raw_status >> 8;
                 unless (exists($children{$child})) {
                     lcovutil::report_unknown_child($child);
                     next;
