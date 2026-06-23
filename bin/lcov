@@ -141,13 +141,12 @@ sub summary();
 
 # Global variables & initialization
 
-our @directory;           # Specifies where to get coverage data from
-our @kernel_directory;    # If set, captures only from specified kernel subdirs
-our @add_tracefile;       # If set, reads in and combines all files in list
+our $directory;           # If set, capture from user-space directories in @ARGV
+our $kernel_directory;    # If set, capture from kernel subdirs in @ARGV
+our $add_tracefile;       # If set, combine tracefiles listed in @ARGV
 our @intersect;           # glob patterns for intersect RHS
 our @difference;          # glob patterns for difference RHS
 our $list;                # If set, list contents of tracefile
-our $diff;                # If set, modifies tracefile according to diff
 our $reset;               # If set, reset all coverage data to zero
 our $prune_testcases;     # If set, try to filter out useless tests that do not
                           # contribute new coverage or new coverpoints
@@ -177,7 +176,7 @@ our $opt_no_list_full_path;
 our $opt_list_width        = 80;
 our $opt_list_truncate_max = 20;
 our $opt_external;
-our @opt_summary;
+our $opt_summary;        # If set, summarize tracefiles listed in @ARGV
 our $opt_compat;
 
 #
@@ -198,23 +197,22 @@ my %lcov_rc_params = ("lcov_gcov_dir"          => \$gcov_dir,
                       "lcov_list_width"        => \$opt_list_width,
                       "lcov_list_truncate_max" => \$opt_list_truncate_max);
 
-my %lcov_options = ("directory|d|di=s"     => \@directory,
-                    "add-tracefile|a=s"    => \@add_tracefile,
-                    "list|l=s"             => \$list,
-                    "kernel-directory|k=s" => \@kernel_directory,
-                    "extract|e=s"          => \$lcovutil::lcov_extract,
-                    "remove|r=s"           => \$lcovutil::lcov_remove,
-                    "diff=s"               => \$diff,
-                    "capture|c"            => \$lcovutil::lcov_capture,
-                    "output-file|o=s"      => \$output_filename,
-                    "test-name|t=s"        => \$test_name,
-                    "zerocounters|z"       => \$reset,
-                    "follow|f"             => \$follow,
-                    "base-directory|b=s"   => \$base_directory,
-                    "compat-libtool"       => \$compat_libtool,
-                    "no-compat-libtool"    => \$no_compat_libtool,
-                    "gcov-tool=s"          => \@gcov_tool,
-                    'large-file=s'         => \@large_files,
+my %lcov_options = ("directory|d|di"     => \$directory,
+                    "add-tracefile|a"    => \$add_tracefile,
+                    "list|l"             => \$list,
+                    "kernel-directory|k" => \$kernel_directory,
+                    "extract|e=s"        => \$lcovutil::lcov_extract,
+                    "remove|r=s"         => \$lcovutil::lcov_remove,
+                    "capture|c"          => \$lcovutil::lcov_capture,
+                    "output-file|o=s"    => \$output_filename,
+                    "test-name|t=s"      => \$test_name,
+                    "zerocounters|z"     => \$reset,
+                    "follow|f"           => \$follow,
+                    "base-directory|b=s" => \$base_directory,
+                    "compat-libtool"     => \$compat_libtool,
+                    "no-compat-libtool"  => \$no_compat_libtool,
+                    "gcov-tool=s"        => \@gcov_tool,
+                    'large-file=s'       => \@large_files,
 
                     "initial|i"         => \$initial,
                     "all"               => \$captureAll,
@@ -227,7 +225,7 @@ my %lcov_options = ("directory|d|di=s"     => \@directory,
                     "no-list-full-path" => \$opt_no_list_full_path,
                     "external"          => \$opt_external,
                     "no-external"       => \$lcovutil::opt_no_external,
-                    "summary=s"         => \@opt_summary,
+                    "summary"           => \$opt_summary,
                     "compat=s"          => \$opt_compat,
                     "prune-tests"       => \$prune_testcases,
                     "map-functions"     => \$AggregateTraces::function_mapping,
@@ -287,21 +285,55 @@ if ($opt_list_width <= 40) {
 $follow   = $follow ? '-follow' : '';
 $maxdepth = $no_recursion ? '-maxdepth 1' : '';
 
+# --directory and --kernel-directory are mutually exclusive.
+if ($directory && $kernel_directory) {
+    $directory = undef;    # assume the user meant 'kernel' if ignored
+    my $suffix =
+        lcovutil::is_ignored($lcovutil::ERROR_USAGE) ?
+        "\n\tContinuing with '--kernel-directory'." :
+        '';
+    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+        'only one of --directory (-d) or --kernel-directory (-k) should be specified.'
+            . $suffix);
+}
+
 # Check for valid options
 check_options();
 
-# Only --extract, --remove and --diff, --intersect, --subtract allow unnamed parameters
+# Mode flags that consume @ARGV as their input list
 if (@ARGV &&
     !(  $lcovutil::lcov_extract ||
         $lcovutil::lcov_remove  ||
-        $diff                   ||
         @intersect              ||
         @difference             ||
-        @opt_summary)
+        $opt_summary            ||
+        $add_tracefile          ||
+        $directory              ||
+        $kernel_directory       ||
+        $lcovutil::lcov_capture ||
+        $list)
 ) {
     die("Extra parameter found: '" .
         join(" ", @ARGV) .
         "'\n" . "Use $tool_name --help to get usage information\n");
+}
+
+if (!@ARGV) {
+    if ($directory || $kernel_directory) {
+        die("--" . ($directory ? "directory" : "kernel-directory") .
+            " specified but no directories provided\n" .
+            "Use $tool_name --help to get usage information\n");
+    }
+    foreach my $d ([$add_tracefile, '--add-tracefile'],
+                   [$list, '--list'],
+                   [$opt_summary, '--summary'],
+                   [scalar(@intersect), '--intersect'],
+                   [scalar(@difference), '--subtract'],
+    ) {
+        die($d->[1] . " specified but no tracefiles provided\n" .
+            "Use $tool_name --help to get usage information\n")
+            if ($d->[0]);
+    }
 }
 
 if (defined($lcovutil::opt_no_external) &&
@@ -320,7 +352,10 @@ if ($lcovutil::lcov_capture && $data_stdout) {
 }
 
 # Determine kernel directory for gcov data
-if (!$from_package && !@directory && ($lcovutil::lcov_capture || $reset)) {
+if (!$from_package &&
+    !$directory &&
+    !@ARGV      &&
+    ($lcovutil::lcov_capture || $reset)) {
     ($gcov_gkv, $gcov_dir) = setup_gkv();
 }
 
@@ -333,7 +368,7 @@ eval {
     if ($reset) {
         $data_stdout = 0;
         # Differentiate between user space and kernel reset
-        if (@directory) {
+        if ($directory || @ARGV) {
             userspace_reset();
         } else {
             kernel_reset();
@@ -342,7 +377,7 @@ eval {
         # Capture source can be user space, kernel or package
         if ($from_package) {
             package_capture();
-        } elsif (@directory) {
+        } elsif ($directory || (!$kernel_directory && @ARGV)) {
             userspace_capture();
         } else {
             if ($initial) {
@@ -353,7 +388,7 @@ eval {
                 kernel_capture();
             }
         }
-    } elsif (@add_tracefile) {
+    } elsif ($add_tracefile) {
         if ($AggregateTraces::function_mapping) {
             $AggregateTraces::function_mapping = {};
             add_traces();
@@ -388,10 +423,7 @@ eval {
     } elsif ($list) {
         $data_stdout = 0;
         list();
-    } elsif ($diff) {
-        die("Deprecated command \"lcov --diff ...\" is no longer supported and had been removed.\nPlease see the \"differential coverage\" section in the genhtml manual for a more flexible alternative,\nor use an older lcov release if you need the feature."
-        );
-    } elsif (@opt_summary) {
+    } elsif ($opt_summary) {
         $data_stdout = 0;
         $trace       = summary();
     } elsif (@intersect) {
@@ -554,12 +586,11 @@ sub check_options()
     # Count occurrence of mutually exclusive options
     $reset                  && $i++;
     $lcovutil::lcov_capture && $i++;
-    @add_tracefile          && $i++;
+    $add_tracefile          && $i++;
     $lcovutil::lcov_extract && $i++;
     $lcovutil::lcov_remove  && $i++;
     $list                   && $i++;
-    $diff                   && $i++;
-    @opt_summary            && $i++;
+    $opt_summary            && $i++;
     @intersect              && $i++;
     @difference             && $i++;
 
@@ -568,11 +599,11 @@ sub check_options()
         die("invalid command line:\n  $0 " .
                 join(' ', @main::cmdArgs) .
                 "\nNeed " . ($i > 1 ? 'only ' : '') .
-                "one of options -z, -c, -a, -e, -r, -l, --diff, --intersect, --subtract, or --summary\n"
+                "one of options -z, -c, -a, -e, -r, -l, --intersect, --subtract, or --summary\n"
                 . "Use $tool_name --help to get usage information\n");
     }
 
-    if ($prune_testcases && 0 == scalar(@add_tracefile)) {
+    if ($prune_testcases && !$add_tracefile) {
         lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
             "--prune-tests has effect only when -a/--add-tracefile is specified"
         );
@@ -591,7 +622,7 @@ sub userspace_reset()
 {
     my @file_list;
 
-    foreach my $pattern (@directory) {
+    foreach my $pattern (@ARGV) {
         my @dirs;
         if (-d $pattern) {
             push(@dirs, $pattern);
@@ -640,13 +671,13 @@ sub userspace_capture()
     my $build;
 
     if (!defined($to_package)) {
-        lcov_geninfo(@directory);
+        lcov_geninfo(@ARGV);
         return;
     }
-    if (scalar(@directory) != 1) {
+    if (scalar(@ARGV) != 1) {
         die("-d may be specified only once with --to-package\n");
     }
-    $dir = $directory[0];
+    $dir = $ARGV[0];
     if (defined($base_directory)) {
         $build = $base_directory;
     } else {
@@ -1285,8 +1316,8 @@ sub kernel_capture_initial()
     info("Using $build as kernel build directory ($source)\n");
     # Build directory needs to be passed to geninfo
     $base_directory = $build;
-    if (@kernel_directory) {
-        foreach my $dir (@kernel_directory) {
+    if ($kernel_directory) {
+        foreach my $dir (@ARGV) {
             push(@params, File::Spec->catdir($build, $dir));
         }
     } else {
@@ -1336,10 +1367,9 @@ sub adjust_kernel_dir($$)
         die("could not auto-detect build directory.\n" .
             "Please use -b to specify the build directory\n");
     }
-    # Make @kernel_directory relative to sysfs base
-    if (@kernel_directory) {
-        @kernel_directory =
-            apply_base_dir($dir, $sys_base, $build, @kernel_directory);
+    # Make kernel dirs (from @ARGV) relative to sysfs base
+    if ($kernel_directory) {
+        @ARGV = apply_base_dir($dir, $sys_base, $build, @ARGV);
     }
     return $build;
 }
@@ -1352,7 +1382,7 @@ sub kernel_capture()
     if ($gcov_gkv == $GKV_SYS) {
         $build = adjust_kernel_dir($gcov_dir, $build);
     }
-    $data_dir = copy_gcov_dir($gcov_dir, @kernel_directory);
+    $data_dir = copy_gcov_dir($gcov_dir, $kernel_directory ? @ARGV : ());
     kernel_capture_from_dir($data_dir, $gcov_gkv, $build);
 }
 
@@ -1486,8 +1516,8 @@ sub package_capture()
         if ($gkv == $GKV_SYS) {
             $build = adjust_kernel_dir($dir, $build);
         }
-        if (@kernel_directory) {
-            $dir = copy_gcov_dir($dir, @kernel_directory);
+        if ($kernel_directory) {
+            $dir = copy_gcov_dir($dir, @ARGV);
         }
         kernel_capture_from_dir($dir, $gkv, $build);
     } else {
@@ -1549,7 +1579,7 @@ sub emit
 sub add_traces()
 {
     info("Combining tracefiles.\n");
-    my @merge = AggregateTraces::find_from_glob(@add_tracefile);
+    my @merge = AggregateTraces::find_from_glob(@ARGV);
     info(".. found " . scalar(@merge) . " files to aggregate.\n");
 
     my ($total_trace, $effective) =
@@ -1729,8 +1759,11 @@ sub shorten_rate($$$)
 sub list()
 {
     my $readSourceFile = ReadCurrentSource->new();
-    my $data =
-        TraceFile->load($list, $readSourceFile, $lcovutil::verify_checksum);
+    my $data;
+    # Multiple tracefiles: merge them before listing.
+    my @files = AggregateTraces::find_from_glob(@ARGV);
+    ($data) = AggregateTraces::merge($readSourceFile, @files);
+
     my $strlen = length("Filename");
     my $lastpath;
     my $F_LN_NUM      = 0;
@@ -1923,7 +1956,7 @@ sub list()
 
 sub summary()
 {
-    my @merge = AggregateTraces::find_from_glob(@opt_summary);
+    my @merge = AggregateTraces::find_from_glob(@ARGV);
     info(1, "Summarize " . scalar(@merge) . " files...\n");
 
     my ($total, $effective) =
