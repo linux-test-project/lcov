@@ -14,7 +14,7 @@ all: check report
 
 include common.mak
 
-TESTS := genhtml lcov llvm2lcov py2lcov perl2lcov xml2lcov
+TESTS := genhtml scripts lcov llvm2lcov py2lcov perl2lcov xml2lcov
 
 # there may or may not be some .info files generated for exported
 #  tools - py2lcov, perl2lcov, etc.  We want them included in the
@@ -22,7 +22,7 @@ TESTS := genhtml lcov llvm2lcov py2lcov perl2lcov xml2lcov
 #  ignore the potential 'empty glob pattern' error message and a
 #  potential remote repo timestamp issue
 EXCLUDES = genError.pm filter.pl brokenCallback.pm MsgContext.pm \
-	 missingRestore.pm parallelFail.pm 
+	 missingRestore.pm parallelFail.pm '*/tmp*'
 EXCL_OPTS = $(foreach e, $(EXCLUDES), --exclude $(e))
 OMIT_OPTS = --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b'
 IGNORE_OPTS = --ignore unsupported,unused,inconsistent

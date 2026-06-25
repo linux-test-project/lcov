@@ -128,12 +128,8 @@ sub add_traces();
 sub merge_traces($$);
 sub remove_file_patterns($);
 sub list();
-sub read_diff($);
-sub diff();
-sub system_no_output($@);
 sub my_info(@);
 set_info_callback(\&my_info);
-sub create_temp_dir();
 sub setup_gkv();
 sub lcov_geninfo(@);
 sub create_package($$$;$);
@@ -311,7 +307,8 @@ if (@ARGV &&
         $directory              ||
         $kernel_directory       ||
         $lcovutil::lcov_capture ||
-        $list)
+        $list                   ||
+        $reset)
 ) {
     die("Extra parameter found: '" .
         join(" ", @ARGV) .
@@ -562,7 +559,7 @@ OPTIONS
                                   coverage is less than MIN (summary option)
       --version-script SCRIPTNAME Call script to find revision control version
                                   ID of source file
-      --resolve-script SCRIPTNAME Call script to find source file frpm path
+      --resolve-script SCRIPTNAME Call script to find source file from path
   -j, --parallel [NUM]            Use parallel processing with at most NUM jobs
       --memory MB                 Use at most MB memory in parallel processing
       --profile [FILENAME]        Write performance statistics to FILENAME
@@ -674,9 +671,8 @@ sub userspace_capture()
         lcov_geninfo(@ARGV);
         return;
     }
-    if (scalar(@ARGV) != 1) {
-        die("-d may be specified only once with --to-package\n");
-    }
+    die("exactly one directory argument required with --to-package\n")
+        if (scalar(@ARGV) != 1);
     $dir = $ARGV[0];
     if (defined($base_directory)) {
         $build = $base_directory;
@@ -884,7 +880,7 @@ sub lcov_geninfo(@)
         push(@param, "--source-directory", $s)
             unless (defined($base_directory) && $s eq $base_directory);
     }
-    if ($no_compat_libtool) {
+    if (defined($compat_libtool) && $compat_libtool == 0) {
         push(@param, "--no-compat-libtool");
     } elsif ($compat_libtool) {
         push(@param, "--compat-libtool");
@@ -924,7 +920,8 @@ sub lcov_geninfo(@)
     for (my $i = 0; $i < $lcovutil::debug; ++$i) {
         push(@param, "--debug");
     }
-    if (defined($opt_external) && $opt_external) {
+    if (defined($lcovutil::opt_no_external) && $lcovutil::opt_no_external == 0)
+    {
         push(@param, "--external");
     } elsif (defined($lcovutil::opt_no_external) && $lcovutil::opt_no_external)
     {
@@ -1556,8 +1553,7 @@ sub my_info(@)
 
 # emit()
 #  write output to file or stdout - possibly with info message
-#  returns array of (lines found, lines hit, functions found, functions hit,
-#                    branches found, branches_hit)
+
 sub emit
 {
     my ($trace, $info_msg) = @_;
@@ -1623,7 +1619,7 @@ sub merge_traces($$)
     my ($base)    = AggregateTraces::merge($srcReader, @data);
     my ($merge)   = AggregateTraces::merge($srcReader, @merge);
 
-    my $interesting = $base->merge_tracefile($merge, $op);
+    $base->merge_tracefile($merge, $op);
     # write the result
     emit($base);
     return $base;

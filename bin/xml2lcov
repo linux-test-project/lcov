@@ -30,15 +30,7 @@
 import os
 import os.path
 import sys
-import re
 import argparse
-import xml.etree.ElementTree as ET
-import fnmatch
-import subprocess
-import copy
-import base64
-import hashlib
-import pdb
 from xml2lcovutil import ProcessFile
 
 def main():
@@ -90,7 +82,7 @@ Example:
     parser.add_argument('-k', "--keep-going", dest='keepGoing', default=False, action='store_true',
                         help="ignore errors")
     parser.add_argument('inputs', nargs='*',
-                        help="list of python coverage data input files - expected to be XML or Python .dat format")
+                        help="list of XML coverage data input files - expected to be XML or Python .dat format")
 
     args = parser.parse_args()
 

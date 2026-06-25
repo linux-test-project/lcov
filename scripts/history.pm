@@ -110,7 +110,7 @@ sub new
     foreach my $glob (@_) {
         my @glob = glob($glob);
         lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
-                           "'--history-script '$glob' does not match any files")
+                            "'--history-script $glob' does not match any files")
             unless (@glob);
         foreach my $history (@glob) {
             eval {
@@ -143,7 +143,9 @@ sub new
         if (1 < scalar(@data)) {
             # compute average
             foreach my $d (@data) {
-                appendElements(\%predicted, $d);
+                # pass the inner 'file' hash, not the top-level profile hash;
+                # appendElements iterates the hash to accumulate file-level averages
+                appendElements(\%predicted, $d->{'file'});
             }
         } else {
             return bless $data[0]->{$verifyKeysList[0]}, $class;

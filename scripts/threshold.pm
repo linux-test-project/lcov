@@ -63,7 +63,6 @@ sub new
     my $signoff    = 0;
     my $script     = shift;
     my $standalone = $script eq $0;
-    my @options    = @_;
     my ($line, $function, $branch, $mcdc);
 
     if (!GetOptionsFromArray(\@_,

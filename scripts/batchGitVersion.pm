@@ -79,7 +79,7 @@ EOF
                       pathname.
      --token string : use string as the blob sha token in the version string.
                       default value is 'BLOB' - so application can
-		      distinguish between SHA types - say, to complare
+		      distinguish between SHA types - say, to compare
 		      to compare a BLOB SHA to a file SHA.
 		      For backward compatibility with earlier versions of
 		      this script, use '--token SHA'.
@@ -222,7 +222,7 @@ sub new
         } elsif (/^\d+\s+commit(\S+)\s+(\S+)$/) {
             # line format:  mode commit sha path
             my $s = File::Spec->catfile(@prepend, $current, $2);
-            die("duplicate submodule etnry for $s") if exists($submodule{$s});
+            die("duplicate submodule entry for $s") if exists($submodule{$s});
             $submodule{$s} = $1;
         } elsif (/^Entering '([^']+)'$/) {
             $current = File::Spec->catfile(@stack, $1);
@@ -237,13 +237,14 @@ sub new
         } elsif (/^done$/) {
             die("empty stack") unless @stack;
             pop(@stack);
+            my $exiting = $current;
             if (@stack) {
                 $current = File::Spec->catfile(@stack);
             } else {
                 $current = undef;
             }
             if ($verbose) {
-                print("${prefix}exit submodule $current\n");
+                print("${prefix}exit submodule $exiting\n");
                 $prefix = substr($prefix, 2);
             }
         } else {
@@ -254,7 +255,7 @@ sub new
     close(GIT) or die("error on close submodule pipe: $!");
 
     $repo = getcwd()     unless $repo;
-    push(@prefix, $repo) unless grep(/^$repo/, @prefix);
+    push(@prefix, $repo) unless grep(/^\Q$repo\E/, @prefix);
 
     # @todo enhancement: could look for local edits and store
     #   them into the DB here

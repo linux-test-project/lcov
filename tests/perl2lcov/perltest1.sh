@@ -70,7 +70,7 @@ done
 #   to look for the name - then find index from name, then find location from index
 #   but this is easier and testcase is simple.
 G=`grep FNA: one.info | grep -v space`
-if [ "$G" != 'FNA:4,1,global1' ] ; then
+if [ "$G" != 'FNA:0,1,global1' ] ; then    # index 0 = line 1 (smallest); numeric sort
     echo "wrong name/location for function in global namespace"
     exit 1
 fi

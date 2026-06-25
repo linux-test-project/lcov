@@ -108,7 +108,6 @@ sub new
     my $exe        = basename($script ? $script : $0);
     my $standalone = $script eq $0;
     my $help;
-    my $delim = ',';
     if (!GetOptionsFromArray(\@_,
                              ("branch" => \$branch,
                               "mcdc"   => \$mcdc,
@@ -210,7 +209,7 @@ sub exclude
                                join(' ', @exclude) . "\n");
             foreach my $e (@exclude) {
                 $e =~ /^\s*(([0-9]+),)?([0-9]+)\s*$/ or
-                    die("did not match MC/DC regexp: $e");
+                    die("did not match branch regexp: $e");
                 my $block = defined($1) ? $2 : 0;
                 my $expr  = $3;
                 if ($self->exclude_branch($summary, $summary->value($line),

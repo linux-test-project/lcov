@@ -2,10 +2,10 @@ TN:
 SF:a.cpp
 FNL:0,1,2
 FNA:0,2,alias
-FNL:1,11,11
-FNA:1,0,onlyA
-FNL:2,3,3
-FNA:2,1,noCommonAlias
+FNL:1,3,3
+FNA:1,1,noCommonAlias
+FNL:2,11,11
+FNA:2,0,onlyA
 FNF:3
 FNH:2
 BRDA:1,0,0,1

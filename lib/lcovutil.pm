@@ -29,7 +29,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      @temp_dirs set_tool_name
      info warn_once set_info_callback init_verbose_flag $verbose
      debug $debug
-     append_tempdir create_temp_dir temp_cleanup folder_is_empty $tmp_dir $preserve_intermediates
+     append_tempdir create_temp_dir temp_cleanup $tmp_dir $preserve_intermediates
      summarize_messages define_errors
      parse_ignore_errors ignorable_error ignorable_warning
      is_ignored message_count explain_once
@@ -227,9 +227,6 @@ our @callback_finalize;
 # list of callbacks which implement 'start' - which gets called when
 #  child process starts
 our @callback_start_list;
-# the callback data which is saved from child process/restored from child process
-our @callback_state;
-
 # optional callback to keep track of whatever user decides is important
 our @contextCallback;
 our $contextCallback;
@@ -250,6 +247,8 @@ our %versionCache;
 our @extractVersionScript;    # script/callback to find version ID of file
 our $versionCallback;
 our $verify_checksum;    # compute and/or check MD5 sum of source code lines
+our $compute_file_version
+    ;    # enable per-file version computation via version_script
 
 our $check_file_existence_before_callback = 1;
 our $check_data_consistency               = 1;
@@ -952,7 +951,7 @@ sub save_profile($@)
             }
             close(IN) or die("unable to close $dest: $!");
             print(PROF "\n", $tail);
-            close(PROF) or die("unable to close cmdline.html: $!");
+            close(PROF) or die("unable to close $html: $!");
         }
     }
 }
@@ -977,7 +976,7 @@ sub do_mangle_check
     # Extra flag necessary on OS X so that symbols listed by gcov get demangled
     # properly.
     push(@lcovutil::cpp_demangle, '--no-strip-underscores')
-        if ($^ eq "darwin");
+        if ($^O eq "darwin");
 
     $lcovutil::demangle_cpp_cmd = '';
     foreach my $e (@lcovutil::cpp_demangle) {
@@ -1058,7 +1057,7 @@ sub cleanup_callbacks
                                           $lcovutil::contextCallback[0] .
                                           " ...' failed: $@");
         } else {
-            die('unexpect context callback result: expected hash ref')
+            die('unexpected context callback result: expected hash ref')
                 unless 'HASH' eq ref($ctx);
             $lcovutil::profileData{context} = $ctx;
         }
@@ -1109,9 +1108,7 @@ my %deprecated_rc = ("genhtml_demangle_cpp"        => "demangle_cpp",
                      'genhtml_criteria_script'     => 'criteria_script',
                      "lcov_fail_under_lines"       => 'fail_under_lines',
                      'lcov_func_coverage'          => "function_coverage",
-                     'lcov_br_coverage'            => 'branch_coverage',
-                     'geninfo_adjust_src_path'     => 'substitute',
-                     'geninfo_no_exception_branch' => 'no_exception_branch');
+                     'lcov_br_coverage'            => 'branch_coverage');
 
 my ($cExtensions, $rtlExtensions, $javaExtensions,
     $perlExtensions, $pythonExtensions);
@@ -1390,7 +1387,7 @@ sub read_config($$)
                     ]);
                 next VAR;
             }
-            $value =~ s/^\$ENV\{$varname\}/$ENV{$varname}/g;
+            $value =~ s/\$ENV\{$varname\}/$ENV{$varname}/g;
         }
         if (defined($key) &&
             exists($deprecated_rc{$key})) {
@@ -1414,7 +1411,7 @@ sub read_config($$)
                 @deferred_rc_errors,
                 [   1,
                     $lcovutil::ERROR_FORMAT,
-                    "\"$filename\": $.: malformed configuration file statement '$_':  expected \"key = value\"/"
+                    "\"$filename\": $.: malformed configuration file statement '$_':  expected \"key = value\""
                 ]);
         }
     }
@@ -1782,7 +1779,7 @@ sub munge_file_patterns
                     ],
                     ["lcov_unreachable_start", \$lcovutil::UNREACHABLE_START],
                     ["lcov_unreachable_stop", \$lcovutil::UNREACHABLE_STOP],
-                    ["lcov_excl_line", \$lcovutil::UNREACHABLE_LINE],
+                    ["lcov_unreachable_line", \$lcovutil::UNREACHABLE_LINE],
     ) {
         eval 'qr/' . $regexp->[1] . '/';
         my $error = $@;
@@ -2424,7 +2421,7 @@ sub ignorable_warning($$;$)
 sub report_unknown_child
 {
     my $child = shift;
-    # this can happen if the user loads a callback module which starts a chaild
+    # this can happen if the user loads a callback module which starts a child
     # process when it is loaded or initialized and fails to wait for that child
     # to finish.  How it manifests is an orphan PID which is smaller (older)
     # than any of the children that this parent actually scheduled
@@ -3030,7 +3027,9 @@ sub new
             next if 'http' eq substr($1, 0, 4);
             push(@{$self->[HREFS]}, [$., $1, $3]);    # lineNo, filename, anchor
         } elsif (/<frame .*src=\"([^\"]+)\"/) {
-            push(@{$self->[HREFS]}, [$., $1, $3]);    # lineNo, filename, anchor
+            # frame tags have no anchor fragment; $3 from a prior <a href> match
+            # would be stale, so pass undef explicitly
+            push(@{$self->[HREFS]}, [$., $1, undef]); # lineNo, filename, anchor
         }
     }
     close(HTML) or die("unable to close $name: $!");
@@ -4976,7 +4975,7 @@ sub _format_error
 {
     my ($self, $errno, $name, $count) = @_;
     my $alias =
-        $name ne $self->name() ? " (alias of '" . $self->name() . "'" : "";
+        $name ne $self->name() ? (" (alias of '" . $self->name() . "')") : "";
     lcovutil::report_format_error($errno, 'hit', $count,
             "function '$name'$alias in " . $self->file() . ':' . $self->line());
 }
@@ -5622,7 +5621,6 @@ sub intersect
             my $yourLoc = $yourdata->{$line};
 
             my $replace     = BranchLocation->new($line);
-            my $blkIdx      = 0;
             my $changedHere = 0;
             foreach my $code ($myLoc->codes(1)) {
                 if ($yourLoc->containsCode($code)) {
@@ -5675,7 +5673,6 @@ sub difference
         my $yourLoc = $yourdata->{$line};
 
         my $replace     = BranchLocation->new($line);
-        my $blkIdx      = 0;
         my $changedHere = 0;
         foreach my $code ($myLoc->codes(1)) {
             if ($yourLoc->containsCode($code)) {
@@ -5903,7 +5900,7 @@ sub removeBranches
                 lcovutil::info(2, "$filename:$line: remove exception branch\n");
                 ++$count;
                 # Previous 'fallthrough' element is related to this exception.
-                # We expect the exception branch to have a prececessor -
+                # We expect the exception branch to have a predecessor -
                 #  but it is possible that other tools have a different idea.
                 if ($idx != 0) {
                     my $prev = $elements->[$idx - 1];
@@ -5955,7 +5952,7 @@ sub applyFilter
                               1);
     my $perTestBranches = $self->[PER_TEST_BRANCHES];
     foreach my $tn ($perTestBranches->keylist()) {
-        # want to remove matching branches everytwhere - so we don't want short-circuit evaluation
+        # want to remove matching branches everywhere - so we don't want short-circuit evaluation
         $modified = 1
             if $self->removeBranches($line, $perTestBranches->value($tn),
                                      $filter, $unreachable, 0);
@@ -5992,7 +5989,7 @@ sub filter
 }
 
 package TraceInfo;
-#  coveage data for a particular source file
+#  coverage data for a particular source file
 use constant {
               VERSION       => 0,
               LOCATION      => 1,
@@ -6035,7 +6032,7 @@ sub new
     $self->[BRANCH_DATA] = [BranchData->new(), MapData->new()];
 
     # function: [FunctionMap:  function_name->FunctionEntry,
-    #            tescase_name -> FucntionMap ]
+    #            testcase_name -> FunctionMap ]
     $self->[FUNCTION_DATA] = [FunctionMap->new($filename), MapData->new()];
 
     $self->[MCDC_DATA] = [MCDC_Data->new(), MapData->new()];
@@ -7950,7 +7947,7 @@ sub _filterFile
     my $omit      = $cov_filter[$FILTER_OMIT_PATTERNS]
         if defined($FILTER_OMIT_PATTERNS);
     my $mcdc_single = $cov_filter[$FILTER_MCDC_SINGLE]
-        if defined($FILTER_MCDC_SINGLE && $lcovutil::mcdc_coverage);
+        if defined($FILTER_MCDC_SINGLE) && $lcovutil::mcdc_coverage;
 
     my $context = MessageContext->new("filtering $source_file");
     if (lcovutil::is_filter_enabled()) {
@@ -8265,7 +8262,7 @@ sub _filterFile
                     if $lcovutil::retainUnreachableCoverpointIfHit;
             }
 
-            # don't suppresss if this line has associated branch or MC/DC data
+            # don't suppress if this line has associated branch or MC/DC data
             next
                 if (
                  (defined($sumbrcount) && defined($sumbrcount->value($line))) ||
@@ -8605,7 +8602,7 @@ sub _processParallelChunk
 }
 
 # chunkID is only used for uniquification and as a key in profile data.
-#  We want this umber to be unique - even if we process more than one TraceFile
+#  We want this number to be unique - even if we process more than one TraceFile
 our $masterChunkID = 0;
 
 sub _processFilterWorklist
@@ -8947,25 +8944,22 @@ sub _read_info
     }
 
     # per file data
-    my %perfile;
     my $sumcount;      # line total counts in this file
     my $funcdata;      # function total counts in this file
     my $sumbrcount;    # branch total counts
     my $mcdcCount;     # MD/DC total counts
 
     my $checkdata;     # line checksums
-    my %perTestData;
-    my %summaryData;
-    # hash of per-testcase coverage data per testcase, in this file
-    my $testdata;      # hash of testname -> line coverage
-    my $testfncdata;   # hash of testname -> function coverage
-    my $testbrdata;    # hash of testname -> branch data
-    my $testMcdc;      #     -> MC/DC data
+        # hash of per-testcase coverage data per testcase, in this file
+    my $testdata;       # hash of testname -> line coverage
+    my $testfncdata;    # hash of testname -> function coverage
+    my $testbrdata;     # hash of testname -> branch data
+    my $testMcdc;       #     -> MC/DC data
 
-    my $lineMap;       # line coverage for particular testcase
-    my $funcMap;       # func coverage   "    "
-    my $branchMap;     # branch coverage "   "
-    my $mcdcMap;       # MC/DC coverage  "   "
+    my $lineMap;        # line coverage for particular testcase
+    my $funcMap;        # func coverage   "    "
+    my $branchMap;      # branch coverage "   "
+    my $mcdcMap;        # MC/DC coverage  "   "
 
     my $testname;            # Current test name
     my $filename;            # Current filename
@@ -8991,9 +8985,7 @@ sub _read_info
 
     $testname = "";
     my $fileData;
-    my ($currentBranchLine, $skipBranch);
     my $functionMap;
-    my %excludedFunction;
     my $skipCurrentFile = 0;
     my %fnIdxMap;
     my $branchBlock;
@@ -9035,7 +9027,6 @@ sub _read_info
             }
 
             # Retrieve data for new entry
-            %excludedFunction = ();
             %fnIdxMap         = ();
             $branchBlock      = undef;
             $currentBlockLine = -1;
@@ -9046,7 +9037,6 @@ sub _read_info
                 #   open a new one.  If that happened, then we would be looking
                 #   at the source for some previous file.
                 $readSourceCallback->close();
-                undef $currentBranchLine;
                 if (is_language('c', $filename)) {
                     $readSourceCallback->open($filename);
                 }
@@ -9182,7 +9172,7 @@ sub _read_info
                 # the function may already be defined by another testcase
                 #  (for the same file)
                 $functionMap->define_function($fnName, $lineNo,
-                                              $end_line ? $end_line : undef,
+                                              $end_line // undef,
                                               "\"$tracefile\":$.");
                 last;
             };
@@ -9241,7 +9231,7 @@ sub _read_info
                 #      - two blocks are identical if their signature is
                 #        identical AND either
                 #          - there is exactly one block in each DB with
-                #            that signatuure, OR
+                #            that signature, OR
                 #          - the two blocks with the same signature appear
                 #            in the same order.
                 #      - that is: within branches with 'code0', the first
@@ -9533,7 +9523,7 @@ sub write_info($$$)
                 # sort enables diff of output data files, for testing
                 my @functionOrder =
                     sort({ $functionMap->findKey($a)->line()
-                                 cmp $functionMap->findKey($b)->line() or
+                                 <=> $functionMap->findKey($b)->line() or
                                  $a cmp $b } $functionMap->keylist());
 
                 my $fnIndex = -1;
@@ -9751,7 +9741,7 @@ sub find_from_glob
         }
     }
     lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
-                        "no matching file found in '['" . join(', ', @_) . "]'")
+                         "no matching file found in '[" . join(', ', @_) . "]'")
         unless (@merge);
 
     return @merge;
@@ -9878,7 +9868,7 @@ sub merge
         my $size = $currentSize + $fileSize;
         my $num  = int($lcovutil::maxMemory / $size);
         lcovutil::debug(
-            "Sizes: self:$currentSize file:$fileSize total:$size num:$num paralled:$lcovutil::maxParallelism\n"
+            "Sizes: self:$currentSize file:$fileSize total:$size num:$num parallel:$lcovutil::maxParallelism\n"
         );
         if ($num < $lcovutil::maxParallelism) {
             $num = $num > 1 ? $num : 1;
@@ -9946,7 +9936,6 @@ sub merge
             lcovutil::create_temp_dir();
         my %children;
         my @pending;
-        my $patterns;
         my $failedAttempts = 0;
         my %childRetryCounts;
         do {
@@ -10028,6 +10017,7 @@ sub merge
                 my $now         = Time::HiRes::gettimeofday();
                 my $raw_status  = $?;
                 my $childstatus = $raw_status >> 8;
+                my $raw_signal  = $raw_status & 0xFF;
                 unless (exists($children{$child})) {
                     lcovutil::report_unknown_child($child);
                     next;
@@ -10068,7 +10058,7 @@ sub merge
                         }
                     }
                 }
-                my $signal = $childstatus & 0xFF;
+                my $signal = $raw_signal;
 
                 print(STDOUT $childLog)
                     if ((0 != $childstatus &&
