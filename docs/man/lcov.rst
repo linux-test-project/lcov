@@ -39,7 +39,7 @@ The lcov tracefile (".info" file) format is described in :manpage:`geninfo(1)`.
        [ --no-compat-libtool ]
        [ --msg-log [ *log_file_name* ] ]
        [ --ignore-errors *errors* ]
-       [--expect-message-count *message_type=expr[,message_type=expr..]*]
+       [ --expect-message-count *message_type=expr[,message_type=expr..]* ]
        [ --preserve ]
        [ --to-package *package* ]
        [ --from-package *package* ]
@@ -65,7 +65,7 @@ Generate tracefile (from compiler-generated data) with all counter values set to
        [ --no-recursion ]
        [ -f | --follow ]
 
-Show coverage counts recorded in previously generated tracefile:
+Show coverage counts recorded in previously generated tracefiles:
 
 ::
 
@@ -77,7 +77,7 @@ Aggregate multiple coverage tracefiles into one:
 
 ::
 
-   lcov -a | --add-tracefile *tracefile_pattern*
+   lcov -a | --add-tracefile *tracefile_patterns*
        [ -o | --output-file *tracefile* ]
        [ --prune-tests ]
        [ --forget-test-names ]
@@ -229,10 +229,10 @@ In general, (almost) all
 options can also be specified in a configuration file - see man
 :manpage:`lcovrc(5)` for details.
 
-``-a`` *tracefile_pattern*
-``--add-tracefile`` *tracefile_pattern*
+``-a`` *tracefile_patterns*
+``--add-tracefile`` *tracefile_patterns*
 
-   Add contents of all files matching glob pattern *tracefile_pattern*.
+   Add contents of all files matching glob pattern *tracefile_patterns*.
 
    Specify several tracefiles using the -a switch to combine the coverage data
    contained in these files by adding up execution counts for matching test and

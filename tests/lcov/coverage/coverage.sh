@@ -23,7 +23,7 @@ TOPDIR=$(cd ../../../tests && pwd)/
 rm -f list_default.log list_full.log list_nofull.log list_nocompat.log \
       remove.log intersect.log subtract.log \
       to_pkg.log from_pkg.log compile.log \
-      capture_nodir.log capture_proc.log capture_foo.log \
+      capture_nodir.log capture_proc.log capture_foo.log capture_mutexcl.log \
       removed.info intersect.info subtract.info from_pkg.info \
       test_pkg.tgz
 
@@ -250,7 +250,20 @@ fi
 #    known error.  We verify the non-zero exit and the exact message.
 # -----------------------------------------------------------------------
 
-echo "=== Test 9: --capture (no kernel gcov, auto-detect) ==="
+echo "=== Test 9: --capture --kernel-directory and --directory mutual exclusion ==="
+$COVER $LCOV_TOOL $LCOV_OPTS --capture \
+    --kernel-directory /foo --directory /bar \
+    >capture_mutexcl.log 2>&1
+RC=$?
+if [[ $RC -eq 0 ]]; then
+    die "--capture --kernel-directory --directory unexpectedly succeeded"
+elif ! grep -q "only one of --directory" capture_mutexcl.log; then
+    die "--kernel-directory/--directory mutual exclusion missing expected error"
+else
+    pass
+fi
+
+echo "=== Test 10: --capture (no kernel gcov, auto-detect) ==="
 $COVER $LCOV_TOOL $LCOV_OPTS --capture \
     >capture_nodir.log 2>&1
 RC=$?
@@ -263,7 +276,7 @@ else
     pass
 fi
 
-echo "=== Test 10: --capture --rc lcov_gcov_dir=/proc (user-specified /proc) ==="
+echo "=== Test 11: --capture --rc lcov_gcov_dir=/proc (user-specified /proc) ==="
 $COVER $LCOV_TOOL $LCOV_OPTS --capture \
     --rc lcov_gcov_dir=/proc \
     >capture_proc.log 2>&1
@@ -277,7 +290,7 @@ else
     pass
 fi
 
-echo "=== Test 11: --capture --rc lcov_gcov_dir=/foo (non-existent dir) ==="
+echo "=== Test 12: --capture --rc lcov_gcov_dir=/foo (non-existent dir) ==="
 $COVER $LCOV_TOOL $LCOV_OPTS --capture \
     --rc lcov_gcov_dir=/foo \
     >capture_foo.log 2>&1

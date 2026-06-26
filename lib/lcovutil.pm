@@ -9692,7 +9692,7 @@ sub write_info($$$)
 }
 
 package AggregateTraces;
-# parse sna merge TraceFiles - possibly in parallel
+# parse and merge TraceFiles - possibly in parallel
 #  - common utility, used by lcov 'add_trace' and genhtml multi-file read
 
 # If set, create map of unique function to list of testcase/info
