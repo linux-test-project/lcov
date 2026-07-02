@@ -46,18 +46,8 @@ use version;
 use warnings;
 require Exporter;
 
-use File::Basename qw(basename dirname fileparse);
-use File::Spec::Functions qw /abs2rel catdir file_name_is_absolute splitdir
-                              splitpath catpath catfile/;
-use File::Temp;
-use File::Copy qw(copy move);
-use File::Path;
-use Cwd qw/abs_path getcwd realpath/;
-use Time::HiRes;    # for profiling
-use Capture::Tiny;
 use FindBin;
-use Storable;
-use POSIX;
+use Time::HiRes;    # for profiling
 
 use lib "$FindBin::RealBin/../lib";
 use lcovutil;

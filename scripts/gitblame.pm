@@ -81,7 +81,6 @@ sub new
     my $mapP4;
     my $cache_dir;
     my $prefix;
-    my @args = @_;
     my @abbrev;
     my $exe        = basename($script ? $script : $0);
     my $standalone = $script eq $0;
@@ -103,7 +102,8 @@ sub new
         print(STDERR
                 "usage: $exe [--p4] [--abbrev regexp]* [--cache dir] [--verify] [--log logfile] [domain] pathname\n"
         );
-        exit(scalar(@_) >= 2 && $help ? 0 : 1) if $standalone;
+        # exit 0 only when --help was the sole argument; any extra args means error
+        exit($help && 0 == scalar(@_) ? 0 : 1) if $standalone;
         return undef;
     }
     my $internal_domain = shift;

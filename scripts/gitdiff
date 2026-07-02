@@ -173,7 +173,7 @@ while (<HANDLE>) {
     s/\r//g;
     my $filename = $repo . '/' . $_;
     my $path     = $prefix . $filename;
-    if (!exists($allFiles{$path}) &&
+    if (!exists($allFiles{$_}) &&
         include_me($path, \@include_patterns, \@exclude_patterns)) {
         printf("diff --git $prefix$filename $prefix$filename\n");
         printf("=== $path\n");

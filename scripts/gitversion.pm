@@ -186,8 +186,8 @@ sub compare_version
     my ($self, $new, $old, $filename) = @_;
 
     if ($self->[MD5] &&
-        (   $old !~ /^SHA/ ||
-            ($self->[P4] &&
+        (   $old !~ /^SHA/ &&
+            (!$self->[P4] ||
                 $old !~ /^CL/)) &&
         $old =~ / md5:(.+)$/
     ) {

@@ -45,7 +45,7 @@
 #   --separator: is a character/regexp used to split 'list' arguments
 #     (such as '--tla ..', '--sha ...', etc.
 #     This may be useful to pass a delimited list to select.pm arguments
-#     in a comma-separated list of genhaml arguments - for example:
+#     in a comma-separated list of genhtml arguments - for example:
 #        genhtml ... --select-script select,pm,--sep,;,--tla,LBC;UNC
 #
 #   When multiple selection criteria are applied (e.g., both age and owner),
@@ -239,7 +239,8 @@ sub select
     if (defined($annotateData)) {
         my $age     = $annotateData->age();
         my $list    = $self->[AGE];
-        my @matches = grep({ $list->[$_] == $age } 0 .. $#$list);
+        my @matches = grep({ $age >= $list->[$_][0] && $age <= $list->[$_][1] }
+                           0 .. $#$list);
         return 1 if $self->_check_match(\@matches, AGE);
 
         # match at head of commit ID string

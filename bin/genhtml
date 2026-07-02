@@ -70,7 +70,7 @@
 #                Add a bunch of navigation features - href to next code block
 #                of type T, of type T in date- or owner bin B, etc.
 #                Add sorted tables for date/owner bin summaries.
-#   Ocober 2020 / Henry Cox - Mediatek, inc
+#   October 2020 / Henry Cox - Mediatek, inc
 #                Add "--hierarchical" display option.
 #
 
@@ -90,10 +90,9 @@ use DateTime;
 use Date::Parse;
 use FileHandle;
 use Carp;
-use Storable qw(dclone);
+use Storable;
 use FindBin;
 use Time::HiRes;    # for profiling
-use Storable;
 use POSIX;
 use Data::Dumper;
 
@@ -646,7 +645,7 @@ sub fileDetails
 
 sub get_sorted_keys
 {
-    # sort_type in ($SORT_FILE, $SORT_LINE, $SORT_FUNC, $SORT_BRANC, $SORT_MCDC)
+    # sort_type in ($SORT_FILE, $SORT_LINE, $SORT_FUNC, $SORT_BRANCH, $SORT_MCDC)
     my ($self, $sort_type, $include_dirs) = @_;
     die("invalid usage") if $self->type() eq 'file';
 
@@ -790,7 +789,7 @@ sub owners
     (!defined($covType) ||
      $covType == LINE_DATA   ||
      $covType == BRANCH_DATA ||
-     $covType eq MCDC_DATA) or
+     $covType == MCDC_DATA) or
         die("unsupported coverage type '$covType'");
 
     my $hash = $self->[defined($covType) ? $covType : LINE_DATA]->[OWNERS];
@@ -804,8 +803,9 @@ sub owners
         my $h = $hash->{$name};
         foreach my $tla ('UNC', 'UBC', 'UIC', 'LBC') {
             if (exists($h->{$tla})) {
-                die("unexpected 0 (zero) value for $tla of $name in $self->path()"
-                ) if (0 == $h->{$tla});
+                die("unexpected 0 (zero) value for $tla of $name in " .
+                    $self->path())
+                    if (0 == $h->{$tla});
                 push(@rtn, $name);
                 next OWNER;
             }
@@ -817,7 +817,7 @@ sub owners
 sub owner_tlaCount
 {
     my ($self, $name, $tla, $covType) = @_;
-    die("$name not found in owner data for $self->path()")
+    die("$name not found in owner data for" . $self->path())
         unless exists($self->[LINE_DATA]->[OWNERS]->{$name});
 
     return 0    # not supported, yet
@@ -962,7 +962,7 @@ sub append
 
     # keep track of the records that get merged into me..
     defined($record->[NAME]) or
-        die("attempt to anonymous SummaryInfo record");
+        die("attempt to append anonymous SummaryInfo record");
     !exists($self->[SOURCES]->{$record->[NAME]}) or
         die("duplicate merge record " . $record->[NAME]);
     $self->[SOURCES]->{$record->[NAME]} = $record;
@@ -981,7 +981,7 @@ sub append
     }
 
     # there will be no date info if we didn't also collect owner data
-    #   merge the date- and owner data, if if we aren't going to display it
+    #   merge the date- and owner data, if we aren't going to display it
     #   (In future, probably want to serialize the data for future processing)
     if (%{$record->[LINE_DATA]->[OWNERS]}) {
         foreach my $covType (LINE_DATA, FUNCTION_DATA, BRANCH_DATA, MCDC_DATA) {
@@ -1079,13 +1079,13 @@ sub branchCovCount
     if ($group eq "age") {
         my $a   = $branch->[AGE];
         my $bin = SummaryInfo::findAgeBin($age);
-        # LCOV_EXCL_START
         unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
+	    # LCOV_UNREACHABLE_START
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "unexpected key '$key' for bin '$bin'");
             return;
+	    # LCOV_UNREACHABLE_STOP
         }
-        # LCOV_EXCL_STOP
         $a->[$bin]->{$key} += $delta;
         return $a->[$bin]->{$key};
     }
@@ -1115,13 +1115,13 @@ sub mcdcCovCount
     if ($group eq "age") {
         my $a   = $mcdc->[AGE];
         my $bin = SummaryInfo::findAgeBin($age);
-        # LCOV_EXCL_START
         unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
+	    # LCOV_UNREACHABLE_START
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "unexpected key '$key' for bin '$bin'");
             return;
+	    # LCOV_UNREACHABLE_STOP
         }
-        # LCOV_EXCL_STOP
         $a->[$bin]->{$key} += $delta;
         return $a->[$bin]->{$key};
     }
@@ -1151,13 +1151,13 @@ sub functionCovCount
     if ($group eq "age") {
         my $a   = $func->[AGE];
         my $bin = SummaryInfo::findAgeBin($age);
-        # LCOV_EXCL_START
         unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
+	    # LCOV_UNREACHABLE_START
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "unexpected key '$key' for bin '$bin'");
             return;
+	    # LCOV_UNREACHABLE_STOP
         }
-        # LCOV_EXCL_STOP
         $a->[$bin]->{$key} += $delta;
         return $a->[$bin]->{$key};
     }
@@ -1436,7 +1436,7 @@ sub get
     my ($summary, $owner, $covType) = @$self;
 
     die("unexpected type $type")
-        unless !defined($type) || ($type eq $covType);
+        unless !defined($type) || ($type == $covType);
 
     return $summary->owner_tlaCount($owner, $key, $covType);
 }
@@ -1691,21 +1691,18 @@ sub data
 
     my $lineCb = OwnerDetailCallback->new($self->[1], $self->[0],
                                           SummaryInfo::LINE_DATA);
-    my $found = $lineCb->get('found');
-    my $hit   = $lineCb->get('hit');
     my $branchCb =
         OwnerDetailCallback->new($self->[1], $self->[0],
                                  SummaryInfo::BRANCH_DATA);
     my $mcdcCb =
         OwnerDetailCallback->new($self->[1], $self->[0],
                                  SummaryInfo::MCDC_DATA);
-    my $fn_found = 0;
     # ($found, $hit, $fn_found, $fn_hit, $br_found, $br_hit, $page_link,
     #  $fileSummary, $fileDetails)
     # this is the 'totals' callback for this owner - so there is no
     #  associated file or summary info.  Pass undef.
     return ($lineCb->get('found'), $lineCb->get('hit'),
-            0, 0,    # fn_found, fn_hit
+            0, 0,    # fn_found, fn_hit (not tracked per-owner)
             $branchCb->get('found'), $branchCb->get('hit'),
             $mcdcCb->get('found'), $mcdcCb->get('hit'));
 }
@@ -2083,7 +2080,7 @@ sub owner
         $self->[OWNER] = $newval;
         return $newval;
     }
-    return " " x $main::owner_field_width;    # same age as previous line.
+    return " " x $main::owner_field_width;    # same owner as previous line.
 }
 
 sub current
@@ -2327,7 +2324,7 @@ sub curr_count
         if (defined($linecov->[LINE_CURRENT])) {
             $linecov->[LINE_CURRENT] += $inc;
         } else {
-            $linecov->[LINE_CURRENT] += $inc;
+            $linecov->[LINE_CURRENT] = $inc;  # first assignment; += undef warns
         }
     }
     return $linecov->[LINE_CURRENT];
@@ -2475,6 +2472,8 @@ use constant {
               DELETE => 2,
 
 };
+
+our @type2str = ('equal', 'insert', 'delete');
 
 # structure holding coverage data for a particular file:
 #  - associated with a line line number:
@@ -2725,15 +2724,15 @@ sub _categorizeLineCov
             next if ($line <= 0);
 
             my $type = $diffMap->type($filename, $diffMap->NEW, $line);
-            # LCOV_EXCL_START
             if ($type == DiffMap::DELETE) {
+		# LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                     "'current' line $filename:$line should not be marked 'delete'"
                 );
                 delete($branchCurrent->{$line});
                 next;
+		# LCOV_UNREACHABLE_STOP
             }
-            # LCOV_EXCL_STOP
         }
     }
 
@@ -2829,7 +2828,8 @@ sub _categorizeLineCov
 
             if ($linedata->in_base() && $linedata->in_curr()) {
                 $tla =
-                    _categorize($linedata->base_count(), $linedata->curr_count);
+                    _categorize($linedata->base_count(),
+                                $linedata->curr_count());
             } elsif ($linedata->in_base()) {
                 $tla = ($linedata->base_count() > 0) ? "ECB" : "EUB";
                 $linedata->tla($tla);
@@ -2889,7 +2889,7 @@ sub _categorizeBranchCov
     #  retained branch data.  These counts are useful - for example, to report
     #  the hit count in the baseline for LBC branches:
     #   - e.g., in random testing: is this branch lost because it was a
-    #     low probablilty event (..baselinecount is a small number)>
+    #     low probability event (..baselinecount is a small number)>
     #     Or because we did something bad and no longer reach what had been
     #     a high probability event?
     foreach my $line ($branchCurrent->keylist()) {
@@ -2956,11 +2956,11 @@ sub _categorizeBranchCov
             if (defined($curr)) {
                 _cloneBranchLocation($categorized, $curr, 'UNC', 'GNC', 1);
             } else {
-                # LCOV_EXCL_START
+                # LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                     "current branch data should not be defined for inserted line $filename:$line"
                 );
-                # LCOV_EXCL_STOP
+                # LCOV_UNREACHABLE_STOP
             }
         } elsif ($type == DiffMap::DELETE) {
             # similarly: get here if diff data vs baseline/current is not consistent
@@ -2971,11 +2971,11 @@ sub _categorizeBranchCov
             if (defined($base)) {
                 _cloneBranchLocation($categorized, $base, 'DUB', 'DCB');
             } else {
-                # LCOV_EXCL_START
+                # LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                     "baseline branch data should not be defined for deleted line $filename:$line"
                 );
-                # LCOV_EXCL_STOP
+                # LCOV_UNREACHABLE_STOP
             }
         } else {
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
@@ -3086,7 +3086,7 @@ sub _categorizeMcdcCov
     #  retained MC/DC data.  These counts are useful - for example, to report
     #  the hit count in the baseline for LBC elements:
     #   - e.g., in random testing: is this branch lost because it was a
-    #     low probablilty event (..baseline count is a small number)>
+    #     low probability event (..baseline count is a small number)>
     #     Or because we did something bad and no longer reach what had been
     #     a high probability event?
     foreach my $line ($mcdcCurrent->keylist()) {
@@ -3255,7 +3255,7 @@ sub _categorizeFunctionCov
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "type mismatch " . $data->type() .
                                           " -> $type for $filename:$line")
-                unless $data->type() eq $type;
+                unless $data->type() == $type;
         }
         # we expect that the line number matches...
         $data->lineNo("current", $line, $filename);
@@ -3468,7 +3468,7 @@ sub _categorizeFunctionCov
 
 package DiffMap;
 
-# @todo Could convert this use use a callback API - similar to annotate, etc.
+# @todo Could convert this use a callback API - similar to annotate, etc.
 #  that would be more consistent and might execute faster.
 
 use constant {
@@ -4074,8 +4074,10 @@ sub _printChunk
 {
     my $chunk = shift;
     printf("  %6s\t[%d:%d]\t[%d:%d]\n",
-           $chunk->[TYPE], $chunk->[OLD]->[_START],
-           $chunk->[OLD]->[_END], $chunk->[NEW]->[_START],
+           $DiffMap::type2str[$chunk->[TYPE]],
+           $chunk->[OLD]->[_START],
+           $chunk->[OLD]->[_END],
+           $chunk->[NEW]->[_START],
            $chunk->[NEW]->[_END]);
 }
 
@@ -4185,15 +4187,15 @@ sub _read_udiff
                 $verbose = (defined($main::verboseScopeRegexp) &&
                             $key =~ m/$main::verboseScopeRegexp/);
                 print("  $key: unchanged\n") if $verbose;
-                # LCOV_EXCL_START
                 if (exists($self->[LINEMAP]->{$key})) {
+		    # LCOV_UNREACHABLE_START
                     lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                         "$diff_file:$.:  $key 'unchanged' entry found but diff records exist"
                             . ($file eq $key ? '' : " (substituted '$file')"));
                     # message ignored - delete the diff records
                     delete($self->[LINEMAP]->{$key});
+		    # LCOV_UNREACHABLE_STOP
                 }
-                # LCOV_EXCL_STOP
                 $self->[UNCHANGED]->{$key} = 1;
                 last;
             };
@@ -4232,8 +4234,8 @@ sub _read_udiff
                 $filename = $notNull ? $key : undef;
 
                 if ($filename) {
-                    # LCOV_EXCL_START
                     if (exists($self->[UNCHANGED]->{$key})) {
+			# LCOV_UNREACHABLE_START
                         lcovutil::ignorable_error(
                             $lcovutil::ERROR_INTERNAL,
                             "$diff_file:$.: $filename marked unchanged but diff record found"
@@ -4242,8 +4244,8 @@ sub _read_udiff
                                      " (substituted '$file_new')"));
                         # OK - error ignored...remove the 'unchanged' marker
                         delete($self->[UNCHANGED]->{$key});
+			# LCOV_UNREACHABLE_STOP
                     }
-                    # LCOV_EXCL_STOP
                     $self->[LINEMAP]->{$key} = [];
                 }
                 $verbose = (defined($main::verboseScopeRegexp) &&
@@ -4873,14 +4875,14 @@ sub _countBranchTlaData
         foreach my $br (@$diff) {
             my $tla = $br->tla();
             # don't count excluded coverpoints
-            # LCOV_EXCL_START
             unless (defined($tla)) {
+		# LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                           "undef TLA for branch $blockId of " . $self->path() .
                               ":$line - lineTLA:$lineTla taken:" . $br->data());
                 next;
+		# LCOV_UNREACHABLE_STOP
             }
-            # LCOV_EXCL_STOP
             next if grep(/$tla/, ('EUC', 'ECC'));
             $fileSummary->[SummaryInfo::BRANCH_DATA]->[SummaryInfo::DATA]
                 ->{$tla} += 1;
@@ -4995,8 +4997,8 @@ sub _countMcdcTlaData
                 my $tla   = $count->[0];
                 # don't count excluded coverpoints
                 next if grep(/$tla/, ('EUC', 'ECC'));
-                # LCOV_EXCL_START
                 unless (defined($tla)) {
+		    # LCOV_UNREACHABLE_START
                     lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                         "undef TLA for sense $sense of MC/DC " .
                                             $expr->index() .
@@ -5004,8 +5006,8 @@ sub _countMcdcTlaData
                                             ":$line - lineTLA:$lineTla taken:" .
                                             $count->[1]);
                     next;
+		    # LCOV_UNREACHABLE_STOP
                 }
-                # LCOV_EXCL_STOP
                 $fileSummary->[SummaryInfo::MCDC_DATA]->[SummaryInfo::DATA]
                     ->{$tla} += 1;
                 # keep track of all the branch TLAs found on this line...
@@ -5177,14 +5179,14 @@ sub _accountFunction
 {
     my ($fileSummary, $tla, $src_age) = @_;
 
-    # LCOV_EXCL_START
     unless (defined($tla)) {
+	# LCOV_UNREACHABLE_START
         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                   "undef function TLA for age '$src_age' of " .
                                       $fileSummary->name());
         return 1;    # error
+	# LCOV_UNREACHABLE_STOP
     }
-    # LCOV_EXCL_STOP
 
     $fileSummary->[SummaryInfo::FUNCTION_DATA]->[SummaryInfo::DATA]->{$tla} +=
         1;
@@ -5210,8 +5212,8 @@ sub _countFunctionTlaData
 
     my $h         = $func->hit();
     my $mergedTla = $h->[1];
-    # LCOV_EXCL_START
     if (!defined($mergedTla)) {
+	# LCOV_UNREACHABLE_START
         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                   "undef TLA for function '" .
                                       $func->name() .
@@ -5223,8 +5225,8 @@ sub _countFunctionTlaData
         $mergedTla = $h->[0] == 0 ? 'UNC' : 'GNC';
         $h->[1] = $mergedTla;
         #return;
+	# LCOV_UNREACHABLE_STOP
     }
-    # LCOV_EXCL_STOP
 
     if (!grep(/^$mergedTla$/, ('DUB', 'DCB'))) {
         # deleted lines don't have owner data...
@@ -5245,8 +5247,8 @@ sub _countFunctionTlaData
         foreach my $alias (keys %$aliases) {
             my $data = $aliases->{$alias};
             my $tla  = $data->[1];
-            # LCOV_EXCL_START
             if (!defined($tla)) {
+		# LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                     "undef TLA for alias:'$alias' hit:" .
                         $data->[0] . " of function '" . $func->name() .
@@ -5255,8 +5257,8 @@ sub _countFunctionTlaData
                 # die("this should not happen either");
                 $tla = $data->[0] == 0 ? 'UNC' : 'GNC';
                 $data->[1] = $tla;
+		# LCOV_UNREACHABLE_STOP
             }
-            # LCOV_EXCL_STOP
             _accountFunction($fileSummary, $tla, $src_age);
         }
     }
@@ -5555,7 +5557,7 @@ sub nextInOwnerBin
             my $o = $l->owner();
             if (!defined($o)) {
                 lcovutil::ignorable_error($lcovutil::ERROR_UNMAPPED_LINE,
-                          "no owber data for line:$line, file:" . $self->path())
+                          "no owner data for line:$line, file:" . $self->path())
                     if (!$lcovutil::warn_once_per_file ||
                         lcovutil::warn_once($lcovutil::ERROR_UNMAPPED_LINE,
                                             $self->path()));
@@ -6297,7 +6299,10 @@ sub new
             $pendingParent;
         add_dependency($mergeInto, $f);
         # this file is ready to be processed
-        my @fileData = (SummaryInfo->new("file", $filename), [{}, {}, {}], $f);
+        # 4-element tuple: [summary, [{line},{branch},{fn}], file, mcdc_hash]
+        # index [3] (mcdc_hash) accessed at line 13484; must be present
+        my @fileData =
+            (SummaryInfo->new("file", $filename), [{}, {}, {}], $f, {});
         push(@$worklist,
              ['file', \@fileData, \@short_path, \@path, $mergeInto]);
     }
@@ -6336,7 +6341,7 @@ sub add_dependency
 {
     my ($parent, $name) = @_;
     lcovutil::debug(1,
-                    "add depend $name' in -> " . $parent->[0]->[1]->[2] . "\n")
+                    "add depend '$name' in -> " . $parent->[0]->[1]->[2] . "\n")
         unless exists($parent->[1]->{$name});
     print("add depend $name -> " . $parent->[0]->[1]->[2] . "\n")
         if $main::debugScheduler > 1;
@@ -6780,7 +6785,7 @@ sub compute
                 next WORK;
             }
         }
-        #LCOV_EXCL_START
+        # LCOV_EXCL_START
         unless (@$worklist || @$joblist) {
             foreach my $e (keys %$pending) {
                 # something went wrong - print some debug data
@@ -6797,7 +6802,7 @@ sub compute
             # and "--keep-going" was specified.
             die("unexpected empty worklist??");
         }
-        #LCOV_EXCL_STOP
+        # LCOV_EXCL_STOP
 
         # schedule a few items from the worklist if we can..
         $segmentID = $self->_segment_worklist($segmentID);
@@ -7190,7 +7195,7 @@ my %genhtml_rc_opts = (
                "genhtml_dark_mode"           => \$dark_mode,
                "genhtml_hierarchical"        => \$hierarchical,
                "genhtml_flat_view"           => \$flat,
-               "genhtml_show_havigation"     => \$show_tla,
+               "genhtml_show_navigation"     => \$show_tla,
                "genhtml_show_noncode_owners" => \$show_nonCodeOwners,
                "genhtml_show_function_proportion" => \$show_functionProportions,
                'genhtml_show_owner_table'         => \$show_ownerBins,
@@ -7331,11 +7336,11 @@ if (defined($lcovutil::stop_on_error) &&
 $sort_tables = 0
     if ($no_sort);
 die(
-   "unsupported use of mutually exclusive '--flat' and '--hierachical' options")
+  "unsupported use of mutually exclusive '--flat' and '--hierarchical' options")
     if ($flat && $hierarchical);
 
 $show_tla = 1
-    if (@base_filenames) || defined($diff_filename);
+    if (@base_filenames || defined($diff_filename));
 if ($show_tla &&
     (0 == scalar(@base_filenames) &&
         !defined($diff_filename))
@@ -7383,7 +7388,7 @@ if (@SourceFile::annotateScript) {
     $treatNewFileAsBaseline = undef;
     die("\"--show-owners\" option requires \"--annotate-script\" for revision control integration"
     ) if defined($show_ownerBins);
-    die("\"--date-bins\" option requires \"--annotate-script\" for revision control integraion"
+    die("\"--date-bins\" option requires \"--annotate-script\" for revision control integration"
     ) if (0 != scalar(@datebins));
 }
 if (0 != (defined($diff_filename) ^ (0 != scalar(@base_filenames)))) {
@@ -7773,7 +7778,7 @@ sub print_overall_rate($$$$$$)
     push(@types, SummaryInfo::BRANCH_DATA) if $br_do;
     push(@types, SummaryInfo::MCDC_DATA) if $mcdc_do;
 
-    # use source file count from current - we don;t care about files
+    # use source file count from current - we don't care about files
     #  that were deleted and are in baseline
     info(-1, "  source files: %d\n", scalar($currentTrace->files()));
     my $width  = length("source files");
@@ -7824,8 +7829,6 @@ sub print_overall_rate($$$$$$)
 
 sub gen_html()
 {
-    # "Read
-
     # Read in all specified .info files
     my $now            = Time::HiRes::gettimeofday();
     my $readSourceFile = ReadCurrentSource->new();
@@ -8222,7 +8225,7 @@ sub write_function_page($$$$$$$$$$$$$$$)
 }
 
 #
-# process_file(parent_dir_summary, trunc_dir, rel_dir, filename)
+# process_file(file_summary, parent_dir_summary, trunc_dir, rel_dir, filename)
 #
 
 sub process_file($$$$$)
@@ -8754,7 +8757,7 @@ sub get_date_string($)
     my $time = $_[0];
     my @timeresult;
 
-    if (!$time) {
+    if (!defined($time)) {
         if (defined $ENV{'SOURCE_DATE_EPOCH'}) {
             @timeresult = gmtime($ENV{'SOURCE_DATE_EPOCH'});
         } else {
@@ -9194,7 +9197,7 @@ sub write_css_file()
           background-color: #COLOR_13;
         }
 
-        /* All views: header item coverage table entry for ow coverage rate */
+        /* All views: header item coverage table entry for low coverage rate */
         td.headerCovTableEntryLo
         {
           text-align: right;
@@ -10577,7 +10580,7 @@ END_OF_HTML
                                     $main::show_tla &&
                                     !$main::no_sourceview))
                         ) {
-                            # LCOV_EXCL_START
+                            # LCOV_UNREACHABLE_START
                             #debugging:  why is link missing?
                             lcovutil::ignorable_error(
                                 $lcovutil::ERROR_INTERNAL,
@@ -10585,7 +10588,7 @@ END_OF_HTML
                                     .
                                     (defined($tableHref) ? '' : ' missing href')
                             );
-                            #LCOV_EXCL_STOP
+                            #LCOV_UNREACHABLE_STOP
                         }
                     }
                 }    # if count nonzero
@@ -10843,13 +10846,13 @@ sub get_block_list($)
             my $blockData = $blk->elements();
             my $blkId     = $blk->idx();
             my $branch    = 0;
-            foreach my $br (@$blockData) {
+            foreach my $br_elem (@$blockData) {
 
                 if (defined($last_blkId) && $blkId ne $last_blkId) {
                     push(@blocks, $block);
                     $block = [];
                 }
-                my $br = [$blkId, $branch, $br, 3, 0, 0];
+                my $br = [$blkId, $branch, $br_elem, 3, 0, 0];
                 push(@{$block}, $br);
                 $last_blkId = $blkId;
                 ++$branch;
@@ -11155,7 +11158,7 @@ sub get_mcdc_html($$)
             my $expr_name = $expr->expression();
             $title =
                 ${prefix} . ($sense ? 'True' : 'False') .
-                ' sense of expression "' . $expr->expression() . '" ';
+                ' sense of expression "' . $expr_name . '" ';
             if ($expr->parent()->num_groups() > 1) {
                 $title .= 'in group "' . $expr->groupSize() . '" ';
             }
@@ -11456,7 +11459,7 @@ sub write_source_line(*$$$$$$$)
                     OWNER: {
                         if (!defined($src_owner) || !defined($src_age)) {
                             # maybe this should be a different error type?
-                            lcovutil::ignorable_eror(
+                            lcovutil::ignorable_error(
                                       $lcovutil::ERROR_UNMAPPED_LINE,
                                       "undefined owner/age for $bucket $line " .
                                           $sourceDetail->path());
@@ -12393,7 +12396,7 @@ sub write_header(*$$$$$$$)
         (defined($main::show_ownerBins) ||
             @SourceFile::annotateScript)
     ) {
-        # we are going to have 3 versions of of the page:
+        # we are going to have 3 versions of the page:
         #   flat, with owner bin data, with date bin data
         # so label which one this is
         my ($tableLabel, $tableKey);
@@ -12630,7 +12633,8 @@ END_OF_HTML
         my $tot = $summary->mcdc_found();
         my $hit = $summary->mcdc_hit();
         $style =
-            $rate_name[classify_rate($tot, $hit, $br_med_limit, $br_hi_limit)];
+            $rate_name[classify_rate($tot, $hit, $mcdc_med_limit,
+                                     $mcdc_hi_limit)];
         $rate = rate($hit, $tot, "&nbsp;%");
         $hit -= $tot
             if $main::opt_missed;    # negative number
@@ -13694,7 +13698,7 @@ sub write_source($$$$$$$$)
 
         # Source code matches coverage data?
         lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-                "checksum mismatch  at " . $srcfile->path() . ":$line_number\n")
+                 "checksum mismatch at " . $srcfile->path() . ":$line_number\n")
             if (
                defined($checkdata->value($line_number)) &&
                ($checkdata->value($line_number) ne md5_base64($srcline->text()))
@@ -13845,7 +13849,7 @@ sub funcview_get_sorted($$$)
 
 #
 # write_function_table(filehandle, funcData, source_file, sumcount, funcdata,
-#                      testfncdata, sumbrcount, testbrdata, mcdc_summary, testase_mcdc,
+#                      testfncdata, sumbrcount, testbrdata, mcdc_summary, testcase_mcdc,
 #                      base_name, base_dir, sort_type)
 #
 # Write an HTML table listing all functions in a source file, including
@@ -14002,7 +14006,7 @@ END_OF_HTML
                     if %$funcLineCovMap;
                 $branchProportionRow = $lineProportionRow
                     if $lcovutil::br_coverage && %$funcBranchCovMap;
-                $mcdcProportionRow = $mcdcProportionRow
+                $mcdcProportionRow = $lineProportionRow
                     if $lcovutil::mcdc_coverage && %$funcMcdcCovMap;
             }
             if (0 != $type) {
@@ -14078,7 +14082,7 @@ sub remove_unused_descriptions()
 
     # Remove descriptions for tests which are not in our list
     foreach (keys(%test_description)) {
-        if (!defined($test_list{$_})) {
+        if (!exists($test_list{$_})) {
             delete($test_description{$_});
         }
     }

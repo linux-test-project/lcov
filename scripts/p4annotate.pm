@@ -65,7 +65,6 @@ use base 'AnnotateBase';
 sub new
 {
     my $class  = shift;
-    my @args   = @_;
     my $script = shift;    # this should be 'me'
                            #other arguments are as passed...
     my $logfile;
@@ -86,7 +85,7 @@ sub new
         (!$standalone && scalar(@_)) ||
         $help
     ) {
-        print(STDERR ($help ? '' : ("unexpected arg: $script " . join(@_, ' '))
+        print(STDERR ($help ? '' : ("unexpected arg: $script " . join(' ', @_))
               ),
               "usage: $exe [--log logfile] [--cache dir] [--verify] filename\n"
         );
@@ -153,7 +152,7 @@ sub annotate_callback
 
             $owner = $ENV{P4USER};    # current user is responsible for changes
             $now   = annotateutil::get_modify_time($pathname)
-                ;    # assume changes happened when file was liast modified
+                ;    # assume changes happened when file was last modified
 
             # what is different in the local file vs the one we started with
             if (open(PIPE, "-|", "p4 diff $pathname")) {
@@ -235,7 +234,7 @@ sub annotate_callback
 
             # now handle lines added at end of file
             die("lost track of lines")
-                unless (0 == scalar(%localAdd) ||
+                unless (!%localAdd ||
                         exists($localAdd{$emitLineNo}));
 
             while (exists $localAdd{$emitLineNo}) {
@@ -244,7 +243,7 @@ sub annotate_callback
                 delete $localAdd{$emitLineNo};
                 ++$emitLineNo;
                 die("lost track of lines")
-                    unless (0 == scalar(%localAdd) ||
+                    unless (!%localAdd ||
                             exists($localAdd{$emitLineNo}));
             }
             close(HANDLE) or die("unable to close p4 annotate pipe: $!\n");
