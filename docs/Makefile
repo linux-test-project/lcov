@@ -21,5 +21,5 @@ help:
 %: Makefile
 	@LCOV_BUILD_DATE=$(BUILD_DATE) LCOV_RELEASE=$(RELEASE) TOOL_NAME=$(TOOL_NAME) $(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-clean::
+clean:
 	rm -rf __pycache__
