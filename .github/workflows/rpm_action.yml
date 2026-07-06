@@ -52,3 +52,4 @@ jobs:
           files: |
             *.noarch.rpm
             *.src.rpm
+            *.tar.gz
