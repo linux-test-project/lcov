@@ -30,13 +30,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            rpm \
             devscripts \
             equivs \
+            git \
+            perl \
             python3-sphinx \
             python3-sphinx-rtd-theme \
-            perl \
-            git
+            rpm
 
       - name: Build RPMs
         run: make rpms
