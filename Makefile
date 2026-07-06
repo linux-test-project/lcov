@@ -115,7 +115,7 @@ info:
 
 clean:
 	$(call echocmd,"  CLEAN   lcov")
-	$(RM) lcov-*.tar.gz lcov-*.rpm
+	$(RM) lcov-*.tar.gz lcov-*.rpm doc_finished
 	$(RM) -r ./bin/__pycache__
 	$(MAKE) -C example -s clean
 	$(MAKE) -C tests -s clean
@@ -126,7 +126,12 @@ doc:
 	$(MAKE) -C docs RELEASE=${VERSION} TOOL_NAME=$(TOOL_NAME) man html
 	find docs/_build -type d -exec chmod u+x {} \; # apparent permissions bug??
 
-install: doc
+# want an explicit target that 'install' can check - such that 'make install'
+# does nothing but install stuff (not build too).
+doc_finished: doc
+	touch $@
+
+install: doc_finished
 	$(INSTALL) -d -m 755 $(BIN_INST_DIR)
 	for b in $(EXES) ; do                                    \
 		$(call echocmd,"  INSTALL $(BIN_INST_DIR)/$$b")  \
