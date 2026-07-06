@@ -30,7 +30,11 @@ jobs:
           sudo apt-get install -y rpm devscripts equivs python3-sphinx python3-sphinx-rtd-theme perl git
 
       - name: Build RPMs
-        run: make rpms
+        run: |
+          if [[ ${GITHUB_REF} == refs/tags/v* ]]; then
+            export RELEASE=0  # avoids "beta" in bin/get_version.sh
+          fi
+          make rpms
 
       - name: Get version
         id: get_version
