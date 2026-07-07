@@ -577,17 +577,18 @@ done
 # have to ignore version mismatch becaure p4annotate also computes version
 echo genhtml $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --ignore version $IGNORE_ANNOTATE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --ignore version $IGNORE_ANNOTATE 2>&1 | tee cacheFail.log
+cacheFail_status=${PIPESTATUS[0]}
 
-if [ '' == $IGNORE_ANNOTATE ] ; then
-    if [ 0 == ${PIPESTATUS[0]} ] ; then
-        echo "ERROR: genhtml corrupt deserialize failed"
+if [ '' == "$IGNORE_ANNOTATE" ] ; then
+    if [ 0 == $cacheFail_status ] ; then
+        echo "ERROR: genhtml corrupt deserialize should have failed - but didn't"
         if [ 0 == $KEEP_GOING ] ; then
             exit 1
         fi
     fi
 
     grep -E "corrupt.*unable to deserialize" cacheFail.log
-    if [ 0 != $? ] && [ '' == $IGNORE_ANNOTATE ]; then
+    if [ 0 != $? ] && [ '' == "$IGNORE_ANNOTATE" ]; then
         echo "ERROR: failed to find cache corruption"
         if [ 0 == $KEEP_GOING ] ; then
             exit 1
@@ -599,10 +600,11 @@ fi
 find mycache -type f -exec chmod ugo-r {} \;
 echo genhtml $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info $IGNORE_ANNOTATE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x $IGNORE_ANNOTATE --no-prefix 2>&1 | tee cacheFail2.log
+cacheFail2_status=${PIPESTATUS[0]}
 
-if [ '' == $IGNORE_ANNOTATE ] ; then
-    if [ 0 == ${PIPESTATUS[0]} ] ; then
-        echo "ERROR: genhtml unreadable cache failed"
+if [ '' == "$IGNORE_ANNOTATE" ] ; then
+    if [ 0 == $cacheFail2_status ] ; then
+        echo "ERROR: genhtml unreadable cache should have failed - but didn't"
         if [ 0 == $KEEP_GOING ] ; then
             exit 1
         fi

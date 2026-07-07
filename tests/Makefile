@@ -74,8 +74,8 @@ info:
 
 report: excel info
 	if [ "x$(COVERAGE)" != 'x' ] ; then                          \
-	  $(GENHTML_TOOL) --parallel -o $(HTML_RPT)                  \
-              perlcov.info pycov.info                                \
+	  INFO="perlcov.info pycov.info" ;                           \
+	  $(GENHTML_TOOL) --parallel -o $(HTML_RPT) $$INFO           \
               --save --title 'LCOV regression tests'                 \
               --show-navigation --flat --branch --show-proportion    \
               --version-script $(VERSION_SCRIPT)                     \
@@ -83,7 +83,7 @@ report: excel info
 	      --filter region                                        \
               --ignore empty,inconsistent --keep-going ;             \
 	  if [ -d $(HTML_RPT) ] ; then                               \
-	      cp p*cov.info $(HTML_RPT) ;                            \
+	      cp $$INFO $(HTML_RPT) ;                                \
           fi ;                                                       \
 	  echo "Wrote HTML report to ${HTML_RPT}" ;                  \
 	fi

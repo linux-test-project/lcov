@@ -4239,6 +4239,19 @@ sub diff_count
     return @{$self->[DIFF_COUNT]};
 }
 
+sub set_tla
+{
+    my ($self, $tla) = @_;
+    $self->[TLA] = $tla;
+}
+
+sub set_differential
+{
+    my ($self, $tla, $base, $curr) = @_;
+    $self->[TLA]        = $tla;
+    $self->[DIFF_COUNT] = [$base, $curr];
+}
+
 sub merge
 {
     # return 1 if something changed, 0 if nothing new covered or discovered
@@ -4370,11 +4383,11 @@ sub merge
 {
     my ($self, $you, $filename, $line) = @_;
 
-    my $m = $self->[LIST];
-    my $y = $you->[LIST];
+    my $m = $self->elements();
+    my $y = $you->elements();
     die("expected identical block")
         unless ($#$m == $#$y &&
-                $self->[SIGNATURE] eq $you->[SIGNATURE]);
+                $self->signature() eq $you->signature());
     my $changed = 0;
 
     for (my $idx = 0; $idx <= $#$m; ++$idx) {
@@ -5257,7 +5270,7 @@ sub numFunc
     my ($self, $merged) = @_;
 
     if (defined($merged) && $merged) {
-        return scalar($self->keylist());
+        return scalar(my @_keys = $self->keylist());
     }
     my $n = 0;
     foreach my $key ($self->keylist()) {
@@ -5717,11 +5730,13 @@ sub new
 
 sub append_mcdc
 {
-    my ($self, $mcdc) = @_;
+    my ($self, $mcdc, $filename) = @_;
     my $line = $mcdc->line();
-    die("MCDC already defined for $line")
-        if exists($self->[BranchMap::DATA]->{$line});
-    $self->[BranchMap::DATA]->{$line} = $mcdc;
+    if (exists($self->[BranchMap::DATA]->{$line})) {
+        $self->[BranchMap::DATA]->{$line}->merge($mcdc, $filename);
+    } else {
+        $self->[BranchMap::DATA]->{$line} = $mcdc;
+    }
 }
 
 sub new_mcdc
@@ -5936,7 +5951,7 @@ sub removeBranches
         }
         ++$blkIdx;
     }
-    if (0 == scalar($brdata->blocks())) {
+    if (0 == $brdata->numBlocks()) {
         lcovutil::info(2, "$filename:$line: no branches remain\n");
         $branches->remove($line);
         $modified = 1;
@@ -7272,7 +7287,7 @@ sub print_summary
                    )) if ($br_do);
     lcovutil::info("  conditions..: %s\n",
                    lcovutil::get_overall_line(
-                                  $counts[4]->[0], $counts[4]->[1], "conditions"
+                                  $counts[4]->[0], $counts[4]->[1], "condition"
                    )) if ($mcdc_do);
 }
 
@@ -8027,7 +8042,7 @@ sub _filterFile
         my $mcdc_count   = $testmcdc->value($testname);
 
         my $reason;
-        my $functionMap = $testfncdata->{$testname};
+        my $functionMap = $testfncdata->value($testname);
         if ($lcovutil::func_coverage &&
             $functionMap &&
             ($region || $range)) {
@@ -8353,8 +8368,8 @@ sub _filterFile
                 $d->remove($line, 1);    # remove if present
             }
             $sumcount->remove($line);
-            if (exists($checkdata->{$line})) {
-                delete($checkdata->{$line});
+            if ($checkdata->mapped($line)) {
+                $checkdata->remove($line);
             }
         }    # foreach line
     }    #foreach test
@@ -9052,7 +9067,11 @@ sub _read_info
 
             $lineMap     = $fileData->test($testname);
             $functionMap = $fileData->testfnc($testname);
-            $branchMap   = $fileData->testbr($testname);
+            # need an empty branch map - in case we are ignoring test names
+            #  such that two sections alias to the same data.  We need to
+            #  insert the branch data into a empty map and then merge that
+            #  into both the per-testname and summary data
+            $branchMap   = BranchData->new();
             $mcdcMap     = $fileData->testcase_mcdc($testname);
             next;
         }
@@ -9171,8 +9190,7 @@ sub _read_info
                 }
                 # the function may already be defined by another testcase
                 #  (for the same file)
-                $functionMap->define_function($fnName, $lineNo,
-                                              $end_line // undef,
+                $functionMap->define_function($fnName, $lineNo, $end_line,
                                               "\"$tracefile\":$.");
                 last;
             };
@@ -9353,7 +9371,8 @@ sub _read_info
                         $fileData->mcdc()->close_mcdcBlock($current_mcdc);
 
                         $fileData->testcase_mcdc($testname)
-                            ->append_mcdc(Storable::dclone($current_mcdc))
+                            ->append_mcdc(Storable::dclone($current_mcdc),
+					  $filename)
                             if (defined($testname));
                     }
                     $current_mcdc =
@@ -9379,19 +9398,24 @@ sub _read_info
                         $funcdata->union($functionMap);
                     }
                     if ($lcovutil::br_coverage) {
-                        $branchMap->insertBlock($branchBlock, $currentBlockLine)
-                            if $branchBlock;
+                        if ($branchBlock) {
+                            $branchMap->insertBlock($branchBlock, $currentBlockLine);
+                            # reset - in case another testcase follows
+                            $branchBlock = undef;
+                        }
                         $branchMap->updateCounts();
-
+                        $fileData->testbr($testname)->union($branchMap);
                         $fileData->sumbr()->union($branchMap);
                     }
                     if ($current_mcdc) {
                         # close the current expression in case the next file
                         # has an expression on the same line
                         $fileData->mcdc()->close_mcdcBlock($current_mcdc);
-                        $fileData->testcase_mcdc($testname)
-                            ->append_mcdc(Storable::dclone($current_mcdc))
+                        my $mcdc = $fileData->testcase_mcdc($testname);
+                        $mcdc->append_mcdc(Storable::dclone($current_mcdc),
+					   $filename)
                             if (defined($testname));
+                        $fileData->mcdc()->union($mcdc);
                         $current_mcdc = undef;
                     }
                     # some paranoic checks
@@ -9429,7 +9453,7 @@ sub _read_info
         # Filter out empty test cases
         foreach $testname ($filedata->test()->keylist()) {
             if (!$filedata->test()->mapped($testname) ||
-                scalar($filedata->test($testname)->keylist()) == 0) {
+                $filedata->test($testname)->entries() == 0) {
                 $filedata->test()->remove($testname);
                 $filedata->testfnc()->remove($testname);
                 $filedata->testbr()->remove($testname);
@@ -9515,7 +9539,7 @@ sub write_info($$$)
                 $srcReader->open($source_file);
             }
 
-            my $functionMap = $testfncdata->{$testname};
+            my $functionMap = $testfncdata->value($testname);
             if ($lcovutil::func_coverage &&
                 $functionMap) {
                 # Write function related data - sort  by line number then
@@ -9657,8 +9681,8 @@ sub write_info($$$)
                 my $l_hit = $lineMap->value($line);
                 my $chk   = '';
                 if ($verify_checksum) {
-                    if (exists($checkdata->{$line})) {
-                        $chk = $checkdata->{$line};
+                    if ($checkdata->mapped($line)) {
+                        $chk = $checkdata->value($line);
                     } elsif (defined($srcReader) &&
                              $srcReader->notEmpty()) {
                         my $content = $srcReader->getLine($line);

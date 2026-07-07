@@ -162,6 +162,31 @@ for t in UIC GIC DUB $TYPES ; do
     fi
 done
 
+# simple counting
+for f in "" '--forget-test-names' ; do
+  $COVER $LCOV_TOOL $LCOV_OPTS --summary $f --mcdc bug.dat 2>&1 | tee bug.log
+  if [ 0 != ${PIPESTATUS[0]} ] ; then
+      echo "ERROR:  error from summary $f"
+      if [ $KEEP_GOING == 0 ] ; then
+          exit 1
+      fi
+  fi
+  grep "3 of 4 branches" bug.log
+  if [ 0 != $? ] ; then
+      echo "ERROR:  unexpected branch count $f"
+      if [ $KEEP_GOING == 0 ] ; then
+          exit 1
+      fi
+  fi
+  grep "3 of 6 conditions" bug.log
+  if [ 0 != $? ] ; then
+      echo "ERROR:  unexpected MCDC count $f"
+      if [ $KEEP_GOING == 0 ] ; then
+          exit 1
+      fi
+  fi
+done
+
 echo "Tests passed"
 
 if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ]; then
