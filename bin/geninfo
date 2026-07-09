@@ -199,8 +199,8 @@ our @data_directory;
 our $buildDirSearchPath;
 our $test_name = "";
 our $output_filename;
-our $single_file;          # Write result into single merged file or not
-our $files_created = 0;    # Number of output files created
+our $single_file;                 # Write result into single merged file or not
+our $files_created = 0;           # Number of output files created
 our $base_directory;
 our $opt_no_compat_libtool;
 our $initial;
@@ -1053,7 +1053,7 @@ sub _process_one_chunk($$$$)
         my $name = defined($gcda_file) ? $gcda_file : $gcno_file;
         info(1,
              "Processing $name" .
-             (defined($pid) ? " in child $pid" : "") . "\n");
+                 (defined($pid) ? " in child $pid" : "") . "\n");
         my $context = MessageContext->new("capturing from $name");
 
         # multiple gcda files may refer to the same source - so generate the

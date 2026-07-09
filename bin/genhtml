@@ -1080,11 +1080,11 @@ sub branchCovCount
         my $a   = $branch->[AGE];
         my $bin = SummaryInfo::findAgeBin($age);
         unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
-	    # LCOV_UNREACHABLE_START
+            # LCOV_UNREACHABLE_START
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "unexpected key '$key' for bin '$bin'");
             return;
-	    # LCOV_UNREACHABLE_STOP
+            # LCOV_UNREACHABLE_STOP
         }
         $a->[$bin]->{$key} += $delta;
         return $a->[$bin]->{$key};
@@ -1116,11 +1116,11 @@ sub mcdcCovCount
         my $a   = $mcdc->[AGE];
         my $bin = SummaryInfo::findAgeBin($age);
         unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
-	    # LCOV_UNREACHABLE_START
+            # LCOV_UNREACHABLE_START
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "unexpected key '$key' for bin '$bin'");
             return;
-	    # LCOV_UNREACHABLE_STOP
+            # LCOV_UNREACHABLE_STOP
         }
         $a->[$bin]->{$key} += $delta;
         return $a->[$bin]->{$key};
@@ -1152,11 +1152,11 @@ sub functionCovCount
         my $a   = $func->[AGE];
         my $bin = SummaryInfo::findAgeBin($age);
         unless (exists($a->[$bin]) && exists($a->[$bin]->{$key})) {
-	    # LCOV_UNREACHABLE_START
+            # LCOV_UNREACHABLE_START
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                       "unexpected key '$key' for bin '$bin'");
             return;
-	    # LCOV_UNREACHABLE_STOP
+            # LCOV_UNREACHABLE_STOP
         }
         $a->[$bin]->{$key} += $delta;
         return $a->[$bin]->{$key};
@@ -2589,7 +2589,7 @@ sub recategorizeTlaAsBaseline
                 foreach my $b (@$diff) {
                     my $tla = $b->tla();
                     if (exists($remap{$tla})) {
-                        $b->[BranchElement::TLA] = $remap{$tla};
+                        $b->set_tla($remap{$tla});
                     }
                 }
             }
@@ -2725,13 +2725,13 @@ sub _categorizeLineCov
 
             my $type = $diffMap->type($filename, $diffMap->NEW, $line);
             if ($type == DiffMap::DELETE) {
-		# LCOV_UNREACHABLE_START
+                # LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                     "'current' line $filename:$line should not be marked 'delete'"
                 );
                 delete($branchCurrent->{$line});
                 next;
-		# LCOV_UNREACHABLE_STOP
+                # LCOV_UNREACHABLE_STOP
             }
         }
     }
@@ -2857,7 +2857,7 @@ sub cloneBlock
             _categorizeIfExcluded($count,
                                   $categorizeExcluded && $br->is_excluded(),
                                   $missTla, $hitTla);
-        push(@$br, $tla, [undef, $count]);    # undef == "not in baseline"
+        $br->set_differential($tla, undef, $count); # undef == "not in baseline"
         $cloneInto->appendElement($br);
     }
 }
@@ -3009,7 +3009,8 @@ sub _categorizeBranchCov
                                     _categorize($baseCount, $currCount,
                                                 $curr_br->is_excluded());
 
-                                push(@$curr_br, $tla, [$baseCount, $currCount]);
+                                $curr_br->set_differential($tla, $baseCount,
+                                                           $currCount);
                                 $catBlock->appendElement($curr_br);
                             }
                         } else {
@@ -4188,13 +4189,13 @@ sub _read_udiff
                             $key =~ m/$main::verboseScopeRegexp/);
                 print("  $key: unchanged\n") if $verbose;
                 if (exists($self->[LINEMAP]->{$key})) {
-		    # LCOV_UNREACHABLE_START
+                    # LCOV_UNREACHABLE_START
                     lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                         "$diff_file:$.:  $key 'unchanged' entry found but diff records exist"
                             . ($file eq $key ? '' : " (substituted '$file')"));
                     # message ignored - delete the diff records
                     delete($self->[LINEMAP]->{$key});
-		    # LCOV_UNREACHABLE_STOP
+                    # LCOV_UNREACHABLE_STOP
                 }
                 $self->[UNCHANGED]->{$key} = 1;
                 last;
@@ -4235,7 +4236,7 @@ sub _read_udiff
 
                 if ($filename) {
                     if (exists($self->[UNCHANGED]->{$key})) {
-			# LCOV_UNREACHABLE_START
+                        # LCOV_UNREACHABLE_START
                         lcovutil::ignorable_error(
                             $lcovutil::ERROR_INTERNAL,
                             "$diff_file:$.: $filename marked unchanged but diff record found"
@@ -4244,7 +4245,7 @@ sub _read_udiff
                                      " (substituted '$file_new')"));
                         # OK - error ignored...remove the 'unchanged' marker
                         delete($self->[UNCHANGED]->{$key});
-			# LCOV_UNREACHABLE_STOP
+                        # LCOV_UNREACHABLE_STOP
                     }
                     $self->[LINEMAP]->{$key} = [];
                 }
@@ -4876,12 +4877,12 @@ sub _countBranchTlaData
             my $tla = $br->tla();
             # don't count excluded coverpoints
             unless (defined($tla)) {
-		# LCOV_UNREACHABLE_START
+                # LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                           "undef TLA for branch $blockId of " . $self->path() .
                               ":$line - lineTLA:$lineTla taken:" . $br->data());
                 next;
-		# LCOV_UNREACHABLE_STOP
+                # LCOV_UNREACHABLE_STOP
             }
             next if grep(/$tla/, ('EUC', 'ECC'));
             $fileSummary->[SummaryInfo::BRANCH_DATA]->[SummaryInfo::DATA]
@@ -4998,7 +4999,7 @@ sub _countMcdcTlaData
                 # don't count excluded coverpoints
                 next if grep(/$tla/, ('EUC', 'ECC'));
                 unless (defined($tla)) {
-		    # LCOV_UNREACHABLE_START
+                    # LCOV_UNREACHABLE_START
                     lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                         "undef TLA for sense $sense of MC/DC " .
                                             $expr->index() .
@@ -5006,7 +5007,7 @@ sub _countMcdcTlaData
                                             ":$line - lineTLA:$lineTla taken:" .
                                             $count->[1]);
                     next;
-		    # LCOV_UNREACHABLE_STOP
+                    # LCOV_UNREACHABLE_STOP
                 }
                 $fileSummary->[SummaryInfo::MCDC_DATA]->[SummaryInfo::DATA]
                     ->{$tla} += 1;
@@ -5180,12 +5181,12 @@ sub _accountFunction
     my ($fileSummary, $tla, $src_age) = @_;
 
     unless (defined($tla)) {
-	# LCOV_UNREACHABLE_START
+        # LCOV_UNREACHABLE_START
         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                   "undef function TLA for age '$src_age' of " .
                                       $fileSummary->name());
         return 1;    # error
-	# LCOV_UNREACHABLE_STOP
+                     # LCOV_UNREACHABLE_STOP
     }
 
     $fileSummary->[SummaryInfo::FUNCTION_DATA]->[SummaryInfo::DATA]->{$tla} +=
@@ -5213,7 +5214,7 @@ sub _countFunctionTlaData
     my $h         = $func->hit();
     my $mergedTla = $h->[1];
     if (!defined($mergedTla)) {
-	# LCOV_UNREACHABLE_START
+        # LCOV_UNREACHABLE_START
         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                   "undef TLA for function '" .
                                       $func->name() .
@@ -5225,7 +5226,7 @@ sub _countFunctionTlaData
         $mergedTla = $h->[0] == 0 ? 'UNC' : 'GNC';
         $h->[1] = $mergedTla;
         #return;
-	# LCOV_UNREACHABLE_STOP
+        # LCOV_UNREACHABLE_STOP
     }
 
     if (!grep(/^$mergedTla$/, ('DUB', 'DCB'))) {
@@ -5248,7 +5249,7 @@ sub _countFunctionTlaData
             my $data = $aliases->{$alias};
             my $tla  = $data->[1];
             if (!defined($tla)) {
-		# LCOV_UNREACHABLE_START
+                # LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                     "undef TLA for alias:'$alias' hit:" .
                         $data->[0] . " of function '" . $func->name() .
@@ -5257,7 +5258,7 @@ sub _countFunctionTlaData
                 # die("this should not happen either");
                 $tla = $data->[0] == 0 ? 'UNC' : 'GNC';
                 $data->[1] = $tla;
-		# LCOV_UNREACHABLE_STOP
+                # LCOV_UNREACHABLE_STOP
             }
             _accountFunction($fileSummary, $tla, $src_age);
         }
