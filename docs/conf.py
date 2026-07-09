@@ -259,7 +259,8 @@ Note that not all tools support all options.  For example, ``--diff-file`` and `
 Getting Started
 ===============
 
-  #. Point your environment to your installation of {ToolName} -  or install {ToolName} using ``make install``
+  #. Point your environment to your installation of {ToolName} -  or install {ToolName} using ``make install``.
+    Note that ``sphinx-build`` is required in order to build documentation.
 
   #. Prepare your executables:
 

@@ -110,6 +110,7 @@ info:
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
 	@echo "  check     : perform self-tests"
 	@echo "  checkstyle: check source files for coding style issues"
+	@echo "  doc       : build man and HTML format documentation"
 	@echo "  release   : finalize release and create git tag for specified VERSION"
 	@echo "  test      : same as 'make check'"
 
@@ -123,13 +124,22 @@ clean:
 	find . \( -name '*.tdy' -o -name '*.orig' \) -a -type f | xargs rm -f
 
 doc:
+	echo "LCOV_NO_DOC: '$(LCOV_NO_DOC)'"
+ifneq ($(LCOV_NO_DOC),)
+	echo "OK - as requested:  not building documentation"
+else
 	$(MAKE) -C docs RELEASE=${VERSION} TOOL_NAME=$(TOOL_NAME) man html
 	find docs/_build -type d -exec chmod u+x {} \; # apparent permissions bug??
+endif
 
-# want an explicit target that 'install' can check - such that 'make install'
+# want explicit targets that 'install' can check - such that 'make install'
 # does nothing but install stuff (not build too).
-doc_finished: doc
-	touch $@
+
+doc_finished:
+	if [ ! -f $@ ] ; then \
+	  $(MAKE) doc;        \
+	  touch $@ ;          \
+	fi
 
 install: doc_finished
 	$(INSTALL) -d -m 755 $(BIN_INST_DIR)
@@ -160,6 +170,7 @@ install: doc_finished
 		       --fixver --fixlibdir --fixbindir          \
 		       --exec $(LIB_INST_DIR)/$$l ;              \
 	done
+ifeq ($(LCOV_NO_DOC),)
 	for section in $(MAN_SECTIONS) ; do                    \
 		DEST=$(MAN_INST_DIR)/man$$section ;            \
 		$(INSTALL) -d -m 755 $$DEST ;                  \
@@ -177,7 +188,7 @@ install: doc_finished
 		$(INSTALL) -d -m 755 $$DEST ;                    \
 		$(INSTALL) -m 644 ./docs/_build/$$f $$DEST ;     \
 	done
-
+endif
 	for d in example tests ; do \
 		( cd $$d ; make clean ) ; \
 		find $$d -type d -exec mkdir -p -m 755 "$(SHARE_INST_DIR)/{}" \; ; \

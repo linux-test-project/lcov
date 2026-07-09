@@ -188,6 +188,10 @@ via::
 You will very likely need superuser access to be able to install Perl
 modules.
 
+To execute ``make install ...`` or ``make doc``, you will need:
+
+  - sphinx-build
+
 Some of the applications provided with the lcov module are written
 in Python - and may require additional Python packages.
 In particular, 'xlsxwriter' is required in order to generate any
@@ -196,6 +200,7 @@ of the spreadsheet reports.
 To measure Python code coverage, users will need Python packages:
 
 - Coverage.py
+  
 
 In addition, contributors will need:
 
