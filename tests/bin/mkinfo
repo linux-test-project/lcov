@@ -869,9 +869,12 @@ sub print_intro($)
 
     $numtests = 1 if ($numtests < 1);
 
-    print($BOLD. "Creating coverage files ($numtests " .
-          plural($numtests, "test", "tests") . ", $numfiles " .
-          plural($numfiles, "source file", "source files") . ")\n" . $RESET);
+    print($BOLD.
+          "Creating coverage files ($numtests " .
+          plural($numtests, "test", "tests") .
+          ", $numfiles " .
+          plural($numfiles, "source file", "source files") . ")\n" .
+          $RESET);
 }
 
 sub main()

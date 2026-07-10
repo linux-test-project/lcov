@@ -85,10 +85,9 @@ sub new
         (!$standalone && scalar(@_)) ||
         $help
     ) {
-        print(STDERR ($help ? '' : ("unexpected arg: $script " . join(' ', @_))
-              ),
-              "usage: $exe [--log logfile] [--cache dir] [--verify] filename\n"
-        );
+        print
+            (STDERR ($help ? '' : ("unexpected arg: $script " . join(' ', @_))),
+             "usage: $exe [--log logfile] [--cache dir] [--verify] filename\n");
         exit(scalar(@_) == 0 && $help ? 0 : 1) if $standalone;
         return undef;
     }
@@ -100,7 +99,8 @@ sub new
     if (@notset) {
         die("$exe requires environment variable" .
             (1 < scalar(@notset) ? 's' : '') . ' ' .
-            join(' ', @notset) . " to be set.");
+            join(' ', @notset) .
+            " to be set.");
     }
 
     return $class->SUPER::new($exe, $cache_dir, $logfile, $verify);
@@ -126,9 +126,9 @@ sub annotate_callback
     my $null = File::Spec->devnull();    # more portable
     my @lines;
     my $status;
-    if (0 == system(
-               "p4 files $pathname 2>$null|grep -qv -- '- no such file' >$null")
-    ) {
+    if (0 ==
+       system("p4 files $pathname 2>$null|grep -qv -- '- no such file' >$null"))
+    {
         # this file is in p4..
         my $version;
         my $have = `p4 have $pathname`;

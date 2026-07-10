@@ -570,7 +570,8 @@ sub relativeDir
 {
     my ($self, $dir_string) = @_;
     die("bad usage: relativeDir(" .
-            (defined($dir_string) ? $dir_string : '') . ') current: '
+            (defined($dir_string) ? $dir_string : '') .
+            ') current: '
             .
             (defined($self->[RELATIVE_DIR]) ? $self->[RELATIVE_DIR] : '<undef>')
         )
@@ -936,7 +937,7 @@ sub findOwnerList
     @owners = sort({
                        $b->[1]->[0]     <=> $a->[1]->[0] ||    # missed
                            $b->[1]->[1] <=> $a->[1]->[1] ||    # then total
-                           $a->[0] cmp $b->[0]
+                           $a->[0]      cmp $b->[0]
     } @owners);    # then by name
     my $truncated;
     if ($truncate_me                          &&
@@ -1387,8 +1388,10 @@ sub checkCoverageCriteria
     }
     my $name = $self->type() eq 'top' ? 'top' : $self->name();
     my $cmd =
-        join(' ', @CoverageCriteria::coverageCriteriaScript) .
-        ' \'' . $name . '\' ' . $self->type() . ' \'json_encoded_data\'';
+        join(' ', @CoverageCriteria::coverageCriteriaScript) . ' \'' .
+        $name . '\' ' .
+        $self->type() .
+        ' \'json_encoded_data\'';
     # command:  script name (top|dir|file) jsonString args..
     lcovutil::info(1, "criteria: '$cmd'\n");
     CoverageCriteria::executeCallback($self->type(), $name, \%data);
@@ -1689,8 +1692,9 @@ sub data
 {
     my $self = shift;
 
-    my $lineCb = OwnerDetailCallback->new($self->[1], $self->[0],
-                                          SummaryInfo::LINE_DATA);
+    my $lineCb =
+        OwnerDetailCallback->new($self->[1], $self->[0],
+                                 SummaryInfo::LINE_DATA);
     my $branchCb =
         OwnerDetailCallback->new($self->[1], $self->[0],
                                  SummaryInfo::BRANCH_DATA);
@@ -2262,9 +2266,11 @@ sub lineNo
             unless $which eq "base";
         $loc = LINENO_BASE;
     }
-    lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
                         "\"$filename\": inconsistent '$which' line location: " .
-                            $self->[$loc] . " -> $lineNo")
+                            $self->[$loc] .
+                            " -> $lineNo")
         if (defined($lineNo) &&
             defined($self->[$loc]) &&
             $self->[$loc] != $lineNo);
@@ -3254,9 +3260,10 @@ sub _categorizeFunctionCov
         } else {
             $data = $lineDataMap->{$line};
             lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                                      "type mismatch " . $data->type() .
-                                          " -> $type for $filename:$line")
-                unless $data->type() == $type;
+                                      "type mismatch " .
+                                          $data->type() .
+                                          " -> $type for $filename:$line"
+            ) unless $data->type() == $type;
         }
         # we expect that the line number matches...
         $data->lineNo("current", $line, $filename);
@@ -3913,7 +3920,8 @@ sub check_version_match
             # file is in 'diff' data:  we expect the version to be different
             #   between baseline/current
             if ($versionMatch) {
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                lcovutil::ignorable_error(
+                               $lcovutil::ERROR_INCONSISTENT_DATA,
                                "File \"$curr\" appears in 'diff' data file '" .
                                    $self->[DIFF_FILENAME] .
                                    "' but 'baseline' and 'current' versions '" .
@@ -3923,7 +3931,8 @@ sub check_version_match
         } else {
             # not in 'diff':  we expect the versions to be identical
             if (!$versionMatch) {
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                lcovutil::ignorable_error(
+                              $lcovutil::ERROR_INCONSISTENT_DATA,
                               "File \"$curr\" version changed from '" .
                                   ($base_version ? $base_version : '<undef') .
                                   "' to '" .
@@ -4879,8 +4888,10 @@ sub _countBranchTlaData
             unless (defined($tla)) {
                 # LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                          "undef TLA for branch $blockId of " . $self->path() .
-                              ":$line - lineTLA:$lineTla taken:" . $br->data());
+                                        "undef TLA for branch $blockId of " .
+                                            $self->path() .
+                                            ":$line - lineTLA:$lineTla taken:" .
+                                            $br->data());
                 next;
                 # LCOV_UNREACHABLE_STOP
             }
@@ -5000,10 +5011,11 @@ sub _countMcdcTlaData
                 next if grep(/$tla/, ('EUC', 'ECC'));
                 unless (defined($tla)) {
                     # LCOV_UNREACHABLE_START
-                    lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
+                    lcovutil::ignorable_error(
+                                        $lcovutil::ERROR_INTERNAL,
                                         "undef TLA for sense $sense of MC/DC " .
-                                            $expr->index() .
-                                            ' of ' . $self->path() .
+                                            $expr->index() . ' of ' .
+                                            $self->path() .
                                             ":$line - lineTLA:$lineTla taken:" .
                                             $count->[1]);
                     next;
@@ -5218,9 +5230,12 @@ sub _countFunctionTlaData
         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                   "undef TLA for function '" .
                                       $func->name() .
-                                      "' hit " . $h->[0] . " at line " .
-                                      $line . " (" . $lineData->tla() .
-                                      ' ' . $lineData->curr_count() . ")");
+                                      "' hit " .
+                                      $h->[0] .
+                                      " at line " .
+                                      $line . " (" .
+                                      $lineData->tla() . ' ' .
+                                      $lineData->curr_count() . ")");
         #die("this should not happen");
         # This is new code - somehow miscategorized.
         $mergedTla = $h->[0] == 0 ? 'UNC' : 'GNC';
@@ -5251,10 +5266,16 @@ sub _countFunctionTlaData
             if (!defined($tla)) {
                 # LCOV_UNREACHABLE_START
                 lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
-                    "undef TLA for alias:'$alias' hit:" .
-                        $data->[0] . " of function '" . $func->name() .
-                        "' hit " . $h->[0] . " at line " . $line . " (" .
-                        $lineData->tla() . ' ' . $lineData->curr_count() . ")");
+                                          "undef TLA for alias:'$alias' hit:" .
+                                              $data->[0] .
+                                              " of function '" .
+                                              $func->name() .
+                                              "' hit " .
+                                              $h->[0] .
+                                              " at line " .
+                                              $line . " (" .
+                                              $lineData->tla() . ' ' .
+                                              $lineData->curr_count() . ")");
                 # die("this should not happen either");
                 $tla = $data->[0] == 0 ? 'UNC' : 'GNC';
                 $data->[1] = $tla;
@@ -5897,9 +5918,10 @@ sub _synthesize
             ' - synthesizing fake content.' :
             '.';
         lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
-                                  "cannot read '" . $self->path() .
-                                      "' - file is empty or unreadable$suffix")
-            unless $main::no_sourceview;
+                                  "cannot read '" .
+                                      $self->path() .
+                                      "' - file is empty or unreadable$suffix"
+        ) unless $main::no_sourceview;
         $why = 'empty or unreadable';
     } else {
         my $suffix = '';
@@ -5908,11 +5930,14 @@ sub _synthesize
             my $plural = $num == 1 ? 'line' : "$num lines";
             $suffix = ' ... synthesizing fake content for last ' . $plural;
         }
-        lcovutil::ignorable_error($lcovutil::ERROR_RANGE,
+        lcovutil::ignorable_error(
+                                $lcovutil::ERROR_RANGE,
                                 $self->path() .
-                                    ' contains only ' . $currentLast .
+                                    ' contains only ' .
+                                    $currentLast .
                                     ' lines but coverage data refers to line ' .
-                                    $last_line . $suffix);
+                                    $last_line .
+                                    $suffix);
         $why = 'not long enough';
     }
     # Simulate gcov behavior
@@ -6017,7 +6042,8 @@ sub new
                         my $tla   = $br->tla();
                         my $count = $br->count();
                         die("unexpected branch TLA $tla for count $count at " .
-                            $fileDetails->path() . ":$line")
+                            $fileDetails->path() .
+                            ":$line")
                             unless (($count != 0) == exists($tlaData{$tla}));
                         next if (0 == $count);
                         $tlaData{$tla} += 1;
@@ -6180,9 +6206,9 @@ sub new
             push(@unknown, [$f, $filename]);
         }
     }
-    lcovutil::info(
-          scalar(@unknown) . ' (of ' . (scalar(@predicted) + scalar(@unknown)) .
-              ") files do not appear in \'--history\' profile.\n")
+    lcovutil::info(scalar(@unknown) . ' (of ' .
+                       (scalar(@predicted) + scalar(@unknown)) .
+                       ") files do not appear in \'--history\' profile.\n")
         if (defined($lcovutil::profileHistoryCallback) &&
             @unknown);
 
@@ -6367,7 +6393,8 @@ sub completed_dependency
     if ($main::debugScheduler > 1) {
         # print parent dependencies
         while (my ($k, $d) = each(%{$pendingParent->[1]})) {
-            die("unexpected parent dependency $k ARRAY: " . $d->[0] . ' ' .
+            die("unexpected parent dependency $k ARRAY: " .
+                $d->[0] . ' ' .
                 join('/', @{$d->[2]}))
                 if ('ARRAY' eq ref($d) || 1 != $d);
             print("  $k\n");
@@ -6377,7 +6404,8 @@ sub completed_dependency
     if (!%{$pendingParent->[1]}) {
         # no more dependencies - schedule this one
         my $p = $pendingParent->[0];
-        print("completed dependencies - schedule " . $p->[0] . ' ' .
+        print("completed dependencies - schedule " .
+              $p->[0] . ' ' .
               join('/', @{$p->[2]}) . "\n")
             if $main::debugScheduler > 1;
         push(@{$self->[WORKLIST]}, $p);
@@ -6796,7 +6824,8 @@ sub compute
                     lcovutil::info("  $k\n");
                     die("unexpected data for depend $k: $d") unless $d == 1;
                 }
-                lcovutil::info("   parent: " . $p->[0]->[0] . ' ' .
+                lcovutil::info("   parent: " .
+                               $p->[0]->[0] . ' ' .
                                join('/', @{$p->[0]->[2]}) . "\n");
             }
             # can get here if child process hit a 'die' (as opposed to an error)
@@ -7276,8 +7305,7 @@ my %genhtml_options = (
 Getopt::Long::Configure('default');
 
 # Parse command line options
-if (
-    !lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options,
+if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options,
                             \$output_directory)
 ) {
     print(STDERR "Use $tool_name --help to get usage information\n");
@@ -7965,7 +7993,8 @@ sub gen_html()
 
     if (@SourceFile::annotateScript &&
         0 == $SourceFile::annotatedFiles) {
-        lcovutil::ignorable_error($lcovutil::ERROR_ANNOTATE_SCRIPT,
+        lcovutil::ignorable_error(
+              $lcovutil::ERROR_ANNOTATE_SCRIPT,
               "\"--annotate-script '" .
                   join(' ', @SourceFile::annotateScript) .
                   "'\" did not find any revision-controlled files in your sandbox"
@@ -8016,9 +8045,8 @@ sub write_dir_page
     my $bin_prefix = $ctrls->[3];
     # Generate directory overview page including details
     html_create(*HTML_HANDLE,
-                File::Spec->catfile(
-                              $rel_dir, "index$bin_prefix$page_suffix.$html_ext"
-                ));
+                File::Spec->catfile($rel_dir,
+                                    "index$bin_prefix$page_suffix.$html_ext"));
     if (!defined($trunc_dir)) {
         $trunc_dir = "";
     }
@@ -8087,18 +8115,19 @@ sub write_summary_pages($$$$$$$$)
     my $start = Time::HiRes::gettimeofday();
     my @summaryBins;
     if (defined($main::show_ownerBins)) {
-        if (0 != scalar($summary->owners(
-                                   $main::show_ownerBins, SummaryInfo::LINE_DATA
+        if (
+            0 != scalar($summary->owners($main::show_ownerBins,
+                                         SummaryInfo::LINE_DATA
             ))
             ||
             (   $lcovutil::br_coverage &&
-                0 != scalar($summary->owners(
-                                 $main::show_ownerBins, SummaryInfo::BRANCH_DATA
+                0 != scalar($summary->owners($main::show_ownerBins,
+                                             SummaryInfo::BRANCH_DATA
                 )))
             ||
             (   $lcovutil::mcdc_coverage &&
-                0 != scalar($summary->owners(
-                                   $main::show_ownerBins, SummaryInfo::MCDC_DATA
+                0 != scalar($summary->owners($main::show_ownerBins,
+                                             SummaryInfo::MCDC_DATA
                 )))
         ) {
             # at least one owner will appear - so table will be referenced
@@ -8206,7 +8235,8 @@ sub write_function_page($$$$$$$$$$$$$$$)
     html_create(*HTML_HANDLE, $filename);
     my $pagetitle =
         "LCOV - $title - " .
-        File::Spec->catfile($trunc_dir, $base_name) . " - functions";
+        File::Spec->catfile($trunc_dir, $base_name) .
+        " - functions";
     write_html_prolog(*HTML_HANDLE, $base_dir, $pagetitle);
     write_header(*HTML_HANDLE,
                  'file',    # function table always written from 'file' level
@@ -10187,7 +10217,8 @@ sub write_file_table_entry(*$$@)
     die("unexpected callback arg types: write_file_table_entry(" .
         ref($fileSummary) . ', ' .
         ref($fileDetails) .
-        ", $file_link, " . (defined($cbData) ? $cbData : 'undef') . ')')
+        ", $file_link, " .
+        (defined($cbData) ? $cbData : 'undef') . ')')
         unless (!defined($fileDetails) || 'SourceFile' eq ref($fileDetails)) &&
         'SummaryInfo' eq ref($fileSummary);
     my $esc_name = escape_html($name);
@@ -10221,7 +10252,8 @@ sub write_file_table_entry(*$$@)
             $source_link =
                 $suppressFileHref ? $obj_name :
                 ("<a href=\"$page_link\" title=\"Click to go to " .
-                 $fileSummary->type() . " $full_path\">$obj_name</a>");
+                 $fileSummary->type() .
+                 " $full_path\">$obj_name</a>");
         } elsif (defined($file_link) &&
                  $file_link ne "") {
             my $target = File::Basename::basename($fileSummary->name());
@@ -10255,7 +10287,8 @@ sub write_file_table_entry(*$$@)
         $namecode =
             $suppressFileHref ? $obj_name :
             ("<a href=\"$page_link\" title=\"Click to go to " .
-             $fileSummary->type() . " $full_path\">$obj_name</a>");
+             $fileSummary->type() .
+             " $full_path\">$obj_name</a>");
         $owner = "";
     } elsif ($is_secondary &&
              $primary_key ne 'name' &&
@@ -10539,7 +10572,8 @@ END_OF_HTML
                             $line = $fileDetails->nextInOwnerBin($owner, $key)
                                 if $covType == SummaryInfo::LINE_DATA;
                             $line =
-                                $fileDetails->nextBranchInOwnerBin($owner, $key)
+                                $fileDetails->nextBranchInOwnerBin($owner,
+                                                                   $key)
                                 if $covType == SummaryInfo::BRANCH_DATA;
                             $line =
                                 $fileDetails->nextMcdcInOwnerBin($owner, $key)
@@ -10552,7 +10586,8 @@ END_OF_HTML
                             $line = $fileDetails->nextInDateBin($agebin, $key)
                                 if $covType == SummaryInfo::LINE_DATA;
                             $line =
-                                $fileDetails->nextBranchInDateBin($agebin, $key)
+                                $fileDetails->nextBranchInDateBin($agebin,
+                                                                  $key)
                                 if $covType == SummaryInfo::BRANCH_DATA;
                             $line =
                                 $fileDetails->nextMcdcInDateBin($agebin, $key)
@@ -11158,8 +11193,10 @@ sub get_mcdc_html($$)
 
             my $expr_name = $expr->expression();
             $title =
-                ${prefix} . ($sense ? 'True' : 'False') .
-                ' sense of expression "' . $expr_name . '" ';
+                ${prefix} .
+                ($sense ? 'True' : 'False') .
+                ' sense of expression "' .
+                $expr_name . '" ';
             if ($expr->parent()->num_groups() > 1) {
                 $title .= 'in group "' . $expr->groupSize() . '" ';
             }
@@ -11174,7 +11211,8 @@ sub get_mcdc_html($$)
                 $title .= 'was dropped';
                 $title .=
                     ' (previously ' .
-                    (1 == $base_count ? '' : 'not ') . 'sensitized)'
+                    (1 == $base_count ? '' : 'not ') .
+                    'sensitized)'
                     if (defined($tla) &&
                         ($tla eq 'LBC' || $tla eq 'ECB'));
 
@@ -11183,7 +11221,8 @@ sub get_mcdc_html($$)
                 $title .= 'was not sensitized';
                 $title .=
                     ' (previously ' .
-                    (1 == $base_count ? '' : 'not ') . 'sensitized)'
+                    (1 == $base_count ? '' : 'not ') .
+                    'sensitized)'
                     if (defined($tla) &&
                         ($tla eq 'LBC' || $tla eq 'ECB'));
             } else {
@@ -11380,8 +11419,10 @@ sub write_source_line(*$$$$$$$)
         # '$result' is used to generate the PNG frame
         info(2,
              "    $bucket: line=$line " .
-                 (defined($count) ? "count= $count " : "") . ' curr=' .
-                 (defined($curr_count) ? $curr_count : '-') . ' base=' .
+                 (defined($count) ? "count= $count " : "") .
+                 ' curr=' .
+                 (defined($curr_count) ? $curr_count : '-') .
+                 ' base=' .
                  (defined($base_count) ? $base_count : '-') . "\n");
     }
     $result .= ":" . $source;
@@ -11568,7 +11609,8 @@ sub write_source_line(*$$$$$$$)
                     $bucket;
                 my $popup =
                     " title=\"next $label in &ldquo;" .
-                    escape_html($src_owner) . "&rdquo; bin\"";
+                    escape_html($src_owner) .
+                    "&rdquo; bin\"";
                 # NOTE:  see note below about firefox nested span bug.
                 #  this code just arranges to wrap an explicit 'span' around
                 #  the space.
@@ -11657,7 +11699,8 @@ sub write_source_line(*$$$$$$$)
         }
         write_html($handle,
                    "$html_continuation_leader$lineNumSpan" .
-                       ' ' x 8 . "</span> $br$mc\n");
+                       ' ' x 8 .
+                       "</span> $br$mc\n");
     }
     # *************************************************************
 
@@ -11977,7 +12020,8 @@ sub buildOwnerSummaryTable($$$$$$$$$$)
         ($main::show_ownerBins ? "" : "un-exercised ") . "code)";
     $title .=
         ":  $num_truncated author" .
-        ($num_truncated == 1 ? '' : 's') . ' truncated'
+        ($num_truncated == 1 ? '' : 's') .
+        ' truncated'
         if $num_truncated;
 
     $title =
@@ -12046,7 +12090,8 @@ sub buildOwnerSummaryTable($$$$$$$$$$)
         my $href     = $esc_name;
         if (defined($detailLink)) {
             $href =
-                "<a href=\"$page#N" . escape_id($name) .
+                "<a href=\"$page#N" .
+                escape_id($name) .
                 "\" title=\"Click to go to coverage summary for owner '$esc_name'\">$esc_name</a>";
         }
         $hit -= $found    # negative number
@@ -12322,7 +12367,8 @@ sub write_header(*$$$$$$$)
         # Test description header
         $base_dir = "";
         $view =
-            "<a href=\"$base_dir" . "index.$html_ext\">" .
+            "<a href=\"$base_dir" .
+            "index.$html_ext\">" .
             "$overview_title</a> - test case descriptions";
     }
 
@@ -12342,7 +12388,8 @@ sub write_header(*$$$$$$$)
             $test .=
                 " ( <span style=\"font-size:80%;\">" .
                 "<a href=\"$base_dir" .
-                "descriptions.$html_ext\">" . "view descriptions</a></span> )";
+                "descriptions.$html_ext\">" .
+                "view descriptions</a></span> )";
         }
     }
 
@@ -12351,7 +12398,8 @@ sub write_header(*$$$$$$$)
 
     # Left row
     push(@row_left,
-         [["10%", "headerItem", "Current view:"], ["10%", "headerValue", $view]
+         [["10%", "headerItem", "Current view:"],
+          ["10%", "headerValue", $view]
          ]);
     my $label = defined($baseline_title) ? "Current" : "Test";
     push(@row_left,
@@ -12571,8 +12619,10 @@ END_OF_HTML
     }
     if ($main::show_tla) {
         my @tlaRow =
-            buildHeaderSummaryTableRow($summary, SummaryInfo::LINE_DATA,
-                                       $fileDetail, \&SourceFile::nextTlaGroup,
+            buildHeaderSummaryTableRow($summary,
+                                       SummaryInfo::LINE_DATA,
+                                       $fileDetail,
+                                       \&SourceFile::nextTlaGroup,
                                        $tlaSummaryTypes);
         push(@dataRow, @tlaRow);
     }
@@ -12663,12 +12713,15 @@ END_OF_HTML
             if ($type != $HDR_SOURCE &&
                 $type != $HDR_FUNC);
         my $table =
-            buildDateSummaryTable(
-                        $summary, SummaryInfo::LINE_DATA,
-                        \&SummaryInfo::lineCovCount, $fileDetail,
-                        \&SourceFile::nextInDateBin, "Line coverage date bins:",
-                        $dateBinDetailPage, scalar(@dataRow),
-                        $tlaSummaryTypes);
+            buildDateSummaryTable($summary,
+                                  SummaryInfo::LINE_DATA,
+                                  \&SummaryInfo::lineCovCount,
+                                  $fileDetail,
+                                  \&SourceFile::nextInDateBin,
+                                  "Line coverage date bins:",
+                                  $dateBinDetailPage,
+                                  scalar(@dataRow),
+                                  $tlaSummaryTypes);
         push(@row_right, @$table)
             if ($type != $HDR_TESTDESC);
 
@@ -12819,9 +12872,17 @@ sub get_sort_code($$$)
     }
     my $help = " title=\"Click to sort table by $alt\"";
     $alt = "Sort by $alt";
-    return " <span $help class=\"tableHeadSort\">" . $link_start .
-        '<img src="' . $base . $png . '" width=10 height=14 ' .
-        'alt="' . $alt . '"' . $help . ' border=0>' . $link_end . '</span>';
+    return " <span $help class=\"tableHeadSort\">" .
+        $link_start .
+        '<img src="' .
+        $base .
+        $png .
+        '" width=10 height=14 ' . 'alt="' .
+        $alt . '"' .
+        $help .
+        ' border=0>' .
+        $link_end .
+        '</span>';
 }
 
 sub get_file_code($$$$$$)
@@ -12857,18 +12918,28 @@ sub get_line_code($$$$$$$)
         # Text + link to detail view
         my $help = "title=\"Click to go to per-testcase coverage details\"";
         my $detail_link =
-            'index' . $key . $bin_type .
-            '-detail' . $fileview_sortname[$sort_type] . '.' . $html_ext;
+            'index' .
+            $key .
+            $bin_type .
+            '-detail' .
+            $fileview_sortname[$sort_type] . '.' .
+            $html_ext;
         $result .=
             " ( <a $help " .
-            'class="detail" href="' . $detail_link . '">show details</a> )';
+            'class="detail" href="' .
+            $detail_link .
+            '">show details</a> )';
     } else {
         # Text + link to standard view
         my $help = "title=\"Click to hide per-testcase coverage details\"";
         $result .=
-            " ( <a $help " . 'class="detail" href="index' .
-            $key . $bin_type . $fileview_sortname[$sort_type] .
-            '.' . $html_ext . '">hide details</a> )';
+            " ( <a $help " .
+            'class="detail" href="index' .
+            $key .
+            $bin_type .
+            $fileview_sortname[$sort_type] . '.' .
+            $html_ext .
+            '">hide details</a> )';
     }
     # Add sort button
     $result .= get_sort_code($sort_link, "line coverage", $base);
@@ -13012,22 +13083,31 @@ sub write_file_table(*$$$$$$)
         get_file_code($hide, $file_col_title,
                       $use_sort_button && $sort_type != $SORT_FILE,
                       $bin_type, $primary_key, $base_dir);
-    my $line_code = get_line_code($show, $sort_type,
+    my $line_code = get_line_code($show,
+                                  $sort_type,
                                   "Line Coverage",
                                   $use_sort_button && $sort_type != $SORT_LINE,
-                                  $bin_type, $primary_key, $base_dir);
+                                  $bin_type,
+                                  $primary_key,
+                                  $base_dir);
     my $func_code = get_func_code($hide,
                                   "Function Coverage",
                                   $use_sort_button && $sort_type != $SORT_FUNC,
-                                  $bin_type, $primary_key, $base_dir);
+                                  $bin_type,
+                                  $primary_key,
+                                  $base_dir);
     my $br_code = get_br_code($hide,
                               "Branch Coverage",
                               $use_sort_button && $sort_type != $SORT_BRANCH,
-                              $bin_type, $primary_key, $base_dir);
+                              $bin_type,
+                              $primary_key,
+                              $base_dir);
     my $mcdc_code = get_mcdc_code($hide,
                                   "MC/DC Coverage",
                                   $use_sort_button && $sort_type != $SORT_MCDC,
-                                  $bin_type, $primary_key, $base_dir);
+                                  $bin_type,
+                                  $primary_key,
+                                  $base_dir);
 
     my @head_columns;
 
@@ -13085,9 +13165,12 @@ sub write_file_table(*$$$$$$)
         $showBinDetail = 'owner';
     }
     my $num_columns =
-        write_file_table_prolog(*HTML_HANDLE, $file_code,
+        write_file_table_prolog(
+                               *HTML_HANDLE,
+                               $file_code,
                                defined($showBinDetail) ? $showBinDetail : undef,
-                               $primary_key, @head_columns);
+                               $primary_key,
+                               @head_columns);
 
     my @tableRows;
     if ($primary_key eq 'name') {
@@ -13514,9 +13597,9 @@ sub write_file_table(*$$$$$$)
             push(@results,
                  [$found, $hit,
                   SummaryInfo::LINE_DATA,
-                  TestcaseTlaCount->new(
-                                      $testdata->value($testname), $fileDetails,
-                                      SummaryInfo::LINE_DATA)
+                  TestcaseTlaCount->new($testdata->value($testname),
+                                        $fileDetails,
+                                        SummaryInfo::LINE_DATA)
                  ]);
             # there might not be optional test data for some tests - that type was
             #  not enabled
@@ -13524,9 +13607,9 @@ sub write_file_table(*$$$$$$)
                  [$mcdc_found,
                   $mcdc_hit,
                   SummaryInfo::MCDC_DATA,
-                  TestcaseTlaCount->new(
-                                     $test_mcdc->value($testname), $fileDetails,
-                                     SummaryInfo::MCDC_DATA)
+                  TestcaseTlaCount->new($test_mcdc->value($testname),
+                                        $fileDetails,
+                                        SummaryInfo::MCDC_DATA)
                  ])
                 if ($hasMcdcData &&
                     defined($test_mcdc->value($testname)));
@@ -13535,9 +13618,9 @@ sub write_file_table(*$$$$$$)
                  [$br_found,
                   $br_hit,
                   SummaryInfo::BRANCH_DATA,
-                  TestcaseTlaCount->new(
-                                    $testbrdata->value($testname), $fileDetails,
-                                    SummaryInfo::BRANCH_DATA)
+                  TestcaseTlaCount->new($testbrdata->value($testname),
+                                        $fileDetails,
+                                        SummaryInfo::BRANCH_DATA)
                  ])
                 if ($hasBranchData &&
                     defined($testbrdata->value($testname)));
@@ -13546,9 +13629,9 @@ sub write_file_table(*$$$$$$)
                  [$fn_found,
                   $fn_hit,
                   SummaryInfo::FUNCTION_DATA,
-                  TestcaseTlaCount->new(
-                                   $testfncdata->value($testname), $fileDetails,
-                                   SummaryInfo::FUNCTION_DATA)
+                  TestcaseTlaCount->new($testfncdata->value($testname),
+                                        $fileDetails,
+                                        SummaryInfo::FUNCTION_DATA)
                  ])
                 if ($includeFunctionColumns &&
                     defined($testfncdata->value($testname)));
@@ -13557,8 +13640,10 @@ sub write_file_table(*$$$$$$)
             # Insert link to description of available
             if ($test_description{$testname}) {
                 $href =
-                    "<a href=\"$base_dir" . "descriptions.$html_ext#T" .
-                    escape_id($testname) . "\">" . "$testname</a>";
+                    "<a href=\"$base_dir" .
+                    "descriptions.$html_ext#T" .
+                    escape_id($testname) . "\">" .
+                    "$testname</a>";
             }
             write_file_table_detail_entry(*HTML_HANDLE, $base_dir,
                                $href, $showBinDetail, $activeTlaCols, @results);
@@ -13665,7 +13750,8 @@ sub write_source($$$$$$$$)
         # foreground/background - to make distinctive
         $empty .=
             '  <span class="lineNumWithDelete">' .
-            (' ' x (8 - 3)) . '...</span>';
+            (' ' x (8 - 3)) .
+            '...</span>';
         $empty .= ' ' x $main::br_field_width if $showBranches;
         $empty .= ' ' x $main::mcdc_field_width if $showMcdc;
         $empty .= ' ' x $main::tla_field_width;
@@ -14090,7 +14176,8 @@ sub remove_unused_descriptions()
 
     $after = scalar(keys(%test_description));
     if ($after < $before) {
-        info("Removed " . ($before - $after) .
+        info("Removed " .
+             ($before - $after) .
              " unused descriptions, $after remaining.\n");
     }
 }

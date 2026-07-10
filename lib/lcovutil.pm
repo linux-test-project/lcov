@@ -1033,7 +1033,8 @@ sub configure_callback
         };
         if ($@ ||
             !defined($$cb)) {
-            lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
+            lcovutil::ignorable_error(
+                             $lcovutil::ERROR_PACKAGE,
                              "unable to create callback from module '$script'" .
                                  (defined($@) ? ": $@" : ''));
         }
@@ -1114,93 +1115,90 @@ my ($cExtensions, $rtlExtensions, $javaExtensions,
     $perlExtensions, $pythonExtensions);
 
 my %rc_common = (
-             'derive_function_end_line' => \$lcovutil::derive_function_end_line,
-             'derive_function_end_line_all_files' =>
+    'derive_function_end_line' => \$lcovutil::derive_function_end_line,
+    'derive_function_end_line_all_files' =>
         \$derive_function_end_line_all_files,
-             'trivial_function_threshold' => \$lcovutil::trivial_function_threshold,
-             "lcov_tmp_dir"                => \$lcovutil::tmp_dir,
-             "lcov_json_module"            => \$JsonSupport::rc_json_module,
-             "branch_coverage"             => \$lcovutil::br_coverage,
-             'mcdc_coverage'               => \$lcovutil::mcdc_coverage,
-             "function_coverage"           => \$lcovutil::func_coverage,
-             "lcov_excl_line"              => \$lcovutil::EXCL_LINE,
-             "lcov_excl_br_line"           => \$lcovutil::EXCL_BR_LINE,
-             "lcov_excl_exception_br_line" => \$lcovutil::EXCL_EXCEPTION_LINE,
-             "lcov_excl_start"             => \$lcovutil::EXCL_START,
-             "lcov_excl_stop"              => \$lcovutil::EXCL_STOP,
-             "lcov_excl_br_start"          => \$lcovutil::EXCL_BR_START,
-             "lcov_excl_br_stop"           => \$lcovutil::EXCL_BR_STOP,
-             "lcov_excl_exception_br_start" => \$lcovutil::EXCL_EXCEPTION_BR_START,
-             "lcov_excl_exception_br_stop" => \$lcovutil::EXCL_EXCEPTION_BR_STOP,
-             'lcov_unreachable_start'      => \$lcovutil::UNREACHABLE_START,
-             'lcov_unreachable_stop'       => \$lcovutil::UNREACHABLE_STOP,
-             'lcov_unreachable_line'       => \$lcovutil::UNREACHABLE_LINE,
-             'retain_unreachable_coverpoints_if_executed' =>
+    'trivial_function_threshold'   => \$lcovutil::trivial_function_threshold,
+    "lcov_tmp_dir"                 => \$lcovutil::tmp_dir,
+    "lcov_json_module"             => \$JsonSupport::rc_json_module,
+    "branch_coverage"              => \$lcovutil::br_coverage,
+    'mcdc_coverage'                => \$lcovutil::mcdc_coverage,
+    "function_coverage"            => \$lcovutil::func_coverage,
+    "lcov_excl_line"               => \$lcovutil::EXCL_LINE,
+    "lcov_excl_br_line"            => \$lcovutil::EXCL_BR_LINE,
+    "lcov_excl_exception_br_line"  => \$lcovutil::EXCL_EXCEPTION_LINE,
+    "lcov_excl_start"              => \$lcovutil::EXCL_START,
+    "lcov_excl_stop"               => \$lcovutil::EXCL_STOP,
+    "lcov_excl_br_start"           => \$lcovutil::EXCL_BR_START,
+    "lcov_excl_br_stop"            => \$lcovutil::EXCL_BR_STOP,
+    "lcov_excl_exception_br_start" => \$lcovutil::EXCL_EXCEPTION_BR_START,
+    "lcov_excl_exception_br_stop"  => \$lcovutil::EXCL_EXCEPTION_BR_STOP,
+    'lcov_unreachable_start'       => \$lcovutil::UNREACHABLE_START,
+    'lcov_unreachable_stop'        => \$lcovutil::UNREACHABLE_STOP,
+    'lcov_unreachable_line'        => \$lcovutil::UNREACHABLE_LINE,
+    'retain_unreachable_coverpoints_if_executed' =>
         \$lcovutil::retainUnreachableCoverpointIfHit,
-             "ignore_unreachable_flag" => \$lcovutil::ignore_unreachable_flag,
-             "ignore_errors"           => \@rc_ignore,
-             "max_message_count"       => \$lcovutil::suppressAfter,
-             "message_log"             => \$lcovutil::message_log,
-             'expected_message_count'  => \@rc_expected_msg_counts,
-             'stop_on_error'           => \$lcovutil::stop_on_error,
-             'treat_warning_as_error'  => \$lcovutil::treat_warning_as_error,
-             'warn_once_per_file'      => \$lcovutil::warn_once_per_file,
-             'check_data_consistency'  => \$lcovutil::check_data_consistency,
-             "rtl_file_extensions"     => \$rtlExtensions,
-             "c_file_extensions"       => \$cExtensions,
-             "perl_file_extensions"    => \$perlExtensions,
-             "python_file_extensions"  => \$pythonExtensions,
-             "java_file_extensions"    => \$javaExtensions,
-             'info_file_pattern'       => \$info_file_pattern,
-             "filter_lookahead"        => \$lcovutil::source_filter_lookahead,
-             "filter_bitwise_conditional" =>
+    "ignore_unreachable_flag"    => \$lcovutil::ignore_unreachable_flag,
+    "ignore_errors"              => \@rc_ignore,
+    "max_message_count"          => \$lcovutil::suppressAfter,
+    "message_log"                => \$lcovutil::message_log,
+    'expected_message_count'     => \@rc_expected_msg_counts,
+    'stop_on_error'              => \$lcovutil::stop_on_error,
+    'treat_warning_as_error'     => \$lcovutil::treat_warning_as_error,
+    'warn_once_per_file'         => \$lcovutil::warn_once_per_file,
+    'check_data_consistency'     => \$lcovutil::check_data_consistency,
+    "rtl_file_extensions"        => \$rtlExtensions,
+    "c_file_extensions"          => \$cExtensions,
+    "perl_file_extensions"       => \$perlExtensions,
+    "python_file_extensions"     => \$pythonExtensions,
+    "java_file_extensions"       => \$javaExtensions,
+    'info_file_pattern'          => \$info_file_pattern,
+    "filter_lookahead"           => \$lcovutil::source_filter_lookahead,
+    "filter_bitwise_conditional" =>
         \$lcovutil::source_filter_bitwise_are_conditional,
-             'filter_blank_aggressive' => \$filter_blank_aggressive,
-             "profile"                 => \$lcovutil::profile,
-             "parallel"                => \$lcovutil::maxParallelism,
-             "memory"                  => \$lcovutil::maxMemory,
-             "memory_percentage"       => \$lcovutil::memoryPercentage,
-             "max_fork_fails"          => \$lcovutil::max_fork_fails,
-             "max_tasks_per_core"      => \$lcovutil::max_tasks_per_core,
-             "fork_fail_timeout"       => \$lcovutil::fork_fail_timeout,
-             'source_directory'        => \@rc_source_directories,
-             'build_directory'         => \@rc_build_dir,
+    'filter_blank_aggressive' => \$filter_blank_aggressive,
+    "profile"                 => \$lcovutil::profile,
+    "parallel"                => \$lcovutil::maxParallelism,
+    "memory"                  => \$lcovutil::maxMemory,
+    "memory_percentage"       => \$lcovutil::memoryPercentage,
+    "max_fork_fails"          => \$lcovutil::max_fork_fails,
+    "max_tasks_per_core"      => \$lcovutil::max_tasks_per_core,
+    "fork_fail_timeout"       => \$lcovutil::fork_fail_timeout,
+    'source_directory'        => \@rc_source_directories,
+    'build_directory'         => \@rc_build_dir,
 
-             "no_exception_branch"    => \$lcovutil::exclude_exception_branch,
-             'filter'                 => \@rc_filter,
-             'exclude'                => \@rc_exclude_patterns,
-             'include'                => \@rc_include_patterns,
-             'substitute'             => \@rc_subst_patterns,
-             'omit_lines'             => \@rc_omit_patterns,
-             'erase_functions'        => \@rc_erase_patterns,
-             'context_script'         => \@rc_contextCallback,
-             "version_script"         => \@rc_version_script,
-             'resolve_script'         => \@rc_resolveCallback,
-             'criteria_callback_data' =>
-                 \@CoverageCriteria::criteriaCallbackTypes,
-             'criteria_callback_levels' =>
-                 \@CoverageCriteria::criteriaCallbackLevels,
-             'criteria_script'    => \@rc_criteria_script,
-             'unreachable_script' => \@rc_excludeCoverpointCallback,
+    "no_exception_branch"      => \$lcovutil::exclude_exception_branch,
+    'filter'                   => \@rc_filter,
+    'exclude'                  => \@rc_exclude_patterns,
+    'include'                  => \@rc_include_patterns,
+    'substitute'               => \@rc_subst_patterns,
+    'omit_lines'               => \@rc_omit_patterns,
+    'erase_functions'          => \@rc_erase_patterns,
+    'context_script'           => \@rc_contextCallback,
+    "version_script"           => \@rc_version_script,
+    'resolve_script'           => \@rc_resolveCallback,
+    'criteria_callback_data'   => \@CoverageCriteria::criteriaCallbackTypes,
+    'criteria_callback_levels' => \@CoverageCriteria::criteriaCallbackLevels,
+    'criteria_script'          => \@rc_criteria_script,
+    'unreachable_script'       => \@rc_excludeCoverpointCallback,
 
-             "checksum"              => \$lcovutil::verify_checksum,
-             'compute_file_version'  => \$lcovutil::compute_file_version,
-             "case_insensitive"      => \$lcovutil::case_insensitive,
-             "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
-             "split_char"            => \$lcovutil::split_char,
+    "checksum"              => \$lcovutil::verify_checksum,
+    'compute_file_version'  => \$lcovutil::compute_file_version,
+    "case_insensitive"      => \$lcovutil::case_insensitive,
+    "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
+    "split_char"            => \$lcovutil::split_char,
 
-             'check_existence_before_callback' =>
-                 \$check_file_existence_before_callback,
+    'check_existence_before_callback' => \$check_file_existence_before_callback,
 
-             "demangle_cpp"              => \@lcovutil::cpp_demangle,
-             'excessive_count_threshold' => \$excessive_count_threshold,
+    "demangle_cpp"              => \@lcovutil::cpp_demangle,
+    'excessive_count_threshold' => \$excessive_count_threshold,
 
-             'sort_input' => \$lcovutil::sort_inputs,
+    'sort_input' => \$lcovutil::sort_inputs,
 
-             "fail_under_lines"       => \$fail_under_lines,
-             "fail_under_branches"    => \$fail_under_branches,
-             'lcov_filter_parallel'   => \$lcovutil::lcov_filter_parallel,
-             'lcov_filter_chunk_size' => \$lcovutil::lcov_filter_chunk_size,);
+    "fail_under_lines"       => \$fail_under_lines,
+    "fail_under_branches"    => \$fail_under_branches,
+    'lcov_filter_parallel'   => \$lcovutil::lcov_filter_parallel,
+    'lcov_filter_chunk_size' => \$lcovutil::lcov_filter_chunk_size,);
 
 # lcov needs to know the options which might get passed to geninfo in --capture mode
 our $defaultChunkSize;      # for performance tweaking
@@ -1234,57 +1232,55 @@ our %geninfo_rc_opts = (
                   'geninfo_interval_update'   => \$defaultInterval,
                   'geninfo_capture_all'       => \$geninfo_captureAll);
 
-our %argCommon = ("tempdir=s"         => \$tempdirname,
-                  "version-script=s"  => \@lcovutil::extractVersionScript,
-                  "criteria-script=s" =>
-                      \@CoverageCriteria::coverageCriteriaScript,
+our %argCommon = (
+            "tempdir=s"         => \$tempdirname,
+            "version-script=s"  => \@lcovutil::extractVersionScript,
+            "criteria-script=s" => \@CoverageCriteria::coverageCriteriaScript,
 
-                  "checksum"    => \$lcovutil::verify_checksum,
-                  "no-checksum" => \$rc_no_checksum,
-                  "quiet|q+"    => \$quiet,
-                  "verbose|v+"  => \$lcovutil::verbose,
-                  "debug+"      => \$lcovutil::debug,
-                  "help|h|?"    => \$help,
-                  "version"     => \$version,
-                  'comment=s'   => \@comments,
-                  'toolname=s'  => \$lcovutil::tool_name,
+            "checksum"    => \$lcovutil::verify_checksum,
+            "no-checksum" => \$rc_no_checksum,
+            "quiet|q+"    => \$quiet,
+            "verbose|v+"  => \$lcovutil::verbose,
+            "debug+"      => \$lcovutil::debug,
+            "help|h|?"    => \$help,
+            "version"     => \$version,
+            'comment=s'   => \@comments,
+            'toolname=s'  => \$lcovutil::tool_name,
 
-                  "function-coverage"    => \$lcovutil::func_coverage,
-                  "branch-coverage"      => \$lcovutil::br_coverage,
-                  'mcdc-coverage'        => \$lcovutil::mcdc_coverage,
-                  "no-function-coverage" => \$rc_no_func_coverage,
-                  "no-branch-coverage"   => \$rc_no_branch_coverage,
+            "function-coverage"    => \$lcovutil::func_coverage,
+            "branch-coverage"      => \$lcovutil::br_coverage,
+            'mcdc-coverage'        => \$lcovutil::mcdc_coverage,
+            "no-function-coverage" => \$rc_no_func_coverage,
+            "no-branch-coverage"   => \$rc_no_branch_coverage,
 
-                  "fail-under-lines=s"    => \$fail_under_lines,
-                  "fail-under-branches=s" => \$fail_under_branches,
-                  'source-directory=s'    =>
-                      \@ReadCurrentSource::source_directories,
-                  'build-directory=s' => \@lcovutil::build_directory,
+            "fail-under-lines=s"    => \$fail_under_lines,
+            "fail-under-branches=s" => \$fail_under_branches,
+            'source-directory=s'    => \@ReadCurrentSource::source_directories,
+            'build-directory=s'     => \@lcovutil::build_directory,
 
-                  'resolve-script=s'     => \@lcovutil::resolveCallback,
-                  'context-script=s'     => \@lcovutil::contextCallback,
-                  'unreachable-script=s' =>
-                      \@lcovutil::excludeCoverpointCallback,
-                  "filter=s"               => \@opt_filter,
-                  "demangle-cpp:s"         => \@lcovutil::cpp_demangle,
-                  "ignore-errors=s"        => \@opt_ignore_errors,
-                  "expect-message-count=s" => \@opt_expected_message_counts,
-                  'msg-log:s'              => \$message_log,
-                  "keep-going"             => \$keepGoing,
-                  "config-file=s"          => \@unsupported_config,
-                  "rc=s%"                  => \%unsupported_rc,
-                  "profile:s"              => \$lcovutil::profile,
-                  'history-script=s'  => \@lcovutil::profileHistoryCallback,
-                  "exclude=s"         => \@lcovutil::exclude_file_patterns,
-                  "include=s"         => \@lcovutil::include_file_patterns,
-                  "erase-functions=s" => \@lcovutil::exclude_function_patterns,
-                  "omit-lines=s"      => \@lcovutil::omit_line_patterns,
-                  "substitute=s"      => \@lcovutil::file_subst_patterns,
-                  "parallel|j:i"      => \$lcovutil::maxParallelism,
-                  "memory=i"          => \$lcovutil::maxMemory,
-                  "forget-test-names" => \$TraceFile::ignore_testcase_name,
-                  "preserve"          => \$lcovutil::preserve_intermediates,
-                  'sort-input'        => \$lcovutil::sort_inputs,);
+            'resolve-script=s'       => \@lcovutil::resolveCallback,
+            'context-script=s'       => \@lcovutil::contextCallback,
+            'unreachable-script=s'   => \@lcovutil::excludeCoverpointCallback,
+            "filter=s"               => \@opt_filter,
+            "demangle-cpp:s"         => \@lcovutil::cpp_demangle,
+            "ignore-errors=s"        => \@opt_ignore_errors,
+            "expect-message-count=s" => \@opt_expected_message_counts,
+            'msg-log:s'              => \$message_log,
+            "keep-going"             => \$keepGoing,
+            "config-file=s"          => \@unsupported_config,
+            "rc=s%"                  => \%unsupported_rc,
+            "profile:s"              => \$lcovutil::profile,
+            'history-script=s'       => \@lcovutil::profileHistoryCallback,
+            "exclude=s"              => \@lcovutil::exclude_file_patterns,
+            "include=s"              => \@lcovutil::include_file_patterns,
+            "erase-functions=s"      => \@lcovutil::exclude_function_patterns,
+            "omit-lines=s"           => \@lcovutil::omit_line_patterns,
+            "substitute=s"           => \@lcovutil::file_subst_patterns,
+            "parallel|j:i"           => \$lcovutil::maxParallelism,
+            "memory=i"               => \$lcovutil::maxMemory,
+            "forget-test-names"      => \$TraceFile::ignore_testcase_name,
+            "preserve"               => \$lcovutil::preserve_intermediates,
+            'sort-input'             => \$lcovutil::sort_inputs,);
 
 sub warnDeprecated
 {
@@ -1357,7 +1353,8 @@ sub read_config($$)
         lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
                                   'config file inclusion loop detected: "' .
                                       join('" -> "', @include_stack) .
-                                      '" -> "' . $filename . '"');
+                                      '" -> "' .
+                                      $filename . '"');
         return 0;
     }
     $included_config_files{$path} = 1;
@@ -1538,8 +1535,7 @@ sub parseOptions
             $message_log = (
                         defined($$output_arg) ?
                             substr($$output_arg, 0, rindex($$output_arg, '.')) :
-                            $tool_name) .
-                ".msg";
+                            $tool_name) . ".msg";
         }
         $message_filename = $message_log;
         open(LOG, ">", $message_log) or
@@ -1556,7 +1552,8 @@ sub parseOptions
                     [\@lcovutil::include_file_patterns, \@rc_include_patterns],
                     [\@lcovutil::file_subst_patterns, \@rc_subst_patterns],
                     [\@lcovutil::omit_line_patterns, \@rc_omit_patterns],
-                    [\@lcovutil::exclude_function_patterns, \@rc_erase_patterns
+                    [\@lcovutil::exclude_function_patterns,
+                     \@rc_erase_patterns
                     ],
                     [\@lcovutil::extractVersionScript, \@rc_version_script],
                     [\@CoverageCriteria::coverageCriteriaScript,
@@ -1947,7 +1944,9 @@ sub summarize_messages
         next unless $total{$type};
         $found = 1;
         my $leader =
-            $header . '  ' . $total{$type} . " $type message" .
+            $header . '  ' .
+            $total{$type} .
+            " $type message" .
             ($total{$type} > 1 ? 's' : '') . ":\n";
         my $h = $message_types{$type};
         foreach my $k (sort keys %$h) {
@@ -1995,7 +1994,8 @@ sub parse_expected_message_counts(@)
             my $id = $ERROR_ID{lc($1)};
             if (defined($expected_message_count[$id])) {
                 my $ignore = $lcovutil::ignore[$lcovutil::ERROR_USAGE];
-                lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                lcovutil::ignorable_error(
+                                        $lcovutil::ERROR_USAGE,
                                         "duplicate 'expected' constraint '$c'" .
                                             ($ignore ? ': ignoring.' : ''));
                 next;
@@ -2448,7 +2448,9 @@ sub report_fork_failure
         lcovutil::is_ignored($lcovutil::ERROR_FORK) ? ' (retrying)' : '';
     lcovutil::ignorable_error($lcovutil::ERROR_FORK,
                               "fork() syscall failed while trying to $when: " .
-                                  $errcode . $retry . $explain);
+                                  $errcode .
+                                  $retry .
+                                  $explain);
     # if errors were ignored, then we wait for a while (in parent)
     #  before re-trying.
     sleep($lcovutil::fork_fail_timeout);
@@ -2466,8 +2468,8 @@ sub report_exit_status
     if ($signal) {
         $explain =
             "$prefix died due to signal $signal (SIG" .
-            (split(' ', $Config{sig_name}))[$signal] .
-            ')' . MessageContext::context() .
+            (split(' ', $Config{sig_name}))[$signal] . ')' .
+            MessageContext::context() .
             ': possibly killed by OS due to out-of-memory';
         $explain .=
             lcovutil::explain_once('out_of_memory',
@@ -2608,12 +2610,17 @@ sub summarize_cov_filters
         my $points = '';
         if ($histogram->[-2] != $histogram->[-1]) {
             $points =
-                '    ' . $histogram->[-1] . ' coverpoint' .
+                '    ' .
+                $histogram->[-1] .
+                ' coverpoint' .
                 ($histogram->[-1] > 1 ? 's' : '') . "\n";
         }
         info(-1,
-             "$leader  $key:\n    " . $histogram->[-2] . " instance" .
-                 ($histogram->[-2] > 1 ? "s" : "") . "\n" . $points);
+             "$leader  $key:\n    " .
+                 $histogram->[-2] .
+                 " instance" .
+                 ($histogram->[-2] > 1 ? "s" : "") . "\n" .
+                 $points);
         $leader = '';
     }
     foreach my $q (['omit-lines', 'line', \@omit_line_patterns],
@@ -2897,7 +2904,8 @@ sub checkVersionMatch
         return 1 unless $status;    # match if return code was zero
     }
     unless ($silent) {
-        lcovutil::ignorable_error($ERROR_VERSION,
+        lcovutil::ignorable_error(
+                          $ERROR_VERSION,
                           (defined($reason) ? ($reason . ' ') : '') .
                               "$filename: revision control version mismatch: " .
                               (defined($me) ? $me : 'undef') . ' <- ' .
@@ -3018,10 +3026,11 @@ sub new
     open(HTML, '<', $name) or die("unable to open $name: $!");
     while (<HTML>) {
         if (/<(a|span) .*id=\"([^\"]+)\"/) {
-            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+            lcovutil::ignorable_error(
+                            $lcovutil::ERROR_USAGE,
                             "\"$name\":$.: duplicate anchor '$2' original at " .
-                                $self->[ANCHORS]->{$2} . '.')
-                if exists($self->[ANCHORS]->{$2});
+                                $self->[ANCHORS]->{$2} . '.'
+            ) if exists($self->[ANCHORS]->{$2});
             $self->[ANCHORS]->{$2} = $.;
         } elsif (/<a .*href=\"([^#\"]+)(#([^\"]+))?\"/) {
             next if 'http' eq substr($1, 0, 4);
@@ -3238,7 +3247,9 @@ sub context
 sub DESTROY
 {
     my $self = shift;
-    die('unbalanced context "' . $self->[0] . '" not head of ("' .
+    die('unbalanced context "' .
+        $self->[0] .
+        '" not head of ("' .
         join('" "', @message_context) . '")')
         unless scalar(@message_context) && $self->[0] eq $message_context[-1];
     pop(@message_context);
@@ -3292,7 +3303,8 @@ sub close
     if (0 != $? && $checkError) {
         # $reason: $cmd returned non-zero exit...
         lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                                  $self->[0] . ' \'' . $self->[1] .
+                                  $self->[0] . ' \'' .
+                                      $self->[1] .
                                       "\' returned non-zero exit code: '$!'");
     }
     pop(@$self);
@@ -4264,8 +4276,11 @@ sub merge
         lcovutil::ignorable_warning($lcovutil::ERROR_MISMATCH,
              "$filename:$line: attempt to merge incompatible expressions for id"
                  . $self->id()
-                 . ', ' . $that->id() . ": '" .
-                 $self->exprString() . "' -> '" . $that->exprString() . "'.")
+                 . ', ' .
+                 $that->id() . ": '" .
+                 $self->exprString() .
+                 "' -> '" .
+                 $that->exprString() . "'.")
             if ($self->exprString() ne $that->exprString());
     }
     # LCOV_EXCL_STOP
@@ -4275,9 +4290,11 @@ sub merge
         my $loc = defined($filename) ? "\"$filename\":$line: " : '';
         lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                                   "${loc}mismatched exception tag for id " .
-                                      $self->id() . ", " . $that->id() .
-                                      ": '" . $self->is_exception() .
-                                      "' -> '" . $that->is_exception() . "'");
+                                      $self->id() . ", " .
+                                      $that->id() . ": '" .
+                                      $self->is_exception() .
+                                      "' -> '" .
+                                      $that->is_exception() . "'");
         # set 'self' to 'not related to exception' - to give a consistent
         #  answer for the merge operation.  Otherwise, we pick whatever
         #  was seen first - which is unpredictable during threaded execution.
@@ -4293,11 +4310,14 @@ sub merge
         #   callback is called - so the two expressions will have both be
         #   unset unless we really are trying to compare
         my $loc = defined($filename) ? "\"$filename\":$line: " : '';
-        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+        lcovutil::ignorable_error(
+                           $lcovutil::ERROR_MISMATCH,
                            "${loc}mismatched 'unreachable' tag for branch id " .
                                $self->id() . ", " .
-                               $that->id() . ": '" . $self->is_excluded() .
-                               "' -> '" . $that->is_excluded() . "'");
+                               $that->id() . ": '" .
+                               $self->is_excluded() .
+                               "' -> '" .
+                               $that->is_excluded() . "'");
         # set 'self' to 'excluded'
         $changed = $self->[EXCLUDED] != 1;
         $self->[EXCLUDED] = 1;
@@ -4630,14 +4650,17 @@ sub insertExpr
         $cond = $group->[$idx];
         if ($cond->expression() ne $expr) {
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                 "\"$filename\":" . $self->line() .
+                 "\"$filename\":" .
+                     $self->line() .
                      ": MC/DC group $groupSize expression $idx changed from '" .
-                     $cond->expression() . "' to '$expr'");
+                     $cond->expression() .
+                     "' to '$expr'");
         }
     } else {
         if ($idx != scalar(@$group)) {
             lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                "\"$filename\":" . $self->line() .
+                "\"$filename\":" .
+                    $self->line() .
                     ": MC/DC group $groupSize: non-contiguous expression '$idx' found - should be '"
                     . scalar(@$group)
                     . "'.");
@@ -4741,7 +4764,8 @@ sub merge
                     my $e_excl = $e->is_excluded($sense);
                     my $y_excl = $y->is_excluded($sense);
                     lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-                        "$filename:" . $self->line() .
+                        "$filename:" .
+                            $self->line() .
                             ":mismatched 'unreachable' tag for MC/DC element $idx of group $size sense "
                             . ($sense ? 'true' : 'false')
                             . ": '$e_excl' -> '$y_excl'.")
@@ -4972,9 +4996,13 @@ sub set_end_line
         my $suffix =
             lcovutil::explain_once('derive_end_line',
                       "  See lcovrc man entry for 'derive_function_end_line'.");
-        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                '"' . $self->file() . '":' . $self->line() .
-                                    ': function ' . $self->name() .
+        lcovutil::ignorable_error(
+                                $lcovutil::ERROR_INCONSISTENT_DATA,
+                                '"' .
+                                    $self->file() . '":' .
+                                    $self->line() .
+                                    ': function ' .
+                                    $self->name() .
                                     " end line $line less than start line " .
                                     $self->line() .
                                     ".  Cannot derive function end line.$suffix"
@@ -5043,8 +5071,9 @@ sub merge
     lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                               $self->name() .
                                   " has different location than " .
-                                  $that->name() . " during merge")
-        if ($self->line() != $that->line());
+                                  $that->name() .
+                                  " during merge"
+    ) if ($self->line() != $that->line());
     while (my ($name, $count) = each(%{$that->[ALIASES]})) {
         $self->addAlias($name, $count);
     }
@@ -5196,11 +5225,13 @@ sub define_function
     ) {
         $location = '"' . $self->filename() . '":' . $start_line
             unless defined($location);
-        lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+        lcovutil::ignorable_error(
+                   $lcovutil::ERROR_INCONSISTENT_DATA,
                    "$location: duplicate function '$fnName' starts on line \"" .
                        $data->filename() .
                        "\":$start_line but previous definition started on " .
-                       $data->line() . MessageContext::context() . '.')
+                       $data->line() .
+                       MessageContext::context() . '.')
             unless
             grep({ $fnName =~ $_ } @lcovutil::suppress_function_patterns);
         # if ignored, just return the function we already have -
@@ -5333,7 +5364,8 @@ sub union
         my $thisData;
         if (!exists($myData->{$key})) {
             $thisData =
-                $self->define_function($thatData->name(), $thatData->line(),
+                $self->define_function($thatData->name(),
+                                       $thatData->line(),
                                        $thatData->end_line());
             $changed = 1;    # something new...
         } else {
@@ -5344,8 +5376,9 @@ sub union
                         lc($thisData->file()) eq lc($thatData->file())))
             )) {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                               "function data mismatch at " .
-                                   $thatData->file() . ":" . $thatData->line());
+                                          "function data mismatch at " .
+                                              $thatData->file() . ":" .
+                                              $thatData->line());
                 next;
             }
         }
@@ -5588,8 +5621,11 @@ sub _checkCounts
         $found += $f;
         $hit   += $h;
     }
-    die("invalid counts: found:" . $self->[BranchMap::FOUND] .
-        "->$found, hit:" . $self->[BranchMap::HIT] . "->$hit")
+    die("invalid counts: found:" .
+        $self->[BranchMap::FOUND] .
+        "->$found, hit:" .
+        $self->[BranchMap::HIT] .
+        "->$hit")
         unless ($self->[BranchMap::FOUND] == $found &&
                 $self->[BranchMap::HIT] == $hit);
 }
@@ -5930,8 +5966,8 @@ sub removeBranches
             ++$filter->[-2] if $isMasterData;
             lcovutil::info(2,
                            "$filename:$line: remove $count exception branch" .
-                               (1 == $count ? '' : 'es') . "\n")
-                if $isMasterData;
+                               (1 == $count ? '' : 'es') . "\n"
+            ) if $isMasterData;
             $filter->[-1] += $count;
         }
         my $remaining = $nElems - $count;
@@ -6377,8 +6413,7 @@ sub merge
     }
 
     foreach my $name ($info->testcase_mcdc()->keylist()) {
-        if (
-            &$mcdcOp($self->testcase_mcdc($name), $info->testcase_mcdc($name),
+        if (&$mcdcOp($self->testcase_mcdc($name), $info->testcase_mcdc($name),
                      $filename)
         ) {
             $changed = 1;
@@ -6584,18 +6619,22 @@ sub parseLines
             #        $d->[5] is the 'stop' string
             my ($start, $stop, $ref, $reason) = @$d;
             if ($_ =~ $start) {
-                lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+                lcovutil::ignorable_error(
+                           $lcovutil::ERROR_MISMATCH,
                            "$filename: overlapping exclude directives. Found " .
                                $d->[4] .
                                " at line $line - but no matching " .
-                               $d->[5] .
-                               ' for ' . $d->[4] . ' at line ' . $$ref->[0])
-                    if $$ref;
+                               $d->[5] . ' for ' .
+                               $d->[4] .
+                               ' at line ' .
+                               $$ref->[0]) if $$ref;
                 $$ref = [$line, $reason, $d->[4], $d->[5]];
                 last;
             } elsif ($_ =~ $stop) {
-                lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-                              "$filename: found " . $d->[5] .
+                lcovutil::ignorable_error(
+                              $lcovutil::ERROR_MISMATCH,
+                              "$filename: found " .
+                                  $d->[5] .
                                   " directive at line $line without matching " .
                                   ($$ref ? $$ref->[2] : $d->[4]) .
                                   ' directive')
@@ -6663,7 +6702,8 @@ sub parseLines
                    ]
     ) {
         my ($key, $start, $stop) = @$t;
-        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+        lcovutil::ignorable_error(
+                                 $lcovutil::ERROR_MISMATCH,
                                  "$filename: unmatched $start at line " .
                                      $key->[0] .
                                      " - saw EOF while looking for matching $stop"
@@ -6756,8 +6796,10 @@ sub isOutOfRange
             my $c = ($context eq 'line') ? 'line' : "$context at line";
             my $msg =
                 "unknown $c '$lineNo' in " .
-                $self->filename() . ": there are only " .
-                scalar(@{$data->[EXCLUDE]}) . " lines in the file.";
+                $self->filename() .
+                ": there are only " .
+                scalar(@{$data->[EXCLUDE]}) .
+                " lines in the file.";
             if ($lcovutil::verbose ||
                 0 == lcovutil::message_count($lcovutil::ERROR_RANGE)) {
                 # only print verbose addition on first message
@@ -6820,16 +6862,18 @@ sub isExcluded
                     lcovutil::message_count($lcovutil::ERROR_RANGE) == 0
             ]);
         lcovutil::store_deferred_message(
-                                $lcovutil::ERROR_RANGE,
-                                1, $key,
-                                "unknown line '$lineNo' in " . $self->filename()
-                                    .
-                                    (defined($data->[EXCLUDE]) ?
-                                         (" there are only " .
-                                          scalar(@{$data->[EXCLUDE]}) .
-                                          " lines in the file.") :
-                                         "") .
-                                    $suffix
+                                       $lcovutil::ERROR_RANGE,
+                                       1, $key,
+                                       "unknown line '$lineNo' in " .
+                                           $self->filename()
+                                           .
+                                           (
+                                           defined($data->[EXCLUDE]) ?
+                                               (" there are only " .
+                                                scalar(@{$data->[EXCLUDE]}) .
+                                                " lines in the file.") :
+                                               "") .
+                                           $suffix
         ) if lcovutil::warn_once($lcovutil::ERROR_RANGE, $key);
         return 0;    # even though out of range - this is not excluded by filter
     }
@@ -7287,7 +7331,7 @@ sub print_summary
                    )) if ($br_do);
     lcovutil::info("  conditions..: %s\n",
                    lcovutil::get_overall_line(
-                                  $counts[4]->[0], $counts[4]->[1], "condition"
+                                   $counts[4]->[0], $counts[4]->[1], "condition"
                    )) if ($mcdc_do);
 }
 
@@ -7547,7 +7591,8 @@ sub _eraseFunctions
                         lcovutil::info(
                                   1 + (0 == $isMasterList),
                                   "exclude FN $name line range $source_file:[" .
-                                      $fcn->line() . ":$end_line] due to '" .
+                                      $fcn->line() .
+                                      ":$end_line] due to '" .
                                       $p->[-2] . "'\n");
                     }
                     _eraseFunction($fcn, $alias, $end_line,
@@ -7619,8 +7664,10 @@ sub _deriveFunctionEndLines
                         );
                     lcovutil::ignorable_error(
                         $lcovutil::ERROR_INCONSISTENT_DATA,
-                        '"' . $traceInfo->filename() .
-                            "\":$first:  function " . $func->name() .
+                        '"' .
+                            $traceInfo->filename() .
+                            "\":$first:  function " .
+                            $func->name() .
                             " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
                             . $suffix);
                 }
@@ -7651,8 +7698,10 @@ sub _deriveFunctionEndLines
                         );
                         lcovutil::ignorable_error(
                             $lcovutil::ERROR_INCONSISTENT_DATA,
-                            '"' . $traceInfo->filename() .
-                                "\":$first:  function " . $func->name() .
+                            '"' .
+                                $traceInfo->filename() .
+                                "\":$first:  function " .
+                                $func->name() .
                                 ": last line in file is not last line of function.$suffix"
                         );
                         next FUNC;
@@ -7664,8 +7713,10 @@ sub _deriveFunctionEndLines
                     lcovutil::explain_once('derive_end_line',
                       "  See lcovrc man entry for 'derive_function_end_line'.");
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                    '"' . $traceInfo->filename() .
-                        "\":$first:  function " . $func->name() .
+                    '"' .
+                        $traceInfo->filename() .
+                        "\":$first:  function " .
+                        $func->name() .
                         " found on line but no corresponding 'line' coverage data point.  Cannot derive function end line."
                         . $suffix);
 
@@ -7673,7 +7724,8 @@ sub _deriveFunctionEndLines
                 next FUNC;    # warn about them all
             }
             lcovutil::info(1,
-                           '"' . $traceInfo->filename() .
+                           '"' .
+                               $traceInfo->filename() .
                                "\":$currentLine: assign end_line " .
                                $func->name() . "\n");
             # warn that we are deriving end lines
@@ -7688,11 +7740,14 @@ sub _deriveFunctionEndLines
             my $suffix =
                 lcovutil::explain_once('derive_end_line',
                       "  See lcovrc man entry for 'derive_function_end_line'.");
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+            lcovutil::ignorable_error(
+                                  $lcovutil::ERROR_INCONSISTENT_DATA,
                                   '"' .
-                                      $func->filename() . '":' . $func->line() .
+                                      $func->filename() . '":' .
+                                      $func->line() .
                                       ': failed to set end line for function ' .
-                                      $func->name() . '.' . $suffix);
+                                      $func->name() . '.' .
+                                      $suffix);
             next FUNC;
         }
 
@@ -7709,13 +7764,17 @@ sub _deriveFunctionEndLines
                 } else {
                     if ($f->end_line() != $func->end_line()) {
                         lcovutil::ignorable_error(
-                                       $lcovutil::ERROR_INCONSISTENT_DATA,
-                                       '"' . $func->file() .
-                                           '":' . $first . ': function \'' .
-                                           $func->name() . ' last line is ' .
-                                           $func->end_line() . ' but is ' .
-                                           $f->end_line() . " in testcase '$tn'"
-                        );
+                                             $lcovutil::ERROR_INCONSISTENT_DATA,
+                                             '"' .
+                                                 $func->file() . '":' .
+                                                 $first .
+                                                 ': function \'' .
+                                                 $func->name() .
+                                                 ' last line is ' .
+                                                 $func->end_line() .
+                                                 ' but is ' .
+                                                 $f->end_line() .
+                                                 " in testcase '$tn'");
                     }
                 }
             }
@@ -7784,7 +7843,8 @@ sub _checkConsistency
             } else {
                 # can only get here with really inconsistent data...would have
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                    '"' . $func->filename() .
+                    '"' .
+                        $func->filename() .
                         "\":$first: file linecov does not match function cov data - skipping checks."
                 );
                 last FUNC;
@@ -7815,9 +7875,12 @@ sub _checkConsistency
                                              $lcovutil::ERROR_INCONSISTENT_DATA)
                     ) ? ": function marked 'hit'" :
                     '';
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                           '"' . $func->filename() .
-                               "\":$first: function '" . $func->name() .
+                lcovutil::ignorable_error(
+                           $lcovutil::ERROR_INCONSISTENT_DATA,
+                           '"' .
+                               $func->filename() .
+                               "\":$first: function '" .
+                               $func->name() .
                                "' is not hit but line $currentLine is$suffix." .
                                _consistencySuffix());
                 if ($lcovutil::fix_inconsistency) {
@@ -7839,9 +7902,12 @@ sub _checkConsistency
                  lcovutil::is_ignored($lcovutil::ERROR_INCONSISTENT_DATA)) ?
                 ": function marked 'not hit'" :
                 '';
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                         '"' . $traceInfo->filename() .
-                             "\":$first: function '" . $func->name() .
+            lcovutil::ignorable_error(
+                         $lcovutil::ERROR_INCONSISTENT_DATA,
+                         '"' .
+                             $traceInfo->filename() .
+                             "\":$first: function '" .
+                             $func->name() .
                              "' is hit but no contained lines are hit$suffix." .
                              _consistencySuffix());
             if ($lcovutil::fix_inconsistency) {
@@ -7867,7 +7933,8 @@ sub _checkConsistency
             next if defined($lineHit);
 
             lcovutil::info(1,
-                           '"' . $traceInfo->filename() .
+                           '"' .
+                               $traceInfo->filename() .
                                "\":$line: generating DA entry for orphan MC/DC\n"
             );
             my $block = $mcdc->value($line);
@@ -7897,7 +7964,8 @@ sub _checkConsistency
             my $lineHit = $lineData->value($line);
             unless (defined($lineHit)) {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                      '"' . $traceInfo->filename() .
+                      '"' .
+                          $traceInfo->filename() .
                           "\":$line: location has branchcov but no linecov data"
                           . _consistencySuffix());
             }
@@ -7912,13 +7980,15 @@ sub _checkConsistency
             }
             if ($lineHit && !$brHit) {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                    '"' . $traceInfo->filename() .
+                    '"' .
+                        $traceInfo->filename() .
                         "\":$line: line is hit but no branches on line have been evaluated."
                         . _consistencySuffix())
                     if $checkBranchConsistency;
             } elsif (!$lineHit && $brHit) {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                    '"' . $traceInfo->filename() .
+                    '"' .
+                        $traceInfo->filename() .
                         "\":$line: line is not hit but at least one branch on line has been evaluated."
                         . _consistencySuffix());
             }
@@ -8010,12 +8080,15 @@ sub _filterFile
 
         foreach my $tn ($lineData->keylist()) {
             $modified = 1
-                if _eraseFunctions(
-                                 $source_file, $reader,
-                                 $funcData->value($tn), $lineData->value($tn),
-                                 $branchData->value($tn), $mcdcData->value($tn),
-                                 $checkData->value($tn), $state,
-                                 0);
+                if _eraseFunctions($source_file,
+                                   $reader,
+                                   $funcData->value($tn),
+                                   $lineData->value($tn),
+                                   $branchData->value($tn),
+                                   $mcdcData->value($tn),
+                                   $checkData->value($tn),
+                                   $state,
+                                   0);
         }
         $modified = 1
             if _eraseFunctions($source_file, $reader,
@@ -8056,8 +8129,10 @@ sub _filterFile
                 if ($srcReader->isOutOfRange($line, 'line')) {
                     $remove = 1;
                     lcovutil::info(1,
-                                   "filter FN " . $data->name() .
-                                       ' ' . $data->file() . ":$line\n");
+                                   "filter FN " .
+                                       $data->name() . ' ' .
+                                       $data->file() .
+                                       ":$line\n");
                     ++$range->[-2];    # one location where this applied
                 } elsif (0 != ($reason = $srcReader->isExcluded($line))) {
                     # we already warned about this one
@@ -8349,7 +8424,8 @@ sub _filterFile
 
             $modified = 1;
             lcovutil::info(2,
-                           'filter DA (' . $is_filtered->[0] . ') '
+                           'filter DA (' .
+                               $is_filtered->[0] . ') '
                                .
                                ($line < $srcReader->numLines() ?
                                     ("'" . $srcReader->getLine($line) . "'") :
@@ -8502,7 +8578,8 @@ sub _generate_end_line_message
                     ": attempting to derive function end lines - see lcovrc man entry for 'derive_function_end_line'."
             );
         } else {
-            lcovutil::ignorable_error($lcovutil::ERROR_UNSUPPORTED,
+            lcovutil::ignorable_error(
+                     $lcovutil::ERROR_UNSUPPORTED,
                      $msg .
                          ".  See lcovrc man entry for 'derive_function_end_line'."
             );
@@ -8563,7 +8640,8 @@ sub _processParallelChunk
 
                 lcovutil::info(1,
                                $d->[1] . ' is ' .
-                                   ($modified ? '' : 'NOT ') . "modified\n");
+                                   ($modified ? '' : 'NOT ') .
+                                   "modified\n");
                 if ($modified) {
                     push(@updates, [$d->[1], $data]);
                 }
@@ -9071,8 +9149,8 @@ sub _read_info
             #  such that two sections alias to the same data.  We need to
             #  insert the branch data into a empty map and then merge that
             #  into both the per-testname and summary data
-            $branchMap   = BranchData->new();
-            $mcdcMap     = $fileData->testcase_mcdc($testname);
+            $branchMap = BranchData->new();
+            $mcdcMap   = $fileData->testcase_mcdc($testname);
             next;
         }
         next if $skipCurrentFile;
@@ -9372,7 +9450,7 @@ sub _read_info
 
                         $fileData->testcase_mcdc($testname)
                             ->append_mcdc(Storable::dclone($current_mcdc),
-					  $filename)
+                                          $filename)
                             if (defined($testname));
                     }
                     $current_mcdc =
@@ -9399,7 +9477,8 @@ sub _read_info
                     }
                     if ($lcovutil::br_coverage) {
                         if ($branchBlock) {
-                            $branchMap->insertBlock($branchBlock, $currentBlockLine);
+                            $branchMap->insertBlock($branchBlock,
+                                                    $currentBlockLine);
                             # reset - in case another testcase follows
                             $branchBlock = undef;
                         }
@@ -9413,7 +9492,7 @@ sub _read_info
                         $fileData->mcdc()->close_mcdcBlock($current_mcdc);
                         my $mcdc = $fileData->testcase_mcdc($testname);
                         $mcdc->append_mcdc(Storable::dclone($current_mcdc),
-					   $filename)
+                                           $filename)
                             if (defined($testname));
                         $fileData->mcdc()->union($mcdc);
                         $current_mcdc = undef;
@@ -9467,7 +9546,8 @@ sub _read_info
                               "no valid records found in tracefile $tracefile");
     }
     if (defined($changed_testname)) {
-        lcovutil::ignorable_warning($lcovutil::ERROR_FORMAT,
+        lcovutil::ignorable_warning(
+                    $lcovutil::ERROR_FORMAT,
                     "invalid characters removed from testname in " .
                         "tracefile $tracefile: '$changed_testname'->'$testname'\n"
         );
@@ -9874,8 +9954,8 @@ sub merge
     my $save_filters = lcovutil::disable_cov_filters();
 
     my $total_trace = TraceFile->new();
-    if (!(defined($lcovutil::maxParallelism) && defined($lcovutil::maxMemory)
-    )) {
+    if (!(defined($lcovutil::maxParallelism) && defined($lcovutil::maxMemory)))
+    {
         lcovutil::init_parallel_params();
     }
     if (0 != $lcovutil::maxMemory &&
@@ -9947,7 +10027,8 @@ sub merge
         }
         lcovutil::info("Using " .
                        scalar(@segments) .
-                       ' segment' . (scalar(@segments) > 1 ? 's' : '') .
+                       ' segment' .
+                       (scalar(@segments) > 1 ? 's' : '') .
                        " of $testsPerSegment test" .
                        ($testsPerSegment > 1 ? 's' : '') . "\n");
         $lcovutil::profileData{config} = {}
@@ -10115,7 +10196,8 @@ sub merge
                                 $function_mapping->{$key} = [$data->[0], []]
                                     unless exists($function_mapping->{$key});
                                 die("mismatched function name '" .
-                                    $data->[0] . "' at $key")
+                                    $data->[0] .
+                                    "' at $key")
                                     unless ($data->[0] eq
                                             $function_mapping->{$key}->[0]);
                                 push(@{$function_mapping->{$key}->[1]},
