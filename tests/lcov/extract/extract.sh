@@ -226,7 +226,7 @@ if [ 0 != $? ] ; then
 fi
 
 # exclude some un-covered standard includes
-EXCLUDE='--exclude */include/c++/* --ignore unused'
+EXCLUDE='--exclude */include/c++/* --exclude */include/g++-v* --ignore unused'
 
 # callback tests
 echo $COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 $EXCLUDE
