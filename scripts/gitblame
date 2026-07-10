@@ -39,7 +39,7 @@
 use strict;
 use FindBin;
 use lib "$FindBin::RealBin";
-use gitblame qw(new);
+use gitblame;
 use annotateutil qw(call_annotate);
 
 if (-f $ARGV[-1] || 0 != index($ARGV[-1], '-')) {
