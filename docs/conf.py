@@ -260,7 +260,9 @@ Getting Started
 ===============
 
   #. Point your environment to your installation of {ToolName} -  or install {ToolName} using ``make install``.
-    Note that ``sphinx-build`` is required in order to build documentation.
+
+     - Note that ``sphinx-build`` is required in order to build documentation,
+       but you can skip documentation building by passing passing the ``make LCOV_NO_DOC=1`` flag to your ``make`` command.
 
   #. Prepare your executables:
 

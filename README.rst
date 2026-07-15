@@ -103,7 +103,10 @@ https://github.com/linux-test-project/lcov/releases
 
 To install the tarball, unpack it to a directory and run::
 
-    make install
+    make install [LCOV_NO_DOC=1]
+
+If ``LCOV_NO_DOC`` is defined, then the install process will not build
+or install documentation.  (By default, documentation is built and installed.)
 
 Use Git for the most recent (but possibly unstable) version::
 
@@ -111,14 +114,14 @@ Use Git for the most recent (but possibly unstable) version::
 
 Change to the resulting lcov directory and type::
 
-    make install
+    make install [LCOV_NO_DOC=1]
 
 The default install location is /usr/local. Note that you may need to
 have superuser permissions to write into system directories.
 
 To install in a different location - for example, your home directory, run::
 
-    make PREFIX=$HOME/my_lcov install
+    make PREFIX=$HOME/my_lcov install [LCOV_NO_DOC=1]
 
 Your PREFIX should be an absolute path.
 

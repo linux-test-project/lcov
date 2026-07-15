@@ -99,7 +99,7 @@ else
 .SILENT:
 endif
 
-.PHONY: all info clean install uninstall rpms test doc
+.PHONY: all info clean install uninstall rpms test
 
 all: info
 
@@ -116,32 +116,30 @@ info:
 
 clean:
 	$(call echocmd,"  CLEAN   lcov")
-	$(RM) lcov-*.tar.gz lcov-*.rpm doc_finished
+	$(RM) lcov-*.tar.gz lcov-*.rpm doc
 	$(RM) -r ./bin/__pycache__
 	$(MAKE) -C example -s clean
 	$(MAKE) -C tests -s clean
 	$(MAKE) -C docs -s clean
-	find . \( -name '*.tdy' -o -name '*.orig' \) -a -type f | xargs rm -f
+	find . \( -name '*.tdy' -o -name '*.orig' -o -name '*.rej' \) -a -type f | xargs rm -f
 
+ifdef LCOV_NO_DOC
+.PHONY: doc
 doc:
-	echo "LCOV_NO_DOC: '$(LCOV_NO_DOC)'"
-ifneq ($(LCOV_NO_DOC),)
 	echo "OK - as requested:  not building documentation"
 else
+DOC_DIR := ./docs
+DOC_SOURCE := $(DOC_DIR)/conf.py $(wildcard $(DOC_DIR)/*.rst $(DOC_DIR)/man/*.rst)
+doc: $(DOC_SOURCE)
 	$(MAKE) -C docs RELEASE=${VERSION} TOOL_NAME=$(TOOL_NAME) man html
 	find docs/_build -type d -exec chmod u+x {} \; # apparent permissions bug??
+	touch doc
 endif
 
 # want explicit targets that 'install' can check - such that 'make install'
 # does nothing but install stuff (not build too).
 
-doc_finished:
-	if [ ! -f $@ ] ; then \
-	  $(MAKE) doc;        \
-	  touch $@ ;          \
-	fi
-
-install: doc_finished
+install: doc
 	$(INSTALL) -d -m 755 $(BIN_INST_DIR)
 	for b in $(EXES) ; do                                    \
 		$(call echocmd,"  INSTALL $(BIN_INST_DIR)/$$b")  \
@@ -175,24 +173,25 @@ ifeq ($(LCOV_NO_DOC),)
 		DEST=$(MAN_INST_DIR)/man$$section ;            \
 		$(INSTALL) -d -m 755 $$DEST ;                  \
 		for m in docs/_build/man/*.$$section ; do      \
-			F=`basename $$m` ;                     \
-			$(call echocmd,"  INSTALL $$DEST/$$F") \
-			  $(INSTALL) -m 644 docs/_build/man/$$F $$DEST/$$F ; \
+			F=`basename "$$m"` ;                      \
+			$(call echocmd,"  INSTALL $$DEST/$$F")    \
+			  $(INSTALL) -m 644 "docs/_build/man/$$F" \
+			  "$$DEST/$$F" ;                          \
 			$(FIX) --version $(VERSION) --fixver --fixdate \
 		         --fixscriptdir --scriptdir $(SCRIPT_DIR)      \
-		         --manpage $$DEST/$$F ;                \
-		done ;                                         \
+		         --manpage "$$DEST/$$F" ;                      \
+		done ;                                                 \
 	done
 	for f in `( cd ./docs/_build ; find html -type f )` ; do \
 		DEST=$(SHARE_INST_DIR)/`dirname $$f` ;           \
 		$(INSTALL) -d -m 755 $$DEST ;                    \
-		$(INSTALL) -m 644 ./docs/_build/$$f $$DEST ;     \
+		$(INSTALL) -m 644 "./docs/_build/$$f" "$$DEST" ;     \
 	done
 endif
 	for d in example tests ; do \
-		( cd $$d ; make clean ) ; \
+		$(MAKE) -C $$d clean ; \
 		find $$d -type d -exec mkdir -p -m 755 "$(SHARE_INST_DIR)/{}" \; ; \
-		find $$d -type f -exec $(INSTALL) -Dm 644 "{}" "$(SHARE_INST_DIR)/{}" \; ; \
+		find $$d -type f -exec $(INSTALL) -m 644 "{}" "$(SHARE_INST_DIR)/{}" \; ; \
 	done
 	@chmod -R ugo+x $(SHARE_INST_DIR)/tests/bin
 	@find $(SHARE_INST_DIR)/tests \( -name '*.sh' -o -name '*.pl' \) -exec chmod ugo+x {} \;
@@ -200,7 +199,6 @@ endif
 	$(call echocmd,"  INSTALL $(CFG_INST_DIR)/lcovrc")
 	$(INSTALL) -m 644 lcovrc $(CFG_INST_DIR)/lcovrc
 	$(call echocmd,"  done INSTALL")
-
 
 uninstall:
 	for b in $(EXES) ; do \
