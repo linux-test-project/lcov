@@ -101,7 +101,7 @@ sub update_perl($)
 
     if ($opt_fixinterp && defined($path) && $path ne "") {
         $source =~ s/^#!.*perl.*\n/#!$path\n/
-            unless $source =~ @^#!/usr/bin/env perl$@;
+            unless $source =~ m@^#!/usr/bin/env perl$@;
     }
 
     if ($opt_fixlibdir) {
@@ -135,7 +135,7 @@ sub update_python($)
 
     if ($opt_fixinterp && defined($path) && $path ne "") {
         $source =~ s/^#!.*python.*\n/#!$path\n/
-            unless $source =~ @^#!/usr/bin/env python3?$@;
+            unless $source =~ m@^#!/usr/bin/env python3?$@;
     }
 
     return $source;
