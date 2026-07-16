@@ -6,7 +6,7 @@ source ../../common.tst
 #PARALLEL=''
 #PROFILE="''
 
-rm -f *.cpp *.gcno *.gcda a.out *.info *.log *.json dumper* *.annotated annotate.sh
+rm -f *.cpp *.gcno *.gcda a.out *.info *.log *.json dumper* *.annotated annotate.pl
 rm -rf ./vanilla ./annotated ./annotateErr ./annotated2 ./annotateErr2 ./range ./filter ./cover_db annotated_nofunc
 
 clean_cover
@@ -29,7 +29,7 @@ echo *
 # filename was all upper case
 ln -s ../simple/simple2.cpp test.cpp
 ln -s ../simple/simple2.cpp.annotated test.cpp.annotated
-ln -s ../simple/annotate.sh .
+ln -s ../simple/annotate.pl .
 
 ${CXX} --coverage test.cpp
 ./a.out
@@ -58,8 +58,8 @@ perl munge.pl current.info > munged.info
 #   LLVM seems to generate this kind of inconsistent data, at times
 perl munge2.pl current.info > munged2.info
 
-echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr ./munged.info 2>&1 | tee err.log
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotateErr ./munged.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotateErr ./munged.info 2>&1 | tee err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml did not return error"
     if [ 0 == $KEEP_GOING ] ; then
@@ -75,8 +75,8 @@ if [ 0 != $? ] ; then
 fi
 
 
-echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated --ignore range ./munged.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated ./munged.info --ignore range 2>&1 | tee annotate.log
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotated --ignore range ./munged.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotated ./munged.info --ignore range 2>&1 | tee annotate.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml annotated failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -94,8 +94,8 @@ for label in 'BEGIN' 'END' ; do
     fi
 done
 
-echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated_nofunc --no-function-coverage --ignore range ./munged.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated_nofunc --no-function-coverage ./munged.info --ignore range 2>&1 | tee annotate.log
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotated_nofunc --no-function-coverage --ignore range ./munged.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotated_nofunc --no-function-coverage ./munged.info --ignore range 2>&1 | tee annotate.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml annotated_nofunc failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -140,8 +140,8 @@ for dir in annotated vanilla ; do
    fi
 done
 
-echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr2 ./munged2.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotateErr2 ./munged2.info 2>&1 | tee err2.log
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotateErr2 ./munged2.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotateErr2 ./munged2.info 2>&1 | tee err2.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml did not return error"
     if [ 0 == $KEEP_GOING ] ; then
@@ -157,8 +157,8 @@ if [ 0 != $? ] ; then
 fi
 
 
-echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated2 --ignore inconsistent ./munged2.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners all -o annotated2 ./munged2.info --ignore inconsistent 2>&1 | tee annotate2.log
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotated2 --ignore inconsistent ./munged2.info
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all -o annotated2 ./munged2.info --ignore inconsistent 2>&1 | tee annotate2.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml annotated failed"
     if [ 0 == $KEEP_GOING ] ; then
