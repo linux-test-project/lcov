@@ -884,15 +884,16 @@ sub add_worklist_entry
 {
     my ($self, $filename, $directory) = @_;
     if (exists($self->[1]->{$filename})) {
-        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
-                                  "duplicate file $filename in both " .
-                                      $self->[1]->{$filename} .
-                                      " and $directory"
-                                      .
-                                      (lcovutil::is_ignored(
-                                                       $lcovutil::ERROR_USAGE) ?
-                                           ' (skip latter)' :
-                                           ''));
+        lcovutil::ignorable_error(
+                                 $lcovutil::ERROR_USAGE,
+                                 "duplicate file $filename in both " .
+                                     $self->[1]->{$filename} .
+                                     " and $directory"
+                                     .
+                                     (
+                                    lcovutil::is_ignored($lcovutil::ERROR_USAGE)
+                                    ? ' (skip latter)' :
+                                        ''));
         return;
     }
     $self->[1]->{$filename} = $directory;
@@ -1337,8 +1338,8 @@ sub gen_info(@)
         @predicted =
             sort({ $b->[1] <=> $a->[1] or $a->[2] cmp $b->[2] } @predicted);
 
-        lcovutil::info(scalar(@unknown) .
-                           ' (of ' . (scalar(@predicted) + scalar(@unknown)) .
+        lcovutil::info(scalar(@unknown) . ' (of ' .
+                           (scalar(@predicted) + scalar(@unknown)) .
                            ") files do not appear in \'--history\' profile.\n")
             if (@unknown);
         if (@predicted) {
@@ -1548,8 +1549,8 @@ sub gen_info(@)
                 $lcovutil::maxParallelism = 1;
                 if ($chunk->[0]) {
                     my $num = scalar(@{$chunk->[1]});
-                    lcovutil::info(
-                               "Processing $num file" . ($num == 1 ? '' : 's') .
+                    lcovutil::info("Processing $num file" .
+                                   ($num == 1 ? '' : 's') .
                                    " from chunk 0 serially\n");
                 }
                 my $now = Time::HiRes::gettimeofday();
@@ -1663,8 +1664,9 @@ sub process_dafile($$$$)
 
     # Try to find base directory automatically if requested by user
     if ($lcovutil::rc_auto_base) {
-        $base_dir = find_base_from_source($base_dir,
-                                          [keys(%{$instr}), keys(%{$graph})]);
+        $base_dir =
+            find_base_from_source($base_dir,
+                                  [keys(%{$instr}), keys(%{$graph})]);
     }
 
     adjust_source_filenames($instr, $base_dir);
@@ -1767,8 +1769,9 @@ sub process_dafile($$$$)
             # Skip files that are not mentioned in the graph file
             if (!@matches) {
                 lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
-                             "cannot find an entry for " .
-                                 $gcov_file . " in $graph_file_extension file");
+                                          "cannot find an entry for " .
+                                              $gcov_file .
+                                              " in $graph_file_extension file");
                 unlink($gcov_file) unless $lcovutil::preserve_intermediates;
                 next;
             }
@@ -1777,8 +1780,9 @@ sub process_dafile($$$$)
                 $source_filename = $matches[0];
             } else {
                 # Try to solve the ambiguity
-                $source_filename = solve_ambiguous_match($gcov_file, \@matches,
-                                                         \@gcov_content);
+                $source_filename =
+                    solve_ambiguous_match($gcov_file, \@matches,
+                                          \@gcov_content);
             }
             $source_filename =
                 ReadCurrentSource::resolve_path($source_filename, 1);
@@ -2647,8 +2651,7 @@ sub intermediate_json_to_info($)
                 );
                 if ($lcovutil::opt_adjust_unexecuted_blocks) {
                     $count = 0;
-                } elsif (
-                         lcovutil::warn_once("unexecuted block",
+                } elsif (lcovutil::warn_once("unexecuted block",
                                              $ERROR_INCONSISTENT_DATA)
                 ) {
                     lcovutil::ignorable_warning($ERROR_INCONSISTENT_DATA,
@@ -3180,8 +3183,9 @@ sub process_graphfile($$)
 
     # Try to find base directory automatically if requested by user
     if ($lcovutil::rc_auto_base) {
-        $base_dir = find_base_from_source($base_dir,
-                                          [keys(%{$instr}), keys(%{$graph})]);
+        $base_dir =
+            find_base_from_source($base_dir,
+                                  [keys(%{$instr}), keys(%{$graph})]);
     }
 
     adjust_source_filenames($instr, $base_dir);

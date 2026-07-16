@@ -131,7 +131,8 @@ sub annotate_callback
             -r $pathname) {
         $context = ':' . $context if $context;
         die($self->[AnnotateBase::SCRIPT] .
-            $context . ' expected readable file, found \'' .
+            $context .
+            ' expected readable file, found \'' .
             (defined($pathname) ? $pathname : '<undef>') . "'");
     }
 

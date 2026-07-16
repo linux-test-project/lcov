@@ -256,8 +256,10 @@ foreach my $db_path (@ARGV) {
         ) {
             next unless defined($c->[1]);
             foreach my $line ($c->[1]->items) {
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                   'found ' . $c->[0] .
+                lcovutil::ignorable_error(
+                                   $lcovutil::ERROR_INCONSISTENT_DATA,
+                                   'found ' .
+                                       $c->[0] .
                                        " coverpoint on $line but no lineCov there"
                 ) unless defined($stmts->location($line));
             }
@@ -414,7 +416,8 @@ foreach my $db_path (@ARGV) {
                 --$last;
             }
             lcovutil::info(1,
-                           "resetting " . $func->name() .
+                           "resetting " .
+                               $func->name() .
                                " end line to $last (from $end)\n");
             $func->set_end_line($last);
 

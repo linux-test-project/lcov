@@ -306,7 +306,10 @@ sub finalize
         my $pt    = $count->[0] != 1 ? ($type eq 'branch' ? 'es' : 's') : '';
         my $pl    = $count->[1] != 1 ? 's' : '';
         lcovutil::info("Excluded " .
-                 $count->[0] . " $type$pt from " . $count->[1] . " line$pl.\n");
+                       $count->[0] .
+                       " $type$pt from " .
+                       $count->[1] .
+                       " line$pl.\n");
     }
 }
 
