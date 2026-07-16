@@ -213,8 +213,8 @@ if [ ! -f failUnder.info ] ; then
         exit 1
     fi
 fi
-echo genhtml $DIFFCOV_OPTS $IGNORE failUnder.info --output-directory ./failUnder --fail-under-lines 70
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS $IGNORE failUnder.info --output-directory ./failUnder --fail-under-lines 70
+echo genhtml $DIFFCOV_OPTS $IGNORE failUnder.info --output-directory ./failUnder --fail-under-lines 70 --missed --html-gzip
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS $IGNORE failUnder.info --output-directory ./failUnder --fail-under-lines 70 --missed --html-gzip
 if [ 0 == $? ] ; then
     echo "ERROR: genhtml did not fail with low coverage"
     status=1
@@ -223,7 +223,14 @@ if [ 0 == $? ] ; then
     fi
 fi
 if [ ! -f failUnder/index.html ] ; then
-    echo "ERROR: did not write HTML when failing"
+    echo "ERROR: did not write (compressed) HTML when failing"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ ! -f failUnder/.htaccess ] ; then
+    echo "ERROR: did not write .htaccess file"
     status=1
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
@@ -436,8 +443,8 @@ diff -u simple.cpp simple2.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > dif
 POPUP='--rc genhtml_annotate_tooltip=mytooltip'
 for opt in "" --dark-mode --flat ; do
   outDir=./noncode_differential$opt
-  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $IGNORE $POPUP
-  $COVER $GENHTML_TOOL $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT --save $IGNORE $POPUP
+  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $IGNORE $POPUP
+  $COVER $GENHTML_TOOL $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT --save $IGNORE $POPUP
   if [ 0 != $? ] ; then
       echo "ERROR: genhtml $outdir failed (1)"
       status=1
@@ -500,8 +507,8 @@ for opt in "" --dark-mode --flat ; do
   fi
 
   outDir=./differential_subset$opt
-  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $IGNORE $POPUP --rc truncate_owner_table=top,directory --rc owner_table_entries=2 --include '*simple*'
-  $COVER $GENHTML_TOOL $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT --save $IGNORE $POPUP --rc truncate_owner_table=top,directory --include '*simple*' --rc owner_table_entries=2
+  echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $IGNORE $POPUP --rc truncate_owner_table=top,directory --rc owner_table_entries=2 --include '*simple*'
+  $COVER $GENHTML_TOOL $DIFFCOV_NOFRAME_OPTS $opt --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --ignore-errors source --simplified-colors -o $outDir ./current.info.gz $GENHTML_PORT --save $IGNORE $POPUP --rc truncate_owner_table=top,directory --include '*simple*' --rc owner_table_entries=2
   if [ 0 != $? ] ; then
       echo "ERROR: genhtml subset $outDir failed"
       status=1
@@ -553,8 +560,8 @@ done
 
 
 # check that this works with test names
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline_name.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $IGNORE --description names.data --serialize differential_named/coverage.dat
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline_name.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT $IGNORE --description names.data --serialize differential_named/coverage.dat
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline_name.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $IGNORE --description names.data --serialize differential_named/coverage.dat
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline_name.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --ignore-errors source --simplified-colors -o differential_named ./current_name.info.gz $GENHTML_PORT $IGNORE --description names.data --serialize differential_named/coverage.dat
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential testname failed"
     status=1
@@ -665,9 +672,9 @@ for opt in "" "--show-details" "--hier"; do
     for o in "" $opt ; do
         OPTS="$TEST_OPTS $o"
         outdir=./differential${EXT}${o}
-	outFile=differential${EXT}${o}.log
-        echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $IGNORE $POPUP
-        $COVER ${GENHTML_TOOL} $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o $outdir ./current.info $GENHTML_PORT $IGNORE $POPUP  2>&1 | tee $outFile
+        outFile=differential${EXT}${o}.log
+        echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source -o $outdir ./current.info $IGNORE $POPUP
+        $COVER ${GENHTML_TOOL} $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source -o $outdir ./current.info $GENHTML_PORT $IGNORE $POPUP  2>&1 | tee $outFile
         if [ 0 != ${PIPESTATUS[0]} ] ; then
             echo "ERROR: genhtml $outdir failed (2)"
             status=1
@@ -675,27 +682,27 @@ for opt in "" "--show-details" "--hier"; do
                 exit 1
             fi
         fi
-	# expect to see non-zero deleted branch count
-	for tla in DUB DCB ; do
-	    grep -E branch:.+${tla}:[1-9] $outFile
-	    if [ 0 != $? ] ; then
-		echo "ERROR:  did not find expected $tla branches"
-		status=1
-		if [ 0 == $KEEP_GOING ] ; then
-		    exit 1
-		fi
-	    fi
-	    if [ "$ENABLE_MCDC" == '1' ] ; then
-		grep -E mcdc:.+${tla}:1 $outFile
-		if [ 0 != $? ] ; then
-		    echo "ERROR:  did not find expected $tla branches"
-		    status=1
-		    if [ 0 == $KEEP_GOING ] ; then
-			exit 1
-		    fi
-		fi
-	    fi
-	done
+        # expect to see non-zero deleted branch count
+        for tla in DUB DCB ; do
+            grep -E branch:.+${tla}:[1-9] $outFile
+            if [ 0 != $? ] ; then
+                echo "ERROR:  did not find expected $tla branches"
+                status=1
+                if [ 0 == $KEEP_GOING ] ; then
+                    exit 1
+                fi
+            fi
+            if [ "$ENABLE_MCDC" == '1' ] ; then
+                grep -E mcdc:.+${tla}:1 $outFile
+                if [ 0 != $? ] ; then
+                    echo "ERROR:  did not find expected $tla branches"
+                    status=1
+                    if [ 0 == $KEEP_GOING ] ; then
+                        exit 1
+                    fi
+                fi
+            fi
+        done
 
         if [[ $OPTS =~ "show-details" ]] ; then
             found=0
@@ -780,8 +787,8 @@ for opt in "" "--show-details" "--hier"; do
 done
 
 
-echo genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info $IGNORE $POPUP
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nobranch ./current.info $GENHTML_PORT $IGNORE $POPUP
+echo genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners --ignore-errors source -o ./differential_nobranch ./current.info $IGNORE $POPUP
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners --ignore-errors source -o ./differential_nobranch ./current.info $GENHTML_PORT $IGNORE $POPUP
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential_nobranch failed"
     status=1
@@ -814,8 +821,8 @@ done
 
 
 # with no sourceview
-echo genhtml $DIFFCOV_OPTS --no-sourceview --branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nosource ./current.info $IGNORE $POPUP
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --no-sourceview --branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners --ignore-errors source -o ./differential_nosource ./current.info $GENHTML_PORT $IGNORE $POPUP
+echo genhtml $DIFFCOV_OPTS --no-sourceview --branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners --ignore-errors source -o ./differential_nosource ./current.info $IGNORE $POPUP
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --no-sourceview --branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners --ignore-errors source -o ./differential_nosource ./current.info $GENHTML_PORT $IGNORE $POPUP
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential_nosource failed"
     status=1
@@ -876,8 +883,8 @@ fi
 rm -f test.cpp
 ln -s simple2.cpp test.cpp
 
-echo genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script ./annotate.sh -o ./no_owners ./current.info $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script ./annotate.sh -o ./no_owners ./current.info $GENHTML_PORT $IGNORE
+echo genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script ./annotate.pl -o ./no_owners ./current.info $IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script ./annotate.pl -o ./no_owners ./current.info $GENHTML_PORT $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml no_owners failed"
     if [ 0 == $KEEP_GOING ] ; then
@@ -927,8 +934,8 @@ for key in "date bins" "ownership bins" ; do
     fi
 done
 
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --annotate-script `pwd`/annotate.sh --show-owners -o ./no_baseline ./current.info $GENHTML_PORT $IGNORE
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners -o ./no_baseline ./current.info $IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners -o ./no_baseline ./current.info $GENHTML_PORT $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml no_baseline failed"
     status=1
@@ -966,8 +973,8 @@ sed -e "s#/simple/test#/badPath/test#g" diff.txt > diff_broken.txt
 
 # now run genhtml - expect to see an error:
 # skip new diff/version inconsistency message
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE --ignore inconsistent
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee err.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE --ignore inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee err.log
 
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR:  expected error but didn't see it"
@@ -988,8 +995,8 @@ fi
 
 
 # now run genhtml - expect to see an warning:
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee warn.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee warn.log
 
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR:  expected warning but didn't see it"
@@ -1009,8 +1016,8 @@ if [ 0 != $? ] ; then
 fi
 
 # now use the 'elide' feature to avoid the error
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE --ignore inconsistent
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.sh --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee elide.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE --ignore inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee elide.log
 
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR:  expected success but didn't see it"
@@ -1031,8 +1038,8 @@ fi
 
 # test criteria-related RC override errors:
 for errs in 'criteria_callback_levels=dir,a' 'criteria_callback_data=foo' ; do
-    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA -o $outdir ./current.info --rc $errs $IGNORE
-    $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA -o criteria ./current.info $GENHTML_PORT --rc $errs $IGNORE > criteriaErr.log 2> criteriaErr.err
+    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --criteria $CRITERIA -o $outdir ./current.info --rc $errs $IGNORE
+    $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --criteria $CRITERIA -o criteria ./current.info $GENHTML_PORT --rc $errs $IGNORE > criteriaErr.log 2> criteriaErr.err
     if [ 0 == $? ] ; then
         echo "ERROR: genhtml criteria should have failed but didn't"
         status=1
@@ -1055,8 +1062,8 @@ done
 for mod in '' '.pm' ; do
     #  we expect to fail - and to see error message - it coverage criteria not met
     # ask for date and owner data - even though the callback doesn't use it
-    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA$mod -o criteria$mod ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
-    $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA$mod --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria$mod ./current.info $GENHTML_PORT $IGNORE > criteria$mod.log 2> criteria$mod.err
+    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --criteria $CRITERIA$mod -o criteria$mod ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
+    $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --criteria $CRITERIA$mod --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria$mod ./current.info $GENHTML_PORT $IGNORE > criteria$mod.log 2> criteria$mod.err
     if [ 0 == $? ] ; then
         echo "ERROR: genhtml criteria should have failed but didn't"
         status=1
@@ -1066,8 +1073,8 @@ for mod in '' '.pm' ; do
     fi
 
     # signoff should pass...
-    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA$mod --criteria --signoff -o criteria_signoff$mod ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
-    $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria $CRITERIA$mod --criteria --signoff --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria_signoff$mod ./current.info $GENHTML_PORT $IGNORE > criteria_signoff$mod.log 2> criteria_signoff$mod.err
+    echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --criteria $CRITERIA$mod --criteria --signoff -o criteria_signoff$mod ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
+    $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --criteria $CRITERIA$mod --criteria --signoff --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria_signoff$mod ./current.info $GENHTML_PORT $IGNORE > criteria_signoff$mod.log 2> criteria_signoff$mod.err
     if [ 0 != $? ] ; then
         echo "ERROR: genhtml criteria signoff should have passed but didn't"
         status=1
@@ -1120,8 +1127,8 @@ done
 # test 'coverage criteria' callback
 #  we expect to fail - and to see error message - it coverage criteria not met
 # ask for date and owner data - even though the callback doesn't use it
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria "$CRITERIA --signoff" -o $outdir ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --criteria "$CRITERIA --signoff" --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria ./current.info $GENHTML_PORT $IGNORE > signoff.log 2> signoff.err
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --criteria "$CRITERIA --signoff" -o $outdir ./current.info --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file $IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --criteria "$CRITERIA --signoff" --rc criteria_callback_data=date,owner --rc criteria_callback_levels=top,file -o criteria ./current.info $GENHTML_PORT $IGNORE > signoff.log 2> signoff.err
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml criteria --signoff did not pass"
     status=1
@@ -1141,8 +1148,8 @@ fi
 
 
 # check select script
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select $IGNORE --validate
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select $IGNORE --validate
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select $IGNORE --validate
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select stanley.ukeridge current.info -o select $IGNORE --validate
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml select did not pass"
     status=1
@@ -1186,8 +1193,8 @@ fi
 
 
 # check select script
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --validate
-$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --validate 2>&1 | tee selectNone.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --validate
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --validate 2>&1 | tee selectNone.log
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml select did not pass"
     status=1
@@ -1226,8 +1233,8 @@ fi
 
 # test '--show-navigation' option
 # need "--ignore-unused for gcc/10.2.0 - which doesn't see code in its c++ headers
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NOFRAME_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' ./current.info $IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_NOFRAME_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' $GENHTML_PORT ./current.info $IGNORE > navigation.log 2> navigation.err
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NOFRAME_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' ./current.info $IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_NOFRAME_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --show-navigation -o navigation --ignore unused --exclude '*/include/c++/*' $GENHTML_PORT ./current.info $IGNORE > navigation.log 2> navigation.err
 
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml --show-navigation failed"
@@ -1417,8 +1424,8 @@ if [ 0 != $? ] ; then
     fi
 fi
 # and then a differential report...
-echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o ./differential_prop ./current.info --show-proportion $IGNORE
-$COVER ${GENHTML_TOOL} $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o ./differential_prop ./current.info --show-proportion $GENHTML_PORT $IGNORE
+echo ${LCOV_HOME}/bin/genhtml $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source -o ./differential_prop ./current.info --show-proportion $IGNORE
+$COVER ${GENHTML_TOOL} $OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source -o ./differential_prop ./current.info --show-proportion $GENHTML_PORT $IGNORE
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml differential proportional failed"
     status=1
@@ -1586,8 +1593,8 @@ ln -s unreach.cpp test.cpp
 ln -s simple2.cpp.annotated unreach.cpp.annotated
 # now generate a report - using the same coverage and diff data as other tests
 #   this will work because we only care about line numbers - not their content
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o unreach ./current.info $IGNORE $POPUP --unreachable $UNREACHABLE
-$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o unreach ./current.info $GENHTML_PORT $IGNORE $POPUP  --unreachable $UNREACHABLE 2>&1 | tee unreach.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source -o unreach ./current.info $IGNORE $POPUP --unreachable $UNREACHABLE
+$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source -o unreach ./current.info $GENHTML_PORT $IGNORE $POPUP  --unreachable $UNREACHABLE 2>&1 | tee unreach.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml unreach failed"
     status=1
@@ -1597,8 +1604,8 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
 fi
 
 # now generate a vanilla report (not differential) with excluded coverpoints
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o unreach_vanilla ./current.info $IGNORE $POPUP --unreachable $UNREACHABLE
-$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source -o unreach_vanilla ./current.info $GENHTML_PORT $IGNORE $POPUP  --unreachable $UNREACHABLE 2>&1 | tee unreach.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source -o unreach_vanilla ./current.info $IGNORE $POPUP --unreachable $UNREACHABLE
+$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source -o unreach_vanilla ./current.info $GENHTML_PORT $IGNORE $POPUP  --unreachable $UNREACHABLE 2>&1 | tee unreach.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml unreach vanilla failed"
     status=1
@@ -1615,14 +1622,14 @@ fi
 
 for pat in 'Excluded 1 MC/DC condition from 1 line.' $BRANCH_COUNT_MSG ; do
     if [[ "$ENABLE_MCDC" == "1" || ! $pat =~ "MC/DC" ]] ; then
-	grep "$pat" unreach.log
-	if [ 0 != $? ] ; then
-	    echo "ERROR: did not find '$pat' in unreach.log"
-	    status=1
-	    if [ 0 == $KEEP_GOING ] ; then
-		exit 1
-	    fi
-	fi
+        grep "$pat" unreach.log
+        if [ 0 != $? ] ; then
+            echo "ERROR: did not find '$pat' in unreach.log"
+            status=1
+            if [ 0 == $KEEP_GOING ] ; then
+                exit 1
+            fi
+        fi
     fi
 done
 
@@ -1638,8 +1645,8 @@ fi
 sed -E 's/22,24 \+23,23/32,34 \+33,33/' < diff.txt > diff_err.txt
 # specify a source filter - so "ReadBaselineSource" will try to recreate 
 #   the file
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info  --filter branch $IGNORE_INCONSISTENT
-$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info --filter branch $IGNORE_INCONSISTENT 2>&1 | tee diff_range_err.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info  --filter branch $IGNORE_INCONSISTENT
+$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info --filter branch $IGNORE_INCONSISTENT 2>&1 | tee diff_range_err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml diff range didn't error out"
     status=1
@@ -1663,8 +1670,8 @@ if [ "${VER[0]}" -lt 14 ] ; then
 fi
 
 # now ignore the inconsistency and see if we generate the report
-echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info --filter branch --ignore inconsistent $EXTRA_IGNORE
-$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.sh --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info --filter branch --ignore inconsistent $EXTRA_IGNORE 2>&1 | tee diff_range.log
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info --filter branch --ignore inconsistent $EXTRA_IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_NO_VERSION_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --baseline-file baseline.info --diff-file diff_err.txt -o diff_range ./current.info --filter branch --ignore inconsistent $EXTRA_IGNORE 2>&1 | tee diff_range.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml diff range didn't ignore error"
     status=1
