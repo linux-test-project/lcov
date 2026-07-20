@@ -63,5 +63,5 @@ fi
 echo "Tests passed"
 
 if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ]; then
-    cover
+    generate_coverage 'lambda.sh' $LOCAL_COVERAGE
 fi

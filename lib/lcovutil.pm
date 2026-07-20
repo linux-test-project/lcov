@@ -5516,6 +5516,13 @@ sub get_found_and_hit
     return ($self->[FOUND], $self->[HIT]);
 }
 
+sub adjust_counts
+{
+    my ($self, $dFound, $dHit) = @_;
+    $self->[FOUND] += $dFound;
+    $self->[HIT]   += $dHit;
+}
+
 package BranchData;
 
 use base 'BranchMap';

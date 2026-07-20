@@ -1,0 +1,307 @@
+#!/bin/bash
+set +x
+
+# ============================================================================
+# part3 of the former monolithic 'simple' genhtml test (see setup_common.sh).
+# Covers: --no-branch-coverage, --no-sourceview, diff-with-no-baseline, the
+# reverse-diff reports, --no-owners / --no-annotation / --no-baseline, and the
+# broken-diff error / warning / --elide-path-mismatch sequence.
+# ============================================================================
+
+source ../../common.tst
+
+if [[ 1 == $CLEAN_ONLY ]] ; then
+    rm -rf part3.d
+    exit 0
+fi
+
+if ! type "${CXX}" >/dev/null 2>&1 ; then
+        echo "Missing tool: $CXX" >&2
+        exit 2
+fi
+
+WORKDIR=part3.d
+source ./setup_common.sh
+
+status=0
+
+# --------------------------------------------------------------------------
+# --no-branch-coverage
+# --------------------------------------------------------------------------
+echo genhtml $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners --ignore-errors source -o ./differential_nobranch ./current.info $IGNORE $POPUP
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --no-branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners --ignore-errors source -o ./differential_nobranch ./current.info $GENHTML_PORT $IGNORE $POPUP
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml differential_nobranch failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# should not be a branch table
+# expect not to find 'augustus.finknottle' whose code is 100% covered in owner table
+for owner in augustus.finknottle ; do
+    grep $owner differential_nobranch/index.html
+    if [ 1 != $? ] ;then
+        echo "ERROR: found $owner in differential_nobranch owner summary"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+for summary in Branch ; do
+    grep "$summary coverage" differential_nobranch/index.html
+    if [ 1 != $? ] ;then
+        echo "ERROR: found $summary in differential_nobranch summary"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+# --------------------------------------------------------------------------
+# --no-sourceview
+# --------------------------------------------------------------------------
+echo genhtml $DIFFCOV_OPTS --no-sourceview --branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners --ignore-errors source -o ./differential_nosource ./current.info $IGNORE $POPUP
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --no-sourceview --branch-coverage --baseline-file ./baseline_nobranch.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners --ignore-errors source -o ./differential_nosource ./current.info $GENHTML_PORT $IGNORE $POPUP
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml differential_nosource failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# should be no source directory..
+if [ -e differential_nosource/simple/test.cpp.gcov.html ] ; then
+    echo "expected no source..but found some"
+fi
+
+# --------------------------------------------------------------------------
+# diff file but no baseline
+# --------------------------------------------------------------------------
+echo genhtml $DIFFCOV_OPTS ./current.info --diff-file diff.txt -o ./diff_no_baseline $IGNORE
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS ./current.info --diff-file diff.txt -o ./diff_no_baseline $IGNORE
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml diff_no_baseline failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# --------------------------------------------------------------------------
+# the inverse difference (reverse)
+# --------------------------------------------------------------------------
+rm -f test.cpp
+ln -s simple.cpp test.cpp
+diff -u simple2.cpp simple.cpp | sed -e "s|simple2*\.cpp|$ROOT/test.cpp|g" > diff_r.txt
+
+# make the version number look different so the new diff file
+#  consistency check will pass
+sed -E 's/VER:(.+)$/VER:\1b/' current.info > current_hacked.info
+
+# will get MD5 mismatch unless we have the simple.cpp and simple.cpp files
+# set up in the expected places
+echo genhtml $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse ./baseline_orig.info $IGNORE --ignore version
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse ./baseline_orig.info $GENHTML_PORT $IGNORE --ignore version
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml branch failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# just ignore the new diff file/version ID mismatch message -
+# obviously, some of the inputs here are cobbled together rather than
+# entirely generated by the numbers. Kind of painful to re-create everything
+echo genhtml $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz $IGNORE --ignore inconsistent,version
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --baseline-file ./current_hacked.info --diff-file diff_r.txt -o ./reverse_nobranch ./baseline_nobranch.info.gz $GENHTML_PORT $IGNORE --ignore inconsistent,version
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml reverse_nobranch failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# point to 'new' file now...
+rm -f test.cpp
+ln -s simple2.cpp test.cpp
+
+# --------------------------------------------------------------------------
+# --no-owners / --no-annotation / --no-baseline
+# --------------------------------------------------------------------------
+echo genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script ./annotate.pl -o ./no_owners ./current.info $IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt --annotate-script ./annotate.pl -o ./no_owners ./current.info $GENHTML_PORT $IGNORE
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml no_owners failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# expect to not find ownership summary table...
+for summary in ownership ; do
+    grep $summary no_owners/index.html
+    if [ 1 != $? ] ;then
+        echo "ERROR: found $summary in no_owners summary"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+           exit 1
+        fi
+    fi
+done
+
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info $IGNORE --rc scope_regexp='test.cpp'
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff.txt -o ./no_annotation ./current.info $GENHTML_PORT $IGNORE --rc scope_regexp='test.cpp'
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml no_annotation failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# expect to find differential TLAs - but don't expect ownership and date tables
+for key in UNC LBC UIC UBC GBC GIC GNC CBC EUB ECB DUB DCB ; do
+    grep $key no_annotation/index.html
+    if [ 0 != $? ] ;then
+        echo "ERROR: did not find $key in no_annotation summary"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+for key in "date bins" "ownership bins" ; do
+    grep "$key" no_annotation/index.html
+    if [ 1 != $? ] ; then
+        echo "ERROR: found $key in no_annotation summary"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners -o ./no_baseline ./current.info $IGNORE
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners -o ./no_baseline ./current.info $GENHTML_PORT $IGNORE
+if [ 0 != $? ] ; then
+    echo "ERROR: genhtml no_baseline failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# don't expect to find differential TLAs - but still expect ownership and date tables
+for key in "date bins" "ownership bins" ; do
+    grep "$key" no_baseline/index.html
+    if [ 0 != $? ] ;then
+        echo "ERROR: did not find $key in no_baseline summary"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+for key in UNC LBC UIC UBC GBC GIC GNC CBC EUB ECB DUB DCB ; do
+    grep $key no_baseline/index.html
+    if [ 1 != $? ] ;then
+        echo "ERROR: found $key in no_baseline summary"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
+# --------------------------------------------------------------------------
+# broken-diff error / warning / elide-path-mismatch
+# --------------------------------------------------------------------------
+echo "now some error checking and issue workaround tests..."
+
+# - first, create a 'diff' file whose pathname is not quite right..
+sed -e "s#/simple/test#/badPath/test#g" diff.txt > diff_broken.txt
+
+# now run genhtml - expect to see an error:
+# skip new diff/version inconsistency message
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE --ignore inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --simplified-colors -o ./broken ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee err.log
+
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "ERROR:  expected error but didn't see it"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep -i "Error: .* possible path inconsistency" err.log
+if [ 0 != $? ] ; then
+    echo "ERROR:  can't find expected error message"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# now run genhtml - expect to see an warning:
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --ignore-errors path --simplified-colors -o ./mismatchPath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee warn.log
+
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR:  expected warning but didn't see it"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep -i 'Warning: .* possible path inconsistency' warn.log
+if [ 0 != $? ] ; then
+    echo "ERROR:  can't find expected warning message"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# now use the 'elide' feature to avoid the error
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE --ignore inconsistent
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff_broken.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode --elide-path-mismatch --simplified-colors -o ./elidePath ./current.info.gz $IGNORE --ignore inconsistent 2>&1 | tee elide.log
+
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR:  expected success but didn't see it"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep "has same basename" elide.log
+if [ 0 != $? ] ; then
+    echo "ERROR:  can't find expected warning message"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+echo $SPREADSHEET_TOOL -o results.xlsx `find . -name "*.json"`
+eval $SPREADSHEET_TOOL -o results.xlsx `find . -name "*.json"`
+if [ 0 != $? ] ; then
+    status=1
+    echo "ERROR:  spreadsheet generation failed"
+    exit 1
+fi
+
+if [ 0 == $status ] ; then
+    echo "Tests passed"
+else
+    echo "Tests failed"
+fi
+
+if [ "x$COVER" != "x" ] ; then
+    generate_coverage 'simple_3' $LOCAL_COVERAGE 1
+fi
+
+exit $status

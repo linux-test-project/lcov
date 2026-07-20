@@ -37,7 +37,8 @@ while [ $# -gt 0 ] ; do
                 COVER_DB='cover_db.dat'
             fi
             export PYCOV_DB="${COVER_DB}_py"
-            COVER="perl -MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine,-silent,1 "
+	    PERL_COVER_ARGS="-MDevel::Cover=-db,${COVER_DB},-coverage,statement,branch,condition,subroutine,-silent,1 "
+            COVER="perl $PERL_COVER_ARGS"
 
             if [ '' != "${COVERAGE_COMMAND}" ] ; then
                 CMD=${COVERAGE_COMMAND}
@@ -163,5 +164,26 @@ function clean_cover()
             cover -delete -db $COVER_DB
         fi
         rm -rf $PYCOV_DB
+    fi
+}
+
+function generate_coverage()
+{
+    TESTNAME=$1
+    LOCAL_COVERAGE=$2
+    PYCOV_COVERAGE=$3
+
+    INFO_FILES='perlcov.info'
+    echo "Generating coverage report for $TESTNAME"
+    if [ "$PYCOV_COVERAGE" == 1 ] ; then
+	echo ${LCOV_HOME}/bin/py2lcov -o pycov.info --testname $TESTNAME --version-script $GET_VERSION $PYCOV_DB
+	${LCOV_HOME}/bin/py2lcov -o pycov.info --testname TESTNAME --version-script $GET_VERSION $PYCOV_DB
+	INFO_FILES="$INFO_FILES pycov.info"
+    fi
+    if [ 0 != "$LOCAL_COVERAGE" ] ; then
+        cover $COVER_DB
+        ${LCOV_HOME}/bin/perl2lcov -o perlcov.info --testname $TESTNAME --version-script $GET_VERSION $COVER_DB --ignore inconsistent
+        ${LCOV_HOME}/bin/genhtml -o html_report $INFO_FILES --branch --flat --show-navigation --show-proportion --version-script $GET_VERSION --annotate-script $ANNOTATE --parallel --ignore empty,usage,inconsistent
+        echo "see HTML report 'html_report'"
     fi
 }
