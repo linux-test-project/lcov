@@ -109,7 +109,8 @@ if ($verbose) {
     print(STDERR "\n");
 }
 
-$prefix .= '/' if $prefix;
+# add separator to end of prefix - if prefix set and doesn't end with one
+$prefix .= '/' if $prefix && substr($prefix, -1) ne '/';
 if (3 == scalar(@ARGV)) {
     my $dir = shift @ARGV;
     push(@include_patterns, "$dir");
@@ -118,6 +119,8 @@ my $base_sha    = shift @ARGV;
 my $current_sha = shift @ARGV;
 
 $repo = Cwd::realpath($repo);
+
+die("unexpected '/' at end of '$repo'") if substr($repo, -1) eq '/';
 
 my $cmd = "cd $repo ; git diff $ignore_whitespace $base_sha $current_sha";
 
@@ -132,9 +135,20 @@ while (<HANDLE>) {
     s/\r//g;
     my $line = $_;
 
+    # Capture the git-relative (short) pathnames from the raw 'diff --git'
+    # header before we rewrite the line below.  The path within the repo is
+    # unique, so we key %allFiles by it to dedup against the ls-tree pass.
+    my ($shortA, $shortB);
+    if ($line =~ m#^diff --git a/(\S+) b/(\S+)#) {
+        ($shortA, $shortB) = ($1, $2);
+    }
+
     if ($line =~ /(^diff|\+\+\+|---) /) {
-        # remove the a/b leader from the
-        $line =~ s# [ab]/# $prefix#g;
+        # remove the a/b leader from the diff/---/+++ lines - making the
+        # pathname absolute (rooted at the repo) - then strip the requested
+        # prefix so the whole report uses the same (prefix-relative) paths.
+        $line =~ s# [ab]/# $repo/#g;
+        $line =~ s#\Q$prefix\E##g if $prefix;
     }
 
     if ($line =~ /^diff --git (\S+) (\S+)/) {
@@ -145,7 +159,9 @@ while (<HANDLE>) {
             (include_me($fileA, \@include_patterns, \@exclude_patterns) ||
              include_me($fileB, \@include_patterns, \@exclude_patterns));
         if ($includeCurrentFile) {
-            $allFiles{$fileB} = $fileA;
+            # key by the short (git-relative) path so the ls-tree pass can
+            # recognise this file as already-changed
+            $allFiles{$shortB} = $shortA;
             $line =~ s/($fileA|$fileB)/$1/g;
         }
     }
@@ -171,11 +187,14 @@ die("failed to exec git ls-tree")
 while (<HANDLE>) {
     chomp($_);
     s/\r//g;
-    my $filename = $repo . '/' . $_;
-    my $path     = $prefix . $filename;
+    # $repo starts with leading '/'
+    my $path = $repo . '/' . $_;
+    $path =~ s#\Q$prefix\E## if $prefix; # strip prefix
+    # $_ is the git-relative path, matching the key used for changed files
+    # above; skip it here so changed files are not re-emitted as unchanged.
     if (!exists($allFiles{$_}) &&
         include_me($path, \@include_patterns, \@exclude_patterns)) {
-        printf("diff --git $prefix$filename $prefix$filename\n");
+        printf("diff --git $path $path\n");
         printf("=== $path\n");
     }
 }

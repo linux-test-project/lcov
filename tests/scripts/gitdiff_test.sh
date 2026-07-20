@@ -21,7 +21,7 @@
 #   6.  Basic two-SHA diff: a/b leaders stripped from diff/---/+++ lines
 #   7.  Unchanged file appended (git ls-tree path, no --no-unchanged)
 #   8.  --no-unchanged suppresses the unchanged-file entry
-#   9.  --prefix prepended to paths in diff and unchanged entries
+#   9.  --prefix strips the leading path from paths in diff and unchanged entries
 #  10.  Three-arg form [dir base current]: dir pushed as include pattern
 #  11.  --exclude removes matching file from output
 #  12.  --include limits output to matching files only
@@ -228,22 +228,36 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 9: --prefix prepended to paths in diff and unchanged entries
+# Test 9: --prefix strips the leading path from file pathnames throughout the
+#         report (both the changed-file diff lines and the unchanged '==='
+#         entries).  This is the behaviour documented in the --help text and
+#         relied on by the Jenkins generator, which passes '--prefix $REPO_ROOT'
+#         to turn the absolute repo paths into repo-relative ones.
 # ---------------------------------------------------------------------------
 read -r REPO BASE_SHA CUR_SHA <<< "$(make_two_commit_repo)"
-OUTPUT=$($GITDIFF --repo "$REPO" --prefix "myprefix" "$BASE_SHA" "$CUR_SHA" 2>&1)
+# gitdiff canonicalises --repo with realpath, so strip using the same form.
+REALREPO=$(cd "$REPO" && pwd -P)
+OUTPUT=$($GITDIFF --repo "$REPO" --prefix "$REALREPO" "$BASE_SHA" "$CUR_SHA" 2>&1)
 RC=$?
 rm -rf "$REPO"
 if [ $RC -ne 0 ] ; then
-    fail "Test 9 prefix: expected exit 0, got $RC"
-else
-    # After --prefix, diff line should contain the prefix
-    if ! echo "$OUTPUT" | grep -q 'myprefix' ; then
-        fail "Test 9 prefix: expected 'myprefix' in output; got:
+    fail "Test 9 prefix: expected exit 0, got $RC; output:
 $OUTPUT"
-    else
-        pass "Test 9: --prefix appears in diff and unchanged entries"
-    fi
+elif echo "$OUTPUT" | grep -q "$REALREPO" ; then
+    # The prefix must have been stripped everywhere; no absolute repo path
+    # should survive in the output.
+    fail "Test 9 prefix: expected '$REALREPO' to be stripped, but it remains; got:
+$OUTPUT"
+elif ! echo "$OUTPUT" | grep -q '^diff --git src/foo\.c src/foo\.c$' ; then
+    # The changed file should appear with the prefix removed (repo-relative).
+    fail "Test 9 prefix: expected repo-relative 'src/foo.c' diff line; got:
+$OUTPUT"
+elif ! echo "$OUTPUT" | grep -q '^=== src/bar\.c$' ; then
+    # The unchanged file's '===' entry should also be repo-relative.
+    fail "Test 9 prefix: expected repo-relative '=== src/bar.c' entry; got:
+$OUTPUT"
+else
+    pass "Test 9: --prefix strips the leading path throughout the report"
 fi
 
 # ---------------------------------------------------------------------------
