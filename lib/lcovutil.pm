@@ -78,7 +78,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      %lcovErrors $ERROR_GCOV $ERROR_SOURCE $ERROR_GRAPH $ERROR_MISMATCH
      $ERROR_BRANCH $ERROR_EMPTY $ERROR_FORMAT $ERROR_VERSION $ERROR_UNUSED
      $ERROR_PACKAGE $ERROR_CORRUPT $ERROR_NEGATIVE $ERROR_COUNT $ERROR_PATH
-     $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA
+     $ERROR_UNSUPPORTED $ERROR_DEPRECATED $ERROR_INCONSISTENT_DATA $ERROR_MULTIPLE_BASIC_BLOCKS
      $ERROR_CALLBACK $ERROR_RANGE $ERROR_UTILITY $ERROR_USAGE $ERROR_INTERNAL
      $ERROR_PARALLEL $ERROR_PARENT $ERROR_CHILD $ERROR_FORK
      $ERROR_EXCESSIVE_COUNT $ERROR_MISSING $ERROR_UNREACHABLE
@@ -150,6 +150,7 @@ our $ERROR_PARALLEL;             # error in fork/join
 our $ERROR_DEPRECATED;           # deprecated feature
 our $ERROR_CALLBACK;             # callback produced an error
 our $ERROR_INCONSISTENT_DATA;    # something wrong with .info
+our $ERROR_MULTIPLE_BASIC_BLOCKS;# source code line contains multiple blocks, e.g. functions
 our $ERROR_UNREACHABLE;          # coverpoint hit in "unreachable" region
 our $ERROR_RANGE;                # line number out of range
 our $ERROR_UTILITY;              # some tool failed - e.g., 'find'
@@ -181,6 +182,7 @@ my @lcovErrs = (["annotate", \$ERROR_ANNOTATE_SCRIPT],
                 ["gcov", \$ERROR_GCOV],
                 ["graph", \$ERROR_GRAPH],
                 ["inconsistent", \$ERROR_INCONSISTENT_DATA],
+                ["multiple", \$ERROR_MULTIPLE_BASIC_BLOCKS],
                 ["internal", \$ERROR_INTERNAL],
                 ["mismatch", \$ERROR_MISMATCH],
                 ["missing", \$ERROR_MISSING],
@@ -5220,20 +5222,26 @@ sub define_function
                  $end_line == $data->end_line()) ||
                 (!defined($end_line) && !defined($data->end_line()))
         ) {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                      "mismatched end line for $fnName at " .
-                                          $self->filename() .
-                                          ":$start_line: "
-                                          .
-                                          (defined($data->end_line()) ?
-                                               $data->end_line() : 'undef') .
-                                          " -> "
-                                          .
-                                          (defined($end_line) ? $end_line :
-                                               'undef') .
-                                          MessageContext::context())
-                unless
-                grep({ $fnName =~ $_ } @lcovutil::suppress_function_patterns);
+            if ($fnName ne $data->name()) {
+                lcovutil::ignorable_warning($lcovutil::ERROR_MULTIPLE_BASIC_BLOCKS,
+                                            "another block for $fnName overlaps with ".$data->name()." at " .
+                                                $self->filename() . ":$start_line" .
+                                                MessageContext::context());
+            } else {
+                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                          "mismatched end line for $fnName at " .
+                                                $self->filename() . ":$start_line: "
+                                                .
+                                                (defined($data->end_line()) ?
+                                                    $data->end_line() : 'undef') .
+                                                " -> "
+                                                .
+                                                (defined($end_line) ? $end_line :
+                                                    'undef') .
+                                                MessageContext::context())
+                    unless
+                    grep({ $fnName =~ $_ } @lcovutil::suppress_function_patterns);
+            }
             # pick the highest end line if we didn't error out
             $data->set_end_line($end_line)
                 if (defined($end_line) &&
