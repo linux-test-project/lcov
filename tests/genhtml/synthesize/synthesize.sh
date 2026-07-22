@@ -226,7 +226,5 @@ fi
 echo "Tests passed"
 
 if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE ] ; then
-    cover $COVER_DB
-    $PERL2LCOV_TOOL -o perlcov.info $COVER_DB
-    $GENHTML_TOOL -o coverage perlcov.info
+    generate_coverage 'synthesize.sh' $LOCAL_COVERAGE
 fi

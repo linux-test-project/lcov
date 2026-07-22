@@ -27,13 +27,22 @@ if ! type ${CXX} >/dev/null 2>&1 ; then
         exit 2
 fi
 
-$COVER $GENHTML_TOOL $LCOV_OPTS -o relative relative.info --ignore source,source --synthesize
+$COVER $GENHTML_TOOL $LCOV_OPTS -o relative relative.info --ignore source,source --synthesize --missed
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from genhtml"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
 fi
+
+grep Missed relative/index.html
+if [ 0 != $? ] ; then
+    echo "--missed flag had no effect"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+    
 
 for dir in lib src lib/src ; do
     if [ -e relative/$dir/$dir ] ; then
@@ -56,6 +65,6 @@ done
 
 echo "Tests passed"
 
-if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ]; then
-    cover
+if [ "x$COVER" != "x" ] ; then
+    generate_coverage 'relative.sh' $LOCAL_COVERAGE
 fi

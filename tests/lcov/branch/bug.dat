@@ -18,7 +18,7 @@ MCH:3
 LF:1
 LH:1
 BRF:4
-BRH:4
+BRH:3
 FNF:1
 FNH:1
 end_of_record
@@ -42,7 +42,7 @@ MCH:3
 LF:1
 LH:1
 BRF:4
-BRH:4
+BRH:2
 FNF:1
 FNH:1
 end_of_record

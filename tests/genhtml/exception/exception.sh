@@ -235,14 +235,14 @@ else
     echo "SKIPPING LLVM tests"
 fi
 
+if [ "x$COVER" != "x" ] ; then
+    generate_coverage 'exception.sh' $LOCAL_COVERAGE
+fi
+
 if [ $STATUS == 0 ] ; then
     echo "Tests passed"
 else
     echo "Tests failed"
-fi
-
-if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ]; then
-    cover
 fi
 
 exit $STATUS

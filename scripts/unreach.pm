@@ -158,8 +158,7 @@ sub exclude_branch
     my $rtn   = 0;
     if ($br->set_excluded()) {
         lcovutil::info(1, "excluded branch $blockId, $idx\n");
-        --$map->[BranchMap::FOUND];
-        --$map->[BranchMap::HIT] if 0 != $br->count();
+        $map->adjust_counts(-1, (0 != $br->count()) ? -1 : 0);
         $rtn = 1;
     }
     return $rtn;
@@ -180,8 +179,7 @@ sub exclude_cond
     my $rtn  = 0;
     if ($cond->set_excluded($sense)) {
         lcovutil::info(1, "excluded cond $groupSize,$expr,$sense\n");
-        --$map->[BranchMap::FOUND];
-        --$map->[BranchMap::HIT] if 0 != $cond->count();
+        $map->adjust_counts(-1, (0 != $cond->count()) ? -1 : 0);
         $rtn = 1;
     }
     return $rtn;
