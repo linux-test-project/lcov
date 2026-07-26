@@ -296,8 +296,13 @@ foreach my $db_path (@ARGV) {
                     #   one - and sometimes the opposite.
                     # For the moment:  punt when we don't grok
                     foreach my $block (@br) {
-                        my $counts     = $block->[0];
-                        my $expr       = $block->[1];
+                        my $counts = $block->[0];
+                        my $expr   = $block->[1];
+                        # a multi-line construct (e.g. 'eval { ... } || ...')
+                        # can carry newlines in its text; collapse them so the
+                        # whole BRDA record stays on one line (perl2lcov and
+                        # genhtml expect a single-line record).
+                        $expr =~ s/\s*\R\s*/ /g;
                         my $simplified = $expr;
                         for (my $i = 0; $i <= $#subst; ++$i) {
                             my ($from, $to) = @{$subst[$i]};
@@ -357,6 +362,10 @@ foreach my $db_path (@ARGV) {
                 if (defined($br)) {
                     my ($true, $false) = @{$br->[0]->[0]};
                     my $expr = $br->[0]->[1]->{'text'};
+                    # a multi-line construct (e.g. 'eval { ... } || ...') can
+                    # carry newlines in its text; collapse them so the whole
+                    # BRDA record stays on one line.
+                    $expr =~ s/\s*\R\s*/ /g;
                     # blockID is always zero
                     my $block = BranchBlock->new();
                     my $id    = 0;
