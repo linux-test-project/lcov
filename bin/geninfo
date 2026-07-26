@@ -1317,6 +1317,7 @@ sub gen_info(@)
         push(@worklist, [0, []]);
     }
     my $work = $filelist;    # default to the original order
+    my %predictedTime;       # file entry (stringified ref) -> predicted seconds
     if ($lcovutil::profileHistoryCallback &&
         ($chunkSize > 1 || exists($ENV{LCOV_FORCE_PARALLEL}))) {
         my (@predicted, @unknown);
@@ -1327,6 +1328,7 @@ sub gen_info(@)
             my $predicted = $lcovutil::profileHistoryCallback->history($k);
             if (defined($predicted)) {
                 push(@predicted, [$j, $predicted, $key]);
+                $predictedTime{$j} = $predicted;
             } else {
                 # put the ones we don't know about at the start of the list
                 #  - work on them first, trusting that we will have parallelism
@@ -1349,14 +1351,42 @@ sub gen_info(@)
         }
     }
     my $chunkId = 0;
+    my @dedicated;    # [$j, $estimate] : files that get their own forked chunk
     FILE: foreach my $j (@$work) {
         my ($dir, $gcda, $gcno) = @$j;
+        my $maxSize = 0;
         foreach my $f ($gcda, $gcno) {
             next unless defined($f);    # might not be a GCDA file
             my $filename = $dir . $lcovutil::dirseparator . $f;
             if (grep({ $filename =~ $_ } @main::large_files)) {
+                # memory-safety knob:  run this file serially in the parent so
+                #  it does not contend for memory with N forked workers.  Do
+                #  not also give it a dedicated forked chunk.
                 lcovutil::info(1, "large file: $filename\n");
                 push(@{$serialChunk->[1]}, $j);
+                next FILE;
+            }
+            my $size = -s $filename;
+            $maxSize = $size if defined($size) && $size > $maxSize;
+        }
+        # A file predicted (from history) to run at least
+        #  $dedicate_segment_threshold seconds - or, absent history, whose
+        #  largest on-disk coverage file is at least
+        #  $geninfo_dedicate_segment_size bytes - gets its own forked chunk,
+        #  scheduled ahead of the round-robin chunks, so a single huge
+        #  compilation unit does not serialize the tail of the run.
+        if (1 < $lcovutil::maxParallelism) {
+            my $predicted = $predictedTime{$j};
+            if (defined($predicted)) {
+                if ($lcovutil::dedicate_segment_threshold &&
+                    $predicted >= $lcovutil::dedicate_segment_threshold) {
+                    push(@dedicated, [$j, $predicted]);
+                    next FILE;
+                }
+            } elsif ($lcovutil::dedicate_segment_size &&
+                     $maxSize >= $lcovutil::dedicate_segment_size) {
+                # no history: estimate order by file size (bytes)
+                push(@dedicated, [$j, $maxSize]);
                 next FILE;
             }
         }
@@ -1367,8 +1397,17 @@ sub gen_info(@)
             $chunkId = 0;
         }
     }    #foreach DATA_FILE
-         # serial chunk is at the top of the stack - so serial processing
-         #  happens before we fork multiple processes
+         # dedicated files each get a size-1 forked chunk.  worklist is a
+         #  pop() stack, so push them ascending-by-estimate: the largest is
+         #  popped (forked) first, just after the serial chunk.
+    if (@dedicated) {
+        @dedicated = sort({ $a->[1] <=> $b->[1] } @dedicated);
+        lcovutil::info(
+               scalar(@dedicated) . " file(s) assigned a dedicated segment.\n");
+        push(@worklist, [0, [$_->[0]]]) foreach (@dedicated);
+    }
+    # serial chunk is at the top of the stack - so serial processing
+    #  happens before we fork multiple processes
     push(@worklist, $serialChunk)
         if (@{$serialChunk->[1]});
 

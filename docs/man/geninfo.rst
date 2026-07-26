@@ -626,7 +626,7 @@ In general, (almost) all ``geninfo`` options can also be specified in your perso
 
     The *--large-file* option described below may be necessary to enable parallelism to succeed in the presence of data files which consume excessive memory in ``gcov``.
 
-    Also see the *memory, memory_percentage, max_fork_fails, fork_fail_timeout, geninfo_chunk_size* and *geninfo_interval_update* entries in :manpage:`lcovrc(5)` for a description of some options which may aid in parameter tuning and performance optimization. A previously generated execution profile may help to enable better utilization and faster parallel execution. See the *"--profile"* and *"--history-script"* sections of this man page.
+    Also see the *memory, memory_percentage, max_fork_fails, fork_fail_timeout, geninfo_chunk_size, geninfo_dedicate_segment_size, dedicate_segment_threshold, dedicate_segment_line_estimate* and *geninfo_interval_update* entries in :manpage:`lcovrc(5)` for a description of some options which may aid in parameter tuning and performance optimization. In particular, *geninfo_dedicate_segment_size* (and, when *--history-script* data is available, *dedicate_segment_threshold*) arrange for a large compilation unit to be given its own child process and scheduled first, so it does not serialize the tail of the run. A previously generated execution profile may help to enable better utilization and faster parallel execution. See the *"--profile"* and *"--history-script"* sections of this man page.
 
 ``--large-file`` *regexp*
     GCDA files whose name matches a *--large-file* regexp are processed serially - not in parallel with other files - so that their ``gcov`` process can use all available system memory.
@@ -634,6 +634,8 @@ In general, (almost) all ``geninfo`` options can also be specified in your perso
     Use this option is you see errors related to memory allocation from gcov.
 
     This feature is exactly as if you had moved the matching GCDA files to another location and processed them serially, then processed remaining GDCA files in parallel and merged the results.
+
+    Note that this is a memory-safety control, distinct from the latency-oriented *geninfo_dedicate_segment_size*: a *--large-file* match runs serially in the parent process, whereas a file that only exceeds *geninfo_dedicate_segment_size* is still forked (in its own dedicated child) and processed in parallel. A file matched by *--large-file* is never also given a dedicated child.
 
     This option may be used multiple times to specify more than one regexp.
 

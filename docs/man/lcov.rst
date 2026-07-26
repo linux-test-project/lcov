@@ -320,6 +320,16 @@ options can also be specified in a configuration file - see man
    :manpage:`geninfo(1)`)
    for more details about the capture process and available options and parameters.
 
+   Capture of a large project can be parallelized with the *--parallel*
+   option. How work is batched across the forked children - and how a large
+   compilation unit is given its own child process so it does not serialize
+   the tail of the run - is controlled by the *geninfo_chunk_size*,
+   *geninfo_dedicate_segment_size*, *dedicate_segment_threshold*, and
+   *dedicate_segment_line_estimate* entries in :manpage:`lcovrc(5)`. Also see
+   the *--large-file* option, below, which addresses the related but distinct
+   problem of a single file whose memory footprint could exhaust available
+   memory during parallel processing.
+
    Only one of  -z, -c, -a, -e, -r, -l, --diff or --summary may be
    specified at a time.
 

@@ -3621,7 +3621,7 @@ sub recreateBaseline
         } elsif ($chunk->[TYPE] == DiffMap::DELETE) {
             my $r = $chunk->[OLD];
             for (my $i = $r->[_START]; $i <= $r->[_END]; ++$i) {
-                die("missing baseline line $i")
+                die("missing baseline line $filename:$i")
                     unless defined($deleted) && exists($deleted->{$i});
                 my $d = $deleted->{$i};
                 die("undef deleted line $filename:$i") unless defined($d);
@@ -6160,8 +6160,17 @@ sub new
     #   first.  That way, we don't end up starting some long job late in the
     #   game - and then have to wait a long time for a single task to finish
     #   (as opposed to it running in parallel with a lot of other stuff).
-    my @predicted;
-    my @unknown;    # no history
+    # A file whose predicted runtime is large enough gets its own dedicated
+    #   segment (see $lcovutil::dedicate_segment_threshold) so it is not
+    #   batched behind up to $max_tasks_per_core other files and does not
+    #   serialize the tail of the run.  Such files are also scheduled first.
+    # The prediction is EXACT when '--history-script' data is available (we
+    #   know how long the file took last time).  Without history, we only
+    #   estimate - from the instrumented-line count - for files large enough
+    #   to plausibly cross the threshold; every other unknown file stays cheap
+    #   and is handled as before.
+    my @predicted;    # [$f, $filename, $predictedSeconds]
+    my @unknown;      # no useful prediction
     foreach my $f ($current_data->files()) {
         my $traceInfo = $current_data->data($f);
         my $filename  = ReadCurrentSource::resolve_path($traceInfo->filename());
@@ -6172,7 +6181,20 @@ sub new
             defined($predicted =
                         $lcovutil::profileHistoryCallback->history($filename))
         ) {
+            # exact - this is how long the file took the last time it ran
             push(@predicted, [$f, $filename, $predicted]);
+        } elsif ($lcovutil::dedicate_segment_threshold &&
+             $lcovutil::dedicate_segment_line_estimate &&
+             $traceInfo->found() >= $lcovutil::dedicate_segment_line_estimate) {
+            # no history, but the file is large enough that we should guess:
+            #   estimate runtime from instrumented lines so a big straggler
+            #   still gets a dedicated segment on a first (history-less) run
+            push(@predicted,
+                 [$f,
+                  $filename,
+                  $traceInfo->found() /
+                      $lcovutil::dedicate_segment_line_estimate
+                 ]);
         } else {
             # put the ones we don't know about at the start of the list
             #  - work on them first, trusting that we will have parallelism
@@ -6190,23 +6212,42 @@ sub new
     #  tie break alphabetically
     @predicted =
         sort({ $b->[2] <=> $a->[2] or $a->[1] cmp $b->[1] } @predicted);
-    # interleave the long-running files so they get distributed between segments
+
+    # Split off the files predicted to run at least the threshold: these get
+    #   their own dedicated segment.  @fileOrder entries are
+    #   [$f, $filename, $isDedicated].
     my @fileOrder;
+    my @shared;
+    foreach my $p (@predicted) {
+        if ($lcovutil::dedicate_segment_threshold &&
+            $p->[2] >= $lcovutil::dedicate_segment_threshold) {
+            # already in descending-cost order - schedule first, one per
+            #  segment (dedicated flag = 1)
+            push(@fileOrder, [$p->[0], $p->[1], 1]);
+        } else {
+            push(@shared, $p);
+        }
+    }
+    lcovutil::info(
+                scalar(@fileOrder) . " file(s) assigned a dedicated segment.\n")
+        if @fileOrder;
+
+    # interleave the remaining long-running files so they get distributed
+    #  between segments
     my $offset = 0;
     my $idx    = 0;
-    for (my $i = 0; $i <= $#predicted; ++$i) {
-        push(@fileOrder, $predicted[$idx]);
+    for (my $i = 0; $i <= $#shared; ++$i) {
+        push(@fileOrder, [$shared[$idx]->[0], $shared[$idx]->[1], 0]);
         $idx += $lcovutil::maxParallelism;
-        if ($idx > $#predicted) {
+        if ($idx > $#shared) {
             ++$offset;
             $idx = $offset;
         }
     }
-    die("wrong calculation") unless $#predicted == $#fileOrder;
-    push(@fileOrder, @unknown);    # unknown ones to the back
+    push(@fileOrder, [$_->[0], $_->[1], 0]) foreach @unknown;  # unknown to back
 
     foreach my $d (@fileOrder) {
-        my ($f, $filename) = @$d;
+        my ($f, $filename, $dedicated) = @$d;
         #my $traceInfo = $current_data->data($f);
         #my $filename  = ReadCurrentSource::resolve_path($traceInfo->filename());
         my ($vol, $parentDir, $file) = File::Spec->splitpath($filename);
@@ -6304,8 +6345,11 @@ sub new
         # index [3] (mcdc_hash) accessed at line 13484; must be present
         my @fileData =
             (SummaryInfo->new("file", $filename), [{}, {}, {}], $f, {});
+        # tuple index [5] (dedicated) flags a file that should occupy its own
+        #  segment - see _segment_worklist
         push(@$worklist,
-             ['file', \@fileData, \@short_path, \@path, $mergeInto]);
+             ['file', \@fileData, \@short_path, \@path, $mergeInto, $dedicated]
+        );
     }
 
     $self->compute();
@@ -6692,9 +6736,25 @@ sub _segment_worklist
         if ($tasksPerCore > $lcovutil::max_tasks_per_core);
     while (@$worklist &&
            scalar(@{$self->[JOBS]}) <= $nCores) {
+        # How many tasks go in this segment?  Normally $tasksPerCore, but a
+        #  file flagged 'dedicated' (worklist tuple index [5]) gets a segment
+        #  to itself: if the next task is dedicated, take just it; otherwise
+        #  take a normal batch but stop before the first dedicated task so it
+        #  starts a fresh segment.
+        my $batch = $tasksPerCore;
+        if ($worklist->[0]->[5]) {
+            $batch = 1;
+        } else {
+            for (my $i = 1; $i < $batch && $i < scalar(@$worklist); ++$i) {
+                if ($worklist->[$i]->[5]) {
+                    $batch = $i;
+                    last;
+                }
+            }
+        }
         my @jobs;
         push(@{$self->[JOBS]}, [\@jobs, $segmentID++]);
-        foreach my $task (splice(@$worklist, 0, $tasksPerCore)) {
+        foreach my $task (splice(@$worklist, 0, $batch)) {
 
             my ($type, $data, $short_path, $path, $parentData) = @$task;
             my ($selfSummary, $perTestData, $name) = @$data;

@@ -127,7 +127,7 @@ if [ "${VER[0]}" -lt 5 ] ; then
     EMPTY_BRANCH="--ignore empty"
 fi
 
-$COVER $CAPTURE . $LCOV_OPTS --output-file baseline.info $IGNORE --comment "this is the baseline" --memory 20 $EMPTY_BRANCH || setup_die "capture baseline failed"
+$COVER $CAPTURE . $LCOV_OPTS --output-file baseline.info $IGNORE --comment "this is the baseline" --memory 20 $EMPTY_BRANCH --include simple || setup_die "capture baseline failed"
 cp baseline.info baseline_orig.info
 # make the version number look different so the new diff file consistency
 #  check will pass
@@ -143,13 +143,13 @@ if [ 0 == $? ] ; then
     LCOV_PORT='--substitute s#^[.]/#pwd/# --ignore unused'
 fi
 
-$COVER $CAPTURE . $LCOV_OPTS --output-file baseline_name.info --test-name myTest $IGNORE || setup_die "capture baseline_name failed"
+$COVER $CAPTURE . $LCOV_OPTS --output-file baseline_name.info --test-name myTest $IGNORE --include simple || setup_die "capture baseline_name failed"
 sed -i -E 's/VER:(.+)$/VER:\1a/' baseline_name.info
 
 # 'version-mismatched' variant of baseline used by the merge/filter checks
 sed -e 's/VER:/VER:x/g' -e 's/ md5:/ md5:0/g' < baseline.info > baseline2.info
 
-$COVER $CAPTURE . $LCOV_OPTS --output-file baseline_nobranch.info $IGNORE --rc memory=1024 || setup_die "capture baseline_nobranch failed"
+$COVER $CAPTURE . $LCOV_OPTS --output-file baseline_nobranch.info $IGNORE --rc memory=1024 --include simple || setup_die "capture baseline_nobranch failed"
 sed -i -E 's/VER:(.+)$/VER:\1a/' baseline_nobranch.info
 gzip -c baseline_nobranch.info > baseline_nobranch.info.gz
 
@@ -160,10 +160,10 @@ rm -f test.cpp test.gcno test.gcda a.out
 ln -s simple2.cpp test.cpp
 ${CXX} --coverage $COVERAGE_OPTS -DADD_CODE -DREMOVE_CODE test.cpp || setup_die "compile current failed"
 ./a.out
-$COVER $CAPTURE . $LCOV_OPTS --output-file current.info $IGNORE || setup_die "capture current failed"
+$COVER $CAPTURE . $LCOV_OPTS --output-file current.info $IGNORE --include simple || setup_die "capture current failed"
 gzip -c current.info > current.info.gz
 
-$COVER $CAPTURE . $LCOV_OPTS --output-file current_name.info.gz --test-name myTest $IGNORE || setup_die "capture current_name failed"
+$COVER $CAPTURE . $LCOV_OPTS --output-file current_name.info.gz --test-name myTest $IGNORE --include simple || setup_die "capture current_name failed"
 
 # --------------------------------------------------------------------------
 # Diff files and derived inputs
