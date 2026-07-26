@@ -128,7 +128,8 @@ jobs:
       - name: make check
         run: |-
           set -x -o pipefail
-          make check
+          # use as many parallel threads as we have cores
+          make check PARALLEL=0
 
       - name: Upload test log as an artifact
         if: ${{ always() }}
