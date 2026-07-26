@@ -27,8 +27,8 @@ check:
 	$(TOPDIR)/bin/runtests.py $(PREFIXED_TESTS) $(OPTS)
 ifneq ($(COVER_DB),)
 	if [ -d $(TOPDIR)/cover_db.d ] ; then                          \
-	  cover -write $(COVER_DB) $(TOPDIR)/cover_db.d/* 2>&1 ;       \
-	  cover $(COVER_DB) ;                                          \
+	  cover -write $(COVER_DB) $(TOPDIR)/cover_db.d/* > cover.log 2>&1 ; \
+	  cover $(COVER_DB) >> cover.log 2>&1 ;                        \
 	  $(PERL2LCOV_TOOL) -o $(COVER_DB)/perlcov.info $(COVER_DB)    \
 	    --ignore-errors unsupported,unused,inconsistent,empty      \
 	    --keep-going ;                                             \

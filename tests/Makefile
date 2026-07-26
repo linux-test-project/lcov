@@ -35,12 +35,12 @@ info:
 	  if [ -d cover_db.d ] ; then                                \
 	    rm -f cover_db.d/*.log ;                                 \
 	    DBS=cover_db.d/* ;                                       \
-	    cover -write $(COVER_DB) $$DBS 2>&1 > cover.log ;        \
+	    cover -write $(COVER_DB) $$DBS > cover.log 2>&1 ;        \
 	    if [ "x$(PER_TEST_COVERAGE)" != 'x' ] ; then             \
 	      mkdir -p $(PER_TEST_COVERAGE) ;                        \
               for db in $$DBS ; do                                   \
 	         echo ----- $$db ------------- ;                     \
-	         cover $$db 2>&1 > $$db.log ;                        \
+	         cover $$db > $$db.log 2>&1 ;                        \
 	         $(PERL2LCOV_TOOL)                                   \
 	           -o $(PER_TEST_COVERAGE)/`basename $$db`_cov.info $$db \
                    --version-script $(VERSION_SCRIPT)                \
@@ -55,7 +55,7 @@ info:
 	      ) ;                                                    \
 	    fi ;                                                     \
 	  fi ;                                                       \
-	  cover $(COVER_DB) ;                                        \
+	  cover $(COVER_DB) > cover.log 2>&1 ;                       \
 	  $(PERL2LCOV_TOOL) -o perlcov.info $(COVER_DB)              \
                --version-script $(VERSION_SCRIPT)                    \
 	       $(EXCL_OPTS) $(OMIT_OPTS) $(IGNORE_OPTS)              \
