@@ -7323,7 +7323,7 @@ sub print_summary
                    )) if ($br_do);
     lcovutil::info("  conditions..: %s\n",
                    lcovutil::get_overall_line(
-                                  $counts[4]->[0], $counts[4]->[1], "condition"
+                                   $counts[4]->[0], $counts[4]->[1], "condition"
                    )) if ($mcdc_do);
 }
 
@@ -9107,8 +9107,8 @@ sub _read_info
             #  such that two sections alias to the same data.  We need to
             #  insert the branch data into a empty map and then merge that
             #  into both the per-testname and summary data
-            $branchMap   = BranchData->new();
-            $mcdcMap     = $fileData->testcase_mcdc($testname);
+            $branchMap = BranchData->new();
+            $mcdcMap   = $fileData->testcase_mcdc($testname);
             next;
         }
         next if $skipCurrentFile;
@@ -9408,7 +9408,7 @@ sub _read_info
 
                         $fileData->testcase_mcdc($testname)
                             ->append_mcdc(Storable::dclone($current_mcdc),
-					  $filename)
+                                          $filename)
                             if (defined($testname));
                     }
                     $current_mcdc =
@@ -9435,7 +9435,8 @@ sub _read_info
                     }
                     if ($lcovutil::br_coverage) {
                         if ($branchBlock) {
-                            $branchMap->insertBlock($branchBlock, $currentBlockLine);
+                            $branchMap->insertBlock($branchBlock,
+                                                    $currentBlockLine);
                             # reset - in case another testcase follows
                             $branchBlock = undef;
                         }
@@ -9449,7 +9450,7 @@ sub _read_info
                         $fileData->mcdc()->close_mcdcBlock($current_mcdc);
                         my $mcdc = $fileData->testcase_mcdc($testname);
                         $mcdc->append_mcdc(Storable::dclone($current_mcdc),
-					   $filename)
+                                           $filename)
                             if (defined($testname));
                         $fileData->mcdc()->union($mcdc);
                         $current_mcdc = undef;

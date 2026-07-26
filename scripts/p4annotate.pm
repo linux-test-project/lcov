@@ -126,9 +126,12 @@ sub annotate_callback
     my $null = File::Spec->devnull();    # more portable
     my @lines;
     my $status;
-    if (0 == system(
-               "p4 files $pathname 2>$null|grep -qv -- '- no such file' >$null")
-    ) {
+    # Existence check.
+    # the file is considered present iff 'p4 files' emitted at least one line
+    # that does not contain the "- no such file" marker.
+    my $in_p4 = grep { !/- no such file/ }
+        split(/\n/, `p4 files $pathname 2>$null`);
+    if ($in_p4) {
         # this file is in p4..
         my $version;
         my $have = `p4 have $pathname`;

@@ -68,9 +68,10 @@ use Cwd qw(abs_path);
 use base 'AnnotateBase';
 
 use constant {
-              P4     => 5,
-              ABBREV => 6,
-              PREFIX => 7,
+              P4          => 5,
+              ABBREV      => 6,
+              PREFIX      => 7,
+              CHANGELISTS => 8,
 };
 
 sub new
@@ -114,7 +115,12 @@ sub new
     }
 
     my $self = $class->SUPER::new($exe, $cache_dir, $logfile, $verify);
-    push(@$self, $mapP4, \@abbrev, $prefix);
+    # The commit->changelist map is keyed by git commit SHA, which is content-
+    # addressed and globally unique, so its git-p4 CL mapping is the same no
+    # matter which file references it.  Keep it on $self so the (forking)
+    # 'git show -s <commit>' lookup runs at most once per commit across the
+    # whole annotation run instead of once per (commit, file) pair.
+    push(@$self, $mapP4, \@abbrev, $prefix, {});
     return $self;
 }
 
@@ -152,7 +158,8 @@ sub annotate_callback
         return undef;    # get from filesystem
     }
 
-    my %changelists;
+    # commit->changelist map shared across every file in this run (see new())
+    my $changelists = $self->[CHANGELISTS];
     my @lines;
     my $matched;    # matched a tracked pathname
     my %abbrev;     # user name abbreviations
@@ -173,7 +180,8 @@ sub annotate_callback
             $owner = 'unknown@nowhere.com' unless $owner;
 
             if ($self->[P4]) {
-                if (!exists($changelists{$commit})) {
+                if (!exists($changelists->{$commit})) {
+                    my $sha = $commit;
                     open(GITLOG, '-|', "cd $dir ; git show -s $commit") or
                         die(
                          "unable to execute 'git show -s $commit'$context: $!");
@@ -181,14 +189,16 @@ sub annotate_callback
                         # p4sync puts special comment in commit log.
                         #  pull the CL out of that.
                         if ($l =~ /git-p4:.+change = ([0-9]+)/) {
-                            $changelists{$commit} = $1;
                             $commit = $1;
                             last;
                         }
                     }
                     close(GITLOG) or die("unable to close$context");
+                    # Remember the resolved CL (or the SHA itself if no git-p4
+                    # marker was found) so repeat commits skip the fork.
+                    $changelists->{$sha} = $commit;
                 } else {
-                    $commit = $changelists{$commit};
+                    $commit = $changelists->{$commit};
                 }
             }
             # line owner filtering to canonical form
