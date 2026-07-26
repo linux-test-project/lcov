@@ -58,10 +58,22 @@ def find_topdir():
 
 
 def get_parallel_default():
-    """Get default parallelism level."""
+    """Get default parallelism level: the host's available CPU count.
+
+    Prefer os.sched_getaffinity(), which reflects the cores this process is
+    actually allowed to run on (honoring taskset / cgroup CPU limits); fall
+    back to multiprocessing.cpu_count() where affinity is unavailable.
+    """
+    try:
+        if hasattr(os, 'sched_getaffinity'):
+            n = len(os.sched_getaffinity(0))
+            if n:
+                return n
+    except (NotImplementedError, OSError):
+        pass
     try:
         import multiprocessing
-        return min(multiprocessing.cpu_count(), 8)
+        return multiprocessing.cpu_count()
     except (ImportError, NotImplementedError, OSError):
         return 4
 
