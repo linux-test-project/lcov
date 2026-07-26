@@ -583,7 +583,7 @@ else
 fi
 
 if [ "x$COVER" != "x" ] && [ $LOCAL_COVERAGE == 1 ] ; then
-    cover ${COVER_DB}
+    cover ${COVER_DB} > cover.log 2>&1
     $PERL2LCOV_TOOL -o ${COVER_DB}/perlcov.info ${COVER_DB}
     $GENHTML_TOOL -o ${COVER_DB}/report ${COVER_DB}/perlcov.info --flat --show-navigation --branch
 fi
