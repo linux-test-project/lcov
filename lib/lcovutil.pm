@@ -266,7 +266,32 @@ our $memoryPercentage;
 our $in_child_process   = 0;
 our $max_tasks_per_core = 20;    # maybe default to 0?
 
-our $lcov_filter_parallel = 1;   # enable by default
+# A file predicted to run at least this long (seconds) is given its own
+#   dedicated segment (and scheduled first) rather than being batched behind
+#   up to $max_tasks_per_core other files - so a single very large file does
+#   not serialize the tail of a parallel genhtml run.
+# The prediction is exact when '--history-script' profile data is available;
+#   otherwise it is estimated from the instrumented-line count (see
+#   $dedicate_segment_line_estimate) and only for files large enough to matter.
+our $dedicate_segment_threshold = 5;    # seconds; 0 disables the feature
+# When no history is available, treat a file with at least this many
+#   instrumented lines as "large" and estimate its runtime as
+#   (lines / this) seconds - i.e. this is a rough lines-per-second rate that
+#   also serves as the minimum size below which we never bother estimating.
+our $dedicate_segment_line_estimate = 50000;
+# geninfo analog of the above:  at scheduling time the .gcno/.gcda files have
+#   not been parsed yet, so the only non-history signal for how much work a
+#   compilation unit will take is its on-disk size.  A history-less coverage
+#   file at least this large (bytes) is given its own dedicated *forked* chunk
+#   (scheduled first) so a single huge CU does not serialize the tail of a
+#   parallel geninfo run.  0 disables the feature.
+# NOTE: this is distinct from '--large-file', which runs a matching file
+#   serially in the parent to avoid a memory spaceout - a memory-safety knob,
+#   not a latency one.  A file matched by '--large-file' is never also given a
+#   dedicated forked chunk.
+our $dedicate_segment_size = 50000000;    # 50 MB
+
+our $lcov_filter_parallel = 1;            # enable by default
 our $lcov_filter_chunk_size;
 
 our $fail_under_lines;
@@ -1162,9 +1187,12 @@ my %rc_common = (
              "memory_percentage"       => \$lcovutil::memoryPercentage,
              "max_fork_fails"          => \$lcovutil::max_fork_fails,
              "max_tasks_per_core"      => \$lcovutil::max_tasks_per_core,
-             "fork_fail_timeout"       => \$lcovutil::fork_fail_timeout,
-             'source_directory'        => \@rc_source_directories,
-             'build_directory'         => \@rc_build_dir,
+             "dedicate_segment_threshold" => \$lcovutil::dedicate_segment_threshold,
+             "dedicate_segment_line_estimate" =>
+        \$lcovutil::dedicate_segment_line_estimate,
+             "fork_fail_timeout" => \$lcovutil::fork_fail_timeout,
+             'source_directory'  => \@rc_source_directories,
+             'build_directory'   => \@rc_build_dir,
 
              "no_exception_branch"    => \$lcovutil::exclude_exception_branch,
              'filter'                 => \@rc_filter,
@@ -1231,8 +1259,9 @@ our %geninfo_rc_opts = (
                   "geninfo_auto_base"         => \$rc_auto_base,
                   "geninfo_intermediate"      => \$rc_intermediate,
                   'geninfo_chunk_size'        => \$defaultChunkSize,
-                  'geninfo_interval_update'   => \$defaultInterval,
-                  'geninfo_capture_all'       => \$geninfo_captureAll);
+                  'geninfo_dedicate_segment_size' => \$dedicate_segment_size,
+                  'geninfo_interval_update'       => \$defaultInterval,
+                  'geninfo_capture_all'           => \$geninfo_captureAll);
 
 our %argCommon = ("tempdir=s"         => \$tempdirname,
                   "version-script=s"  => \@lcovutil::extractVersionScript,

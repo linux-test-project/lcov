@@ -1272,6 +1272,19 @@ The argument may be either an integer value to be used as the chunk size or a pe
 
 This option has no effect unless the *\-\-parallel* option has been specified.
 
+.. _geninfo_dedicate_segment_size:
+
+``geninfo_dedicate_segment_size`` = *integer\_bytes*
+-----------------------------------------------------
+
+This is the geninfo analog of ``dedicate_segment_threshold``. At scheduling time the ``.gcno``/``.gcda`` files have not yet been parsed, so - absent per-file history - the only signal for how much work a compilation unit will require is its on-disk size. A history-less coverage file at least this many bytes is given its own dedicated child process (scheduled first), so a single huge compilation unit does not serialize the tail of a parallel geninfo run. When per-file history is available, ``dedicate_segment_threshold`` (a predicted-seconds threshold) is used instead.
+
+This is distinct from the *\-\-large\-file* option, which runs a matching file serially in the parent process to avoid a memory spaceout - a memory-safety control rather than a latency one. A file matched by *\-\-large\-file* is never also given a dedicated child process.
+
+Set to 0 to disable the feature. The default is 50000000 (50 MB).
+
+This option has no effect unless the *\-\-parallel* option has been specified.
+
 ``geninfo_interval_update`` = *integer*
 ---------------------------------------
 
@@ -1550,6 +1563,30 @@ The default is 10 (seconds).
 This is the maximum number of files that genhtml will handle in a single child process during parallel execution.
 
 The default is 20.
+
+.. _dedicate_segment_threshold:
+
+``dedicate_segment_threshold`` = *integer\_seconds*
+----------------------------------------------------
+
+During parallel execution, genhtml normally batches several files together into each child process (see ``max_tasks_per_core``). A single very large source file batched behind others can serialize the tail of the run. If a file is predicted to take at least this many seconds, it is instead given its own dedicated child process and scheduled first, so its processing overlaps the rest of the run.
+
+The prediction is exact when per-file history is available (see the *\-\-history\-script* option in the :manpage:`genhtml(1)` man page); otherwise it is estimated from the instrumented-line count - see ``dedicate_segment_line_estimate``.
+
+Set to 0 to disable the feature (every file is batched normally). The default is 5 (seconds).
+
+This option has no effect unless the *\-\-parallel* option has been specified.
+
+.. _dedicate_segment_line_estimate:
+
+``dedicate_segment_line_estimate`` = *integer*
+-----------------------------------------------
+
+When no per-file history is available, genhtml estimates a file's runtime from its instrumented-line count: a file with at least this many instrumented lines is treated as "large" and its runtime is estimated as *instrumented\_lines / this\_value* seconds (compared against ``dedicate_segment_threshold``). Files smaller than this are never estimated and are always batched normally.
+
+Set to 0 to disable size-based estimation (only history predictions can trigger a dedicated segment). The default is 50000.
+
+This option has no effect unless the *\-\-parallel* option has been specified.
 
 ``genhtml_date_bins`` = *integer[,integer..]*
 ----------------------------------------------

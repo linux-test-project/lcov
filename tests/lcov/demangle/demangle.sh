@@ -23,6 +23,11 @@ if [ 'x' == "x$GENHTML_TOOL" ] ; then
     LCOV_TOOL=${LCOV_HOME}/bin/lcov
     GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
 fi
+if [ "$COVER" != '' ] ; then
+    CAPTURE=$GENINFO_TOOL
+else
+    CAPTURE="$LCOV_TOOL --capture --directory"
+fi
 
 IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
@@ -35,7 +40,7 @@ SIMPLIFY_SCRIPT=${SCRIPT_DIR}/simplify.pm
 ${CXX} -std=c++1y --coverage demangle.cpp
 ./a.out 1
 
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle --directory . -o demangle.info --rc derive_function_end_line=0 --ignore empty
+$COVER $CAPTURE . $LCOV_OPTS --filter branch --demangle -o demangle.info --rc derive_function_end_line=0 --ignore empty
 
 if [ 0 != $? ] ; then
     echo "capture failed"
@@ -68,6 +73,32 @@ for k in FNA ; do
         exit 1
     fi
 done
+
+# Exercise the OLD (non-intermediate) gcov binary path with demangling.
+# process_graphfile() -- and the batched demangler filter_fn_name_list() it
+# calls -- is only reached for the old .gcno binary format on the --initial
+# (baseline, gcda-less) capture.  gcov >= 9 forces the intermediate/JSON
+# format regardless of geninfo_intermediate, so this path is only reachable
+# on older gcov (< 9); skip the assertions elsewhere.
+if [ "${VER[0]}" -lt 9 ] ; then
+    # --no-external (not $LCOV_OPTS): the old --initial path cannot generate
+    # branch data on this toolchain, and we only care about function-name
+    # demangling here.
+    $COVER $CAPTURE . --no-external $PARALLEL $PROFILE --initial --demangle \
+        -o initial.info --rc geninfo_intermediate=0 --ignore empty,unsupported
+    if [ 0 != $? ] ; then
+        echo "initial demangle capture failed"
+        exit 1
+    fi
+
+    # the old-format initial capture must still demangle the C++ names
+    grep -E '^FNA:' initial.info
+    COUNT=`grep -E '^FNA:' initial.info | grep -c ::`
+    if [ $COUNT -lt 4 ] ; then
+        echo "expected demangled (::) function names in initial.info - found $COUNT"
+        exit 1
+    fi
+fi
 
 # see if we can "simplify" the function names..
 for callback in './simplify.pl' "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g" "${SIMPLIFY_SCRIPT},--file,simplify.cmd" ; do
@@ -125,7 +156,7 @@ for PAR in '' '--parallel' ; do
 done
 
 
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --directory . -o vanilla.info
+$COVER $CAPTURE . $LCOV_OPTS --filter branch -o vanilla.info
 
 $COVER $LCOV_TOOL $LCOV_OPTS --list vanilla.info
 
@@ -163,7 +194,7 @@ if [ $? == 0 ] ; then
     echo "   compiler version support start/end reporting - testing erase"
 
     # end line is captured - so we should be able to filter
-    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main -o exclude.info -v -v --ignore empty
+    $COVER $CAPTURE . $LCOV_OPTS --filter branch --demangle-cpp --erase-functions main -o exclude.info -v -v --ignore empty
     if [ $? != 0 ] ; then
         echo "geninfo with exclusion failed"
         if [ $KEEP_GOING == 0 ] ; then
@@ -209,7 +240,7 @@ else
     # no end line in data - check for error message...
     echo "----------------------"
     echo "   compiler version DOESN't support start/end reporting - check error"
-    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude.info --rc derive_function_end_line=0 --msg-log exclude.log
+    $COVER $CAPTURE . $LCOV_OPTS --filter branch --demangle-cpp --erase-functions main --ignore unused -o exclude.info --rc derive_function_end_line=0 --msg-log exclude.log
     if [ 0 == $? ] ; then
         echo "Error:  expected exit for unsupported feature"
         if [ $KEEP_GOING == 0 ] ; then
@@ -225,7 +256,7 @@ else
         fi
     fi
 
-    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --ignore unused -o exclude2.info --rc derive_function_end_line=1 --msg-log exclude2.log --ignore empty
+    $COVER $CAPTURE . $LCOV_OPTS --filter branch --demangle-cpp --erase-functions main --ignore unused -o exclude2.info --rc derive_function_end_line=1 --msg-log exclude2.log --ignore empty
     if [ 0 != $? ] ; then
         echo "Error:  unexpected exit when 'derive' enabled"
         if [ $KEEP_GOING == 0 ] ; then
@@ -241,7 +272,7 @@ else
         fi
     fi
     
-    $COVER $LCOV_TOOL $LCOV_OPTS --capture --filter branch --demangle-cpp --directory . --erase-functions main --rc derive_function_end_line=0 --ignore unsupported,unused -o ignore.info --msg-log=exclude3.log --ignore empty
+    $COVER $CAPTURE . $LCOV_OPTS --filter branch --demangle-cpp --erase-functions main --rc derive_function_end_line=0 --ignore unsupported,unused -o ignore.info --msg-log=exclude3.log --ignore empty
     if [ 0 != $? ] ; then
         echo "Error:  expected to ignore unsupported message"
         if [ $KEEP_GOING == 0 ] ; then

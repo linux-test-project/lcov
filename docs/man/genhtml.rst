@@ -1030,6 +1030,8 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    Also see the *memory, memory_percentage, max_fork_fails* and *fork_fail_timeout* entries in :manpage:`lcovrc(5)`.
 
+   How work is batched across the forked children is controlled by the *max_tasks_per_core*, *dedicate_segment_threshold*, and *dedicate_segment_line_estimate* entries in :manpage:`lcovrc(5)`; the latter two arrange for a predicted long-running file to be given its own child process and scheduled first, so it does not serialize the tail of the run.
+
    A previously generated execution profile may help to enable better utilization and faster parallel execution. See the *--profile* and *--history-script* sections of this man page.
 
 ``--memory`` *integer*
