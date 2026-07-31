@@ -310,11 +310,12 @@ class TestRunner:
         if self.args.silent:
             return
         
-        name = result.name
-        if len(name) > 32:
-            name = '...' + name[-29:]
+        fieldWidth = 35
+        name = result.name + ' '
+        if len(name) >= fieldWidth:
+            name = '...' + name[-(fieldWidth-2):-1]
         
-        name_field = f"{name} {'.' * (35 - len(name))}"
+        name_field = f"{name}{'.' * (fieldWidth - len(name))}"
         
         if result.result == 'pass':
             color = GREEN
