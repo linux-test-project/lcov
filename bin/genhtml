@@ -839,8 +839,7 @@ sub owner_tlaCount
         foreach my $k (keys(%$hash)) {
             # count only code that can be hit (ie., not excluded)
             $total += $hash->{$k}
-                if ('EUB' ne $k &&
-                    'ECB' ne $k);
+                unless grep(/$k/, ('EUB', 'ECB', 'ECC', 'EUC'));
         }
         return $total;
     } elsif ($tla eq "hit") {
@@ -11063,7 +11062,11 @@ sub get_branch_html($$)
                 }
                 $prefix = '';
             } else {
-                $tla        = $br->tla;
+                $tla = $br->tla;
+                # TLA might be 'ECC' or 'EUC'
+                next
+                    if ($main::use_legacyLabels &&
+                        !exists($SummaryInfo::tlaToLegacySrcLabel{$tla}));
                 $base_count = ($br->diff_count())[0];
                 $class      = "tla$tla";
                 my $label =
@@ -11492,11 +11495,9 @@ sub write_source_line(*$$$$$$$)
 
             if (!defined($count) &&
                 (!defined($main::show_nonCodeOwners) ||
-                    0 == $main::show_nonCodeOwners)
-                &&
-                (   !defined($bucket) ||
-                    ($bucket ne 'EUB' &&
-                        $bucket ne 'ECB'))
+                    0 == $main::show_nonCodeOwners) &&
+                (!defined($bucket) ||
+                    !grep(/$bucket/, ('EUB', 'ECB', 'ECC', 'EUC')))
             ) {
                 # suppress date- and owner entry on non-code lines
                 $html .= $html_continuation_leader;
@@ -11512,8 +11513,7 @@ sub write_source_line(*$$$$$$$)
                 # right now, picking based on TLA.
                 $bgclass = " class=\"tlaBg$bucket\""
                     if (defined($bucket) &&
-                        $bucket ne "EUB" &&
-                        $bucket ne "ECB");
+                        !grep(/$bucket/, ('EUB', 'ECB', 'ECC', 'EUC')));
 
                 #$html .= "<span class=\"missBins\">";
                 if ("" ne $source_format) {
