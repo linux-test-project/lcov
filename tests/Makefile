@@ -21,8 +21,10 @@ TESTS := genhtml scripts lcov llvm2lcov py2lcov perl2lcov xml2lcov
 #  report - but they might not have been generated, so we need to
 #  ignore the potential 'empty glob pattern' error message and a
 #  potential remote repo timestamp issue
-EXCLUDES = genError.pm filter.pl brokenCallback.pm MsgContext.pm \
-	 missingRestore.pm parallelFail.pm '*/tmp*'
+EXCLUDES =                                            \
+	genError.pm brokenCallback.pm MsgContext.pm   \
+	missingRestore.pm parallelFail.pm             \
+	filter.pl '*/tmp*' 'tests/*' scheduling
 EXCL_OPTS = $(foreach e, $(EXCLUDES), --exclude $(e))
 OMIT_OPTS = --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b'
 IGNORE_OPTS = --ignore unsupported,unused,inconsistent
