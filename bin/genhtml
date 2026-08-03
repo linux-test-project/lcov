@@ -2138,14 +2138,21 @@ sub new
     return $self;
 }
 
+sub isRecoveredBaselineFile
+{
+    my ($self, $filename) = @_;
+
+    my $diffmap = $self->[1];
+    return (defined($diffmap) && $diffmap->containsFile($filename));
+}
+
 sub open
 {
     my ($self, $filename) = @_;
-    my $diffmap = $self->[1];
-    if (defined($diffmap) && $diffmap->containsFile($filename)) {
+    if ($self->isRecoveredBaselineFile($filename)) {
         # if there are any diffs, then need to load the current source, then
         #   walk the diff to insert and remove changed lines
-
+        my $diffmap    = $self->[1];
         my $currentSrc = $self->_load($filename, 'baseline');
         my $src        = $diffmap->recreateBaseline($filename, $currentSrc);
         return $self->parseLines($filename, $src);

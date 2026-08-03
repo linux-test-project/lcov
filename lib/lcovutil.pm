@@ -6522,6 +6522,11 @@ sub _load
     }
 }
 
+sub isRecoveredBaselineFile
+{
+    return undef;
+}
+
 sub open
 {
     my ($self, $filename, $version) = @_;
@@ -8013,16 +8018,18 @@ sub _filterFile
     my $path = ReadCurrentSource::resolve_path($source_file);
     lcovutil::info(1, "extractVersion($path) for $source_file\n")
         if $path ne $source_file;
-    # Note:  this is checking the version of the 'current' file - even if
-    #   we are actually reading the baseline version.
-    #   - This is what we want, as the 'baseline read' is actually recovering/
-    #     recreating the baseline source from the current source and the diff.
-    #   - We already checked that the diff and the coverage DB baseline/current
-    #     version data is consistent - so filtering will be accurate as long as
-    #     we see the right 'current' source version.
+    # This only checks the file version if we are checking the 'current'
+    #   file:  either we are reading the 'current' .info and checking the
+    #   current file, or we are looking for the 'baseline' version and that
+    #   version has not changed between baseline and current (i.e., this
+    #   file is not in the 'diff-file').
+    # If the file _has_ changed between 'baseline' and current, then we
+    #   don't have a way to independently verify that what we see in
+    #   'ReaadBaselineSource' is really the prevsious version of the file.
     my $fileVersion = lcovutil::extractFileVersion($path)
         if $srcReader->notEmpty();
     if (defined($fileVersion) &&
+        !$srcReader->isRecoveredBaselineFile($path) &&
         defined($traceInfo->version())
         &&
         !lcovutil::checkVersionMatch($source_file, $traceInfo->version(),
