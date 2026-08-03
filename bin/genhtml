@@ -11440,12 +11440,16 @@ sub write_source_line(*$$$$$$$)
             }
             $result = $pchar . $count;
         }
-        # '$result' is used to generate the PNG frame
+        # '$result' is used to generate the PNG frame.
+        # Only build the (per-source-line) diagnostic string when verbosity is
+        # actually high enough to print it -- info() would otherwise discard
+        # the freshly-concatenated string on every single line.
         info(2,
              "    $bucket: line=$line " .
                  (defined($count) ? "count= $count " : "") . ' curr=' .
                  (defined($curr_count) ? $curr_count : '-') . ' base=' .
-                 (defined($base_count) ? $base_count : '-') . "\n");
+                 (defined($base_count) ? $base_count : '-') . "\n")
+            if ($lcovutil::verbose >= 2);
     }
     $result .= ":" . $source;
 
@@ -13704,6 +13708,13 @@ sub write_source($$$$$$$$)
         $funcdata, $sumbrcount, $mcdc_summary) = @_;
     my @result;
 
+    # The @result list is only consumed to build the PNG overview / frameset,
+    # i.e. when --frames is in effect.  When frames are off (the common case)
+    # accumulating it -- one push per source line, each string retained until
+    # the whole file is rendered -- is pure time and memory overhead, so skip
+    # the pushes entirely.
+    my $collect = $frames;
+
     # suppress branch and MCDC columns if there is no data in the file
     my $showBranches = $lcovutil::br_coverage   && 0 != $sumbrcount->found();
     my $showMcdc     = $lcovutil::mcdc_coverage && 0 != $mcdc_summary->found();
@@ -13752,7 +13763,7 @@ sub write_source($$$$$$$$)
             my $c = $line_number - ($prevLine + 1);
             $l =~ s/NUM_LINES/$c/;
             $l =~ s/lines/line/ if $c == 1;
-            push(@result, $l);
+            push(@result, $l) if $collect;
             write_html(*HTML_HANDLE, $l . "\n");
         }
         $prevLine = $line_number;
@@ -13764,18 +13775,19 @@ sub write_source($$$$$$$$)
                defined($checkdata->value($line_number)) &&
                ($checkdata->value($line_number) ne md5_base64($srcline->text()))
             );
-        push(@result,
-             write_source_line(HTML_HANDLE, $srcline,
-                               $count_data->value($line_number), $showBranches,
-                               $sumbrcount->value($line_number), $showMcdc,
-                               $mcdc_summary->value($line_number), $cbdata));
+        my $rendered =
+            write_source_line(HTML_HANDLE, $srcline,
+                              $count_data->value($line_number), $showBranches,
+                              $sumbrcount->value($line_number), $showMcdc,
+                              $mcdc_summary->value($line_number), $cbdata);
+        push(@result, $rendered) if $collect;
     }
     if ($prevLine != $line_number) {
         # need another blank line at the bottom...
         my $l = $empty;
         my $c = $line_number - $prevLine;
         $l =~ s/NUM_LINES/$c/;
-        push(@result, $l);
+        push(@result, $l) if $collect;
         write_html(*HTML_HANDLE, $l . "\n");
     }
 

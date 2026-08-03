@@ -189,9 +189,9 @@ while (<HANDLE>) {
     s/\r//g;
     # $repo starts with leading '/'
     my $path = $repo . '/' . $_;
-    $path =~ s#\Q$prefix\E## if $prefix; # strip prefix
-    # $_ is the git-relative path, matching the key used for changed files
-    # above; skip it here so changed files are not re-emitted as unchanged.
+    $path =~ s#\Q$prefix\E## if $prefix;    # strip prefix
+        # $_ is the git-relative path, matching the key used for changed files
+        # above; skip it here so changed files are not re-emitted as unchanged.
     if (!exists($allFiles{$_}) &&
         include_me($path, \@include_patterns, \@exclude_patterns)) {
         printf("diff --git $path $path\n");

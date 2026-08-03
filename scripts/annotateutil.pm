@@ -25,6 +25,7 @@ use warnings;
 package annotateutil;
 
 use POSIX qw(strftime);
+use Digest::MD5;
 
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(get_modify_time compute_md5
@@ -64,10 +65,15 @@ sub compute_md5
 {
     my $filename = shift;
     die("$filename not found") unless -e $filename;
-    my $null = File::Spec->devnull();
-    my $md5  = `md5sum \Q$filename\E 2>$null`;
-    die("md5sum failed for '$filename'") unless $md5 =~ /^(\S+)/;
-    return $1;
+    # Hash in-process rather than forking md5sum.  md5sum prints a lowercase
+    # hex digest; md5_hex produces the identical string, so the version-string
+    # output is unchanged.
+    open(my $fh, '<', $filename) or die("unable to open '$filename': $!");
+    binmode($fh);
+    my $ctx = Digest::MD5->new();
+    $ctx->addfile($fh);
+    close($fh);
+    return $ctx->hexdigest();
 }
 
 sub call_annotate
