@@ -4336,8 +4336,8 @@ sub merge
 
     my $count = $self->[TAKEN];
     if ($count ne '-') {
-        $count += $t;
         $changed = 1 if $count == 0 && $t != 0;
+        $count += $t;
     } else {
         $count   = $t;
         $changed = 1 if $t != 0;
@@ -5773,6 +5773,9 @@ sub append_mcdc
     } else {
         $self->[BranchMap::DATA]->{$line} = $mcdc;
     }
+    my ($found, $hit) = $mcdc->totals();
+    $self->[BranchMap::FOUND] += $found;
+    $self->[BranchMap::HIT]   += $hit;
 }
 
 sub new_mcdc
