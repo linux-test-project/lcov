@@ -26,7 +26,7 @@ if [ 0 != $? ] ; then
 fi
 
 # error check:  try to run perl2lcov before running 'cover':
-$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output err.info --testname test1 ./cover_one 2>&1 | tee err.log
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output err.info --test-name test1 ./cover_one 2>&1 | tee err.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "expected to fail - but passed"
     exit 1
@@ -39,7 +39,7 @@ fi
 
 cover cover_one -silent 1
 
-$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output one.info --testname test1 ./cover_one
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output one.info --test-name test1 ./cover_one
 if [ 0 != $? ] ; then
     echo "perl2lcov failed"
     exit 1
@@ -116,7 +116,7 @@ fi
 
 
 # run again, collecting checksum..
-$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output checksum.info --testname testCheck ./cover_one --checksum
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output checksum.info --test-name testCheck ./cover_one --checksum
 if [ 0 != $? ] ; then
     echo "perl2lcov checksum failed"
 fi
@@ -188,7 +188,7 @@ fi
 cover cover_genhtml -silent 1
 
 # ignore inconsistency:  line hit but no branch on line is hit
-$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output genhtml.info --testname genhtml_test ./cover_genhtml --ignore inconsistent
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL --output genhtml.info --test-name genhtml_test ./cover_genhtml --ignore inconsistent
 if [ 0 != $? ] ; then
     echo "perl2lcov genhtml"
     if [ 0 == $KEEP_GOING ] ; then
