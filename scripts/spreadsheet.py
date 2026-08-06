@@ -33,6 +33,10 @@ class GenerateSpreadsheet(object):
         # append: to merge file info into parent
         geninfoKeys = ['order', 'file', 'parse', 'exec', 'append']
 
+        # peakVM/peakRSS: this job's peak virtual size and peak resident set,
+        #   in MB - not a time, so these go last in any list of per-job keys
+        memoryKeys = ('peakVM', 'peakRSS')
+
         # work: productive time: process_one_chunk + merge chunk
         # chunk: everything from fork() to end of filesystem cleanup after child merge
         # child: time from entering child process to immediately before serialize
@@ -40,7 +44,8 @@ class GenerateSpreadsheet(object):
         # undump:  time to deserialize chunk data into master
         # queue: time between child finish and start of merge in parent
         # merge: time to merge returned chunk info
-        geninfoChunkKeys = ('work', 'chunk', 'queue', 'child', 'process', 'undump', 'merge')
+        geninfoChunkKeys = ('work', 'chunk', 'queue', 'child', 'process',
+                            'undump', 'merge', *memoryKeys)
         geninfoSpecialKeys = ('total', 'parallel', 'filter', 'write', 'history')
 
         # keys related to filtering
@@ -55,7 +60,7 @@ class GenerateSpreadsheet(object):
                                    'align': 'center',
                                    'valign': 'vcenter',
                                    'text_wrap': True}),
-            'italic': s.add_format({'italic': True,
+            'stats_title': s.add_format({'italic': True,
                                     'align': 'center',
                                     'valign': 'vcenter'}),
             'highlight': s.add_format({'bg_color': 'yellow'}),
@@ -64,6 +69,8 @@ class GenerateSpreadsheet(object):
         }
         intFormat = self.formats['intFormat']
         twoDecimal = self.formats['twoDecimal']
+        stats_title = self.formats['stats_title']
+        title = self.formats['title']
 
         def insertConditional(sheet, avgRow, devRow,
                               beginRow, beginCol, endRow, endCol):
@@ -131,7 +138,53 @@ class GenerateSpreadsheet(object):
                                        'format' : self.formats['good'],
                                    })
 
-        def insertStats(keys, sawData, sumRow, avgRow, devRow, beginRow, endRow, col):
+        # the statistics rows every sub-table leads with, in order, and the
+        #   keys whose column total is not additive:  summing the peak memory
+        #   of jobs which ran concurrently means nothing, so their 'total' cell
+        #   is left empty and the 'max' row below it is the interesting number.
+        statLabels = ('total', 'max', 'avg', 'stddev')
+        nonAdditiveKeys = memoryKeys
+
+        # rows below a sub-table's title row that its total and average land on
+        totalOffset = 1 + statLabels.index('total')
+        avgOffset = 1 + statLabels.index('avg')
+
+        # empty rows before each sub-table, to set it apart from whatever
+        #   precedes it
+        sectionGap = 2
+
+        def sectionStart(row):
+            # the title row of the next sub-table, given the first unused row
+            return row + sectionGap
+
+        def writeTitleRow(row, typename, keylist, col=2):
+            # the sub-table title row:  its name (if it has one) in column A and
+            #   one column title per key from 'col' on, and return the row the
+            #   statistics start at.  In the 'title' format - boldface - to set
+            #   the titles apart from the data below them.
+            if typename is not None:
+                sheet.write_string(row, 0, typename, title)
+            for k in keylist:
+                sheet.write_string(row, col, k, title)
+                col += 1
+            return row + 1
+
+        def writeStatLabels(row, col=1):
+            # label the 4 statistics rows which start at 'row', and return the
+            #   row the data starts at.  Italic, to set them apart from the
+            #   element rows below them.
+            for i, label in enumerate(statLabels):
+                sheet.write_string(row + i, col, label, stats_title)
+            return row + len(statLabels)
+
+        def insertStats(keys, sawData, sumRow, maxRow, avgRow, devRow,
+                        beginRow, endRow, col):
+            # fill in the four statistics rows written by writeStatLabels, one
+            #   formula per column which has data over exactly rows
+            #   beginRow..endRow, and colorize that data range against the
+            #   average and standard deviation.
+            # a non-additive column gets no total - see nonAdditiveKeys - and a
+            #   column with a single sample gets no standard deviation.
             firstCol = col
             col -= 1
             for key in keys:
@@ -144,11 +197,17 @@ class GenerateSpreadsheet(object):
                 f = xl_rowcol_to_cell(beginRow, col)
                 t = xl_rowcol_to_cell(endRow, col)
 
-                sum = "+SUM(%(from)s:%(to)s)" % {
-                    "from" : f,
-                    "to": t
+                if key not in nonAdditiveKeys:
+                    sum = "+SUM(%(from)s:%(to)s)" % {
+                        "from" : f,
+                        "to": t
+                    }
+                    sheet.write_formula(sumRow, col, sum, twoDecimal)
+                mx = "+MAX(%(from)s:%(to)s)" % {
+                    'from': f,
+                    'to': t,
                 }
-                sheet.write_formula(sumRow, col, sum, twoDecimal)
+                sheet.write_formula(maxRow, col, mx, twoDecimal)
                 avg = "+AVERAGE(%(from)s:%(to)s)" % {
                     'from': f,
                     'to': t,
@@ -164,6 +223,69 @@ class GenerateSpreadsheet(object):
 
             insertConditional(sheet, avgRow, devRow,
                               beginRow, firstCol, endRow, col)
+
+        def peakMemoryMB(data, job):
+            # the named job's peak memory as {'peakVM': ..., 'peakRSS': ...} in
+            #   MB, or an empty dict if this profile has no such data (an older
+            #   profile, or a platform which does not expose peak memory).
+            # 'job' is the phase-qualified job id the profile memory data is
+            #   keyed by - e.g. 'capture_3' for the chunk whose timing data is
+            #   child{3}, or 'aggregate_3' for segment 3.
+            mem = data.get('memory')
+            entry = mem.get(job) if isinstance(mem, dict) else None
+            if not isinstance(entry, dict):
+                return {}
+            return {label: entry[mk] / (1 << 20)
+                    for label, mk in zip(memoryKeys, ('vsize', 'rss'))
+                    if mk in entry}
+
+        def segmentSection(row, typename, ids, keylist, values,
+                           required=(), intKeys=()):
+            # one row per forked segment, in the same table shape every other
+            #   sub-table here uses:  two empty rows, the boldface title row
+            #   naming the section in column A, the italic statistics rows, then
+            #   each segment's id in column B and one value per key from column
+            #   C on.
+            # the statistics are computed over all the segment rows and, as in
+            #   every other table here, the data cells are colorized against
+            #   them:  yellow/red for a segment more than the threshold slower
+            #   than the average.
+            # 'required' names the keys to warn about when a segment does not
+            #   have them;  the rest are legitimately absent in some profiles.
+            # Returns (first data row, last data row, first unused row) - the
+            #   caller needs the data range to reference the segment column.
+            row = writeTitleRow(sectionStart(row), typename, keylist)
+            sumRow, maxRow, avgRow, devRow = (row, row + 1, row + 2, row + 3)
+            row = writeStatLabels(row)
+
+            dataStart = row
+            sawData = {}
+            for id in ids:
+                label = 'segment %s' % (id)
+                sheet.write_string(row, 1, label)
+                d = values[id]
+                col = 2
+                for k in keylist:
+                    if k not in d:
+                        if k in required:
+                            print("Warning: %s: no %s for %s" % (
+                                name, k, label))
+                    else:
+                        try:
+                            # don't crash on partially corrupt profile data
+                            sheet.write_number(
+                                row, col, float(d[k]),
+                                intFormat if k in intKeys else twoDecimal)
+                            sawData[k] = sawData.get(k, 0) + 1
+                        except:
+                            print("Warning: %s: unable to write %s for %s[%s]"
+                                  % (name, str(d[k]), label, k))
+                    col += 1
+                row += 1
+
+            insertStats(keylist, sawData, sumRow, maxRow, avgRow, devRow,
+                        dataStart, row - 1, 2)
+            return (dataStart, row - 1, row)
 
         activeSheet = None
         for name in files:
@@ -240,6 +362,9 @@ class GenerateSpreadsheet(object):
                     except:
                         pass
 
+            # every tool records its whole-run elapsed time under 'total'.
+            #   'overall' is the key genhtml used for the same thing in
+            #   profiles written by older releases.
             for k in ('total', 'overall'):
                 if k in data:
                     sheet.write_string(row, 0, 'total')
@@ -247,49 +372,65 @@ class GenerateSpreadsheet(object):
                     total = xl_rowcol_to_cell(row, 1)
                     totalRow = row
                     row += 1
+                    break
+
+            # peak memory (bytes), reported by lcovutil profile as
+            #   memoryPeak = { rss: <peak resident set>, vsize: <peak virtual> }
+            #   (max over the parent and all forked workers).  Emit a boldface
+            #   'peak mem' title row immediately after the 'total' row, then a
+            #   single italic-labelled row of values, in MB - the same table
+            #   shape the per-job memory columns use, but with only the one row,
+            #   so there are no statistics over it.
+            peak = data.get('memoryPeak')
+            peakVals = [(label, peak[mk] / (1 << 20))
+                        for label, mk in zip(memoryKeys, ('vsize', 'rss'))
+                        if mk in peak] if isinstance(peak, dict) else []
+            if peakVals:
+                writeTitleRow(row, 'peak mem',
+                              [label + ' (MB)' for label, v in peakVals])
+                col = 2
+                for label, v in peakVals:
+                    sheet.write_number(row + 1, col, v, twoDecimal)
+                    col += 1
+                # there is one row of data, and it is not one job's peak but
+                #   the largest seen anywhere in the process tree
+                sheet.write_string(row + 1, 1, 'max', stats_title)
+                row += 2
 
             if tool == 'lcov':
                 # is this a parallel execution?
                 try:
                     segments = data['config']['segments']
 
-                    effectiveParallelism = ""
-                    sep = "+("
+                    # 'parse'/'append' are not kept per segment (a child folds
+                    #   them into the parent's own data), so they are not
+                    #   'required' - nor is memory, which an older profile or a
+                    #   platform that does not expose peak memory will lack.
+                    segmentKeys = ('total', 'merge', 'undump', 'parse',
+                                   'append', *memoryKeys)
+                    values = {}
                     for seg in range(segments):
-                        sheet.write_string(row, 0, 'segment %d' % (seg))
                         try:
                             d = data[seg]
                         except:
                             d = data[str(seg)]
+                        # this segment's peak memory is not stored with its
+                        #   timing data:  it is keyed by job id in the profile
+                        #   'memory' section - memory{aggregate_N} for segment
+                        #   N - so copy it in and let it be written like any
+                        #   other key.
+                        d.update(peakMemoryMB(data, 'aggregate_%d' % (seg)))
+                        values[seg] = d
+                    dataStart, dataEnd, row = segmentSection(
+                        row, 'segments', range(segments), segmentKeys, values,
+                        required=('total', 'merge', 'undump'))
 
-                        start = row
-                        for k in ('total', 'merge', 'undump'):
-                            sheet.write_string(row, 1, k)
-                            try:
-                                sheet.write_number(row, 2, float(d[k]), twoDecimal)
-                                if k == 'total':
-                                    effectiveParallelism += sep + xl_rowcol_to_cell(row, 2)
-                                    sep = "+"
-                            except:
-                                print("Warning: %s: unable to write %s for lcov[seg %d][%s]" % (
-                                    name, str(d[k]) if k in d else "??", seg, k))
-                            row += 1
-                        begin = row
-                        for k in ('parse', 'append'):
-                            try:
-                                # don't crash on partially corrupt profile data
-                                d2 = d[k]
-                                sheet.write_string(row, 1, k)
-                                for f in sorted(d2.keys()):
-                                    sheet.write_string(row, 2, f)
-                                    try:
-                                        sheet.write_number(row, 3, float(d2[f]), twoDecimal)
-                                    except:
-                                        print("Warning: %s: unable to write %s for lcov[seg %d][%s][%s]" % (name, str(d2[f]), seg, k, f))
-                                row += 1
-                            except:
-                                print("Warning: %s: unable to write %s for lcov[seg %d]" % (name, k, seg))
-                    effectiveParallelism += ")/%(total)s" % {
+                    # observed parallelism:  the segments' wall-clock summed,
+                    #   over the elapsed total
+                    totalCol = 2 + segmentKeys.index('total')
+                    effectiveParallelism = "+SUM(%(from)s:%(to)s)/%(total)s" % {
+                        'from': xl_rowcol_to_cell(dataStart, totalCol),
+                        'to': xl_rowcol_to_cell(dataEnd, totalCol),
                         'total': total,
                     }
                     sheet.write_formula(totalRow, 3, effectiveParallelism, twoDecimal)
@@ -331,8 +472,6 @@ class GenerateSpreadsheet(object):
                     summaryKeys = (*geninfoSpecialKeys, *geninfoChunkKeys, *geninfoKeys, *filterKeys)
                 if summarySheet:
                     # first one - add titles, etc
-                    title = self.formats['title']
-
                     if len(geninfoSheets) == 0:
                         summarySheet.write_string(1, 0, "average", title)
                         summarySheet.write_string(2, 0, "stddev", title)
@@ -383,16 +522,20 @@ class GenerateSpreadsheet(object):
                     sheet.write_number(row, 2, data['find'][dirname], twoDecimal)
                     row += 1
 
-                row += 1
-                def dataSection(typename, elements, keylist, dataRow, statsRow):
-
-                    row = dataRow
-                    sheet.write_string(row, 0, typename)
-                    col = 2
-                    for key in keylist:
-                        sheet.write_string(row, col, key)
-                        col += 1
-                    row += 1
+                def dataSection(typename, elements, keylist, sectionRow):
+                    # one contiguous table per section, starting at 'sectionRow':
+                    #   the boldface title row naming the section in column A,
+                    #   the italic statistics rows over the data - total, max,
+                    #   avg, stddev - then one row per element:  its id in column
+                    #   B and one value per key from column C on.  The data cells
+                    #   are colorized against the average and stddev just above
+                    #   them, so the statistics have to be adjacent to the data
+                    #   they describe.
+                    # Returns the first unused row after the section.
+                    row = writeTitleRow(sectionRow, typename, keylist)
+                    sumRow, maxRow, avgRow, devRow = (row, row + 1, row + 2,
+                                                      row + 3)
+                    row = writeStatLabels(row)
                     dataStart = row
 
                     sawData = {}
@@ -420,35 +563,22 @@ class GenerateSpreadsheet(object):
 
                     dataEnd = row - 1
 
-                    row = statsRow
-                    # insert link to first associated data entry
-                    sheet.write_url(row, 0, "internal:'%s'!%s" %(
-                        sheet.get_name(),
-                        xl_rowcol_to_cell(dataStart, 0)),
-                                    string=typename)
-                    col = 2
-                    for key in keylist:
-                        if key not in ('order', ):
-                            sheet.write_string(row, col, key)
-                        col += 1
-                    row += 1
-                    sheet.write_string(row, 1, 'total')
-                    sheet.write_string(row+1, 1, 'avg')
-                    sheet.write_string(row+2, 1, 'stddev')
-                    insertStats(keylist, sawData, statsRow + 1, statsRow + 2,
-                                statsRow+3, dataStart, dataEnd, 2)
+                    insertStats(keylist, sawData, sumRow, maxRow, avgRow,
+                                devRow, dataStart, dataEnd, 2)
                     return dataEnd + 1
 
-                chunkStatsRow = row
-                fileStatsRow = chunkStatsRow + 4
-                filterStatsRow = fileStatsRow + 4;
-
-                if args.show_filter:
-                    chunkDataRow = filterStatsRow + 4
-                else:
-                    chunkDataRow = fileStatsRow + 4
-                    fileStatsRow = row
-                parallelSumRow = row+1
+                # the row each section's title lands on, remembered so the
+                #   summary sheet can find that section's total and average rows
+                #   - see statLabels.  'filter' is optional, and the chunk table
+                #   is absent from a serial capture, in which case the file table
+                #   takes its place.
+                chunkSectionRow = sectionStart(row)
+                fileSectionRow = chunkSectionRow
+                filterSectionRow = None
+                # the observed parallelism is that first section's total time
+                #   over the elapsed total;  column C for the chunk table, or
+                #   column D ('file') when a serial capture leaves only files
+                parallelSumRow = chunkSectionRow + totalOffset
                 parallelSumCol = 3
 
                 # first the chunk data...
@@ -466,15 +596,21 @@ class GenerateSpreadsheet(object):
                 # append: time to merge that into parent master report
                 try:
                     chunks = sorted(data['child'].keys(), key=int, reverse=True)
+                    # peak memory is keyed by job id in the profile 'memory'
+                    #   section - memory{capture_N} for the chunk whose timing
+                    #   data is child{N} - so flatten it into the same
+                    #   id-keyed shape the timing keys have, and dataSection
+                    #   picks it up like any other key.
+                    for id in chunks:
+                        for label, v in peakMemoryMB(
+                                data, 'capture_%s' % (id)).items():
+                            data.setdefault(label, {})[id] = v
                     row = dataSection('chunks', chunks, geninfoChunkKeys,
-                                      chunkDataRow, chunkStatsRow)
-                    row += 1
-                    fileDataRow = row + 1
+                                      chunkSectionRow)
+                    fileSectionRow = sectionStart(row)
                     parallelSumCol = 2
                 except:
                     # no chunk data - so just insert file data
-                    fileStatsRow = chunkStatsRow
-                    fileDataRow = fileStatsRow + 4
                     pass
 
 
@@ -488,22 +624,21 @@ class GenerateSpreadsheet(object):
 
                 try:
                     row = dataSection('files', sorted(data['file'].keys(), key=cmp_to_key(cmpFile)),
-                                      geninfoKeys, fileDataRow, fileStatsRow)
+                                      geninfoKeys, fileSectionRow)
                 except:
                     # there may be no files - if dataset was empty
                     print("No 'file' data in %s" % (name))
 
                 # now the filter data - if any
                 if args.show_filter:
-                    filterDataRow = row + 1;
                     try:
                         chunks = sorted(data['filt_child'].keys(), key=int, reverse=True)
+                        filterSectionRow = sectionStart(row)
                         row = dataSection('filter', chunks, filterKeys,
-                                          filterDataRow, filterStatsRow)
-                        row += 1
+                                          filterSectionRow)
 
                     except:
-                        pass
+                        filterSectionRow = None
 
 
                 effectiveParallelism = "+%(sum)s/%(total)s" % {
@@ -534,19 +669,18 @@ class GenerateSpreadsheet(object):
 
                     # now label this sheet's columns
                     #  and also insert reference to total time and average time
-                    #  for each step into the summary sheet.
-                    statsTotalRow = chunkStatsRow + 1
-                    statsAvgRow = chunkStatsRow + 2
-                    sections = [(geninfoChunkKeys, chunkStatsRow + 1, chunkStatsRow + 2),
-                              (geninfoKeys, fileStatsRow + 1, fileStatsRow + 2),]
-                    if args.show_filter:
-                        sections.append((filterKeys, filterStatsRow +1,
-                                         filterStatsRow+2))
-                    for d in (sections):
-                        totRow = d[1]
-                        avgRow = d[2]
+                    #  for each step into the summary sheet - each section's
+                    #  total and average sit at a fixed offset below its title
+                    #  row;  see totalOffset/avgOffset.
+                    sections = [(geninfoChunkKeys, chunkSectionRow),
+                                (geninfoKeys, fileSectionRow),]
+                    if filterSectionRow is not None:
+                        sections.append((filterKeys, filterSectionRow))
+                    for keys, sectionRow in (sections):
+                        totRow = sectionRow + totalOffset
+                        avgRow = sectionRow + avgOffset
                         col = 2
-                        for k in d[0]:
+                        for k in keys:
                             if k not in ('order',):
                                 sum = xl_rowcol_to_cell(totRow, col)
                                 summarySheet.write_formula(summaryRow, summaryCol,
@@ -583,9 +717,34 @@ class GenerateSpreadsheet(object):
                 # source:
                 genhtmlKeys = ['  '] # placeholder key
                 # these keys are computed for segments
-                genhtml_chunkyKeys = ['child', 'startDelay', 'mergeDelay',
-                                      'merge_segment', 'segment']
+                #   nJobs: number of files this segment was given
+                genhtml_chunkyKeys = ['nJobs', 'child', 'startDelay',
+                                      'mergeDelay', 'merge_segment', 'segment',
+                                      *memoryKeys]
                 filter_keys = ['filt_undump', 'filt_merge', 'filt_queue', 'filt_chunk']
+
+                # the same per-segment table (title row, statistics rows, then
+                #   one row per segment, colorized against the average) the
+                #   lcov branch writes.  A serial run has no segment data at
+                #   all, so skip the section entirely in that case.
+                if isinstance(data.get('segment'), dict):
+                    segIds = sorted(data['segment'].keys(), key=int)
+                    values = {}
+                    for seg in segIds:
+                        # this segment's peak memory is not stored with its
+                        #   timing data:  it is keyed by job id in the profile
+                        #   'memory' section - memory{segment_N} for segment N -
+                        #   so merge it in and write it like any other key.
+                        d = dict(peakMemoryMB(data, 'segment_%s' % (seg)))
+                        for k in genhtml_chunkyKeys:
+                            if (k not in d and isinstance(data.get(k), dict)
+                                    and seg in data[k]):
+                                d[k] = data[k][seg]
+                        values[seg] = d
+                    row = segmentSection(row, 'segments', segIds,
+                                         genhtml_chunkyKeys, values,
+                                         required=('segment', 'child'),
+                                         intKeys=('nJobs',))[2]
 
                 perObj_keys = ['file', 'source', 'categorize', 'annotate', 'check_version',
                                'html', 'load', 'criteria', 'synth']
@@ -594,20 +753,11 @@ class GenerateSpreadsheet(object):
                     if k in data:
                         genhtmlKeys.append(k)
 
-                col = 3
-                for k in genhtmlKeys:
-                    sheet.write_string(row, col, k)
-                    col += 1
-                row += 1
-                sumRow = row
-                sheet.write_string(row, 2, "total")
-                row += 1
-                avgRow = row
-                sheet.write_string(row, 2, "average")
-                row += 1
-                devRow = row
-                sheet.write_string(row, 2, "stddev")
-                row += 1
+                # the per-object table has no section name of its own
+                row = writeTitleRow(sectionStart(row), None, genhtmlKeys, 3)
+                sumRow, maxRow, avgRow, devRow = (row, row + 1, row + 2,
+                                                  row + 3)
+                row = writeStatLabels(row, 2)
 
                 #print(" ".join(data.keys()))
                 try:
@@ -657,14 +807,86 @@ class GenerateSpreadsheet(object):
                 for f in sorted(scopeList):
                     visitScope(f)
 
-                insertStats(genhtmlKeys, sawData, sumRow, avgRow, devRow, begin,
-                            row-1, 3)
+                insertStats(genhtmlKeys, sawData, sumRow, maxRow, avgRow,
+                            devRow, begin, row - 1, 3)
 
                 overallParallelism = "+%(from)s/%(total)s" % {
                     'from': xl_rowcol_to_cell(sumRow, 4),
                     'total': total,
                     }
                 sheet.write_formula(totalRow, 2, overallParallelism, twoDecimal);
+                continue
+
+            elif tool == 'html2lcov':
+
+                # html2lcov is single-process;  its profile records a few scalar
+                #   phase timings plus per-item timing dicts:
+                #     aggregate                  - merge the saved .info file(s)
+                #     source[srcpath]            - scrape each HTML source page
+                #     check_consistency[srcpath] - per-file consistency check
+                #     diff[relpath]              - diff each current file
+                #     parse[infofile]            - read each saved .info
+                #     append[infofile]           - merge each .info into the total
+                #   ('total' was already written above.)
+                # Modeled on the geninfo branch:  scalar keys, then per-item
+                #   data tables (dataSection-style) with total/max/avg/stddev
+                #   stat rows and the same conditional highlighting.
+
+                for k in ('aggregate',):
+                    if k in data:
+                        try:
+                            sheet.write_string(row, 0, k)
+                            sheet.write_number(row, 1, data[k], twoDecimal)
+                            row += 1
+                        except:
+                            pass
+
+                # per-item table writer, mirroring the geninfo 'dataSection':
+                #   two empty rows, the boldface title row, the italic
+                #   total/max/avg/stddev statistics rows, then one row per item
+                #   id with one column per key, and the same conditional
+                #   formatting over the data rows.
+                # Returns the first unused row after the section.
+                def h2lSection(typename, keylist, sectionRow):
+                    ids = set()
+                    for key in keylist:
+                        if key in data and isinstance(data[key], dict):
+                            ids.update(data[key].keys())
+
+                    r = writeTitleRow(sectionStart(sectionRow), typename,
+                                      keylist)
+                    sumRow, maxRow, avgRow, devRow = (r, r + 1, r + 2, r + 3)
+                    r = writeStatLabels(r)
+                    dataStart = r
+
+                    sawData = {}
+                    for id in sorted(ids):
+                        col = 1
+                        sheet.write_string(r, col, id)
+                        col += 1
+                        for key in keylist:
+                            try:
+                                sheet.write_number(r, col, float(data[key][id]),
+                                                   twoDecimal)
+                                sawData[key] = sawData.get(key, 0) + 1
+                            except:
+                                pass
+                            col += 1
+                        r += 1
+                    dataEnd = r - 1
+
+                    insertStats(keylist, sawData, sumRow, maxRow, avgRow,
+                                devRow, dataStart, dataEnd, 2)
+                    return dataEnd + 1
+
+                # emit each section that has data
+                sections = (('source', ('source', 'check_consistency')),
+                            ('diff', ('diff',)),
+                            ('info', ('parse', 'append')))
+                for typename, keylist in sections:
+                    if not any(k in data and data[k] for k in keylist):
+                        continue
+                    row = h2lSection(typename, keylist, row)
                 continue
 
             for k in data:
@@ -686,7 +908,9 @@ class GenerateSpreadsheet(object):
                             print("Warning: %s: unable to write %s for [%s][%s]" %(name, str(d[n]), k, n))
                         row += 1;
                     continue
-                elif k in ('config', 'overall', 'total'):
+                elif k in ('config', 'overall', 'total',
+                           'memory', 'memoryPeak'):
+                    # memory data is written above, not as a timing table
                     continue
                 else:
                     print("not sure what to do with %s" % (k))

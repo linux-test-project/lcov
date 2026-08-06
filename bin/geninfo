@@ -1494,8 +1494,9 @@ sub gen_info(@)
                     #   build a datastructure that we could dump - rather than
                     #   printing a .info file that we have to parse....but so
                     #   be it.
-                    my $childStart   = Time::HiRes::gettimeofday();
-                    my $currentState = lcovutil::initial_state();
+                    my $childStart = Time::HiRes::gettimeofday();
+                    my $currentState =
+                        lcovutil::initial_state('capture', $processedChunks);
                     $buildDirSearchPath->reset();
                     $output_filename =
                         File::Spec->catfile($tempFileDir,

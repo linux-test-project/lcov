@@ -6636,7 +6636,7 @@ sub _process_child
     my $tmp          = '' . $self->[TMPDIR];
     my $stdout_file  = File::Spec->catfile($tmp, "genhtml_$$.log");
     my $stderr_file  = File::Spec->catfile($tmp, "genhtml_$$.err");
-    my $currentState = lcovutil::initial_state();
+    my $currentState = lcovutil::initial_state('segment', $jobId);
     # clear counters so we store count only what we saw in the child
     $SourceFile::annotatedFiles = 0;
     $SourceFile::totalFiles     = 0;
@@ -7669,7 +7669,7 @@ if ($@) {
 }
 
 my $then = Time::HiRes::gettimeofday();
-$lcovutil::profileData{overall} = $then - $now;
+$lcovutil::profileData{total} = $then - $now;
 
 if (0 == $exit_status) {
     # warn about unused include/exclude directives
