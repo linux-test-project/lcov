@@ -74,7 +74,7 @@ DIST_CONTENT := CONTRIBUTING COPYING README.rst Makefile lcovrc \
 EXES = \
 	lcov genhtml geninfo genpng gendesc \
 	perl2lcov py2lcov xml2lcov xml2lcovutil.py \
-	llvm2lcov
+	llvm2lcov html2lcov
 # there may be both public and non-public user scripts - so lets not show
 #   any of their names
 SCRIPTS = $(shell ls scripts | grep -v -E '([\#\~]|\.orig|\.bak|\.BAK)' )

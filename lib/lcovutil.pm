@@ -4097,6 +4097,171 @@ sub parse_w3cdtf($)
                       time_zone  => $tz,);
 }
 
+# ----------------------------------------------------------------------
+# Shared HTML/source-rendering definitions.
+#
+# genhtml renders source into HTML (escaping entities and expanding tabs);
+# html2lcov screen-scrapes that HTML back into source.  The escape map, the
+# tab-expansion algorithm, and the default tab width / HTML extension must be
+# identical in the writer and the reader or the recovered source will not
+# match.  Keeping them here (used by both tools) is the single source of truth.
+# ----------------------------------------------------------------------
+
+# default number of spaces a tab is expanded to when rendering source to HTML
+our $default_tab_size = 8;
+# default filename extension for generated HTML files (no leading dot)
+our $default_html_extension = 'html';
+
+# The four HTML special characters genhtml escapes when rendering source.
+#   Declared with a BEGIN initializer because callers (genhtml's escape_html)
+#   may reference it before this point is reached at run time.
+our %html_escape_map;
+
+BEGIN {
+    %html_escape_map = ('&' => '&amp;',
+                        '<' => '&lt;',
+                        '>' => '&gt;',
+                        '"' => '&quot;',);
+}
+
+# Expand tabs to the next tab stop, matching how source is rendered to HTML.
+#   $tabSize <= 0 disables expansion (returns the string unchanged).
+sub expand_tabs
+{
+    my ($string, $tabSize) = @_;
+    return $string if $tabSize <= 0 || index($string, "\t") < 0;
+    my $col = 0;
+    my $out = '';
+    foreach my $piece (split(/(\t)/, $string, -1)) {
+        if ($piece eq "\t") {
+            my $pad = $tabSize - ($col % $tabSize);
+            $out .= ' ' x $pad;
+            $col += $pad;
+        } else {
+            $out .= $piece;
+            $col += length($piece);
+        }
+    }
+    return $out;
+}
+
+# Reverse the entity escaping applied when source was rendered to HTML.
+#   '&amp;' must be decoded LAST so that e.g. '&amp;lt;' round-trips to '&lt;'
+#   rather than to '<'.
+sub unescape_html
+{
+    my $string = $_[0];
+    return $string unless defined($string);
+    $string =~ s/&lt;/</g;
+    $string =~ s/&gt;/>/g;
+    $string =~ s/&quot;/"/g;
+    $string =~ s/&amp;/&/g;
+    return $string;
+}
+
+package SavedReport;
+
+# Single source of truth for the 'genhtml --save' layout:  the naming of the
+#   .info/diff files that genhtml --save copies into the top level of an HTML
+#   report directory, and the logic to find them again.
+#
+# genhtml --save (the writer) and html2lcov (the reader) both go through this
+#   package so the two can never disagree about where the files live or how
+#   they are named.
+#
+# Layout contract:
+#   - files are written to the top level of the report output directory
+#   - each saved file keeps the basename of its source file, with a role
+#     prefix:
+#         current  data  -> 'current_'  . basename
+#         baseline data  -> 'baseline_' . basename
+#         diff file      -> (no prefix) . basename
+#   - EXCEPTION: when the report has no baseline, the 'current_' prefix is
+#     suppressed and current data keeps its plain basename.  (There is no
+#     baseline or diff file in that case.)
+
+use strict;
+use warnings;
+
+# roles
+use constant {
+              CURRENT  => 'current',
+              BASELINE => 'baseline',
+              DIFF     => 'diff',
+};
+
+# saved basename for one input file, given its role and whether the report
+#   has a baseline.
+sub saved_basename
+{
+    my ($role, $from, $hasBaseline) = @_;
+    my $base = File::Basename::basename($from);
+    if ($role eq BASELINE) {
+        return 'baseline_' . $base;
+    } elsif ($role eq DIFF) {
+        return $base;
+    } elsif ($role eq CURRENT) {
+        # current data is prefixed only when a baseline is also present
+        return ($hasBaseline ? 'current_' : '') . $base;
+    } else {
+        die("unknown saved-report role '$role'");
+    }
+}
+
+# full destination path for one saved file.
+sub saved_path
+{
+    my ($outputDirectory, $role, $from, $hasBaseline) = @_;
+    return
+        File::Spec->catfile($outputDirectory,
+                            saved_basename($role, $from, $hasBaseline));
+}
+
+# Writer entry point used by 'genhtml --save':  copy the current/baseline/diff
+#   inputs into the report directory using the naming contract above.
+#   Existing files are not overwritten.
+sub save_inputs
+{
+    my ($outputDirectory, $info_filenames, $base_filenames, $diff_filename) =
+        @_;
+    require File::Copy;
+    my $hasBaseline = ($base_filenames && scalar(@$base_filenames)) ? 1 : 0;
+    foreach my $d ([BASELINE, $base_filenames],
+                   [DIFF, defined($diff_filename) ? [$diff_filename] : []],
+                   [CURRENT, $info_filenames]) {
+        my ($role, $list) = @$d;
+        next unless $list;
+        foreach my $from (@$list) {
+            next unless defined($from);
+            my $to = saved_path($outputDirectory, $role, $from, $hasBaseline);
+            File::Copy::copy($from, $to) unless -f $to;
+        }
+    }
+}
+
+# Reader entry point used by html2lcov:  return the list of saved 'current'
+#   coverage files found at the top level of a report directory.  Matches both
+#   the baseline form ('current_*.info[.gz]') and the no-baseline form
+#   (plain '*.info[.gz]' that is not a 'baseline_' file).  Returns full paths.
+sub find_current_info
+{
+    my ($outputDirectory) = @_;
+    opendir(my $dh, $outputDirectory) or
+        return ();
+    my @found;
+    while (my $e = readdir($dh)) {
+        my $p = File::Spec->catfile($outputDirectory, $e);
+        next unless -f $p;
+        # only .info or .info.gz files
+        next unless $e =~ /\.info(\.gz)?$/;
+        # baseline files are not 'current' data
+        next if $e =~ /^baseline_/;
+        push(@found, $p);
+    }
+    closedir($dh);
+    return @found;
+}
+
 package HTML_fileData;
 
 use constant {

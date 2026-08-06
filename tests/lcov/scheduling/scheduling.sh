@@ -826,6 +826,54 @@ EOF
         done
     fi
 
+    # 'html2lcov' scrapes an HTML report;  nothing in this test runs it, so its
+    # sheet is exercised from a written-out profile of the shape it emits.  Its
+    # one whole-run scalar is the time to merge the saved '.info' files, and a
+    # value which cannot be written there has to be reported like any other -
+    # it used to be dropped along with its own row.
+    cat > h2l_prof.json <<'EOF'
+{
+  "config": { "tool": "html2lcov", "date": "2026-01-01", "version": "0" },
+  "total": 4.5,
+  "aggregate": 0.75,
+  "source": { "a.c": 0.5, "b.c": 0.25 },
+  "check_consistency": { "a.c": 0.125, "b.c": 0.0625 },
+  "parse": { "old.info": 0.5 },
+  "append": { "old.info": 0.25 }
+}
+EOF
+    jq -r '.aggregate = "corrupt"' h2l_prof.json > bad_h2l.json
+    # ...and a run which merged nothing simply does not have that row
+    jq -r 'del(.aggregate)' h2l_prof.json > noagg_h2l.json
+    echo $SPREADSHEET_TOOL -o h2l.xlsx h2l_prof.json bad_h2l.json noagg_h2l.json
+    eval ${PYCOVER} $SPREADSHEET_TOOL -o h2l.xlsx h2l_prof.json bad_h2l.json \
+        noagg_h2l.json 2>&1 | tee h2l.log
+    if [ 0 != ${PIPESTATUS[0]} ] || [ ! -f h2l.xlsx ] ; then
+        cat h2l.log
+        fail_memory spreadsheet "spreadsheet generation for html2lcov"
+    else
+        python3 ./check_scalar_row.py h2l.xlsx h2l_prof.json aggregate
+        if [ 0 != $? ] ; then
+            fail_memory spreadsheet "html2lcov 'aggregate' row"
+        fi
+        for f in h2l_prof.json noagg_h2l.json ; do
+            python3 ./check_table_layout.py h2l.xlsx $f source info
+            if [ 0 != $? ] ; then
+                fail_memory spreadsheet "$f sub-table layout"
+            fi
+        done
+        python3 ./check_table_column.py h2l.xlsx h2l_prof.json source \
+            source check_consistency
+        if [ 0 != $? ] ; then
+            fail_memory spreadsheet "html2lcov 'source' table columns"
+        fi
+        if ! grep -E 'bad_h2l.json: unable to write corrupt for aggregate' \
+             h2l.log >/dev/null ; then
+            cat h2l.log
+            fail_memory spreadsheet "no warning for a corrupt 'aggregate'"
+        fi
+    fi
+
     # a run given nothing it can read - a name which is not there, and a file
     # which is not a profile - has no data sheet to open the workbook on.  The
     # empty workbook that asks for is a better answer than failing over the sheet

@@ -2,7 +2,7 @@
 README file for the LTP GCOV extension (LCOV)
 =================================================
 
-Last changes: 2026-05-30
+Last changes: 2026-07-23
 
 Description
 ===========
@@ -76,6 +76,9 @@ bin/llvm2lcov      Tool to translate LLVM ``llvm-cov`` JSON data to LCOV format
 bin/py2lcov        Tool to translate Python ``Coverage.py`` to lcov format
 bin/xml2lcov       Tool to translate Cobertura-like XML coverage data
                    to lcov format
+bin/html2lcov      Tool to extract coverage data and source code diffs from
+                   LCOV-generated HTML report - as input to new differential
+                   coverage report, after code change.
 bin/geninfo        Internal tool (creates LCOV data files)
 bin/gendesc        Tool for creating description files as used by genhtml
 bin/genpng         Internal tool (creates png overviews of source files)
@@ -618,7 +621,7 @@ f) Performance
 
 g) Language/tool support
 
-   Added ``llvm2lcov``, ``py2lcov``, ``perl2lcov`` and ``xml2lcov`` scripts.
+   Added ``llvm2lcov``, ``py2lcov``, ``perl2lcov``, ``xml2lcov``, and ``html2lcov``  scripts.
 
    - **llvm2lcov**:
 
@@ -658,6 +661,17 @@ g) Language/tool support
      the translator.
      See the Cobertura documentation for directions on how to
      generate XML data.
+
+   - **html2lcov**:
+
+     walk LCOV-generated HTML coverage report to recover source code
+     differences and baseline coverage data - to be used as input
+     to generate differential coverage report after un-tracked code changes
+     (*i.e.*, not available from a revision control tool).
+
+     See ``html2lcov --help`` for brief instructions on how to use
+     the translator.  In particular: this tool enables a relatively
+     simple entry into differential coverage reporting.
 
    Other languages can be integrated using a similar approach.
 

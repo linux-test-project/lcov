@@ -1,0 +1,974 @@
+#!/usr/bin/env perl
+
+#   Copyright (c) MediaTek USA Inc., 2026
+#
+#   This program is free software;  you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or (at
+#   your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY;  without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, see
+#   <http://www.gnu.org/licenses/>.
+#
+#
+# html2lcov [--output file] [--source-directory dir]+ [options] report_dir+
+#
+#   This script screen-scrapes a genhtml-generated HTML coverage report to
+#   recover:
+#
+#     - the LCOV .info coverage data that was used to produce the report.
+#       genhtml copies its input .info files into the top level of the report
+#       directory when it is run with '--save';  html2lcov finds and aggregates
+#       those files (using the same layout definition that genhtml --save uses
+#       to write them - see the SavedReport package in lcovutil.pm).
+#       It is an error if the report does not contain any such .info file.
+#
+#     - the source code that was embedded in the per-file HTML pages.  This is
+#       compared against the source found under '--source-directory' to produce
+#       a universal diff (the primary output) and a human-readable difference
+#       report.  The source directory may contain new files that were not in
+#       the report, and may omit files that were in the report;  these
+#       differences are documented in the difference report rather than being
+#       treated as errors.  It is an error if the source directory contains no
+#       file that matches any file in the report.
+#
+#   Outputs (see --output):  '-o' names a BASE -- any extension is stripped and
+#     each artifact appends its own:
+#     - the aggregated .info coverage:            <base>.info
+#     - the human-readable difference report:     <base>.rpt
+#     - the universal diff:                       <base>.udiff
+#         (redirected by --diff-file;  goes to stdout when --output is omitted)
+#     - the profile (if --profile):               <base>.json
+#   where <base> is the --output argument with any extension stripped, or
+#   'html2lcov' if --output was not given.
+
+use strict;
+use warnings;
+use Getopt::Long;
+use FindBin;
+use File::Spec;
+use File::Basename qw(basename dirname);
+use File::Temp qw(tempfile);    # ..and 'newdir', for the scrape children
+use Time::HiRes;                # for profiling
+
+use lib "$FindBin::RealBin/../lib";
+use lcovutil qw($tool_name);
+
+sub print_usage
+{
+    local *HANDLE = $_[0];
+
+    print(HANDLE <<END_OF_USAGE);
+Usage: $tool_name [OPTIONS] REPORT_DIRECTORY(S)
+
+Screen-scrape a genhtml-generated HTML coverage report to recover the .info
+coverage data used to produce it, and to diff the report's embedded source
+against the source found under --source-directory.
+
+In addition to the options which are common to the other tools in the LCOV
+suite - --include, --exclude, --substitute, --parallel, etc.,
+the html2lcov-specific options are:
+
+  --output/-o FILE:
+      Name a BASE for the output files.  Any extension is stripped from FILE,
+      then each artifact appends its own:  the aggregated coverage is written to
+      <base>.info, the human-readable difference report to <base>.rpt, the
+      universal diff to <base>.udiff (unless --diff-file redirects it), and the
+      profile (if --profile) to <base>.json.  When --output is omitted the base
+      is 'html2lcov' and the universal diff goes to stdout.
+
+  --source-directory DIR:
+      Search DIR for the current source files to diff against the report's
+      embedded source.  May be used more than once.  Defaults to '.' (the
+      current directory) when not specified.
+
+  --current-file FILE:
+      An lcov .info file whose 'SF:' records name the current source files.
+      May be used more than once, and each value may be a list separated by the
+      configured list separator.  When given, only files named in a 'SF:'
+      record may appear in the udiff (as changed or added);  every other file
+      under --source-directory is ignored, and files in the report but not in
+      the current set are treated as removed.  The .info coverage data itself is
+      not used - only the file list.
+
+  --diff-file FILE:
+      Write the universal diff to FILE instead of the default <base>.udiff (or
+      stdout when --output is omitted).
+
+  --profile [FILE]:
+      Write timing/statistics data as JSON to FILE (default <base>.json).
+
+END_OF_USAGE
+}
+
+# html2lcov reverses the HTML rendering that genhtml applied to source.
+
+# Scrape one <name>.gcov.html page, returning the recovered source as an
+#   arrayref of lines (in line-number order).  Returns undef if the page has
+#   no recoverable source rows.
+sub scrape_source_page
+{
+    my ($path) = @_;
+    open(my $fh, '<', $path) or
+        die("unable to open $path: $!\n");
+    # Collect the tag-stripped rows first, then locate the source column, then
+    #   extract.  We cannot simply take the text after the LAST ' : ' on a row:
+    #   the source itself may contain ' : ' (a spaced colon -- e.g. a C/C++,
+    #   Verilog, or Perl ternary 'a ? b : c', a ':' label, a base-class list),
+    #   and 'rindex' would then return only a trailing fragment of the line,
+    #   producing spurious diffs.
+    # genhtml renders every row with a fixed-width gutter (see the matching
+    #   note in genhtml's write_source_line):
+    #     "<linenum> [<branch>:][<mcdc>:]<count> : <source>"
+    #   The column widths are user options - so we have to compute the location
+    #   of source code.
+    #     - The ' : ' before the source is present on every row (the count
+    #       column is right-justified digits/spaces, always followed by ' : ').
+    #     - An empty branch or MC/DC column renders as 'spaces:' - i.e. a ' : '
+    #       at a fixed offset to the left of the count separator - so it is
+    #       common to every row (e.g. a --branch report in which no line
+    #       carries branch data).
+    #     - Source ' : ' always fall to the right of the count separator and are
+    #       essentially never column-aligned across all rows.
+    #   Hence the count separator is the rightmost ' : ' offset that appears on
+    #   every row:  left-of-it empty-column separators are also common but
+    #   smaller; right-of-it source separators are larger but not universal.
+    my @rows;              # [ lineNo, stripped_text ]
+    my %offsetRowCount;    # ' : ' byte offset -> number of rows carrying it
+    while (<$fh>) {
+        # a source-line row starts with the line-number anchor.  The span may
+        #   carry extra attributes (e.g. an annotation 'title="..."'), so do
+        #   not require the '>' to immediately follow the id.
+        next unless /<span id="L(\d+)"/;
+        my $lineNo = $1;
+        my $row    = $_;
+        chomp($row);
+        # strip all HTML tags:  the resulting text is the fixed-width layout
+        $row =~ s/<[^>]*>//g;
+        my $pos = 0;
+        my $any = 0;
+        while ((my $idx = index($row, ' : ', $pos)) >= 0) {
+            ++$offsetRowCount{$idx};
+            $pos = $idx + 1;
+            $any = 1;
+        }
+        next unless $any;
+        push(@rows, [$lineNo, $row]);
+    }
+    close($fh) or die("unable to close $path: $!\n");
+    return undef unless @rows;
+    # the count-to-source separator: rightmost offset common to every row
+    my $nrows = scalar(@rows);
+    my $gutter;
+    foreach my $off (keys %offsetRowCount) {
+        next unless $offsetRowCount{$off} == $nrows;
+        $gutter = $off if !defined($gutter) || $off > $gutter;
+    }
+    return undef unless defined($gutter);
+    my %lines;
+    my $max = 0;
+    foreach my $r (@rows) {
+        my ($lineNo, $row) = @$r;
+        $lines{$lineNo} = lcovutil::unescape_html(substr($row, $gutter + 3));
+        $max = $lineNo if $lineNo > $max;
+    }
+    my @source;
+    for (my $i = 1; $i <= $max; ++$i) {
+        push(@source, defined($lines{$i}) ? $lines{$i} : '');
+    }
+    return \@source;
+}
+
+# Walk the report directory starting from its top-level index.html, returning a
+#   hash of { recovered_source_path => path_of_the_page_which_holds_it }.  The
+#   recovered path is the original absolute source path recorded in the
+#   directory index 'title="Click to go to file ..."' attribute (falling back
+#   to the .gcov.html path relative to the report root).
+#
+# Only the directory indexes are read here - the per-file source pages are much
+#   larger and much more expensive, and scraping one is exactly the work which
+#   is handed to a child (see 'process_report_files').
+sub find_report_pages
+{
+    my ($reportDir, $htmlExt) = @_;
+    my %source;
+
+    my @dirstack = ($reportDir);
+    my %visited;
+    while (@dirstack) {
+        my $dir   = pop(@dirstack);
+        my $index = File::Spec->catfile($dir, "index$htmlExt");
+        next unless -f $index;
+        open(my $fh, '<', $index) or die("unable to open $index: $!\n");
+        while (<$fh>) {
+            # directory row:  recurse into subdirectory index
+            if (/<td class="coverDirectory"><a href="([^"]+)\/index[^"]*"/) {
+                my $sub = File::Spec->catdir($dir, $1);
+                if (-d $sub && !exists($visited{$sub})) {
+                    $visited{$sub} = 1;
+                    push(@dirstack, $sub);
+                }
+                next;
+            }
+            # file row:  <td class="coverFile"><a href="NAME.gcov.EXT" ...
+            #   title="Click to go to file ABSPATH">NAME</a>
+            if (/<td class="coverFile"><a href="([^"]+)"([^>]*)>/) {
+                my ($href, $attrs) = ($1, $2);
+                # frameset links point at the real source page
+                $href =~ s/\.gcov\.frameset\Q$htmlExt\E$/.gcov$htmlExt/;
+                my $page = File::Spec->catfile($dir, $href);
+                next unless -f $page;
+                my $srcPath;
+                if ($attrs =~ /title="Click to go to file ([^"]+)"/) {
+                    $srcPath = $1;
+                } else {
+                    # fall back to the page path relative to the report root
+                    $srcPath = File::Spec->abs2rel($page, $reportDir);
+                    $srcPath =~ s/\.gcov\Q$htmlExt\E$//;
+                }
+                $source{$srcPath} = $page;
+            }
+        }
+        close($fh) or die("unable to close $index: $!\n");
+    }
+    return \%source;
+}
+
+# Diff two arrays of source lines with 'diff -b -u',
+#   returning ($body, $added, $deleted) where $body is the unified-diff hunk
+#   text with diff's own '---'/'+++' file-header lines stripped (the caller
+#   supplies its own headers), and $added/$deleted are the number of '+'/'-'
+#   payload lines.  $body is '' when the files are equal under 'diff -b'.
+#
+#   We shell out to the system 'diff' rather than reimplementing one in
+#   perl because it isn't easy to exactly match diff.
+sub diff_bu
+{
+    my ($old, $new) = @_;
+
+    if (scalar(@$old) == scalar(@$new)) {
+        # shortcut:  if file content is identical, then no need to call shell
+        #   forking 'diff' is the most expensive step - ~15ms for a 1200 line
+        #   file, vs ~0.1ms to diff the rows here.
+        # In the typical case: most files are identical.
+        my $same = 1;
+        for (my $i = 0; $i <= $#$old; ++$i) {
+            if ($old->[$i] ne $new->[$i]) {
+                $same = 0;
+                last;
+            }
+        }
+        return ('', 0, 0) if $same;
+    }
+
+    my ($ofh, $oname) = tempfile(UNLINK => 1);
+    my ($nfh, $nname) = tempfile(UNLINK => 1);
+    print($ofh join("\n", @$old), "\n") if @$old;
+    print($nfh join("\n", @$new), "\n") if @$new;
+    close($ofh) or die("unable to write temp diff file: $!\n");
+    close($nfh) or die("unable to write temp diff file: $!\n");
+
+    open(my $dh, '-|', 'diff', '-b', '-u', $oname, $nname) or
+        die("unable to run 'diff': $!\n");
+    my $body    = '';
+    my $added   = 0;
+    my $deleted = 0;
+    while (<$dh>) {
+        # drop diff's own file-header lines which name the temp files;  the
+        #   caller emits its own '--- <report-path>' / '+++ <source-path>'
+        #   headers with the real absolute paths.
+        next if /^--- / || /^\+\+\+ /;
+        ++$added if /^\+/;
+        ++$deleted if /^-/;
+        $body .= $_;
+    }
+    close($dh);
+    my $status = $?;
+    # A signalled child has a zero exit field, so '$? >> 8' called a killed
+    #   'diff' a success:  test the signal first.
+    die("'diff' died from signal " . ($status & 0x7F) . "\n")
+        if $status & 0x7F;
+    # 'diff' exits 0 (identical) or 1 (differences);  anything else is trouble.
+    die("'diff' failed (status " . ($status >> 8) . ")\n")
+        if ($status >> 8) > 1;
+    return ($body, $added, $deleted);
+}
+
+# Read one --current-file .info and return the list of source paths named in
+#   its 'SF:' records.  html2lcov uses these purely as a file list (never their
+#   coverage data - see the man page), so we grep the 'SF:' lines directly
+#   rather than parsing the coverage.
+# A missing file causes 'die'.
+# An empty file raises ignorable ERROR_EMPTY.
+# A a non-empty file without 'SF:' records is not an LCOV file and dies
+sub read_current_sf
+{
+    my ($filename) = @_;
+    open(my $fh, '<', $filename) or
+        die("--current-file '$filename' not found: $!\n");
+    my @sf;
+    my $nonempty = 0;
+    while (<$fh>) {
+        $nonempty = 1;
+        push(@sf, $1) if /^SF:(.+)$/;
+    }
+    close($fh) or die("unable to close $filename: $!\n");
+    if (!$nonempty) {
+        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                                  "--current-file '$filename' is empty");
+        return ();
+    }
+    if (!@sf) {
+        die("--current-file '$filename' contains no SF: records - not an LCOV file\n"
+        );
+    }
+    return @sf;
+}
+
+# option / configuration state
+my $startTime = Time::HiRes::gettimeofday();
+$lcovutil::br_coverage   = 1;
+$lcovutil::func_coverage = 1;
+lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
+
+my $output_file = '';
+my $diff_report = '';
+my @current_files;    # --current-file:  .info files whose SF: records name the
+                      #   current source files (used as a whitelist).
+our %options = ('output|o=s'      => \$output_file,
+                'diff-file=s'     => \$diff_report,
+                'current-file=s@' => \@current_files,);
+if (!lcovutil::parseOptions({}, \%options)) {
+    print(STDERR "Use $lcovutil::tool_name --help to get usage information.\n");
+    exit(1);
+}
+
+# --current-file:  each value may itself be a separator-joined list, so expand
+#   using the standard lcovutil idiom.  When any --current-file is given, the
+#   union of their 'SF:' paths becomes the whitelist of current source files:
+#   only files named there may appear in the udiff output;  every other file is
+#   ignored.  '%currentSF' is keyed by the path as written (both absolute and
+#   relative forms are matched later - see the classification loop).
+@current_files =
+    split($lcovutil::split_char, join($lcovutil::split_char, @current_files));
+my %currentSF;
+my $have_current = scalar(@current_files);
+foreach my $f (@current_files) {
+    $currentSF{$_} = 1 foreach read_current_sf($f);
+}
+
+# Derive the base name and the per-artifact output names.  '-o' names a base
+#   for the derived output files:  any extension is stripped from it, then each
+#   artifact appends its own extension --
+#     <base>.info    the aggregated coverage
+#     <base>.rpt     the human-readable difference report
+#     <base>.udiff   the universal diff (unless '--diff-file' redirects it)
+#     <base>.json    the profile (if '--profile' -- see save_profile)
+#   When '-o' is omitted the base is 'html2lcov' and the universal diff (the
+#   primary output) goes to stdout instead of a file.
+my $base = 'html2lcov';
+if ($output_file ne '') {
+    # Strip a trailing extension from the final path component, if any.
+    my ($vol, $dirs, $file) = File::Spec->splitpath($output_file);
+    $file =~ s/\.[^.]*$//;
+    $base = File::Spec->catpath($vol, $dirs, $file);
+}
+my $info_out        = $base . '.info';
+my $diff_report_out = $base . '.rpt';
+
+# The universal diff defaults to '<base>.udiff' when '-o' is given, or stdout
+#   when it is omitted.  '--diff-file' overrides that destination in either case.
+my $udiff_out;
+if ($diff_report ne '') {
+    $udiff_out = $diff_report;
+} elsif ($output_file ne '') {
+    $udiff_out = $base . '.udiff';
+} else {
+    $udiff_out = '-';
+}
+
+if (!@ARGV) {
+    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                              "no HTML report directory specified");
+    exit(1);
+}
+
+# ----------------------------------------------------------------------
+# 1. locate + aggregate the saved .info coverage data
+# ----------------------------------------------------------------------
+my @info_filenames;
+foreach my $reportDir (@ARGV) {
+    unless (-d $reportDir) {
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                                  "'$reportDir' is not a directory");
+        next;
+    }
+    my @found = SavedReport::find_current_info($reportDir);
+    if (!@found) {
+        # want the .info files from the HTML report...but we didn't find any
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+            "no saved .info coverage file found in report '$reportDir' - was genhtml run with '--save'?"
+        );
+        next;
+    }
+    push(@info_filenames, @found);
+}
+if (!@info_filenames) {
+    lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+        "no saved .info coverage data found in any report directory (genhtml must be run with '--save')"
+    );
+    exit(1);
+}
+
+my $srcReader = ReadCurrentSource->new();
+my $now       = Time::HiRes::gettimeofday();
+my ($info)    = AggregateTraces::merge($srcReader, @info_filenames);
+$lcovutil::profileData{aggregate} = Time::HiRes::gettimeofday() - $now;
+
+# ----------------------------------------------------------------------
+# 2. find the report's source pages
+# ----------------------------------------------------------------------
+my %reportPage;    # original source path -> the report page which holds it
+foreach my $reportDir (@ARGV) {
+    next unless -d $reportDir;
+    # genhtml names its per-file pages '<name>.gcov.<ext>';  the shared default
+    #   extension carries no leading dot, so add one for path building.
+    my $s =
+        find_report_pages($reportDir, '.' . $lcovutil::default_html_extension);
+    while (my ($path, $page) = each(%$s)) {
+        $reportPage{$path} = $page unless exists($reportPage{$path});
+    }
+}
+
+# ----------------------------------------------------------------------
+# 3. match against --source-directory + classify
+# ----------------------------------------------------------------------
+# compute the report's common source root, so files can be matched by their
+#   path relative to that root.
+sub common_root
+{
+    my @paths = @_;
+    return undef unless @paths;
+    # Compute the common root over each file's DIRECTORY, not its full path.
+    #   Otherwise a report with a single file would treat the file itself as
+    #   the root and collapse its relative path to '.', so nothing matches.
+    my @split = map({ [File::Spec->splitdir(dirname($_))] } @paths);
+    my @first = @{$split[0]};
+    my $n     = scalar(@first);
+    foreach my $p (@split) {
+        my $i = 0;
+        $i++ while ($i < $n && $i < scalar(@$p) && $p->[$i] eq $first[$i]);
+        $n = $i;
+    }
+    # A root with no non-empty component is not a root:  for an absolute
+    #   path 'splitdir' yields a leading empty component, so two files which
+    #   share only the filesystem root leave $n == 1 with $first[0] eq ''.
+    #   'catdir' of that is ''.
+    return undef unless $n && grep({ '' ne $_ } @first[0 .. $n - 1]);
+    return File::Spec->catdir(@first[0 .. $n - 1]);
+}
+
+my $root = common_root(keys %reportPage);
+
+# When --current-file is specified, build a substitution-normalized whitelist
+#   a report file can be matched by either its recovered path or
+#   its report-root-relative path (see the classification loop, D9).  The value
+#   is the original 'SF:' path as written, preserved for 'added'-file output.
+my %currentSF_norm;
+if ($have_current) {
+    foreach my $sf (keys %currentSF) {
+        $currentSF_norm{lcovutil::subst_file_name($sf)} = $sf;
+    }
+}
+
+# Canonical, absolute spelling of a path on disk - used only to compare two
+#   paths for identity.  '%status' is keyed by a path relative to the *report*
+#   root, while the new-file walk below sees paths relative to
+#   '--source-directory' (and 'resolve_path' may have applied '--substitute' or
+#   picked a different source directory on the way).  Those keys are not
+#   comparable, so every file the report already describes used to be emitted a
+#   second time as a newly added file, with its whole body as '+' lines.  The
+#   file on disk is the one thing both sides agree on.
+sub disk_key
+{
+    my $path = shift;
+    return File::Spec->canonpath(File::Spec->rel2abs($path));
+}
+
+my %status;             # relpath -> 'unchanged'|'changed'|'added'|'removed'
+my %seenOnDisk;         # disk_key() of every file already paired with a report
+my %adddel;             # relpath -> [added, deleted]
+my %udiffs;             # relpath -> unified diff text
+my $matched   = 0;
+my $recovered = 0;      # report pages which yielded source
+my %matchedCurrent;     # current SF path -> 1 once paired with a report file
+my @unmatchedReport;    # report paths absent from --current-file (for D7)
+
+# Scrape, diff and classify a list of the report's source files, returning one
+#   record (a hashref) per file whose page yielded source.  This is the whole of
+#   the per-file work:  it runs either here or in a child, and everything it
+#   needs is either read-only (the page, the current source) or reported through
+#   the record - so a child's answer is the same as ours (see 'apply_records').
+sub process_report_files
+{
+    my ($files) = @_;
+    my @records;
+
+    foreach my $srcPath (@$files) {
+        my $now         = Time::HiRes::gettimeofday();
+        my $reportLines = scrape_source_page($reportPage{$srcPath});
+        $lcovutil::profileData{source}{$srcPath} =
+            Time::HiRes::gettimeofday() - $now;
+        # a page with no recoverable source rows is not a file we can classify
+        next unless defined($reportLines);
+        my $rel =
+            defined($root) ? File::Spec->abs2rel($srcPath, $root) : $srcPath;
+        my $rec = {srcPath => $srcPath, rel => $rel};
+        push(@records, $rec);
+        # honor --exclude/--include/--substitute selection
+        next if TraceFile::skipCurrentFile(lcovutil::subst_file_name($srcPath));
+
+        # --current-file whitelist gate:  a report file that is not named in any
+        #   --current-file 'SF:' record is not part of the current source set, so
+        #   it is 'removed' (regardless of whether it still happens to exist on
+        #   disk).  A file is matched when the whitelist contains either its
+        #   recovered path or its report-relative path (both post-substitution).
+        if ($have_current) {
+            my $hit;
+            foreach my $cand (lcovutil::subst_file_name($srcPath),
+                              lcovutil::subst_file_name($rel)) {
+                if (exists($currentSF_norm{$cand})) {
+                    $hit = $currentSF_norm{$cand};
+                    last;
+                }
+            }
+            if (!defined($hit)) {
+                $rec->{status}    = 'removed';
+                $rec->{adddel}    = [0, scalar(@$reportLines)];
+                $rec->{unmatched} = 1;
+                next;
+            }
+            $rec->{hit} = $hit;
+        }
+
+        # No tab handling needed:  diff_bu runs 'diff -b', which ignores the
+        #   amount of whitespace, so tabs vs spaces never affect the comparison.
+        my @old = @$reportLines;
+
+        # find the current version under --source-directory (by relative path).
+        #   Deliberately no fall-back to the recovered absolute path:  a file
+        #   that is absent from --source-directory must classify as 'removed'
+        #   even when the original source tree still happens to exist on disk.
+        my $curPath = ReadCurrentSource::resolve_path($rel, 1);
+        if (!-f $curPath) {
+            if ($have_current) {
+                # The whitelist asserts this file is current, but we can't
+                # find it.
+                lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                         "'current' file '$srcPath' not found");
+                # drop this file if error was ignored
+                $rec->{removeFromInfo} = 1;
+                next;
+            }
+            $rec->{status} = 'removed';
+            $rec->{adddel} = [0, scalar(@old)];
+            next;
+        }
+        $rec->{matched} = 1;
+        # remember which file on disk this report entry was paired with:  the
+        #   new-file walk below needs to recognise it, and cannot do so by
+        #   relative path (see 'disk_key')
+        $rec->{curPath} = $curPath;
+        open(my $cfh, '<', $curPath) or die("unable to open $curPath: $!\n");
+        my @new = <$cfh>;
+        close($cfh) or die("unable to close $curPath: $!\n");
+        chomp(@new);
+
+        $now = Time::HiRes::gettimeofday();
+        my ($body, $add, $del) = diff_bu(\@old, \@new);
+        $lcovutil::profileData{diff}{$rel} =
+            Time::HiRes::gettimeofday() - $now;
+        if ($add == 0 && $del == 0) {
+            $rec->{status} = 'unchanged';
+            $rec->{adddel} = [0, 0];
+        } else {
+            $rec->{status} = 'changed';
+            $rec->{adddel} = [$add, $del];
+            if ($body ne '') {
+                # Both diff headers name the same path, and it is the same path
+                #   ('SF:' record) written into the aggregated .info:  the
+                #   absolute path the report recovered ($srcPath).  genhtml keys
+                #   the recovered baseline-line text off the '---' name but looks
+                #   it up by the '+++' name (DiffMap::recreateBaseline), so a
+                #   mixed absolute/relative header pair makes that lookup miss
+                #   and genhtml dies with "missing baseline line".  Keeping both
+                #   sides identical (and equal to the .info 'SF:' path) lets
+                #   genhtml associate the diff, the baseline coverage, and the
+                #   current coverage without any basename-collision guessing.  No
+                #   trailing annotation:  genhtml folds anything that is not a
+                #   timestamp into the filename.
+                $rec->{udiff} = "--- $srcPath\n+++ $srcPath\n" . $body;
+            }
+        }
+    }
+    return \@records;
+}
+
+# Fold the records of one chunk into the answer.  Runs in the parent, whether
+#   the chunk was processed here or by a child:  the outputs are keyed by path
+#   and printed in sorted order, so the order the chunks arrive in does not
+#   matter and no ordered merge is needed.
+sub apply_records
+{
+    my ($records) = @_;
+
+    foreach my $rec (@$records) {
+        ++$recovered;
+        my $rel = $rec->{rel};
+        $matchedCurrent{$rec->{hit}} = 1 if exists($rec->{hit});
+        push(@unmatchedReport, $rec->{srcPath}) if $rec->{unmatched};
+        ++$matched if $rec->{matched};
+        $seenOnDisk{disk_key($rec->{curPath})} = 1
+            if exists($rec->{curPath});
+        if ($rec->{removeFromInfo}) {
+            $info->remove($rec->{srcPath})
+                if $info->file_exists($rec->{srcPath});
+        }
+        next unless exists($rec->{status});
+        $status{$rel} = $rec->{status};
+        $adddel{$rel} = $rec->{adddel};
+        $udiffs{$rel} = $rec->{udiff} if exists($rec->{udiff});
+    }
+}
+
+# Split the report's files into chunks for the children.
+# Two criteria:
+#   - the chunks are contiguous runs of the sorted file list, so a chunk is a
+#     block of neighbouring files and the work is easy to name;
+#   - balanced by the size of the page each file's source has to be
+#     scraped out of, which is the only cost estimate available before the work
+#     is done - the page is read, tag-stripped and column-scanned line by line,
+#     and it is also what the current source is diffed against, so both halves
+#     of the per-file work scale with it.
+# One chunk per process is the wrong granularity in both directions:  too few
+#   files and the fork costs more than the work, too many and one slow chunk is
+#   the whole tail.  Aim for a few chunks per worker, and don't fork for
+#   fewer than $MIN_CHUNK_FILES files.
+my $CHUNKS_PER_WORKER = 2;
+my $MIN_CHUNK_FILES   = 8;
+
+sub partition_files
+{
+    my ($files, $pageSize) = @_;
+    return [] unless @$files;
+
+    my $total = 0;
+    $total += $pageSize->{$_} foreach (@$files);
+    my $nChunks = int(scalar(@$files) / $MIN_CHUNK_FILES);
+    my $limit   = $lcovutil::maxParallelism * $CHUNKS_PER_WORKER;
+    $nChunks = $limit if ($limit && $nChunks > $limit);
+    return [[@$files]] if ($nChunks < 2 || !$total);
+
+    my $target = $total / $nChunks;
+    my @chunks;
+    my $current = [];
+    my $weight  = 0;
+    foreach my $f (@$files) {
+        push(@$current, $f);
+        $weight += $pageSize->{$f};
+        # start a new chunk once this one carries its share - unless it is the
+        #   last one, which takes whatever is left
+        if ($weight >= $target && scalar(@chunks) < $nChunks - 1) {
+            push(@chunks, $current);
+            $current = [];
+            $weight  = 0;
+        }
+    }
+    push(@chunks, $current) if @$current;
+    return \@chunks;
+}
+
+my @sortedFiles = sort keys %reportPage;
+my %pageSize;    # source path -> bytes of the page it is scraped out of
+foreach my $f (@sortedFiles) {
+    $pageSize{$f} = (stat($reportPage{$f}))[7] || 0;
+}
+my $chunks = partition_files(\@sortedFiles, \%pageSize);
+$lcovutil::profileData{nFiles}  = scalar(@sortedFiles);
+$lcovutil::profileData{nChunks} = scalar(@$chunks);
+
+if (1 >= scalar(@$chunks) || 1 >= $lcovutil::maxParallelism) {
+    # nothing to gain from a process:  do it here
+    apply_records(process_report_files($_)) foreach (@$chunks);
+} else {
+    my @worklist = reverse(@$chunks);   # 'next' pops, so hand them out in order
+    my $chunkId  = 0;
+    my $tmp = File::Temp->newdir(
+                          "html2lcov_datXXXX",
+                          DIR     => $lcovutil::tmp_dir,
+                          CLEANUP => !defined($lcovutil::preserve_intermediates)
+    );
+    lcovutil::info("Scraping %d file%s in %d chunks, %d at a time.\n",
+                   scalar(@sortedFiles),
+                   1 == scalar(@sortedFiles) ? '' : 's',
+                   scalar(@$chunks),
+                   $lcovutil::maxParallelism);
+    lcovutil::ForkManager->new(
+                 operation => 'html2lcov',
+                 phase     => 'scrape',
+                 tempDir   => $tmp,
+                 prefix    => 'html2lcov',
+                 # a child holds the source it recovered from its pages, so this is a
+                 #   place where the process count has to answer to the memory the
+                 #   children are actually using
+                 memoryThrottle => 1,
+                 # ..and how much that is scales with the size of the pages it has to
+                 #   scrape, which is the same thing the chunks were balanced by
+                 unitWeight => sub {
+                     my $chunk  = shift;
+                     my $weight = 0;
+                     $weight += $pageSize{$_} foreach (@$chunk);
+                     return $weight;
+                 },
+                 remaining => sub { return scalar(@worklist); },
+                 next      => sub {
+                     return () unless @worklist;
+                     my $chunk = pop(@worklist);
+                     return ($chunk, ++$chunkId);
+                 },
+                 more  => sub { return scalar(@worklist); },
+                 child => sub {
+                     my ($chunk, $id) = @_;
+                     my $now     = Time::HiRes::gettimeofday();
+                     my $records = process_report_files($chunk);
+                     $lcovutil::profileData{scrape}{$id} =
+                         Time::HiRes::gettimeofday() - $now;
+                     return ([$records], 0);
+                 },
+                 merge => sub {
+                     my ($chunk, $id, $payload) = @_;
+                     apply_records($payload->[0]);
+                 },
+                 requeue      => sub { push(@worklist, $_[0]); },
+                 forkFailWhen => sub { return 'scrape chunk ' . $_[0]; },
+                 retryWhen    => sub { return 'scrape chunk ' . $_[0]->{id}; },
+                 mergeFailMessage => sub {
+                     my $ctx = shift;
+                     return
+                         "unable to deserialize $ctx->{dumpfile}: $ctx->{error}";
+                 },
+                 childFailMessage => sub {
+                     return 'ignoring scraped data from chunk ' . $_[0]->{id};
+                 },)->run();
+}
+
+# ----------------------------------------------------------------------
+# find files that are new (in the current source set but not in the report)
+# ----------------------------------------------------------------------
+# helper:  emit an 'added' entry (status + udiff) for a current source file that
+#   has no counterpart in the report.  $key is the %status key (report-relative
+#   path when walking --source-directory, or the 'SF:' path in whitelist mode);
+#   $abs is the '+++' path written into the udiff header.
+sub add_new_file
+{
+    my ($key, $diskPath, $abs) = @_;
+    open(my $nfh, '<', $diskPath) or return 0;
+    my @l = <$nfh>;
+    close($nfh) or die("unable to close $diskPath: $!\n");
+    $status{$key} = 'added';
+    $adddel{$key} = [scalar(@l), 0];
+    # absolute '+++' path (matches the .info 'SF:' record);  no annotation, for
+    #   the same reason as the changed-file case above
+    $udiffs{$key} =
+        "--- /dev/null\n+++ $abs\n" . "@@ -0,0 +1," . scalar(@l) . " @@\n"
+        . join('',
+               map({
+                       chomp(my $x = $_);
+                       '+' . $x . "\n"
+               } @l));
+    return 1;
+}
+
+if ($have_current) {
+    # whitelist mode:  the current source set is exactly the --current-file 'SF:'
+    #   paths.  Any such path not already paired with a report file is 'added'.
+    #   All other files under --source-directory are ignored.
+    foreach my $sf (sort keys %currentSF) {
+        next if $matchedCurrent{$sf};
+        next if TraceFile::skipCurrentFile(lcovutil::subst_file_name($sf));
+        # locate the file on disk (under --source-directory, honoring subst)
+        my $disk = ReadCurrentSource::resolve_path($sf, 1);
+        if (!-f $disk) {
+            # whitelist claims a new file that is not on disk:  ERROR_SOURCE.
+            #   If ignored, simply drop it (nothing to remove from the .info -
+            #   an 'added' file was never in the baseline).
+            lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                                      "'current' file '$sf' not found");
+            next;
+        }
+        add_new_file($sf, $disk, $sf);
+    }
+} else {
+    # default mode:  every source-looking file under --source-directory that is
+    #   not already accounted for by the report is 'added'.
+    # recognize source files by the extensions lcovutil knows about (the union
+    #   of all languages).  Built from %lcovutil::languageExtensions so that the
+    #   'c_file_extensions', 'perl_file_extensions', etc. rc settings the user
+    #   may have changed are honored here too.
+    my $source_ext_re = do {
+        my $alts = join('|', values(%lcovutil::languageExtensions));
+        qr/\.($alts)$/;
+    };
+
+    foreach my $dir (@ReadCurrentSource::source_directories) {
+        next unless -d $dir;
+        my @stack = ($dir);
+        while (@stack) {
+            my $d = pop(@stack);
+            opendir(my $dh, $d) or next;
+            while (my $e = readdir($dh)) {
+                next if $e eq '.' || $e eq '..';
+                my $p = File::Spec->catfile($d, $e);
+                if (-d $p) {
+                    push(@stack, $p);
+                    next;
+                }
+                next unless -f $p;
+                my $rel = File::Spec->abs2rel($p, $dir);
+                # is this the file some report page was already paired with?
+                #   Compare on disk, not on relative path:  '%status' keys are
+                #   relative to the report root, not to '$dir' (see 'disk_key')
+                next if exists($seenOnDisk{disk_key($p)});
+                next if exists($status{$rel});
+                next if TraceFile::skipCurrentFile($p);
+                # only consider files that look like source we could have covered
+                next unless $e =~ /$source_ext_re/;
+                add_new_file($rel, $p, File::Spec->rel2abs($p));
+            }
+            closedir($dh);
+        }
+    }
+}
+
+# ----------------------------------------------------------------------
+# --current-file path-mismatch diagnostics:  a report file absent from the
+#   current set whose basename (or a longer path tail) matches a current file
+#   absent from the report is likely a path mismatch, not a genuine delete+add.
+#   We report it as an ignorable warning;  behavior is unchanged (still a
+#   separate 'removed' + 'added').
+# ----------------------------------------------------------------------
+if ($have_current) {
+    my @unmatchedCurrent = grep({ !$matchedCurrent{$_} } keys %currentSF);
+    # index the unmatched current files by basename for a quick partial match
+    my %curByBase;
+    foreach my $c (@unmatchedCurrent) {
+        push(@{$curByBase{basename($c)}}, $c);
+    }
+    foreach my $r (sort @unmatchedReport) {
+        my $cands = $curByBase{basename($r)} or next;
+        # pick the candidate sharing the longest trailing path-component run
+        my @rc    = reverse(File::Spec->splitdir($r));
+        my $best  = $cands->[0];
+        my $bestn = 0;
+        foreach my $c (@$cands) {
+            my @cc = reverse(File::Spec->splitdir($c));
+            my $n  = 0;
+            $n++
+                while ($n < scalar(@rc) &&
+                       $n < scalar(@cc) &&
+                       $rc[$n] eq $cc[$n]);
+            if ($n > $bestn) {
+                $bestn = $n;
+                $best  = $c;
+            }
+        }
+        lcovutil::ignorable_warning($lcovutil::ERROR_MISMATCH,
+            "file '$r' found in baseline matches basename of current '$best' - but has a different path.  Possible path mismatch?"
+        );
+    }
+}
+
+if (0 == $matched && !$recovered) {
+    lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+                              "no source recovered from HTML report");
+}
+if (0 == $matched) {
+    lcovutil::ignorable_error($lcovutil::ERROR_SOURCE,
+             "no file under --source-directory matches any file in the report");
+}
+
+# A recovered report whose source is identical to --source-directory yields no
+#   udiff hunks (unchanged files produce no diff).  Tell the user:  it usually
+#   means they pointed at the same source the report was built from.
+
+if (!%udiffs) {
+    lcovutil::ignorable_warning($lcovutil::ERROR_EMPTY,
+                                "No source code differences found");
+}
+
+# ----------------------------------------------------------------------
+# 4. emit outputs
+# ----------------------------------------------------------------------
+# 4a. aggregated .info
+$info->applyFilters();
+$info->add_comments(@lcovutil::comments);
+$info->write_info_file($info_out, $lcovutil::verify_checksum);
+
+# 4b. universal diff (to '--diff-file', else <base>.udiff, else stdout)
+{
+    my $fh  = InOutFile->out($udiff_out);
+    my $hdl = $fh->hdl();
+    foreach my $rel (sort keys %udiffs) {
+        print($hdl $udiffs{$rel});
+    }
+}
+
+# 4c. human-readable difference report
+{
+    my %counts = (changed => 0, added => 0, removed => 0, unchanged => 0);
+    ++$counts{$_} foreach values %status;
+    my $fh  = InOutFile->out($diff_report_out);
+    my $rfh = $fh->hdl();
+    print($rfh "html2lcov difference report\n");
+    print($rfh "===========================\n\n");
+    print($rfh "Compared the source embedded in the HTML report against the\n");
+    print($rfh "source found under --source-directory.\n\n");
+    print($rfh sprintf("  %d changed, %d added, %d removed, %d unchanged\n\n",
+                       $counts{changed}, $counts{added},
+                       $counts{removed}, $counts{unchanged}));
+
+    if (%status) {
+        printf($rfh "%-50s %-10s %s\n", 'File', 'Status', '+/-');
+        printf($rfh "%-50s %-10s %s\n", '-' x 50, '-' x 10, '---');
+        foreach my $rel (sort keys %status) {
+            my ($a, $d) = @{$adddel{$rel}};
+            my $pm = '';
+            if ($status{$rel} eq 'changed') {
+                $pm = "+$a/-$d";
+            } elsif ($status{$rel} eq 'added') {
+                $pm = "+$a";
+            } elsif ($status{$rel} eq 'removed') {
+                $pm = "-$d";
+            }
+            printf($rfh "%-50s %-10s %s\n", $rel, $status{$rel}, $pm);
+        }
+    } else {
+        print($rfh "(no source files recovered)\n");
+    }
+}
+
+# 4d. profile
+$lcovutil::profileData{total} = Time::HiRes::gettimeofday() - $startTime;
+lcovutil::save_profile($base);
+
+lcovutil::warn_file_patterns();
+lcovutil::summarize_cov_filters();
+lcovutil::summarize_messages(1);
+
+exit(lcovutil::saw_error() ? 1 : 0);

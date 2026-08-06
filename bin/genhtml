@@ -7080,26 +7080,26 @@ our $keep_descriptions; # If set, do not remove unused test case descriptions
 our $suppress_function_aliases;    # if set, don't show list of collapsed
                                    # function aliases
 our $merge_function_aliases;
-our $no_sourceview;     # If set, do not create a source code view for each file
-our $no_html;           # don't generate HTML if set
-our $legend;            # If set, include legend in output
-our $tab_size = 8;      # Number of spaces to use in place of tab
-our $html_prolog_file;  # Custom HTML prolog file (up to and including <body>)
-our $html_epilog_file;  # Custom HTML epilog file (from </body> onwards)
-our $html_prolog;       # Actual HTML prolog
-our $html_epilog;       # Actual HTML epilog
-our $html_ext  = "html";    # Extension for generated HTML files
-our $html_gzip = 0;         # Compress with gzip
-our $opt_missed;            # List/sort lines by missed counts
-our $dark_mode;             # Use dark mode palette or normal
-our $charset = "UTF-8";     # Default charset for HTML pages
+our $no_sourceview;    # If set, do not create a source code view for each file
+our $no_html;          # don't generate HTML if set
+our $legend;           # If set, include legend in output
+our $tab_size = $lcovutil::default_tab_size;    # Number of spaces per tab
+our $html_prolog_file;    # Custom HTML prolog file (up to and including <body>)
+our $html_epilog_file;    # Custom HTML epilog file (from </body> onwards)
+our $html_prolog;         # Actual HTML prolog
+our $html_epilog;         # Actual HTML epilog
+our $html_ext  = $lcovutil::default_html_extension;   # Extension for HTML files
+our $html_gzip = 0;                                   # Compress with gzip
+our $opt_missed;           # List/sort lines by missed counts
+our $dark_mode;            # Use dark mode palette or normal
+our $charset = "UTF-8";    # Default charset for HTML pages
 our @fileview_sortlist;
 our @fileview_sortname = ("", "-sort-l", "-sort-f", "-sort-b", '-sort-m');
 our @fileview_prefixes = ("");
 our @funcview_sortlist;
 our @rate_name    = ("Lo", "Med", "Hi");
 our @rate_png     = ("ruby.png", "amber.png", "emerald.png");
-our $rc_desc_html = 0;      # lcovrc: genhtml_desc_html
+our $rc_desc_html = 0;     # lcovrc: genhtml_desc_html
 
 # simplify/shorten names in 'function detail table'
 our @simplifyFunctionScript;      # the arg list
@@ -7540,19 +7540,10 @@ if ($output_directory && !-d $output_directory) {
 
 if ($save && $output_directory)
 {    # save copy of .info and diff files: useful for debugging user cases later
-    foreach my $d (['baseline_', @base_filenames],
-                   ['', $diff_filename],
-                   ['current_', @info_filenames]
-    ) {
-        my $prefix = shift @$d;
-        $prefix = '' unless @base_filenames;
-        foreach my $from (@$d) {
-            next unless defined($from);
-            my $to = File::Spec->catfile($output_directory,
-                                     $prefix . File::Basename::basename($from));
-            File::Copy::copy($from, $to) unless -f $to;
-        }
-    }
+     #   the layout (directory + naming) is defined once in SavedReport so that
+     #   html2lcov reads back exactly what we write here.
+    SavedReport::save_inputs($output_directory, \@info_filenames,
+                             \@base_filenames, $diff_filename);
 }
 
 # save command line in output directory - useful for later debugging:
@@ -8696,25 +8687,24 @@ sub read_testfile($)
 # are escaped.
 #
 
+# The HTML escape map and the tab-expansion algorithm live in lcovutil so that
+# html2lcov (which reverses this rendering) shares one definition and cannot
+# drift.  escape_html() composes them and adds the newline -> <br> step.
 sub escape_html($)
 {
     my $string = $_[0];
 
     if (!$string) { return ""; }
 
-    $string =~ s/&/&amp;/g;      # & -> &amp;
-    $string =~ s/</&lt;/g;       # < -> &lt;
-    $string =~ s/>/&gt;/g;       # > -> &gt;
-    $string =~ s/\"/&quot;/g;    # " -> &quot;
+    # Escape all four HTML special characters in a single pass.  Using a
+    # character-class match with a lookup table both avoids re-scanning the
+    # string four times and side-steps the double-escaping ordering hazard
+    # (the old code relied on '&' being substituted first).
+    $string =~ s/([&<>"])/$lcovutil::html_escape_map{$1}/g;
 
-    if ($tab_size > 0) {
-        while ($string =~ /^([^\t]*)(\t)/) {
-            my $replacement = " " x ($tab_size - (length($1) % $tab_size));
-            $string =~ s/^([^\t]*)(\t)/$1$replacement/;
-        }
-    }
+    $string = lcovutil::expand_tabs($string, $tab_size);
 
-    $string =~ s/\n/<br>/g;      # \n -> <br>
+    $string =~ s/\n/<br>/g;    # \n -> <br>
 
     return $string;
 }
@@ -9885,8 +9875,13 @@ sub write_html(*$)
     local *HTML_HANDLE = $_[0];
     my $html_code = $_[1];
 
-    # Remove leading tab from all lines
-    $html_code =~ s/^\t//gm;
+    # Remove leading tab from all lines.  This matters for the heredoc template
+    # callers whose HTML is indented in the source.  The per-source-line hot
+    # path builds strings whose tabs have already been expanded to spaces by
+    # escape_html, so they contain no tab at all -- skip the (multiline) regex
+    # entirely in that common case.
+    $html_code =~ s/^\t//gm
+        if (index($html_code, "\t") >= 0);
 
     print(HTML_HANDLE $html_code) or
         die("cannot write HTML data ($!)\n");
@@ -11597,6 +11592,24 @@ sub write_source_line(*$$$$$$$)
 
     $tla = ""
         if (!defined($main::show_tla));
+
+    # NOTE: the 'html2lcov' tool reverses this rendering to recover the original
+    #   source.  It relies on the row layout emitted below:  a fixed-width gutter
+    #   (line-number, optional branch/MC/DC, and hit-count columns) followed by a
+    #   ' : ' (space-colon-space) separator and then the verbatim source text.
+    #   The gutter width is user-controllable (via the field-width options), so
+    #   html2lcov does not hard-code it;  instead it locates the separator as the
+    #   single ' : ' offset common to every row of the page.  That works only so
+    #   long as ' : ' is the LAST thing before the source and appears nowhere
+    #   else in the gutter -- the branch/MC/DC columns end with a bare ':' (no
+    #   leading space) and the count column is right-justified digits/spaces.
+    #   The source itself may legitimately contain ' : ' (a C/C++/Verilog/Perl
+    #   ternary 'a ? b : c', a ':' label, a base-class list), which is fine
+    #   because it is always to the RIGHT of this separator.  Preserve this
+    #   property if you change the layout, or html2lcov will mis-recover source.
+    die(  "html2lcov depends on ' : ' separating the hit-count column from the "
+        . "source; hit-count field '$count_format' must not contain it")
+        if (index($count_format, ' : ') >= 0);
 
     # 'source_format is the colorization, then the 3-letter TLA,
     #    then the hit count, then the source line

@@ -252,6 +252,18 @@ GLOSSARY = (
          " afterwards;  the parent merges each chunk as it arrives, and what that"
          " costs is the 'merge' column of the same table."),
     )),
+    ('html2lcov metrics - scrape an HTML report', 'html2lcov', (
+        ('aggregate', ('aggregate',),
+         "time to merge the saved '.info' files into the scraped data."),
+        ('source', ('source',),
+         "time to scrape one HTML source page."),
+        ('diff', ('diff',),
+         "time to diff one scraped file against the current source."),
+        ('parse', ('parse',),
+         "time to read one saved '.info' file."),
+        ('append', ('append',),
+         "time to merge one saved '.info' file into the total."),
+    )),
 )
 
 # The descriptive title of each sub-table, as (label, explanation, glossary
@@ -313,6 +325,18 @@ SECTION_TITLES = {
         "HTML generation",
         "one row per source file and directory of the report",
         'file'),
+    ('html2lcov', 'source'): (
+        "HTML page scraping",
+        "one row per source page of the report",
+        'source'),
+    ('html2lcov', 'diff'): (
+        "source comparison",
+        "one row per file diffed against the current source",
+        'diff'),
+    ('html2lcov', 'info'): (
+        "'.info' processing",
+        "one row per saved input file",
+        'parse'),
 }
 
 # How wide to make column A of a data sheet.  A label in column A has a
@@ -1764,7 +1788,7 @@ class GenerateSpreadsheet(object):
                 # annotate: annotate callback time (if called)
                 # load:  load source file (if no annotation)
                 # synth:  generate file content (no annotation and no no file found)
-                # categorize: compute owner/date bins, differenntial categories
+                # categorize: compute owner/date bins, differential categories
                 # process:  time to generate data and write HTML for file
                 # synth:  generate file content (no file found)
                 # source:

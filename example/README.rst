@@ -75,5 +75,13 @@ You will need to make a few changes if you want to use LLVM instead.
       This can be helpful, to suggest opportunities to optimize the |ToolName|
       implementation.
 
+- Create ``diff`` data from previous HTML coverage report and current
+  source code (*i.e.*, when revision control has not been updated or
+  is not available).
+
+  - see ``make example_html2lcov`` and/or point your browser to
+    ``repo2/differential2/index.html`` and ``repo2/review/index.html``
+    to see reports generated using this data.
+
 Feel free to edit the Makefile or to run the lcov utilities directly,
 to see the effect of other options that you find in the lcov man pages.

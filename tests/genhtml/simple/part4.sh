@@ -206,8 +206,8 @@ fi
 # --------------------------------------------------------------------------
 # trivial-function filter
 # --------------------------------------------------------------------------
-echo lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE $DERIVE
-$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE $DERIVE
+echo lcov $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE $DERIVE --include simple
+$COVER $LCOV_TOOL $LCOV_OPTS --capture --directory . --output-file trivial.info --filter trivial,branch $IGNORE $DERIVE --include simple
 if [ 0 == $? ] ; then
     BASELINE_COUNT=`grep -c FNL: baseline.info`
     TRIVIAL_COUNT=`grep -c FNL: trivial.info`

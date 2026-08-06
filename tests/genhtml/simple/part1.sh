@@ -161,8 +161,8 @@ if [ 0 == $? ] ; then
     fi
 fi
 
-echo genhtml $DIFFCOV_OPTS baseline_orig.info --output-directory ./baseline $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline_orig.info --output-directory ./baseline --save $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat --profile
+echo genhtml $DIFFCOV_OPTS baseline_orig.info --output-directory ./baseline $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat --ignore version
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS baseline_orig.info --output-directory ./baseline --save $IGNORE --rc memory_percentage=50 --serialize ./baseline/coverage.dat --profile --ignore version
 if [ 0 != $? ] ; then
     echo "ERROR: genhtml baseline failed"
     status=1

@@ -14,7 +14,7 @@ all: check report
 
 include common.mak
 
-TESTS := genhtml scripts lcov llvm2lcov py2lcov perl2lcov xml2lcov
+TESTS := genhtml scripts lcov llvm2lcov py2lcov perl2lcov xml2lcov html2lcov
 
 # there may or may not be some .info files generated for exported
 #  tools - py2lcov, perl2lcov, etc.  We want them included in the

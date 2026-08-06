@@ -39,6 +39,7 @@ EG_SRCDIR = $(shell if [ -d $(LCOV_HOME)/example ] ; then echo $(LCOV_HOME)/exam
 # override this variable to write the differential testcase data someplace
 #  else
 REPO = exampleRepo
+HTML_example_dir = htmlDir
 BINDIR = $(LCOV_HOME)/bin
 SCRIPTS = $(LCOV_HOME)/scripts
 
@@ -67,6 +68,7 @@ endif
 
 LCOV    := $(EXEC_COVER) $(BINDIR)/lcov $(LCOV_FLAGS) $(GCOV_TOOL_RC)
 GENHTML := $(EXEC_COVER) $(BINDIR)/genhtml $(LCOV_FLAGS)
+HTML2LCOV := $(EXEC_COVER) $(BINDIR)/html2lcov $(LCOV_FLAGS)
 GENDESC := $(EXEC_COVER) $(BINDIR)/gendesc
 GENPNG  := $(EXEC_COVER) $(BINDIR)/genpng
 SCRIPTDIR = $(shell if [ -d ../scripts ] ; then echo $(SCRIPTS) ; else echo $(LCOV_HOME)/share/lcov/support-scripts ; fi)
@@ -108,7 +110,7 @@ C99 = $(shell VER=`$(CC) -dumpversion | perl -pe 's/^(\d+)\..+$$/$$1/'` ; if [ $
 COMPILER_STAMP := .compiler
 
 .PHONY: clean output example_noargs example_2_to_2000 example_overflow \
-	example_differential FORCE
+	example_differential example_html2lcov FORCE
 
 all: output
 
@@ -135,7 +137,7 @@ iterate.o: methods/iterate.c iterate.h $(COMPILER_STAMP)
 gauss.o: methods/gauss.c gauss.h $(COMPILER_STAMP)
 	$(CC) $(CFLAGS) -c methods/gauss.c -o gauss.o
 
-output: example descriptions test_noargs test_2_to_2000 test_overflow test_differential
+output: example descriptions example_noargs example_2_to_2000 example_overflow example_differential example_html2lcov
 	@echo
 	@echo '*'
 	@echo '* Generating HTML output from data captured from tests'
@@ -164,9 +166,9 @@ output: example descriptions test_noargs test_2_to_2000 test_overflow test_diffe
 descriptions: descriptions.txt
 	$(GENDESC) descriptions.txt -o descriptions
 
-all_tests: example test_noargs test_2_to_2000 test_overflow differential
+all_tests: example example_noargs example_2_to_2000 example_overflow example_differential example_html2lcov
 
-test_noargs:
+example_noargs:
 	@echo
 	@echo '*'
 	@echo '* Test case 1: running ./example without parameters'
@@ -174,9 +176,9 @@ test_noargs:
 	@echo
 	$(LCOV) --zerocounters --directory .
 	./example
-	$(LCOV) --capture --directory . --output-file trace_noargs.info --test-name test_noargs --no-external
+	$(LCOV) --capture --directory . --output-file trace_noargs.info --test-name example_noargs --no-external
 
-test_2_to_2000:
+example_2_to_2000:
 	@echo
 	@echo '*'
 	@echo '* Test case 2: running ./example 2 2000'
@@ -184,9 +186,9 @@ test_2_to_2000:
 	@echo
 	$(LCOV) --zerocounters --directory .
 	./example 2 2000
-	$(LCOV) --capture --directory . --output-file trace_args.info --test-name test_2_to_2000 --no-external $(EXTRA_IGNORE)
+	$(LCOV) --capture --directory . --output-file trace_args.info --test-name example_2_to_2000 --no-external $(EXTRA_IGNORE)
 
-test_overflow:
+example_overflow:
 	@echo
 	@echo '*'
 	@echo '* Test case 3: running ./example 0 100000 (causes an overflow)'
@@ -194,7 +196,7 @@ test_overflow:
 	@echo
 	$(LCOV) --zerocounters --directory .
 	./example 0 100000 || true
-	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "test_overflow" --no-external $(EXTRA_IGNORE)
+	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "example_overflow" --no-external $(EXTRA_IGNORE)
 
 # This test pretends to write some code, run some tests, then modify
 #   code and rerun some tests.
@@ -205,7 +207,7 @@ test_overflow:
 # Could use --verbose and --quiet flags to make the execution less noisy -
 #   but verbosity can help to debug configuration issues.
 # See the lcov README and man pages for more details.
-test_differential:
+example_differential:
 	@echo
 	@echo '*'
 	@echo '* Test case 4: differential coverage example'
@@ -243,7 +245,7 @@ test_differential:
 
 	@echo "Step 4: Rebuild and run tests (fewer tests this time)"
 	( cd $(REPO) ; \
-	find . -name '*.gc*' -delete ; \
+	find . \( -name '*.gcda' -o -name '*.gcno' \) -delete ; \
 	$(CC) -o example $(CFLAGS) $(C99) -I. example.c methods/gauss.c methods/iterate.c ; \
 	./example )
 
@@ -290,6 +292,122 @@ test_differential:
           -- current.info )
 
 	@echo "point your browser to `realpath $(REPO)`/review/index.html"
+
+# This test uses the same source code and same scenario as 'example_differential',
+# above - but pretends to modify code that is not under revision control,
+# or to model a change that is not under revision control.
+#
+# The scenario looks like:
+#   - user writes or modifies some source code, collects coverage, and
+#      generates a coverage report.
+#   - user makes more changes to the source code (and/or adds tests, 
+#     changes Makefiles,  or whatever) - and now wants a differential
+#     coverage report, to see the effect of these changes.
+#
+# Unlike the 'example_differential' scenario:  this time, the user cannot
+# retrieve differences - because the 'baseline' was never checked in. :-(
+# Instead: we use the html2lcov tool to deduce differences between the
+# code found in the coverage report and the new source code - and generate
+# a differential report from that.
+#
+# Note that - if this code was checked in a repo, then we could use
+# genhtml with --annotate-script, --version-script, etc.
+# The 'html2lcov' path enables us to generate differential coverage report
+# without requiring revision control integration - but we can use the
+# revision control integration, if it desired.
+# See the lcov README and man pages for more details.
+example_html2lcov:
+	@echo
+	@echo '*'
+	@echo '* Test case 5: differential coverage using html2lcov'
+	@echo '*'
+	@echo
+	@echo "Step 1: Compile initial project source code, run tests"
+	@$(RM) -rf $(HTML_example_dir)
+	@(mkdir $(HTML_example_dir) ;                     \
+	cd $(HTML_example_dir) ;                          \
+	cp -f $(EG_SRCDIR)/*.h $(EG_SRCDIR)/example.c . ; \
+	mkdir methods ;                                   \
+	cp -f $(EG_SRCDIR)/methods/gauss.c methods ;      \
+	cp -f $(EG_SRCDIR)/methods/iterate.c methods )
+
+	@echo "Build example and run some tests"
+	(cd $(HTML_example_dir) ;                                  \
+	$(CC) -o example $(CFLAGS) $(C99) -I.           \
+	  example.c methods/gauss.c methods/iterate.c ; \
+	./example ;                                     \
+	./example 2 1000 ;                              \
+	./example 2 100000 || true )
+
+	@echo "Step 2: Capture initial coverage and generate coverage report"
+	(cd $(HTML_example_dir) ;                                    \
+	$(LCOV) --capture -o baseline.info --profile -d . )
+
+	@echo "generate coverage report"
+	@echo "  Note that we have to '--save' the coverage .info file."
+	@echo " (the code might not be in a repo - in which case, it would"
+	@echo " not be annotated)"
+	(cd $(HTML_example_dir) ;                                  \
+	$(GENHTML) -o baseline_rpt baseline.info --save --profile  \
+	   --title "Coverage report for initial code" )
+
+	@echo "point your browser to `realpath $(HTML_example_dir)`/baseline_rpt/index.html"
+
+	@echo "Step 3: Modify source code"
+	@echo "  Note that this time: we do not commit the changes"
+	@echo "  (this is similar to the case that the code is not revision controlled)"
+
+	@(cd $(HTML_example_dir) ; \
+	cp -f $(EG_SRCDIR)/example_mod.c example.c ; \
+	cp -f $(EG_SRCDIR)/methods/iterate_mod.c methods/iterate.c )
+
+	@echo "Step 5: Rebuild and run tests (fewer tests this time)"
+	( cd $(HTML_example_dir) ;                              \
+	find . \( -name '*.gcda' -o -name '*.gcno' \) -delete ; \
+	$(CC) -o example $(CFLAGS) $(C99) -I.                   \
+	example.c methods/gauss.c methods/iterate.c ;           \
+	./example )
+
+	@echo "Step 4: Capture new coverage (after source changes)"
+	(cd $(HTML_example_dir) ;                                    \
+	$(LCOV) --capture -o current.info -d . --profile             \
+		--history $(SCRIPTDIR)/history.pm,baseline.info.json )
+
+	@echo "Step 5: Compute source diffs from baseline coverage report"
+	@echo "  '-o recovered' names a base:  the universal diff lands in"
+	@echo "  'recovered.udiff' (and the recovered coverage in 'recovered.info')."
+	(cd $(HTML_example_dir) ;                     \
+	$(HTML2LCOV) ./baseline_rpt -o recovered      \
+	  --current current.info --source-directory . )
+
+	@echo "Step 6: Generate differential coverage report from captured data"
+	@echo "  Note: this scenario models code that is NOT revision controlled,"
+	@echo "  so there is no annotation source and we do not pass '--show-owners'."
+
+	(cd $(HTML_example_dir) ;                                 \
+	$(GENHTML) -o differential2 --baseline-file baseline.info \
+	  --title "Differential coverage example (html2lcov)"     \
+	  --diff-file recovered.udiff --profile -- current.info )
+
+	@echo "point your browser to `realpath $(HTML_example_dir)`/differential2/index.html"
+
+	@echo "Step 7: Generate subset report for code review:"
+	@echo "  (html2lcov-derived data can be used to generate reports for code"
+	@echo "  review - similar to step 7 of the 'example_differential' example,"
+	@echo "  above.  The same '--select-script' options can be used with data"
+	@echo "  derived from html2lcov; here we reuse the execution profile"
+	@echo "  captured in the previous step.)"
+	(cd $(HTML_example_dir) ;                                  \
+	$(GENHTML) -o review2 --baseline-file baseline.info         \
+	  --diff-file recovered.udiff                               \
+	  --title "Differential report for code review (html2lcov)" \
+	  --select-script $(SCRIPTDIR)/select.pm                    \
+	  --select-script --tla --select-script UNC,UIC,LBC         \
+	  --history-script $(SCRIPTDIR)/history.pm                  \
+	  --history-script ./differential2/genhtml.json             \
+          -- current.info )
+
+	@echo "point your browser to `realpath $(HTML_example_dir)`/review2/index.html"
 
 
 clean:

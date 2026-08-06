@@ -74,6 +74,7 @@ def run_test_worker(test_name, test_path, log_dir, topdir, coverage_dir,
     env['LLVM2LCOV_TOOL'] = bindir + '/llvm2lcov'
     env['PY2LCOV_TOOL'] = bindir + '/py2lcov'
     env['XML2LCOV_TOOL'] = bindir + '/xml2lcov'
+    env['HTML2LCOV_TOOL'] = bindir + '/html2lcov'
     env['SPREADSHEET_TOOL'] = scriptdir + '/spreadsheet.py'
     
     # Export convenience variables
