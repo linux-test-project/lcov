@@ -17,7 +17,7 @@ SYNOPSIS
 
 ::
 
-    perl2lcov [--output filename] [--testname name] [options] cover_db+
+    perl2lcov [--output filename] [--test-name name] [options] cover_db+
 
 DESCRIPTION
 -----------
@@ -37,7 +37,7 @@ In addition to common options supported by other tools in the |ToolName| suite
    The |ToolName| data will be written to the specified file. If this option is
    not used, data is written to ``perlcov.info`` in the current directory.
 
-``--testname`` *name*
+``--test-name`` *name*
    Coverage info will be associated with the testcase name provided.
    It is not necessary to provide a name.
 
@@ -66,7 +66,7 @@ Generate Perl coverage data and translate to LCOV format:
     $ cover myCoverDB -silent 1
 
     # Run perl2lcov translator to produce LCOV format data:
-    $ perl2lcov -o perldata.info [--testname myTestName] myCoverDB
+    $ perl2lcov -o perldata.info [--test-name myTestName] myCoverDB
 
     # Generate an HTML coverage report:
     $ genhtml -o html_report perldata.info
