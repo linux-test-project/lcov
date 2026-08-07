@@ -235,8 +235,9 @@ sub verify_annotation
             ($lineNo + 1) . " does not exist in annotated data")
             if $lineNo > $#$lines;
         my $a = $lines->[$lineNo]->[0];
-        die("mismatched annotation at $filepath:" .
-            ($lineNo + 1) . ": '$line' -> '$a'")
+        lcovutil::ignorable_error($lcovutil::ERROR_ANNOTATE_SCRIPT,
+                                  "mismatched annotation at $filepath:" .
+                                      ($lineNo + 1) . ": '$line' -> '$a'")
             unless $line eq $a;
         ++$lineNo;
     }
