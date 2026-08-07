@@ -4908,8 +4908,10 @@ sub _countBranchTlaData
             #lcovutil::info("$l: $tla" . $lineData->in_curr() . "\n");
 
             unless (defined($srcLine) && defined($src_age)) {
-                # just count totals
-                $fileSummary->branchCovCount($tla, 'noGroup', undef, 1);
+                # No annotation data, so there is no age bin to update.
+                #   The per-TLA total was already incremented above - do NOT
+                #   count it again here (that double-counted every branch
+                #   coverpoint in the TLA columns).
                 next;
             }
 
@@ -5035,8 +5037,9 @@ sub _countMcdcTlaData
                 #lcovutil::info("$l: $tla" . $lineData->in_curr() . "\n");
 
                 unless (defined($srcLine) && defined($src_age)) {
-                    # just count totals
-                    $fileSummary->mcdcCovCount($tla, 'noGroup', undef, 1);
+                    # see comment in _countBranchTlaData:  the per-TLA total
+                    #   was already incremented above, and there is no age
+                    #   bin to update without annotation data
                     next;
                 }
 

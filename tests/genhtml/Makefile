@@ -9,7 +9,7 @@ include ../common.mak
 TESTS := \
   simple errs insensitive synthesize \
   relative lambda exception filter function \
-  full.sh zero.sh demangle.sh 
+  full.sh zero.sh demangle.sh counts
 
 DISABLED := part1.sh part2.sh target.sh
 
