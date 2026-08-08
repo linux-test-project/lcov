@@ -1079,6 +1079,10 @@ specified at a time.
 
       File does not exist or is not readable.
 
+   ``multiple``
+
+      Multiple basic blocks are defined at the same start line. gcov reports usage counter only for the first one.
+
    ``negative``
 
       negative 'hit' count found.
