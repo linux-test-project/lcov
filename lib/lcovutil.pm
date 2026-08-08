@@ -37,7 +37,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
 
      $maxParallelism $maxMemory init_parallel_params current_process_size
      $memoryPercentage $max_fork_fails $fork_fail_timeout
-     save_profile merge_child_profile save_cmd_line
+     save_profile merge_child_profile save_cmd_line record_profile_memory
 
      @opt_rc apply_rc_params $split_char parseOptions
      strip_directories
@@ -265,6 +265,28 @@ our $maxMemory;                 # zero indicates no memory limit to parallelism
 our $memoryPercentage;
 our $in_child_process   = 0;
 our $max_tasks_per_core = 20;    # maybe default to 0?
+
+# This process's job label - '<phase>_<jobId>', or '' in the top-level parent -
+#   and the prefix which a worker forked from HERE must qualify its own job id
+#   with, so that a job id is unique across the whole run.
+# The qualification is needed because the per-worker job id counters (e.g.
+#   $TraceFile::masterChunkID) are ordinary process globals which fork() copies,
+#   and a forked worker can itself fork workers:  an lcov aggregate segment and
+#   a geninfo capture chunk each filter their own data in parallel.  Two sibling
+#   children which each fork a filter worker would otherwise both call it chunk
+#   0, and their profile data would collide when merged back into the parent.
+#   Qualified, the two are 'aggregate_0_0' and 'aggregate_1_0'.
+# Both are set by initial_state();  the label is what record_profile_memory()
+#   keys the per-job memory by, and the id is what the per-job timing data is
+#   keyed by, so that memory{filter_aggregate_0_0} still lines up with
+#   filt_child{aggregate_0_0}.  In the top-level parent the prefix is empty, so
+#   the ids there are the plain numbers they have always been.
+# Note that unique does not mean reported only once:  a job whose worker died is
+#   rescheduled under the same id, and each attempt reports.  The durations of
+#   the attempts are summed and their peak memory maxed - see
+#   merge_child_profile() and merge_profile_memory().
+our $jobLabel    = '';
+our $jobIdPrefix = '';
 
 # A file predicted to run at least this long (seconds) is given its own
 #   dedicated segment (and scheduled first) rather than being batched behind
@@ -730,6 +752,31 @@ sub read_proc_vmsize
     }
 }
 
+# Return this process's peak memory as ($peakRss, $peakVsize) in bytes, from
+# the kernel high-water marks VmHWM (peak resident set) and VmPeak (peak
+# virtual size).  These are true lifetime peaks, unlike current_process_size()
+# which samples the instantaneous virtual size.  Returns (0,0) when the kernel
+# does not expose them (e.g. non-Linux); callers must tolerate that.
+sub read_proc_peak_memory
+{
+    if (open(PROC, "<", '/proc/self/status')) {
+        my ($rss, $vsize) = (0, 0);
+        while (<PROC>) {
+            if (/^VmHWM:\s+(\d+)\s+kB/) {
+                $rss = $1 * 1024;
+            } elsif (/^VmPeak:\s+(\d+)\s+kB/) {
+                $vsize = $1 * 1024;
+            }
+            last if $rss && $vsize;
+        }
+        close(PROC) or die("unable to close /proc/self/status: $!\n");
+        return ($rss, $vsize);
+    } else {
+        # not fatal - memory profiling is best-effort
+        return (0, 0);
+    }
+}
+
 sub read_system_memory
 {
     # NOTE:  not sure how to do this on windows...
@@ -853,6 +900,58 @@ sub current_process_size
     }
 }
 
+# Record this process's peak memory into the profile data under
+#   $profileData{memory}{$who} = { rss => ..., vsize => ..., pid => ... }
+# so that --profile output carries a per-process memory breakdown (both peak
+# resident-set and peak virtual size) alongside the per-phase timing.
+#
+# $who identifies the job rather than the process: 'parent' for the top-level
+# process, and otherwise the same job/segment id the timing data is keyed by,
+# so that memory{'segment_26'} lines up with child{26} and segment{26} in the
+# same profile.  Because the numeric id spaces of the different worker kinds
+# overlap (geninfo uses child{N} for capture chunks and filt_child{N} for
+# filter workers, with the same N), the id must be prefixed with its phase --
+# and, for a worker which was itself forked by a worker, with the label of the
+# job which forked it, so that the label is unique across the whole run:  see
+# $jobIdPrefix.  The pid is retained as a field for fork debugging; it is
+# deliberately NOT the key, since it conveys nothing about which job ran.
+#
+# Best-effort: does nothing when profiling is disabled or the kernel does not
+# expose the peaks (read_proc_peak_memory returns 0,0).
+sub record_profile_memory
+{
+    my $who = shift // 'parent';
+    return unless defined($lcovutil::profile);
+    my ($rss, $vsize) = read_proc_peak_memory();
+    return unless ($rss || $vsize);    # not available (non-Linux) - skip
+    merge_profile_memory($lcovutil::profileData{memory}{$who} //= {},
+                         {rss => $rss, vsize => $vsize, pid => $$});
+}
+
+# Fold one memory entry into another, keeping the larger of each peak.
+#
+# Job labels are unique across the run (see $jobIdPrefix), so this is not the
+# place that resolves a namespace collision.  What it does handle is a job which
+# legitimately ran more than once:  a worker which died - killed by the OS for
+# running out of memory, say - is rescheduled under the same job id, so both
+# attempts report their peak.  Neither number is wrong and the interesting one
+# is the largest, so take the max.  (The corresponding durations are summed - see
+# the additive key list in merge_child_profile.)  The 'pid' is informational
+# only - keep the one belonging to the larger peak.
+sub merge_profile_memory
+{
+    my ($slot, $add) = @_;
+    if (!defined($slot->{rss}) || ($add->{rss} // 0) > $slot->{rss}) {
+        $slot->{pid} = $add->{pid} if exists($add->{pid});
+    }
+    foreach my $k ('rss', 'vsize') {
+        next unless defined($add->{$k});
+        $slot->{$k} = $add->{$k}
+            if (!defined($slot->{$k}) || $slot->{$k} < $add->{$k});
+    }
+    $slot->{pid} = $add->{pid} if (!defined($slot->{pid}) && $add->{pid});
+}
+
 sub merge_child_profile($)
 {
     my $profile = shift;
@@ -860,6 +959,16 @@ sub merge_child_profile($)
         if ('HASH' eq ref($d)) {
             while (my ($f, $t) = each(%$d)) {
                 if ('HASH' eq ref($t)) {
+                    if ($key eq 'memory') {
+                        # a job which was rescheduled after its worker died
+                        # reports its peak once per attempt - keep the largest,
+                        # rather than treating it as a duplicate key.  See
+                        # merge_profile_memory.
+                        merge_profile_memory(
+                                        $lcovutil::profileData{$key}{$f} //= {},
+                                        $t);
+                        next;
+                    }
                     while (my ($x, $y) = each(%$t)) {
                         lcovutil::ignorable_error($lcovutil::ERROR_INTERNAL,
                                    "unexpected duplicate key $x=$y at $key->$f")
@@ -936,6 +1045,27 @@ sub save_profile($@)
         count_cores();
         $lcovutil::profileData{config}{cores} = $maxParallelism;
         $maxParallelism = $save;
+
+        # record the parent process's own peak memory, then publish top-level
+        # peaks (max over the parent and every worker that reported one) for
+        # easy consumption by profile readers: peakRss (physical) and
+        # peakVsize (virtual), both in bytes.  Note that only the 'rss' and
+        # 'vsize' fields are folded into the max - the per-entry 'pid' is
+        # informational only.
+        record_profile_memory('parent');
+        if (exists($lcovutil::profileData{memory})) {
+            my ($peakRss, $peakVsize) = (0, 0);
+            foreach my $m (values(%{$lcovutil::profileData{memory}})) {
+                $peakRss = $m->{rss}
+                    if (defined($m->{rss}) && $m->{rss} > $peakRss);
+                $peakVsize = $m->{vsize}
+                    if (defined($m->{vsize}) && $m->{vsize} > $peakVsize);
+            }
+            $lcovutil::profileData{memoryPeak} = {
+                                                  rss   => $peakRss,
+                                                  vsize => $peakVsize
+            };
+        }
 
         my $json = JsonSupport::encode(\%lcovutil::profileData);
 
@@ -2155,12 +2285,18 @@ sub merge_deferred_warnings
 
 sub initial_state
 {
+    my ($phase, $jobId) = @_;
     # a bit of a hack:   this method is called at the start of each
     #  child process - so use it to record that we are executing in a
     #  child.
     # The flag is used to reduce verbosity from children - and possibly
     #  for other things later
     $lcovutil::in_child_process = 1;
+
+    # This job's label, and the prefix for the id of anything WE fork - see
+    #  $jobIdPrefix.  Our caller already qualified $jobId, so use it as-is.
+    $lcovutil::jobLabel    = $phase . '_' . $jobId;
+    $lcovutil::jobIdPrefix = $lcovutil::jobLabel . '_';
 
     # keep track of number of warnings, etc. generated in child -
     #  so we can merge back into parent.  This may prevent us from
@@ -2198,8 +2334,18 @@ sub initial_state
 
 sub compute_update
 {
-    my $state = shift;
+    my ($state) = @_;
     my ($initialCount, $initialVersionCache, $initialResolveCache) = @$state;
+
+    # Capture this worker's peak memory before its profile data is packaged
+    # for the parent (it rides the existing profileData channel home via
+    # merge_child_profile).  Every forked worker returns through here, so this
+    # single call covers geninfo capture chunks, filter workers, genhtml
+    # segments, and lcov aggregate groups.  $jobLabel is this job's fully
+    # qualified id (e.g. 'capture_3', 'aggregate_1_filter_0'), as computed by
+    # the initial_state() call this worker started with, so the memory entry
+    # can be lined up with that job's timing data.
+    lcovutil::record_profile_memory($lcovutil::jobLabel);
 
     my @new_count;
     my $id = 0;
@@ -8571,7 +8717,7 @@ sub _processParallelChunk
     my $childStart = Time::HiRes::gettimeofday();
     my ($tmp, $chunk, $srcReader, $save, $state, $forkAt, $chunkId) = @_;
     # clear profile - want only my contribution
-    my $currentState = lcovutil::initial_state();
+    my $currentState = lcovutil::initial_state('filter', $chunkId);
     my $stdout_file  = File::Spec->catfile($tmp, "filter_$$.log");
     my $stderr_file  = File::Spec->catfile($tmp, "filter_$$.err");
     my $childInfo;
@@ -8664,7 +8810,16 @@ sub _processParallelChunk
 
 # chunkID is only used for uniquification and as a key in profile data.
 #  We want this number to be unique - even if we process more than one TraceFile
+#  ...and even if we are ourselves a forked worker which is filtering its own
+#  data:  our sibling workers have the same counter value, having inherited it
+#  across the fork, so the id is qualified with our own job label.  See
+#  $lcovutil::jobIdPrefix.
 our $masterChunkID = 0;
+
+sub _filterChunkId
+{
+    return $lcovutil::jobIdPrefix . $masterChunkID;
+}
 
 sub _processFilterWorklist
 {
@@ -8816,12 +8971,13 @@ sub _processFilterWorklist
                     # I'm the child
                     my $status =
                         _processParallelChunk($tmp, $d, $srcReader, \@save,
-                                              \@state, $now, $masterChunkID);
+                                              \@state, $now, _filterChunkId());
                     exit($status);    # normal return
                 } else {
                     # parent
-                    $children{$pid} = [$d, $now, $masterChunkID];
-                    lcovutil::debug(1, "fork:$pid ID $masterChunkID\n");
+                    my $chunkId = _filterChunkId();
+                    $children{$pid} = [$d, $now, $chunkId];
+                    lcovutil::debug(1, "fork:$pid ID $chunkId\n");
                     ++$currentParallel;
                 }
                 ++$masterChunkID;
@@ -10030,8 +10186,9 @@ sub merge
                     my $stderr_file =
                         File::Spec->catfile($tempDir, "lcov_$$.err");
 
-                    my $currentState = lcovutil::initial_state();
-                    my $status       = 0;
+                    my $currentState =
+                        lcovutil::initial_state('aggregate', $segmentIdx);
+                    my $status = 0;
                     my @interesting;
                     my ($stdout, $stderr, $code) = Capture::Tiny::capture {
                         eval {

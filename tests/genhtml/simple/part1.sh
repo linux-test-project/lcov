@@ -178,6 +178,44 @@ if [ ! -f ./baseline/coverage.dat ] ; then
     fi
 fi
 
+# the --profile output should carry peak memory (both peak resident-set and
+# peak virtual size) recorded by lcovutil.  On Linux these come from
+# /proc/self/status (VmHWM/VmPeak); tolerate a platform that does not expose
+# them (read_proc_peak_memory returns 0 there, so memoryPeak is omitted).
+if [ -f ./baseline/genhtml.json ] ; then
+    HAVE_MEM=`jq -r 'has("memoryPeak")' ./baseline/genhtml.json 2>/dev/null`
+    if [ "$HAVE_MEM" == "true" ] ; then
+        RSS=`jq -r '.memoryPeak.rss // 0' ./baseline/genhtml.json`
+        VSZ=`jq -r '.memoryPeak.vsize // 0' ./baseline/genhtml.json`
+        echo "profile memoryPeak: rss=$RSS vsize=$VSZ"
+        if [ "$RSS" -le 0 ] || [ "$VSZ" -le 0 ] ; then
+            echo "ERROR: profile memoryPeak present but rss/vsize not positive"
+            status=1
+            if [ 0 == $KEEP_GOING ] ; then
+                exit 1
+            fi
+        fi
+        # ...and a per-job breakdown under 'memory'.  This run is not forked,
+        # so 'parent' is the only entry - it must carry rss, vsize and the pid
+        # (the pid is a field, not the key, so that a forked entry can be keyed
+        # by its job id instead).
+        # note:  not 'PPID' - that is a readonly variable in bash
+        PRSS=`jq -r '.memory.parent.rss // 0' ./baseline/genhtml.json`
+        PVSZ=`jq -r '.memory.parent.vsize // 0' ./baseline/genhtml.json`
+        MEMPID=`jq -r '.memory.parent.pid // 0' ./baseline/genhtml.json`
+        echo "profile memory.parent: rss=$PRSS vsize=$PVSZ pid=$MEMPID"
+        if [ "$PRSS" -le 0 ] || [ "$PVSZ" -le 0 ] || [ "$MEMPID" -le 0 ] ; then
+            echo "ERROR: profile memory.parent missing rss/vsize/pid"
+            status=1
+            if [ 0 == $KEEP_GOING ] ; then
+                exit 1
+            fi
+        fi
+    else
+        echo "profile memoryPeak absent (platform does not expose peak memory)"
+    fi
+fi
+
 # expect not to see differential categories...
 echo $CAPTURE . $LCOV_OPTS --filter branch,line --output-file baseline-filter.info $IGNORE
 $COVER $CAPTURE . $LCOV_OPTS --filter branch,line --output-file baseline-filter.info $IGNORE

@@ -198,7 +198,8 @@ To execute ``make install ...`` or ``make doc``, you will need:
 Some of the applications provided with the lcov module are written
 in Python - and may require additional Python packages.
 In particular, 'xlsxwriter' is required in order to generate any
-of the spreadsheet reports.
+of the spreadsheet reports, and 'xml' and 'zipfile' are required in
+order to be able to run regression tests.
 
 To measure Python code coverage, users will need Python packages:
 

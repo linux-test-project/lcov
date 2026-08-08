@@ -82,7 +82,7 @@ report: excel info
               --show-navigation --flat --branch --show-proportion    \
               --version-script $(VERSION_SCRIPT)                     \
 	      --annotate-script $(ANNOTATE_SCRIPT)                   \
-	      --filter region                                        \
+	      --filter region --exclude scheduling --exclude 'tests/*' \
               --ignore empty,inconsistent --keep-going ;             \
 	  if [ -d $(HTML_RPT) ] ; then                               \
 	      cp $$INFO $(HTML_RPT) ;                                \
