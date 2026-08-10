@@ -22,6 +22,7 @@ use DateTime;
 use Config;
 use POSIX;
 use Fcntl qw(:flock SEEK_END);
+use IO::Handle;    # 'input_line_number' - see 'TraceFile::_read_info'
 use Devel::StackTrace;
 
 our @ISA       = qw(Exporter);
@@ -112,7 +113,32 @@ our %ERROR_ID;
 our %ERROR_NAME;
 our $tool_dir  = "$FindBin::RealBin";
 our $tool_name = basename($0);          # import from lcovutil module
-our $VERSION   = `"$tool_dir"/get_version.sh --full`;
+
+# get_version.sh lives beside the tools in bin/, so $tool_dir finds it whenever
+# we are loaded by one of them.  When we are loaded some other way - a
+# diagnostic one-liner, or lib/LcovUtil/Makefile.PL deriving the error ids -
+# $FindBin::RealBin is the caller's directory instead, and running the script
+# from there would print a bare 'No such file or directory' to stderr and leave
+# $VERSION empty.  Look beside this file as well before giving up, so the
+# version is right and nothing is logged in either case.
+#
+# Keep the '$VERSION =' assignment on one line:  'make install' runs bin/fix.pl,
+# which replaces the remainder of that line with a literal version string.
+sub _find_version
+{
+    foreach my $dir ($tool_dir,
+                     File::Spec->catdir(File::Basename::dirname(
+                                                   File::Spec->rel2abs(__FILE__)
+                                        ),
+                                        File::Spec->updir(),
+                                        'bin')
+    ) {
+        my $script = File::Spec->catfile($dir, 'get_version.sh');
+        return `"$script" --full` if -x $script;
+    }
+    return '';
+}
+our $VERSION = _find_version();
 chomp($VERSION);
 our $lcov_version = 'LCOV version ' . $VERSION;
 our $lcov_url     = "https://github.com/linux-test-project/lcov";
@@ -261,7 +287,30 @@ our $default_precision = 1;
 our $maxParallelism;
 our $max_fork_fails    = 5;     # consecutive failures
 our $fork_fail_timeout = 10;    # how long to wait, in seconds
-our $maxMemory;                 # zero indicates no memory limit to parallelism
+# Fault injection for the parallel failure paths - see 'fork_child', and
+#   'ForkManager::fork_one' for the one which makes the dump fail.  These are
+#   environment variables rather than options because they are only used
+#   by the regression framework so we can test various failure and recovery
+#   paths - "fork() failed", "the OS killed my child", "that process was
+#   not mine", etc. - which are otherwise reachable only if something
+#   bad actually happens on the machine (out of process slots, exhausted
+#   system memory - or whatever).  That isn't repeatable - so isn't
+#   otherwise testable.
+our $forceForkFail =
+    exists($ENV{LCOV_FORCE_FORK_FAIL}) ? $ENV{LCOV_FORCE_FORK_FAIL} : 0;
+our $forceChildKill =
+    exists($ENV{LCOV_FORCE_CHILD_KILL}) ? $ENV{LCOV_FORCE_CHILD_KILL} : 0;
+our $forceNoDump =
+    exists($ENV{LCOV_FORCE_NO_DUMP}) ? $ENV{LCOV_FORCE_NO_DUMP} : 0;
+our $forceOrphan =
+    exists($ENV{LCOV_FORCE_ORPHAN}) ? $ENV{LCOV_FORCE_ORPHAN} : 0;
+our $forceOomMsg =
+    exists($ENV{LCOV_FORCE_OOM_MSG}) ? $ENV{LCOV_FORCE_OOM_MSG} : 0;
+our $forceBadData =
+    exists($ENV{LCOV_FORCE_BAD_DATA}) ? $ENV{LCOV_FORCE_BAD_DATA} : 0;
+our $forceStoreFail =
+    exists($ENV{LCOV_FORCE_STORE_FAIL}) ? $ENV{LCOV_FORCE_STORE_FAIL} : 0;
+our $maxMemory;    # zero indicates no memory limit to parallelism
 our $memoryPercentage;
 our $in_child_process   = 0;
 our $max_tasks_per_core = 20;    # maybe default to 0?
@@ -315,6 +364,32 @@ our $dedicate_segment_size = 50000000;    # 50 MB
 
 our $lcov_filter_parallel = 1;            # enable by default
 our $lcov_filter_chunk_size;
+
+# 'AggregateTraces::merge' otherwise divides its inputs by file:  one child per
+#   input file, so a single input is read serially no matter how large it is, and
+#   a set of them is divided by file count rather than by work.  A large enough
+#   set is instead scanned for its 'end_of_record' boundaries and split into
+#   chunks - each of which may span several of the inputs - read by several
+#   children at once; see 'TraceFile::scan_sections' and
+#   'AggregateTraces::_parallel_parse'.
+# The unit is lines rather than bytes because lines are the better predictor of
+#   parse time:  measured across captures of one project at three cover levels,
+#   lines/second varied by 1.10x where MB/second varied by 1.83x (a 'DA:' record
+#   averages 10 bytes and a 'BRDA:'/'MCDC:' record 20, but since the record
+#   dispatch below is a tag lookup they cost nearly the same to read).
+# The count is the total over every input, because that is the work being
+#   divided:  many small inputs are split when their sum is large enough, and
+#   none of them would be on its own.
+# The default is roughly 3x the measured break-even point:  below ~3 MB on 32
+#   cores the pre-scan and the forks cost more than the parse they save.  0
+#   disables the feature.
+our $parallel_parse_min_lines = 500000;
+# Chunks per worker.  More chunks than workers costs nothing and buys two
+#   things:  a shorter tail (the last chunk to finish is 1/this of a worker's
+#   share rather than all of it), and a bound on how much of the parsed data is
+#   resident in children at once - with this many chunks per worker the parse
+#   phase peak is (final data + 1/this of it) rather than twice the final data.
+our $parallel_parse_chunks_per_worker = 4;
 
 our $fail_under_lines;
 our $fail_under_branches;
@@ -1032,6 +1107,11 @@ sub save_profile($@)
         $lcovutil::profileData{config}{version}     = $lcovutil::lcov_version;
         $lcovutil::profileData{config}{tool_dir}    = $lcovutil::tool_dir;
         $lcovutil::profileData{config}{url}         = $lcovutil::lcov_url;
+        # Which implementation of the coverage data classes actually ran:  1 if
+        # the C++ XS extension loaded, 0 if we fell back to (or were forced to)
+        # pure Perl.  The fallback is silent and affects only speed, so a
+        # profile with unexpectedly long times is otherwise hard to explain.
+        $lcovutil::profileData{config}{xs} = $lcovutil::XS_LOADED ? 1 : 0;
         foreach my $var ('USER', 'HOSTNAME', 'MACHTYPE', 'PWD') {
             $lcovutil::profileData{config}{$var} = $ENV{$var}
                 if exists($ENV{$var});
@@ -1320,6 +1400,9 @@ my %rc_common = (
              "dedicate_segment_threshold" => \$lcovutil::dedicate_segment_threshold,
              "dedicate_segment_line_estimate" =>
         \$lcovutil::dedicate_segment_line_estimate,
+             'parallel_parse_min_lines' => \$lcovutil::parallel_parse_min_lines,
+             'parallel_parse_chunks_per_worker' =>
+        \$lcovutil::parallel_parse_chunks_per_worker,
              "fork_fail_timeout" => \$lcovutil::fork_fail_timeout,
              'source_directory'  => \@rc_source_directories,
              'build_directory'   => \@rc_build_dir,
@@ -2244,6 +2327,116 @@ sub warn_once
     return 1;
 }
 
+sub _serialization_format_hint
+{
+    # The XS acceleration layer and the pure-Perl implementation serialize the
+    # coverage classes (BranchData/MCDC_Data/CountData/...) incompatibly, and
+    # the format is chosen implicitly by whether the XS module loaded (governed
+    # by the LCOV_PURE_PERL environment variable).  There is intentionally no
+    # in-format tag; instead we tell the user how to switch THIS process to
+    # match the file that was written by some earlier execution.
+    return $lcovutil::XS_LOADED ?
+        "the file appears to have been written by a pure-Perl execution; re-run with LCOV_PURE_PERL=1 set in the environment"
+        :
+        "the file appears to have been written by an XS (accelerated) execution; re-run with LCOV_PURE_PERL unset (or =0) in the environment";
+}
+
+sub deserialize_checked
+{
+    # Storable::retrieve() wrapper that turns a cross-format mismatch (data
+    # written by an XS build read back by a pure-Perl build, or vice versa)
+    # into a friendly ERROR_FORMAT rather than a cryptic internal failure.
+    #
+    # This is only for cross-execution persistence (files written by a
+    # *previous* lcov invocation).  The parallel-fork "dumper_$$" restore paths
+    # are deliberately not routed through here: parent and child share one
+    # process image within a single run, so their format is always consistent.
+    my ($file) = @_;
+
+    my $self = eval { Storable::retrieve($file) };
+    if ($@) {
+        # A cross-format read can fail in two distinct ways:
+        #  Mode A:  dies INSIDE Storable::retrieve.  This happens when the
+        #     stream contains an object of a class that carries a STORABLE
+        #     hook in one implementation but not (or incompatibly) in the
+        #     other
+        #   * XS-written data read by pure-Perl: Storable sees the per-object
+        #     hook flag, tries to load the class as a module to find
+        #     STORABLE_thaw, and dies "Can't locate BranchData.pm" -- pure-Perl
+        #     defines those classes inline, with no .pm file.
+        #   * pure-Perl-written data read by XS (e.g. a whole TraceFile, which
+        #     always contains hook-bearing CountData/MapData leaves): the XS
+        #     thaw tries to treat the pure-Perl arrayref as its inner-IV scalar
+        #     and dies "Can't coerce HASH to integer".
+        # A genuinely corrupt/short file also lands here; the format hint is
+        # still the first thing worth trying, and the raw $@ is preserved so a
+        # real-corruption diagnosis is not lost.
+        ignorable_error($lcovutil::ERROR_FORMAT,
+                        "unable to deserialize '$file': $@" .
+                            _serialization_format_hint());
+        return undef;
+    }
+    return undef unless defined $self;
+
+    # Mode B: Storable::retrieve SUCCEEDS SILENTLY, then the mismatch
+    #   happened later when an XS method dereferences an inner IV that isn't
+    #   there.
+    #   This is the dangerous case the exception catch above cannot see:
+    #   it occurs when every serialized leaf is a class without a STORABLE
+    #   hook (BranchData/MCDC_Data are plain blessed arrayrefs in pure-Perl),
+    #   so XS Storable happily rebuilds the pure-Perl tree verbatim.
+    # We detect it by checking the ref *shape*: an XS coverage object is a
+    #   blessed scalar ref (its inner IV holds a C++ pointer), whereas
+    #   a pure-Perl one is a blessed array (or hash) ref.
+    #    - if WE are the XS build but a coverage leaf came back as a
+    #      non-scalar ref, the writer was pure-Perl.
+    #    - vice versa: XS-written hookless data read by pure-Perl --
+    #      is mode A, because XS DOES install per-object hooks, so it never
+    #      reaches here.)
+    #
+    # NOTE: a whole TraceFile always carries hook-bearing CountData/MapData
+    # leaves, so a cross-format TraceFile read fails as mode A in practice.
+    # This check fires if deserialize_checked() is ever pointed at a payload
+    # whose only coverage objects are the hookless BranchData/MCDC_Data.
+    if ($lcovutil::XS_LOADED) {
+        my $leaf = _first_coverage_leaf($self);
+        if (defined($leaf) &&
+            Scalar::Util::blessed($leaf) &&
+            Scalar::Util::reftype($leaf) ne 'SCALAR') {
+            ignorable_error($lcovutil::ERROR_FORMAT,
+                "unable to deserialize '$file': content is not in the expected XS binary format - "
+                    . _serialization_format_hint());
+            return undef;
+        }
+    }
+    return $self;
+}
+
+sub _first_coverage_leaf
+{
+    # Best-effort: reach into a deserialized TraceFile and return one leaf
+    # coverage object (BranchData/CountData/...) whose ref *shape* reveals
+    # which implementation wrote the file.  Returns undef if the structure
+    # doesn't look like a TraceFile (nothing to probe -> skip the check).
+    my ($self) = @_;
+    return undef unless Scalar::Util::reftype($self) eq 'ARRAY';
+    # Fully-qualified constant calls (not barewords): the constants are
+    # declared further down the file, so they are not yet known as barewords
+    # at this sub's compile point, but the constant subs resolve at runtime.
+    my $files = $self->[TraceFile::FILES()];
+    return undef unless Scalar::Util::reftype($files) eq 'HASH';
+    foreach my $entry (values %$files) {
+        # TraceInfo::LINE_DATA slot 0 is a CountData; that is the cheapest,
+        # always-present leaf to inspect.
+        next unless Scalar::Util::reftype($entry) eq 'ARRAY';
+        my $line = $entry->[TraceInfo::LINE_DATA()];
+        return $line->[0]
+            if (Scalar::Util::reftype($line) eq 'ARRAY' &&
+                Scalar::Util::blessed($line->[0]));
+    }
+    return undef;
+}
+
 sub store_deferred_message
 {
     my ($msgType, $isError, $key, $msg) = @_;
@@ -2593,6 +2786,90 @@ sub ignorable_warning($$;$)
     }
 }
 
+sub fork_child
+{
+    # 'fork()', with the fault injections which the testsuite needs in order to
+    #   reach the recovery code in the reap loops:
+    #     LCOV_FORCE_FORK_FAIL=N   the next N calls report that the syscall
+    #                              failed, without forking anything
+    #     LCOV_FORCE_CHILD_KILL=N  the next N children kill themselves with
+    #                              SIGKILL before they do any work - which is
+    #                              what the parent sees when the OS kills a
+    #                              worker for using too much memory
+    #     LCOV_FORCE_NO_DUMP=N     the next N children exit successfully
+    #                              without doing any work, so the parent finds
+    #                              no serialized data to merge
+    #     LCOV_FORCE_ORPHAN=N      the next N calls leave an extra process
+    #                              behind which the caller does not know about -
+    #                              which is what a callback module that forgot
+    #                              to wait for its own child looks like
+    #     LCOV_FORCE_OOM_MSG=N     the next N children complain that they could
+    #                              not allocate memory and exit non-zero,
+    #                              without being signalled - which is what a
+    #                              child whose gcov ran out of memory looks
+    #                              like.  Needs '$tempDir'/'$prefix' to name the
+    #                              log the parent will read, so a caller which
+    #                              does not pass them cannot use it.
+    #     LCOV_FORCE_BAD_DATA=N    the next N children report success and leave
+    #                              data behind which the parent can read but
+    #                              cannot use - which is what a child that was
+    #                              built differently, or interrupted mid-dump,
+    #                              looks like.  Needs '$tempDir' as above.
+    #   These are used only for regression tests.
+    # The counters are decremented in the parent, so N is a count of injected
+    #   failures and not a count per child.
+    my ($tempDir, $prefix) = @_;
+    if ($lcovutil::forceOrphan) {
+        --$lcovutil::forceOrphan;
+        my $orphan = fork();
+        # '_exit', not 'exit':  this is a copy of the parent, so it must not run
+        #   the parent's END blocks or flush the parent's buffers
+        POSIX::_exit(0) if (defined($orphan) && 0 == $orphan);
+    }
+    if ($lcovutil::forceForkFail) {
+        --$lcovutil::forceForkFail;
+        $! = POSIX::EAGAIN;
+        return undef;
+    }
+    my $fate = 0;
+    if ($lcovutil::forceChildKill) {
+        --$lcovutil::forceChildKill;
+        $fate = 'kill';
+    } elsif ($lcovutil::forceNoDump) {
+        --$lcovutil::forceNoDump;
+        $fate = 'quit';
+    } elsif ($lcovutil::forceOomMsg && defined($tempDir)) {
+        --$lcovutil::forceOomMsg;
+        $fate = 'oom';
+    } elsif ($lcovutil::forceBadData && defined($tempDir)) {
+        --$lcovutil::forceBadData;
+        $fate = 'baddata';
+    }
+    my $pid = fork();
+    if ($fate && defined($pid) && 0 == $pid) {
+        if ('baddata' eq $fate) {
+            # data the parent can read but not unpack, and a success status:  the
+            #   parent has to blame the failure on something, and a child which
+            #   said that it succeeded gave it nothing is the obvious culprit
+            Storable::store([], File::Spec->catfile($tempDir, "dumper_$$"));
+            exit(0);
+        }
+        if ('oom' eq $fate) {
+            # write the complaint where the parent looks for the child's stderr,
+            #   then fail the way a tool which gave up on an allocation does
+            my $f = File::Spec->catfile($tempDir, "${prefix}_$$.err");
+            if (open(OOM_INJECT, '>', $f)) {
+                print(OOM_INJECT "gcov: std::bad_alloc\n");
+                close(OOM_INJECT);
+            }
+            exit(1);
+        }
+        kill(POSIX::SIGKILL, $$) if 'kill' eq $fate;
+        exit(0);
+    }
+    return $pid;
+}
+
 sub report_unknown_child
 {
     my $child = shift;
@@ -2629,6 +2906,21 @@ sub report_fork_failure
     sleep($lcovutil::fork_fail_timeout);
 }
 
+sub report_retry
+{
+    # A child failed in a way which is worth another try - it was killed by the
+    #   OS (almost always: out of memory) or it left no data behind - so the job
+    #   it was running is about to go back on the worklist.
+    # Count how many times this same job has now failed and let
+    #   'report_fork_failure' decide whether to keep retrying:  it escalates to
+    #   a hard error once one job has failed 'max_fork_fails' times, which is
+    #   the only thing standing between a job which fails every time and an
+    #   infinite retry loop.  Every caller has to pass that count, so keep the
+    #   counting here rather than open-coded at each of them.
+    my ($counts, $id, $when, $reason) = @_;
+    report_fork_failure($when, $reason, ++$counts->{$id});
+}
+
 sub report_exit_status
 {
     my ($errType, $message, $exitstatus, $prefix, $suffix) = @_;
@@ -2649,6 +2941,72 @@ sub report_exit_status
                        ' - see --memory and --parallel options for throttling');
     }
     ignorable_error($errType, "$message: $explain$suffix");
+}
+
+sub report_child_output
+{
+    # Print whatever a forked child wrote to the stdout/stderr files it was
+    #   captured into - '$tempDir/$prefix_<pid>.log' and '.err' - and remove
+    #   them.
+    # The child's stdout is interesting only if the child failed (or if the user
+    #   asked to see everything, or if '$showStdout' says that this child was
+    #   doing work the user would otherwise have seen the messages from - see
+    #   'AggregateTraces::_parallel_parse'); its stderr always is.
+    # '$rawStatus' is the wait status exactly as $? had it:  the exit status and
+    #   the signal are pulled out here, and the signal is returned because
+    #   '$retryOnOOM' can change it - see below.
+    # '@siblings' is the other children still running, to be killed if this one
+    #   turns out to have left us data we cannot read.
+    my ($tempDir, $prefix, $child, $rawStatus, $operation, $showStdout,
+        $retryOnOOM, @siblings)
+        = @_;
+
+    my $childstatus = $rawStatus >> 8;
+    my $signal      = $rawStatus & 0xFF;
+    my @text;
+    foreach my $suffix ('log', 'err') {
+        my $f = File::Spec->catfile($tempDir, "${prefix}_$child.$suffix");
+        if (!-f $f) {
+            push(@text, '');    # there was no output
+            next;
+        }
+        if (open(RESTORE, "<", $f)) {
+            # slurp into a string
+            my $str = do { local $/; <RESTORE> };    # slurp whole thing
+            close(RESTORE) or die("unable to close $f: $!\n");
+            unlink $f
+                unless ($str && $lcovutil::preserve_intermediates);
+            push(@text, $str);
+        } else {
+            push(@text, "unable to open $f: $!");
+            report_parallel_error($operation, $ERROR_PARALLEL, $child, 0,
+                                  $text[-1], @siblings)
+                if (0 == $rawStatus);
+        }
+    }
+    print(STDOUT $text[0])
+        if ($showStdout ||
+            (0 != $rawStatus &&
+             $signal != POSIX::SIGKILL &&
+             $lcovutil::max_fork_fails != 0) ||
+            $lcovutil::verbose);
+    print(STDERR $text[1]);
+
+    if ($retryOnOOM                                 &&
+        0 == $signal                                &&
+        0 != $childstatus                           &&
+        0 != $lcovutil::max_fork_fails              &&
+        lcovutil::is_ignored($lcovutil::ERROR_FORK) &&
+        grep(
+            { /(std::bad_alloc|annot allocate memory|out of memory|integrity check failed for compressed file)/
+            } @text)
+    ) {
+        # The child said that it ran out of memory rather than being killed for
+        #   it, so tell the caller what it would have seen if the OS had done
+        #   the killing:  this job is worth retrying with less parallelism.
+        $signal = POSIX::SIGKILL;
+    }
+    return $signal;
 }
 
 sub report_parallel_error
@@ -2701,6 +3059,572 @@ sub check_parent_process
             "parent process died during '--parallel' execution - child $$ cannot continue."
         );
         exit(0);
+    }
+}
+
+{
+    # The fork/join loop, once.
+    #
+    # Every parallel phase in the product used to write this out by hand:  the
+    #   filter worklist and the two aggregate paths in this file, geninfo's
+    #   compute chunks and genhtml's job scheduler.  They used a common sequence
+    #   - throttle, fork, run the unit in the child, dump, reap, merge, retry
+    #   the tasks which died - but had different specific actions.
+    #
+    # Post-refactoring, the client keeps is its queue, its payload and its
+    # words, but uses common bookkeeping.
+    # The required callbacks are:
+    #
+    #     next    -> ($unit, $id), or () when the queue is dry.  It is also where
+    #                a client which sometimes does the work itself (a chunk too
+    #                small to be worth a process) does it.
+    #     child   -> ($payload, $status);  runs in the child, inside the
+    #                stdout/stderr capture.  '$payload' is the arrayref which is
+    #                serialized for the parent, or undef for "nothing to send".
+    #     merge   -> ($unit, $id, $payload, $ctx);  runs in the parent.
+    #     requeue -> ($unit, $id);  put a unit whose child died back on the queue.
+    #     more    -> true while the queue could still produce work:  a requeued
+    #                unit arrives after 'next' has already gone dry.
+    #
+    # Optional:
+    #     childInit  -> (in the child, before 'initial_state'),
+    #    jobId       -> (the id 'initial_state' is to label this job with, for
+    #                   a client whose merge order and whose profile namespace
+    #                   are not the same thing),
+    #   validate     -> (in the parent, on the payload, before it is merged),
+    #   preMerge and postReap -> (the per-unit progress and profile lines),
+    #   postStore    -> (the child's own view of its dump),
+    #   remaining    -> (how much work is left, for the throttle's message)
+    #   unitWeight   -> (how big a unit is, for the memory throttle - see
+    #                   'throttle').
+    #
+    #  The four message callbacks - 'forkFailWhen', 'retryWhen',
+    #    'mergeFailMessage', 'childFailMessage' - exist because each client
+    #    names its unit of work differently, and the words are the user's.
+    #
+    # A client which cannot use 'run' - genhtml, whose queue is dependency
+    #   ordered and which reaps from three places - drives 'fork_one',
+    #   'reap_one' and 'throttle' itself.
+
+    package lcovutil::ForkManager;
+
+    sub new
+    {
+        my ($class, %opts) = @_;
+
+        my $self = {
+             # what the messages call this phase, and the '.log'/'.err'/'dumper_'
+             #   files this client's children write
+             operation => 'parallel',
+             phase     => 'parallel',
+             prefix    => 'child',
+             # print the child's stdout even when it succeeded:  for a client
+             #   whose children do work the user would otherwise have watched
+             showStdout => 0,
+             # believe a child which says in its log that it could not allocate
+             #   memory, rather than only one which the OS killed
+             retryOnOOM => 0,
+             # merge in dispatch order rather than completion order:  ids must be
+             #   0 .. N-1 in the order 'next' hands them out
+             ordered => 0,
+             # a child of this client can legitimately finish without dumping
+             #   anything (everything it was given was excluded)
+             mayNotDump => 0,
+             # how many children may run at once;  '--parallel' unless the client
+             #   knows better (it will never have more work than that)
+             maxInFlight => undef,
+             # also wait when the children we have are using too much memory:
+             #   only for the clients whose children are the big ones
+             memoryThrottle => 0,
+             # how big a unit of work is, in whatever the client counts (records,
+             #   input bytes, ..).  Only asked for by the clients which throttle
+             #   on memory, and only to be compared with itself:  the throttle
+             #   turns a weight into bytes with a rate it measures - see
+             #   '_estimate'
+             unitWeight => undef,
+             %opts,
+             children       => {},  # pid -> [$unit, $id, $forkAt]
+             retryCounts    => {},  # id -> times this unit has been retried
+             failedAttempts => 0,   # consecutive fork() failures
+             ready          => {},  # 'ordered': id -> payload awaiting its turn
+             nextToMerge    => 0,
+             delay          => 0,   # seconds spent inside wait()
+                 # what we predicted the children now running would cost:
+                 #   pid -> [$bytes, $weight, $baseAtFork] - see '_estimate'
+             reserved => {},
+             # the marginal cost the children which have finished really had,
+             #   and the weight they had it for:  the ratio is the rate
+             learnedBytes  => 0,
+             learnedWeight => 0,
+        };
+        foreach my $required ('tempDir', 'next',
+                              'child', 'merge',
+                              'requeue', 'forkFailWhen',
+                              'retryWhen', 'mergeFailMessage',
+                              'childFailMessage'
+        ) {
+            die("ForkManager: '$required' is required")
+                unless exists($self->{$required});
+        }
+        # The caller's temp directory is often a File::Temp object, whose
+        #   destructor removes the directory - so keep the name, and let the
+        #   caller keep the object for as long as it wants the directory.
+        #   It can be undefined for a client whose work all turned out to be
+        #   small enough to do here:  then there is no child, and no dump.
+        $self->{tempDir} = defined($self->{tempDir}) ? '' . $self->{tempDir} :
+            '';
+        return bless($self, $class);
+    }
+
+    sub count
+    {
+        # children forked and not yet reaped
+        return scalar(keys(%{$_[0]->{children}}));
+    }
+
+    sub delay_timer
+    {
+        return $_[0]->{delay};
+    }
+
+    sub _dumpfile
+    {
+        my ($self, $pid) = @_;
+        return File::Spec->catfile($self->{tempDir}, "dumper_$pid");
+    }
+
+    sub _estimate
+    {
+        # What a child running this unit will cost us, in bytes:  a copy of us
+        #   as we are now, plus what the unit itself adds.  Returns
+        #   ($bytes, $weight, $base) - the parts the throttle's message needs.
+        #
+        # The unit's own cost is its weight - the client's count of the work in
+        #   it (records, input bytes, ..) - times the bytes per unit of weight
+        #   the children which have already finished really used.  That is,
+        #   what a worker holds scales with how many records it was given, not
+        #   with how big the parent happens to be at the moment it is forked.
+        #
+        # Until a child has finished, and for a client which cannot weigh its
+        #   units, there is no rate - and then the estimate is just our own
+        #   size.  This used to be the metric used by all the parallel-fork
+        #   clients.
+        my ($self, $unit, $id) = @_;
+
+        my $base = lcovutil::current_process_size();
+        my $weight =
+            ($self->{unitWeight} && defined($unit)) ?
+            $self->{unitWeight}->($unit, $id) :
+            0;
+        # The weight is reported either way:  it is what '_learn' will divide
+        #   the first child's real cost by, so a rate can only ever be measured
+        #   if the weight survives the fork with no rate in hand.
+        return ($base, $weight, $base)
+            unless ($weight && $self->{learnedWeight});
+        return (
+               $base + $weight * $self->{learnedBytes} / $self->{learnedWeight},
+               $weight, $base);
+    }
+
+    sub _learn
+    {
+        # What this child really cost, against the size we were when we forked
+        #   it:  the difference is what its unit added, which is the quantity the
+        #   estimate needs.  '$peak' is the child's peak - it is the peak the
+        #   ceiling has to hold, not whatever the child happened to be using when
+        #   it finished.
+        #
+        # Accumulated as a total rather than kept as the largest ratio seen:  a
+        #   single small unit which grew for some other reason would otherwise fix
+        #   the rate at its own ratio forever and throttle everything behind it to
+        #   one child at a time.
+        my ($self, $reserved, $peak) = @_;
+
+        my ($weight, $base) = @{$reserved}[1, 2];
+        return unless ($weight && $peak && $peak > $base);
+        $self->{learnedBytes}  += $peak - $base;
+        $self->{learnedWeight} += $weight;
+    }
+
+    sub fork_one
+    {
+        # Fork one unit.  Returns the child's pid, or 0 if the fork failed - in
+        #   which case the unit has already been requeued and the failure
+        #   reported, and the caller should just carry on:  'report_fork_failure'
+        #   is what escalates to a hard error once one unit has failed too often.
+        my ($self, $unit, $id) = @_;
+
+        $lcovutil::deferWarnings = 1;
+        my $forkAt = Time::HiRes::gettimeofday();
+        # 'LCOV_FORCE_STORE_FAIL=N':  the next N children cannot write the data
+        #   they computed - which is what a full or read-only filesystem looks
+        #   like.  Taken here, in the parent, so N is a count of injected
+        #   failures rather than a count per child;  the child inherits the
+        #   decision because it is a copy of us.  Same rule as the knobs in
+        #   'fork_child' - see there for why none of these is an option.
+        my $failStore = 0;
+        if ($lcovutil::forceStoreFail) {
+            --$lcovutil::forceStoreFail;
+            $failStore = 1;
+        }
+        # the temp directory and prefix are for the fault injections, which need
+        #   to know where this child's output and data would have gone
+        my $pid = lcovutil::fork_child($self->{tempDir}, $self->{prefix});
+        if (!defined($pid)) {
+            my $err = $!;    # before anything else can overwrite it
+            ++$self->{failedAttempts};
+            lcovutil::report_fork_failure($self->{forkFailWhen}->($id, $unit),
+                                          $err, $self->{failedAttempts});
+            $self->{requeue}->($unit, $id);
+            return 0;
+        }
+        $self->{failedAttempts} = 0;
+        if (0 == $pid) {
+            # I'm the child.  This does not return.
+            exit($self->_run_child($unit, $id, $forkAt, $failStore));
+        }
+        $self->{children}->{$pid} = [$unit, $id, $forkAt];
+        # Hold what we predicted this one costs until it is reaped:  the throttle
+        #   adds the reservations up rather than assuming that every child is the
+        #   size we happen to be right now - which is the "wrong in when it is
+        #   taken" half of section 11.6's finding.
+        $self->{reserved}->{$pid} = [$self->_estimate($unit, $id)]
+            if $self->{memoryThrottle};
+        $self->{postFork}->($unit, $id, $pid) if $self->{postFork};
+        return $pid;
+    }
+
+    sub _run_child
+    {
+        my ($self, $unit, $id, $forkAt, $failStore) = @_;
+
+        $self->{childInit}->($unit, $id) if $self->{childInit};
+        # The job label has to be unique across the whole run - see
+        #   'initial_state' - which is not the same requirement as the merge
+        #   order's "0 .. N-1, in dispatch order".  A client whose ids are
+        #   positions in its own queue says here what to call this job instead.
+        my $jobId  = $self->{jobId} ? $self->{jobId}->($unit, $id) : $id;
+        my $state  = lcovutil::initial_state($self->{phase}, $jobId);
+        my $tmp    = $self->{tempDir};
+        my $prefix = $self->{prefix};
+        my $status = 0;
+        my $payload;
+        # 'capture' rather than reopening STDOUT/STDERR:  a child may itself run
+        #   a subprocess (gcov) whose output has to be redirected too, and
+        #   reopening the descriptors does not survive that - see the
+        #   Capture::Tiny documentation
+        my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+            my $childStatus;
+            eval {
+                ($payload, $childStatus) =
+                    $self->{child}->($unit, $id, $forkAt, $jobId);
+            };
+            if ($@) {
+                print(STDERR $@);
+                $status = 1;
+            } elsif (defined($childStatus)) {
+                $status = $childStatus;
+            }
+        };
+        # the parent may already have caught an error, removed the temp directory
+        #   and exited
+        lcovutil::check_parent_process();
+        foreach
+            my $d (["${prefix}_$$.log", $stdout], ["${prefix}_$$.err", $stderr])
+        {
+            next unless ($d->[1]);    # only if there is something to say
+            my $f = InOutFile->out(File::Spec->catfile($tmp, $d->[0]));
+            my $h = $f->hdl();
+            print($h $d->[1]);
+        }
+        if (defined($payload)) {
+            # the injected failure writes to a directory which is not there, so
+            #   that the arm below is reached by 'Storable' failing rather than by
+            #   this code pretending that it did
+            my $dumpf =
+                $failStore ?
+                File::Spec->catfile($tmp, 'no_such_directory', "dumper_$$") :
+                $self->_dumpfile($$);
+            my $dumpStart = Time::HiRes::gettimeofday();
+            my $data;
+            # What I really cost, for the parent's memory estimate - see
+            #   'ForkManager::_learn'.  Read here rather than taken out of the
+            #   profile data, which carries the same number home but only when
+            #   '--profile' asked for it, and the throttle has to work either
+            #   way.  The peak of the same measure the parent throttles on, so
+            #   that the two are comparable;  zero where the OS will not say
+            #   (see 'read_proc_peak_memory'), which the parent reads as "no
+            #   measurement" and falls back from.
+            my $peak = (lcovutil::read_proc_peak_memory())[1];
+            eval {
+                $data =
+                    Storable::store([@$payload,
+                                     lcovutil::compute_update($state), $peak
+                                    ],
+                                    $dumpf);
+            };
+            if ($@ || !defined($data)) {
+                lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
+                              "Child $$ serialize failed" . ($@ ? ": $@" : ''));
+                # a child whose data did not get written must not tell the parent
+                #   that it succeeded:  the parent would read a file which is not
+                #   there, or is half written, instead of running the unit again
+                $status = 1;
+            }
+            $self->{postStore}->($unit, $id, $dumpf, $dumpStart)
+                if $self->{postStore};
+        }
+        return $status;
+    }
+
+    sub reap_one
+    {
+        # Wait for one of our children and merge what it left behind.  Returns
+        #   the number of our children which stopped running, which is 1 or 0:
+        #   a process we did not fork says nothing about the ones we are waiting
+        #   for, so it is reported and otherwise ignored.  A caller which counted
+        #   it would call 'wait()' again for a child which does not exist.
+        my ($self, $blocking) = @_;
+
+        my $children = $self->{children};
+        while (1) {
+            my $waitStart = Time::HiRes::gettimeofday();
+            my $child     = $blocking ? wait() : waitpid(-1, POSIX::WNOHANG);
+            my $rawStatus = $?;
+            my $reapAt    = Time::HiRes::gettimeofday();
+            $self->{delay} += $reapAt - $waitStart;
+            return 0 if ($child <= 0);    # nothing (more) to reap
+            unless (exists($children->{$child})) {
+                lcovutil::report_unknown_child($child);
+                # keep looking for one of ours:  blocking or not, the next call
+                #   is the one which decides - 'waitpid' returns -1 when there is
+                #   nothing left, and we return 0 then
+                next;
+            }
+            if ($self->{wrapReap}) {
+                # a client which reports a failed merge itself, once, at the
+                #   outside - rather than having each thing which can go wrong
+                #   report it where it happened
+                eval { $self->_reap($child, $rawStatus, $reapAt); };
+                $self->{wrapReap}->($child, $rawStatus, $@) if $@;
+            } else {
+                $self->_reap($child, $rawStatus, $reapAt);
+            }
+            return 1;
+        }
+    }
+
+    sub _reap
+    {
+        my ($self, $child, $rawStatus, $reapAt) = @_;
+
+        my $children = $self->{children};
+        my ($unit, $id, $forkAt) = @{delete($children->{$child})};
+        # this one is not running any more, so the memory we were holding for it
+        #   is available to whatever we fork next
+        my $reserved    = delete($self->{reserved}->{$child});
+        my $childstatus = $rawStatus >> 8;
+        my $dumpfile    = $self->_dumpfile($child);
+        # the still-running children, for the messages:  a failure here can be a
+        #   symptom of something which is about to happen to them too
+        my $ctx = {
+                   child     => $child,
+                   id        => $id,
+                   unit      => $unit,
+                   forkAt    => $forkAt,
+                   reapAt    => $reapAt,
+                   dumpfile  => $dumpfile,
+                   status    => $childstatus,
+                   rawStatus => $rawStatus,
+                   siblings  => [keys(%$children)],
+        };
+        $self->{preMerge}->($ctx) if $self->{preMerge};
+        my $signal =
+            lcovutil::report_child_output(
+                            $self->{tempDir}, $self->{prefix}, $child,
+                            $rawStatus, $self->{operation}, $self->{showStdout},
+                            $self->{retryOnOOM}, @{$ctx->{siblings}});
+        my $data = Storable::retrieve($dumpfile)
+            if (-f $dumpfile && 0 == $childstatus);
+        if (defined($data)) {
+            eval {
+                my @payload = @$data;
+                # the two things the framework itself appended, innermost last
+                my $peak   = pop(@payload);
+                my $update = pop(@payload);
+                lcovutil::update_state(@$update);
+                $self->_learn($reserved, $peak) if $reserved;
+                $ctx->{payload} = \@payload;
+                # 'validate' returning false means "I have said what is wrong
+                #   with this data, do not merge it" - and it is not an error
+                #   here, so nothing else is reported
+                my $ok =
+                    $self->{validate} ?
+                    $self->{validate}->(\@payload, $ctx) :
+                    1;
+                $self->_merge_payload($ok ? \@payload : undef, $ctx);
+            };
+            if ($@) {
+                $ctx->{error} = $@;
+                # a client with a 'wrapReap' says what went wrong out there
+                die($@) if $self->{rethrowMergeFailure};
+                # the reporters take the wait status apart themselves, so hand
+                #   them '$?' as we got it:  an already shifted value turns "exit
+                #   status 1" into "died due to signal 1 (SIGHUP)".  '1 << 8' is
+                #   the raw status of "exited with 1", which is what we blame the
+                #   failure on when the child thought it had succeeded.
+                $rawStatus = 1 << 8 unless $rawStatus;
+                lcovutil::report_parallel_error(
+                    $self->{operation},
+                    (exists($self->{mergeFailError}) ? $self->{mergeFailError} :
+                         $lcovutil::ERROR_PARALLEL),
+                    $child,
+                    $rawStatus,
+                    $self->{mergeFailMessage}->($ctx),
+                    @{$ctx->{siblings}});
+            }
+        }
+        if (!defined($data) || 0 != $childstatus) {
+            if ((!-f $dumpfile && !$self->{mayNotDump}) ||
+                POSIX::SIGKILL == $signal) {
+                lcovutil::report_retry(
+                           $self->{retryCounts},
+                           $id,
+                           $self->{retryWhen}->($ctx),
+                           (POSIX::SIGKILL == $signal ?
+                                "killed by OS - possibly due to out-of-memory" :
+                                "serialized data $dumpfile not found"));
+                $self->{requeue}->($unit, $id);
+            } elsif (0 != $childstatus) {
+                lcovutil::report_parallel_error(
+                                              $self->{operation},
+                                              (exists($self->{childFailError}) ?
+                                                   $self->{childFailError} :
+                                                   $lcovutil::ERROR_CHILD),
+                                              $child,
+                                              $rawStatus,
+                                              $self->{childFailMessage}->($ctx),
+                                              @{$ctx->{siblings}});
+            }
+        }
+        $self->{postReap}->($ctx) if $self->{postReap};
+        unlink($dumpfile) if -f $dumpfile;
+    }
+
+    sub _merge_payload
+    {
+        my ($self, $payload, $ctx) = @_;
+
+        if (!$self->{ordered}) {
+            $self->{merge}->($ctx->{unit}, $ctx->{id}, $payload, $ctx)
+                if defined($payload);
+            return;
+        }
+        # Merge in the order the units were dispatched rather than the order the
+        #   children happen to finish in:  a file level comment is held in a list
+        #   whose order is the order it was merged in, and the user gets to see
+        #   their own order.  A finished unit waits its turn.
+        $self->{ready}->{$ctx->{id}} = [$payload, $ctx];
+        $self->drain_ready();
+    }
+
+    sub drain_ready
+    {
+        # Merge whatever is now next in line.  Public because a retried unit can
+        #   be the last one to arrive, after the loop has already finished.
+        my $self  = shift;
+        my $ready = $self->{ready};
+        while (exists($ready->{$self->{nextToMerge}})) {
+            my ($payload, $ctx) = @{delete($ready->{$self->{nextToMerge}})};
+            ++$self->{nextToMerge};
+            # a unit whose data we rejected still had its turn:  otherwise
+            #   everything behind it waits for a merge which will never happen
+            $self->{merge}->($ctx->{unit}, $ctx->{id}, $payload, $ctx)
+                if defined($payload);
+        }
+    }
+
+    sub throttle
+    {
+        # Reap while we are oversubscribed:  too many children, or - for the
+        #   clients which ask - too much memory for the one we are about to add.
+        #   '$unit' is that one, when the caller knows it:  then the memory
+        #   question is asked about the work it actually holds rather than about
+        #   an average unit.  Returns how many we reaped.
+        my ($self, $unit, $id) = @_;
+        my $reaped = 0;
+
+        my $limit = defined($self->{maxInFlight}) ? $self->{maxInFlight} :
+            $lcovutil::maxParallelism;
+        while (1) {
+            my $running = $self->count();
+            my $tooBig  = 0;
+            my $message;
+            if ($self->{memoryThrottle} && 0 != $lcovutil::maxMemory) {
+                # Everything which will be alive once we fork:  us, the children
+                #   we are already holding memory for, and the one we are about
+                #   to add.  Each child's own size covers a copy of us, so the
+                #   parent's size appears in each of them as well as on its own -
+                #   as it did in the '(children + 1) * <our size>' estimate this
+                #   replaces.
+                my $mySize   = lcovutil::current_process_size();
+                my $inFlight = 0;
+                $inFlight += $_->[0] foreach (values(%{$self->{reserved}}));
+                my ($next, $weight) = $self->_estimate($unit, $id);
+                my $total = $mySize + $inFlight + $next;
+                $tooBig = ($running > 1 && $total > $lcovutil::maxMemory);
+                $message =
+                    "memory constraint $mySize (me) + $inFlight ($running running) + "
+                    . int($next)
+                    . ' (next'
+                    .
+                    (($weight && $self->{learnedWeight}) ?
+                         sprintf(': %d units at %0.1f bytes each',
+                                 $weight,
+                                 $self->{learnedBytes} / $self->{learnedWeight})
+                     :
+                         '') .
+                    ") > $lcovutil::maxMemory"
+                    if $tooBig;
+            }
+            last unless ($running >= $limit || $tooBig);
+            lcovutil::info(1,
+                           "$message violated: waiting.  "
+                               .
+                               ($self->{remaining} ? $self->{remaining}->() :
+                                    $running) .
+                               " remaining\n") if $tooBig;
+            last unless $self->reap_one(1);
+            ++$reaped;
+        }
+        return $reaped;
+    }
+
+    sub run
+    {
+        # The whole sequence, for a client whose queue is just a list:  dispatch
+        #   until it is dry, drain, and go round again in case a unit which died
+        #   was put back.
+        my $self = shift;
+
+        do {
+            while (1) {
+                # Take the unit before waiting for room for it, rather than
+                #   waiting for room for an average one:  'throttle' estimates
+                #   what the unit it is given will cost.  'next' is also where a
+                #   client does the units which are too small to fork, and doing
+                #   those while the children we have are finishing is no worse
+                #   than doing them before we wait.
+                my ($unit, $id) = $self->{next}->();
+                last unless defined($id);
+                $self->throttle($unit, $id);
+                $self->fork_one($unit, $id);
+            }
+            while ($self->count()) {
+                $self->reap_one(1);
+            }
+        } while ($self->{more}->());
+        $self->drain_ready() if $self->{ordered};
     }
 }
 
@@ -4178,6 +5102,30 @@ sub remove
     return 0;
 }
 
+sub _checkCounts
+{
+    # Assert that the cached found/hit still equal what a full walk of the data
+    #   says they should be.  'append' and 'remove' maintain them incrementally,
+    #   so any path which mutates the same map twice - which is what happens if
+    #   an aliased summary is treated as an object independent of the
+    #   per-testcase map it aliases - drives them away from the truth silently.
+    #   This is the counterpart of 'BranchData::_checkCounts', and like it is
+    #   run unconditionally from 'TraceInfo::check_data'.
+    my $self  = shift;
+    my $found = 0;
+    my $hit   = 0;
+
+    foreach my $count (values(%{$self->[HASH]})) {
+        ++$found;
+        ++$hit if $count > 0;
+    }
+    my $name = $self->[FILENAME];
+    die("invalid line counts for $name: found:" .
+        "$self->[FOUND]->$found, hit:$self->[HIT]->$hit")
+        unless ($self->[FOUND] == $found &&
+                $self->[HIT] == $hit);
+}
+
 sub found
 {
     return $_[0]->[FOUND];
@@ -4381,6 +5329,23 @@ sub is_excluded
     return $self->[EXCLUDED];
 }
 
+sub write_data
+{
+    # Batch accessor for the '.info' writer, which uses all the fields.
+    # Returns  ($taken, $id, $expr, $signature, $excluded)
+    # A Perl method call costs on the order of 100ns, so amortizing one frame
+    # is measurably faster.
+    #  Direct slot access at the call site would be faster still, but is
+    #  forbidden: under the XS backend these objects are opaque scalar refs, so
+    #  the win has to come through a method.
+    # The scalar access methods are retained, as other callers use them.
+    my $self = shift;
+    my $t    = $self->[TYPE];
+    return ($self->[TAKEN], $self->[ID],
+            $self->[EXPR], $t == VANILLA ? 'b' : ($t == EXCEPT ? 'e' : 'f'),
+            $self->[EXCLUDED]);
+}
+
 sub set_excluded
 {
     my $self = shift;
@@ -4414,9 +5379,41 @@ sub diff_count
     return @{$self->[DIFF_COUNT]};
 }
 
+sub render_data
+{
+    # Batch accessor mirroring the XS BranchElement::render_data -- see the
+    # comment there.  genhtml's source-view render loop calls this once per
+    # branch element instead of making 8 separate calls;  under XS that is one
+    # Perl<->C++ crossing instead of eight, and this pure-Perl version keeps the
+    # two backends on a single code path in genhtml.
+    #
+    # Returns: (data, count, is_excluded, type_name, expr, tla, base_count)
+    # tla/base_count are undef when the element does not carry them (rather
+    # than dying, as tla()/diff_count() do) because the caller asks for
+    # everything at once and decides what to use.
+    my $self = shift;
+    return ($self->[TAKEN],
+            $self->[TAKEN] eq '-' ? 0 : $self->[TAKEN],
+            $self->[EXCLUDED],
+            $self->type_name(),
+            $self->[EXPR],
+            $self->[TLA],
+            defined($self->[DIFF_COUNT]) ? $self->[DIFF_COUNT]->[0] : undef);
+}
+
 sub set_tla
 {
     my ($self, $tla) = @_;
+    # Same precondition as tla():  a non-differential element has no TLA to set.
+    # Without this guard, filling the TLA slot alone would leave the element
+    # self-contradictory -- isDifferential() (which tests the array's length) still
+    # false, so tla() dies on the value just stored -- and the XS backend, whose
+    # isDifferential() asks "is the differential payload allocated?", would answer
+    # true for the same call.  set_differential() is the way to make an element
+    # differential.  Only genhtml's TLA-remap loop calls set_tla, and it reads
+    # tla() first, so the element is always already differential there.
+    die("unexpected set_tla() call with non-differential data")
+        unless $self->isDifferential();
     $self->[TLA] = $tla;
 }
 
@@ -4467,7 +5464,12 @@ sub merge
         #   set when info file is read - or is set when --unreachable
         #   callback is called - so the two expressions will have both be
         #   unset unless we really are trying to compare
-        my $loc = defined($filename) ? "\"$filename\":$line: " : '';
+        # an empty filename is as useless a label as an absent one:  '"":10:'
+        #   tells the reader nothing, so suppress the prefix for both
+        my $loc =
+            (defined($filename) && '' ne $filename) ?
+            "\"$filename\":$line: " :
+            '';
         lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                            "${loc}mismatched 'unreachable' tag for branch id " .
                                $self->id() . ", " .
@@ -4554,6 +5556,19 @@ sub appendElement
     $self->[SIGNATURE] .= $element->signature();
 }
 
+sub appendNew
+{
+    my $self = shift;
+    # Construct the element and append it, for the caller which wants only the
+    #   append - as reading a '.info' file does, for every branch coverpoint in
+    #   it.  The XS implementation of this builds the element directly inside
+    #   the block, with no intermediate object and no blessed wrapper for it,
+    #   which is the whole point of having the method:  keep the two in step.
+    my $element = BranchElement->new(@_);
+    push(@{$self->[LIST]}, $element);
+    $self->[SIGNATURE] .= $element->signature();
+}
+
 sub merge
 {
     my ($self, $you, $filename, $line) = @_;
@@ -4606,7 +5621,11 @@ sub containsCode
 sub hasBlock
 {
     my ($self, $id) = @_;
-    return $#{$self->[INDEX]} >= $id;
+    # A block ID is a subscript into the block list, so it has a lower bound as
+    #   well as an upper one:  '$#list >= $id' alone is true for any negative
+    #   $id (even on an empty list), and the caller then indexes with it and
+    #   silently gets a block counted from the END of the list.
+    return $id >= 0 && $id <= $#{$self->[INDEX]};
 }
 
 sub removeBlock
@@ -4652,7 +5671,9 @@ sub getBlock
 {
     my ($self, $id) = @_;
     my $list = $self->[INDEX];
-    $id <= $#$list or die("getBlock: unknown block $id");
+    # see the note in hasBlock():  a negative $id passes an upper-bound-only
+    #   check and then indexes from the end of the list
+    $id >= 0 && $id <= $#$list or die("getBlock: unknown block $id");
 
     return $list->[$id];
 }
@@ -4726,6 +5747,25 @@ sub totals
         }
     }
     return ($found, $hit);
+}
+
+sub hasHitElement
+{
+    # Is any element on this line evaluated at least once?
+    # This is the question '0 != ($self->totals($countExcluded))[1]' answers,
+    #   but totals() has to visit every element of every block to produce the
+    #   count it then throws away, whereas this returns on the first hit.
+    #   _checkConsistency asks it once per branch line, so on a large report
+    #   the difference is a few million element visits.
+    my ($self, $countExcluded) = @_;
+    my $skipExcluded = !(defined($countExcluded) && $countExcluded);
+    foreach my $blk ($self->blocks()) {
+        foreach my $br (@{$blk->elements()}) {
+            next if ($skipExcluded && $br->is_excluded());
+            return 1 if 0 != $br->count();
+        }
+    }
+    return 0;
 }
 
 sub merge
@@ -4876,7 +5916,15 @@ sub expressions
 sub expr
 {
     my ($self, $groupSize, $idx) = @_;
-    return $self->[GROUPS]->{$groupSize}->[$idx];
+    # Requested expression is expected to exist:  the caller
+    #   (e.g. scripts/unreach.pm exclude_cond) names a group and an index that
+    #   its own annotation claims exist, so anything out of range is an error.
+    die("expr: unknown group size $groupSize")
+        unless exists($self->[GROUPS]->{$groupSize});
+    my $list = $self->[GROUPS]->{$groupSize};
+    die("expr: invalid expression index $idx in group $groupSize")
+        unless $idx >= 0 && $idx <= $#$list;
+    return $list->[$idx];
 }
 
 sub is_compatible
@@ -4887,9 +5935,13 @@ sub is_compatible
     my $groups = $self->groups();
     foreach my $size (keys %$groups) {
         next unless exists($yours->{$size});
+        my $m = $groups->{$size};
+        my $y = $yours->{$size};
+        # merge() walks the two lists index-wise, so a shared group of unequal
+        #   length leaves my trailing expressions with nothing to merge
+        #   against:  that is an incompatible record not an error.
+        return 0 if scalar(@$m) != scalar(@$y);
         my $idx = 0;
-        my $m   = $groups->{$size};
-        my $y   = $yours->{$size};
         foreach my $e (@$m) {
             my $ye = $y->[$idx++];
             return 0 if $e->expression() ne $ye->expression();
@@ -4962,7 +6014,11 @@ sub set
         $changed = $self->[$sense ? EXCLUDED_true : EXCLUDED_false] != 1;
         $self->[$sense ? EXCLUDED_true : EXCLUDED_false] = 1;
     }
-    return $changed if 0 == $count;
+    # An undefined count means "no count supplied" - only the 'excluded' flag
+    #   above was being set.  Check defined() first:  falling through to the
+    #   numeric comparison behaves the same but warns about an uninitialized
+    #   value (the XS implementation is silent here).
+    return $changed if !defined($count) || 0 == $count;
 
     if ('ARRAY' eq ref($count)) {
         # recording a differential result
@@ -5017,9 +6073,37 @@ sub count
     return $_[0]->[$sense ? TRUE : FALSE];
 }
 
+sub write_data
+{
+    # Batch accessor for the '.info' writer - see BranchElement::write_data.
+    # Returns
+    #   ($count_false, $count_true, $excluded_false, $excluded_true, $expr)
+    my $self = shift;
+    return ($self->[FALSE], $self->[TRUE],
+            $self->[EXCLUDED_false],
+            $self->[EXCLUDED_true],
+            $self->[EXPRESSION]);
+}
+
+sub render_data
+{
+    # Batch accessor mirroring the XS MCDC_Expression::render_data -- see the
+    # comment there.  Returns everything genhtml's MC/DC render loop needs for
+    # one (expression, sense) in a single call:
+    #   (count, expression, is_excluded, multi_group)
+    # Under XS this replaces 5 crossings, two of which (parent() then
+    # num_groups()) allocated an SV for the parent block just to ask how many
+    # groups it has.
+    my ($self, $sense) = @_;
+    return ($self->[$sense ? TRUE : FALSE],
+            $self->[EXPRESSION],
+            $self->[$sense ? EXCLUDED_true : EXCLUDED_false],
+            $self->[PARENT]->num_groups() > 1 ? 1 : 0);
+}
+
 package FunctionEntry;
 # keep track of all the functions/all the function aliases
-#  at a particular line in the file.  THey must all be the
+#  at a particular line in the file.  They must all be the
 #  same function - perhaps just templatized differently.
 
 use constant {
@@ -5645,6 +6729,11 @@ sub remove
 
     return 0 if ($check_if_present && !exists($data->{$line}));
 
+    # Without $check_if_present the caller is asserting the line is there;
+    #   say so explicitly rather than dying inside totals() on undef - and
+    #   match CountData::remove, which likewise dies on an absent key.
+    die("$line not found") unless exists($data->{$line});
+
     my $branch = $data->{$line};
     my ($f, $h) = $branch->totals();
     $self->[FOUND] -= $f;
@@ -5781,8 +6870,21 @@ sub union
     my ($self, $info, $filename) = @_;
     my $changed = 0;
 
-    my $mydata = $self->[BranchMap::DATA];
-    while (my ($line, $yourLocation) = each(%{$info->[BranchMap::DATA]})) {
+    my $mydata   = $self->[BranchMap::DATA];
+    my $yourdata = $info->[BranchMap::DATA];
+    # Keeping the cached found/hit up to date costs, per line you bring, about
+    #   two totals() walks of that line - one before the merge and one after,
+    #   since merge() reports only whether something changed and not by how
+    #   much.  Rebuilding it from scratch afterwards instead costs one totals()
+    #   walk per line *I* hold.  Neither is always cheaper, and the choice can
+    #   be made before doing any work:
+    #     - accumulating many files into one growing map (lcov -a f1 ... -aN)
+    #       is the case the blanket rescan made quadratic in the total number of
+    #       lines;  there the incremental cost is a rounding error.
+    #     - merging two maps that cover the same lines touches everything I
+    #       hold anyway, so the single rescan is the cheaper of the two.
+    my $rescan = 2 * scalar(keys %$yourdata) > scalar(keys %$mydata);
+    while (my ($line, $yourLocation) = each(%$yourdata)) {
         # check if self has corresponding line:
         #  no: just copy all the data for this line, from 'info'
         #  yes: check for matching blocks
@@ -5790,14 +6892,22 @@ sub union
             if exists($mydata->{$line});
         if (!defined($myLocation)) {
             $mydata->{$line} = Storable::dclone($yourLocation);
+            # the copy is identical to yours, so its contribution to our
+            #   cached found/hit is just your totals
+            $self->adjust_counts($yourLocation->totals()) unless $rescan;
             $changed = 1;
-        } else {
+        } elsif ($rescan) {
             $changed = 1
                 if $myLocation->merge($yourLocation, $filename);
+        } else {
+            my ($oldFound, $oldHit) = $myLocation->totals();
+            my $changedHere = $myLocation->merge($yourLocation, $filename);
+            my ($newFound, $newHit) = $myLocation->totals();
+            $self->adjust_counts($newFound - $oldFound, $newHit - $oldHit);
+            $changed = 1 if $changedHere;
         }
     }
-    $self->updateCounts()
-        if $changed;
+    $self->updateCounts() if ($rescan && $changed);
     return $changed;
 }
 
@@ -5815,6 +6925,12 @@ sub intersect
             my $myLoc   = $mydata->{$line};
             my $yourLoc = $yourdata->{$line};
 
+            # Remember what this line contributes to the cached found/hit
+            #   before the merges below mutate my blocks in place.
+            # remove() can't do the subtraction because it subtracts the
+            #   block totals which exists when called - by then it is the
+            #   merged value rather than the original value
+            my ($oldFound, $oldHit) = $myLoc->totals();
             my $replace     = BranchLocation->new($line);
             my $changedHere = 0;
             foreach my $code ($myLoc->codes(1)) {
@@ -5837,17 +6953,27 @@ sub intersect
             }
             if ($changedHere) {
                 $changed = 1;
-                $self->remove($line);
-                $mydata->{$line} = $replace
-                    if $replace->numBlocks() != 0;
+                delete($mydata->{$line});
+                $self->adjust_counts(-$oldFound, -$oldHit);
+                if ($replace->numBlocks() != 0) {
+                    $mydata->{$line} = $replace;
+                    # this is the count-add the blanket rescan used to supply:
+                    #   the replacement was installed without ever telling the
+                    #   cache about it
+                    $self->adjust_counts($replace->totals());
+                }
             }
+            # No 'else' branch:  $changedHere is 0 only when every one of
+            #   my codes was matched and every element merge reported no
+            #   change: a no-change merge cannot have moved this line's
+            #   found/hit.
         } else {
             # my line not found in your data - so remove this one
             $changed = 1;
+            # nothing mutated here - remove() subtracts the right totals
             $self->remove($line);
         }
     }
-    $self->updateCounts() if $changed;
     return $changed;
 }
 
@@ -5890,12 +7016,16 @@ sub difference
         }
         if ($changedHere) {
             $changed = 1;
+            # nothing above mutated my blocks - only clones were taken - so
+            #   remove() subtracts correctly
             $self->remove($line);
-            $mydata->{$line} = $replace
-                if $replace->numBlocks() != 0;
+            if ($replace->numBlocks() != 0) {
+                $mydata->{$line} = $replace;
+                # the count-add the blanket rescan used to supply
+                $self->adjust_counts($replace->totals());
+            }
         }
     }
-    $self->updateCounts() if $changed;
     return $changed;
 }
 
@@ -5914,14 +7044,28 @@ sub append_mcdc
 {
     my ($self, $mcdc, $filename) = @_;
     my $line = $mcdc->line();
-    if (exists($self->[BranchMap::DATA]->{$line})) {
-        $self->[BranchMap::DATA]->{$line}->merge($mcdc, $filename);
-    } else {
-        $self->[BranchMap::DATA]->{$line} = $mcdc;
+    my $data = $self->[BranchMap::DATA];
+    unless (exists($data->{$line})) {
+        # Store a copy, as union() does:  the caller keeps ownership of the
+        #   block it passed in, so later mutations of it must not silently
+        #   change the data we just recorded.
+        my $c = Storable::dclone($mcdc);
+        $data->{$line} = $c;
+        my ($found, $hit) = $c->totals();
+        $self->[BranchMap::FOUND] += $found;
+        $self->[BranchMap::HIT]   += $hit;
+        return;
     }
-    my ($found, $hit) = $mcdc->totals();
-    $self->[BranchMap::FOUND] += $found;
-    $self->[BranchMap::HIT]   += $hit;
+    # Merging into an existing block:  only the delta this merge produced may
+    #   be added to the cached totals.  Adding $mcdc->totals() unconditionally
+    #   double-counted every expression the two blocks have in common, which
+    #   left FOUND/HIT above the true totals and made _checkCounts() die.
+    my $myBlock = $data->{$line};
+    my ($oldFound, $oldHit) = $myBlock->totals();
+    $myBlock->merge($mcdc, $filename);
+    my ($newFound, $newHit) = $myBlock->totals();
+    $self->[BranchMap::FOUND] += $newFound - $oldFound;
+    $self->[BranchMap::HIT]   += $newHit - $oldHit;
 }
 
 sub new_mcdc
@@ -5938,18 +7082,9 @@ sub new_mcdc
 
 sub close_mcdcBlock
 {
+    # Add the totals of a just-completed block to our cached found/hit.
     my ($self, $mcdc) = @_;
-    my $found = 0;
-    my $hit   = 0;
-    while (my ($groupSize, $exprs) = each(%{$mcdc->groups()})) {
-        foreach my $e (@$exprs) {
-            $found += 2;
-            ++$hit if $e->count(0);
-            ++$hit if $e->count(1);
-        }
-    }
-    $self->[BranchMap::FOUND] += $found;
-    $self->[BranchMap::HIT]   += $hit;
+    $self->adjust_counts($mcdc->totals());
 }
 
 sub _calculate_counts
@@ -5966,13 +7101,35 @@ sub _calculate_counts
     $self->[BranchMap::HIT]   = $hit;
 }
 
+sub _checkCounts
+{
+    # MC/DC consistency checking:  similar to the 'branch' version
+    my $self  = shift;
+    my $found = 0;
+    my $hit   = 0;
+
+    while (my ($line, $block) = each(%{$self->[BranchMap::DATA]})) {
+        $line == $block->line() or die("lost track of line");
+        my ($f, $h) = $block->totals();
+        $found += $f;
+        $hit   += $h;
+    }
+    die("invalid MC/DC counts: found:" . $self->[BranchMap::FOUND] .
+        "->$found, hit:" . $self->[BranchMap::HIT] . "->$hit")
+        unless ($self->[BranchMap::FOUND] == $found &&
+                $self->[BranchMap::HIT] == $hit);
+}
+
 sub union
 {
     my ($self, $info, $filename) = @_;
     my $changed = 0;
 
-    my $mydata = $self->[BranchMap::DATA];
-    while (my ($line, $yourBranch) = each(%{$info->[BranchMap::DATA]})) {
+    my $mydata   = $self->[BranchMap::DATA];
+    my $yourdata = $info->[BranchMap::DATA];
+    # incremental vs. rescan - see BranchData::union for the cost model
+    my $rescan = 2 * scalar(keys %$yourdata) > scalar(keys %$mydata);
+    while (my ($line, $yourBranch) = each(%$yourdata)) {
         # check if self has corresponding line:
         #  no: just copy all the data for this line, from 'info'
         #  yes: check for matching blocks
@@ -5980,21 +7137,35 @@ sub union
         if (!defined($myBranch)) {
             my $c = Storable::dclone($yourBranch);
             $mydata->{$line} = $c;
-            $self->close_mcdcBlock($c);
+            $self->close_mcdcBlock($c) unless $rescan;
             $changed = 1;
             next;
         }
 
         # check if we are compatible.
         if ($myBranch->is_compatible($yourBranch)) {
-            $changed += $myBranch->merge($yourBranch, $filename);
+            # '= 1' rather than '+= ': the return value is a boolean
+            #   'did anything change', and a running sum of per-line merge
+            #   results would depend on hash iteration order (a new line
+            #   contributes 1, a changed line contributes 1 as well, so the
+            #   total is not even a well-defined count of anything).
+            if ($rescan) {
+                $changed = 1
+                    if $myBranch->merge($yourBranch, $filename);
+            } else {
+                my ($oldFound, $oldHit) = $myBranch->totals();
+                my $changedHere = $myBranch->merge($yourBranch, $filename);
+                my ($newFound, $newHit) = $myBranch->totals();
+                $self->adjust_counts($newFound - $oldFound, $newHit - $oldHit);
+                $changed = 1 if $changedHere;
+            }
         } else {
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                                       "cannot merge inconsistent MC/DC record");
             # possibly remove this record?
         }
     }
-    $self->_calculate_counts();
+    $self->_calculate_counts() if $rescan;
     return $changed;
 }
 
@@ -6012,18 +7183,23 @@ sub intersect
             my $myBranch   = $mydata->{$line};
 
             if ($myBranch->is_compatible($yourBranch)) {
-                $changed += $myBranch->merge($yourBranch, $filename);
+                # bracket the merge - see union() above
+                my ($oldFound, $oldHit) = $myBranch->totals();
+                my $changedHere = $myBranch->merge($yourBranch, $filename);
+                my ($newFound, $newHit) = $myBranch->totals();
+                $self->adjust_counts($newFound - $oldFound, $newHit - $oldHit);
+                $changed = 1 if $changedHere;
             } else {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                                       "cannot merge inconsistent MC/DC record");
                 # possibly remove this record?
             }
         } else {
+            # remove() is already incremental
             $self->remove($line);
             $changed = 1;
         }
     }
-    $self->_calculate_counts();
     return $changed;
 }
 
@@ -6036,11 +7212,13 @@ sub difference
     my $mydata   = $self->[BranchMap::DATA];
     foreach my $line (keys %$mydata) {
         if (exists($yourData->{$line})) {
+            # remove() subtracts the removed line's totals from the cached
+            #   found/hit, and nothing else here mutates the map - so there is
+            #   nothing left for a recalculation to fix up
             $self->remove($line);
             $changed = 1;
         }
     }
-    $self->_calculate_counts();
     return $changed;
 }
 
@@ -6054,6 +7232,7 @@ use constant {
               SRC_READER        => 4,
               BRANCHES          => 5,
               PER_TEST_BRANCHES => 6,
+              ALIASED           => 7,    # BRANCHES is one of PER_TEST_BRANCHES
 };
 
 sub new
@@ -6073,7 +7252,12 @@ sub new
 
 sub removeBranches
 {
-    my ($self, $line, $branches, $filter, $unreachable, $isMasterData) = @_;
+    # '$weight' is how many passes this one call stands in for:  2 when the
+    #   summary and the single testcase's map are the same object, so that the
+    #   coverpoint tally below is what two separate passes would have produced.
+    my ($self, $line, $branches, $filter, $unreachable, $isMasterData, $weight)
+        = @_;
+    $weight = 1 unless defined($weight);
 
     my $brdata = $branches->value($line);
     return 0 unless defined($brdata);
@@ -6085,7 +7269,20 @@ sub removeBranches
         if ($unreachable && 0 != $brdata->count());
     my $modified = 0;
     my $blkIdx   = 0;
-    foreach my $block ($brdata->blocks()) {
+    # Walk the blocks by position rather than over a snapshot from blocks():
+    # this loop can call removeBlock, which renumbers the surviving blocks, and
+    # under the XS backend a BranchBlock handed out by blocks() is a borrowed
+    # pointer into the location's block container -- a container that removeBlock
+    # mutates, dangling every other borrow still held by the loop.  (Pure Perl
+    # can use the snapshot because it holds real block references.)
+    # Fetching the block for the current position on each iteration keeps no
+    # handle alive across a mutation, and reproduces the pure-Perl visit order
+    # exactly: removeBlock only shifts blocks at positions above the one it
+    # drops, so on removal the next unvisited block lands at the position just
+    # vacated and $pos must NOT advance.
+    my $pos = 0;
+    while ($pos < $brdata->numBlocks()) {
+        my $block    = $brdata->getBlock($pos);
         my $elements = $block->elements();
         my $nElems   = 0;
         my $count    = 0;
@@ -6117,23 +7314,30 @@ sub removeBranches
                            "$filename:$line: remove $count exception branch" .
                                (1 == $count ? '' : 'es') . "\n")
                 if $isMasterData;
-            $filter->[-1] += $count;
+            $filter->[-1] += $count * $weight;
         }
         my $remaining = $nElems - $count;
         # If there is only one branch left - then this is not a conditional
+        my $removed = 0;
         if (0 == $remaining) {
             lcovutil::info(2,
                            "$filename:$line: remove exception block $blkIdx\n");
             $brdata->removeBlock($block, $branches);
+            $removed = 1;
         } elsif (1 == $remaining &&
                  defined($self->[ORPHAN_f])) {    # filter orphan
             lcovutil::info(2,
                     "$filename:$line: remove orphan exception block $blkIdx\n");
             $brdata->removeBlock($block, $branches);
+            $removed = 1;
             ++$self->[ORPHAN_f]->[-2]
                 if $isMasterData;
-            ++$self->[ORPHAN_f]->[-1];
+            $self->[ORPHAN_f]->[-1] += $weight;
         }
+        # $blkIdx counts blocks as originally numbered (for the messages above);
+        # $pos tracks the live container, so it only advances when nothing was
+        # spliced out from under it.
+        ++$pos unless $removed;
         ++$blkIdx;
     }
     if (0 == $brdata->numBlocks()) {
@@ -6147,15 +7351,27 @@ sub removeBranches
 sub applyFilter
 {
     my ($self, $filter, $line, $unreachable) = @_;
+    # When the summary is aliased to the single testcase's map, the summary pass
+    #   and that testcase's pass are the same pass over the same object:  do it
+    #   once.  'removeBranches' counts every coverpoint it excludes into
+    #   '$filter->[-1]' on both passes, so the one remaining pass carries the
+    #   weight of the two it replaces and the reported total does not change.
+    #   ('[-2]', the number of locations, is only counted for the master pass,
+    #   so it is unaffected either way.)
+    my $aliased = $self->[ALIASED];
     my $modified =
         $self->removeBranches($line, $self->[BRANCHES], $filter, $unreachable,
-                              1);
+                              1, $aliased ? 2 : 1);
     my $perTestBranches = $self->[PER_TEST_BRANCHES];
     foreach my $tn ($perTestBranches->keylist()) {
+        next
+            if $aliased &&
+            Scalar::Util::refaddr($perTestBranches->value($tn)) ==
+            Scalar::Util::refaddr($self->[BRANCHES]);
         # want to remove matching branches everywhere - so we don't want short-circuit evaluation
         $modified = 1
             if $self->removeBranches($line, $perTestBranches->value($tn),
-                                     $filter, $unreachable, 0);
+                                     $filter, $unreachable, 0, 1);
     }
     return $modified;
 }
@@ -6204,6 +7420,23 @@ use constant {
               INTERSECT  => 1,
               DIFFERENCE => 2,
 };
+
+# The slots whose summary is allowed to be an alias of a per-testcase map - see
+#   'isAliased'.  This is the single point of control:  '_installSection' will
+#   only install an alias for a slot named here, and 'materializeAggregates'
+#   breaks the alias for exactly the same set.  The two must agree - an alias
+#   installed for a slot this list omits would never be broken.
+use constant ALIASED_SLOTS =>
+    (LINE_DATA, FUNCTION_DATA, BRANCH_DATA, MCDC_DATA);
+# ...and the same set as a lookup, for the per-slot test in '_installSection'
+our %MAY_ALIAS_SLOT = map({ ($_ => 1) } ALIASED_SLOTS);
+
+# Every coverage type this file holds, as [slot, name], where the name is the one
+#   the type goes by in user-facing messages.  Report order.
+use constant COVERAGE_TYPES => ([LINE_DATA, 'line'],
+                                [FUNCTION_DATA, 'function'],
+                                [BRANCH_DATA, 'branch'],
+                                [MCDC_DATA, 'MC/DC']);
 
 sub new
 {
@@ -6415,6 +7648,135 @@ sub sumbr
     return $self->[BRANCH_DATA]->[0];
 }
 
+sub isAliased
+{
+    # True when the summary map for $slot is the very object that one testcase's
+    #   map is, rather than an independent copy of it.  When a section is the
+    #   only one holding data for $slot, the summary would be a bit-identical
+    #   copy of that one testcase's map, so the reader aliases the two rather
+    #   than keeping both - see '_installSection'.
+    # Code which mutates the summary and the per-testcase data as two separate
+    #   steps needs to know:  with an alias in place both steps act on one
+    #   object, so the second is redundant at best and fatal at worst.
+    # $slot is one of ALIASED_SLOTS:  each holds [summary, per-testcase map],
+    #   and the alias has the same shape in each.
+    #
+    # Ask per slot, not once for the whole TraceInfo.
+    #   In all normal cases, a single testname means every coverage type
+    #     present is aliased.  This is true of all 'capture' data...there is
+    #     only one testname per capture, and all data is aliased.
+    #   In weird cases, this might not be true after 'merge' - specifically
+    #     if one 'testname' contains both MC/DC and branch data (say) and
+    #     another contains only branch data...then MC/DC data will be
+    #     aliased, but branch data won't be.
+    #     This probably makes no sense in practice - only an artifact of
+    #     a bloody-minded user.
+    # '_installSection' installs one only when that type's per-testcase map
+    #    and summary are both still empty - and a merge can leave the types
+    #   in different states.
+    my ($self, $slot)   = @_;
+    my ($sum, $perTest) = @{$self->[$slot]};
+    my $addr = Scalar::Util::refaddr($sum);
+    foreach my $testname ($perTest->keylist()) {
+        return 1
+            if Scalar::Util::refaddr($perTest->value($testname)) == $addr;
+    }
+    return 0;
+}
+
+sub _materialize_aggregate
+{
+    # Break the alias described in 'isAliased', by giving the summary a copy of
+    #   its own contents, for callers which really do need two independent
+    #   objects - see 'TraceInfo::merge', which merges another TraceInfo's data
+    #   into each per-testcase map and then into the summary, and which can end
+    #   up with more testcases than the one an alias is valid for.
+    # Where the two mutations are the same mutation, prefer 'isAliased' and just
+    #   do it once:  that is cheaper than this, which copies the whole map.
+    # The alias is detected rather than tracked in a flag, so this is safe to
+    #   call unconditionally and callers need not know whether one is in place.
+    #   It is also idempotent:  after the copy, nothing aliases the summary.
+    my ($self, $slot) = @_;
+    return 0 unless $self->isAliased($slot);
+    # leave the per-testcase map alone and give the summary the copy:  the
+    #   summary is the merge over all testcases, which for one testcase is
+    #   exactly a copy of its map
+    $self->[$slot]->[0] = Storable::dclone($self->[$slot]->[0]);
+    return 1;
+}
+
+sub materializeAggregates
+{
+    # Break every alias this TraceInfo holds, whichever coverage types happen to
+    #   have one - for callers which mutate the summary and the per-testcase data
+    #   as independent objects and do not care which types are present.  Saves
+    #   them naming the slots, so a coverage type which gains an alias later is
+    #   picked up here rather than at each call site.
+    my $self    = shift;
+    my $changed = 0;
+    foreach my $slot (ALIASED_SLOTS) {
+        $changed = 1 if $self->_materialize_aggregate($slot);
+    }
+    return $changed;
+}
+
+sub _installSection
+{
+    # Install one coverage type's data, just read for one '.info' file section.
+    #   Common to every type:  $slot selects which, and the reader calls this
+    #   once per type per section.
+    #
+    # The reader accumulates a section's records into a scratch map - 'DA:',
+    #   'FN:'/'FNDA:', 'BRDA:' or 'MCDC:' according to $slot - and then has to
+    #   get that data to two places:  the map for this testname and the summary
+    #   map merged over all testcases.  'union' deep-copies every line the
+    #   destination does not already hold, so the obvious pair of unions copies
+    #   each coverpoint twice - and then keeps both copies for the life of the
+    #   run.
+    #
+    # Both costs are avoidable in the case nearly every '.info' file is:  a
+    #   single section for a single testname.
+    #   - A union into an empty destination is by definition just that copy, so
+    #     hand the scratch map to the per-testcase data instead of copying it.
+    #   - If the summary is empty as well, and this is the only testname, then
+    #     the summary would be a bit-identical copy of that one map:  alias
+    #     them.  '_materialize_aggregate' breaks the alias again if the two ever
+    #     have to diverge.
+    #
+    # The caller must not write to $map after this returns:  it now belongs to
+    #   the per-testcase data, and possibly to the summary too.
+    my ($self, $slot, $testname, $map, $filename) = @_;
+
+    # Break any alias already in place first, so that what follows can treat
+    #   the summary as an ordinary independent map and decide on its own terms
+    #   whether to install a new alias.  A no-op unless an alias exists.
+    $self->_materialize_aggregate($slot);
+    my $perTest = $self->[$slot]->[1];
+    my $sum     = $self->[$slot]->[0];
+
+    my $mine = $perTest->value($testname);
+    if (defined($mine) && 0 != scalar($mine->keylist())) {
+        # A second section for a testname we have already seen - so the
+        #   hand-over is not available and both destinations take a merge.
+        #   ('$filename' is passed only for MC/DC, whose union uses it in
+        #   diagnostics; every other type's union ignores a second argument.)
+        $mine->union($map, $filename);
+        $sum->union($map, $filename);
+        return;
+    }
+    # the map for this testname is absent, or is one we can discard because it
+    #   holds nothing
+    $perTest->replace($testname, $map);
+    if ($MAY_ALIAS_SLOT{$slot} &&
+        0 == scalar($sum->keylist()) &&
+        1 == $perTest->entries()) {
+        # the only testname, and nothing in the summary yet
+        $self->[$slot]->[0] = $map;
+        return;
+    }
+    $sum->union($map, $filename);
+}
+
 # MCDC coverage
 sub testcase_mcdc
 {
@@ -6450,10 +7812,74 @@ sub check_data($)
 
     # some paranoia checking...
     if (1 || $lcovutil::debug) {
-        my ($brSum, $brTest) = @{$self->[BRANCH_DATA]};
-        $brSum->_checkCounts();
-        foreach my $t ($brTest->keylist()) {
-            $brTest->value($t)->_checkCounts();
+        # Every type whose map maintains its cached found/hit incrementally, so
+        #   that the cache can be checked against a full walk of the data - the
+        #   assertion that an unbroken alias violates, since a map merged twice
+        #   ends up with counts no walk of it agrees with.  Line data is the one
+        #   this catches most quietly:  a line count merged twice is still 'hit',
+        #   so every rate still reads right and only the count is wrong.
+        # FUNCTION_DATA is absent deliberately, not by omission:  'FunctionMap'
+        #   caches nothing and computes found/hit on demand, so it has nothing to
+        #   check and no '_checkCounts' to call.
+        foreach my $slot (LINE_DATA, BRANCH_DATA, MCDC_DATA) {
+            my ($sum, $perTest) = @{$self->[$slot]};
+            $sum->_checkCounts();
+            foreach my $t ($perTest->keylist()) {
+                $perTest->value($t)->_checkCounts();
+            }
+        }
+    }
+}
+
+sub checkTestcaseData
+{
+    # Complain about a source file whose coverage types disagree about which
+    #   testcases have data for it:  two or more testcases contributed to some
+    #   type, but another type - which does have data - is missing one of them.
+    #   That is the weird case 'isAliased' talks about:  it can only be produced
+    #   by merging tracefiles which were captured with different coverage types
+    #   enabled, and it makes the per-testcase tables of the same file
+    #   incomparable.  Nothing here changes the data - it is only a diagnostic.
+    # Called on the final merge result, not per input file:  a type missing from
+    #   one input is entirely normal and may well be supplied by the next one.
+    my $self     = shift;
+    my $filename = $self->filename();
+
+    my @types;    # [covertype, [testnames]] for each type which has any data
+    my %all;      # every testname any type has data for
+    foreach my $t (COVERAGE_TYPES) {
+        my ($slot, $covertype) = @$t;
+        next if $slot == FUNCTION_DATA && !$lcovutil::func_coverage;
+        next if $slot == BRANCH_DATA   && !$lcovutil::br_coverage;
+        next if $slot == MCDC_DATA     && !$lcovutil::mcdc_coverage;
+        my $perTest = $self->[$slot]->[1];
+        # an entry which is present but holds nothing counts as absent
+        my @names = grep({
+                             my $m = $perTest->value($_);
+                             defined($m) && 0 != scalar($m->keylist());
+        } $perTest->keylist());
+        # A type with no data at all anywhere in this file is not an
+        #   inconsistency - a tracefile with no branch data, say, is ordinary.
+        next unless @names;
+        push(@types, [$covertype, \@names]);
+        $all{$_} = 1 foreach (@names);
+    }
+    # One testcase (or none) - there is nothing for the types to disagree about,
+    #   since every type which has data has it for that one name.  A shortcut,
+    #   not a special case:  the loop below would find nothing either.
+    return unless 1 < scalar(keys(%all));
+
+    foreach my $t (@types) {
+        my ($covertype, $names) = @$t;
+        my %have = map({ ($_ => 1) } @$names);
+        foreach my $testname (sort(keys(%all))) {
+            next if exists($have{$testname});
+            # once per sourcefile per covertype per testname
+            next
+                unless lcovutil::warn_once($lcovutil::ERROR_INCONSISTENT_DATA,
+                                           "$filename:$covertype:$testname");
+            lcovutil::ignorable_warning($lcovutil::ERROR_INCONSISTENT_DATA,
+                               "no $covertype data for $testname in $filename");
         }
     }
 }
@@ -6530,6 +7956,13 @@ sub merge
 
     lcovutil::checkVersionMatch($filename, $me, $you, 'merge');
     my $changed = 0;
+
+    # Below, each per-testcase map is merged and then the summary is merged
+    #   separately - so if my summary is an alias of one of my per-testcase
+    #   maps, the same object would be merged twice and its counts would
+    #   silently double.  ('$info' needs no such treatment:  it is only ever a
+    #   source here, and none of the set operations mutate their source.)
+    $self->materializeAggregates();
 
     foreach my $name ($info->test()->keylist()) {
         if (&$countOp($self->test($name), $info->test($name))) {
@@ -6757,7 +8190,7 @@ sub parseLines
         $line += 1;
         my $exclude_branch_line           = 0;
         my $exclude_exception_branch_line = 0
-            ; # per-line exception excludion not implemented at present.  Probably unnecessary.
+            ; # per-line exception exclusion not implemented at present.  Probably unnecessary.
         chomp($_);
         s/\r//;    # remove carriage return
         if (defined($exclude_directives) &&
@@ -7244,15 +8677,103 @@ use constant {
               DID_DERIVE => 2,
 };
 
+# '.info' record dispatch, for '_read_info' below.
+#
+# The obvious way to recognize a record is a chain of anchored regular
+#   expressions, one per record type, tried in turn - but then every line pays
+#   for every type ahead of its own:  in a chain ordered as the format
+#   description is, a 'BRDA:' record costs 11 match attempts and an 'MCDC:'
+#   record 12, and all but the last of them are known to fail before they are
+#   run.  Since a record is identified entirely by the tag before its first
+#   ':', take the tag with one index()/substr() and look the case up here
+#   instead;  the only regular expression which then runs is the one belonging
+#   to the case that matched, for the capture groups its handler needs.
+#   Measured over a 132 MB MC/DC '.info' file (7.6 M records), dispatch alone
+#   goes from 5.32 s to 3.41 s.
+#
+# A tag which is NOT in this table falls to the slow path in '_read_info',
+#   which keeps every test the chain used to end with - comment, blank line,
+#   'end_of_record', the ignored count records, and finally the
+#   malformed-record error - so a line which used to be accepted is still
+#   accepted, and one which used to be an error is still that same error.
+use constant {
+              REC_UNKNOWN => 0,     # not a tag this table carries
+              REC_FILE    => 1,     # 'SF:' or 'KF:'
+              REC_TN      => 2,
+              REC_VER     => 3,
+              REC_DA      => 4,
+              REC_FN      => 5,
+              REC_FNDA    => 6,
+              REC_FNL     => 7,
+              REC_FNA     => 8,
+              REC_BRDA    => 9,
+              REC_MCDC    => 10,
+              REC_SUMMARY => 11,    # 'LF:', 'LH:', 'FNF:', ... - ignored
+              REC_SKIP    => 12,    # a cover type which is turned off
+};
+
+# The tags, and the case each maps to when every cover type is enabled.  This
+#   is the master table:  '%recordDispatch' below is what '_read_info' actually
+#   looks records up in.
+my %recordCase = (
+                 'SF'   => REC_FILE,
+                 'KF'   => REC_FILE,
+                 'TN'   => REC_TN,
+                 'VER'  => REC_VER,
+                 'DA'   => REC_DA,
+                 'FN'   => REC_FN,
+                 'FNDA' => REC_FNDA,
+                 'FNL'  => REC_FNL,
+                 'FNA'  => REC_FNA,
+                 'BRDA' => REC_BRDA,
+                 'MCDC' => REC_MCDC,
+                 map({ ($_ => REC_SUMMARY) } qw(LF LH FNF FNH BRF BRH MCF MCH)),
+);
+
+# Which tags belong to which cover type, for the REC_SKIP redirection below.
+my %recordCoverType = ('FN'   => \$lcovutil::func_coverage,
+                       'FNDA' => \$lcovutil::func_coverage,
+                       'FNL'  => \$lcovutil::func_coverage,
+                       'FNA'  => \$lcovutil::func_coverage,
+                       'BRDA' => \$lcovutil::br_coverage,
+                       'MCDC' => \$lcovutil::mcdc_coverage,);
+
+# '%recordCase', with the tags of the cover types which are turned off
+#   redirected to REC_SKIP:  '_read_info' drops those records as soon as it has
+#   identified the tag, without running the record's regular expression.  The
+#   regular expression is most of what reading such a record costs and all of
+#   what validating it costs, so this is both the whole saving and the whole
+#   behaviour change - see the note in the 'TRACEFILE FORMAT' section of
+#   geninfo(1).
+#
+# Built on first use rather than at load time because the cover type flags are
+#   not final until the command line and the config files have been parsed.
+#   They are written only during option parsing - see 'postParseArgs' here, and
+#   the toolchain capability checks in 'geninfo' - and never afterwards, so one
+#   snapshot serves the whole run.  If some future caller does need to change a
+#   flag after a '.info' file has been read, it has to clear this table so that
+#   the next read rebuilds it.
+my %recordDispatch;
+
+sub _init_record_dispatch()
+{
+    %recordDispatch = %recordCase;
+    while (my ($tag, $enabled) = each(%recordCoverType)) {
+        $recordDispatch{$tag} = REC_SKIP unless $$enabled;
+    }
+}
+
 sub load
 {
+    # '$chunk' is the part of the file to read rather than all of it - see
+    #   '_read_info' and 'AggregateTraces::_partition_sections'
     my ($class, $tracefile, $readSource, $verify_checksum,
-        $ignore_function_exclusions)
+        $ignore_function_exclusions, $chunk)
         = @_;
     my $self    = $class->new();
     my $context = MessageContext->new("loading $tracefile");
 
-    $self->_read_info($tracefile, $readSource, $verify_checksum);
+    $self->_read_info($tracefile, $readSource, $verify_checksum, $chunk);
 
     $self->applyFilters($readSource);
     return $self;
@@ -7278,8 +8799,11 @@ sub serialize
 sub deserialize
 {
     my ($class, $file) = @_;
-    my $self = Storable::retrieve($file) or
-        die("unable to deserialize $file\n");
+    # deserialize_checked() turns a cross-format (XS vs pure-Perl) mismatch
+    # into an ERROR_FORMAT with a hint; a genuinely corrupt file also lands
+    # there.  It returns undef on any such failure.
+    my $self = lcovutil::deserialize_checked($file);
+    defined($self)       or die("unable to deserialize $file\n");
     ref($self) eq $class or die("did not deserialize a $class");
     return $self;
 }
@@ -7311,6 +8835,17 @@ sub files
     #  names of the files (mixed case)
 
     return keys %{$self->[FILES]};
+}
+
+sub checkTestcaseData
+{
+    # Warn about any file whose coverage types disagree about which testcases
+    #   have data - see 'TraceInfo::checkTestcaseData'.  Call this only on a
+    #   final merge result:  the check is meaningless on a partial one.
+    my $self = shift;
+    foreach my $name ($self->files()) {
+        $self->data($name)->checkTestcaseData();
+    }
 }
 
 sub directories
@@ -7927,14 +9462,20 @@ sub _fixFunction
 {
     my ($traceInfo, $func, $count) = @_;
 
-    my @fix          = ($func);
+    # The count is assigned, but each alias is ADDED to - so an entry reached
+    #   twice ends up with double the alias counts it should have.  $func comes
+    #   from the summary map, which for a single testcase is that testcase's map
+    #   itself, so it can turn up again in the loop below:  collect by address
+    #   and fix each entry exactly once.
     my $line         = $func->line();
+    my %fix          = (Scalar::Util::refaddr($func) => $func);
     my $per_testcase = $traceInfo->testfnc();
     foreach my $testname ($per_testcase->keylist()) {
         my $data = $traceInfo->testfnc($testname);
         my $f    = $data->findKey($line);
-        push(@fix, $f) if defined($f);
+        $fix{Scalar::Util::refaddr($f)} = $f if defined($f);
     }
+    my @fix = values(%fix);
 
     foreach my $f (@fix) {
         $f->[FunctionEntry::COUNT] = $count;
@@ -7991,7 +9532,7 @@ sub _checkConsistency
                 # don't warn about the first line of a lambda:
                 #  - the decl may executed even if the lambda function itself is
                 #    not called
-                #  - if no other lines are hit, then then the function is not
+                #  - if no other lines are hit, then the function is not
                 #    covered, but the coverage DB is consistent
                 #  - if some other line _is_ hit, then, the data is inconsistent
                 if ($func->isLambda() && $currentLine == $first) {
@@ -8047,7 +9588,7 @@ sub _checkConsistency
     #   Note that we might have an MC/DC block on a line which has no
     #     linecov data
     #   This can happen for template functions (and similar) where the
-    #     expression is statically determned to be true or false - and elided
+    #     expression is statically determined to be true or false - and elided
     #     by the compiler.  In that case, generate a new line coverpoint
     if ($lcovutil::mcdc_coverage) {
         my $mcdc          = $traceInfo->mcdc();
@@ -8064,11 +9605,18 @@ sub _checkConsistency
             my ($found, $hit) = $block->totals();
             $lineData->append($line, $hit);
 
-            # create the entry in the per-testcase data
+            # create the entry in the per-testcase data - but not a second time
+            #   in the map we just wrote to.  For a single testcase the summary
+            #   IS that testcase's map, and 'append' adds, so fabricating the
+            #   line in both would give it twice the hit count of the MC/DC it
+            #   was derived from.
+            my $sumAddr = Scalar::Util::refaddr($lineData);
             foreach my $testcase ($testcase_mcdc->keylist()) {
                 my $m = $testcase_mcdc->value($testcase);
                 if ($m->value($line)) {
-                    $traceInfo->test($testcase)->append($line, $hit);
+                    my $t = $traceInfo->test($testcase);
+                    next if Scalar::Util::refaddr($t) == $sumAddr;
+                    $t->append($line, $hit);
                 }
             }
         }
@@ -8084,22 +9632,27 @@ sub _checkConsistency
         foreach my $line ($brData->keylist()) {
             # we expect to find a line everywhere there is a branch
 
-            my $lineHit = $lineData->value($line);
+            my $lineHit  = $lineData->value($line);
+            my $location = $brData->value($line);
             unless (defined($lineHit)) {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                       '"' . $traceInfo->filename() .
                           "\":$line: location has branchcov but no linecov data"
                           . _consistencySuffix());
-            }
-
-            my ($brFound, $brHit) = $brData->value($line)->totals(1);
-
-            if (!defined($lineHit)) {
-                # must have ignored the above error - so build fake line data here
-                #  (maybe should delete the branch instead?)
-                $lineData->append($line, $brHit);
+                # must have ignored the above error - so build fake line data
+                #  here (maybe should delete the branch instead?)
+                # This arm wants the actual hit COUNT, so it is the one caller
+                #   that needs the full totals() walk - and it runs only when
+                #   the error above was ignored.
+                $lineData->append($line, ($location->totals(1))[1]);
                 next;
             }
+
+            # Everything below only asks whether ANY branch here was evaluated,
+            #   so use the short-circuiting predicate rather than counting every
+            #   element on the line and discarding the count.
+            my $brHit = $location->hasHitElement(1);
+
             if ($lineHit && !$brHit) {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                     '"' . $traceInfo->filename() .
@@ -8171,7 +9724,7 @@ sub _filterFile
     #   file is not in the 'diff-file').
     # If the file _has_ changed between 'baseline' and current, then we
     #   don't have a way to independently verify that what we see in
-    #   'ReaadBaselineSource' is really the prevsious version of the file.
+    #   'ReadBaselineSource' is really the previous version of the file.
     my $fileVersion = lcovutil::extractFileVersion($path)
         if $srcReader->notEmpty();
     if (defined($fileVersion) &&
@@ -8192,6 +9745,16 @@ sub _filterFile
             defined($region))
     ) {
         # filter excluded function line ranges
+        #   This erases from the summary and from each per-testcase map.  Every
+        #   removal here is 'remove if present' ('_eraseFunction'), and a
+        #   function erased from the master map is no longer in its 'keylist',
+        #   so reaching one map twice - which is what an aliased summary means -
+        #   costs nothing and cannot corrupt data.
+        #   What it does affect is the statistics:  those are counted only on
+        #   the master pass ('$isMasterList'), so the master pass has to run
+        #   FIRST.  Run the per-testcase maps first and, for an aliased summary,
+        #   the function is already gone by the time the master pass looks for
+        #   it - nothing matches, and the exclusion pattern is reported unused.
         my $funcData   = $traceInfo->testfnc();
         my $lineData   = $traceInfo->test();
         my $branchData = $traceInfo->testbr();
@@ -8200,6 +9763,12 @@ sub _filterFile
         my $reader     = (defined($trivial_histogram) || defined($region)) &&
             $srcReader->notEmpty() ? $srcReader : undef;
 
+        $modified = 1
+            if _eraseFunctions($source_file, $reader,
+                               $traceInfo->func(), $traceInfo->sum(),
+                               $traceInfo->sumbr(), $traceInfo->mcdc(),
+                               $traceInfo->check(), $state,
+                               1);
         foreach my $tn ($lineData->keylist()) {
             $modified = 1
                 if _eraseFunctions(
@@ -8209,23 +9778,54 @@ sub _filterFile
                                  $checkData->value($tn), $state,
                                  0);
         }
-        $modified = 1
-            if _eraseFunctions($source_file, $reader,
-                               $traceInfo->func(), $traceInfo->sum(),
-                               $traceInfo->sumbr(), $traceInfo->mcdc(),
-                               $traceInfo->check(), $state,
-                               1);
     }
 
     return
         unless ($srcReader->notEmpty() &&
                 lcovutil::is_filter_enabled());
 
+    # Every filter below which can drop a coverpoint - of any type - removes it
+    #   from each per-testcase map and then from the summary.  When the summary
+    #   is aliased to the single testcase's map those are the same object and the
+    #   same removal, so doing both would walk the data twice and the second
+    #   removal of an already deleted line would die:  in 'BranchMap::remove'
+    #   for branches, in 'CountData::remove' for lines, and in
+    #   'FunctionMap::remove' for functions, which is handed the undef that
+    #   'findKey' returns for a function already gone.
+    # Rather than break the alias - which means copying the whole map, the very
+    #   copy the alias exists to avoid - just ask, and remove once.  Filtering
+    #   does not need two independent objects:  it applies the identical change
+    #   to both, so one object reached twice is one object filtered once.
+    #
+    # The one exception is the user coverpoint callback below, which is handed
+    #   both maps and may do anything to them - we cannot assume its mutation is
+    #   idempotent, so it gets the two independent objects it would have got
+    #   before.  That has to happen here, ahead of both the 'isAliased' queries
+    #   and the 'get_info' below, whose locals would otherwise be left pointing
+    #   at an alias we then discarded.
+    # The shipped 'scripts/unreach.pm' would in fact survive an alias, because
+    #   it mutates through 'set_excluded', which returns false the second time
+    #   and so guards its own 'adjust_counts'.  That is a property of that one
+    #   script and not of the interface:  a callback which adjusts counts
+    #   unconditionally sees them applied twice to one map, which drives the
+    #   cached found/hit negative.  Hence materializing for any callback at all,
+    #   rather than trusting the callback to be idempotent.
+    $traceInfo->materializeAggregates()
+        if defined($lcovutil::excludeCoverpointCallback);
+    # Ask once per type, up front:  'isAliased' walks the per-testcase map, and
+    #   the answer cannot change under us because nothing below installs an alias
+    #   - only the callback above breaks them, and it has already run.  Keyed by
+    #   slot rather than four named scalars so that a type which gains an alias
+    #   later needs no new local here.
+    my %aliased =
+        map({ ($_ => $traceInfo->isAliased($_)) } TraceInfo::ALIASED_SLOTS);
+
     my ($testdata, $sumcount, $funcdata, $checkdata, $testfncdata,
         $testbrdata, $sumbrcount, $mcdc, $testmcdc) = $traceInfo->get_info();
 
     my $filterExceptionBranches =
-        FilterBranchExceptions->new($srcReader, $sumbrcount, $testbrdata);
+        FilterBranchExceptions->new($srcReader, $sumbrcount, $testbrdata,
+                                    $aliased{TraceInfo::BRANCH_DATA});
 
     foreach my $testname (sort($testdata->keylist())) {
         my $testcount    = $testdata->value($testname);
@@ -8276,8 +9876,12 @@ sub _filterFile
                         next unless $f;
                         $d->remove($f);
                     }
-                    # and remove from the master table
-                    $funcdata->remove($funcdata->findKey($key));
+                    # and remove from the master table - unless it IS one of
+                    #   the per-testcase tables above, in which case the
+                    #   function is already gone and 'findKey' would hand
+                    #   'remove' an undef
+                    $funcdata->remove($funcdata->findKey($key))
+                        unless $aliased{TraceInfo::FUNCTION_DATA};
                     $modified = 1;
                     next;
                 }    # if excluded
@@ -8338,9 +9942,14 @@ sub _filterFile
                     $remove = $branch_histogram;
                 }
                 if ($remove) {
-                    foreach my $t ([$testbrdata, $sumbrcount, 'BRDA'],
-                                   [$testmcdc, $mcdc, 'MCDC']) {
-                        my ($testCount, $sumCount, $str) = @$t;
+                    foreach my $t ([$testbrdata, $sumbrcount,
+                                    'BRDA', $aliased{TraceInfo::BRANCH_DATA}
+                                   ],
+                                   [$testmcdc, $mcdc,
+                                    'MCDC', $aliased{TraceInfo::MCDC_DATA}
+                                   ]
+                    ) {
+                        my ($testCount, $sumCount, $str, $isAliased) = @$t;
                         next unless $sumCount;
                         my $brdata = $sumCount->value($line);
                         # might not be MCDC here, even if there is a branch
@@ -8370,8 +9979,9 @@ sub _filterFile
                             my $d = $testCount->value($tn);
                             $d->remove($line, 1);    # remove if present
                         }
-                        # remove at top
-                        $sumCount->remove($line);
+                        # ...and at the top, unless the summary is the map we
+                        #   just removed it from
+                        $sumCount->remove($line) unless $isAliased;
                         $modified = 1;
                     }
                     next;
@@ -8392,7 +10002,9 @@ sub _filterFile
             }
         }    # if branch_coverage
 
-        if ($mcdc_single) {
+        # $mcdc_count is undef when this testcase has no MC/DC data at all -
+        #   the surrounding block is entered for branch data alone
+        if ($mcdc_single && defined($mcdc_count)) {
             # find single-expression MC/DC's - if there is a matching branch
             #  expression on the same line, then remove the MC/DC
             foreach my $line ($mcdc_count->keylist()) {
@@ -8400,13 +10012,29 @@ sub _filterFile
                 my $groups = $block->groups();
                 if (exists($groups->{1}) &&
                     scalar(keys %$groups) == 1) {
+                    # $testbrcount is undef when this testcase has no branch
+                    #   data at all - '--mcdc' without '--branch', say.  The
+                    #   filter is looking for a matching branch expression, so
+                    #   with no branch data there is nothing to match and
+                    #   nothing to remove.  (Note 8712 and 8726 above already
+                    #   guard the same way.)
+                    next unless defined($testbrcount);
                     my $branch = $testbrcount->value($line);
                     next unless $branch && ($branch->totals())[0] == 2;
                     $mcdc_count->remove($line);
                     ++$mcdc_single->[-2];    # one MC/DC skipped
                     ++$mcdc_single->[-1];    # one coverpoint
 
-                    $mcdc->remove($line);    # remove at top
+                    # Remove at top, unless that is the map we just removed it
+                    #   from - see the aliasing note at the head of this sub.
+                    # The present-check matters independently of aliasing:  this
+                    #   loop runs once per testcase, so with two testcases
+                    #   carrying the same single-condition MC/DC line the second
+                    #   pass would otherwise find the summary entry already gone
+                    #   and die in 'BranchMap::remove'.  The per-testcase removal
+                    #   just above is present-checked for the same reason.
+                    $mcdc->remove($line, 1)
+                        unless $aliased{TraceInfo::MCDC_DATA};
                     $modified = 1;
                 }
             }
@@ -8559,7 +10187,10 @@ sub _filterFile
                 my $d = $testdata->value($tn);
                 $d->remove($line, 1);    # remove if present
             }
-            $sumcount->remove($line);
+            # ...and from the summary, unless that is the same map we just
+            #   removed it from:  'CountData::remove' dies on a line that is
+            #   not there
+            $sumcount->remove($line) unless $aliased{TraceInfo::LINE_DATA};
             if ($checkdata->mapped($line)) {
                 $checkdata->remove($line);
             }
@@ -8571,110 +10202,6 @@ sub _filterFile
         $function_alias_histogram->[-1] += $funcdata->numFunc(0);
     }
     return ($traceInfo, $modified);
-}
-
-sub _mergeParallelChunk
-{
-    # called from parent
-    my ($self, $tmp, $child, $children, $childstatus, $store, $worklist,
-        $childRetryCounts)
-        = @_;
-
-    my ($chunk, $forkAt, $chunkId) = @{$children->{$child}};
-    my $dumped   = File::Spec->catfile($tmp, "dumper_$child");
-    my $childLog = File::Spec->catfile($tmp, "filter_$child.log");
-    my $childErr = File::Spec->catfile($tmp, "filter_$child.err");
-
-    lcovutil::debug(1, "merge:$child ID $chunkId\n");
-    my $start = Time::HiRes::gettimeofday();
-    foreach my $f ($childLog, $childErr) {
-        if (!-f $f) {
-            $f = '';    # there was no output
-            next;
-        }
-        if (open(RESTORE, "<", $f)) {
-            # slurp into a string and eval..
-            my $str = do { local $/; <RESTORE> };    # slurp whole thing
-            close(RESTORE) or die("unable to close $f: $!\n");
-            unlink $f;
-            $f = $str;
-        } else {
-            $f = "unable to open $f: $!";
-            if (0 == $childstatus) {
-                lcovutil::report_parallel_error('filter',
-                              $ERROR_PARALLEL, $child, 0, $f, keys(%$children));
-            }
-        }
-    }
-    my $signal = $childstatus & 0xFF;
-    print(STDOUT $childLog)
-        if ((0 != $childstatus &&
-             $signal != POSIX::SIGKILL &&
-             $lcovutil::max_fork_fails != 0) ||
-            $lcovutil::verbose);
-    print(STDERR $childErr);
-    my $data = Storable::retrieve($dumped)
-        if (-f $dumped && $childstatus == 0);
-    if (defined($data)) {
-        my ($updates, $save, $state, $childFinish, $update) = @$data;
-
-        lcovutil::update_state(@$update);
-        #my $childCpuTime = $lcovutil::profileData{filt_child}{$chunkId};
-        #$totalFilterCpuTime    += $childCpuTime;
-        #$intervalFilterCpuTime += $childCpuTime;
-
-        my $now = Time::HiRes::gettimeofday();
-        $lcovutil::profileData{filt_undump}{$chunkId} = $now - $start;
-
-        foreach my $patType (@{$store->[0]}) {
-            my $svType = shift(@{$save->[0]});
-            foreach my $p (@$patType) {
-                $p->[-1] += shift(@$svType);
-            }
-        }
-        for (my $i = scalar(@{$store->[1]}) - 1; $i >= 0; --$i) {
-            $store->[1]->[$i]->[-2] += $save->[1]->[$i]->[0];
-            $store->[1]->[$i]->[-1] += $save->[1]->[$i]->[1];
-        }
-        foreach my $d (@$updates) {
-            $self->_updateModifiedFile(@$d, $state);
-        }
-
-        my $final = Time::HiRes::gettimeofday();
-        $lcovutil::profileData{filt_merge}{$chunkId} = $final - $now;
-        $lcovutil::profileData{filt_queue}{$chunkId} = $start - $childFinish;
-
-        #$intervalMonitor->checkUpdate($processedFiles);
-
-    } else {
-        if (!-f $dumped ||
-            POSIX::SIGKILL == $signal) {
-
-            if (exists($childRetryCounts->{$chunkId})) {
-                $childRetryCounts->{$chunkId} += 1;
-            } else {
-                $childRetryCounts->{$chunkId} = 1;
-            }
-            lcovutil::report_fork_failure(
-                           "filter segment $chunkId",
-                           (POSIX::SIGKILL == $signal ?
-                                "killed by OS - possibly due to out-of-memory" :
-                                "serialized data $dumped not found"),
-                           $childRetryCounts->{$chunkId});
-            push(@$worklist, $chunk);
-        } else {
-            lcovutil::report_parallel_error('filter',
-                                        $ERROR_PARALLEL, $child, $childstatus,
-                                        "unable to filter segment $chunkId: $@",
-                                        keys(%$children));
-        }
-    }
-    foreach my $f ($dumped) {
-        unlink $f
-            if -f $f;
-    }
-    my $to = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{filt_chunk}{$chunkId} = $to - $forkAt;
 }
 
 sub _generate_end_line_message
@@ -8713,19 +10240,11 @@ sub _updateModifiedFile
 
 sub _processParallelChunk
 {
-    # called from child
-    my $childStart = Time::HiRes::gettimeofday();
-    my ($tmp, $chunk, $srcReader, $save, $state, $forkAt, $chunkId) = @_;
-    # clear profile - want only my contribution
-    my $currentState = lcovutil::initial_state('filter', $chunkId);
-    my $stdout_file  = File::Spec->catfile($tmp, "filter_$$.log");
-    my $stderr_file  = File::Spec->catfile($tmp, "filter_$$.err");
-    my $childInfo;
-    # set count to zero so we know how many got created in
-    # the child process
-    my $now    = Time::HiRes::gettimeofday();
-    my $status = 0;
+    # called from child, by 'lcovutil::ForkManager':  the capture of my output,
+    #   my initial state and the dump of what I return are its business
+    my ($chunk, $srcReader, $save, $state, $forkAt, $chunkId) = @_;
 
+    my $status = 0;
     # clear current status so we see updates from this child
     # pattern counts
     foreach my $l (@{$save->[0]}) {
@@ -8738,34 +10257,24 @@ sub _processParallelChunk
         $f->[-1] = 0;
         $f->[-2] = 0;
     }
-    # using 'capture' here so that we can both capture/redirect geninfo
-    #   messages from a child process during parallel execution AND
-    #   redirect stdout/stderr from gcov calls.
-    # It does not work to directly open/reopen the STDOUT and STDERR
-    #   descriptors due to interactions between the child and parent
-    #   processes (see the Capture::Tiny doc for some details)
     my $start = Time::HiRes::gettimeofday();
     my @updates;
-    my ($stdout, $stderr, $code) = Capture::Tiny::capture {
+    eval {
+        foreach my $d (@$chunk) {
+            # could keep track of individual file time if we wanted to
+            my ($data, $modified) = _filterFile(@$d, $srcReader, $state);
 
-        eval {
-            foreach my $d (@$chunk) {
-                # could keep track of individual file time if we wanted to
-                my ($data, $modified) = _filterFile(@$d, $srcReader, $state);
-
-                lcovutil::info(1,
-                               $d->[1] . ' is ' .
-                                   ($modified ? '' : 'NOT ') . "modified\n");
-                if ($modified) {
-                    push(@updates, [$d->[1], $data]);
-                }
+            lcovutil::info(1,
+                   $d->[1] . ' is ' . ($modified ? '' : 'NOT ') . "modified\n");
+            if ($modified) {
+                push(@updates, [$d->[1], $data]);
             }
-        };
-        if ($@) {
-            print(STDERR $@);
-            $status = 1;
         }
     };
+    if ($@) {
+        print(STDERR $@);
+        $status = 1;
+    }
     my $end = Time::HiRes::gettimeofday();
     # collect pattern counts
     my @pcounts;
@@ -8779,33 +10288,12 @@ sub _processParallelChunk
         $f = [$f->[-2], $f->[-1]];
     }
 
-    # parent might have already caught an error, cleaned up and
-    #  removed the tempdir and exited.
-    lcovutil::check_parent_process();
-
-    # print stdout and stderr ...
-    foreach my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
-        next unless ($d->[1]);    # only print if there is something to print
-        my $f = InOutFile->out($d->[0]);
-        my $h = $f->hdl();
-        print($h $d->[1]);
-    }
-    my $dumpf = File::Spec->catfile($tmp, "dumper_$$");
-    my $then  = Time::HiRes::gettimeofday();
+    my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{filt_proc}{$chunkId}  = $then - $forkAt;
     $lcovutil::profileData{filt_child}{$chunkId} = $end - $start;
-    my $data;
-    eval {
-        $data = Storable::store([\@updates, $save, $state, $then,
-                                 lcovutil::compute_update($currentState)
-                                ],
-                                $dumpf);
-    };
-    if ($@ || !defined($data)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                              "Child $$ serialize failed" . ($@ ? ": $@" : ''));
-    }
-    return $status;
+    # '$then' is when I finished:  the parent subtracts it from the time it got
+    #   round to me, which is how long my data sat in the queue
+    return ([\@updates, $save, $state, $then], $status);
 }
 
 # chunkID is only used for uniquification and as a key in profile data.
@@ -8894,8 +10382,6 @@ sub _processFilterWorklist
     my @save    = (\@pats, \@filters);
 
     my $processedChunks = 0;
-    my $currentParallel = 0;
-    my %children;
     my $tmp = File::Temp->newdir(
                           "filter_datXXXX",
                           DIR     => $lcovutil::tmp_dir,
@@ -8904,107 +10390,126 @@ sub _processFilterWorklist
         if (exists($ENV{LCOV_FORCE_PARALLEL}) ||
             $parallel > 1);
 
-    my $failedAttempts = 0;
-    my %childRetryCounts;
-    do {
-        CHUNK: while (@$workList) {
-            my $d = pop(@$workList);
-            ++$processedChunks;
-            # save current counts...
-            $state[0]->[1] = 0;
-            if (ref($d->[0]) eq 'TraceInfo') {
-                # serial processing...
-                my ($data, $modified) = _filterFile(@$d, $srcReader, \@state);
-                $self->_updateModifiedFile($d->[1], $data, \@state)
-                    if $modified;
-            } else {
+    lcovutil::ForkManager->new(
+                 operation => 'filter',
+                 phase     => 'filter',
+                 tempDir   => $tmp,
+                 prefix    => 'filter',
+                 # the filter workers hold a copy of the data for their own chunk, so
+                 #   this is a place where the process count has to answer to the memory
+                 #   the children are actually using
+                 memoryThrottle => 1,
+                 # ..and what a worker holds is the records of the files in its chunk
+                 unitWeight => sub {
+                     my $chunk  = shift;
+                     my $weight = 0;
+                     foreach my $d (@$chunk) {
+                         $weight += $d->[0]->found() + $d->[0]->branch_found();
+                     }
+                     return $weight;
+                 },
+                 remaining => sub { return scalar(@$workList); },
+                 next      => sub {
+                     # A chunk which is small enough to filter here is filtered here:
+                     #   there is no point forking for it.  Keep going until there is
+                     #   something worth a process, or nothing left at all.
+                     while (@$workList) {
+                         my $d = pop(@$workList);
+                         ++$processedChunks;
+                         # save current counts...
+                         $state[0]->[1] = 0;
+                         if (ref($d->[0]) eq 'TraceInfo') {
+                             # serial processing...
+                             my ($data, $modified) =
+                                 _filterFile(@$d, $srcReader, \@state);
+                             $self->_updateModifiedFile($d->[1], $data, \@state)
+                                 if $modified;
+                             next;
+                         }
+                         return ($d, _filterChunkId());
+                     }
+                     return ();
+                 },
+                 more     => sub { return scalar(@$workList); },
+                 postFork => sub {
+                     my ($d, $chunkId, $pid) = @_;
+                     lcovutil::debug(1, "fork:$pid ID $chunkId\n");
+                     # the id this chunk was given is now used up - see '_filterChunkId'
+                     ++$masterChunkID;
+                 },
+                 child => sub {
+                     my ($d, $chunkId, $forkAt) = @_;
+                     return
+                         _processParallelChunk($d, $srcReader, \@save, \@state,
+                                               $forkAt, $chunkId);
+                 },
+                 preMerge => sub {
+                     my $ctx = shift;
+                     lcovutil::debug(1, "merge:$ctx->{child} ID $ctx->{id}\n");
+                 },
+                 merge => sub {
+                     my ($d, $chunkId, $payload, $ctx)            = @_;
+                     my ($updates, $counts, $state, $childFinish) = @$payload;
+                     my $now = Time::HiRes::gettimeofday();
+                     $lcovutil::profileData{filt_undump}{$chunkId} =
+                         $now - $ctx->{reapAt};
 
-                my $currentSize = 0;
-                if (0 != $lcovutil::maxMemory) {
-                    $currentSize = lcovutil::current_process_size();
-                }
-                while ($currentParallel >= $lcovutil::maxParallelism ||
-                       ($currentParallel > 1 &&
-                        (($currentParallel + 1) * $currentSize) >
-                        $lcovutil::maxMemory)
-                ) {
-                    lcovutil::info(1,
-                        "memory constraint ($currentParallel + 1) * $currentSize > $lcovutil::maxMemory violated: waiting.  "
-                            . (scalar(@$workList) - $processedChunks + 1)
-                            . " remaining\n")
-                        if ((($currentParallel + 1) * $currentSize) >
-                            $lcovutil::maxMemory);
-                    my $child       = wait();
-                    my $childstatus = $?;
-                    unless (exists($children{$child})) {
-                        lcovutil::report_unknown_child($child);
-                        next;
-                    }
-                    eval {
-                        $self->_mergeParallelChunk($tmp, $child, \%children,
-                                                $childstatus, \@save, $workList,
-                                                \%childRetryCounts);
-                    };
-                    if ($@) {
-                        $childstatus = 1 << 8 unless $childstatus;
-                        lcovutil::report_parallel_error('filter',
-                              $lcovutil::ERROR_CHILD, $child, $childstatus, $@);
-                    }
-                    --$currentParallel;
-                }
+                     foreach my $patType (@{$save[0]}) {
+                         my $svType = shift(@{$counts->[0]});
+                         foreach my $p (@$patType) {
+                             $p->[-1] += shift(@$svType);
+                         }
+                     }
+                     for (my $i = scalar(@{$save[1]}) - 1; $i >= 0; --$i) {
+                         $save[1]->[$i]->[-2] += $counts->[1]->[$i]->[0];
+                         $save[1]->[$i]->[-1] += $counts->[1]->[$i]->[1];
+                     }
+                     foreach my $u (@$updates) {
+                         $self->_updateModifiedFile(@$u, $state);
+                     }
 
-                # parallel processing...
-                $lcovutil::deferWarnings = 1;
-                my $now = Time::HiRes::gettimeofday();
-                my $pid = fork();
-                if (!defined($pid)) {
-                    # fork failed
-                    ++$failedAttempts;
-                    lcovutil::report_fork_failure('process filter chunk',
-                                                  $!, $failedAttempts);
-                    --$processedChunks;
-                    push(@$workList, $d);
-                    next CHUNK;
-                }
-                $failedAttempts = 0;
-                if (0 == $pid) {
-                    # I'm the child
-                    my $status =
-                        _processParallelChunk($tmp, $d, $srcReader, \@save,
-                                              \@state, $now, _filterChunkId());
-                    exit($status);    # normal return
-                } else {
-                    # parent
-                    my $chunkId = _filterChunkId();
-                    $children{$pid} = [$d, $now, $chunkId];
-                    lcovutil::debug(1, "fork:$pid ID $chunkId\n");
-                    ++$currentParallel;
-                }
-                ++$masterChunkID;
-            }
-
-        }    # while (each segment in worklist)
-        while ($currentParallel != 0) {
-            my $child       = wait();
-            my $childstatus = $?;
-            unless (exists($children{$child})) {
-                lcovutil::report_unknown_child($child);
-                next;
-            }
-            --$currentParallel;
-            eval {
-                $self->_mergeParallelChunk($tmp, $child, \%children,
-                           $childstatus, \@save, $workList, \%childRetryCounts);
-            };
-            if ($@) {
-                $childstatus = 1 << 8 unless $childstatus;
-                lcovutil::report_parallel_error('filter',
-                              $lcovutil::ERROR_CHILD, $child, $childstatus, $@);
-            }
-
-        }
-    } while (@$workList);    # outer do/while - to catch spaceouts
-    lcovutil::info("Finished filter file processing\n");
+                     my $final = Time::HiRes::gettimeofday();
+                     $lcovutil::profileData{filt_merge}{$chunkId} =
+                         $final - $now;
+                     $lcovutil::profileData{filt_queue}{$chunkId} =
+                         $ctx->{reapAt} - $childFinish;
+                 },
+                 postReap => sub {
+                     my $ctx = shift;
+                     $lcovutil::profileData{filt_chunk}{$ctx->{id}} =
+                         Time::HiRes::gettimeofday() - $ctx->{forkAt};
+                 },
+                 requeue => sub {
+                     my ($d, $chunkId, $why) = @_;
+                     # a chunk we never managed to fork was counted as processed on the
+                     #   way past
+                     --$processedChunks if ('fork' eq $why);
+                     push(@$workList, $d);
+                 },
+                 # Whatever went wrong with this child, say it once, out here, the way
+                 #   the hand-written loop did:  a die anywhere in the merge is the
+                 #   child's fault as far as the user is concerned.
+                 rethrowMergeFailure => 1,
+                 wrapReap            => sub {
+                     my ($child, $rawStatus, $err) = @_;
+                     $rawStatus = 1 << 8 unless $rawStatus;
+                     lcovutil::report_parallel_error('filter',
+                              $lcovutil::ERROR_CHILD, $child, $rawStatus, $err);
+                 },
+                 forkFailWhen => sub { return 'process filter chunk'; },
+                 retryWhen    => sub { return "filter segment $_[0]->{id}"; },
+                 mergeFailMessage => sub { return $_[0]->{error}; },
+                 # a child which left data we cannot use is a parallelism failure rather
+                 #   than a failure of the work it was doing
+                 childFailError   => $lcovutil::ERROR_PARALLEL,
+                 childFailMessage => sub {
+                     return 'unable to filter segment ' . $_[0]->{id};
+                 },)->run();
+    # ..but not if I am one of the chunks the input set was split into - see
+    #   'AggregateTraces::_parallel_parse':  the user's stdout would carry one
+    #   copy of this per chunk.
+    lcovutil::info("Finished filter file processing\n")
+        unless $lcovutil::in_child_process;
 }
 
 sub applyFilters
@@ -9089,7 +10594,8 @@ sub applyFilters
     $self->[STATE] |= DID_DERIVE;
 
     if (@filter_workList) {
-        lcovutil::info("Apply filtering..\n");
+        lcovutil::info("Apply filtering..\n")
+            unless $lcovutil::in_child_process;    # ..once, not once per chunk
         $self->_processFilterWorklist($srcReader, \@filter_workList);
         # keep track - so we don't do this again
         $self->[STATE] |= DID_FILTER;
@@ -9149,11 +10655,174 @@ sub is_language
 # is compressed using GZIP. If available, GUNZIP will be used to decompress
 # this file.
 #
+# The section table which 'scan_sections' below builds, and which
+#   'AggregateTraces::_parallel_parse' partitions.  One entry per section.
+use constant {
+             SEC_START    => 0,   # offset of the section's first byte
+             SEC_END      => 1,   # offset just past its 'end_of_record' line
+             SEC_LINE     => 2,   # '.info' line number of its first line
+             SEC_NLINES   => 3,   # number of lines in it
+             SEC_FILE     => 4,   # its 'SF:'/'KF:' name, undef if it has none
+             SEC_TESTNAME => 5,   # payload of the 'TN:' in force, undef if none
+                # Which input the section came from:  an index into the list of
+                #   input files, appended by '_plan_parallel_parse' after this
+                #   scan, which sees one file at a time and has no opinion about
+                #   where it sits in that list.
+             SEC_INPUT => 6,
+};
+
+# The source file and testcase a scanned section belongs to:  return
+#   ('SF:' name, 'TN:' payload), either of which may be undefined.
+#
+# The section is delimited by 'end_of_record', and the reader below recovers from
+#   a missing one - so a section as this scan sees it can hold more than one file
+#   record.  Report no name at all in that case rather than the first of them:
+#   the partitioner's contract is that all of one source file's data goes to one
+#   child, and it cannot honour that for a section it cannot attribute.  It
+#   declines to split - and since a chunk may span inputs, that means the whole
+#   set, not just this input - which is the right answer for input this
+#   malformed:  the reader then reports it exactly as it always has.
+# The testcase name is only taken from before the file record, because that is
+#   where the reader takes it:  a 'TN:' which arrives after it is an error, and
+#   is ignored rather than changing the name in force.
+sub _scan_section_names($)
+{
+    my $section = shift;
+
+    my $nFiles = () = $section =~ /^[SK]F:/mg;
+    return (undef, undef) if (1 != $nFiles);
+    $section =~ /^[SK]F:(.*)$/m;
+    my $sf   = $1;
+    my $head = substr($section, 0, $-[0]);
+    my ($tn) = $head =~ /^TN:(.*)$/m;
+    return ($sf, $tn);
+}
+
+# Find the sections of a '.info' file without parsing it:  return a reference
+#   to a list of section descriptors (see the constants above), in file order.
+#
+# This is the pre-pass of the parallel read.  Sections are self-delimiting, so a
+#   reader can be pointed at any one of them - but only if someone has found the
+#   boundaries first, and that has to be cheap enough not to eat the parallelism
+#   it enables.  Measured on a 132.1 MB / 7.6 M line / 401 section file: 0.175 s,
+#   against 15.4 s to parse the same file, and against 0.914 s for the same scan
+#   written as a 'readline' loop.
+#
+# Three things beyond the offsets are recorded, and each of them is needed:
+#   - the line count, because it is the unit of work the partitioner balances
+#     (see '$lcovutil::parallel_parse_min_lines') and because the reader needs a
+#     line number to start counting from, so that its diagnostics stay truthful;
+#   - the 'SF:' name, so that every section naming one source file can be given
+#     to one child:  that keeps the parent's merge free, keeps
+#     '$AggregateTraces::function_mapping' from listing an input twice, and is
+#     what makes it sound for a child to filter what it read;
+#   - the 'TN:' payload, because a '.info' file may name its testcase once and
+#     then rely on it for every section which follows ('TN:' is optional - see
+#     the grammar in '_read_info'), so a reader which starts in the middle of the
+#     file has to be told the name which is in force there.
+#
+# Die on error.
+sub scan_sections($)
+{
+    my $tracefile = shift;
+
+    open(my $handle, '<', $tracefile) or
+        die("cannot read $tracefile: $!\n");
+    binmode($handle);
+
+    # 'end_of_record' closes a section wherever it starts a line - the reader
+    #   below tests '/^end_of_record/', so anything else on the line is ignored
+    #   rather than being a different record.  Match that exactly:  a scan which
+    #   was stricter would run two of the reader's sections together, and this
+    #   table would then name only the first one's source file.
+    my $needle = 'end_of_record';
+    my $nlen   = length($needle);
+
+    my @sections;
+    my $offset    = 0;     # offset of the first byte of '$buffer'
+    my $start     = 0;     # offset of the first byte of the open section
+    my $line      = 1;     # line number of that byte
+    my $held      = '';    # the open section's bytes, from earlier buffers
+    my $heldLines = 0;
+    my $testname;
+    my $buffer;
+
+    while (read($handle, $buffer, 4 * 1024 * 1024)) {
+        # Complete the buffer to a line boundary, so that no record straddles
+        #   two of them:  every offset below is then within one buffer, and one
+        #   'index' walk per buffer finds every section end.  One extra
+        #   'readline' per 4 MB is not measurable.
+        if (substr($buffer, -1) ne "\n") {
+            my $rest = <$handle>;
+            $buffer .= $rest if defined($rest);
+        }
+        my $from     = 0;    # where to look for the next 'end_of_record'
+        my $bodyFrom = 0;    # where the open section starts, within '$buffer'
+        while (1) {
+            my $at = index($buffer, $needle, $from);
+            if ($at < 0) {
+                # no more section ends in this buffer:  carry what is left of
+                #   the open section forward
+                my $tail = substr($buffer, $bodyFrom);
+                $held .= $tail;
+                $heldLines += ($tail =~ tr/\n//);
+                last;
+            }
+            if ($at != 0 &&
+                substr($buffer, $at - 1, 1) ne "\n") {
+                # not at the start of a line, so not a section end:  the text
+                #   appears inside some other record, or in a comment
+                $from = $at + $nlen;
+                next;
+            }
+            # the section ends at the end of this line
+            my $eol = index($buffer, "\n", $at + $nlen);
+            $eol = length($buffer) - 1 if ($eol < 0);   # unterminated last line
+            my $body  = substr($buffer, $bodyFrom, $eol + 1 - $bodyFrom);
+            my $whole = $held . $body;
+            my ($sf, $tn) = _scan_section_names($whole);
+            $testname = $tn if defined($tn);
+            my $nLines = $heldLines + ($body =~ tr/\n//);
+            push(@sections,
+                 [$start, $offset + $eol + 1, $line, $nLines, $sf, $testname]);
+            $line += $nLines;
+            $start     = $offset + $eol + 1;
+            $held      = '';
+            $heldLines = 0;
+            $bodyFrom  = $from = $eol + 1;
+        }
+        $offset += length($buffer);
+    }
+    close($handle) or die("unable to close $tracefile: $!\n");
+
+    # Anything left after the last 'end_of_record'.
+    if (length($held)) {
+        # a file whose last line has no newline still has that line
+        my $nLines = $heldLines + (substr($held, -1) eq "\n" ? 0 : 1);
+        if ($held =~ /^[SK]F:/m) {
+            # a section which was never closed - a truncated or corrupt file.
+            #   Keep it, running to end of file, so that the reader sees it and
+            #   reports it exactly as it would have in an unpartitioned read.
+            my ($sf, $tn) = _scan_section_names($held);
+            $testname = $tn if defined($tn);
+            push(@sections, [$start, $offset, $line, $nLines, $sf, $testname]);
+        } elsif (@sections) {
+            # trailing comments or blank lines:  legal anywhere, and they
+            #   produce nothing.  Hand them to the last section rather than
+            #   calling them one, which would leave a section with no file for
+            #   the partitioner to attribute and cost the whole file its split.
+            $sections[-1]->[SEC_END] = $offset;
+            $sections[-1]->[SEC_NLINES] += $nLines;
+        }
+    }
+    return \@sections;
+}
+
 # Die on error.
 #
 sub _read_info
 {
-    my ($self, $tracefile, $readSourceCallback, $verify_checksum) = @_;
+    my ($self, $tracefile, $readSourceCallback, $verify_checksum, $chunk) = @_;
     $verify_checksum = 0 unless defined($verify_checksum);
 
     if (!defined($readSourceCallback)) {
@@ -9185,6 +10854,10 @@ sub _read_info
 
     lcovutil::info(1, "Reading data file $tracefile\n");
 
+    # See '%recordDispatch' above:  first read builds it from the cover type
+    #   flags, which are final by now.
+    _init_record_dispatch() unless %recordDispatch;
+
     # Check if file exists and is readable
     stat($tracefile);
     if (!(-r _)) {
@@ -9200,6 +10873,17 @@ sub _read_info
     my $inFile = InOutFile->in($tracefile, $lcovutil::demangle_cpp_cmd);
     local *INFO = $inFile->hdl();
 
+    # '$chunk' is a part of the file to read rather than all of it - a list of
+    #   runs of consecutive sections, each '[startOffset, endOffset, startLine,
+    #   testnamePayload]', as built by 'AggregateTraces::_partition_sections'.
+    #   Undefined means the whole file, which is what every caller but the
+    #   parallel read passes.  A chunk is only ever built for a seekable input:
+    #   gzipped, demangled and stdin input arrives through a pipe.
+    # 0 whence SEEK_CUR:  true for a file, false for a pipe
+    die("cannot read part of a stream")
+        if (defined($chunk) && !seek(INFO, 0, 1));
+    my @runs = defined($chunk) ? @$chunk : ([undef, undef, undef, undef]);
+
     $testname = "";
     my $fileData;
     my $functionMap;
@@ -9210,19 +10894,215 @@ sub _read_info
     my $currentBlock;
     my $branchIndex;
 
+    # A valid .info file is a sequence of sections:
+    #
+    #   tracefile := ( comment | blank )*  section*
+    #   section   := 'TN:'?  'SF:'  ( coverpoint | 'VER:' | comment | blank )*
+    #                'end_of_record'
+    #
+    # so where a record appears is as much a part of the format as its syntax:
+    #   'TN:' names the testcase the section's data belongs to and so has to
+    #   precede it, and a coverpoint record only means anything within a
+    #   section.  Track whether one is open, so a record which is out of place
+    #   is an ERROR_FORMAT rather than being silently attributed to whichever
+    #   file happened to be read last.
+    my $inSection = 0;
+    my $sectionLine;       # .info line of the 'SF:' which opened the section
+    my $sectionEndLine;    # .info line of the 'end_of_record' which closed one
+
+    # The format messages below name the source file whose section is involved
+    #   and the .info line where that section began or ended, so that a report
+    #   points at both ends of the problem.  Either clause is dropped when there
+    #   is nothing to name:  no section has been seen yet, or the section was
+    #   opened by an 'SF:' record whose file name was empty.
+    my $openSection = sub {
+        return 'the current section' unless defined($filename);
+        return "the section for '$filename'" .
+            (defined($sectionLine) ? " beginning at line $sectionLine" : '');
+    };
+    my $closedSection = sub {
+        return ''
+            unless defined($filename) && defined($sectionEndLine);
+        return " - the section for '$filename' ended at line $sectionEndLine";
+    };
+
+    # Adopt a testname, given the payload of the 'TN:' record which names it.
+    #   Shared with the run loop below, because a chunk which does not begin at
+    #   the beginning of the file has to be told the name which is in force
+    #   where it begins - and that name has to be normalized exactly as the
+    #   record itself would have been, or the chunk's data lands under a
+    #   different testcase than the rest of the file's.
+    # '$isRecord' distinguishes the two callers:  only the chunk which actually
+    #   contains the record should report that characters were removed from the
+    #   name, or every chunk which inherited the name would repeat the warning.
+    my $setTestname = sub {
+        my ($payload, $isRecord) = @_;
+        my ($name, $diff) =
+            defined($payload) ? $payload =~ /^([^,]*)(,diff)?/ : ('', undef);
+        $name = '' unless defined($name);
+        my $orig = $name;
+        $changed_testname = $orig if ($name =~ s/\W/_/g && $isRecord);
+        $name .= $diff if defined($diff);
+        if (defined($ignore_testcase_name) &&
+            $ignore_testcase_name) {
+            lcovutil::debug(1,
+                 "using default testcase rather than $name at $tracefile:$.\n");
+            $name = '';
+        }
+        $testname = $name;
+    };
+
+    # Close the section which is open, and note that none is.  Called from the
+    #   'end_of_record' which properly ends a section, and from the two places
+    #   which have to recover from one that is not properly ended:  a second
+    #   'SF:' arriving while a section is open, and end of file.
+    my $closeSection = sub {
+        # A section whose file was excluded, or whose 'SF:' record had no file
+        #   name, has nothing to close:  its records were skipped, and
+        #   '$fileData' still refers to whichever file was read before it.
+        if ($filename && !$skipCurrentFile) {
+            if (!defined($fileData->version()) &&
+                $lcovutil::compute_file_version &&
+                @lcovutil::extractVersionScript) {
+                my $version = lcovutil::extractFileVersion($filename);
+                $fileData->version($version)
+                    if (defined($version) && $version ne "");
+            }
+            $fileData->_installSection(TraceInfo::LINE_DATA, $testname,
+                                       $lineMap);
+            if ($lcovutil::func_coverage) {
+                $fileData->_installSection(TraceInfo::FUNCTION_DATA,
+                                           $testname, $functionMap);
+            }
+            if ($lcovutil::br_coverage) {
+                if ($branchBlock) {
+                    $branchMap->insertBlock($branchBlock, $currentBlockLine);
+                    # reset - in case another testcase follows
+                    $branchBlock = undef;
+                }
+                $branchMap->updateCounts();
+                $fileData->_installSection(TraceInfo::BRANCH_DATA,
+                                           $testname, $branchMap);
+            }
+            # forget the in-progress block, in case the next section
+            #   has an expression on the same line
+            $current_mcdc = undef;
+            if ($mcdcMap && 0 != scalar($mcdcMap->keylist())) {
+                # The blocks in the scratch map were mutated in place as
+                #  the records were read, so its cached found/hit are
+                #  stale - recompute them, exactly as the branch data
+                #  above does with updateCounts().
+                $mcdcMap->_calculate_counts();
+                $fileData->_installSection(TraceInfo::MCDC_DATA,
+                                           $testname, $mcdcMap, $filename);
+            }
+            # some paranoid checks
+            $self->data($filename)->check_data();
+        }
+        $inSection       = 0;
+        $skipCurrentFile = 0;
+        $sectionEndLine  = $.;
+    };
+
+    # Point the handle at the next run of sections this chunk covers, and tell
+    #   the reader where it is:  the line number so that every '"$tracefile":$.'
+    #   message below reports the line the record is really on, and the testname
+    #   in force there.  Returns false when the chunk is exhausted.
+    # Setting the handle's line counter is the whole of the line-number fix -
+    #   there is nothing to change in the messages themselves.
+    my $runEnd;
+    my $startRun = sub {
+        my $run = shift;
+        return 0 unless defined($run);
+        my ($runStart, $runLine, $runTestname);
+        ($runStart, $runEnd, $runLine, $runTestname) = @$run;
+        return 1 unless defined($runStart);    # reading the whole file
+        seek(INFO, $runStart, 0) or
+            die("cannot seek to $runStart in $tracefile: $!\n");
+        INFO->input_line_number($runLine - 1);
+        &$setTestname($runTestname, 0);
+        return 1;
+    };
+    &$startRun(shift(@runs));
+
     while (<INFO>) {
         chomp($_);
         my $line = $_;
-        $line =~ s/\s+$//;    # whitespace
+        # Trailing whitespace has to come off - a '\r' left by the chomp of a
+        #   CRLF file, or padding - but after that chomp almost no line has any,
+        #   so look at the last character rather than running the substitution
+        #   over every one of them.  '!' is the lowest printable character, so
+        #   anything below it is either whitespace or a control character, and
+        #   the substitution leaves control characters alone in any case:  the
+        #   guard cannot skip a line the substitution would have changed.
+        $line =~ s/\s+$//
+            if (length($line) && substr($line, -1) lt '!');
 
-        next if $line =~ /^#/;    # skip comment
+        # Which record is this?  See '%recordDispatch' above:  the tag is
+        #   everything up to the first ':', and the case it maps to selects the
+        #   single regular expression worth running against this line.
+        my $colon = index($line, ':');
+        my $case =
+            $colon > 0 ? $recordDispatch{substr($line, 0, $colon)} : undef;
+        if (!defined($case)) {
+            # No tag, or not one the table carries:  a comment, a blank line,
+            #   'end_of_record' (which has no ':' - and this is also what keeps
+            #   'end_of_record:whatever' working), or something malformed.  Only
+            #   a few lines per section come through here, so testing them one
+            #   at a time costs nothing.
+            next if $line =~ /^#/;       # skip comment
+            next if $line =~ /^\s*$/;    # blank line is legal anywhere
 
-        if ($line =~ /^[SK]F:(.*)/) {
+            if ($line =~ /^end_of_record/) {
+                # Found end of section marker
+                if (!$inSection) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                             "\"$tracefile\":$.: 'end_of_record' with no open" .
+                                 ' section' . &$closedSection());
+                    next;
+                }
+                &$closeSection();
+                # Reading a chunk rather than the whole file:  a run ends at a
+                #   section end, so this is the only place a chunk can be
+                #   finished or a seek to the next run be due.
+                if (defined($runEnd) &&
+                    tell(INFO) >= $runEnd) {
+                    last unless &$startRun(shift(@runs));
+                }
+                next;
+            }
+            # Fall through to the switch below, where this lands on the
+            #   malformed-record error - as it did when the switch was a chain
+            #   of regular expressions which all failed.
+            $case = REC_UNKNOWN;
+        }
+
+        # Each 'if' below pairs the case with the regular expression whose
+        #   capture groups its handler wants.  The case has already told us that
+        #   expression matches this line - unless the payload after the tag is
+        #   malformed, in which case falling past the test to the error at the
+        #   end of the switch is exactly the old behaviour.
+        if ($case == REC_FILE && $line =~ /^[SK]F:(.*)/) {
+            my $sourceName = $1;
+            if ($inSection) {
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                        "\"$tracefile\":$.: file record '$line' found inside " .
+                            &$openSection() . " - missing 'end_of_record'");
+                # close the section which is open, so its data is kept rather
+                #   than dropped when this one replaces it
+                &$closeSection();
+            }
+            $inSection   = 1;
+            $sectionLine = $.;
             # Filename information found
-            if ($1 =~ /^\s*$/) {
+            if ($sourceName =~ /^\s*$/) {
                 lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                     "\"$tracefile\":$.: unexpected empty file name in record '$line'"
                 );
+                # there is no file to attribute this section's records to, so
+                #   skip them - and forget the previous section's name, so that
+                #   nothing reports this section as belonging to that file
+                $filename        = undef;
                 $skipCurrentFile = 1;
                 next;
             }
@@ -9232,7 +11112,10 @@ sub _read_info
             #                                  "Duplicate entries for \"$filename\""
             #                                  . ($testname ? " in testcase '$testname'" : '') . '.');
             #}
-            $filename = ReadCurrentSource::resolve_path($1, 1);
+            # '$sourceName' rather than '$1':  the error paths above match
+            #   further regular expressions, so '$1' no longer holds this
+            #   record's file name by the time we get here.
+            $filename = ReadCurrentSource::resolve_path($sourceName, 1);
             # should this one be skipped?
             $skipCurrentFile = skipCurrentFile($filename);
             if ($skipCurrentFile) {
@@ -9267,377 +11150,382 @@ sub _read_info
 
             die("expected testname") unless defined($testname);
 
-            $lineMap     = $fileData->test($testname);
-            $functionMap = $fileData->testfnc($testname);
-            # need an empty branch map - in case we are ignoring test names
-            #  such that two sections alias to the same data.  We need to
-            #  insert the branch data into a empty map and then merge that
-            #  into both the per-testname and summary data
-            $branchMap = BranchData->new();
-            $mcdcMap   = $fileData->testcase_mcdc($testname);
+            # An empty scratch map for each coverage type:  records land in a map
+            #  holding only THIS section's data, which is then merged into both
+            #  the per-testname data and the summary - see '_installSection'.
+            #  Writing straight into the per-testcase map instead looks cheaper,
+            #  but it is wrong as soon as a second section names the same
+            #  testcase (which '--forget-test-names' guarantees, since it forces
+            #  every section onto ''):  the counts accumulate - 'CountData::append'
+            #  and 'FunctionEntry::addAlias' both add - so the map already holds
+            #  the earlier section by the time it is merged into the summary, and
+            #  the summary gets that running total rather than this section's
+            #  contribution.
+            #  MC/DC has the same hazard through a second route:  a block
+            #  mutated in place ('MCDC_Expression::set' adds) while it is already
+            #  installed in a destination map turns that destination's running
+            #  total into this section's starting value.
+            $lineMap     = CountData->new($filename, $CountData::SORTED);
+            $functionMap = FunctionMap->new($filename);
+            $branchMap   = BranchData->new();
+            $mcdcMap     = MCDC_Data->new();
+            next;
+        }
+
+        if ($case == REC_TN && $line =~ /^TN:(.*)/) {
+            # Test name information found.  It names the testcase which the
+            #   FOLLOWING section's data belongs to, so it has to come before
+            #   the 'SF:' record:  by the time a section is open, its data has
+            #   already been attached to the testcase named when it opened.
+            if ($inSection) {
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                         "\"$tracefile\":$.: '$line' record must precede the " .
+                             "'SF:' record of its section - in " .
+                             &$openSection());
+                # ignore it:  the section keeps the testname it was opened with
+                next;
+            }
+            &$setTestname($1, 1);
+            next;
+        }
+
+        if (!$inSection) {
+            # Not a 'TN:', 'SF:', comment or blank - so it is a record which
+            #   only means something within a section, and there is no section
+            #   for it to belong to.  Discard it rather than attributing it to
+            #   whichever file was read last.
+            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                           "\"$tracefile\":$.: unexpected .info file record " .
+                               "'$line' outside of a section:  expected 'TN:'" .
+                               " or 'SF:'" . &$closedSection());
             next;
         }
         next if $skipCurrentFile;
+
+        # A record belonging to a cover type which is turned off.  There is
+        #   nowhere to put its data, so drop it here - before its regular
+        #   expression is run, which is the point:  see '%recordDispatch' above.
+        #   It is dropped after the checks above, so that a record which is in
+        #   the wrong PLACE is still reported as such whether or not its cover
+        #   type is enabled;  only the record's own payload goes unexamined.
+        next if $case == REC_SKIP;
 
         # Switch statement
         # Please note:  if you add or change something here (lcov info file format) -
         #   then please make corresponding changes to the 'write_info' method, below
         #   and update the format description found in .../man/geninfo.1.
+        # The arms are keyed on the case computed above rather than on the record
+        #   regular expression, so only one of those expressions is ever run -
+        #   and they are ordered by how often the record appears (DA, BRDA and
+        #   MCDC are essentially the whole file), so the common cases are found
+        #   after one or two integer comparisons.  Each arm still runs its own
+        #   expression, for the capture groups the handler wants:  a record whose
+        #   tag is right but whose payload is malformed fails that match and
+        #   falls through to the error at the bottom, as it always did.
+        # 'foreach' rather than a plain block:  it aliases '$_' to the line for
+        #   the expressions below, and it is what every 'last' in here exits.
         foreach ($line) {
-            next if $line =~ /^#/;    # skip comment
-
-            /^VER:(.+)$/ && do {
-                # revision control version string found
-                # we might try to set the version multiple times if the
-                #  file appears multiple times in the .info file
-                if (defined($fileData->version()) &&
-                    $fileData->version() eq $1) {
-                    # this is OK -
-                    #  we might try to set the version multiple times if the
-                    #  file appears multiple times in the .info file.
-                    # This can happen, with some translators
-                    last;
-                }
-                $fileData->version($1);
-                last;
-            };
-
-            /^TN:([^,]*)(,diff)?/ && do {
-                # Test name information found
-                $testname = defined($1) ? $1 : "";
-                my $orig = $testname;
-                if ($testname =~ s/\W/_/g) {
-                    $changed_testname = $orig;
-                }
-                $testname .= $2 if (defined($2));
-                if (defined($ignore_testcase_name) &&
-                    $ignore_testcase_name) {
-                    lcovutil::debug(1,
-                        "using default  testcase rather than $testname at $tracefile:$.\n"
-                    );
-
-                    $testname = '';
-                }
-                last;
-            };
-
-            /^DA:(\d+),([^,]+)(,([^,\s]+))?/ && do {
-                my ($line, $count, $checksum) = ($1, $2, $4);
-                if ($line <= 0) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                        "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
-                    );
-                    # just keep invalid number - if error ignored
-                    # last;
-                }
-                if ($readSourceCallback->notEmpty()) {
-                    # does the source checksum match the recorded checksum?
-                    if ($verify_checksum) {
-                        if (defined($checksum)) {
-                            my $content = $readSourceCallback->getLine($line);
-                            my $chk =
-                                defined($content) ?
-                                Digest::MD5::md5_base64($content) :
-                                0;
-                            if ($chk ne $checksum) {
+            if ($case == REC_DA) {
+                /^DA:(\d+),([^,]+)(,([^,\s]+))?/ && do {
+                    my ($line, $count, $checksum) = ($1, $2, $4);
+                    if ($line <= 0) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
+                        );
+                        # just keep invalid number - if error ignored
+                        # last;
+                    }
+                    if ($readSourceCallback->notEmpty()) {
+                        # does the source checksum match the recorded checksum?
+                        if ($verify_checksum) {
+                            if (defined($checksum)) {
+                                my $content =
+                                    $readSourceCallback->getLine($line);
+                                my $chk =
+                                    defined($content) ?
+                                    Digest::MD5::md5_base64($content) :
+                                    0;
+                                if ($chk ne $checksum) {
+                                    lcovutil::ignorable_error(
+                                        $lcovutil::ERROR_VERSION,
+                                        "checksum mismatch at between source $filename:$line and $tracefile: $checksum -> $chk"
+                                    );
+                                }
+                            } else {
+                                # no checksum there
                                 lcovutil::ignorable_error(
                                     $lcovutil::ERROR_VERSION,
-                                    "checksum mismatch at between source $filename:$line and $tracefile: $checksum -> $chk"
+                                    "no checksum for $filename:$line in $tracefile"
                                 );
                             }
-                        } else {
-                            # no checksum there
+                        }
+                    }
+
+                    # Add test-specific counts
+                    $lineMap->append($line, $count);
+
+                    # Store line checksum if available
+                    if (defined($checksum) &&
+                        $lcovutil::verify_checksum) {
+                        # Does it match a previous definition
+                        if ($fileData->check()->mapped($line) &&
+                            ($fileData->check()->value($line) ne $checksum)) {
                             lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
-                                 "no checksum for $filename:$line in $tracefile"
+                                "checksum mismatch at $filename:$line in $tracefile"
                             );
                         }
+                        $fileData->check()->replace($line, $checksum);
                     }
-                }
-
-                # Add test-specific counts
-                $lineMap->append($line, $count);
-
-                # Store line checksum if available
-                if (defined($checksum) &&
-                    $lcovutil::verify_checksum) {
-                    # Does it match a previous definition
-                    if ($fileData->check()->mapped($line) &&
-                        ($fileData->check()->value($line) ne $checksum)) {
-                        lcovutil::ignorable_error($lcovutil::ERROR_VERSION,
-                            "checksum mismatch at $filename:$line in $tracefile"
+                    last;
+                };
+            } elsif ($case == REC_BRDA) {
+                /^BRDA:(\d+),([ef]?)(U?)(\d+),(.+)$/ && do {
+                    # Branch coverage data found
+                    # line data is "lineNo,blockId,(branchIdx|branchExpr),taken
+                    #   - so grab the last two elements, split on the last comma,
+                    #     and check whether we found an integer or an expression
+                    # NOTES:
+                    #   - we re-derive block IDs such that they start at zero
+                    #     and are contiguous.
+                    #   - we keep track of the order of appearance of new blocks
+                    #     (both when reading the .info file and when parsing
+                    #     gcov output).
+                    #   - when merging branch data:
+                    #      - two blocks are identical if their signature is
+                    #        identical AND either
+                    #          - there is exactly one block in each DB with
+                    #            that signature, OR
+                    #          - the two blocks with the same signature appear
+                    #            in the same order.
+                    #      - that is: within branches with 'code0', the first
+                    #        block is merged into the first block, the second
+                    #        into the second and so forth.
+                    #          - if there is no Nth block in one of the DBs,
+                    #            then it is simply copied.
+                    #      - This means that there is no way for the tool to
+                    #        know that two blocks with identical signatures
+                    #        in different DBs are actually different (e.g.,
+                    #        due to template instantiation)
+                    my ($line, $block, $d) = ($1, $4, $5);
+                    my $type;
+                    if (!defined($2) || '' eq $2) {
+                        $type = BranchElement::VANILLA;
+                    } elsif ($2 eq 'f') {
+                        $type = BranchElement::FALLTHROUGH;
+                    } else {
+                        die("unexpected type '$2'") unless $2 eq 'e';
+                        $type = BranchElement::EXCEPT;
+                    }
+                    # open question...if this is an exception branch and is
+                    #   excluded - should we keep the mark?  Or only if
+                    #   the exception exclusion filter is enabled?
+                    # At present:  once the flag is set, then it remains...we
+                    #   won't clear it when we read or write the .info file
+                    my $unreachable =
+                        (!$lcovutil::ignore_unreachable_flag &&
+                         defined($3) &&
+                         'U' eq $3);
+                    if ($line <= 0) {
+                        # Python coverage.py emits line number 0 (zero) for branches
+                        #  - which is bogus, as there is no line number zero,
+                        #    and the corresponding branch expression is not there in
+                        #    any case.
+                        # Meantime:  this confuses the lcov DB - so we simply skip
+                        # such data.
+                        # Note that we only need to check while reading .info files.
+                        #   - if we wrote one from geninfo, then we will not have
+                        #     produced bogus data - so no need to check.
+                        #   - only some (broken) external tool could have the issue
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
                         );
+                        # just keep invalid line number if error ignored
+                        # last;
                     }
-                    $fileData->check()->replace($line, $checksum);
-                }
-                last;
-            };
+                    $unreachable = 1
+                        if defined($type) &&
+                        $type == BranchElement::EXCEPT &&
+                        $lcovutil::exclude_exception_branch;
 
-            /^FN:(\d+),((\d+),)?(.+)$/ && do {
-                last if (!$lcovutil::func_coverage);
-                # Function data found, add to structure
-                my $lineNo   = $1;
-                my $fnName   = $4;
-                my $end_line = $3;
-                if (!grep({ $fnName =~ $_ }
-                          @lcovutil::suppress_function_patterns) &&
-                    ($lineNo <= 0 ||
-                        (defined($end_line) && $end_line <= 0))
-                ) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                        "\"$tracefile\":$.: unexpected function line '$lineNo' in .info file record '$_'"
-                    ) if $lineNo <= 0;
-                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                        "\"$tracefile\":$.: unexpected function end line '$end_line' in .info file record '$_'"
-                    ) if defined($end_line) && $end_line <= 0;
-                }
-                # the function may already be defined by another testcase
-                #  (for the same file)
-                $functionMap->define_function($fnName, $lineNo, $end_line,
-                                              "\"$tracefile\":$.");
-                last;
-            };
+                    my $comma = rindex($d, ',');
+                    my $taken = substr($d, $comma + 1);
+                    my $expr  = substr($d, 0, $comma);
 
-            # Hit count may be float if Perl decided to convert it
-            /^FNDA:([^,]+),(.+)$/ && do {
-                last if (!$lcovutil::func_coverage);
-                my $fnName = $2;
-                my $hit    = $1;
-                # error checking is in the addAlias method
-                $functionMap->add_count($fnName, $hit);
-                last;
-            };
+                    # Notes:
+                    #   - there may be other branches on the same line (..the next
+                    #     contiguous BRDA entry).
+                    #     There should always be at least 2.
+                    #   - $block is generally '0' - but is used to distinguish cases
+                    #     where different branch constructs appear on the same line -
+                    #     e.g., due to template instantiation or funky macro usage -
+                    #     see .../tests/lcov/branch
+                    #   - $taken can be a number or '-'
+                    #     '-' means that the first clause of the branch short-circuited -
+                    #     so this branch was not evaluated at all.
+                    #     In any branch pair, either all should have a 'taken' of '-'
+                    #     or at least one should have a non-zero taken count and
+                    #     the others should be zero.
+                    #   - in order to support Verilog expressions, we treat the
+                    #     'branchId' as an arbitrary string (e.g., ModelSim will
+                    #     generate an CNF or truth-table like entry corresponding
+                    #     to the branch.
 
-            # new format...
-            /^FNL:(\d+),(\d+)(,(\d+))?$/ && do {
-                last if (!$lcovutil::func_coverage);
-                my $fnIndex  = $1;
-                my $lineNo   = $2;
-                my $end_line = $4;
-                die("unexpected duplicate index $fnIndex")
-                    if exists($fnIdxMap{$fnIndex});
-                $fnIdxMap{$fnIndex} = [$lineNo, $end_line];
-                last;
-            };
-
-            /^FNA:(\d+),([^,]+),(.+)$/ && do {
-                last if (!$lcovutil::func_coverage);
-                my $fnIndex = $1;
-                my $hit     = $2;
-                my $alias   = $3;
-                die("unknown index $fnIndex")
-                    unless exists($fnIdxMap{$fnIndex});
-                my ($lineNo, $end_line) = @{$fnIdxMap{$fnIndex}};
-                my $fn =
-                    $functionMap->define_function($alias, $lineNo, $end_line,
-                                                  "\"$tracefile\":$.");
-                $fn->addAlias($alias, $hit);
-                last;
-            };
-
-            /^BRDA:(\d+),([ef]?)(U?)(\d+),(.+)$/ && do {
-                last if (!$lcovutil::br_coverage);
-
-                # Branch coverage data found
-                # line data is "lineNo,blockId,(branchIdx|branchExpr),taken
-                #   - so grab the last two elements, split on the last comma,
-                #     and check whether we found an integer or an expression
-                # NOTES:
-                #   - we re-derive block IDs such that they start at zero
-                #     and are contiguous.
-                #   - we keep track of the order of appearance of new blocks
-                #     (both when reading the .info file and when parsing
-                #     gcov output).
-                #   - when merging branch data:
-                #      - two blocks are identical if their signature is
-                #        identical AND either
-                #          - there is exactly one block in each DB with
-                #            that signature, OR
-                #          - the two blocks with the same signature appear
-                #            in the same order.
-                #      - that is: within branches with 'code0', the first
-                #        block is merged into the first block, the second
-                #        into the second and so forth.
-                #          - if there is no Nth block in one of the DBs,
-                #            then it is simply copied.
-                #      - This means that there is no way for the tool to
-                #        know that two blocks with identical signatures
-                #        in different DBs are actually different (e.g.,
-                #        due to template instantiation)
-                my ($line, $block, $d) = ($1, $4, $5);
-                my $type;
-                if (!defined($2) || '' eq $2) {
-                    $type = BranchElement::VANILLA;
-                } elsif ($2 eq 'f') {
-                    $type = BranchElement::FALLTHROUGH;
-                } else {
-                    die("unexpected type '$2'") unless $2 eq 'e';
-                    $type = BranchElement::EXCEPT;
-                }
-                # open question...if this is an exception branch and is
-                #   excluded - should we keep the mark?  Or only if
-                #   the exception exclusion filter is enabled?
-                # At present:  once the flag is set, then it remains...we
-                #   won't clear it when we read or write the .info file
-                my $unreachable =
-                    (!$lcovutil::ignore_unreachable_flag &&
-                     defined($3) &&
-                     'U' eq $3);
-                if ($line <= 0) {
-                    # Python coverage.py emits line number 0 (zero) for branches
-                    #  - which is bogus, as there is no line number zero,
-                    #    and the corresponding branch expression is not there in
-                    #    any case.
-                    # Meantime:  this confuses the lcov DB - so we simply skip
-                    # such data.
-                    # Note that we only need to check while reading .info files.
-                    #   - if we wrote one from geninfo, then we will not have
-                    #     produced bogus data - so no need to check.
-                    #   - only some (broken) external tool could have the issue
-                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                        "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
-                    );
-                    # just keep invalid line number if error ignored
-                    # last;
-                }
-                $unreachable = 1
-                    if defined($type) &&
-                    $type == BranchElement::EXCEPT &&
-                    $lcovutil::exclude_exception_branch;
-
-                my $comma = rindex($d, ',');
-                my $taken = substr($d, $comma + 1);
-                my $expr  = substr($d, 0, $comma);
-
-                # Notes:
-                #   - there may be other branches on the same line (..the next
-                #     contiguous BRDA entry).
-                #     There should always be at least 2.
-                #   - $block is generally '0' - but is used to distinguish cases
-                #     where different branch constructs appear on the same line -
-                #     e.g., due to template instantiation or funky macro usage -
-                #     see .../tests/lcov/branch
-                #   - $taken can be a number or '-'
-                #     '-' means that the first clause of the branch short-circuited -
-                #     so this branch was not evaluated at all.
-                #     In any branch pair, either all should have a 'taken' of '-'
-                #     or at least one should have a non-zero taken count and
-                #     the others should be zero.
-                #   - in order to support Verilog expressions, we treat the
-                #     'branchId' as an arbitrary string (e.g., ModelSim will
-                #     generate an CNF or truth-table like entry corresponding
-                #     to the branch.
-
-                if (!defined($branchBlock) ||
-                    $block != $currentBlock ||
-                    $line != $currentBlockLine) {
-                    if (defined($branchBlock)) {
-                        $branchMap->insertBlock($branchBlock,
-                                                $currentBlockLine);
-                    }
-                    $branchBlock      = BranchBlock->new();
-                    $currentBlockLine = $line;
-                    $currentBlock     = $block;
-                    $branchIndex      = 0;
-                }
-                $branchBlock->appendElement(
-                               BranchElement->new($branchIndex++, $taken, $expr,
-                                                  $type, $unreachable));
-                last;
-            };
-
-            /^MCDC:(\d+),(U?)(\d+),([tf]),(\d+),(\d+),(.+)$/ && do {
-                # lineNum, unreachable groupSize, sense, count, index, expression
-                # 'sense' is t/f: was this expression sensitized
-                # 'filtered' indicates that this particular MC/DC element
-                #    was excluded by
-                last unless $lcovutil::mcdc_coverage;
-
-                my ($line, $groupSize, $sense, $count, $idx, $expr) =
-                    ($1, $3, $4, $5, $6, $7);
-                my $unreachable = !$lcovutil::ignore_unreachable_flag &&
-                    defined($2) &&
-                    'U' eq $2;
-                if ($line <= 0) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                        "\"$tracefile\":$.: unexpected line number '$line' in condition data record '$_'."
-                    );
-                    # keep invalid line number
-                    #last;
-                }
-
-                if (!defined($current_mcdc) ||
-                    $current_mcdc->line() != $line) {
-                    # @todo if all the MC/DC elements are excluded, then
-                    #   drop this coverpoint
-                    if ($current_mcdc) {
-                        $fileData->mcdc()->close_mcdcBlock($current_mcdc);
-
-                        $fileData->testcase_mcdc($testname)
-                            ->append_mcdc(Storable::dclone($current_mcdc),
-                                          $filename)
-                            if (defined($testname));
-                    }
-                    $current_mcdc =
-                        $fileData->mcdc()->new_mcdc($fileData, $line);
-                }
-                $current_mcdc->insertExpr($filename, $groupSize, $sense eq 't',
-                                          $count, $idx, $expr, $unreachable);
-                last;
-            };
-
-            /^end_of_record/ && do {
-                # Found end of section marker
-                if ($filename) {
-                    if (!defined($fileData->version()) &&
-                        $lcovutil::compute_file_version &&
-                        @lcovutil::extractVersionScript) {
-                        my $version = lcovutil::extractFileVersion($filename);
-                        $fileData->version($version)
-                            if (defined($version) && $version ne "");
-                    }
-                    $sumcount->union($lineMap);
-                    if ($lcovutil::func_coverage) {
-                        $funcdata->union($functionMap);
-                    }
-                    if ($lcovutil::br_coverage) {
-                        if ($branchBlock) {
+                    if (!defined($branchBlock) ||
+                        $block != $currentBlock ||
+                        $line != $currentBlockLine) {
+                        if (defined($branchBlock)) {
                             $branchMap->insertBlock($branchBlock,
                                                     $currentBlockLine);
-                            # reset - in case another testcase follows
-                            $branchBlock = undef;
                         }
-                        $branchMap->updateCounts();
-                        $fileData->testbr($testname)->union($branchMap);
-                        $fileData->sumbr()->union($branchMap);
+                        $branchBlock      = BranchBlock->new();
+                        $currentBlockLine = $line;
+                        $currentBlock     = $block;
+                        $branchIndex      = 0;
                     }
-                    if ($current_mcdc) {
-                        # close the current expression in case the next file
-                        # has an expression on the same line
-                        $fileData->mcdc()->close_mcdcBlock($current_mcdc);
-                        my $mcdc = $fileData->testcase_mcdc($testname);
-                        $mcdc->append_mcdc(Storable::dclone($current_mcdc),
-                                           $filename)
-                            if (defined($testname));
-                        $fileData->mcdc()->union($mcdc);
-                        $current_mcdc = undef;
-                    }
-                    # some paranoic checks
-                    $self->data($filename)->check_data();
+                    $branchBlock->appendNew($branchIndex++, $taken, $expr,
+                                            $type, $unreachable);
                     last;
-                }
-            };
+                };
+            } elsif ($case == REC_MCDC) {
+                /^MCDC:(\d+),(U?)(\d+),([tf]),(\d+),(\d+),(.+)$/ && do {
+                    # lineNum, unreachable groupSize, sense, count, index, expression
+                    # 'sense' is t/f: was this expression sensitized
+                    # 'filtered' indicates that this particular MC/DC element
+                    #    was excluded by
+                    my ($line, $groupSize, $sense, $count, $idx, $expr) =
+                        ($1, $3, $4, $5, $6, $7);
+                    my $unreachable = !$lcovutil::ignore_unreachable_flag &&
+                        defined($2) &&
+                        'U' eq $2;
+                    if ($line <= 0) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: unexpected line number '$line' in condition data record '$_'."
+                        );
+                        # keep invalid line number
+                        #last;
+                    }
+
+                    if (!defined($current_mcdc) ||
+                        $current_mcdc->line() != $line) {
+                        # @todo if all the MC/DC elements are excluded, then
+                        #   drop this coverpoint
+                        # Allocate out of the section-local scratch map above, NOT
+                        #  out of $fileData->mcdc().  Counts accumulate
+                        #  (MCDC_Expression::set adds), so a block which is mutated
+                        #  in place while it is already installed in a destination
+                        #  turns that destination's running total into this section's
+                        #  starting value.  Keeping the block in a map which holds
+                        #  only this section's data also preserves insertExpr()'s
+                        #  revisit handling - a line which appears more than once in
+                        #  one section lands back in the same block and is checked
+                        #  for consistency there.
+                        $current_mcdc = $mcdcMap->new_mcdc($fileData, $line);
+                    }
+                    $current_mcdc->insertExpr($filename, $groupSize,
+                                             $sense eq 't',
+                                             $count, $idx, $expr, $unreachable);
+                    last;
+                };
+            } elsif ($case == REC_FN) {
+                /^FN:(\d+),((\d+),)?(.+)$/ && do {
+                    # Function data found, add to structure
+                    my $lineNo   = $1;
+                    my $fnName   = $4;
+                    my $end_line = $3;
+                    if (!grep({ $fnName =~ $_ }
+                              @lcovutil::suppress_function_patterns) &&
+                        ($lineNo <= 0 ||
+                            (defined($end_line) && $end_line <= 0))
+                    ) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: unexpected function line '$lineNo' in .info file record '$_'"
+                        ) if $lineNo <= 0;
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: unexpected function end line '$end_line' in .info file record '$_'"
+                        ) if defined($end_line) && $end_line <= 0;
+                    }
+                    # the function may already be defined by another testcase
+                    #  (for the same file)
+                    $functionMap->define_function($fnName, $lineNo, $end_line,
+                                                  "\"$tracefile\":$.");
+                    last;
+                };
+            } elsif ($case == REC_FNDA) {
+                # Hit count may be float if Perl decided to convert it
+                /^FNDA:([^,]+),(.+)$/ && do {
+                    my $fnName = $2;
+                    my $hit    = $1;
+                    # error checking is in the addAlias method
+                    $functionMap->add_count($fnName, $hit);
+                    last;
+                };
+            } elsif ($case == REC_FNL) {
+                # new format...
+                /^FNL:(\d+),(\d+)(,(\d+))?$/ && do {
+                    my $fnIndex  = $1;
+                    my $lineNo   = $2;
+                    my $end_line = $4;
+                    die("unexpected duplicate index $fnIndex")
+                        if exists($fnIdxMap{$fnIndex});
+                    $fnIdxMap{$fnIndex} = [$lineNo, $end_line];
+                    last;
+                };
+            } elsif ($case == REC_FNA) {
+                /^FNA:(\d+),([^,]+),(.+)$/ && do {
+                    my $fnIndex = $1;
+                    my $hit     = $2;
+                    my $alias   = $3;
+                    die("unknown index $fnIndex")
+                        unless exists($fnIdxMap{$fnIndex});
+                    my ($lineNo, $end_line) = @{$fnIdxMap{$fnIndex}};
+                    my $fn =
+                        $functionMap->define_function($alias, $lineNo,
+                                                $end_line, "\"$tracefile\":$.");
+                    $fn->addAlias($alias, $hit);
+                    last;
+                };
+            } elsif ($case == REC_VER) {
+                /^VER:(.+)$/ && do {
+                    # revision control version string found
+                    # we might try to set the version multiple times if the
+                    #  file appears multiple times in the .info file
+                    if (defined($fileData->version()) &&
+                        $fileData->version() eq $1) {
+                        # this is OK -
+                        #  we might try to set the version multiple times if the
+                        #  file appears multiple times in the .info file.
+                        # This can happen, with some translators
+                        last;
+                    }
+                    $fileData->version($1);
+                    last;
+                };
+            }
+
             /^(FN|BR|L|MC)[HF]/ && do {
                 last;    # ignore count records
             };
-            /^\s*$/ && do {
-                last;    # ignore empty line
-            };
 
             lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                        "\"$tracefile\":$.: unexpected .info file record '$_'");
+                        "\"$tracefile\":$.: unexpected .info file record '$_'" .
+                            ' in ' . &$openSection());
             # default
             last;
         }
+    }
+    # Only the last run of a chunk can end at end of file, so runs left over
+    #   here mean the file is not the file which was scanned:  it was rewritten
+    #   while we were reading it.  Nothing downstream can recover from that.
+    die("$tracefile changed while it was being read\n") if (@runs);
+    if ($inSection) {
+        # end of file with a section still open:  its 'end_of_record' is
+        #   missing.  Close it, so the data which was read is kept rather than
+        #   dropped.
+        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                 "\"$tracefile\":$.: unexpected end of file: " .
+                                     "missing 'end_of_record' for " .
+                                     &$openSection());
+        &$closeSection();
     }
 
     # Calculate lines_found and lines_hit for each file
@@ -9665,7 +11553,11 @@ sub _read_info
         }
     }
 
-    if (scalar($self->files()) == 0) {
+    # A chunk which read nothing useful is not an empty tracefile:  the rest of
+    #   the file went to other chunks.  The parent asks the same question of the
+    #   merged result - see 'AggregateTraces::_parallel_parse'.
+    if (scalar($self->files()) == 0 &&
+        !defined($chunk)) {
         lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
                               "no valid records found in tracefile $tracefile");
     }
@@ -9806,21 +11698,22 @@ sub write_info($$$)
                     my $blockId = 0;
                     foreach my $block ($brdata->blocks(1)) {
                         foreach my $br (@{$block->elements()}) {
-                            my $taken       = $br->data();
-                            my $branch_id   = $br->id();
-                            my $branch_expr = $br->expr();
+                            # one call for all five fields - see
+                            #   BranchElement::write_data
+                            my ($taken, $branch_id, $branch_expr, $type,
+                                $excluded)
+                                = $br->write_data();
                             # mostly for Verilog:  if there is a branch expression: use it.
-                            my $type = $br->signature();
                             $type = '' if 'b' eq $type;
                             printf(INFO_HANDLE "BRDA:%u,%s%s%u,%s,%s\n",
                                    $line,
                                    $type,
-                                   $br->is_excluded() ? 'U' : '',
+                                   $excluded ? 'U' : '',
                                    $blockId,
                                    defined($branch_expr) ? $branch_expr :
                                        $branch_id,
                                    $taken);
-                            unless ($br->is_excluded()) {
+                            unless ($excluded) {
                                 # count does not include the excluded ones
                                 $br_found++;
                                 $br_hit++
@@ -9854,14 +11747,19 @@ sub write_info($$$)
                         foreach my $e (@$exprs) {
                             $mcdc_found += 2;
                             ++$index;
+                            # one call for both senses - see
+                            #   MCDC_Expression::write_data
+                            my ($countF, $countT, $exclF, $exclT, $expression)
+                                = $e->write_data();
                             foreach my $sense ('t', 'f') {
-                                my $count = $e->count($sense eq 't');
+                                my $isTrue = $sense eq 't';
+                                my $count  = $isTrue ? $countT : $countF;
                                 ++$mcdc_hit if 0 != $count;
                                 my $excluded =
-                                    $e->is_excluded($sense eq 't') ? 'U' : '';
+                                    ($isTrue ? $exclT : $exclF) ? 'U' : '';
                                 print(INFO_HANDLE
                                         "MCDC:$line,$excluded$groupSize,$sense,$count,$index,"
-                                        . $e->expression(),
+                                        . $expression,
                                     "\n");
                             }
                         }
@@ -9974,22 +11872,631 @@ sub find_from_glob
     return @merge;
 }
 
-sub _process_segment($$$)
+# Decide how to split the input '.info' files across children, from the section
+#   table which 'TraceFile::scan_sections' built for each of them.
+# Returns a list of chunks, or undef if the inputs should be read the way they
+#   always were - which is not an error and is the answer for most inputs.
+#
+# A chunk is '[[inputIdx, ...], [[run, ...], ...]]':  the inputs it reads, in
+#   input order, and for each of them the 'runs' of consecutive sections to read
+#   from that input, each '[startOffset, endOffset, startLine, testcaseName]'.
+#   The run list of one input is what 'TraceFile::_read_info' takes as its
+#   '$chunk' argument:  a child seeks once per run rather than once per section.
+#   Nothing outside this file cares that a chunk can name several inputs - the
+#   child reads them one after another, exactly as a serial read of those files
+#   would have.
+sub _partition_sections($$$)
 {
-    my ($total_trace, $readSourceFile, $segment) = @_;
+    my ($sections, $nWorkers, $filelist) = @_;
+
+    return undef
+        unless ($lcovutil::parallel_parse_min_lines &&
+                $nWorkers > 1 &&
+                scalar(@$sections) > 1);
+
+    # All the sections naming one source file are one atom of work, wherever
+    #   they are and whichever input they are in.  Three reasons, and the third
+    #   is the one which makes the fused filtering below legal:
+    #   'TraceFile::merge_tracefile' is free when the file is new to the
+    #   destination and expensive when it is not (measured: 0.0000s vs 0.4673s
+    #   for the same 16 MB), '$function_mapping' would otherwise list the same
+    #   input file once per child which saw the function, and a filter must see
+    #   all of a file's data before it can decide anything about that file.
+    # Grouping across inputs rather than within one input is what extends all
+    #   three to a set of inputs:  a source file which several of the inputs
+    #   carry is still read, merged and filtered by exactly one child.
+    # Sections which the pre-scan could not attribute to exactly one source file
+    #   cannot be grouped, so decline the whole set rather than guess - see
+    #   'TraceFile::_scan_section_names'.
+    # The unit of weight is the number of records in the group, summed over the
+    #   inputs which carry it:  what a group costs to read, to hold and to filter
+    #   all scale with how many records it has, and a '.info' file is one record
+    #   per line.
+    my $totalLines = 0;
+    my $maxLines   = 0;
+    my %groups;    # 'SF:' name -> [record count, [section, ...]]
+    foreach my $section (@$sections) {
+        my $name = $section->[TraceFile::SEC_FILE];
+        return undef unless defined($name);
+        my $nLines = $section->[TraceFile::SEC_NLINES];
+        $totalLines += $nLines;
+        my $group = $groups{$name};
+        if (defined($group)) {
+            $group->[0] += $nLines;
+            push(@{$group->[1]}, $section);
+        } else {
+            $group = $groups{$name} = [$nLines, [$section]];
+        }
+        $maxLines = $group->[0] if ($group->[0] > $maxLines);
+    }
+
+    # Is it worth it at all?  Splitting a small input loses:  the forks and the
+    #   parent-side deserialization cost more than the parse they replace.  The
+    #   test is against the whole set, because that is the work being divided.
+    #   LCOV_FORCE_PARALLEL overrides the size test - but not an explicit
+    #   'parallel_parse_min_lines = 0', which means "never".
+    return undef
+        if ($totalLines < $lcovutil::parallel_parse_min_lines &&
+            !exists($ENV{LCOV_FORCE_PARALLEL}));
+
+    # A section is indivisible, so no number of workers can beat
+    #   totalLines/largestGroup.  Real inputs can be badly skewed - one project's
+    #   own capture is 29 sections of which the largest is 37.6% of the lines,
+    #   a cap of 2.7x however many cores are available - so clamp the worker
+    #   count to the cap rather than forking children which can only wait.
+    my $cap = int($totalLines / $maxLines);
+    return undef if ($cap < 2);
+    $nWorkers = $cap if ($cap < $nWorkers);
+
+    # More chunks than workers shortens the tail and bounds child memory - see
+    #   '$lcovutil::parallel_parse_chunks_per_worker'.  Two counter-bounds:
+    #   there is no point in more chunks than there are groups to put in them,
+    #   or in chunks so small that the fork costs more than the chunk
+    #   ('$dedicate_segment_line_estimate' is the existing notion of "enough
+    #   lines to be worth a child of its own").
+    my $nChunks = $nWorkers * $lcovutil::parallel_parse_chunks_per_worker;
+    my $nGroups = scalar(keys(%groups));
+    $nChunks = $nGroups if ($nGroups < $nChunks);
+    if ($lcovutil::dedicate_segment_line_estimate) {
+        my $byLoad =
+            int($totalLines / $lcovutil::dedicate_segment_line_estimate);
+        $nChunks = $byLoad if ($byLoad < $nChunks);
+    }
+    $nChunks = 2 if ($nChunks < 2);
+
+    # Longest-processing-time-first: the same shape as the genhtml scheduler,
+    #   and within 4/3 of the optimal makespan with no parameters to tune.
+    #   Because groups arrive in descending order and each goes to the lightest
+    #   chunk, a group which is itself larger than a chunk's fair share ends up
+    #   alone in one - no special case for it is needed.
+    # '@chunks' is kept sorted by load, ascending, so the lightest is [0].
+    my @chunks = map({ [0, []] } 1 .. $nChunks);
+    foreach my $group (
+             sort(
+                 { $b->[0] <=> $a->[0] ||
+                         $a->[1][0][TraceFile::SEC_INPUT]
+                         <=> $b->[1][0][TraceFile::SEC_INPUT] ||
+                         $a->[1][0][TraceFile::SEC_START]
+                         <=> $b->[1][0][TraceFile::SEC_START] } values(%groups))
+    ) {
+        my $chunk = shift(@chunks);
+        $chunk->[0] += $group->[0];
+        push(@{$chunk->[1]}, @{$group->[1]});
+        my ($lo, $hi) = (0, scalar(@chunks));
+        while ($lo < $hi) {
+            my $mid = int(($lo + $hi) / 2);
+            if ($chunks[$mid]->[0] < $chunk->[0]) {
+                $lo = $mid + 1;
+            } else {
+                $hi = $mid;
+            }
+        }
+        splice(@chunks, $lo, 0, $chunk);
+    }
+
+    # Turn each chunk's sections back into input-and-then-file order and coalesce
+    #   the adjacent ones into runs.  A run inherits the testcase name in force
+    #   at its first section; sections after that one are contiguous with it, so
+    #   they pick up any 'TN:' record themselves - and a run never spans two
+    #   inputs, so an inherited name is always the one its own input declared.
+    # Reading the inputs of a chunk in input order, and each of them forwards,
+    #   is what makes a child's read of them the same read a serial one would
+    #   have done:  one open per input, and the same merge order within the
+    #   chunk, which is what '@interesting' below is judged by.
+    my @result;
+    foreach my $chunk (@chunks) {
+        my (@inputs, @runs);
+        my $currentInput;
+        foreach my $section (
+              sort(
+                  { $a->[TraceFile::SEC_INPUT] <=> $b->[TraceFile::SEC_INPUT] ||
+                          $a->[TraceFile::SEC_START]
+                          <=> $b->[TraceFile::SEC_START] } @{$chunk->[1]})
+        ) {
+            my $input = $section->[TraceFile::SEC_INPUT];
+            if (!defined($currentInput) ||
+                $input != $currentInput) {
+                $currentInput = $input;
+                push(@inputs, $input);
+                push(@runs, []);
+            } elsif (@{$runs[-1]} &&
+                     $runs[-1]->[-1]->[1] == $section->[TraceFile::SEC_START]) {
+                $runs[-1]->[-1]->[1] = $section->[TraceFile::SEC_END];
+                next;
+            }
+            push(@{$runs[-1]},
+                 [$section->[TraceFile::SEC_START],
+                  $section->[TraceFile::SEC_END],
+                  $section->[TraceFile::SEC_LINE],
+                  $section->[TraceFile::SEC_TESTNAME]
+                 ]);
+        }
+        # Sort key first, so that the chunks can be ordered by where they begin,
+        #   then dropped:  see below.  The chunk carries the weight it was packed
+        #   to, which is what the memory throttle scales - see 'CHUNK_LINES'.
+        push(@result,
+             [$inputs[0], $runs[0]->[0]->[0], [\@inputs, \@runs, $chunk->[0]]])
+            if (@inputs);
+    }
+    # Read the chunks in input order, and within one input in file order:  the
+    #   data is merged in the order the children return it, and this keeps that
+    #   order as close to the order the user wrote as splitting allows.
+    return [
+            map({ $_->[2] }
+                sort({ $a->[0] <=> $b->[0] || $a->[1] <=> $b->[1] } @result))
+    ];
+}
+
+# The parts of a chunk - see '_partition_sections'.
+use constant {
+              CHUNK_INPUTS => 0,    # indices into the input file list
+              CHUNK_RUNS   => 1,    # the runs to read from each of them
+              CHUNK_LINES  => 2,    # records in it, for the memory throttle
+};
+
+# Decide whether the input '.info' files will be split, and how - see
+#   '_partition_sections'.  Returns the chunk list, or undef to read the inputs
+#   the way they always were:  serially, or one child per input.
+sub _plan_parallel_parse($)
+{
+    my $filelist = shift;
+
+    return undef
+        unless ($lcovutil::parallel_parse_min_lines &&
+                defined($lcovutil::maxParallelism) &&
+                1 != $lcovutil::maxParallelism);
+    # Only a seekable input can be split:  gzipped, demangled and stdin data
+    #   arrives through a pipe - see 'InOutFile::in'.
+    return undef if (defined($lcovutil::demangle_cpp_cmd));
+
+    # One section table for all of the inputs, each section knowing which input
+    #   it came from:  the partitioner groups by source file across the whole
+    #   set, so it has to see the whole set.
+    # Scanning is 0.8 ms per MB, against 120 ms per MB to parse - see
+    #   'TraceFile::scan_sections' - so this pre-pass is affordable even when
+    #   the answer turns out to be "do not split".
+    my @sections;
+    my $totalSize = 0;
+    foreach my $idx (0 .. scalar(@$filelist) - 1) {
+        my $tracefile = $filelist->[$idx];
+        # An input which cannot be split costs the whole set its split:  the
+        #   contract the rest of this depends on is that all of one source
+        #   file's data goes to one child, and an input whose sections cannot be
+        #   located may hold data for any source file in the set.  Reading it
+        #   whole alongside the chunks is the next step - see section 11.3 of
+        #   'lcovPerformanceTest/PARALLEL_PARSE_PLAN.md'.
+        return undef
+            if (!defined($tracefile) ||
+                '-' eq $tracefile ||
+                $tracefile =~ /\.gz$/);
+        return undef unless (-f $tracefile && !-z $tracefile);
+        my $now      = Time::HiRes::gettimeofday();
+        my $sections = TraceFile::scan_sections($tracefile);
+        $lcovutil::profileData{scan}{$tracefile} =
+            Time::HiRes::gettimeofday() - $now;
+        # An input with no sections at all is one the reader has something to
+        #   say about ("no valid records found") - let it say it, in the order
+        #   and the words it always used.
+        return undef unless (@$sections);
+        push(@$_, $idx) foreach (@$sections);
+        $totalSize += $sections->[-1]->[TraceFile::SEC_END];
+        push(@sections, @$sections);
+    }
+    return undef unless (@sections);
+
+    # The memory throttle, as in 'merge' below - but a child of this fork reads
+    #   one chunk rather than a whole input, so the estimate has to use the
+    #   chunk size or a single large input would throttle itself to
+    #   '--parallel 1' and lose the feature exactly where it pays most.
+    # Note that a smaller worker count means larger chunks, so this cannot be
+    #   solved in one step; iterate down to a fixed point.  It terminates
+    #   because each iteration strictly decreases the count.
+    my $nWorkers = $lcovutil::maxParallelism;
+    if (defined($lcovutil::maxMemory) &&
+        0 != $lcovutil::maxMemory) {
+        my $currentSize = lcovutil::current_process_size();
+        while ($nWorkers > 1) {
+            my $chunkSize =
+                int($totalSize / (
+                         $nWorkers * $lcovutil::parallel_parse_chunks_per_worker
+                    ));
+            my $num = int($lcovutil::maxMemory / ($currentSize + $chunkSize));
+            last if ($num >= $nWorkers);
+            $nWorkers = $num > 1 ? $num : 1;
+        }
+        if ($nWorkers != $lcovutil::maxParallelism) {
+            lcovutil::info(
+             "Throttling to '--parallel $nWorkers' due to memory constraint\n");
+            $lcovutil::maxParallelism = $nWorkers;
+        }
+    }
+    return _partition_sections(\@sections, $nWorkers, $filelist);
+}
+
+# Read the input '.info' files with several children at once, each taking one
+#   chunk of their sections - see '_partition_sections'.  A chunk can hold
+#   sections from more than one of the inputs, and holds all of the sections
+#   which name any source file it holds any section for.
+# Each child also does what the caller would otherwise do afterwards, to its own
+#   share of the data:  the testcase-table check and then the filters.  That is
+#   legal because the partitioner puts all of a source file's data in one chunk,
+#   and both of those steps look at one source file at a time - so a child's view
+#   of a file is the final view of it.  It saves the parent a second fork/join
+#   over the merged data, and saves shipping the data the filters remove.
+# The order the child does it in is exactly the caller's order - read with the
+#   filters off, check, then filter - because the two passes are not
+#   interchangeable:  with the filters on, 'TraceFile::_filterFile' checks data
+#   consistency only for a file whose function end lines it also had to derive.
+# Returns the list of 'effective' input files - those which contributed coverage
+#   no other input had - in input order.  A child judges its own chunk, which is
+#   sound because it saw all of that chunk's source files in every input:  in
+#   fact it is a better answer than the one-child-per-input read gives, where
+#   two children can each believe their copy of the same data was the effective
+#   one.
+sub _parallel_parse($$$$$)
+{
+    my ($total_trace, $readSourceFile, $filelist, $chunks, $save_filters) = @_;
+
+    my $nChunks  = scalar(@$chunks);
+    my $nInputs  = scalar(@$filelist);
+    my $inFlight = $lcovutil::maxParallelism;
+    $inFlight = $nChunks if ($nChunks < $inFlight);
+    lcovutil::info((1 == $nInputs ? "Reading tracefile $filelist->[0]" :
+                        "Reading $nInputs tracefiles") .
+                       " in $nChunks chunks, $inFlight at a time.\n");
+    $lcovutil::profileData{config} = {}
+        unless exists($lcovutil::profileData{config});
+    $lcovutil::profileData{config}{chunks} = $nChunks;
+
+    # kind of a hack...write to the named directory that the user gave
+    #   us rather than to a funny generated name
+    my $tempDir = defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
+        lcovutil::create_temp_dir();
+
+    # The children filter, so they are the ones which count what the filters
+    #   did.  Those counts do not ride home in 'lcovutil::compute_update' (the
+    #   pattern counts do, the filter counts do not), so collect them the same
+    #   way the filter fork does - see 'TraceFile::_processParallelChunk'.
+    # The filters are turned off just now, so reach the live objects through the
+    #   caller's saved copy rather than through '@lcovutil::cov_filter'.
+    my @filters  = grep({ defined($_) } @{$save_filters->[0]});
+    my @patterns = (@{$save_filters->[1]}, @{$save_filters->[2]});
+    # Now put them back:  each child turns them off again for its own read, so
+    #   the parent has no use for the off state - and 'lcovutil::update_state'
+    #   insists that the pattern counts a child sends back describe the same
+    #   number of patterns the parent knows about, which is not true while the
+    #   omit/erase lists are emptied out here.
+    lcovutil::reenable_cov_filters($save_filters);
+
+    my @queue = (0 .. $nChunks - 1);
+    my %effective;    # input file name -> it contributed something
+    my $didFilter = 0;
+    # the child's own container and filter state, set up before 'initial_state'
+    #   and used by the work below
+    my ($chunk_trace, $childFilters);
+
+    lcovutil::ForkManager->new(
+        operation => 'aggregate',
+        phase     => 'aggregate',
+        tempDir   => $tempDir,
+        prefix    => 'lcov',
+        # Show what the child had to say even when it succeeded:  the user did
+        #   not ask for their inputs to be split, so they should still see the
+        #   'Excluding ...' and similar messages which the unsplit read would
+        #   have printed.
+        showStdout => 1,
+        # Merge the chunks in the order they appear in the file rather than the
+        #   order the children happen to finish in:  a file-level comment is held
+        #   in a list whose order is the order it is merged in, and the user gets
+        #   to see their own order.
+        ordered => 1,
+        # A chunk child holds the records of its own chunk, which is exactly the
+        #   quantity the partitioner packed the chunks by - so this is the site
+        #   where the estimate can be asked the right question.  The chunk count
+        #   was already chosen with the memory limit in mind (see
+        #   '_plan_parallel_parse'), but that decision is taken before anything
+        #   has been read, from the size of the input on disk;  this one is taken
+        #   at each fork, from what the chunks which have finished really cost.
+        memoryThrottle => 1,
+        unitWeight     => sub {
+            return $chunks->[$_[0]][CHUNK_LINES];
+        },
+        # never more than one child per chunk
+        maxInFlight => $inFlight,
+        # The chunk index says where in the merge order this chunk goes;  it does
+        #   not name the job, because the same process can read more than one
+        #   group of inputs (lcov --intersect reads the base trace and then the
+        #   files to intersect it with) and chunk 0 of the second group is not the
+        #   same job as segment 0 of the first.  '$segmentIdx' is the counter
+        #   which is unique across the process - see its declaration - so the
+        #   labels and the per-job profile keys come from there.
+        jobId => sub { return $segmentIdx; },
+        # allocate the next one, exactly as the segment loop below does:  the
+        #   child was forked with the current value, so this must come after it
+        postFork => sub { ++$segmentIdx; },
+        next     => sub {
+            return () unless @queue;
+            my $chunkIdx = shift(@queue);
+            # What this chunk turned out to be:  which inputs it reads and how
+            #   many separate places in each of them, which is the only view of
+            #   the partitioner's answer the user can get.
+            lcovutil::info(
+                 1,
+                 "Chunk $chunkIdx: "
+                     .
+                     join(
+                     ', ',
+                     map({ $filelist->[$chunks->[$chunkIdx][CHUNK_INPUTS][$_]] .
+                                 ' (' .
+                                 scalar(@{$chunks->[$chunkIdx][CHUNK_RUNS][$_]})
+                                 . ' runs)' }
+                         0 .. scalar(@{$chunks->[$chunkIdx][CHUNK_INPUTS]}) - 1)
+                     ) .
+                     "\n");
+            return ($chunkIdx, $chunkIdx);
+        },
+        more      => sub { return scalar(@queue); },
+        childInit => sub {
+            # Filtering is serial here - this fork already provides the
+            #   parallelism, and letting each child fork its own filter workers
+            #   would multiply the process count.
+            $lcovutil::maxParallelism = 1;
+            delete($ENV{LCOV_FORCE_PARALLEL});
+            # Read into a container of my own rather than into the caller's
+            #   accumulator:  chunks are merged as they finish, so by the time I
+            #   was forked '$total_trace' may already hold other chunks - and
+            #   everything I sent back would be merged into it a second time.
+            #   Same reasoning for the function map.
+            $chunk_trace      = TraceFile->new();
+            $function_mapping = {} if $function_mapping;
+            # Read with the filters off, exactly as the serial path does, then
+            #   turn them back on for 'applyFilters' below:  some filters want to
+            #   see what the input said (and '_checkConsistency' is skipped
+            #   unless the end lines were derived here rather than read).
+            $childFilters = lcovutil::disable_cov_filters();
+            # Zero what we are going to count, so that what we send back is this
+            #   chunk's contribution and not the parent's running total as well.
+            #   'initial_state' does this for the patterns, but it cannot see
+            #   them while the filters are turned off, and it does not do it for
+            #   the filter counts at all.
+            foreach my $f (@filters) {
+                $f->[-2] = 0;
+                $f->[-1] = 0;
+            }
+            $_->[-1] = 0 foreach (@patterns);
+        },
+        child => sub {
+            my ($chunkIdx, $id, $forkAt, $jobId) = @_;
+            # I'm the child:  read my chunk, filter it, hand it back.
+            my $status     = 0;
+            my $filterTime = 0;
+            my @interesting;
+            my $chunk = $chunks->[$chunkIdx];
+            eval {
+                @interesting =
+                    _process_segment($chunk_trace,
+                                     $readSourceFile,
+                                     [
+                                      map({ $filelist->[$_] }
+                                          @{$chunk->[CHUNK_INPUTS]})
+                                     ],
+                                     $chunk->[CHUNK_RUNS]);
+                # Every input has now been read, as far as the files in this
+                #   chunk are concerned, so this is the point at which their
+                #   per-testcase tables can be judged - and before the filters,
+                #   so that the warning describes what the user gave us.
+                $chunk_trace->checkTestcaseData();
+                lcovutil::reenable_cov_filters($childFilters);
+                my $filterStart = Time::HiRes::gettimeofday();
+                $chunk_trace->applyFilters($readSourceFile);
+                $filterTime = Time::HiRes::gettimeofday() - $filterStart;
+            };
+            if ($@) {
+                print(STDERR $@);
+                $status = 1;
+            }
+            # The filters ran here, in this chunk, over the source files this
+            #   chunk holds - so what they cost is this chunk's cost, reported
+            #   beside the rest of what the chunk cost.  It is a part of 'total',
+            #   not something to be added to it.
+            # There is no per-input filter time to be had:  a source file is
+            #   filtered once, no matter how many of the inputs had something to
+            #   say about it, so there is nothing to attribute to an input.
+            # The same goes for the read itself and for the merge of what was
+            #   read into this chunk's own trace.  '_process_segment' measured
+            #   both per input file, which is what they are in a serial read;
+            #   here they are not, because a chunk holds only a part of each
+            #   input it names and several chunks read the same input at the same
+            #   time - so what one of them spent on it says nothing about what
+            #   reading that input cost.  Fold them into one number per chunk and
+            #   drop the per-input ones.  'initial_state' emptied this profile
+            #   before we were called, so what is here is this chunk's own.
+            foreach my $key ('parse', 'append') {
+                my $d = delete($lcovutil::profileData{$key});
+                next unless $d;
+                my $t = 0;
+                $t += $_ foreach (values(%$d));
+                $lcovutil::profileData{$jobId}{$key} = $t;
+            }
+            # All of them are keyed by the job, not by the chunk:  see 'jobId'
+            #   above.
+            $lcovutil::profileData{$jobId}{filter} = $filterTime;
+            $lcovutil::profileData{$jobId}{total} =
+                Time::HiRes::gettimeofday() - $forkAt;
+            return ([$chunk_trace, \@interesting, $function_mapping,
+                     [map({ [$_->[-2], $_->[-1]] } @filters)]
+                    ],
+                    $status);
+        },
+        preMerge => sub {
+            my $ctx = shift;
+            lcovutil::info(
+                          1,
+                          'Merging chunk ' .
+                              $ctx->{id} . ", status $ctx->{status}"
+                              .
+                              (
+                              $lcovutil::debug ?
+                                  (' mem:' . lcovutil::current_process_size()) :
+                                  '') .
+                              "\n");
+        },
+        validate => sub {
+            my ($payload, $ctx) = @_;
+            my ($current, $changed, $func_map) = @$payload;
+            my $chunkIdx = $ctx->{id};
+            $lcovutil::profileData{$chunkIdx}{undump} =
+                $ctx->{reapAt} - $ctx->{forkAt};
+            die("chunk $chunkIdx returned empty " .
+                ($function_mapping ? 'function' : 'trace') . " data\n")
+                unless defined($function_mapping ? $func_map : $current);
+            return 1;
+        },
+        merge => sub {
+            my ($unit, $chunkIdx, $payload) = @_;
+            my ($current, $changed, $func_map, $filterCounts) = @$payload;
+            if (defined($current) &&
+                0 != ($current->[TraceFile::STATE] & TraceFile::DID_FILTER)) {
+                # the child, not I, did the filtering:  say so the way the serial
+                #   path would have - once, no matter how many chunks there are
+                lcovutil::info("Apply filtering..\n") unless $didFilter;
+                $didFilter = 1;
+            }
+            for (my $i = 0; $i <= $#filters; ++$i) {
+                $filters[$i]->[-2] += $filterCounts->[$i]->[0];
+                $filters[$i]->[-1] += $filterCounts->[$i]->[1];
+            }
+            # The child compared each of its inputs against the ones before it,
+            #   for the files in its chunk - so it, and not the merge below, is
+            #   what says whether an input was effective.  The merge below always
+            #   changes something:  chunks share no source file, so nothing a
+            #   chunk brings is already in '$total_trace'.
+            $effective{$_} = 1 foreach (@$changed);
+            if ($function_mapping) {
+                while (my ($key, $data) = each(%$func_map)) {
+                    $function_mapping->{$key} = [$data->[0], []]
+                        unless exists($function_mapping->{$key});
+                    die("mismatched function name '" . $data->[0] . "' at $key")
+                        unless ($data->[0] eq $function_mapping->{$key}->[0]);
+                    push(@{$function_mapping->{$key}->[1]}, @{$data->[1]});
+                }
+            } else {
+                $total_trace->merge_tracefile($current, TraceInfo::UNION);
+            }
+        },
+        postReap => sub {
+            my $ctx = shift;
+            $lcovutil::profileData{$ctx->{id}}{merge} =
+                Time::HiRes::gettimeofday() - $ctx->{forkAt};
+        },
+        requeue          => sub { unshift(@queue, $_[0]); },
+        forkFailWhen     => sub { return 'read tracefile chunk'; },
+        retryWhen        => sub { return 'read chunk ' . $_[0]->{id}; },
+        mergeFailMessage => sub {
+            my $ctx = shift;
+            return 'unable to merge chunk ' .
+                $ctx->{id} . " $ctx->{dumpfile}:$ctx->{error}";
+        },
+        childFailMessage =>
+            sub { return 'while reading chunk ' . $_[0]->{id}; },)->run();
+    lcovutil::info("Finished filter file processing\n") if $didFilter;
+    # Everything the read cost belongs to the chunk which did it, and each child
+    #   reported it that way - see 'child' above.  There is nothing per input
+    #   file to report here:  a chunk holds only a part of each input it names,
+    #   and the chunks which hold the rest of it read at the same time.
+    # Nor is there a separable 'append' phase for the run as a whole:  chunks are
+    #   merged into '$total_trace' as they arrive, so what that cost is reported
+    #   as the parent's 'merge', per chunk, beside the rest of the fork/join
+    #   breakdown - and filtering happened inside the children, so what it cost
+    #   is part of what a chunk cost rather than something beside it.
+    # So drop the per-input tables 'merge' pre-seeded for the serial path:  an
+    #   empty one reads as 'this cost nothing' rather than 'this does not apply'.
+    foreach my $key ('parse', 'append') {
+        delete($lcovutil::profileData{$key})
+            if (exists($lcovutil::profileData{$key}) &&
+                !%{$lcovutil::profileData{$key}});
+    }
+    # '_read_info' makes this check for itself when it reads a whole file, but a
+    #   child which read only a chunk cannot: a chunk of an otherwise good input
+    #   can legitimately be empty once its files are excluded.  So ask once,
+    #   here, of everything.  Note that the pre-scan found file records in every
+    #   input or we would not be here at all, so this reports data which was
+    #   excluded or filtered away rather than data which was never there.
+    #   Nothing at all came through means nothing came through from any one
+    #   input, so every input is named - as the serial read names them.
+    if (!$function_mapping &&
+        0 == scalar($total_trace->files())) {
+        # Report it the way the serial path does:  there, the error comes out of
+        #   'TraceFile::load' and '_process_segment' catches it and blames the
+        #   file - so the user turns it off with the same option either way.
+        foreach my $tracefile (@$filelist) {
+            eval {
+                lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+                              "no valid records found in tracefile $tracefile");
+            };
+            lcovutil::ignorable_error($lcovutil::ERROR_CORRUPT,
+                                   "unable to read trace file '$tracefile': $@")
+                if ($@);
+        }
+    }
+    # The children filtered their own data - see the comment above - so tell the
+    #   caller's 'applyFilters' that there is nothing left for it to do.  The
+    #   merge does not propagate this, since in general the two sides of a merge
+    #   have not had the same operations applied to them.
+    $total_trace->[TraceFile::STATE] |=
+        TraceFile::DID_FILTER | TraceFile::DID_DERIVE;
+    # ..in input order, as the serial read reports them
+    return grep({ exists($effective{$_}) } @$filelist);
+}
+
+# Read each of the input files in '$segment' and merge it into '$total_trace'.
+#   '$chunk', when it is given, is a list parallel to '$segment':  the runs of
+#   sections to read from that input rather than all of it - see
+#   '_partition_sections'.
+# Returns the inputs which contributed coverage the ones before them in
+#   '$segment' did not.
+sub _process_segment($$$;$)
+{
+    my ($total_trace, $readSourceFile, $segment, $chunk) = @_;
 
     my @interesting;
     my $total = scalar(@$segment);
+    my $idx   = 0;
     foreach my $tracefile (@$segment) {
-        my $now = Time::HiRes::gettimeofday();
+        my $now  = Time::HiRes::gettimeofday();
+        my $runs = defined($chunk) ? $chunk->[$idx++] : undef;
         --$total;
+        # Not while reading chunks:  each of them would count the inputs down
+        #   again, from its own share of them.  What the user is told about a
+        #   split read is the chunk count - see '_parallel_parse'.
         lcovutil::info("Merging $tracefile..$total remaining"
                            .
                            ($lcovutil::debug ?
                                 (' mem:' . lcovutil::current_process_size()) :
                                 '') .
-                           "\n"
-        ) if (1 != scalar(@$segment));    # ...in segment $segId
+                           "\n")
+            if (1 != scalar(@$segment) && !defined($chunk))
+            ;    # ...in segment $segId
         my $context = MessageContext->new("merging $tracefile");
         if (!-f $tracefile ||
             -z $tracefile) {
@@ -10003,7 +12510,7 @@ sub _process_segment($$$)
         my $current;
         eval {
             $current = TraceFile->load($tracefile, $readSourceFile,
-                                       $lcovutil::verify_checksum, 1);
+                                       $lcovutil::verify_checksum, 1, $runs);
             lcovutil::debug("after load $tracefile: memory: " .
                             lcovutil::current_process_size() . "\n")
                 if $lcovutil::debug;    # predicate to avoid function call...
@@ -10072,16 +12579,32 @@ sub merge
         unless exists($lcovutil::profileData{append});
 
     my @effective;
-    # source-based filters are somewhat expensive - so we turn them
-    #   off for file read and only re-enable when we write the data back out
-    my $save_filters = lcovutil::disable_cov_filters();
-
     my $total_trace = TraceFile->new();
     if (!(defined($lcovutil::maxParallelism) && defined($lcovutil::maxMemory)
     )) {
         lcovutil::init_parallel_params();
     }
-    if (0 != $lcovutil::maxMemory &&
+    # use a particular file sort order - to somewhat minimize order effects
+    my $filelist = \@_;
+    my @sorted_filelist;
+    if ($lcovutil::sort_inputs) {
+        @sorted_filelist = sort({ $a cmp $b } @_);
+        $filelist        = \@sorted_filelist;
+    }
+    # The inputs can be split at section boundaries and read by several children
+    #   at once, whether there is one of them or many - see '_parallel_parse'.
+    #   Decide that here because the memory estimate below does not apply to it:
+    #   its unit of work is a chunk rather than a whole input file, and
+    #   estimating from the largest input would throttle it to '--parallel 1'
+    #   exactly where it pays most.
+    my $chunks = _plan_parallel_parse($filelist);
+
+    # source-based filters are somewhat expensive - so we turn them
+    #   off for file read and only re-enable when we write the data back out
+    my $save_filters = lcovutil::disable_cov_filters();
+
+    if (!defined($chunks) &&
+        0 != $lcovutil::maxMemory &&
         1 != $lcovutil::maxParallelism) {
         # estimate the number of processes we think we can run..
         my $currentSize = lcovutil::current_process_size();
@@ -10104,17 +12627,12 @@ sub merge
             $lcovutil::maxParallelism = $num;
         }
     }
-    # use a particular file sort order - to somewhat minimize order effects
-    my $filelist = \@_;
-    my @sorted_filelist;
-    if ($lcovutil::sort_inputs) {
-        @sorted_filelist = sort({ $a cmp $b } @_);
-        $filelist        = \@sorted_filelist;
-    }
-
-    if (1 != $lcovutil::maxParallelism &&
-        (exists($ENV{LCOV_FORCE_PARALLEL}) ||
-            1 < $nTests)
+    if (defined($chunks)) {
+        @effective = _parallel_parse($total_trace, $readSourceFile, $filelist,
+                                     $chunks, $save_filters);
+    } elsif (1 != $lcovutil::maxParallelism &&
+             (exists($ENV{LCOV_FORCE_PARALLEL}) ||
+              1 < $nTests)
     ) {
         # parallel implementation is to segment the file list into N
         #  segments, then parse-and-merge scalar(@merge)/N files in each slave,
@@ -10161,232 +12679,123 @@ sub merge
         #   us rather than to a funny generated name
         my $tempDir = defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
             lcovutil::create_temp_dir();
-        my %children;
-        my @pending;
-        my $failedAttempts = 0;
-        my %childRetryCounts;
-        do {
-            while (my $segment = pop(@segments)) {
-                $lcovutil::deferWarnings = 1;
-                my $now = Time::HiRes::gettimeofday();
-                my $pid = fork();
-                if (!defined($pid)) {
-                    ++$failedAttempts;
-                    lcovutil::report_fork_failure('process segment',
-                                                  $!, $failedAttempts);
-                    push(@segments, $segment);
-                    next;
-                }
-                $failedAttempts = 0;
-
-                if (0 == $pid) {
-                    # I'm the child
-                    my $stdout_file =
-                        File::Spec->catfile($tempDir, "lcov_$$.log");
-                    my $stderr_file =
-                        File::Spec->catfile($tempDir, "lcov_$$.err");
-
-                    my $currentState =
-                        lcovutil::initial_state('aggregate', $segmentIdx);
-                    my $status = 0;
-                    my @interesting;
-                    my ($stdout, $stderr, $code) = Capture::Tiny::capture {
-                        eval {
-                            @interesting =
-                                _process_segment($total_trace,
-                                                 $readSourceFile, $segment);
-                        };
-                        if ($@) {
-                            print(STDERR $@);
-                            $status = 1;
-                        }
-
-                        my $then = Time::HiRes::gettimeofday();
-                        $lcovutil::profileData{$segmentIdx}{total} =
-                            $then - $now;
-                    };
-                    # print stdout and stderr ...
-                    foreach
-                        my $d ([$stdout_file, $stdout], [$stderr_file, $stderr])
-                    {
-                        next
-                            unless ($d->[1])
-                            ;    # only print if there is something to print
-                        my $f = InOutFile->out($d->[0]);
-                        my $h = $f->hdl();
-                        print($h $d->[1]);
-                    }
-                    my $file = File::Spec->catfile($tempDir, "dumper_$$");
-                    my $data;
-                    eval {
-                        $data =
-                            Storable::store(
-                                        [$total_trace,
-                                         \@interesting,
-                                         $function_mapping,
-                                         lcovutil::compute_update($currentState)
-                                        ],
-                                        $file);
-                    };
-                    if ($@ || !defined($data)) {
-                        lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                              "Child $$ serialize failed" . ($@ ? ": $@" : ''));
-                    }
-                    exit($status);
-                } else {
-                    $children{$pid} = [$now, $segmentIdx, $segment];
-                    push(@pending, $segment);
-                }
-                $segmentIdx++;
-            }
-            # now wait for all the children to finish...
-            foreach (@pending) {
-                my $child       = wait();
-                my $now         = Time::HiRes::gettimeofday();
-                my $raw_status  = $?;
-                my $childstatus = $raw_status >> 8;
-                my $raw_signal  = $raw_status & 0xFF;
-                unless (exists($children{$child})) {
-                    lcovutil::report_unknown_child($child);
-                    next;
-                }
-                my ($start, $idx, $segment) = @{$children{$child}};
-                lcovutil::info(
+        my $segment_trace;
+        lcovutil::ForkManager->new(
+         operation => 'aggregate',
+         phase     => 'aggregate',
+         tempDir   => $tempDir,
+         prefix    => 'lcov',
+         # no memory throttle:  there are at most '--parallel' segments by
+         #   construction, and the estimate above has already decided how many
+         #   of them will fit
+         next => sub {
+             my $segment = pop(@segments);
+             return () unless defined($segment);
+             return ($segment, $segmentIdx++);
+         },
+         more => sub { return scalar(@segments); },
+         # Merge into a trace of this child's own rather than into the
+         #   parent's running total.  What the parent has already merged is
+         #   in the parent, and 'merge_tracefile' unions counts, so a child
+         #   which handed that total back would have it counted twice.  A
+         #   segment forked before the first merge sees an empty trace
+         #   anyway;  a retried segment - forked after some other segment was
+         #   merged - does not, which is where the double count showed up.
+         #   See the 'site 3' single-failure cases in
+         #   tests/lcov/parallel_fail.  Same reasoning for the function
+         #   mapping, whose per-key lists the parent appends to.
+         childInit => sub {
+             $segment_trace     = TraceFile->new();
+             %$function_mapping = () if $function_mapping;
+         },
+         child => sub {
+             my ($segment, $idx, $forkAt) = @_;
+             my $status = 0;
+             my @interesting;
+             eval {
+                 @interesting =
+                     _process_segment($segment_trace, $readSourceFile,
+                                      $segment);
+             };
+             if ($@) {
+                 print(STDERR $@);
+                 $status = 1;
+             }
+             $lcovutil::profileData{$idx}{total} =
+                 Time::HiRes::gettimeofday() - $forkAt;
+             # still send what we have:  the parent decides what an
+             #   unsuccessful segment means
+             return ([$segment_trace, \@interesting, $function_mapping],
+                     $status);
+         },
+         preMerge => sub {
+             my $ctx = shift;
+             lcovutil::info(
                           1,
-                          "Merging segment $idx, status $childstatus"
+                          'Merging segment ' .
+                              $ctx->{id} . ", status $ctx->{status}"
                               .
                               (
                               $lcovutil::debug ?
                                   (' mem:' . lcovutil::current_process_size()) :
                                   '') .
                               "\n");
-                my $dumpfile = File::Spec->catfile($tempDir, "dumper_$child");
-                my $childLog = File::Spec->catfile($tempDir, "lcov_$child.log");
-                my $childErr = File::Spec->catfile($tempDir, "lcov_$child.err");
-
-                foreach my $f ($childLog, $childErr) {
-                    if (!-f $f) {
-                        $f = '';    # there was no output
-                        next;
-                    }
-                    if (open(RESTORE, "<", $f)) {
-                        # slurp into a string and eval..
-                        my $str =
-                            do { local $/; <RESTORE> };    # slurp whole thing
-                        close(RESTORE) or die("unable to close $f: $!\n");
-                        unlink $f
-                            unless ($str && $lcovutil::preserve_intermediates);
-                        $f = $str;
-                    } else {
-                        $f = "unable to open $f: $!";
-                        if (0 == $childstatus) {
-                            lcovutil::report_parallel_error('aggregate',
-                                                 $ERROR_PARALLEL, $child, 0, $f,
-                                                 keys(%children));
-                        }
-                    }
-                }
-                my $signal = $raw_signal;
-
-                print(STDOUT $childLog)
-                    if ((0 != $childstatus &&
-                         $signal != POSIX::SIGKILL &&
-                         $lcovutil::max_fork_fails != 0) ||
-                        $lcovutil::verbose);
-                print(STDERR $childErr);
-
-                # undump the data
-                my $data = Storable::retrieve($dumpfile)
-                    if (-f $dumpfile && 0 == $childstatus);
-                if (defined($data)) {
-                    eval {
-                        my ($current, $changed, $func_map, $update) = @$data;
-                        my $then = Time::HiRes::gettimeofday();
-                        $lcovutil::profileData{$idx}{undump} = $then - $now;
-                        lcovutil::update_state(@$update);
-                        if ($function_mapping) {
-                            if (!defined($func_map)) {
-                                lcovutil::report_parallel_error(
-                                    'aggregate',
-                                    $ERROR_PARALLEL,
-                                    $child,
-                                    0,
-                                    "segment $idx returned empty function data",
-                                    keys(%children));
-                                next;
-                            }
-                            while (my ($key, $data) = each(%$func_map)) {
-                                $function_mapping->{$key} = [$data->[0], []]
-                                    unless exists($function_mapping->{$key});
-                                die("mismatched function name '" .
-                                    $data->[0] . "' at $key")
-                                    unless ($data->[0] eq
-                                            $function_mapping->{$key}->[0]);
-                                push(@{$function_mapping->{$key}->[1]},
-                                     @{$data->[1]});
-                            }
-                        } else {
-                            if (!defined($current)) {
-                                lcovutil::report_parallel_error(
-                                    'aggregate',
-                                    $ERROR_PARALLEL,
-                                    $child,
-                                    0,
-                                    "segment $idx returned empty trace data",
-                                    keys(%children));
-                                next;
-                            }
-                            if ($total_trace->merge_tracefile(
-                                                      $current, TraceInfo::UNION
-                            )) {
-                                # something in this segment improved coverage...so save
-                                #   the effective input files from this one
-                                push(@effective, @$changed);
-                            }
-                        }
-                    };    # end eval
-                    if ($@) {
-                        $childstatus = 1 << 8 unless $childstatus;
-                        lcovutil::report_parallel_error(
-                            'aggregate',
-                            $ERROR_PARALLEL,
-                            $child,
-                            $childstatus,
-                            "unable to deserialize segment $idx $dumpfile:$@",
-                            keys(%children));
-                    }
-                }
-                if (!defined($data) || 0 != $childstatus) {
-                    if (!-f $dumpfile ||
-                        POSIX::SIGKILL == $signal) {
-
-                        if (exists($childRetryCounts{$idx})) {
-                            $childRetryCounts{$idx} += 1;
-                        } else {
-                            $childRetryCounts{$idx} = 1;
-                        }
-                        lcovutil::report_fork_failure(
-                             "aggregate segment $idx",
-                             (POSIX::SIGKILL == $signal ?
-                                  "killed by OS - possibly due to out-of-memory"
-                              :
-                                  "serialized data $dumpfile not found"),
-                             $childRetryCounts{$idx});
-                        push(@segments, $segment);
-                    } else {
-
-                        lcovutil::report_parallel_error('aggregate',
-                                             $ERROR_CHILD, $child, $childstatus,
-                                             "while processing segment $idx",
-                                             keys(%children));
-                    }
-                }
-                my $end = Time::HiRes::gettimeofday();
-                $lcovutil::profileData{$idx}{merge} = $end - $start;
-                unlink $dumpfile
-                    if -f $dumpfile;
-            }
-        } while (@segments);
+         },
+         validate => sub {
+             my ($payload, $ctx) = @_;
+             my ($current, $changed, $func_map) = @$payload;
+             my $idx = $ctx->{id};
+             $lcovutil::profileData{$idx}{undump} =
+                 Time::HiRes::gettimeofday() - $ctx->{reapAt};
+             return 1
+                 if ($function_mapping ?
+                     defined($func_map) :
+                     defined($current));
+             lcovutil::report_parallel_error(
+                       'aggregate',
+                       $ERROR_PARALLEL,
+                       $ctx->{child},
+                       0,
+                       "segment $idx returned empty " .
+                           ($function_mapping ? 'function' : 'trace') . ' data',
+                       @{$ctx->{siblings}});
+             return 0;
+         },
+         merge => sub {
+             my ($segment, $idx, $payload)      = @_;
+             my ($current, $changed, $func_map) = @$payload;
+             if ($function_mapping) {
+                 while (my ($key, $data) = each(%$func_map)) {
+                     $function_mapping->{$key} = [$data->[0], []]
+                         unless exists($function_mapping->{$key});
+                     die("mismatched function name '" .
+                         $data->[0] . "' at $key")
+                         unless ($data->[0] eq $function_mapping->{$key}->[0]);
+                     push(@{$function_mapping->{$key}->[1]}, @{$data->[1]});
+                 }
+             } elsif ($total_trace->merge_tracefile($current, TraceInfo::UNION))
+             {
+                 # something in this segment improved coverage...so save
+                 #   the effective input files from this one
+                 push(@effective, @$changed);
+             }
+         },
+         postReap => sub {
+             my $ctx = shift;
+             $lcovutil::profileData{$ctx->{id}}{merge} =
+                 Time::HiRes::gettimeofday() - $ctx->{forkAt};
+         },
+         requeue          => sub { push(@segments, $_[0]); },
+         forkFailWhen     => sub { return 'process segment'; },
+         retryWhen        => sub { return "aggregate segment $_[0]->{id}"; },
+         mergeFailMessage => sub {
+             my $ctx = shift;
+             return 'unable to deserialize segment ' .
+                 $ctx->{id} . " $ctx->{dumpfile}:$ctx->{error}";
+         },
+         childFailMessage => sub {
+             return "while processing segment $_[0]->{id}";
+         },)->run();
     } else {
         # sequential
         @effective = _process_segment($total_trace, $readSourceFile, $filelist);
@@ -10396,10 +12805,39 @@ sub merge
         # won't remove if directory not empty...probably what I want, for debugging
         rmdir($lcovutil::tempdirname);
     }
+    # Every input has now been read and merged, so this is the first point at
+    #   which the per-testcase tables can be judged:  a coverage type missing a
+    #   testcase in one input is unremarkable if a later input supplies it.
+    #   Ask before filtering, so that the warning describes what the user gave
+    #   us rather than what the filters left behind.
+    #   The split path did this in its children, where each chunk already held
+    #   all of its files' data and had not been filtered yet - so asking again
+    #   here would both repeat the question and ask it of filtered data.
+    $total_trace->checkTestcaseData()
+        unless defined($chunks);
     #...and turn any enabled filters back on...
     lcovutil::reenable_cov_filters($save_filters);
     # filters had been disabled - need to explicitly exclude function bodies
+    my $filterStart = Time::HiRes::gettimeofday();
     $total_trace->applyFilters($readSourceFile);
+    my $filterTime = Time::HiRes::gettimeofday() - $filterStart;
+    # A separate step, after everything was read and merged, so it gets a time of
+    #   its own:  the whole job, not one number per input, because the filters run
+    #   over the merged data and no longer know which input a source file came
+    #   from.  This is the same 'filter' geninfo reports for its own filter step.
+    #   (The forked filter workers, if there were any, are reported per-worker
+    #   under the 'filt_' keys - see 'TraceFile::_processFilterWorklist' - which is
+    #   where the parent/child breakdown of this number is.)
+    #   Not in the split read:  there, each child filtered its own chunk as it read
+    #   it and the call above found nothing left to do, so what filtering cost is
+    #   reported per chunk, as that chunk's 'filter' - see
+    #   'AggregateTraces::_parallel_parse'.
+    # '+=', because 'lcov --intersect' reads two groups of inputs and so filters
+    #   twice in the one run;  what the user wants to know is what filtering cost
+    #   them altogether.
+    $lcovutil::profileData{filter} =
+        ($lcovutil::profileData{filter} // 0) + $filterTime
+        unless defined($chunks);
 
     return ($total_trace, \@effective);
 }
@@ -10408,5 +12846,97 @@ sub merge
 
 lcovutil::define_errors();
 lcovutil::init_filters();
+
+# Optionally load C++ XS acceleration for MapData and CountData.
+# Controlled by LCOV_PURE_PERL=1 env var (forces pure Perl).
+# The XS module is searched relative to this file's directory.
+{
+
+    package lcovutil;
+    our $XS_LOADED = 0;
+    # Why the extension did not load, or '' if it did (or if LCOV_PURE_PERL
+    # asked us not to try).  The fallback below is silent by design, so this is
+    # the only way to tell "pure Perl was requested" from "the XS library is
+    # there but unusable" - which is what a toolchain mismatch looks like, and
+    # which otherwise shows up only as a much slower run.  coverage.sh reads it
+    # to confirm that each of its legs really ran the backend it intended to.
+    our $XS_LOAD_ERROR = '';
+    unless ($ENV{LCOV_PURE_PERL}) {
+        my $xs_lib = $lcovutil::tool_dir;
+        # tool_dir may not be set yet at module load time; fall back to FindBin
+        if (!defined $xs_lib || !-d $xs_lib) {
+            $xs_lib = $FindBin::Bin;
+        }
+        # Try lib/LcovUtil relative to the lcovutil.pm file itself
+        my $self_dir = File::Basename::dirname(__FILE__);
+        my $xs_blib  = File::Spec->catdir($self_dir, 'LcovUtil', 'blib', 'lib');
+        my $xs_arch = File::Spec->catdir($self_dir, 'LcovUtil', 'blib', 'arch');
+        # Add blib paths to @INC so XSLoader can find the .so
+        if (-d $xs_blib && -d $xs_arch) {
+            unshift @INC, $xs_blib, $xs_arch;
+        }
+        eval {
+            no warnings 'once';
+            require LcovUtil;
+            $lcovutil::XS_LOADED     = $LcovUtil::XS_LOADED;
+            $lcovutil::XS_LOAD_ERROR = $LcovUtil::XS_LOAD_ERROR;
+        };
+        # Silently fall back to pure Perl on any load error.  $@ is set only
+        # when 'require LcovUtil' itself failed (the extension was never built);
+        # if the .pm loaded but its XSLoader::load did not, LcovUtil.pm has
+        # already recorded the reason and $@ is empty.
+        $lcovutil::XS_LOAD_ERROR ||= $@;
+    }
+}
+
+# Install pure-Perl Storable hooks only when XS is not loaded.
+# When XS is loaded, the LcovUtil bootstrap already installed its own
+# STORABLE_freeze/STORABLE_thaw for MapData and CountData (which operate on
+# the C++ objects).  These pure-Perl versions apply only to the hashref/arrayref
+# representations used in LCOV_PURE_PERL mode.
+unless ($lcovutil::XS_LOADED) {
+    {
+
+        package MapData;
+
+        sub STORABLE_freeze
+        {
+            my ($self, $cloning) = @_;
+            return ("", {%$self});
+        }
+
+        sub STORABLE_thaw
+        {
+            my ($self, $cloning, $tag, $state_ref) = @_;
+            my $state = ref($state_ref) eq 'REF' ? $$state_ref : $state_ref;
+            %$self = %$state;
+        }
+    }
+    {
+
+        package CountData;
+
+        sub STORABLE_freeze
+        {
+            my ($self, $cloning) = @_;
+            my $state = [$self->[FILENAME], $self->[SORTABLE],
+                         $self->[FOUND], $self->[HIT],
+                         {%{$self->[HASH]}},
+            ];
+            return ("", $state);
+        }
+
+        sub STORABLE_thaw
+        {
+            my ($self, $cloning, $tag, $state_ref) = @_;
+            my $state = ref($state_ref) eq 'REF' ? $$state_ref : $state_ref;
+            $self->[FILENAME] = $state->[0];
+            $self->[SORTABLE] = $state->[1];
+            $self->[FOUND]    = $state->[2];
+            $self->[HIT]      = $state->[3];
+            $self->[HASH]     = {%{$state->[4]}};
+        }
+    }
+}
 
 1;

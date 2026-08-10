@@ -121,7 +121,8 @@ ln -s "$SRCDIR/missingRestore.pm" missingRestore.pm
 ln -s "$SRCDIR/MsgContext.pm"     MsgContext.pm
 ln -s "$SRCDIR/mcdc_errs.dat"     mcdc_errs.dat
 
-echo `which gcov`
+# $GCOV, not 'which gcov':  common.tst matched it to ${CC} - see there
+echo $GCOV
 echo `which lcov`
 
 # test.cpp must resolve (via symlink) to the real p4-controlled source so the

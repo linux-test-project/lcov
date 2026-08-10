@@ -490,7 +490,7 @@ if [ "${VER[0]}" -lt 9 ] ; then
     IGNORE_STATIC="--erase-function .*static.*"
 fi
 
-$COVER $LCOV_TOOL $LCOV_OPTS -a unreachLine.info  --rc lcov_unreachable_line=TEST_UNREACH_FUNCTION --filter region --ignore unreachable --rc retain_unreachable_coverpoints_if_executed=0 -o removeUnreachFunc.info --ignore empty $IGNORE_STATIC 2>&1 | tee unreachFunc.txt
+$COVER $LCOV_TOOL $LCOV_OPTS -a unreachLine.info  --rc lcov_unreachable_line=TEST_UNREACH_FUNCTION --filter region --ignore unreachable --rc retain_unreachable_coverpoints_if_executed=0 -o removeUnreachFunc.info --ignore empty,unused $IGNORE_STATIC 2>&1 | tee unreachFunc.txt
 if [ 0 != ${PIPESTATUS[0]} ] ; then
     echo "Error:  lcov unreached failed"
     if [ $KEEP_GOING == 0 ] ; then

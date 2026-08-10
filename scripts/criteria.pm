@@ -29,7 +29,7 @@
 #   See the 'criteria-script' section in "man genhtml" for details.
 #
 #   The coverage criteria implemented here is "UNC + LBC + UIC == 0"
-#   If the criterial is violated, then this script emits a single line message
+#   If the criteria is violated, then this script emits a single line message
 #   to stdout and returns a non-zero exit code.
 #
 #   If passed the "--suppress" flag, this script will exit with status 0,

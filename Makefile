@@ -111,17 +111,21 @@ info:
 	@echo "  check     : perform self-tests"
 	@echo "  checkstyle: check source files for coding style issues"
 	@echo "  doc       : build man and HTML format documentation"
+	@echo "  xs_lib    : build C++ utilities (for improved performance)"
 	@echo "  release   : finalize release and create git tag for specified VERSION"
 	@echo "  test      : same as 'make check'"
 
 clean:
 	$(call echocmd,"  CLEAN   lcov")
-	$(RM) lcov-*.tar.gz lcov-*.rpm doc
+	$(RM) lcov-*.tar.gz lcov-*.rpm doc xs_lib
 	$(RM) -r ./bin/__pycache__
 	$(MAKE) -C example -s clean
 	$(MAKE) -C tests -s clean
 	$(MAKE) -C docs -s clean
 	find . \( -name '*.tdy' -o -name '*.orig' -o -name '*.rej' \) -a -type f | xargs rm -f
+ifndef LCOV_NO_XS
+	[ ! -f lib/LcovUtil/Makefile ] || $(MAKE) -C lib/LcovUtil clean
+endif
 
 ifdef LCOV_NO_DOC
 .PHONY: doc
@@ -139,7 +143,34 @@ endif
 # want explicit targets that 'install' can check - such that 'make install'
 # does nothing but install stuff (not build too).
 
-install: doc
+# Build the XS extension unless LCOV_NO_XS is set.
+ifdef LCOV_NO_XS
+.PHONY: xs_lib
+xs_lib:
+else
+XSDIR = $(CURDIR)/lib/LcovUtil
+
+# Toolchain for the XS extension.  The C++ sources need a C++20-capable
+# compiler, but the default g++ on PATH is frequently older than that - notably
+# under an environment-modules setup, where a login shell may preload an old
+# gcc.  Building against it fails, and because lcovutil.pm silently falls back
+# to pure Perl when the library is missing, the failure shows up only as a much
+# slower run.
+#
+# Set LCOV_CXX=/path/to/g++ to name the compiler explicitly;  otherwise whatever
+# g++ is on PATH is used.  Arranging for that PATH - loading an environment
+# module, sourcing a setup script, whatever the site requires - is the caller's
+# job, not this Makefile's:  those mechanisms are specific to the machine lcov
+# happens to be built on, and this Makefile ships to everyone.
+XS_BUILD_CMD = COVERAGE=$(COVERAGE) LCOV_CXX="$(LCOV_CXX)"      \
+	  perl Makefile.PL && $(MAKE) -C $(CURDIR)/lib/LcovUtil
+
+xs_lib: $(XSDIR)/*.hpp $(XSDIR)/*.cpp $(XSDIR)/LcovUtil.xs $(XSDIR)/Makefile.PL
+	( cd lib/LcovUtil && $(XS_BUILD_CMD) )
+	touch $@
+endif
+
+install: doc xs_lib
 	$(INSTALL) -d -m 755 $(BIN_INST_DIR)
 	for b in $(EXES) ; do                                    \
 		$(call echocmd,"  INSTALL $(BIN_INST_DIR)/$$b")  \
@@ -199,6 +230,17 @@ endif
 	$(call echocmd,"  INSTALL $(CFG_INST_DIR)/lcovrc")
 	$(INSTALL) -m 644 lcovrc $(CFG_INST_DIR)/lcovrc
 	$(call echocmd,"  done INSTALL")
+
+ifndef LCOV_NO_XS
+	$(call echocmd,"  INSTALL XS extension")
+	$(INSTALL) -d -m 755 $(LIB_INST_DIR)/LcovUtil/blib/lib
+	$(INSTALL) -m 644 lib/LcovUtil/blib/lib/LcovUtil.pm \
+		$(LIB_INST_DIR)/LcovUtil/blib/lib/LcovUtil.pm
+	$(INSTALL) -d -m 755 $(LIB_INST_DIR)/LcovUtil/blib/arch/auto/LcovUtil
+	$(INSTALL) -m 755 lib/LcovUtil/blib/arch/auto/LcovUtil/LcovUtil.so \
+		$(LIB_INST_DIR)/LcovUtil/blib/arch/auto/LcovUtil/LcovUtil.so
+endif
+
 
 uninstall:
 	for b in $(EXES) ; do \
@@ -294,28 +336,52 @@ test: check
 
 # for COVERAGE mode check: run once with LCOV_FORCE_PARALLEL=1 and
 #   once without - so we can merge the result
-check:
+#
+# Setting the first pass's test.log aside and appending it to the second's is
+#   bookkeeping:  both passes report what they found through the sub-makes which
+#   ran them, so a test.log which is not where it was left means something
+#   happened to the logs and not to the tests.  Guard both moves, because 'rm
+#   test.parallel.log' is the last command of the recipe line which merges them
+#   and its exit status is therefore the exit status of 'check' - a missing file
+#   fails the build, reported as an 'Error 1' a hundred lines below two passes
+#   which both said everything passed.  Name what is missing instead, and leave
+#   the target's exit status to the tests.
+check: xs_lib
 	if [ "x$(COVERAGE)" != 'x' ] ; then                                 \
 	  mkdir -p -m 755 $(COVER_DB) ;                                     \
 	  echo "*** Run once, force parallel ***" ;                         \
 	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C tests check LCOV_HOME=`pwd` ; \
 	  LCOV_FORCE_PARALLEL=1 $(MAKE) -s -C example LCOV_HOME=`pwd` ;     \
-	  mv tests/test.log tests/test.parallel.log ;                       \
+	  if [ -f tests/test.log ] ; then                                   \
+	    mv tests/test.log tests/test.parallel.log ;                     \
+	  else                                                              \
+	    echo "*** WARNING: the parallel pass left no tests/test.log" ;  \
+	  fi ;                                                              \
 	  echo "*** Run again, no force ***" ;                              \
 	fi
 	@$(MAKE) -s -C tests check LCOV_HOME=`pwd`
-	@if [ "x$(COVERAGE)" != 'x' ] ; then                    \
-	  $(MAKE) -s -C example LCOV_HOME=`pwd`;                \
-	  $(MAKE) -s -C tests report ;                          \
-	  ( cd tests ;                                          \
-	    echo " ----- parallel execution ----" >> test.log ; \
-	    cat test.parallel.log >> test.log ;                 \
-	    rm test.parallel.log                                \
-	  ) ;                                                   \
+	@if [ "x$(COVERAGE)" != 'x' ] ; then                        \
+	  $(MAKE) -s -C example LCOV_HOME=`pwd`;                    \
+	  $(MAKE) -s -C tests report ;                              \
+	  ( cd tests ;                                              \
+	    if [ -f test.parallel.log ] ; then                      \
+	      echo " ----- parallel execution ----" >> test.log ;   \
+	      cat test.parallel.log >> test.log ;                   \
+	      rm -f test.parallel.log ;                             \
+	    else                                                    \
+	      echo "*** WARNING: no tests/test.parallel.log -"      \
+	           "test.log holds the serial pass only" ;          \
+	    fi                                                      \
+	  ) ;                                                       \
 	fi
-	grep uninitialized tests/test.log ; \
-	if [ 1 != $$? ] ; then              \
-	   echo "found 'uninitialized'" ;   \
+# 'grep' answers 0 for found, 1 for not found, and 2 for missing or
+#    unreadable file
+	grep uninitialized tests/test.log ;                        \
+	RC=$$? ;                                                   \
+	if [ 0 = $$RC ] ; then                                     \
+	   echo "found 'uninitialized'" ;                          \
+	elif [ 1 != $$RC ] ; then                                  \
+	   echo "*** WARNING: skipped the 'uninitialized' check" ; \
 	fi
 
 # Files to be checked for coding style issue issues -

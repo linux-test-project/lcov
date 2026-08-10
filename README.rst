@@ -103,10 +103,17 @@ https://github.com/linux-test-project/lcov/releases
 
 To install the tarball, unpack it to a directory and run::
 
-    make install [LCOV_NO_DOC=1]
+    make install [LCOV_NO_DOC=1] [LCOV_NO_XS=1]
 
 If ``LCOV_NO_DOC`` is defined, then the install process will not build
 or install documentation.  (By default, documentation is built and installed.)
+
+Similarly, if ``LCOV_NO_XS`` is defined, then the install process will not build the XS lcov package.
+If you pass the ``make COVERAGE=1 ...`` flag, then the XS package will be built with coverage instrumentation.
+
+The XS package is a C++ extension and needs a C++20-capable compiler;  see
+`Selecting the compiler for the XS extension <#selecting-the-compiler-for-the-xs-extension>`_
+if the default compiler on your ``PATH`` is older than that.
 
 Use Git for the most recent (but possibly unstable) version::
 
@@ -114,14 +121,14 @@ Use Git for the most recent (but possibly unstable) version::
 
 Change to the resulting lcov directory and type::
 
-    make install [LCOV_NO_DOC=1]
+    make install [LCOV_NO_DOC=1] [LCOV_NO_XS=1]
 
 The default install location is /usr/local. Note that you may need to
 have superuser permissions to write into system directories.
 
 To install in a different location - for example, your home directory, run::
 
-    make PREFIX=$HOME/my_lcov install [LCOV_NO_DOC=1]
+    make PREFIX=$HOME/my_lcov install [LCOV_NO_DOC=1] [LCOV_NO_XS=1]
 
 Your PREFIX should be an absolute path.
 
@@ -212,6 +219,47 @@ In addition, contributors will need:
 
 Your platform may support other mechanisms to install and/or update
 required packages.
+
+
+.. _selecting-the-compiler-for-the-xs-extension:
+
+Selecting the compiler for the XS extension
+-------------------------------------------
+
+Unless ``LCOV_NO_XS`` is set, ``make`` builds the ``LcovUtil`` XS extension - a
+C++ library which implements the coverage data containers and which lcov uses
+in preference to its pure-Perl equivalents.  Building it requires:
+
+- **g++ 8 or later.**  g++ 14 or later is recommended:  that is the
+  configuration lcov is developed and tested against, and it is also the
+  minimum for ``COVERAGE=1`` builds to record MC/DC data for the XS extension
+  itself.
+- the Perl development headers (``ExtUtils::MakeMaker`` and the ``CORE``
+  headers from your Perl installation).
+
+By default the extension is built with whatever ``g++`` is first on your
+``PATH``.  Set ``LCOV_CXX`` to name a different compiler - ``CXX`` is honored as
+well, and ``LCOV_CXX`` takes precedence::
+
+    make LCOV_CXX=/opt/gcc-14.2.0/bin/g++ install
+
+If no suitable compiler can be found, the build will fail.  It does not
+fall back to building nothing, because that failure mode is easy to 
+overlook:  lcov
+loads the extension if it is present and *silently* uses its pure-Perl
+implementation if it is not.  A missing or unloadable extension therefore does
+not produce wrong output - only much slower execution.  To
+build without the extension deliberately, set ``LCOV_NO_XS=1``.
+
+To check which implementation a given installation is using::
+
+    $ perl -I$LCOV_HOME/lib -e 'require lcovutil; \
+        print $lcovutil::XS_LOADED ? "XS\n" : "pure Perl\n"'
+
+Setting ``LCOV_PURE_PERL=1`` in the environment forces the pure-Perl
+implementation at run time even when the extension is available;  this is
+useful for confirming that a behavior difference is or is not attributable to
+the accelerated path.
 
 
 .. _section-4-user-space:

@@ -36,7 +36,8 @@ DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverag
 
 echo *
 
-echo `which gcov`
+# $GCOV, not 'which gcov':  common.tst matched it to ${CC} - see there
+echo $GCOV
 echo `which lcov`
 
 ln -s initial.cpp test.cpp

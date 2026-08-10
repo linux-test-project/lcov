@@ -415,7 +415,7 @@ eval {
         # remove files matching patterns
         $trace = remove_file_patterns($lcovutil::lcov_remove);
     } elsif ($lcovutil::lcov_extract) {
-        # kep only the files matching patterns
+        # keep only the files matching patterns
         $trace = remove_file_patterns($lcovutil::lcov_extract);
     } elsif ($list) {
         $data_stdout = 0;
@@ -1386,7 +1386,7 @@ sub kernel_capture()
 #
 # link_data_cb(datadir, rel, graphdir)
 #
-# Create symbolic link in GRAPDIR/REL pointing to DATADIR/REL.
+# Create symbolic link in GRAPHDIR/REL pointing to DATADIR/REL.
 #
 
 sub link_data_cb($$$)

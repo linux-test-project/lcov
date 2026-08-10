@@ -35,7 +35,7 @@
 #
 #   Example usage:
 #
-#    - minimum acceptable line coverage = 85%, branch coveage = 70%,
+#    - minimum acceptable line coverage = 85%, branch coverage = 70%,
 #      function coverage (of unique functions) = 100%
 #      "--rc criteria_callback_levels=top" parameter causes genhtml to execute
 #      the callback only at the top level (i.e., not also at every file)

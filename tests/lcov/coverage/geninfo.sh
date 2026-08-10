@@ -19,6 +19,8 @@
 #                  compat_name, is_compat)
 #   Test  16    : --no-markers with --filter conflict  (lines 413-416)
 #   Test  17    : --initial capture (process_graphfile - lines 3149-3268)
+#   Test  18    : text '.gcov' capture without branch coverage
+#                  (process_dafile/read_gcov_file)
 #
 
 set +x
@@ -32,6 +34,7 @@ rm -f help.log version.log nodir.log nosuchdir.log badtool.log \
       adjusttest.log intermediate1.log badext.log \
       compat_libtool.log compat_hammer.log compat_unknown.log \
       nomarkers_filter.log initial.log compile.log \
+      textfmt.log textfmt.info textfmt_prof.json \
       nocompat.info tempdir.info norecurse.info adjusttest.info \
       intermediate1.info compat_libtool.info compat_hammer.info \
       initial.info
@@ -87,6 +90,11 @@ fi
 # Detect gcov format capabilities, matching geninfo's get_gcov_capabilities()
 # heuristic (scan gcov --help for short option flags).
 #
+# Ask $GCOV rather than 'gcov':  common.tst set it to the gcov the tools will
+# actually capture with, which is the one matching ${CC} and not necessarily
+# the first on PATH.  A capability read off the wrong gcov skips a test which
+# would have worked, or runs one which cannot.
+#
 # GCOV_HAS_INTERMEDIATE: gcov supports -i (text intermediate format, gcov >= 4.9)
 # GCOV_HAS_JSON:         gcov supports -j (JSON intermediate format, gcov >= 9)
 #
@@ -95,7 +103,7 @@ fi
 # produces no output for .gcno-only runs, causing --initial to fail.
 # Without any intermediate support (gcov < 4.9), geninfo reads the .gcno
 # directly via its own parser and --initial works fine.
-GCOV_HELP=$(gcov --help 2>&1)
+GCOV_HELP=$(${GCOV:-gcov} --help 2>&1)
 GCOV_HAS_INTERMEDIATE=0
 GCOV_HAS_JSON=0
 echo "$GCOV_HELP" | grep -qE '^\s+-i[, ]' && GCOV_HAS_INTERMEDIATE=1
@@ -382,6 +390,62 @@ else
         die "--initial produced empty .info"
     elif ! grep -q "^DA:" initial.info; then
         die "--initial .info has no DA: records"
+    else
+        pass
+    fi
+fi
+
+# -----------------------------------------------------------------------
+# Test 18: text '.gcov' capture without branch coverage
+#          (process_dafile and read_gcov_file, lines 1515-1770)
+#
+# geninfo reads the '.gcov' text files gcov writes only when the gcov it found
+# cannot produce an intermediate format at all - older than 4.9.  Everything
+# newer goes through 'process_intermediate' instead, and from gcov 9 the text
+# reader cannot be reached at all, because 'geninfo_intermediate=0' is refused
+# there.  So this runs where that older gcov is what we have - the gcc/4.8.3
+# leg of 'coverage.sh' - and is skipped elsewhere.
+#
+# Branch coverage is off, which is the default:  that is the case where
+# 'read_gcov_file' collects no branch map and hands back undef for it.  Undef
+# reaches 'union', which the pure-Perl implementation quietly treats as an
+# empty map and the XS one rejects ('BranchData: not a reference'), so with the
+# extension loaded every capture of this shape used to fail.
+#
+# The profile is checked too.  Both readers write 'exec', so they have to write
+# it in the same shape:  one time per data file, keyed by the data file.  The
+# text reader used to key it by search directory first, which made 'exec' a
+# table of tables that the profile's consumers do not expect.
+# -----------------------------------------------------------------------
+echo "=== Test 18: text .gcov capture, no branch coverage ==="
+if [[ $HAVE_CC -eq 0 ]]; then
+    echo "SKIP: no instrumented program to capture"
+    pass
+elif [[ $GCOV_HAS_INTERMEDIATE -eq 1 ]]; then
+    echo "SKIP: this gcov is read through the intermediate format, not text"
+    pass
+else
+    $COVER $GENINFO_TOOL $GI_PRE -o textfmt.info \
+        --profile textfmt_prof.json srcdir >textfmt.log 2>&1
+    RC=$?
+    if [[ $RC -ne 0 ]]; then
+        cat textfmt.log
+        die "text format capture failed (rc=$RC)"
+    elif grep -q "not a reference" textfmt.log; then
+        cat textfmt.log
+        die "text format capture rejected an undefined branch map"
+    elif ! grep -q "^DA:" textfmt.info; then
+        die "text format .info has no DA: records"
+    elif grep -q "^BRDA:" textfmt.info; then
+        die "text format .info has BRDA: records without --branch-coverage"
+    elif ! python3 -c '
+import json, sys
+exec_times = json.load(open("textfmt_prof.json"))["exec"]
+gcda = [k for k, v in exec_times.items()
+        if k.endswith(".gcda") and isinstance(v, (int, float))]
+sys.exit(0 if gcda else 1)' ; then
+        cat textfmt_prof.json
+        die "profile 'exec' is not one time per '.gcda'"
     else
         pass
     fi

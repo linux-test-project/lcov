@@ -49,7 +49,7 @@
 #
 #   This utility is implemented so that it can be loaded as a Perl module such
 #   that the callback can be executed without incurring an additional process
-#   overhead - which appears to be large and hightly variable in our compute
+#   overhead - which appears to be large and highly variable in our compute
 #   farm environment.
 #
 #   It can also be called directly, as

@@ -14,9 +14,9 @@
 #   always the two columns just right of <anchor>.  Pass <anchor> as 'none' for
 #   a section whose first key IS peakVM (the whole-run 'peak mem' block, which
 #   has a single 'max' row rather than one row per job).
-# A key can legitimately have no value in a given row - the per-segment
-#   'parse'/'append' of an lcov profile whose inputs were merged in the parent,
-#   for example - so only the two memory columns are required to be populated.
+# A key can legitimately have no value in a given row, so only the two memory
+#   columns are required to be populated;  check_table_column.py is where a test
+#   says which of the others it expects.
 # A per-job table also carries 'total'/'max'/'avg'/'stddev' statistics rows
 #   between its title row and its first data row, and colorizes its data cells
 #   against those.  Those are checked too:  the column titles above them must be
@@ -62,17 +62,9 @@ def fontStyles(z):
     return found
 
 
-def loadSheet(path, sheetname):
-    # ({rowNumber: {columnLetter: value}}, [conditionally formatted ranges],
-    #  {'italic': {(rowNumber, columnLetter)...}, 'bold': {...}}) for one
-    #   worksheet.  A cell holding a formula is returned as its formula text
-    #   ('=+AVERAGE(C15:C16)'), since xlsxwriter writes no cached value for one.
+def openSheet(path, sheetname):
+    # (the workbook zip, the parsed XML of one of its sheets, by name)
     z = zipfile.ZipFile(path)
-    strings = []
-    if 'xl/sharedStrings.xml' in z.namelist():
-        for si in ET.fromstring(z.read('xl/sharedStrings.xml')):
-            strings.append(''.join(t.text or '' for t in si.iter(NS + 't')))
-    styleIds = fontStyles(z)
     wb = ET.fromstring(z.read('xl/workbook.xml'))
     names = [sh.get('name') for sh in wb.iter(NS + 'sheet')]
     if sheetname not in names:
@@ -80,8 +72,47 @@ def loadSheet(path, sheetname):
             sheetname, path, ' '.join(names)))
         sys.exit(1)
     # sheet1.xml is the first sheet in the workbook, and so on
-    ws = ET.fromstring(z.read('xl/worksheets/sheet%d.xml' % (
-        names.index(sheetname) + 1)))
+    return (z, ET.fromstring(z.read('xl/worksheets/sheet%d.xml' % (
+        names.index(sheetname) + 1))))
+
+
+def loadLinks(path, sheetname):
+    # {cell: target} for the internal hyperlinks of one worksheet, e.g.
+    #   {'C26': "'glossary'!A11"}.  A link to another sheet of the same workbook
+    #   is written as a 'location' attribute rather than as a relationship, so
+    #   it is all in the sheet XML.
+    z, ws = openSheet(path, sheetname)
+    return {h.get('ref'): h.get('location')
+            for h in ws.iter(NS + 'hyperlink') if h.get('location')}
+
+
+def loadWidths(path, sheetname):
+    # {columnLetter: width} for the columns of one worksheet whose width was set
+    #   explicitly.  A <col> element can cover a span of columns, and a column
+    #   which is not covered by one has the sheet default width - which is not
+    #   recorded here, since the caller only ever asks about a column the writer
+    #   sized on purpose.
+    z, ws = openSheet(path, sheetname)
+    widths = {}
+    for col in ws.iter(NS + 'col'):
+        if col.get('width') is None:
+            continue
+        for n in range(int(col.get('min')), int(col.get('max')) + 1):
+            widths[columnLetter(n)] = float(col.get('width'))
+    return widths
+
+
+def loadSheet(path, sheetname):
+    # ({rowNumber: {columnLetter: value}}, [conditionally formatted ranges],
+    #  {'italic': {(rowNumber, columnLetter)...}, 'bold': {...}}) for one
+    #   worksheet.  A cell holding a formula is returned as its formula text
+    #   ('=+AVERAGE(C15:C16)'), since xlsxwriter writes no cached value for one.
+    z, ws = openSheet(path, sheetname)
+    strings = []
+    if 'xl/sharedStrings.xml' in z.namelist():
+        for si in ET.fromstring(z.read('xl/sharedStrings.xml')):
+            strings.append(''.join(t.text or '' for t in si.iter(NS + 't')))
+    styleIds = fontStyles(z)
     rows = {}
     fonts = {name: set() for name in styleIds}
     for row in ws.iter(NS + 'row'):
@@ -107,6 +138,18 @@ def loadSheet(path, sheetname):
     return (rows, formatted, fonts)
 
 
+def isTitleRow(cells):
+    # a sub-table title row names its section in column A and its keys from
+    #   column C on, with column B empty.  Two other kinds of row have something
+    #   in column A, and both put something in column B too:  a scalar key of
+    #   the same name (the whole-job 'filter' time of an lcov run which filtered
+    #   as a step of its own, say, on the same sheet as the table of the workers
+    #   which did it), whose value goes there, and the table's own descriptive
+    #   title, whose explanation does.  So column A alone does not identify the
+    #   title row.
+    return 'B' not in cells and 'C' in cells
+
+
 def columnNumber(col):
     n = 0
     for ch in col:
@@ -114,8 +157,8 @@ def columnNumber(col):
     return n
 
 
-def nextColumn(col):
-    n = columnNumber(col) + 1
+def columnLetter(n):
+    # the inverse of columnNumber:  1 -> 'A', 27 -> 'AA'
     s = ''
     while n:
         n, r = divmod(n - 1, 26)
@@ -123,15 +166,22 @@ def nextColumn(col):
     return s
 
 
+def nextColumn(col):
+    return columnLetter(columnNumber(col) + 1)
+
+
 def covers(sqref, cols, first, last):
     # does this conditionally formatted range (e.g. 'C15:I16') span all of
     #   rows first..last in every one of 'cols'?
+    # A table of one element with one column is one cell, and is written as
+    #   'C15' rather than as 'C15:C15'.
     for rng in sqref.split():
-        m = re.match(r'([A-Z]+)(\d+):([A-Z]+)(\d+)$', rng)
+        m = re.match(r'([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$', rng)
         if not m:
             continue
-        c0, r0, c1, r1 = (columnNumber(m.group(1)), int(m.group(2)),
-                          columnNumber(m.group(3)), int(m.group(4)))
+        c0, r0 = columnNumber(m.group(1)), int(m.group(2))
+        c1 = columnNumber(m.group(3)) if m.group(3) else c0
+        r1 = int(m.group(4)) if m.group(4) else r0
         if (r0 <= first and last <= r1 and
                 all(c0 <= columnNumber(c) <= c1 for c in cols)):
             return True
@@ -209,9 +259,10 @@ def checkStats(rows, formatted, fonts, section, header, first, last, cols):
 def main(path, sheetname, section, anchor):
     rows, formatted, fonts = loadSheet(path, sheetname)
 
-    # the section's header row is the one whose column A holds its name
-    header = next((r for r in sorted(rows) if rows[r].get('A') == section),
-                  None)
+    # the section's header row is the one whose column A holds its name - and
+    #   which is a title row rather than a scalar metric of the same name
+    header = next((r for r in sorted(rows) if rows[r].get('A') == section and
+                   isTitleRow(rows[r])), None)
     if header is None:
         print("FAIL: no '%s' section in sheet '%s'" % (section, sheetname))
         return 1

@@ -36,7 +36,7 @@
 #   --range: is a time period such that only code written or changed
 #     within the specified period is retained.
 #     One or more ranges may be specified either by using the argument
-#     multiple times or by passing a comma-separted list of ranges.
+#     multiple times or by passing a comma-separated list of ranges.
 #      select.pm --range 5:10,12:15 ...
 #
 #   --owner: is a regular expression.  A coverpoint is retained if its

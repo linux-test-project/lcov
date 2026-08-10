@@ -1034,6 +1034,8 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    How work is batched across the forked children is controlled by the *max_tasks_per_core*, *dedicate_segment_threshold*, and *dedicate_segment_line_estimate* entries in :manpage:`lcovrc(5)`; the latter two arrange for a predicted long-running file to be given its own child process and scheduled first, so it does not serialize the tail of the run.
 
+   Parallelism is also used when reading the coverage data ('.info') files named on the command line (and by *--baseline-file*): each file is read in its own child process - and if only one file is named, then that file is split at section boundaries and the pieces are read (and filtered) by several children at once. See the *parallel_parse_min_lines* and *parallel_parse_chunks_per_worker* entries in :manpage:`lcovrc(5)` for the size at which a single file is split, how many pieces are used, and the cases in which it is read serially anyway.
+
    A previously generated execution profile may help to enable better utilization and faster parallel execution. See the *--profile* and *--history-script* sections of this man page.
 
 ``--memory`` *integer*
@@ -1438,6 +1440,12 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
          If the error is ignored, the offending record is skipped.
 
+      - After all input data has been merged, some source file has data for two or more testcases, but one of its coverage types has data for only some of them - for example, both testcases have line coverage data for the file, but only one of them has branch data. This is usually a sign that the tracefiles being combined were captured with different coverage types enabled, and it means that the per-testcase tables for that file are not directly comparable. The message is issued once per source file per coverage type per testcase:
+
+         ``no branch data for testcase_name in path/to/file.c``
+
+         This is a warning, and the data is used as-is - no coverpoints are added or removed.
+
    internal:
       internal tool issue detected. Please report this bug along with a testcase.
 
@@ -1625,7 +1633,11 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 ``--serialize`` *file_name*
    Save coverage database to *file_name*.
 
-   The file is in Perl "Storable" format.
+   By default, this file is in LCOV's ``XS`` binary format.
+   If environment variable ``LCOV_PURE_PERL=1`` is set, then ``genhtml``
+   will write the file in Perl "Storable" format.
+   These formats are not compatible:  if you serialize binary data, then
+   you must deserialize binary data - and vice versa.
 
    Note that this option may significantly increase *genhtml* memory requirements, as a great deal of data must be retained.
 

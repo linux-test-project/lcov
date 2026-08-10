@@ -1358,6 +1358,8 @@ Specify whether lcov/geninfo/genhtml should generate, process, and display funct
 
 Turning off function coverage by setting this option to 0 can slightly reduce memory and CPU time consumption when lcov is collecting and processing coverage data, as well as reduce the size of the resulting data files.
 
+Function records in an input tracefile are then discarded without being checked, so a malformed one is not reported - see the *TRACEFILE FORMAT* section of :manpage:`geninfo(1)`.
+
 This option can be overridden by the *\-\-function\-coverage* and *\-\-no\-function\-coverage* command line options.
 
 Default is 1.
@@ -1369,6 +1371,8 @@ Specify whether lcov/geninfo should generate, process, and display branch covera
 
 Turning off branch coverage by setting this option to 0 can reduce memory and CPU time consumption when lcov is collecting and processing coverage data, as well as reduce the size of the resulting data files.
 
+``BRDA:`` records in an input tracefile are then discarded without being checked, so a malformed one is not reported - see the *TRACEFILE FORMAT* section of :manpage:`geninfo(1)`.
+
 This option can be overridden by the *\-\-branch\-coverage* and *\-\-no\-branch\-coverage* command line options.
 
 Default is 0.
@@ -1379,6 +1383,8 @@ Default is 0.
 Specify whether lcov/geninfo should generate, process, and display Modified Condition / Decision Coverage (MC/DC) coverage data.
 
 Turning off MC/DC coverage by setting this option to 0 can reduce memory and CPU time consumption when lcov is collecting and processing coverage data, as well as reduce the size of the resulting data files.
+
+``MCDC:`` records in an input tracefile are then discarded without being checked, so a malformed one is not reported - see the *TRACEFILE FORMAT* section of :manpage:`geninfo(1)`.
 
 This option can be overridden by the *\-\-mcdc\-coverage* command line option.
 
@@ -1585,6 +1591,32 @@ This option has no effect unless the *\-\-parallel* option has been specified.
 When no per-file history is available, genhtml estimates a file's runtime from its instrumented-line count: a file with at least this many instrumented lines is treated as "large" and its runtime is estimated as *instrumented\_lines / this\_value* seconds (compared against ``dedicate_segment_threshold``). Files smaller than this are never estimated and are always batched normally.
 
 Set to 0 to disable size-based estimation (only history predictions can trigger a dedicated segment). The default is 50000.
+
+This option has no effect unless the *\-\-parallel* option has been specified.
+
+.. _parallel_parse_min_lines:
+
+``parallel_parse_min_lines`` = *integer*
+-----------------------------------------
+
+When ``lcov`` is given several coverage files to combine, it reads each of them in its own child process. A single coverage file would otherwise be read serially, no matter how large it is: instead, a file with at least this many lines is split at ``end_of_record`` boundaries and the pieces are read - and filtered - by several children at once. Each source file's records are kept together in one piece, so filtering, exclusion, and consistency checking see exactly the same data they would have seen in a serial read.
+
+The unit is lines rather than bytes because lines are the better predictor of parse time: a 'DA:' record is about half the size of a 'BRDA:' record but costs nearly the same to read.
+
+The split is declined - and the file read serially, as before - if the file is not seekable (standard input, a compressed file, or a file which has to be piped through a demangler), if there is only one ``end_of_record`` section, or if one source file accounts for so much of the file that splitting would not balance.
+
+Set to 0 to disable the feature. The default is 500000 lines, which is roughly 3x the measured break-even point: below that, the pre-scan and the forks cost more than the parse they save.
+
+This option has no effect unless the *\-\-parallel* option has been specified.
+
+.. _parallel_parse_chunks_per_worker:
+
+``parallel_parse_chunks_per_worker`` = *integer*
+------------------------------------------------
+
+The number of pieces per child process to split a large coverage file into - see ``parallel_parse_min_lines``. More pieces than children costs nothing and buys two things: a shorter tail, because the last piece to finish is a fraction of a child's share rather than all of it, and a bound on how much parsed data is resident at once, because a child holds only its current piece.
+
+The default is 4.
 
 This option has no effect unless the *\-\-parallel* option has been specified.
 

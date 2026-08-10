@@ -626,6 +626,8 @@ In general, (almost) all ``geninfo`` options can also be specified in your perso
 
     The *--large-file* option described below may be necessary to enable parallelism to succeed in the presence of data files which consume excessive memory in ``gcov``.
 
+    Note that ``geninfo`` writes coverage data ('.info') files rather than reading them, so the parallel '.info' file read controlled by the *parallel_parse_min_lines* and *parallel_parse_chunks_per_worker* entries in :manpage:`lcovrc(5)` does not apply here; see the ``--parallel`` sections of :manpage:`lcov(1)` and :manpage:`genhtml(1)`.
+
     Also see the *memory, memory_percentage, max_fork_fails, fork_fail_timeout, geninfo_chunk_size, geninfo_dedicate_segment_size, dedicate_segment_threshold, dedicate_segment_line_estimate* and *geninfo_interval_update* entries in :manpage:`lcovrc(5)` for a description of some options which may aid in parameter tuning and performance optimization. In particular, *geninfo_dedicate_segment_size* (and, when *--history-script* data is available, *dedicate_segment_threshold*) arrange for a large compilation unit to be given its own child process and scheduled first, so it does not serialize the tail of the run. A previously generated execution profile may help to enable better utilization and faster parallel execution. See the *"--profile"* and *"--history-script"* sections of this man page.
 
 ``--large-file`` *regexp*
@@ -667,13 +669,37 @@ TRACEFILE FORMAT
 
 Following is a quick description of the tracefile format as used by ``genhtml``, ``geninfo`` and ``lcov``.
 
-A tracefile is made up of several human-readable lines of text, divided into sections. If the ``---comment comment_string`` option is supplied, then:
+A tracefile is made up of several human-readable lines of text, divided into sections.
+
+Where a record appears is part of the format, and not merely a convention:
+
+::
+
+    tracefile := ( comment | blank )*  section*
+    section   := 'TN:'?  'SF:'  ( coverpoint | 'VER:' | comment | blank )*
+                 'end_of_record'
+
+That is:
+
+-   A section begins with an ``SF:`` record (``KF:`` is accepted as a synonym) and ends with an ``end_of_record`` record.
+
+-   An optional ``TN:`` record *precedes* the ``SF:`` record of the section whose data it names. ``TN:`` identifies the testcase which the section's data belongs to, so it cannot appear after the data it applies to.
+
+-   The ``VER:`` record and all coverpoint records (``FNL:``, ``FNA:``, ``FNDA:``, ``BRDA:``, ``MCDC:``, ``DA:`` and the corresponding ``*F:``/``*H:`` summary records) appear *within* a section, in any order. They mean nothing outside one.
+
+-   A comment record or a blank line may appear anywhere - inside a section or outside one.
+
+Anything else - a coverpoint record outside any section, a ``TN:`` record inside one, a second ``SF:`` with no intervening ``end_of_record``, an ``end_of_record`` with no section open, or end of file with a section still open - is reported as an ``ERROR_FORMAT``. See the ``--ignore-errors format`` discussion in :manpage:`lcov(1)`. If that error is ignored, the reader recovers by discarding the misplaced record (or, in the unterminated-section cases, by closing the section that is open) and keeping the data which was in the right place.
+
+Records of a cover type which is turned off are discarded as soon as they are recognized, and their contents are not examined: with branch coverage disabled, for example, a malformed ``BRDA:`` record is dropped in silence rather than reported as an ``ERROR_FORMAT``. The check is what costs the time, and the data would be thrown away in either case. So whether a malformed coverpoint record is diagnosed depends on whether its cover type is enabled - see ``branch_coverage``, ``mcdc_coverage`` and ``function_coverage`` in :manpage:`lcovrc(5)`. Where a record appears is still checked in every case: a ``BRDA:`` record outside any section is an ``ERROR_FORMAT`` whether or not branch coverage is enabled.
+
+A comment record is:
 
 ::
 
     #comment_string
 
-will appear at the top of the tracefile. There is no space before or after the *#* character.
+There is no space before or after the *#* character. Comment records are ignored when a tracefile is read: they are not coverage data, so nothing is retained and nothing is written back out. If the ``--comment comment_string`` option is supplied, then a comment record appears at the top of the tracefile which the tool writes.
 
 If available, a tracefile begins with the *testname* which is stored in the following format:
 

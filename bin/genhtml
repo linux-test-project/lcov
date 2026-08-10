@@ -2482,7 +2482,7 @@ use constant {
 our @type2str = ('equal', 'insert', 'delete');
 
 # structure holding coverage data for a particular file:
-#  - associated with a line line number:
+#  - associated with a line number:
 #     - line coverage
 #     - branch coverage
 #  - function coverage (not directly associated with line number
@@ -3149,7 +3149,7 @@ sub _categorizeMcdcCov
         my $base        = $data->baseline_mcdc();
         my $categorized = MCDC_Block->new($line);
         $data->differential_mcdc($categorized);
-        # handle case that baseline and/or current do not conta MC/DC data
+        # handle case that baseline and/or current do not contain MC/DC data
         my $currGroups = defined($curr) ? $curr->groups() : ();
         my $baseGroups = defined($base) ? $base->groups() : ();
 
@@ -3605,7 +3605,14 @@ sub recreateBaseline
     my $deleted = $self->[BASELINE]->{$self->findName($filename)};
     my @lines;
     my $didWarn = 0;
+    # the last line of the current file which some chunk accounted for:  a
+    #   unified diff says nothing at all about the text after its last hunk, so
+    #   the chunk list stops there - see 'lookup' and 'type', which treat a line
+    #   past the last chunk as unchanged.  We have to do the same, below.
+    my $lastCurrent = 0;
     foreach my $chunk (@$diffs) {
+        $lastCurrent = $chunk->[NEW]->[_END]
+            if $chunk->[NEW]->[_END] > $lastCurrent;
         if ($chunk->[TYPE] == EQUAL) {
             my ($from, $to) = @{$chunk->[NEW]};
             my $f = $from - 1;
@@ -3636,6 +3643,15 @@ sub recreateBaseline
         }
         # else 'insert':  nothing to do/those lines are not in baseline
     }
+    # everything after the last hunk is identical in the two versions, so the
+    #   tail of the current file is the tail of the baseline.  Without this, the
+    #   recreated baseline ended at the last hunk:  every exclusion marker after
+    #   that point was missed and every baseline coverage point past it was
+    #   reported as an out-of-range (ERROR_RANGE) line - which is what a
+    #   differential report against a baseline whose last change is not at the
+    #   end of the file looks like.
+    push(@lines, @{$currentSrcLines}[$lastCurrent .. $#$currentSrcLines])
+        if $lastCurrent <= $#$currentSrcLines;
     return \@lines;
 }
 
@@ -5392,7 +5408,7 @@ sub nextTlaGroup
     #  for example, if line [5:8] and [13:17] are 'CNC', then:
     #     5 = nextTlaGroup('CBC')     : "after == undef"
     #    13 = nextTlaGroup('CBC', 5)  : skip contiguous group of CBC lines
-    #  undef = nexTlaGroup('CBC', 13) : no following group
+    #  undef = nextTlaGroup('CBC', 13) : no following group
     my ($self, $tla, $after) = @_;
     if (!exists($SummaryInfo::tlaLocation{$tla})) {
         lcovutil::ignorable_error($lcovutil::ERROR_UNKNOWN_CATEGORY,
@@ -5400,7 +5416,7 @@ sub nextTlaGroup
         return undef;
     }
 
-    # note the the "$self->line(...)" argument is 1-based (not zero-base)
+    # note that the "$self->line(...)" argument is 1-based (not zero-base)
     my $line;
     if (defined($after) &&
         defined($self->line($after)->tla())) {
@@ -5468,7 +5484,7 @@ sub nextInDateBin
     }
     $dateBin <= $#SummaryInfo::ageGroupHeader or
         die("unexpected age group $dateBin");
-    # note the the "$self->line(...)" argument is 1-based (not zero-base)
+    # note that the "$self->line(...)" argument is 1-based (not zero-base)
     my $line;
     if (defined($after)) {
         die("$after is not in $tla group")
@@ -5544,7 +5560,7 @@ sub nextInOwnerBin
         exists($self->[LINE_OWNERS]->{$owner}->{$tla}) or
         die("$owner not responsible for any $tla lines in" . $self->path());
 
-    # note the the "$self->line(...)" argument is 1-based (not zero-base)
+    # note that the "$self->line(...)" argument is 1-based (not zero-base)
     my $line;
     if (defined($after)) {
 
@@ -5599,7 +5615,7 @@ sub nextCategoryInDateBin
     $dateBin <= $#SummaryInfo::ageGroupHeader or
         die("unexpected age group $dateBin");
 
-    # note the the "$self->line(...)" argument is 1-based (not zero-base)
+    # note that the "$self->line(...)" argument is 1-based (not zero-base)
     $after = defined($after) ? $after + 1 : 1;
 
     die("no $type $tla in " . $self->path())
@@ -5659,7 +5675,7 @@ sub nextCategoryInOwnerBin
         return undef;
     }
 
-    # note the the "$self->line(...)" argument is 1-based (not zero-base)
+    # note that the "$self->line(...)" argument is 1-based (not zero-base)
     $after = defined($after) ? $after + 1 : 1;
 
     if (exists($self->[$category]->{$owner})) {
@@ -6011,7 +6027,7 @@ sub new
                 my $lineData =
                     $fileDetails->line($line);    # "SourceLine" structure
                 my $tla = $lineData->tla();
-                die("unexpected TLA '$tla' in CounntData for line $line")
+                die("unexpected TLA '$tla' in CountData for line $line")
                     unless exists($tlaData{$tla});
                 $tlaData{$tla} += 1;
             }
@@ -6023,13 +6039,7 @@ sub new
                 foreach my $blk ($branchEntry->blocks()) {
                     my $block = $blk->elements();
                     foreach my $br (@$block) {
-                        my $tla   = $br->tla();
-                        my $count = $br->count();
-                        die("unexpected branch TLA $tla for count $count at " .
-                            $fileDetails->path() . ":$line")
-                            unless (($count != 0) == exists($tlaData{$tla}));
-                        next if (0 == $count);
-                        $tlaData{$tla} += 1;
+                        $tlaData{$br->tla()} += 1;
                     }
                 }
             }
@@ -6045,12 +6055,6 @@ sub new
                             # use 'current' count...
                             my ($tla, $b_count, $c_count) =
                                 @{$expr->count($sense)};
-                            die("unexpected MC/DC TLA $tla for count $c_count at "
-                                    . $fileDetails->path()
-                                    . ":$line")
-                                unless (
-                                     ($c_count != 0) == exists($tlaData{$tla}));
-                            next if (0 == $c_count);
                             $tlaData{$tla} += 1;
                         }
                     }
@@ -6076,9 +6080,6 @@ sub new
                 }
                 foreach my $d (@data) {
                     my ($count, $tla) = @$d;
-                    die("unexpected branch TLA $tla for count $count")
-                        unless (($count != 0) == exists($tlaData{$tla}));
-                    #next if (0 == $count);
                     $tlaData{$tla} += 1;
                 }
             }
@@ -6106,15 +6107,14 @@ sub count
 package GenHtml;
 
 use constant {
-              TOP              => 0,
-              WORKLIST         => 1,
-              PENDING          => 2,
-              JOBS             => 3,
-              CHILD_DATA       => 4,
-              RETRY_COUNT      => 5,
-              TMPDIR           => 6,
-              DELAY_TIMER      => 7,
-              CURRENT_PARALLEL => 8,
+              TOP         => 0,
+              WORKLIST    => 1,
+              PENDING     => 2,
+              JOBS        => 3,
+              FORK_MGR    => 4,
+              TMPDIR      => 5,
+              DELAY_TIMER => 6,
+              WEIGHTS     => 7,
 };
 
 sub new
@@ -6127,13 +6127,13 @@ sub new
                # This task can be scheduled as soon as its last dependency
                #  is complete.
            [], # jobs which are to be scheduled for execution
-           {}, # childData - for callback
-           {}, # jobID -> fail count for this job
+           undef,    # the fork manager - 'compute' owns the children, the retry
+                     #   counts and the count of jobs currently running
            File::Temp->newdir("genhtml_XXXX",
                               DIR     => $lcovutil::tmp_dir,
                               CLEANUP => 1),
-           0,    # delay timer
-           0     # current count of parallel jobs
+           0,        # delay timer
+           {},       # file key -> its record count, for the memory throttle
     ];
     bless $self, $class;
 
@@ -6180,9 +6180,17 @@ sub new
     #   and is handled as before.
     my @predicted;    # [$f, $filename, $predictedSeconds]
     my @unknown;      # no useful prediction
+    my $weights = $self->[WEIGHTS];
     foreach my $f ($current_data->files()) {
         my $traceInfo = $current_data->data($f);
         my $filename  = ReadCurrentSource::resolve_path($traceInfo->filename());
+
+        # What a child which is given this file has to hold:  its records, which
+        #   the memory throttle turns into bytes with a rate it measures - see
+        #   'lcovutil::ForkManager::_estimate'.  Collected here because this is
+        #   the one place which already has the file's data in hand;  the
+        #   scheduler only ever sees the summary object.
+        $weights->{$f} = $traceInfo->found() + $traceInfo->branch_found();
 
         my $predicted;
         if (   defined($lcovutil::profileHistoryCallback)
@@ -6521,81 +6529,13 @@ sub compute_one
     return $perTestData;
 }
 
-sub _waitChild
+sub _running
 {
-    my ($self, $waitForPending, $noHang) = @_;
-
-    my $currentSize = 0;
-    my $consumption = 0;
-    if (0 != $lcovutil::maxMemory) {
-        $currentSize = lcovutil::current_process_size();
-        $consumption = ($self->[CURRENT_PARALLEL] + 1) * $currentSize;
-    }
-
-    my $reaped = 0;
-    if ($waitForPending ||
-        $self->[CURRENT_PARALLEL] >= $lcovutil::maxParallelism ||
-        ($self->[CURRENT_PARALLEL] > 1 && $consumption > $lcovutil::maxMemory)
-    ) {
-
-        my $children = $self->[CHILD_DATA];
-
-        # wait here for child:
-        #   - while we are oversubscribed
-        #       - too many parallel jobs or
-        #       - consuming too much memory), OR
-        #   - if the worklist is empty but there are pending jobs
-        #       - the pending jobs will be put onto the worklist when
-        #         their dependency finishes
-        my $worklist = $self->[WORKLIST];
-        my $pending  = $self->[PENDING];
-        lcovutil::info(1,
-            "memory constraint ($consumption > $lcovutil::maxMemory violated: waiting."
-                . (scalar(@$worklist) + scalar(keys(%$pending)))
-                . " remaining\n")
-            if ($consumption > $lcovutil::maxMemory);
-        my $start = Time::HiRes::gettimeofday();
-        my $child = wait();
-        my $end   = Time::HiRes::gettimeofday();
-        $self->[DELAY_TIMER] += $end - $start;
-        return 0 unless $child > 0;
-        my $childstatus = $?;
-
-        unless (exists($children->{$child})) {
-            lcovutil::report_unknown_child($child);
-            return $reaped;
-        }
-        $self->merge_child($child, $childstatus);
-
-        $reaped += 1;
-    }
-    if ($noHang) {
-        while (1) {
-            my $start = Time::HiRes::gettimeofday();
-            my $child = waitpid(-1, POSIX::WNOHANG);
-            if (0 < $child) {
-                my $end = Time::HiRes::gettimeofday();
-                $self->[DELAY_TIMER] += $end - $start;
-                my $childstatus = $?;
-                my $children    = $self->[CHILD_DATA];
-                unless (exists($children->{$child})) {
-                    lcovutil::report_unknown_child($child);
-                    next;
-                }
-                $self->merge_child($child, $childstatus);
-                $reaped += 1;
-            } else {
-                last;
-            }
-        }
-    }
-    print("reaped $reaped current:", $self->[CURRENT_PARALLEL],
-          " jobs:", scalar(@{$self->[JOBS]}),
-          " work:", scalar(@{$self->[WORKLIST]}),
-          " pending:", scalar(%{$self->[PENDING]}),
-          "\n") if ($main::debugScheduler && $reaped);
-
-    return $reaped;
+    # how many of our jobs are in flight.  The manager owns the children, and
+    #   it exists for the whole of 'compute' - which is the only place that
+    #   forks - so anywhere else the answer is none.
+    my $mgr = $_[0]->[FORK_MGR];
+    return $mgr ? $mgr->count() : 0;
 }
 
 sub _reschedule
@@ -6608,43 +6548,26 @@ sub _reschedule
     }
     push(@{$self->[JOBS]}, [$jobs, $jobID]);    # put job back
     print(" reschedule $jobID current:",
-          $self->[CURRENT_PARALLEL],
-          " jobs: ", scalar(@{$self->[JOBS]}), "\n")
+          $self->_running(), " jobs: ", scalar(@{$self->[JOBS]}), "\n")
         if $main::debugScheduler;
-}
-
-sub _report_fail_and_reschedule
-{
-    my ($self, $jobId, $jobs, $childPid, $reason) = @_;
-    my $counts = $self->[RETRY_COUNT];
-    if (exists($counts->{$jobId})) {
-        $counts->{$jobId} += 1;
-    } else {
-        $counts->{$jobId} = 1;
-    }
-    lcovutil::report_fork_failure("compute job $jobId (child $childPid)",
-                                  $reason, 0, $counts->{$jobId});
-    $self->_reschedule($jobId, $jobs);
 }
 
 sub _process_child
 {
-    my ($self, $jobs, $jobId, $startTime) = @_;
+    # I'm the child:  compute my jobs and hand the results back.  The manager
+    #   owns the capture, the log files and the dump - see 'ForkManager'.
+    my ($self, $jobs, $jobId) = @_;
 
-    # clear the profile data - we want just my contribution
-    my $childStart   = Time::HiRes::gettimeofday();
-    my $tmp          = '' . $self->[TMPDIR];
-    my $stdout_file  = File::Spec->catfile($tmp, "genhtml_$$.log");
-    my $stderr_file  = File::Spec->catfile($tmp, "genhtml_$$.err");
-    my $currentState = lcovutil::initial_state('segment', $jobId);
+    my $childStart = Time::HiRes::gettimeofday();
     # clear counters so we store count only what we saw in the child
     $SourceFile::annotatedFiles = 0;
     $SourceFile::totalFiles     = 0;
 
     my $status = 0;
     my @rtnData;
-    my ($stdout, $stderr, $code) = Capture::Tiny::capture {
-
+    # a scope, not a loop:  the manager's capture used to be here, and the work
+    #   below is what it wrapped
+    {
         foreach my $t (@$jobs) {
             my ($task, $sSummary, $rel_dir, $full_dir_path, $base_dir,
                 $trunc_dir)
@@ -6688,43 +6611,15 @@ sub _process_child
             }
 
         }    # foreach
-    };    # end capture
-          # print stdout and stderr ...
-    foreach my $d ([$stdout_file, $stdout], [$stderr_file, $stderr]) {
-        next
-            unless ($d->[1]);    # only print if there is something to print
-        my $f = InOutFile->out($d->[0]);
-        my $h = $f->hdl();
-        print($h $d->[1]);
     }
 
-    my $file     = File::Spec->catfile($tmp, "dumper_$$");
     my $childEnd = Time::HiRes::gettimeofday();
     $lcovutil::profileData{child}{$jobId} = $childEnd - $childStart;
-    my $data;
-    eval {
-        $data = Storable::store([\@rtnData,
-                                 [$SourceFile::annotatedFiles,
-                                  $SourceFile::totalFiles
-                                 ],
-                                 lcovutil::compute_update($currentState),
-                                 [$childStart, $childEnd]
-                                ],
-                                $file);
-        my $done = Time::HiRes::gettimeofday();
-        printf("  %d: dump %d %d jobs %0.3fs %0.3fMb %s\n",
-               $jobId, $$, scalar(@$jobs),
-               $done - $childEnd,
-               (-f $file ? (-s $file) : 0) / (1024 * 1024),
-               DateTime->now())
-            if ($main::debugScheduler);
-    };
-    if ($@ || !defined($data)) {
-        lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                  "Job $jobId: child $$ serialize failed" . ($@ ? ": $@" : ''));
-        $status = 1;
-    }
-    return $status;
+    return ([\@rtnData,
+             [$SourceFile::annotatedFiles, $SourceFile::totalFiles],
+             [$childStart, $childEnd]
+            ],
+            $status);
 }
 
 sub _segment_worklist
@@ -6734,7 +6629,7 @@ sub _segment_worklist
 
     my $nTasks = scalar(@$worklist);
     # how many cores are available?
-    my $nCores = $lcovutil::maxParallelism - $self->[CURRENT_PARALLEL];
+    my $nCores = $lcovutil::maxParallelism - $self->_running();
     # let's distribute them evenly
     #   could be more sophisticated and look at the compute time used
     #   by each of those tasks previously - then balance the expected load
@@ -6809,15 +6704,107 @@ sub compute
 {
     my $self = shift;
 
-    my $worklist       = $self->[WORKLIST];
-    my $pending        = $self->[PENDING];
-    my $joblist        = $self->[JOBS];
-    my $children       = $self->[CHILD_DATA];
-    my $failedAttempts = 0;
-    my $segmentID      = 0;
+    my $worklist  = $self->[WORKLIST];
+    my $pending   = $self->[PENDING];
+    my $joblist   = $self->[JOBS];
+    my $segmentID = 0;
+
+    # This scheduler cannot use 'ForkManager::run':  its queue is dependency
+    #   ordered (a job becomes runnable when the last job it depends on is
+    #   merged), so it dispatches from its own job list and drives 'throttle',
+    #   'fork_one' and 'reap_one' itself.  Everything below the dispatch - the
+    #   child wrapper, the reap, the retries and the profile keys - is in the
+    #   common framework.
+    my $mgr =
+        lcovutil::ForkManager->new(
+                 operation => 'genhtml',
+                 phase     => 'segment',
+                 tempDir   => '' . $self->[TMPDIR],
+                 prefix    => 'genhtml',
+                 # non-parallel execution prints stuff to stdout - so we should too
+                 showStdout => ($lcovutil::verbose >= 0),
+                 # the segment children are the big ones:  a job is a set of files whose
+                 #   source, annotations and per-testcase detail all have to be live at
+                 #   once
+                 memoryThrottle => 1,
+                 # ..and how much of that there is scales with the records of the files in
+                 #   the job.  A directory or top-level job aggregates what its children
+                 #   already computed and weighs nothing here, which leaves the estimate
+                 #   at "a copy of us" for it - see 'ForkManager::_estimate'.
+                 unitWeight => sub {
+                     my $jobs   = shift;
+                     my $weight = 0;
+                     foreach my $task (@$jobs) {
+                         next unless 'file' eq $task->[0]->[0];
+                         $weight += $self->[WEIGHTS]->{$task->[0]->[1]->[2]}
+                             // 0;
+                     }
+                     return $weight;
+                 },
+                 remaining =>
+                     sub { return scalar(@$worklist) + scalar(keys(%$pending)); },
+                 # 'next' is the framework's dispatch loop, which this scheduler does not
+                 #   use:  see above.  The job list is built by '_segment_worklist' and
+                 #   dispatched below.
+                 next  => undef,
+                 child => sub {
+                     my ($jobs, $jobId) = @_;
+                     return $self->_process_child($jobs, $jobId);
+                 },
+                 postFork => sub {
+                     my ($jobs, $jobId) = @_;
+                     print("forked $jobId current: ",
+                           $self->_running(), " jobs:", scalar(@$joblist), "\n")
+                         if $main::debugScheduler;
+                 },
+                 postStore => sub {
+                     my ($jobs, $jobId, $dumpfile, $dumpStart) = @_;
+                     printf("  %d: dump %d %d jobs %0.3fs %0.3fMb %s\n",
+                            $jobId,
+                            $$,
+                            scalar(@$jobs),
+                            Time::HiRes::gettimeofday() - $dumpStart,
+                            (-f $dumpfile ? (-s $dumpfile) : 0) / (1024 * 1024),
+                            DateTime->now()) if ($main::debugScheduler);
+                 },
+                 merge => sub {
+                     my ($jobs, $jobId, $payload, $ctx) = @_;
+                     $self->merge_child($jobs, $jobId, $payload, $ctx);
+                 },
+                 postReap => sub {
+                     my $ctx = shift;
+                     my $end = Time::HiRes::gettimeofday();
+                     $lcovutil::profileData{segment}{$ctx->{id}} =
+                         $end - $ctx->{forkAt};
+                     $lcovutil::profileData{merge_segment}{$ctx->{id}} =
+                         $end - $ctx->{reapAt};
+                 },
+                 requeue => sub {
+                     my ($jobs, $jobId) = @_;
+                     $self->_reschedule($jobId, $jobs);
+                 },
+                 forkFailWhen => sub { return "process segment $_[0]"; },
+                 retryWhen    => sub {
+                     my $ctx = shift;
+                     return 'compute job ' .
+                         $ctx->{id} . " (child $ctx->{child})";
+                 },
+                 mergeFailMessage => sub {
+                     my $ctx = shift;
+                     return
+                         "unable to deserialize $ctx->{dumpfile}: $ctx->{error}";
+                 },
+                 childFailMessage => sub {
+                     my $ctx = shift;
+                     my $msg = 'compute job ' . $ctx->{id};
+                     $msg .= ": unable to deserialize $ctx->{dumpfile}"
+                         unless defined($ctx->{payload});
+                     return $msg;
+                 },);
+    $self->[FORK_MGR] = $mgr;
 
     WORK:
-    while ($self->[CURRENT_PARALLEL] ||
+    while ($mgr->count() ||
            @$joblist  ||
            @$worklist ||
            %$pending) {
@@ -6842,18 +6829,33 @@ sub compute
             #   have finished - so we have a better chance to parallelize
             #   more/have more tasks that we can dispatch
             print(" currentParallel:",
-                  $self->[CURRENT_PARALLEL],
-                  " pending:", scalar(%$pending), "\n")
+                  $mgr->count(), " pending:", scalar(%$pending), "\n")
                 if ($main::debugScheduler > 1 ||
                     ($main::debugScheduler &&
                      0 == scalar(@$worklist) &&
                      0 == scalar(@$joblist)));
-            if ($self->_waitChild(
-                            0 == scalar(@$worklist) && 0 == scalar(@$joblist), 1
-            )) {
-                # reaped at least one child process
-                next WORK;
+            my $reaped = 0;
+            if (0 == scalar(@$worklist) && 0 == scalar(@$joblist)) {
+                # nothing we could dispatch even if there was room:  wait for
+                #   whatever is running to finish and unblock its dependents
+                $reaped += $mgr->reap_one(1);
+            } else {
+                # about the job we would dispatch next, when there is one:  the
+                #   worklist may not have been cut into jobs yet, and then there
+                #   is nothing to weigh
+                $reaped += $mgr->throttle(@$joblist ? @{$joblist->[-1]} : ());
             }
+            # and collect anything else which has already finished, so we have
+            #   more tasks to dispatch below
+            while ($mgr->reap_one(0)) {
+                ++$reaped;
+            }
+            print("reaped $reaped current:", $mgr->count(),
+                  " jobs:", scalar(@$joblist),
+                  " work:", scalar(@$worklist),
+                  " pending:", scalar(%$pending),
+                  "\n") if ($main::debugScheduler && $reaped);
+            next WORK if $reaped;
         }
         # LCOV_EXCL_START
         unless (@$worklist || @$joblist) {
@@ -6882,8 +6884,9 @@ sub compute
                 # need to wait here if insufficient resources
                 #  (only wait until resource available - pending and
                 #  worklist are managed above)
-                my $reaped = $self->_waitChild(0);
-                die("unexpected reap count $reaped") if $reaped > 1;
+                # ..and the job we are about to take is the one to ask about, so
+                #   that the memory estimate is for the work it really holds
+                $mgr->throttle(@{$joblist->[-1]});
             }
             my $d = pop(@$joblist);
             my ($jobs, $jobId) = @$d;
@@ -6904,38 +6907,14 @@ sub compute
             #   until this job is finished - so might as well do it
             #   locally and not incur parallelism overhead.
             if (1 < $lcovutil::maxParallelism &&
-                ($self->[CURRENT_PARALLEL] > 0 ||
+                ($mgr->count() > 0 ||
                     0 != scalar(@$joblist) ||
                     scalar(@$jobs) > 1)
             ) {
                 $lcovutil::profileData{nJobs}{$jobId} = scalar(@$jobs);
-
-                $lcovutil::deferWarnings = 1;
-                my $pid = fork();
-                if (!defined($pid)) {
-                    # fork failed
-                    ++$failedAttempts;
-                    # report_fork_failure sleeps a bit if it doesn't error out
-                    lcovutil::report_fork_failure("process segment $jobId",
-                                                  $!, $failedAttempts);
-                    # put job back into schedule
-                    $self->_reschedule($jobId, $jobs);
-                    next;
-                }
-                # fork succeeded - so reset 'consecutive fails' counter
-                $failedAttempts = 0;
-                if (0 == $pid) {
-                    # I'm the child
-                    my $status = $self->_process_child($jobs, $jobId, $start);
-                    exit($status);
-                } else {
-                    $children->{$pid} = [$jobs, $jobId, $start];
-                    ++$self->[CURRENT_PARALLEL];
-                    print("forked $jobId current: ",
-                          $self->[CURRENT_PARALLEL],
-                          " jobs:", scalar(@$joblist), "\n")
-                        if $main::debugScheduler;
-                }
+                # a failed fork has already requeued this job - and slept, so
+                #   that the next attempt has a chance of succeeding
+                next unless $mgr->fork_one($jobs, $jobId);
             } else {
                 #not parallel
                 lcovutil::info(1, "serial execution of task $jobId\n")
@@ -6965,145 +6944,69 @@ sub compute
             }
         }    # while (job list not empty)
     }    # while (work remains)
+        # the manager did the waiting, so it is the one which knows how long for
+    $self->[DELAY_TIMER] = $mgr->delay_timer();
 }
 
-sub merge_child($$$)
+sub merge_child
 {
-    my $mergeStart = Time::HiRes::gettimeofday();
-    my ($self, $childPid, $childstatus) = @_;
-    my $children = $self->[CHILD_DATA];
+    # One child's results, in the parent.  The manager has already reaped it,
+    #   shown what it had to say and restored its payload;  what is left is
+    #   ours.  Anything which throws here is reported once, by the manager, as
+    #   'unable to deserialize <dumpfile>'.
+    my ($self, $jobs, $jobId, $payload, $ctx) = @_;
 
-    --$self->[CURRENT_PARALLEL];
-    my ($jobs, $jobId, $start) = @{$children->{$childPid}};
-    delete($children->{$childPid});
-
-    my $tmp      = '' . $self->[TMPDIR];
-    my $dumpfile = File::Spec->catfile($tmp, "dumper_$childPid");
-    my $childLog = File::Spec->catfile($tmp, "genhtml_$childPid.log");
-    my $childErr = File::Spec->catfile($tmp, "genhtml_$childPid.err");
-    foreach my $f ($childLog, $childErr) {
-        if (!-f $f) {
-            $f = '';    # there was no output
-            next;
-        }
-        if (open(RESTORE, "<", $f)) {
-            # slurp into a string and eval..
-            my $str = do { local $/; <RESTORE> };    # slurp whole thing
-            close(RESTORE) or die("unable to close $f: $!\n");
-            unlink $f;
-            $f = $str;
-        } else {
-            $f = "unable to open $f: $!";
-            if (0 == $childstatus) {
-                lcovutil::report_parallel_error('genhtml',
-                                    $lcovutil::ERROR_PARALLEL, $childPid, 0, $f,
-                                    keys(%$children));
-            }
-        }
-    }
-    my $signal = $childstatus & 0xFF;
-    # non-parallel execution prints stuff to stdout - so we should too
-    print(STDOUT $childLog)
-        if ((0 != $childstatus &&
-             $signal != POSIX::SIGKILL &&
-             $lcovutil::max_fork_fails != 0) ||
-            $lcovutil::verbose >= 0);
-    print(STDERR $childErr);
-
-    # now undump the data ...
-    my $dStart = Time::HiRes::gettimeofday();
-    my $dumped = Storable::retrieve($dumpfile)
-        if (-f $dumpfile && 0 == $childstatus);
-    my $dEnd = Time::HiRes::gettimeofday();
     printf("  %d restore %d: %0.3fs %s (parallel %d)\n",
-           $jobId, $childPid, $dEnd - $dStart,
-           DateTime->now(), $self->[CURRENT_PARALLEL])
+           $jobId, $ctx->{child}, Time::HiRes::gettimeofday() - $ctx->{reapAt},
+           DateTime->now(), $self->_running())
         if $main::debugScheduler;
 
-    if (defined($dumped)) {
-        eval {
-            my ($jobData, $countData, $update, $otherData) = @$dumped;
+    my ($jobData, $countData, $otherData) = @$payload;
 
-            die("error processing child")
-                if (scalar(@$jobData) != scalar(@$jobs));
+    die("error processing child")
+        if (scalar(@$jobData) != scalar(@$jobs));
 
-            $SourceFile::annotatedFiles += $countData->[0];
-            $SourceFile::totalFiles     += $countData->[1];
-            lcovutil::update_state(@$update);
+    $SourceFile::annotatedFiles += $countData->[0];
+    $SourceFile::totalFiles     += $countData->[1];
 
-            $lcovutil::profileData{startDelay}{$jobId} =
-                $otherData->[0] - $start;
-            $lcovutil::profileData{mergeDelay}{$jobId} =
-                $mergeStart - $otherData->[1];
+    $lcovutil::profileData{startDelay}{$jobId} =
+        $otherData->[0] - $ctx->{forkAt};
+    $lcovutil::profileData{mergeDelay}{$jobId} =
+        $ctx->{reapAt} - $otherData->[1];
 
-            foreach my $t (@$jobs) {
-                my $task = $t->[0];
-                my ($type, $data, $short_path, $fullname, $parentData) = @$task;
-                my ($childSummary, $perTestData, $name) = @$data;
-                my ($parentSummary, $parentPerTestData, $parentPath);
-                ($parentSummary, $parentPerTestData, $parentPath) =
-                    @{$parentData->[0]->[1]}
-                    unless 'top' eq $type;
+    foreach my $t (@$jobs) {
+        my $task = $t->[0];
+        my ($type, $data, $short_path, $fullname, $parentData) = @$task;
+        my ($childSummary, $perTestData, $name) = @$data;
+        my ($parentSummary, $parentPerTestData, $parentPath);
+        ($parentSummary, $parentPerTestData, $parentPath) =
+            @{$parentData->[0]->[1]}
+            unless 'top' eq $type;
 
-                my $taskData = shift(@$jobData);
-                # there was an error while processing the child
-                die("error processing child " . scalar(@$taskData))
-                    if (scalar(@$taskData) != 4);
+        my $taskData = shift(@$jobData);
+        # there was an error while processing the child
+        die("error processing child " . scalar(@$taskData))
+            if (scalar(@$taskData) != 4);
 
-                my ($thisTestData, $pPerTestData, $summary, $criteria) =
-                    @$taskData;
-                $childSummary->copyGuts($summary);
-                $self->merge_one($parentPerTestData, $name, $thisTestData,
-                                 $childSummary, $parentSummary, $parentPath, 1);
+        my ($thisTestData, $pPerTestData, $summary, $criteria) = @$taskData;
+        $childSummary->copyGuts($summary);
+        $self->merge_one($parentPerTestData, $name, $thisTestData,
+                         $childSummary, $parentSummary, $parentPath, 1);
 
-                # and save the deserialized criteria data
-                if (defined($criteria)) {
-                    my $name =
-                        $childSummary->type() eq 'top' ? "" :
-                        $childSummary->name();
-                    $CoverageCriteria::coverageCriteria{$name} = $criteria;
-                    $criteria->[1] = 0 if $criteria->[1] eq '';
-                    my $v = $criteria->[1];
-                    die('unexpected criteria data \'' .
-                        join(' ', @$criteria) . '\'')
-                        unless (Scalar::Util::looks_like_number($v));
-                    $CoverageCriteria::coverageCriteriaStatus =
-                        ($v != 0 || 0 != scalar(@{$criteria->[2]})) ? $v : 0;
-                }
-            }    # foreach job
-        };
-        if ($@) {
-            $childstatus = 1 << 8 unless $childstatus;
-            print(STDERR $@);
-            lcovutil::report_parallel_error('genhtml',
-                             $lcovutil::ERROR_PARALLEL, $childPid, $childstatus,
-                             "unable to deserialize $dumpfile: $@",
-                             keys(%$children));
+        # and save the deserialized criteria data
+        if (defined($criteria)) {
+            my $name =
+                $childSummary->type() eq 'top' ? "" :
+                $childSummary->name();
+            $CoverageCriteria::coverageCriteria{$name} = $criteria;
+            $criteria->[1] = 0 if $criteria->[1] eq '';
+            my $v = $criteria->[1];
+            die('unexpected criteria data \'' . join(' ', @$criteria) . '\'')
+                unless (Scalar::Util::looks_like_number($v));
+            $CoverageCriteria::coverageCriteriaStatus =
+                ($v != 0 || 0 != scalar(@{$criteria->[2]})) ? $v : 0;
         }
-    }
-    if (!-f $dumpfile) {
-        $self->_report_fail_and_reschedule($jobId, $jobs, $childPid,
-                                         "serialized data $dumpfile not found");
-    } elsif (!defined($dumped) || $childstatus != 0) {
-        my $signal = $childstatus & 0xFF;
-        if (POSIX::SIGKILL == $signal) {
-            $self->_report_fail_and_reschedule($jobId, $jobs, $childPid,
-                                "killed by OS - possibly due to out-of-memory");
-        } else {
-            #print("stdout: $childLog\nstderr: $childErr\n");
-            my $msg = "compute job $jobId";
-            $msg .= ": unable to deserialize $dumpfile"
-                unless defined($dumped);
-            lcovutil::report_parallel_error('genhtml', $lcovutil::ERROR_CHILD,
-                               $childPid, $childstatus, $msg, keys(%$children));
-        }
-    }
-    my $end = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{segment}{$jobId}       = $end - $start;
-    $lcovutil::profileData{merge_segment}{$jobId} = $end - $mergeStart;
-
-    unlink $dumpfile
-        if -f $dumpfile;
+    }    # foreach job
 }
 
 package main;
@@ -7938,7 +7841,7 @@ sub gen_html()
     }
 
     if ($diff_filename) {
-        # check for files which appear in the udiff but which dont appear
+        # check for files which appear in the udiff but which don't appear
         # in either the current or baseline trace data.  Those may be
         # mapping issues - different pathname in .info file vs udiff
         if (!$diff_data->check_path_consistency($base_data, $current_data)) {
@@ -8378,8 +8281,8 @@ sub process_file($$$$$)
     # NOTE:  SourceFile constructor modifies some input data:
     #   - $fileSummary struct is also modified: update total counts in
     #     each bucket, counts in each date range
-    #   - $fileCovInfo: change GIC->CBC, UIC->UBC if $fineNotInBaseline and
-    #     source code is older than baseline file
+    #   - $fileCovInfo: change GIC->CBC, UIC->UBC if $fileHasNoBaselineInfo
+    #     and source code is older than baseline file
     my $srcfile = SourceFile->new($filename, $fileSummary, $fileCovInfo,
                                   $fileHasNoBaselineInfo);
     my $endSrc = Time::HiRes::gettimeofday();
@@ -10359,7 +10262,7 @@ sub write_file_table_entry(*$$@)
     } elsif (defined($primary_key)) {
         $namecode = $obj_name;
         if (!$suppressFileHref) {
-            # we want the the HREF anchor on the column 1 entry -
+            # we want the HREF anchor on the column 1 entry -
             #   the column 0 entry may span many rows - so navigation to that
             #   entry (e.g., to find all the files in the "(7..30] days" bin)
             #   may be rendered such that the first element in the bin is not
@@ -11060,25 +10963,28 @@ sub get_branch_html($$)
             my ($block_num, $br_num, $br, $len, $open, $close) = @{$branch};
             my $class;
             my $prefix;
-            my ($tla, $base_count);
+            # one call for everything this element needs:  under XS that is a
+            # single Perl<->C++ crossing rather than eight on a path executed
+            # once per rendered branch.  $tla/$base_count come back undef for
+            # non-differential data.
+            my ($taken, $count, $excluded, $type_name, $expr, $tla, $base_count)
+                = $br->render_data();
+            # TLA might be 'ECC' or 'EUC'
+            next
+                if ($main::use_legacyLabels &&
+                    !exists($SummaryInfo::tlaToLegacySrcLabel{$tla}));
             unless (defined($differentialBranch)) {
-                # vanilla case - no differential coverage info
-                if ($br->data() eq '-') {
-                    $class = "tlaUNC";
-                } elsif ($br->data() == 0) {
+                # vanilla case - no differential coverage info:  ignore any
+                # differential fields the element happens to carry
+                $tla = $base_count = undef;
+                if ($taken eq '-' || $taken == 0) {
                     $class = "tlaUNC";
                 } else {
                     $class = 'tlaGBC';
                 }
                 $prefix = '';
             } else {
-                $tla = $br->tla;
-                # TLA might be 'ECC' or 'EUC'
-                next
-                    if ($main::use_legacyLabels &&
-                        !exists($SummaryInfo::tlaToLegacySrcLabel{$tla}));
-                $base_count = ($br->diff_count())[0];
-                $class      = "tla$tla";
+                $class = "tla$tla";
                 my $label =
                     $main::use_legacyLabels ?
                     $SummaryInfo::tlaToLegacySrcLabel{$tla} :
@@ -11087,14 +10993,12 @@ sub get_branch_html($$)
             }
             my ($char, $title);
 
-            my $br_name = $br->type_name();
+            my $br_name = $type_name;
             $br_name .= ' ' if $br_name;
             $br_name .= 'branch ';
-            $br_name .=
-                defined($br->expr()) ? '"' . $br->expr() . '"' : $br_num;
-            my $taken = $br->data();
-            if ($br->is_excluded()) {
-                $class = 'tla' . ($br->count() ? 'ECC' : 'EUC');
+            $br_name .= defined($expr) ? '"' . $expr . '"' : $br_num;
+            if ($excluded) {
+                $class = 'tla' . ($count ? 'ECC' : 'EUC');
                 $char  = 'x';
                 $title = "$br_name marked unreachable";
             } elsif ($taken eq '-') {
@@ -11118,11 +11022,11 @@ sub get_branch_html($$)
                 $title = "${prefix}$br_name was taken $taken time" .
                     (($taken > 1) ? "s" : "");
             }
-            $title = escape_html($title) if defined($br->expr());
+            $title = escape_html($title) if defined($expr);
             $current .= "[" if ($open);
 
             if (!$main::no_sourceview &&
-                !$br->is_excluded() &&
+                !$excluded &&
                 defined($differentialBranch)) {
                 my $href;
                 if (exists($tlaLinks{$tla})) {
@@ -11198,7 +11102,10 @@ sub get_mcdc_html($$)
                 @$cond;
             die("unexpected expr type") unless ref($expr) eq 'MCDC_Expression';
 
-            my $count = $expr->count($sense);
+            # one call for everything this element needs - see the comment on
+            # the corresponding branch loop above
+            my ($count, $expr_name, $excluded, $multiGroup) =
+                $expr->render_data($sense);
             my $taken;
             my $class;
             my $prefix;
@@ -11229,15 +11136,13 @@ sub get_mcdc_html($$)
             }
             my ($char, $title);
 
-            my $expr_name = $expr->expression();
             $title =
                 ${prefix} . ($sense ? 'True' : 'False') .
                 ' sense of expression "' . $expr_name . '" ';
-            if ($expr->parent()->num_groups() > 1) {
+            if ($multiGroup) {
                 $title .= 'in group "' . $expr->groupSize() . '" ';
             }
 
-            my $excluded = $expr->is_excluded($sense);
             if ($excluded) {
                 $char  = 'x';
                 $class = 'tla' . ($taken ? 'ECC' : 'EUC');
@@ -11558,7 +11463,7 @@ sub write_source_line(*$$$$$$$)
 
             # determine if this line is going to be the target of a 'date', 'owner'
             # or TLA navigation href.
-            #  - is is possible for any of these to have changed from the previous
+            #  - it is possible for any of these to have changed from the previous
             #    line, even if the others are unchanged:
             #      - same TLA but different author
             #      - same author but different date bin, .. and so on
@@ -11702,7 +11607,7 @@ sub write_source_line(*$$$$$$$)
         #   link end - and the rest of the line doesn't pick up attributes
         #   from class 'foo'.
         # If I emit it as:
-        #     <a href...>link</a><span ....> wheatever</span>
+        #     <a href...>link</a><span ....> whatever</span>
         #   (i.e., do not nest anchor inside the span) - then it works
         $html .= "$tla$source_format $count_format : ";
     } else {
@@ -12265,7 +12170,7 @@ sub build_html_path($$$$$)
 #  - if 'bin' is set, then create link to 'vanilla' view of self, and
 #    to corresponding view of parent
 #      - i.e., from 'owner detail' directory page to "owner detail"
-#        toplevel, and to my correspondign vanilla directory page.
+#        toplevel, and to my corresponding vanilla directory page.
 # return hash of coverType -> list of non-zero TLAs for that type (or to
 #        list of all TLA types if user has asked not to suppress all-zero
 #        columns)
@@ -12363,7 +12268,7 @@ sub write_header(*$$$$$$$)
             "index.$html_ext\"$parent title=\"Click to go to top-level\">" .
             "$overview_title</a> - ";
         if ($main::flat) {
-            # for flat view, point only to the top-levevl and show path
+            # for flat view, point only to the top-level and show path
             #  to this file.  No other links
             $view .= File::Spec->catfile($esc_dir_name, $esc_base_name);
         } else {
@@ -13041,7 +12946,7 @@ sub write_file_table(*$$$$$$)
     #   - 'name': leftmost column is file/directory name -
     #     this is the original/vanilla genhtml behaviour
     #   - 'owner': leftmost column is author name.  Details for that owner
-    #     (for all files in the project, or for all files in this drectory)
+    #     (for all files in the project, or for all files in this directory)
     #     are shown in a contiguous block.
     #   - 'date': leftmost column is date bin.  Details for that bin are
     #     shown in a contiguous block.
@@ -13233,7 +13138,7 @@ sub write_file_table(*$$$$$$)
         # don't truncate the 'owner detail table'
         #  if user asked to see the page, then they want to be able to navigate
         #  to all users
-        #if (defined($ownderTableElements) &&
+        #if (defined($ownerTableElements) &&
         #    $ownerTableElements < scalar(@sorted)) &&
         #    (0 == scalar(@truncateOwnerTableLevels) ||
         #     grep(/$callback_type/, @truncateOwnerTableLevels)))) {

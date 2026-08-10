@@ -26,11 +26,11 @@
 #   coverage DB is not affected - so, for example '--erase-function'
 #   regexps must match the actual (possibly demangled) name of the function.
 #
-#   --file: is the name of a file containing Perl regexpe, one per line
+#   --file: is the name of a file containing Perl regexps, one per line
 #
 #   --re:  is a perl regexp or 'sep_char' separated list of regexps.
 #
-#   --separator: is the character used to separate the list of regexpe.
+#   --separator: is the character used to separate the list of regexps.
 #               (',' is probably a poor choice as perl regexps often contain
 #               comma.
 

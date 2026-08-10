@@ -32,7 +32,7 @@
 #     --local-edit
 #         Look for - and support - local edit
 #     --prefix
-#         If specified, 'path' is prependied to 'pathname' (as 'path/pathname')
+#         If specified, 'path' is prepended to 'pathname' (as 'path/pathname')
 #         before processing.
 #     --md5
 #         Return MD5 signature for files that are not in git

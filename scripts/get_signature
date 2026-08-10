@@ -18,7 +18,7 @@
 #
 # get_signature
 #
-#   This is a sample script which uses uses md5sum to compare file versions
+#   This is a sample script which uses md5sum to compare file versions
 #   If the checksum is not the same - then line numbers, etc. may be different
 #   and some very strange errors may occur.
 #   md5sum is not secure - so could use sha512sum or some other program, if we

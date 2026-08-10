@@ -18,8 +18,9 @@ export PERL_COVER_ARGS := -MDevel::Cover=-db,$(COVER_DB),-coverage,statement,bra
 EXEC_COVER := perl ${PERL_COVER_ARGS}
 endif
 
-# MC/DC enabled in gcc/14 and above
-ENABLE_MCDC=$(shell X=`$(CXX) -dumpversion` ; IFS='.' read -r -a VER <<< $$X ; if [ "$${VER[0]}" -ge 14 ] ; then echo 1 ; else echo 0 ; fi)
+# MC/DC enabled in gcc/14 and above.  Ask $(CC):  everything here is C, so
+#   $(CXX) does not decide what these objects can be built with.
+ENABLE_MCDC := $(shell test `$(CC) -dumpversion | cut -d. -f1` -ge 14 && echo 1 || echo 0)
 
 ifeq ($(ENABLE_MCDC), 1)
 CFLAGS += -fcondition-coverage
@@ -40,7 +41,31 @@ EG_SRCDIR = $(shell if [ -d $(LCOV_HOME)/example ] ; then echo $(LCOV_HOME)/exam
 REPO = exampleRepo
 BINDIR = $(LCOV_HOME)/bin
 SCRIPTS = $(LCOV_HOME)/scripts
-LCOV    := $(EXEC_COVER) $(BINDIR)/lcov $(LCOV_FLAGS)
+
+# Keep the gcov this captures with matched to the compiler it builds with.
+#   Those are the same toolchain only by convention:  'module load gcc/N' puts a
+#   matching gcc and gcov on PATH together, but 'make CC=/usr/bin/gcc' leaves
+#   lcov reading gcc 8's .gcno with whatever 'gcov' PATH finds first, and the
+#   capture stops on the version tag instead of producing a report.  The gcov
+#   which goes with a compiler is its sibling in the same directory;  when that
+#   agrees with the one on PATH - the usual case - this is empty and nothing
+#   about the run changes.  An explicit '--gcov-tool' still overrides it.
+GCOV_TOOL_RC := $(shell                                                  \
+	CC_PATH=`command -v $(firstword $(CC)) 2>/dev/null` ;            \
+	PATH_GCOV=`command -v gcov 2>/dev/null` ;                        \
+	if [ -n "$$CC_PATH" ] && [ -n "$$PATH_GCOV" ] ; then             \
+	  SIBLING=`dirname "$$CC_PATH"`/gcov ;                           \
+	  if [ -x "$$SIBLING" ] && [ "$$SIBLING" != "$$PATH_GCOV" ] &&   \
+	     [ "`$$SIBLING --version 2>/dev/null | head -1`" !=          \
+	       "`$$PATH_GCOV --version 2>/dev/null | head -1`" ] ; then  \
+	    echo "--rc geninfo_gcov_tool=$$SIBLING" ;                    \
+	  fi ;                                                           \
+	fi )
+ifneq ($(GCOV_TOOL_RC),)
+$(info example: $(GCOV_TOOL_RC) - to match compiler '$(firstword $(CC))')
+endif
+
+LCOV    := $(EXEC_COVER) $(BINDIR)/lcov $(LCOV_FLAGS) $(GCOV_TOOL_RC)
 GENHTML := $(EXEC_COVER) $(BINDIR)/genhtml $(LCOV_FLAGS)
 GENDESC := $(EXEC_COVER) $(BINDIR)/gendesc
 GENPNG  := $(EXEC_COVER) $(BINDIR)/genpng
@@ -70,20 +95,44 @@ EXTRA_IGNORE = $(shell VER=`$(CC) -dumpversion | perl -pe 's/^(\d+)\..+$$/$$1/'`
 
 C99 = $(shell VER=`$(CC) -dumpversion | perl -pe 's/^(\d+)\..+$$/$$1/'` ; if [ $$VER -lt 5 ] ; then echo "-std=c99" ; fi )
 
-.PHONY: clean output test_noargs test_2_to_2000 test_overflow test_differential
+# An object file does not record which compiler built it, and the sources have
+#   not changed, so 'make CC=/usr/bin/gcc' after a plain 'make' rebuilds nothing
+#   and then captures the previous compiler's .gcno with this one's gcov - the
+#   same version mismatch $(GCOV_TOOL_RC) exists to prevent, arriving by a route
+#   no gcov setting can help with.  So keep the compiler in a stamp file which
+#   the objects depend on.  The stamp is considered every time (that is what the
+#   FORCE prerequisite is for) but rewritten only when $(CC) has changed, so it
+#   is newer than the objects exactly when they were built by a different
+#   compiler and the .gcno have to be made again.  The .gcda need no such care:
+#   every testcase below runs 'lcov --zerocounters' before it runs the program.
+COMPILER_STAMP := .compiler
+
+.PHONY: clean output example_noargs example_2_to_2000 example_overflow \
+	example_differential FORCE
 
 all: output
+
+# below 'all', because the first eligible target in the file is the default goal
+#   and 'FORCE' would otherwise become it - leaving a bare 'make' here silently
+#   doing nothing at all.  ('.compiler' is not eligible:  make passes over a
+#   target whose name begins with a period and holds no slash.)
+FORCE:
+
+$(COMPILER_STAMP): FORCE
+	@if [ "`cat $@ 2>/dev/null`" != '$(CC)' ] ; then \
+	    echo '$(CC)' > $@ ;                          \
+	fi
 
 example: example.o iterate.o gauss.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
-example.o: example.c iterate.h gauss.h
+example.o: example.c iterate.h gauss.h $(COMPILER_STAMP)
 	$(CC) $(CFLAGS) -c example.c -o example.o
 
-iterate.o: methods/iterate.c iterate.h
+iterate.o: methods/iterate.c iterate.h $(COMPILER_STAMP)
 	$(CC) $(CFLAGS) -c methods/iterate.c -o iterate.o
 
-gauss.o: methods/gauss.c gauss.h
+gauss.o: methods/gauss.c gauss.h $(COMPILER_STAMP)
 	$(CC) $(CFLAGS) -c methods/gauss.c -o gauss.o
 
 output: example descriptions test_noargs test_2_to_2000 test_overflow test_differential
@@ -246,4 +295,4 @@ test_differential:
 clean:
 	$(call echocmd,"  CLEAN   lcov/example")
 	rm -rf *.o *.bb *.bbg *.da *.gcno *.gcda *.info output example descriptions \
-	  $(REPO) hierarchical
+	  $(REPO) $(HTML_example_dir) hierarchical $(COMPILER_STAMP)

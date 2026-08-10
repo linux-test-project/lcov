@@ -98,6 +98,14 @@ def run_test_worker(test_name, test_path, log_dir, topdir, coverage_dir,
     if coverage_mode:
         coverage_subdir = Path(coverage_dir) / test_name.replace('/', '_')
         coverage_subdir.mkdir(parents=True, exist_ok=True)
+        # A run which was killed can leave a zero-length 'digests' behind in
+        # this database, and every instrumented process which then uses it
+        # aborts in BEGIN - see the longer comment in common.tst.  The .sh
+        # tests drop it there when they source common.tst; do it here as well,
+        # for the .pl and .py tests, which this worker wraps directly.
+        digests = coverage_subdir / 'digests'
+        if digests.is_file() and digests.stat().st_size == 0:
+            digests.unlink()
         env['COVER_DB'] = str(coverage_subdir)
         env['COVERAGE_COMMAND'] = 'coverage'
         

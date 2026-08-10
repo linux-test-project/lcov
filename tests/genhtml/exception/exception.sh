@@ -23,7 +23,11 @@ fi
 
 LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 
-IFS='.' read -r -a VER <<< `${CC} -dumpversion`
+# the fixtures below are C++, so it is ${CXX} which decides what they can be
+# built with - and ${CXX} which the gcov capturing them has to match.  Asking
+# ${CC} is close enough when both come from one 'module load' and wrong as soon
+# as they do not.
+IFS='.' read -r -a VER <<< `${CXX} -dumpversion`
 if [ "${VER[0]}" -ge 14 ] ; then
     ENABLE_MCDC_GCC=1
     LCOV_MCDC_GCC='--mcdc'
@@ -88,11 +92,11 @@ function runGcc()
 
     rm -f *.gcda *.gcno
 
-    echo "g++ --coverage $MCDC_FLAGS_GCC -o $TEST exception.cpp $FLAGS"
+    echo "${CXX} --coverage $MCDC_FLAGS_GCC -o $TEST exception.cpp $FLAGS"
     # runGcc exeName srcFile flags
-    eval g++ --coverage $MCDC_FLAGS_GCC -o $TEST exception.cpp $FLAGS
+    eval ${CXX} --coverage $MCDC_FLAGS_GCC -o $TEST exception.cpp $FLAGS
     if [ $? != 0 ] ; then
-        echo "ERROR from g++ $TEST $FLAGS"
+        echo "ERROR from ${CXX} $TEST $FLAGS"
         return 1
     fi
     ./$TEST

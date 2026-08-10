@@ -1,7 +1,7 @@
 # ============================================================================
 # setup_common.sh -- shared setup for the split 'simple' genhtml tests.
 #
-# The original monolithic script.sh was split into part1.sh .. part4.sh so the
+# The original monolithic script.sh was split into part1.sh .. part5.sh so the
 # ~48 genhtml invocations (the dominant cost) can run in parallel.  Each part
 # runs in its own working directory (partN.d/simple) so the parts cannot
 # collide on the fixed output filenames (baseline.info, current.info, ./select,

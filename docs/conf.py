@@ -264,6 +264,30 @@ Getting Started
      - Note that ``sphinx-build`` is required in order to build documentation,
        but you can skip documentation building by passing passing the ``make LCOV_NO_DOC=1`` flag to your ``make`` command.
 
+     - Similarly, you can skip building the {ToolName} XS extension by passing ``make LCOV_NO_XS=1 ...`` to your ``make`` command.
+
+     - Note that, if you pass ``COVERAGE=1`` to your ``make`` command, then the XS implementation will be instrumented for coverage data collection. See ``.../tsts/Makefile`` for more information.
+
+     - The XS extension is C++ and requires ``g++`` 8 or later (14 or later
+       recommended - and required for ``COVERAGE=1`` to collect MC/DC data).
+       If the first ``g++`` on your ``PATH`` is older than that, select the
+       compiler explicitly:
+
+       - ``make LCOV_CXX=/path/to/g++ ...`` names the compiler directly
+         (``CXX`` is honored too;  ``LCOV_CXX`` wins).
+
+       If no usable compiler is found, the build will fail.
+       {ToolName} loads the extension
+       when present and *silently* uses its pure-Perl implementation when it is
+       not, so a failed extension build does not corrupt results - it only
+       makes execution slower, with nothing to indicate why.  Check
+       which implementation is in use with::
+
+           perl -I$LCOV_HOME/lib -e 'require lcovutil; print $lcovutil::XS_LOADED ? "XS\\n" : "pure Perl\\n"'
+
+       Setting ``LCOV_PURE_PERL=1`` forces the pure-Perl implementation at run
+       time even when the extension is available.
+
   #. Prepare your executables:
 
      - C/C++: compile and link with coverage flags: ``--coverage`` or ``-fprofile-arcs -ftest-coverage``.

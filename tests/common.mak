@@ -11,6 +11,7 @@ ROOT_DIR := $(LCOV_HOME)
 endif
 BINDIR = $(ROOT_DIR)/bin
 
+LCOVLIBDIR := $(ROOT_DIR)/lib/LcovUtil
 ifneq (,$(wildcard $(ROOT_DIR)/scripts))
 SCRIPTDIR := $(ROOT_DIR)/scripts
 else
@@ -71,7 +72,68 @@ LCOVRC       := $(TOPDIR)lcovrc
 # Specify size for artificial info files (small, medium, large)
 SIZE         := small
 export CC    ?= gcc
+
+# 'make CC=/usr/bin/gcc check' names a toolchain, not just a C compiler.  The
+#   C++ testcases have to build with the same one, because a run captures with a
+#   single gcov - see the 'geninfo_gcov_tool' block in common.tst - and one gcov
+#   cannot read both gcc 8's and gcc 16's .gcno.  So a $(CC) named on the command
+#   line, which is a deliberate choice, selects its sibling g++ as well.  What
+#   that overrides is an inherited environment $(CXX), which is what 'module load
+#   gcc/N' leaves behind and is the weaker signal of the two;  naming $(CXX) on
+#   the command line too still wins.  If $(CC) has no sibling g++ there is
+#   nothing to derive, and common.tst reports whatever mismatch is left.
+ifeq ($(origin CC),command line)
+ifneq ($(origin CXX),command line)
+CC_SIBLING_CXX := $(shell C=`command -v $(firstword $(CC)) 2>/dev/null` ;  \
+	if [ -n "$$C" ] ; then                                             \
+	    D=`dirname "$$C"` ;                                            \
+	    if [ -x "$$D/g++" ] ; then echo "$$D/g++" ; fi ;               \
+	fi )
+ifneq ($(CC_SIBLING_CXX),)
+CXX := $(CC_SIBLING_CXX)
+endif
+endif
+endif
+
 export CXX   ?= g++
+
+# --------------------------------------------------------------------------
+# Ask for MC/DC only when this toolchain can actually produce and read it.
+#
+# Two things have to be true:
+#   - the objects must have been compiled with '-fcondition-coverage':
+#     gcc 14 and later;
+#   - the gcov which reads the result must understand '--conditions', which is
+#     the same vintage.  A capture is not free to skip that:  geninfo asked for
+#     MC/DC by a gcov which cannot supply it raises ERROR_USAGE, so unless the
+#     caller ignores 'usage' the whole capture fails and the run loses its line
+#     and branch coverage too, not just the MC/DC part of it.  '--filter mcdc'
+#     with MC/DC off is a warning of the same class.
+# So a makefile which captures real coverage should write '--branch
+#   $(MCDC_OPTS)' and '--filter <list>$(MCDC_FILTER)' rather than naming
+#   '--mcdc' and 'mcdc' outright, and an older toolchain then still gets
+#   everything else.  The equivalent for a test script is the '$CC -dumpversion'
+#   test several of them already do for themselves;  these variables are
+#   deliberately not exported, because a script which decides for itself must
+#   not have that answer overridden by the environment.
+#
+# $(LCOV_CXX) first, because that is the override lib/LcovUtil/Makefile.PL reads
+#   before $(CXX);  whichever of them built the objects is the one to ask.
+# --------------------------------------------------------------------------
+MCDC_CXX := $(if $(LCOV_CXX),$(LCOV_CXX),$(CXX))
+ENABLE_MCDC := $(shell                                                     \
+	V=`$(firstword $(MCDC_CXX)) -dumpversion 2>/dev/null` ;            \
+	if [ "$${V%%.*}" -ge 14 ] 2>/dev/null &&                           \
+	   gcov --help 2>/dev/null | grep -q -- '--conditions' ; then       \
+	  echo 1 ;                                                         \
+	fi)
+ifeq ($(ENABLE_MCDC),1)
+MCDC_OPTS = --mcdc
+MCDC_FILTER = ,mcdc
+else
+MCDC_OPTS =
+MCDC_FILTER =
+endif
 
 export LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/lcov
 export GENHTML_TOOL := $(EXEC_COVER) $(BINDIR)/genhtml

@@ -1063,6 +1063,19 @@ specified at a time.
       :manpage:`genhtml(1)`
       for more details.
 
+      A warning of this type is also issued when, after all input data has been merged,
+      some source file has data for two or more testcases but one of its coverage types
+      has data for only some of them - for example, both testcases have line coverage
+      data for the file, but only one of them has branch data.  This usually means that
+      the tracefiles being combined were captured with different coverage types enabled,
+      and it means that the per-testcase tables for that file are not directly
+      comparable.  The message is issued once per source file per coverage type per
+      testcase::
+
+         lcov: WARNING: (inconsistent) no branch data for testcase_name in path/to/file.c
+
+      The data is used as-is:  no coverpoints are added or removed.
+
    ``internal``
 
       internal tool issue detected.  Please report this bug along with a testcase.
@@ -1356,6 +1369,20 @@ specified at a time.
    *fork_fail_timeout*
    entries in man
    :manpage:`lcovrc(5)`.
+
+   Parallelism is also used when reading coverage data:  when several
+   *--add-tracefile*
+   files are named, each is read in its own child process - and when only one
+   is named, that file is split at section boundaries and the pieces are read
+   (and filtered) by several children at once.  See the
+   *parallel_parse_min_lines*
+   and
+   *parallel_parse_chunks_per_worker*
+   entries in man
+   :manpage:`lcovrc(5)`
+   for the size at which a single file is split, how many pieces are used, and
+   the cases in which it is read serially anyway.
+
    A previously generated execution profile may help to enable better utilization
    and faster parallel execution.  See the
    *"--profile"*

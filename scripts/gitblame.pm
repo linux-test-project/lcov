@@ -52,7 +52,7 @@
 #   The --abbrev argument enables you to specify one or more regexp patterns
 #     which are used to compute the user name abbreviation that are applied.
 #
-#   If specified, 'path' is prependied to 'pathname' (as 'path/pathname')
+#   If specified, 'path' is prepended to 'pathname' (as 'path/pathname')
 #     before processing.
 #
 #   If passed a domain name (or domain regexp):

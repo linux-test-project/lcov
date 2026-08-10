@@ -1,5 +1,5 @@
 include ../common.mak
 
-TESTS := add/ misc/ summary/ extract/ demangle/ exception/ gcov-tool/ branch/ merge/ format errs multiple follow initializer lambda mcdc coverage/ scheduling/ names
+TESTS := parallel_parse parallel_fail fork_throttle errs scheduling extract exception xs_test mcdc add/ misc/ summary/ demangle/ gcov-tool/ branch/ merge/ format multiple follow initializer lambda coverage/ names serialization/
 
 clean: clean_echo clean_subdirs

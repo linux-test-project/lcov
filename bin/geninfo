@@ -218,7 +218,6 @@ our $intervalChildCpuTime = 0;    # since last update
 # for performance tweaking/tuning
 # $defaultChunkSize and $defaultInterval held in $lcovutil - so they
 # can be set from command line/RC file processing.
-our %childRetryCounts;
 our @large_files;
 # $callFromLcov is set when lcov calls geninfo, then:
 #   - picked up from --rc (in geninfo)
@@ -826,7 +825,7 @@ sub find_corresponding_gcno_file
         # from the directory where the gcda file is found:
         #   strip off the directory where we start the search
         #   then strip off the GCOV_PREFIX (if there is one)
-        #   then append the remaining path the the GCDA file, to the
+        #   then append the remaining path to the GCDA file, to the
         #   'GCNO_PATH' that we were provided.
         #     - if there is a file there:  use it.
         foreach my $d (@$buildDirSearchPath) {
@@ -1123,139 +1122,6 @@ sub _process_one_chunk($$$$)
     return $combined;
 }
 
-sub _merge_one_child($$$)
-{
-    my ($children, $tempFileExt, $worklist) = @_;
-
-    my $child       = wait();
-    my $start       = Time::HiRes::gettimeofday();
-    my $childstatus = $?;
-    unless (exists($children->{$child})) {
-        lcovutil::report_unknown_child($child);
-        return 0;
-    }
-
-    debug(
-        "_merge_one_child: $child (parent $$) status $childstatus from $tempFileDir\n"
-    );
-    my ($chunk, $forkAt, $chunkId) = @{$children->{$child}};
-    my $dumped   = File::Spec->catfile($tempFileDir, "dumper_$child");
-    my $childLog = File::Spec->catfile($tempFileDir, "geninfo_$child.log");
-    my $childErr = File::Spec->catfile($tempFileDir, "geninfo_$child.err");
-
-    foreach my $f ($childLog, $childErr) {
-        if (!-f $f) {
-            # no data was printed..
-            $f = '';
-            next;
-        }
-        if (open(RESTORE, "<", $f)) {
-            # slurp into a string and eval..
-            my $str = do { local $/; <RESTORE> };    # slurp whole thing
-            close(RESTORE) or die("unable to close $f: $!\n");
-            unlink $f;
-            $f = $str;
-        } else {
-            $f = "unable to open $f: $!";
-            if (0 == $childstatus) {
-                report_parallel_error('geninfo', $ERROR_PARALLEL, $child, 0,
-                                      $f, keys(%$children));
-            }
-        }
-    }
-    my $signal = $childstatus & 0xFF;
-    print(STDOUT $childLog)
-        if ((0 != $childstatus &&
-             $signal != POSIX::SIGKILL &&
-             $lcovutil::max_fork_fails != 0) ||
-            $lcovutil::verbose);
-    print(STDERR $childErr);
-    # look for spaceout message in the gcov log
-    if (0 == $signal                                &&
-        0 != $childstatus                           &&
-        0 != $lcovutil::max_fork_fails              &&
-        lcovutil::is_ignored($lcovutil::ERROR_FORK) &&
-        grep(
-            { /(std::bad_alloc|annot allocate memory|out of memory|integrity check failed for compressed file)/
-            } ($childLog, $childErr))
-    ) {
-
-        # pretend it was killed so we retry
-        $signal = POSIX::SIGKILL;
-    }
-    my $data = Storable::retrieve($dumped)
-        if (-f $dumped && 0 == $childstatus);
-    # note that $data will not be defined (no data dumped) if there was
-    #  no child data extracted (e.g., all files excluded)
-    if (defined($data)) {
-        eval {
-            my ($childInfo, $buildDirCounts, $counts, $updates) = @$data;
-            lcovutil::update_state(@$updates);
-            $files_created  += $counts->[0];
-            $processedFiles += $counts->[1];
-            my $childFinish = $counts->[2];
-            $buildDirSearchPath->update_count(@$buildDirCounts);
-            my $childCpuTime = $lcovutil::profileData{child}{$chunkId};
-            $totalChildCpuTime    += $childCpuTime;
-            $intervalChildCpuTime += $childCpuTime;
-
-            my $now = Time::HiRes::gettimeofday();
-            $lcovutil::profileData{undump}{$chunkId} = $now - $start;
-            if (defined($childInfo)) {
-                if (defined($trace_data)) {
-                    $trace_data->merge_tracefile($childInfo, TraceInfo::UNION);
-                    my $final = Time::HiRes::gettimeofday();
-                    $lcovutil::profileData{append}{$chunkId} = $final - $now;
-                } else {
-                    $trace_data = $childInfo;
-                }
-                my $end = Time::HiRes::gettimeofday();
-                $lcovutil::profileData{merge}{$chunkId} = $end - $now;
-                $lcovutil::profileData{queue}{$chunkId} = $start - $childFinish;
-            }
-            $intervalMonitor->checkUpdate($processedFiles);
-        };
-        if ($@) {
-            $childstatus = 1 << 8 unless $childstatus;
-            print STDOUT $@;
-            report_parallel_error('geninfo', $ERROR_PARALLEL, $child,
-                              $childstatus, "unable to deserialize $dumped: $@",
-                              keys(%$children));
-        }
-    }
-    if ($childstatus != 0) {
-        if (POSIX::SIGKILL == $signal) {
-            if (exists($childRetryCounts{$chunkId})) {
-                $childRetryCounts{$chunkId} += 1;
-            } else {
-                $childRetryCounts{$chunkId} = 1;
-            }
-            lcovutil::report_fork_failure(
-                                 "compute job $chunkId",
-                                 "killed by OS - possibly due to out-of-memory",
-                                 $childRetryCounts{$chunkId});
-            push(@$worklist, $chunk);
-        } else {
-            report_parallel_error('geninfo', $ERROR_CHILD, $child, $childstatus,
-                                  "ignoring data in chunk $chunkId",
-                                  keys(%$children));
-        }
-    }
-    foreach my $f ($dumped) {
-        unlink $f
-            if -f $f;
-    }
-    my $to = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{chunk}{$chunkId} = $to - $forkAt;
-    if (exists($lcovutil::profileData{process}{$chunkId}) &&
-        exists($lcovutil::profileData{merge}{$chunkId})) {
-        $lcovutil::profileData{work}{$chunkId} =
-            $lcovutil::profileData{process}{$chunkId} +
-            $lcovutil::profileData{merge}{$chunkId};
-    }
-    return 0 == $childstatus;
-}
-
 sub gen_info(@)
 {
     my $builder = BuildWorkList->new();
@@ -1319,6 +1185,7 @@ sub gen_info(@)
     }
     my $work = $filelist;    # default to the original order
     my %predictedTime;       # file entry (stringified ref) -> predicted seconds
+    my %fileSize;            # file entry (stringified ref) -> its size on disk
     if ($lcovutil::profileHistoryCallback &&
         ($chunkSize > 1 || exists($ENV{LCOV_FORCE_PARALLEL}))) {
         my (@predicted, @unknown);
@@ -1370,6 +1237,10 @@ sub gen_info(@)
             my $size = -s $filename;
             $maxSize = $size if defined($size) && $size > $maxSize;
         }
+        # Keep it:  it is also what the memory throttle weighs a forked chunk by
+        #   (see the 'unitWeight' below), and a stat per file per throttle
+        #   decision would be a stat per file many times over.
+        $fileSize{$j} = $maxSize;
         # A file predicted (from history) to run at least
         #  $dedicate_segment_threshold seconds - or, absent history, whose
         #  largest on-disk coverage file is at least
@@ -1413,8 +1284,6 @@ sub gen_info(@)
         if (@{$serialChunk->[1]});
 
     # Process all files in list
-    my $currentParallel = 0;
-    my %children;
     my $tempFileExt = '';
     $tempFileExt = ".gz"
         if (defined($output_filename) && $output_filename =~ /\.gz$/);
@@ -1439,182 +1308,185 @@ sub gen_info(@)
     $lcovutil::profileData{nFiles}    = $total;
     $lcovutil::maxParallelism         = 1 unless scalar(@worklist) > 1;
 
-    my $failedAttempts = 0;
-    do {
-        CHUNK: while (@worklist) {
-
-            my $chunk = pop(@worklist);
-            ++$processedChunks;
-
-            if (1 < $lcovutil::maxParallelism &&
-                1 != $chunk->[0]) {
-
-                my $currentSize = 0;
-                if (0 != $lcovutil::maxMemory) {
-                    $currentSize = lcovutil::current_process_size();
-                }
-                if ($currentParallel >= $lcovutil::maxParallelism ||
-                    ($currentParallel > 1 &&
-                        (($currentParallel + 1) * $currentSize) >
-                        $lcovutil::maxMemory)
-                ) {
-                    lcovutil::info(1,
-                        "memory constraint ($currentParallel + 1) * $currentSize > $lcovutil::maxMemory violated: waiting.  "
-                            . ($total + 1)
-                            . " remaining\n")
-                        if ((($currentParallel + 1) * $currentSize) >
-                            $lcovutil::maxMemory);
-
-                    $currentParallel -=
-                        _merge_one_child(\%children, $tempFileExt, \@worklist);
-                    # put the job back in the list
-                    --$processedChunks;
-                    push(@worklist, $chunk);
-                    next CHUNK;
-                }
-
-                $lcovutil::deferWarnings = 1;
-                my $now = Time::HiRes::gettimeofday();
-                my $pid = fork();
-                if (!defined($pid)) {
-                    # fork failed
-                    ++$failedAttempts;
-                    lcovutil::report_fork_failure("process chunk",
-                                                  $!, $failedAttempts);
-                    --$processedChunks;
-                    push(@worklist, $chunk);
-                    next CHUNK;
-                }
-                $failedAttempts = 0;
-                if (0 == $pid) {
-                    # I'm the child...
-                    #   set my output file to temp location so my dump won't
-                    #   collide with another child - then merge at the end...
-                    # would be better if the various gcov data readers would
-                    #   build a datastructure that we could dump - rather than
-                    #   printing a .info file that we have to parse....but so
-                    #   be it.
-                    my $childStart = Time::HiRes::gettimeofday();
-                    my $currentState =
-                        lcovutil::initial_state('capture', $processedChunks);
-                    $buildDirSearchPath->reset();
-                    $output_filename =
-                        File::Spec->catfile($tempFileDir,
-                                            "geninfo_$$.info" . $tempFileExt);
-                    my $childInfo;
-                    # set count to zero so we know how many got created in
-                    # the child process
-                    $files_created = 0;
-                    my $now = Time::HiRes::gettimeofday();
-                    # using 'capture' here so that we can both capture/redirect geninfo
-                    #   messages from a child process during parallel execution AND
-                    #   redirect stdout/stderr from gcov calls.
-                    # It does not work to directly open/reopen the STDOUT and STDERR
-                    #   descriptors due to interactions between the child and parent
-                    #   processes (see the Capture::Tiny doc for some details)
-                    my $status = 0;
-                    my ($stdout, $stderr, $code) = Capture::Tiny::capture {
-                        eval {
-                            $childInfo =
-                                _process_one_chunk($chunk->[1],
-                                              $processedChunks, $childInfo, $$);
-                        };
-                        if ($@) {
-                            $status = 1;         # error
-                            print(STDERR $@);    # capture messages in $stderr
-                        }
-                    };
-                    # parent might have already caught an error, cleaned up and
-                    #  removed the tempdir and exited.
-                    lcovutil::check_parent_process();
-
-                    # print stdout and stderr ...
-                    foreach my $d (['log', $stdout], ['err', $stderr]) {
-                        my ($ext, $str) = @$d;
-                        # only print if there is something to print
-                        next
-                            unless ($str);
-                        my $tmpf =
-                            File::Spec->catfile($tempFileDir,
-                                                "geninfo_$$.$ext");
-                        my $f = InOutFile->out($tmpf);
-                        my $h = $f->hdl();
-                        print($h $str);
-                    }
-                    my $dumpf = File::Spec->catfile($tempFileDir, "dumper_$$");
-                    foreach my $f ($output_filename) {
-                        unlink $f
-                            if -f $f && !$lcovutil::preserve_intermediates;
-                    }
-                    my $buildDirCounts = $buildDirSearchPath->current_count();
-
-                    my $then = Time::HiRes::gettimeofday();
-                    # keep separate timestamp for when this child block was entered
-                    # vs when fork() was called - lest this job waited in queue for
-                    # a while
-                    $lcovutil::profileData{process}{$processedChunks} =
-                        $then - $now;
-
-                    $lcovutil::profileData{child}{$processedChunks} =
-                        $then - $childStart;
-                    # dump parsed data - then read back and merge
-                    my $data;
-                    eval {
-                        # NOTE:  not storing anything if we extracted nothing/
-                        #  there is no childInfo data
-                        $data =
-                            Storable::store(
-                                       [$single_file ? $childInfo : undef,
-                                        $buildDirCounts,
-                                        [$files_created, scalar(@{$chunk->[1]}),
-                                         $then
-                                        ],
-                                        lcovutil::compute_update($currentState)
-                                       ],
-                                       $dumpf) if defined($childInfo);
-                    };
-                    if ($@ || (defined($childInfo) && !defined($data))) {
-                        lcovutil::ignorable_error($lcovutil::ERROR_PARALLEL,
-                              "Child $$ serialize failed" . ($@ ? ": $@" : ''));
-                    }
-                    exit($status);
-                } else {
-                    # I'm the parent
-                    $children{$pid} = [$chunk, $now, $processedChunks];
-                    ++$currentParallel;
-                }
-            } else {
-                # not parallel..
-                my $saveParallel = $lcovutil::maxParallelism;
-                $lcovutil::maxParallelism = 1;
-                if ($chunk->[0]) {
-                    my $num = scalar(@{$chunk->[1]});
-                    lcovutil::info(
+    lcovutil::ForkManager->new(
+             operation => 'geninfo',
+             phase     => 'capture',
+             tempDir   => $tempFileDir,
+             prefix    => 'geninfo',
+             # a capture child holds the data it read out of gcov, so this is a place
+             #   where the process count has to answer to the memory the children are
+             #   actually using
+             memoryThrottle => 1,
+             # ..and how much data that is scales with how much coverage data the
+             #   chunk has to read, which is all that can be known about it before
+             #   gcov has run.  Note that this weighs a chunk in bytes where the other
+             #   clients weigh theirs in records:  the rate which turns a weight into
+             #   memory is measured per client, so the two never meet.
+             unitWeight => sub {
+                 my $chunk  = shift;
+                 my $weight = 0;
+                 $weight += $fileSize{$_} // 0 foreach (@{$chunk->[1]});
+                 return $weight;
+             },
+             # believe a child which said in its gcov log that it could not allocate
+             #   memory, and not only one which the OS killed:  either way the chunk
+             #   it was working on is retried
+             retryOnOOM => 1,
+             # a chunk can legitimately produce nothing to merge, e.g. when all of its
+             #   files were excluded
+             mayNotDump => 1,
+             remaining  => sub { return $total + 1; },
+             next       => sub {
+                 # A chunk which is not to be forked is processed here, in order:  the
+                 #   serial chunk is at the top of the stack, so that happens before
+                 #   there are any children to contend with.
+                 # Some files are very large - and run out of memory if we
+                 # try to process them in parallel with anything else.
+                 # Note that user has to identify them manually...we don't
+                 # try to automate that.
+                 while (@worklist) {
+                     my $chunk = pop(@worklist);
+                     ++$processedChunks;
+                     return ($chunk, $processedChunks)
+                         if (1 < $lcovutil::maxParallelism &&
+                             1 != $chunk->[0]);
+                     # not parallel..
+                     my $saveParallel = $lcovutil::maxParallelism;
+                     $lcovutil::maxParallelism = 1;
+                     if ($chunk->[0]) {
+                         my $num = scalar(@{$chunk->[1]});
+                         lcovutil::info(
                                "Processing $num file" . ($num == 1 ? '' : 's') .
                                    " from chunk 0 serially\n");
-                }
-                my $now = Time::HiRes::gettimeofday();
-                $trace_data =
-                    _process_one_chunk($chunk->[1], $processedChunks,
-                                       $trace_data, undef);
-                $processedFiles += scalar(@{$chunk->[1]});
-                if ($chunk->[0]) {
-                    lcovutil::info("Finished processing chunk 0\n");
-                }
-                my $then = Time::HiRes::gettimeofday();
-                $lcovutil::maxParallelism = $saveParallel;
-                $lcovutil::profileData{process}{$processedChunks} =
-                    $then - $now;
-            }
-        }    # end foreach
+                     }
+                     my $now = Time::HiRes::gettimeofday();
+                     $trace_data =
+                         _process_one_chunk($chunk->[1], $processedChunks,
+                                            $trace_data, undef);
+                     $processedFiles += scalar(@{$chunk->[1]});
+                     if ($chunk->[0]) {
+                         lcovutil::info("Finished processing chunk 0\n");
+                     }
+                     my $then = Time::HiRes::gettimeofday();
+                     $lcovutil::maxParallelism = $saveParallel;
+                     $lcovutil::profileData{process}{$processedChunks} =
+                         $then - $now;
+                 }
+                 return ();
+             },
+             more  => sub { return scalar(@worklist); },
+             child => sub {
+                 my ($chunk, $chunkId) = @_;
+                 #   set my output file to temp location so my dump won't collide
+                 #   with another child - then merge at the end...
+                 # would be better if the various gcov data readers would build a
+                 #   datastructure that we could dump - rather than printing a .info
+                 #   file that we have to parse....but so be it.
+                 my $childStart = Time::HiRes::gettimeofday();
+                 $buildDirSearchPath->reset();
+                 $output_filename =
+                     File::Spec->catfile($tempFileDir,
+                                         "geninfo_$$.info" . $tempFileExt);
+                 my $childInfo;
+                 # set count to zero so we know how many got created in
+                 # the child process
+                 $files_created = 0;
+                 my $now    = Time::HiRes::gettimeofday();
+                 my $status = 0;
+                 eval {
+                     $childInfo =
+                         _process_one_chunk($chunk->[1], $chunkId, $childInfo,
+                                            $$);
+                 };
+                 if ($@) {
+                     $status = 1;         # error
+                     print(STDERR $@);    # capture messages in $stderr
+                 }
+                 foreach my $f ($output_filename) {
+                     unlink $f
+                         if -f $f && !$lcovutil::preserve_intermediates;
+                 }
+                 my $buildDirCounts = $buildDirSearchPath->current_count();
 
-        while ($currentParallel != 0) {
-            $currentParallel -=
-                _merge_one_child(\%children, $tempFileExt, \@worklist);
-        }
-        # wrap in outer loop in case we get a spaceout/child failure
-        #  during 'tail' processing.
-    } while (@worklist);
+                 my $then = Time::HiRes::gettimeofday();
+                 # keep separate timestamp for when this child block was entered
+                 # vs when fork() was called - lest this job waited in queue for
+                 # a while
+                 $lcovutil::profileData{process}{$chunkId} = $then - $now;
+                 $lcovutil::profileData{child}{$chunkId} = $then - $childStart;
+                 # NOTE:  nothing to send if we extracted nothing/there is no
+                 #   childInfo data
+                 return (undef, $status) unless defined($childInfo);
+                 return ([$single_file ? $childInfo : undef,
+                          $buildDirCounts,
+                          [$files_created, scalar(@{$chunk->[1]}), $then]
+                         ],
+                         $status);
+             },
+             preMerge => sub {
+                 my $ctx = shift;
+                 debug("merge child $ctx->{child} (parent $$) status " .
+                       "$ctx->{rawStatus} from $tempFileDir\n");
+             },
+             merge => sub {
+                 my ($chunk, $chunkId, $payload, $ctx) = @_;
+                 my ($childInfo, $buildDirCounts, $counts) = @$payload;
+                 $files_created  += $counts->[0];
+                 $processedFiles += $counts->[1];
+                 my $childFinish = $counts->[2];
+                 $buildDirSearchPath->update_count(@$buildDirCounts);
+                 my $childCpuTime = $lcovutil::profileData{child}{$chunkId};
+                 $totalChildCpuTime    += $childCpuTime;
+                 $intervalChildCpuTime += $childCpuTime;
+
+                 my $now = Time::HiRes::gettimeofday();
+                 $lcovutil::profileData{undump}{$chunkId} =
+                     $now - $ctx->{reapAt};
+                 if (defined($childInfo)) {
+                     if (defined($trace_data)) {
+                         $trace_data->merge_tracefile($childInfo,
+                                                      TraceInfo::UNION);
+                         my $final = Time::HiRes::gettimeofday();
+                         $lcovutil::profileData{append}{$chunkId} =
+                             $final - $now;
+                     } else {
+                         $trace_data = $childInfo;
+                     }
+                     my $end = Time::HiRes::gettimeofday();
+                     $lcovutil::profileData{merge}{$chunkId} = $end - $now;
+                     $lcovutil::profileData{queue}{$chunkId} =
+                         $ctx->{reapAt} - $childFinish;
+                 }
+                 $intervalMonitor->checkUpdate($processedFiles);
+             },
+             postReap => sub {
+                 my $ctx     = shift;
+                 my $chunkId = $ctx->{id};
+                 $lcovutil::profileData{chunk}{$chunkId} =
+                     Time::HiRes::gettimeofday() - $ctx->{forkAt};
+                 if (exists($lcovutil::profileData{process}{$chunkId}) &&
+                     exists($lcovutil::profileData{merge}{$chunkId})) {
+                     $lcovutil::profileData{work}{$chunkId} =
+                         $lcovutil::profileData{process}{$chunkId} +
+                         $lcovutil::profileData{merge}{$chunkId};
+                 }
+             },
+             requeue => sub {
+                 my ($chunk, $chunkId, $why) = @_;
+                 # a chunk we never managed to fork was counted as processed on the
+                 #   way past
+                 --$processedChunks if ('fork' eq $why);
+                 push(@worklist, $chunk);
+             },
+             forkFailWhen     => sub { return 'process chunk'; },
+             retryWhen        => sub { return 'compute job ' . $_[0]->{id}; },
+             mergeFailMessage => sub {
+                 my $ctx = shift;
+                 return "unable to deserialize $ctx->{dumpfile}: $ctx->{error}";
+             },
+             childFailMessage => sub {
+                 return 'ignoring data in chunk ' . $_[0]->{id};
+             },)->run();
 
     info("Finished processing %d "
              .
@@ -1745,7 +1617,13 @@ sub process_dafile($$$$)
     my ($out, $err, $code) =
         system_no_output(1 + 2 + 4, @gcov_tool, $da_arg, "-o", $object_dir);
     my $then = Time::HiRes::gettimeofday();
-    $lcovutil::profileData{exec}{$dirname}{$gcda_file} = $then - $now;
+    # keyed by the data file alone, as 'process_intermediate' does:  the two
+    #   readers write the same profile, so they have to agree on its shape.  The
+    #   extra '{$dirname}' level this used to have made 'exec' a table of tables
+    #   for a text-format capture, which is not what the consumers of the
+    #   profile expect - the per-data-file times were reported against the
+    #   search directory rather than against the '.gcda', or dropped.
+    $lcovutil::profileData{exec}{$gcda_file} = $then - $now;
 
     if (0 != $code) {
         check_gcov_fail($err, $da_filename);
@@ -1883,9 +1761,20 @@ sub process_dafile($$$$)
             }
 
             # append test-specific coverage to summary DB
+            # 'read_gcov_file' collects a branch or function map only when that
+            #   kind of coverage was asked for, and returns undef for the
+            #   others, so only union the ones which exist - the same test the
+            #   intermediate-format reader makes below.  Handing undef to
+            #   'union' is not harmless:  the pure-Perl implementation quietly
+            #   treats it as an empty map, but the XS one insists on a real
+            #   object and croaks 'BranchData: not a reference', so with the
+            #   extension loaded every text-format capture without
+            #   '--branch-coverage' failed.
             $fileData->sum()->union($lineMap);
-            $fileData->sumbr()->union($branchMap);
-            $fileData->func()->union($functionMap);
+            $fileData->sumbr()->union($branchMap)
+                if $lcovutil::br_coverage;
+            $fileData->func()->union($functionMap)
+                if $lcovutil::func_coverage;
 
             # Remove .gcov file after processing
             unlink($gcov_file) unless $lcovutil::preserve_intermediates;
@@ -2415,7 +2304,7 @@ sub read_intermediate_text($$)
         if ($line =~ /^file:(.*)$/) {
             $filename = $1;
             $filename =~ s/[\r\n]$//g;
-            #filename will be simplified/sustituted in 'adjust_source_filenames'
+            #filename will be simplified/substituted in 'adjust_source_filenames'
         } elsif (defined($filename)) {
             $data->{$filename} .= $line;
         }
@@ -3180,7 +3069,7 @@ sub my_info(@)
 #
 # int_handler()
 #
-# Called when the script was interrupted by an INT signal (e.g. CTRl-C)
+# Called when the script was interrupted by an INT signal (e.g. CTRL-C)
 #
 
 sub int_handler()

@@ -30,6 +30,23 @@ if [[ 1 == $CLEAN_ONLY ]] ; then
     exit 0
 fi
 
+# This test is about how geninfo resolves the name it was given, so several of
+# the cases below deliberately pass a bare 'gcov' - as does mygcov.sh, which is
+# a wrapper around whatever PATH finds.  That has to be the gcov matching $CC,
+# or the capture fails on the .gcno version rather than on the path handling
+# this test is checking.  common.tst worked out which one that is, so put a
+# directory holding only a link to it at the front of PATH:  linking the one
+# tool rather than prepending its whole directory leaves the rest of the path -
+# the lcov under test above all - exactly as it was.
+if [ -n "$GCOV" ] ; then
+    mkdir gcovdir && ln -s "$GCOV" gcovdir/gcov
+    if [ 0 != $? ] ; then
+        echo "cannot link '$GCOV' into gcovdir"
+        exit 1
+    fi
+    export PATH="$PWD/gcovdir:$PATH"
+fi
+
 check_tools
 
 

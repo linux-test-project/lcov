@@ -26,7 +26,7 @@
 #   if the '--local-change' flag is used:
 #     we assume that there may be local changes which are not committed to
 #     the repo.  If flag is not set:  do not check for local change
-#   If specified, 'path' is prependied to 'pathname' (as 'path/pathname')
+#   If specified, 'path' is prepended to 'pathname' (as 'path/pathname')
 #     before processing.
 
 #   This is a sample script which uses git commands to determine

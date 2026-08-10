@@ -281,7 +281,7 @@ sub checkLineCoverageConsistency
         }
         if (!%codeGroup ||
             !%nonCodeGroup) {
-            # everyone agrees that this is is is not code..
+            # everyone agrees that this is not code..
             if (scalar(%currentCodeGroup) &&
                 scalar(%currentNonCodeGroup)) {
 

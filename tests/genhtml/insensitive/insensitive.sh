@@ -38,7 +38,8 @@ ln -s ../simple/simple.cpp TEST.cpp
 ${CXX} --coverage TEST.cpp
 ./a.out
 
-echo `which gcov`
+# $GCOV, not 'which gcov':  common.tst matched it to ${CC} - see there
+echo $GCOV
 echo `which lcov`
 
 # old gcc version generates inconsistent line/function data

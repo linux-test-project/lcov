@@ -3,7 +3,7 @@ set +x
 
 source ../../common.tst
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* no_macro* macro* total.* rpt *.log
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* no_macro* macro* total.* rpt *.log brdaExpr*
 if [ -d separate ] ; then
     chmod -R u+w separate
     rm -rf separate
@@ -185,6 +185,51 @@ for f in "" '--forget-test-names' ; do
           exit 1
       fi
   fi
+done
+
+#
+# BRDA round-trip for the two fields a compiler capture does not produce:
+#   - a symbolic branch expression (mostly Verilog).  The reader stores the
+#     expression as undef when it is identical to the branch id, so only a
+#     non-numeric/non-matching one exercises the field at all.
+#   - the 'U' (unreachable/excluded) flag, on both a normal and an exception
+#     branch.
+# Excluded branches are not counted, so BRF/BRH must cover the other two only.
+#
+cat > brdaExpr.info <<'EOF'
+TN:tc1
+SF:brdaExpr.c
+DA:7,4
+BRDA:7,0,cond,3
+BRDA:7,0,!cond,1
+BRDA:7,U0,excl,0
+BRDA:7,eU0,exceptExcl,0
+BRF:2
+BRH:2
+LF:1
+LH:1
+end_of_record
+EOF
+
+BRDA_IGNORE="--ignore source,inconsistent,unused,empty"
+echo "$LCOV_TOOL -a brdaExpr.info -o brdaExprOut.info --branch"
+$COVER $LCOV_TOOL -a brdaExpr.info -o brdaExprOut.info --branch $BRDA_IGNORE
+if [ 0 != $? ] ; then
+    echo "ERROR: unexpected error code from lcov -a brdaExpr.info"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+for EXPECT in 'BRDA:7,0,cond,3' 'BRDA:7,0,!cond,1' 'BRDA:7,U0,excl,0' \
+              'BRDA:7,eU0,exceptExcl,0' 'BRF:2' 'BRH:2' ; do
+    grep -qxF "$EXPECT" brdaExprOut.info
+    if [ 0 != $? ] ; then
+        echo "ERROR: BRDA round-trip is missing '$EXPECT':"
+        cat brdaExprOut.info
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
 done
 
 echo "Tests passed"

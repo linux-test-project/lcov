@@ -277,7 +277,7 @@ sub extract_version
     my $verbose = $self->[VERBOSE];
     print("extract_version($file)\n") if $verbose;
     if (@$prefix) {
-        # check we we can strip the prefix off the filename - to find it in the DB
+        # check we can strip the prefix off the filename - to find it in the DB
         foreach my $p (@$prefix) {
             print("  check prefix $p  ..\n") if $verbose;
             if (0 == index($file, $p)) {

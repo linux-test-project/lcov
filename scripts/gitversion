@@ -23,7 +23,7 @@
 #     we assume that the GIT repo is cloned from Perforce - and look for
 #     the line in the generated commit log message which tells us the perforce
 #     changelist ID that we actually want.
-#   If specified, 'path' is prependied to 'pathname' (as 'path/pathname')
+#   If specified, 'path' is prepended to 'pathname' (as 'path/pathname')
 #     before processing.
 
 #   This is a sample script which uses git commands to determine

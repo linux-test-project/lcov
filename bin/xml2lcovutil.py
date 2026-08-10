@@ -280,7 +280,7 @@ This is a problem in at least 2 ways:
         #  coverage - only the percentage and number hit/not hit
         parseCondition = re.compile(r'\d+\% \((\d+)/(\d+)\)')
 
-        functions = [] # list of [functionName startLine endLine hitcout]
+        functions = [] # list of [functionName startLine endLine hitcount]
         for node in fileNode:
 
             if node.tag == 'methods':
