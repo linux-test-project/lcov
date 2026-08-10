@@ -53,7 +53,19 @@ annotation specification.
    Cache directory for storing previous results to improve performance.
 
 ``--verify``
-   Do additional consistency checking when merging local edits.
+   Do additional consistency checking when merging local edits:  check that
+   the annotated source text matches the file on disk, and report an
+   *annotate* error for each line which does not.
+
+``-b``, ``--ignore-whitespace``
+   Applies to ``--verify`` only: a line whose only difference from the local
+   file is whitespace - reindentation, trailing blanks, tabs expanded to
+   spaces - is not reported as a mismatch.  Both texts are compared with
+   leading and trailing whitespace removed and each run of whitespace
+   collapsed to a single space; a line which still differs after that is
+   reported as before.
+   This flag may be necessary, if the ``genhtml --diff-file`` input ignored
+   whitespace differences
 
 ``--log`` *logfile*
    File for annotation-related log messages (useful for debugging).
@@ -87,7 +99,19 @@ annotation specification.
    Cache directory for storing previous results.
 
 ``--verify``
-   Do additional consistency checking when merging local edits.
+   Do additional consistency checking when merging local edits:  check that
+   the annotated source text matches the file on disk, and report an
+   *annotate* error for each line which does not.
+
+``-b``, ``--ignore-whitespace``
+   Applies to ``--verify`` only: a line whose only difference from the local
+   file is whitespace - reindentation, trailing blanks, tabs expanded to
+   spaces - is not reported as a mismatch.  Both texts are compared with
+   leading and trailing whitespace removed and each run of whitespace
+   collapsed to a single space; a line which still differs after that is
+   reported as before.
+   This flag may be necessary, if the ``genhtml --diff-file`` input ignored
+   whitespace differences
 
 ``--log`` *logfile*
    File for annotation-related log messages.

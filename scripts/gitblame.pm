@@ -18,7 +18,7 @@
 #
 #
 # gitblame [--p4] [--prefix path] [--abbrev regexp] [--cache dir] [--verify] \
-#          [--log logfile] [domain] pathname
+#          [-b|--ignore-whitespace] [--log logfile] [domain] pathname
 #
 #   This script runs "git blame" for the specified file and formats the result
 #   to match the diffcov(1) age/ownership annotation specification.
@@ -41,6 +41,10 @@
 #
 #   The '--verify' flag tells the tool to do some additional consistency
 #   checking when merging local edits into the annotated file.
+#
+#   The '-b' (or '--ignore-whitespace') flag applies only to '--verify':  a line
+#   whose only difference from the local file is whitespace - reindentation,
+#   trailing blanks, tabs expanded - is not reported as a mismatch.
 #
 #   The '--log' flag specifies a file where the tool writes various annotation-
 #   related log messages - primarily useful for debugging environment issues.
@@ -68,10 +72,10 @@ use Cwd qw(abs_path);
 use base 'AnnotateBase';
 
 use constant {
-              P4          => 5,
-              ABBREV      => 6,
-              PREFIX      => 7,
-              CHANGELISTS => 8,
+              P4          => 6,
+              ABBREV      => 7,
+              PREFIX      => 8,
+              CHANGELISTS => 9,
 };
 
 sub new
@@ -87,21 +91,23 @@ sub new
     my $standalone = $script eq $0;
     my $help;
     my $verify;
+    my $ignoreWhitespace;
     my $logfile;
 
     if (!GetOptionsFromArray(\@_,
-                             ("p4"       => \$mapP4,
-                              "prefix:s" => \$prefix,
-                              'abbrev:s' => \@abbrev,
-                              'cache:s'  => \$cache_dir,
-                              'verify'   => \$verify,
-                              'log:s'    => \$logfile,
-                              'help'     => \$help)) ||
+                             ("p4"                  => \$mapP4,
+                              "prefix:s"            => \$prefix,
+                              'abbrev:s'            => \@abbrev,
+                              'cache:s'             => \$cache_dir,
+                              'verify'              => \$verify,
+                              'b|ignore-whitespace' => \$ignoreWhitespace,
+                              'log:s'               => \$logfile,
+                              'help'                => \$help)) ||
         (scalar(@_) >= 2) ||
         $help
     ) {
         print(STDERR
-                "usage: $exe [--p4] [--abbrev regexp]* [--cache dir] [--verify] [--log logfile] [domain] pathname\n"
+                "usage: $exe [--p4] [--abbrev regexp]* [--cache dir] [--verify] [-b|--ignore-whitespace] [--log logfile] [domain] pathname\n"
         );
         # exit 0 only when --help was the sole argument; any extra args means error
         exit($help && 0 == scalar(@_) ? 0 : 1) if $standalone;
@@ -114,7 +120,8 @@ sub new
         # else leave domain in place
     }
 
-    my $self = $class->SUPER::new($exe, $cache_dir, $logfile, $verify);
+    my $self = $class->SUPER::new($exe, $cache_dir, $logfile, $verify,
+                                  $ignoreWhitespace);
     # The commit->changelist map is keyed by git commit SHA, which is content-
     # addressed and globally unique, so its git-p4 CL mapping is the same no
     # matter which file references it.  Keep it on $self so the (forking)

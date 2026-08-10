@@ -23,6 +23,10 @@
 #  14.  --log flag: log file written and contains expected content
 #  15.  Multi-author file: two different commit hashes, two different owners
 #  16.  --p4 flag: CL extracted from git-p4 commit log comment
+#  17.  --verify without -b reports a whitespace-only mismatch
+#  18.  --verify -b tolerates the same whitespace-only mismatch
+#  19.  --verify --ignore-whitespace still reports a non-whitespace mismatch
+#  20.  -b without --verify is a usage error (both spellings)
 #
 
 set +x
@@ -46,6 +50,11 @@ if [ ! -x "$GITBLAME" ] ; then
 fi
 # Prepend coverage wrapper when active (same pattern used by other test scripts)
 [ -n "$COVER" ] && GITBLAME="$COVER $GITBLAME"
+
+# When coverage is active, $COVER is "perl -MDevel::Cover=... " so use it as the
+# perl interpreter for the direct .pm invocations below, too.
+PERL="${COVER:-perl}"
+LCOV_LIB="$LCOV_HOME/lib"
 
 # Require git
 if ! which git >/dev/null 2>&1 ; then
@@ -445,6 +454,147 @@ elif ! echo "$OUTPUT" | grep -q '^99887|' ; then
 $OUTPUT"
 else
     pass "Test 16: --p4 extracts CL number from git-p4 commit message"
+fi
+
+# -----------------------------------------------------------------------
+# Tests 17-19: -b / --ignore-whitespace tolerates whitespace-only mismatches
+#   'git blame' reports the working-tree text of a line, so the only way the
+#   annotated text can differ from the file on disk is a transformation the
+#   callback itself applies:  gitblame.pm strips a trailing CR from each blame
+#   line, whereas 'verify_annotation' reads the local file and only chomps the
+#   newline.  So a file committed with CRLF line endings produces exactly one
+#   kind of difference - a trailing CR - which is whitespace and nothing else.
+#   That makes it the end-to-end case for these two flags.
+#   These call the module directly rather than the 'gitblame' driver:  a
+#   mismatch is reported through lcovutil::ignorable_error, which only exists
+#   once some tool has loaded lcovutil.
+# -----------------------------------------------------------------------
+REPO17=$(make_git_repo)
+printf 'int main() {\r\n    return 0;\r\n}\r\n' > "$REPO17/crlf.c"
+git -C "$REPO17" add crlf.c
+fixed_commit "$REPO17" "crlf test" "2024-02-01 08:00:00 +0000"
+
+# Usage: run_verify <flag>...  -- sets OUTPUT and RC
+run_verify() {
+    OUTPUT=$($PERL -I"$LCOV_LIB" -I"$SCRIPT_DIR" -e \
+        'use lcovutil; use gitblame; use annotateutil qw(call_annotate);
+         call_annotate("gitblame", "gitblame", @ARGV);' -- "$@" 2>&1)
+    RC=$?
+}
+
+# ---- Test 17: without -b, the trailing CR is reported as a mismatch
+run_verify --verify "$REPO17/crlf.c"
+if [ $RC -eq 0 ] ; then
+    fail "Test 17 verify-no-b: expected non-zero exit, got 0; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q 'mismatched annotation at .*crlf\.c:1' ; then
+    fail "Test 17 verify-no-b: expected mismatch message; got: $OUTPUT"
+else
+    pass "Test 17: --verify without -b reports a whitespace-only mismatch"
+fi
+
+# ---- Test 18: with -b, the same input is accepted
+run_verify --verify -b "$REPO17/crlf.c"
+if [ $RC -ne 0 ] ; then
+    fail "Test 18 verify-b: expected exit 0, got $RC; output: $OUTPUT"
+elif echo "$OUTPUT" | grep -q 'mismatched annotation' ; then
+    fail "Test 18 verify-b: whitespace-only difference still reported: $OUTPUT"
+elif [ 3 -ne "$(echo "$OUTPUT" | grep -c '|')" ] ; then
+    fail "Test 18 verify-b: expected 3 annotated lines; got: $OUTPUT"
+else
+    pass "Test 18: --verify -b tolerates a whitespace-only mismatch"
+fi
+
+rm -rf "$REPO17"
+
+# ---- Test 19: a difference which survives whitespace normalization is still
+#      reported.  'git blame' reports the working-tree text of every line, so
+#      no repo state can make the annotated text differ from the file by
+#      anything but the CR above; call AnnotateBase::verify_annotation directly
+#      with annotation data which differs in a token instead.  Three lines, two
+#      of which differ only in whitespace and must stay silent, so the count is
+#      asserted and not just the presence of the message.
+TMP19=$(mktemp --suffix=.c)
+printf 'int  main( )  {\n\treturn 0;   \n}\n' > "$TMP19"
+OUTPUT=$($PERL -I"$LCOV_LIB" -I"$SCRIPT_DIR" -e \
+    'use lcovutil; use annotateutil;
+     $lcovutil::ignore[$lcovutil::ERROR_ANNOTATE_SCRIPT] = 1;   # report them all
+     my $self = AnnotateBase->new("probe", undef, undef, 1, 1);
+     $self->verify_annotation($ARGV[0],
+                              [map({ [$_] } ("int  main( )  {",
+                                             "    return 1;",
+                                             "}"))]);' -- "$TMP19" 2>&1)
+RC=$?
+rm -f "$TMP19"
+COUNT=$(echo "$OUTPUT" | grep -c 'mismatched annotation')
+if [ $RC -ne 0 ] ; then
+    fail "Test 19 real-diff: expected exit 0 (error ignored), got $RC; output: $OUTPUT"
+elif [ "$COUNT" -ne 1 ] ; then
+    fail "Test 19 real-diff: expected exactly 1 mismatch, got $COUNT; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q "mismatched annotation at .*:2: " ; then
+    fail "Test 19 real-diff: expected the line 2 mismatch; got: $OUTPUT"
+else
+    pass "Test 19: --ignore-whitespace still reports a non-whitespace mismatch"
+fi
+
+# -----------------------------------------------------------------------
+# Test 20: -b affects only the --verify comparison, so on its own it does
+#   nothing - AnnotateBase::new reports that as a 'usage' error rather than
+#   silently ignoring the flag.  Both spellings, and both arms of the error:
+#   fatal by default, and a warning which still annotates when 'usage' is
+#   ignored.
+# -----------------------------------------------------------------------
+REPO20=$(make_git_repo)
+printf 'orphan flag line\n' > "$REPO20/orphan.c"
+git -C "$REPO20" add orphan.c
+fixed_commit "$REPO20" "orphan flag test" "2024-03-01 08:00:00 +0000"
+
+# Usage: run_orphan <ignore-usage 0|1> <flag>...  -- sets OUTPUT and RC
+run_orphan() {
+    local ignore="$1" ; shift
+    OUTPUT=$($PERL -I"$LCOV_LIB" -I"$SCRIPT_DIR" -e \
+        'use lcovutil; use gitblame; use annotateutil qw(call_annotate);
+         $lcovutil::ignore[$lcovutil::ERROR_USAGE] = 1 if $ARGV[0];
+         shift(@ARGV);
+         call_annotate("gitblame", "gitblame", @ARGV);' -- "$ignore" "$@" 2>&1)
+    RC=$?
+}
+
+BAD=""
+for flag in -b --ignore-whitespace ; do
+    # ---- default: the usage error is fatal and nothing is annotated
+    run_orphan 0 $flag "$REPO20/orphan.c"
+    if [ $RC -eq 0 ] ; then
+        BAD="$BAD $flag:expected-nonzero"
+    elif ! echo "$OUTPUT" | grep -q "ERROR: (usage).*'--ignore-whitespace' has no effect without '--verify'" ; then
+        BAD="$BAD $flag:no-usage-error"
+    elif echo "$OUTPUT" | grep -q 'orphan flag line' ; then
+        BAD="$BAD $flag:annotated-anyway"
+    fi
+
+    # ---- '--ignore-errors usage': a warning, and annotation proceeds
+    run_orphan 1 $flag "$REPO20/orphan.c"
+    if [ $RC -ne 0 ] ; then
+        BAD="$BAD $flag:ignored-still-fatal"
+    elif ! echo "$OUTPUT" | grep -q "WARNING: (usage).*'--ignore-whitespace' has no effect" ; then
+        BAD="$BAD $flag:no-usage-warning"
+    elif ! echo "$OUTPUT" | grep -q '|orphan flag line' ; then
+        BAD="$BAD $flag:no-annotation"
+    fi
+done
+
+# ...and no message at all when --verify is present
+run_orphan 0 --verify -b "$REPO20/orphan.c"
+rm -rf "$REPO20"
+if [ $RC -ne 0 ] ; then
+    BAD="$BAD with-verify:nonzero"
+elif echo "$OUTPUT" | grep -q '(usage)' ; then
+    BAD="$BAD with-verify:unexpected-message"
+fi
+
+if [ -n "$BAD" ] ; then
+    fail "Test 20 orphan-b:$BAD; last output: $OUTPUT"
+else
+    pass "Test 20: -b without --verify reports a 'usage' error"
 fi
 
 # -----------------------------------------------------------------------

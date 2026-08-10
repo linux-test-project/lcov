@@ -109,21 +109,29 @@ use Cwd qw(abs_path);
 use Fcntl qw(:flock);
 
 use constant {
-              SCRIPT  => 0,
-              CACHE   => 1,
-              LOG     => 2,
-              LOGFILE => 3,
-              VERIFY  => 4,
+              SCRIPT            => 0,
+              CACHE             => 1,
+              LOG               => 2,
+              LOGFILE           => 3,
+              VERIFY            => 4,
+              IGNORE_WHITESPACE => 5,
 };
 
 sub new
 {
     my $class  = shift;
     my $script = shift;
-    my ($cache, $logfile, $verify) = @_;
+    my ($cache, $logfile, $verify, $ignoreWhitespace) = @_;
 
-    my $self = [$script, resolve_cache_dir($cache), undef, $logfile, $verify];
+    my $self = [$script, resolve_cache_dir($cache),
+                undef, $logfile,
+                $verify, $ignoreWhitespace
+    ];
 
+    if ($ignoreWhitespace && !$verify) {
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+            "$script:  '--ignore-whitespace' has no effect without '--verify'");
+    }
     bless $self, $class;
 
     if ($logfile) {
@@ -223,6 +231,18 @@ sub store_in_cache
         die("unable to store $cache_path");
 }
 
+sub _collapse_whitespace
+{
+    # Leading and trailing whitespace removed, and each run of whitespace
+    #   within the line reduced to one space.  Used only to decide whether two
+    #   lines which are not equal differ in whitespace alone.
+    my $text = shift;
+    $text =~ s/^\s+//;
+    $text =~ s/\s+$//;
+    $text =~ s/\s+/ /g;
+    return $text;
+}
+
 sub verify_annotation
 {
     my ($self, $filepath, $lines) = @_;
@@ -234,11 +254,20 @@ sub verify_annotation
         die('mismatched annotation: local line ' .
             ($lineNo + 1) . " does not exist in annotated data")
             if $lineNo > $#$lines;
-        my $a = $lines->[$lineNo]->[0];
+        my $a    = $lines->[$lineNo]->[0];
+        my $same = $line eq $a;
+        if (!$same && $self->[IGNORE_WHITESPACE]) {
+            # The version in the repo and the version on disk may have been
+            #   reindented, had trailing whitespace stripped, or had tabs
+            #   expanded - none of which changes the code the line contains.
+            #   Compare again with whitespace normalized, and complain only if
+            #   they still differ.
+            $same = _collapse_whitespace($line) eq _collapse_whitespace($a);
+        }
         lcovutil::ignorable_error($lcovutil::ERROR_ANNOTATE_SCRIPT,
                                   "mismatched annotation at $filepath:" .
                                       ($lineNo + 1) . ": '$line' -> '$a'")
-            unless $line eq $a;
+            unless $same;
         ++$lineNo;
     }
     die('mismatched annotation: local file does not contain annotated line ' .

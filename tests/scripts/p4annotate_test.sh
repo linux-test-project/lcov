@@ -17,7 +17,8 @@
 # Tests 5-10:  Constructor argument parsing       (args_check.sh)
 # Tests 11-13: --help / usage message             (help_check.sh)
 # Tests 14-17: Symlink / path normalisation       (symlink_check.sh)
-# Tests 18-34: End-to-end annotation output       (annotate_check.sh)
+# Tests 18-35: End-to-end annotation output       (annotate_check.sh)
+# Tests 36-39: -b / --ignore-whitespace
 #
 
 set +x
@@ -1114,6 +1115,145 @@ elif ! echo "$OUTPUT" | grep -qF "result=$NONEXIST" ; then
     fail "Test 35 nonexistent-path: expected path unchanged; got: $OUTPUT"
 else
     pass "Test 35: normalize_path returns original for non-existent path"
+fi
+
+# ===========================================================================
+# Tests 36-39: -b / --ignore-whitespace
+#   The annotated text comes from the depot version of the file, and the local
+#   file may have been reindented or had trailing blanks stripped since; -b
+#   says that such a line is not a mismatch, whereas one which differs by
+#   anything else still is.
+#   These go through the module (with lcovutil loaded) rather than the
+#   'p4annotate' driver, because a mismatch is reported through
+#   lcovutil::ignorable_error, which only exists once a tool has loaded
+#   lcovutil.
+# ===========================================================================
+LCOV_LIB="$LCOV_HOME/lib"
+
+# Usage: run_verify <flag>...  -- sets OUTPUT and RC
+run_verify() {
+    OUTPUT=$($PERL -I"$LCOV_LIB" -I"$SCRIPT_DIR" -e \
+        'use lcovutil; use p4annotate; use annotateutil qw(call_annotate);
+         call_annotate("p4annotate", "p4annotate", @ARGV);' -- "$@" 2>&1)
+    RC=$?
+}
+
+export P4MOCK_FILES="in_p4"
+unset P4MOCK_HAVE P4MOCK_OPENED
+
+# The depot text is indented with 4 spaces and has no trailing blanks; the
+#   local file uses a tab and has trailing blanks.  Same tokens, different
+#   whitespace, on every line.
+AMOCK=$(mk_annotate << 'EOF'
+900: alice 2024/10/01     int x = foo(a, b);
+901: alice 2024/10/01     return x;
+EOF
+)
+export P4MOCK_ANNOTATE="$AMOCK"
+TGT=$(mk_target "\tint  x = foo(a, b);\nreturn x;   \n")
+
+# ---------------------------------------------------------------------------
+# Test 36: --verify without -b reports each whitespace-only difference
+# ---------------------------------------------------------------------------
+run_verify --verify "$TGT"
+if [ $RC -eq 0 ] ; then
+    fail "Test 36 verify-no-b: expected non-zero exit, got 0; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q 'mismatched annotation at .*:1' ; then
+    fail "Test 36 verify-no-b: expected a mismatch message; got: $OUTPUT"
+else
+    pass "Test 36: --verify without -b reports whitespace-only mismatches"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 37: --verify -b accepts the same input, and still emits the depot text
+# ---------------------------------------------------------------------------
+run_verify --verify -b "$TGT"
+if [ $RC -ne 0 ] ; then
+    fail "Test 37 verify-b: expected exit 0, got $RC; output: $OUTPUT"
+elif echo "$OUTPUT" | grep -q 'mismatched annotation' ; then
+    fail "Test 37 verify-b: whitespace-only difference still reported: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q '^900|alice|.*|    int x = foo(a, b);$' ; then
+    fail "Test 37 verify-b: expected the depot text unchanged; got: $OUTPUT"
+else
+    pass "Test 37: --verify -b tolerates whitespace-only mismatches"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 38: a difference which survives normalization is still reported, and
+#          only that line is.  Line 1 differs in a token; line 2 differs only
+#          in whitespace and must stay silent.
+# ---------------------------------------------------------------------------
+rm -f "$TGT"
+TGT=$(mk_target "\tint  y = foo(a, b);\nreturn x;   \n")
+run_verify --verify --ignore-whitespace "$TGT"
+COUNT=$(echo "$OUTPUT" | grep -c 'mismatched annotation')
+if [ $RC -eq 0 ] ; then
+    fail "Test 38 real-diff: expected non-zero exit, got 0; output: $OUTPUT"
+elif [ "$COUNT" -ne 1 ] ; then
+    fail "Test 38 real-diff: expected exactly 1 mismatch, got $COUNT; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q 'mismatched annotation at .*:1: ' ; then
+    fail "Test 38 real-diff: expected the line 1 mismatch; got: $OUTPUT"
+else
+    pass "Test 38: --ignore-whitespace still reports a non-whitespace mismatch"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 39: -b affects only the --verify comparison, so on its own it does
+#          nothing - AnnotateBase::new reports that as a 'usage' error rather
+#          than silently ignoring the flag.  Both spellings, and both arms of
+#          the error: fatal by default, and a warning which still annotates
+#          when 'usage' is ignored.
+# ---------------------------------------------------------------------------
+rm -f "$TGT"
+TGT=$(mk_target "    int x = foo(a, b);\n    return x;\n")
+
+# Usage: run_orphan <ignore-usage 0|1> <flag>...  -- sets OUTPUT and RC
+run_orphan() {
+    local ignore="$1" ; shift
+    OUTPUT=$($PERL -I"$LCOV_LIB" -I"$SCRIPT_DIR" -e \
+        'use lcovutil; use p4annotate; use annotateutil qw(call_annotate);
+         $lcovutil::ignore[$lcovutil::ERROR_USAGE] = 1 if $ARGV[0];
+         shift(@ARGV);
+         call_annotate("p4annotate", "p4annotate", @ARGV);' -- "$ignore" "$@" 2>&1)
+    RC=$?
+}
+
+BAD=""
+for flag in -b --ignore-whitespace ; do
+    # ---- default: the usage error is fatal and nothing is annotated
+    run_orphan 0 $flag "$TGT"
+    if [ $RC -eq 0 ] ; then
+        BAD="$BAD $flag:expected-nonzero"
+    elif ! echo "$OUTPUT" | grep -q "ERROR: (usage).*'--ignore-whitespace' has no effect without '--verify'" ; then
+        BAD="$BAD $flag:no-usage-error"
+    elif echo "$OUTPUT" | grep -q '^900|' ; then
+        BAD="$BAD $flag:annotated-anyway"
+    fi
+
+    # ---- '--ignore-errors usage': a warning, and annotation proceeds
+    run_orphan 1 $flag "$TGT"
+    if [ $RC -ne 0 ] ; then
+        BAD="$BAD $flag:ignored-still-fatal"
+    elif ! echo "$OUTPUT" | grep -q "WARNING: (usage).*'--ignore-whitespace' has no effect" ; then
+        BAD="$BAD $flag:no-usage-warning"
+    elif ! echo "$OUTPUT" | grep -q '^900|' ; then
+        BAD="$BAD $flag:no-annotation"
+    fi
+done
+
+# ...and no message at all when --verify is present
+run_orphan 0 --verify -b "$TGT"
+if [ $RC -ne 0 ] ; then
+    BAD="$BAD with-verify:nonzero"
+elif echo "$OUTPUT" | grep -q '(usage)' ; then
+    BAD="$BAD with-verify:unexpected-message"
+fi
+rm -f "$TGT" "$AMOCK" ; unset P4MOCK_ANNOTATE P4MOCK_FILES
+
+if [ -n "$BAD" ] ; then
+    fail "Test 39 orphan-b:$BAD; last output: $OUTPUT"
+else
+    pass "Test 39: -b without --verify reports a 'usage' error"
 fi
 
 # ===========================================================================

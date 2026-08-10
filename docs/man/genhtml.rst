@@ -658,6 +658,8 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    Note that these scripts generate annotations from the file version checked in to the repository - not the locally modified file in the build directory. If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.
 
+   Both sample scripts accept a number of options - ``--cache``, ``--verify``, ``-b`` (or ``--ignore-whitespace``) and ``--log`` - which may be passed after the script name in the *script,args* form described in **Script conventions** above. See the **Callback Scripts** section of the |TOOL_NAME| documentation for details.
+
    **Creating your own script**
 
    When creating your own script, please first see **Script considerations** above for general calling conventions and script requirements.

@@ -22,7 +22,8 @@
 #   This script runs "p4 annotate" for the specified file and formats the result
 #   to match the diffcov(1) 'annotate' callback specification:
 #      use p4annotate;
-#      my $callback = p4annotate->new([--log logfile] [--cache cache_dir] [--verify]);
+#      my $callback = p4annotate->new([--log logfile] [--cache cache_dir] [--verify]
+#                                     [-b|--ignore-whitespace]);
 #      $callback->annotate(filename);
 #
 #   If the '--cache' flag is used:
@@ -39,6 +40,10 @@
 #   The '--verify' flag tells the tool to do some additional consistency
 #   checking when merging local edits into the annotated file.
 #
+#   The '-b' (or '--ignore-whitespace') flag applies only to '--verify':  a line
+#   whose only difference from the local file is whitespace - reindentation,
+#   trailing blanks, tabs expanded - is not reported as a mismatch.
+#
 #   The '--log' flag specifies a file where the tool writes various annotation-
 #   related log messages - primarily useful for debugging environment issues.
 #
@@ -48,7 +53,7 @@
 #   farm environment.
 #
 #   It can also be called directly, as
-#       p4annotate [--log logfile] [--verify] filename
+#       p4annotate [--log logfile] [--verify] [-b|--ignore-whitespace] filename
 
 use strict;
 
@@ -69,26 +74,29 @@ sub new
                            #other arguments are as passed...
     my $logfile;
     my $cache_dir;
-    my $verify     = 0;   # if set, check that we merged local changes correctly
-    my $exe        = File::Basename::basename($script ? $script : $0);
-    my $standalone = $0 eq $script;
+    my $verify = 0;    # if set, check that we merged local changes correctly
+    my $ignoreWhitespace = 0;    # if set, '--verify' tolerates whitespace diffs
+    my $exe              = File::Basename::basename($script ? $script : $0);
+    my $standalone       = $0 eq $script;
 
     if (exists($ENV{LOG_P4ANNOTATE})) {
         $logfile = $ENV{LOG_P4ANNOTATE};
     }
     my $help;
-    if (!Getopt::Long::GetOptionsFromArray(\@_,
-                                           ("verify"  => \$verify,
-                                            "log:s"   => \$logfile,
-                                            'cache:s' => \$cache_dir,
-                                            'help'    => \$help)) ||
+    if (!Getopt::Long::GetOptionsFromArray(
+                                   \@_,
+                                   ("verify"              => \$verify,
+                                    'b|ignore-whitespace' => \$ignoreWhitespace,
+                                    "log:s"               => \$logfile,
+                                    'cache:s'             => \$cache_dir,
+                                    'help'                => \$help)) ||
         (!$standalone && scalar(@_)) ||
         $help
     ) {
-        print(STDERR ($help ? '' : ("unexpected arg: $script " . join(' ', @_))
-              ),
-              "usage: $exe [--log logfile] [--cache dir] [--verify] filename\n"
-        );
+        print
+            (STDERR ($help ? '' : ("unexpected arg: $script " . join(' ', @_))),
+            "usage: $exe [--log logfile] [--cache dir] [--verify] [-b|--ignore-whitespace] filename\n"
+            );
         exit(scalar(@_) == 0 && $help ? 0 : 1) if $standalone;
         return undef;
     }
@@ -103,7 +111,9 @@ sub new
             join(' ', @notset) . " to be set.");
     }
 
-    return $class->SUPER::new($exe, $cache_dir, $logfile, $verify);
+    return
+        $class->SUPER::new($exe, $cache_dir, $logfile, $verify,
+                           $ignoreWhitespace);
 }
 
 sub annotate_callback

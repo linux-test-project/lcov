@@ -157,7 +157,7 @@ lcovutil::set_extensions('perl', '.*');
 my $testname    = '';
 my $output_file = 'perlcov.info';
 our %options = ('test-name=s' => \$testname,
-                'output|o=s' => \$output_file,);
+                'output|o=s'  => \$output_file,);
 if (!lcovutil::parseOptions({}, \%options)) {
     print(STDERR "Use $lcovutil::tool_name --help to get usage information.\n");
     exit(1);
