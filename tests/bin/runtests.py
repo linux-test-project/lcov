@@ -150,17 +150,50 @@ class TestRunner:
             except subprocess.CalledProcessError:
                 pass  # Non-fatal if init fails
     
+    def _resolve_test_arg(self, t: str):
+        """
+        Resolve one command-line test argument to (name, path).
+
+        A test may be named relative to the tests topdir ('lcov/xs_test') or
+        relative to the current directory -- the latter is what 'make check' in
+        a leaf directory produces, because common.mak passes the directory's own
+        $(TESTS) ('xs1.sh') to a driver that used to look only under
+        topdir.  That mismatch made every leaf-directory 'make check' report
+        "No tests found".  Try topdir first (the historical behaviour, and the
+        form a user typing a path from the tests root uses), then the
+        invocation directory.
+
+        The returned NAME is always relative to topdir, so the per-test log
+        file and coverage database are identified the same way no matter which
+        directory the run was launched from.
+        """
+        for base in (self.topdir, Path.cwd()):
+            path = (base / t)
+            if not path.exists():
+                continue
+            path = path.resolve()
+            try:
+                name = str(path.relative_to(self.topdir.resolve()))
+            except ValueError:
+                # Outside the tests tree: fall back to the name as given.
+                name = t
+            return name, path
+        return None, None
+
     def discover_tests(self, makefile_path: Path = None):
         """
         Discover tests from Makefile TESTS variable or command line.
         Returns list of (test_name, test_path) tuples.
         """
         tests = []
-        
+
         if self.args.tests:
             # Explicit tests from command line
             for t in self.args.tests:
-                test_path = self.topdir / t
+                name, test_path = self._resolve_test_arg(t)
+                if test_path is None:
+                    print(f"Warning: test '{t}' not found", file=sys.stderr)
+                    continue
                 if test_path.is_dir():
                     # Check if it has a Makefile with TESTS
                     sub_makefile = test_path / 'Makefile'
@@ -168,15 +201,15 @@ class TestRunner:
                         sub_tests = self._parse_tests_variable(sub_makefile)
                         if sub_tests:
                             # Recurse into this directory
-                            tests.extend(self._discover_from_makefile(sub_makefile, t))
+                            tests.extend(self._discover_from_makefile(sub_makefile, name))
                         else:
                             # Leaf directory - find scripts
-                            tests.extend(self._discover_in_dir(test_path, t))
+                            tests.extend(self._discover_in_dir(test_path, name))
                     else:
                         # No Makefile, find scripts
-                        tests.extend(self._discover_in_dir(test_path, t))
-                elif test_path.exists():
-                    tests.append((t, test_path))
+                        tests.extend(self._discover_in_dir(test_path, name))
+                else:
+                    tests.append((name, test_path))
         else:
             # Discover from Makefile
             makefile = makefile_path or (self.topdir / 'Makefile')
