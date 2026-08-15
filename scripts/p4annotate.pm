@@ -108,7 +108,8 @@ sub new
     if (@notset) {
         die("$exe requires environment variable" .
             (1 < scalar(@notset) ? 's' : '') . ' ' .
-            join(' ', @notset) . " to be set.");
+            join(' ', @notset) .
+            " to be set.");
     }
 
     return
