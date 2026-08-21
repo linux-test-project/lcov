@@ -435,7 +435,7 @@ foreach my $infoFile (@ARGV) {
         push(@infoFileArray, $infoFile);
     } else {
         open(INPUT, "<", $infoFile) or
-            die("Error: unable to opend $infoFile: $!\n");
+            die("Error: unable to open $infoFile: $!\n");
         while (<INPUT>) {
             chomp($_);
             next
