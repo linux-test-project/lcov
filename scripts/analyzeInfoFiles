@@ -303,8 +303,10 @@ sub checkLineCoverageConsistency
         } else {
             # we have some disagreement about whether this is code or not
             #   - is the 'in' and 'out' group the same as it was before?
-            if (!(hashIsSame(\%currentCodeGroup, \%codeGroup) &&
-                  hashIsSame(\%currentNonCodeGroup, \%nonCodeGroup))) {
+            if (!(
+                  hashIsSame(\%currentCodeGroup, \%codeGroup) &&
+                  hashIsSame(\%currentNonCodeGroup, \%nonCodeGroup)
+            )) {
                 if (defined($main::reportAgreeBlocks) ||
                     (%currentCodeGroup &&
                         %currentNonCodeGroup)
@@ -489,8 +491,9 @@ foreach my $f (@infoFileArray) {
                 # versions don't match - so don't bother to check for matching
                 #  line coverage data
                 print("Error: version mismatch for $src between:\n\t" .
-                      $traces->[0]->[1] .
-                      ": " . ($v ? $v : 'undef') . "\n\t" . $f . ": " .
+                      $traces->[0]->[1] . ": " .
+                      ($v ? $v : 'undef') . "\n\t" .
+                      $f . ": " .
                       ($fv ? $fv : 'undef') . "\n");
                 $status = 1;
                 # version mismatch - so don't bother checking data for this file

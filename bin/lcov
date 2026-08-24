@@ -311,13 +311,14 @@ if (@ARGV &&
         $reset)
 ) {
     die("Extra parameter found: '" .
-        join(" ", @ARGV) .
-        "'\n" . "Use $tool_name --help to get usage information\n");
+        join(" ", @ARGV) . "'\n" .
+        "Use $tool_name --help to get usage information\n");
 }
 
 if (!@ARGV) {
     if ($directory || $kernel_directory) {
-        die("--" . ($directory ? "directory" : "kernel-directory") .
+        die("--" .
+            ($directory ? "directory" : "kernel-directory") .
             " specified but no directories provided\n" .
             "Use $tool_name --help to get usage information\n");
     }
@@ -327,7 +328,8 @@ if (!@ARGV) {
                    [scalar(@intersect), '--intersect'],
                    [scalar(@difference), '--subtract'],
     ) {
-        die($d->[1] . " specified but no tracefiles provided\n" .
+        die($d->[1] .
+            " specified but no tracefiles provided\n" .
             "Use $tool_name --help to get usage information\n")
             if ($d->[0]);
     }
@@ -404,7 +406,8 @@ eval {
 
             info("Pruned result: retained " .
                  scalar(@$pruned) . " of " .
-                 scalar(@$merged) . " files\n");
+                 scalar(@$merged) .
+                 " files\n");
             my $file = InOutFile->out($output_filename);
             my $hdl  = $file->hdl();
             print($hdl join("\n", @$pruned) . "\n");
@@ -595,7 +598,8 @@ sub check_options()
         $i > 1) {
         die("invalid command line:\n  $0 " .
                 join(' ', @main::cmdArgs) .
-                "\nNeed " . ($i > 1 ? 'only ' : '') .
+                "\nNeed " .
+                ($i > 1 ? 'only ' : '') .
                 "one of options -z, -c, -a, -e, -r, -l, --intersect, --subtract, or --summary\n"
                 . "Use $tool_name --help to get usage information\n");
     }
@@ -894,8 +898,7 @@ sub lcov_geninfo(@)
     }
     push(@param, "--base-directory", $base_directory)
         if $base_directory;
-    foreach (
-             split($lcovutil::split_char,
+    foreach (split($lcovutil::split_char,
                    join($lcovutil::split_char, @lcovutil::opt_ignore_errors))
     ) {
         # pass only the 'ignore' options that geninfo understands
@@ -1605,14 +1608,15 @@ sub merge_traces($$)
 
     my @data = AggregateTraces::find_from_glob(@ARGV);
     info('.. found: ' .
-         scalar(@data) . " 'base' trace file" .
+         scalar(@data) .
+         " 'base' trace file" .
          (1 == scalar(@data) ? '' : 's') . ".\n");
     die("must specify at least one 'base' tracefile")
         unless @data;
     my @merge = AggregateTraces::find_from_glob(@$list);
     info('          ' .
-         scalar(@merge) .
-         ' file' . (1 == scalar(@merge) ? '' : 's') . ' to ' .
+         scalar(@merge) . ' file' .
+         (1 == scalar(@merge) ? '' : 's') . ' to ' .
          ($op == TraceInfo::INTERSECT ? 'intersect' : 'subtract') . ".\n");
 
     my $srcReader = ReadCurrentSource->new();
@@ -2022,7 +2026,8 @@ sub setup_gkv()
             # Check /proc
             $dir = defined($gcov_dir) ? $gcov_dir : $proc_dir;
             if (check_gkv_proc($dir)) {
-                info("Found " . $GKV_NAME[$GKV_PROC] .
+                info("Found " .
+                     $GKV_NAME[$GKV_PROC] .
                      " gcov kernel support at $dir\n");
                 return ($GKV_PROC, $dir);
             }

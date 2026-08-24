@@ -252,7 +252,8 @@ sub verify_annotation
     while (my $line = <$debug_fh>) {
         chomp($line);
         die('mismatched annotation: local line ' .
-            ($lineNo + 1) . " does not exist in annotated data")
+            ($lineNo + 1) .
+            " does not exist in annotated data")
             if $lineNo > $#$lines;
         my $a    = $lines->[$lineNo]->[0];
         my $same = $line eq $a;
@@ -266,8 +267,8 @@ sub verify_annotation
         }
         lcovutil::ignorable_error($lcovutil::ERROR_ANNOTATE_SCRIPT,
                                   "mismatched annotation at $filepath:" .
-                                      ($lineNo + 1) . ": '$line' -> '$a'")
-            unless $same;
+                                      ($lineNo + 1) .
+                                      ": '$line' -> '$a'") unless $same;
         ++$lineNo;
     }
     die('mismatched annotation: local file does not contain annotated line ' .
