@@ -971,4 +971,6 @@ lcovutil::warn_file_patterns();
 lcovutil::summarize_cov_filters();
 lcovutil::summarize_messages(1);
 
+lcovutil::temp_cleanup();
+
 exit(lcovutil::saw_error() ? 1 : 0);

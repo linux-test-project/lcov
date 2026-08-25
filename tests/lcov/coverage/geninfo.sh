@@ -10,7 +10,9 @@
 #   Test  5     : bad --gcov-tool path  (lines 316-323)
 #   Test  6     : invalid geninfo_intermediate value  (lines 358-360)
 #   Test  7     : --no-compat-libtool normalisation  (lines 291-293)
-#   Test  8     : --tempdir option  (lines 283-288)
+#   Tests 8,8a-d: --tempdir / lcov_tmp_dir  (lcovutil::create_tmp_dir,
+#                  lcovutil::temp_cleanup, and their interaction with
+#                  --preserve)
 #   Test  9     : --no-recursion  (lines 454-458)
 #   Test  10    : --rc geninfo_adjust_testname=1  (lines 438-441)
 #   Test  11    : --rc geninfo_intermediate=1 explicit  (line 349-350)
@@ -31,11 +33,15 @@ source ../../common.tst
 # coverage.sh which runs concurrently in the same directory)
 rm -f help.log version.log nodir.log nosuchdir.log badtool.log \
       badintermediate.log nocompat.log tempdir.log norecurse.log \
+      tempdir_preserve.log tempdir_mk.log tempdir_rc.log \
+      tempdir_rconly.log \
       adjusttest.log intermediate1.log badext.log \
       compat_libtool.log compat_hammer.log compat_unknown.log \
       nomarkers_filter.log initial.log compile.log \
       textfmt.log textfmt.info textfmt_prof.json \
       nocompat.info tempdir.info norecurse.info adjusttest.info \
+      tempdir_preserve.info tempdir_mk.info tempdir_rc.info \
+      tempdir_rconly.info \
       intermediate1.info compat_libtool.info compat_hammer.info \
       initial.info
 rm -rf srcdir
@@ -66,6 +72,23 @@ die() {
 
 pass() {
     PASS=$((PASS + 1))
+}
+
+# '--preserve' keeps every intermediate directory the run created under the
+# temp dir, and how many that is depends on the run rather than on the options:
+# a filtering stage which forks makes a 'filter_dat*' of its own beside
+# geninfo's, so 'LCOV_FORCE_PARALLEL=1' - which the COVERAGE build sets for one
+# of its two passes - leaves two.  What the '--tempdir' tests below are about is
+# which directory the data was written under, so ask whether geninfo's own is
+# among what was kept instead of whether it is all of it.
+kept_geninfo_dat() {
+    local entry
+    for entry in "$1"/geninfo_dat* ; do
+        if [[ -d $entry ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Build a minimal instrumented program once; reused across tests that need
@@ -208,7 +231,7 @@ fi
 if [[ $HAVE_CC -eq 0 ]]; then
     echo "Skipping tests 7-17 (no C compiler)"
     echo ""
-    echo "Results: $PASS passed, $FAIL failed (11 skipped)"
+    echo "Results: $PASS passed, $FAIL failed (15 skipped)"
     exit $([[ $FAIL -gt 0 ]])
 fi
 
@@ -228,18 +251,115 @@ else
 fi
 
 # -----------------------------------------------------------------------
-# Test 8: --tempdir  (exercises tempdirname, lines 283-288)
+# Test 8: --tempdir  (exercises lcovutil::create_tmp_dir/temp_cleanup and the
+#         'geninfo_datXXXX' File::Temp under $lcovutil::tmp_dir)
+#
+# '--tempdir' names the *parent*:  geninfo creates a uniquely named
+# subdirectory of it, and that subdirectory goes away again unless
+# '--preserve' is given.  See the 'lcov_tmp_dir' section of lcovrc(5).
 # -----------------------------------------------------------------------
 echo "=== Test 8: --tempdir ==="
 MYTMPDIR=$(mktemp -d)
 $COVER $GENINFO_TOOL $GI_PRE --tempdir "$MYTMPDIR" \
     -o tempdir.info $GI_POST srcdir >tempdir.log 2>&1
 RC=$?
+LEFTOVER=$(ls -A "$MYTMPDIR")
 rm -rf "$MYTMPDIR"
 if [[ $RC -ne 0 ]]; then
     die "geninfo --tempdir failed (rc=$RC)"
 elif [[ ! -s tempdir.info ]]; then
     die "--tempdir produced empty .info"
+elif [[ -n $LEFTOVER ]]; then
+    die "--tempdir without --preserve left data behind: $LEFTOVER"
+else
+    pass
+fi
+
+# -----------------------------------------------------------------------
+# Test 8a: --tempdir --preserve  (the same, but the data stays)
+# -----------------------------------------------------------------------
+echo "=== Test 8a: --tempdir --preserve ==="
+MYTMPDIR=$(mktemp -d)
+$COVER $GENINFO_TOOL $GI_PRE --tempdir "$MYTMPDIR" --preserve \
+    -o tempdir_preserve.info $GI_POST srcdir >tempdir_preserve.log 2>&1
+RC=$?
+KEPT=$(ls -A "$MYTMPDIR")
+kept_geninfo_dat "$MYTMPDIR"
+HAVE_DAT=$?
+rm -rf "$MYTMPDIR"
+if [[ $RC -ne 0 ]]; then
+    die "geninfo --tempdir --preserve failed (rc=$RC)"
+elif [[ ! -s tempdir_preserve.info ]]; then
+    die "--tempdir --preserve produced empty .info"
+elif [[ $HAVE_DAT -ne 0 ]]; then
+    die "--preserve did not keep a geninfo_dat* subdirectory: got '$KEPT'"
+else
+    pass
+fi
+
+# -----------------------------------------------------------------------
+# Test 8b: --tempdir naming a directory which does not exist yet.  geninfo
+#          creates it - and, because it created it, removes it again.
+# -----------------------------------------------------------------------
+echo "=== Test 8b: --tempdir of a non-existent directory ==="
+MYTMPDIR=$(mktemp -d)/not/there/yet
+$COVER $GENINFO_TOOL $GI_PRE --tempdir "$MYTMPDIR" \
+    -o tempdir_mk.info $GI_POST srcdir >tempdir_mk.log 2>&1
+RC=$?
+if [[ $RC -ne 0 ]]; then
+    die "geninfo --tempdir of a non-existent directory failed (rc=$RC)"
+elif [[ ! -s tempdir_mk.info ]]; then
+    die "--tempdir of a non-existent directory produced empty .info"
+elif [[ -d $MYTMPDIR ]]; then
+    die "--tempdir created '$MYTMPDIR' but did not remove it again"
+else
+    pass
+fi
+rm -rf "$(dirname "$(dirname "$MYTMPDIR")")"
+
+# -----------------------------------------------------------------------
+# Test 8c: 'lcov_tmp_dir' is the rc spelling of '--tempdir', and '--tempdir'
+#          wins when both are given - 'apply_rc_params' runs before
+#          'GetOptions' in 'lcovutil::parseOptions'.
+# -----------------------------------------------------------------------
+echo "=== Test 8c: --tempdir overrides lcov_tmp_dir ==="
+RCTMPDIR=$(mktemp -d)
+MYTMPDIR=$(mktemp -d)
+$COVER $GENINFO_TOOL $GI_PRE --rc "lcov_tmp_dir=$RCTMPDIR" \
+    --tempdir "$MYTMPDIR" --preserve \
+    -o tempdir_rc.info $GI_POST srcdir >tempdir_rc.log 2>&1
+RC=$?
+RCLEFT=$(ls -A "$RCTMPDIR")
+KEPT=$(ls -A "$MYTMPDIR")
+kept_geninfo_dat "$MYTMPDIR"
+HAVE_DAT=$?
+rm -rf "$RCTMPDIR" "$MYTMPDIR"
+if [[ $RC -ne 0 ]]; then
+    die "geninfo --rc lcov_tmp_dir + --tempdir failed (rc=$RC)"
+elif [[ -n $RCLEFT ]]; then
+    die "lcov_tmp_dir was used despite --tempdir: $RCLEFT"
+elif [[ $HAVE_DAT -ne 0 ]]; then
+    die "--tempdir did not override lcov_tmp_dir: got '$KEPT'"
+else
+    pass
+fi
+
+# -----------------------------------------------------------------------
+# Test 8d: 'lcov_tmp_dir' on its own
+# -----------------------------------------------------------------------
+echo "=== Test 8d: lcov_tmp_dir alone ==="
+RCTMPDIR=$(mktemp -d)
+$COVER $GENINFO_TOOL $GI_PRE --rc "lcov_tmp_dir=$RCTMPDIR" --preserve \
+    -o tempdir_rconly.info $GI_POST srcdir >tempdir_rconly.log 2>&1
+RC=$?
+KEPT=$(ls -A "$RCTMPDIR")
+kept_geninfo_dat "$RCTMPDIR"
+HAVE_DAT=$?
+rm -rf "$RCTMPDIR"
+if [[ $RC -ne 0 ]]; then
+    die "geninfo --rc lcov_tmp_dir failed (rc=$RC)"
+elif [[ $HAVE_DAT -ne 0 ]]; then
+    die "lcov_tmp_dir was not honoured: got '$KEPT'"
 else
     pass
 fi

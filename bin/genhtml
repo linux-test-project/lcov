@@ -6129,9 +6129,11 @@ sub new
            [], # jobs which are to be scheduled for execution
            undef,    # the fork manager - 'compute' owns the children, the retry
                      #   counts and the count of jobs currently running
-           File::Temp->newdir("genhtml_XXXX",
-                              DIR     => $lcovutil::tmp_dir,
-                              CLEANUP => 1),
+           File::Temp->newdir(
+                          "genhtml_XXXX",
+                          DIR     => $lcovutil::tmp_dir,
+                          CLEANUP => !defined($lcovutil::preserve_intermediates)
+           ),
            0,        # delay timer
            {},       # file key -> its record count, for the memory throttle
     ];
@@ -6946,6 +6948,13 @@ sub compute
     }    # while (work remains)
         # the manager did the waiting, so it is the one which knows how long for
     $self->[DELAY_TIMER] = $mgr->delay_timer();
+    # The manager's callbacks close over '$self', and '$self' holds the manager -
+    #   so this reference cycle keeps the whole task graph, including the
+    #   'File::Temp' child data directory, alive until global destruction.  We
+    #   are done with the children, so break it here:  that releases the temp
+    #   directory now, while 'temp_cleanup' can still take its parent away.
+    $self->[FORK_MGR] = undef;
+    $self->[TMPDIR]   = undef;
 }
 
 sub merge_child
@@ -7604,6 +7613,10 @@ if (0 == $exit_status && $validateHTML) {
 $exit_status = 1
     if (0 == $exit_status && lcovutil::saw_error());
 
+# the 'GenHtml' object - and its 'File::Temp' child data directory -
+#   went out of scope when 'gen_html' returned, so the parent is empty by now
+lcovutil::temp_cleanup();
+
 exit($exit_status);
 
 #
@@ -7634,7 +7647,7 @@ COMMON OPTIONS
       --ignore-errors ERRORS        Continue after ERRORS (see man page for
                                     full list of errors and their meaning)
       --keep-going                  Do not stop if an error occurs
-      --tempdir DIRNAME             Write temporary and intermediate data here
+      --tempdir DIRNAME             Parent dir for temporary/intermediate data
       --preserve                    Keep intermediate files for debugging
 
 OPERATION

@@ -294,8 +294,10 @@ lcov_modprobe_tool = /sbin/modprobe
 # Location of the rmmod tool
 lcov_rmmod_tool = /sbin/rmmod
 
-# Location for temporary directories
-lcov_tmp_dir = /tmp
+# Parent directory that temporary directories are created under (same as the
+# --tempdir option).  Default is $TMPDIR/$TEMP/$TMP if set, else /tmp.
+# Set this variable if you want some other value
+#lcov_tmp_dir = /tmp
 
 # Show full paths during list operation if non-zero (same as --list-full-path
 # option of lcov)

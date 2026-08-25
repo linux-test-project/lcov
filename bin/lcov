@@ -502,7 +502,7 @@ COMMON OPTIONS
       --ignore-errors ERRORS      Continue after ERRORS (see man page for
                                   full list of errors and their meaning)
       --keep-going                Do not stop if an error occurs
-      --tempdir DIRNAME           Write temporary and intermediate data here
+      --tempdir DIRNAME           Parent dir for temporary/intermediate data
       --preserve                  Keep intermediate files for debugging
 
 OPERATION
@@ -949,8 +949,11 @@ sub lcov_geninfo(@)
     push(@param, "--mcdc") if $lcovutil::mcdc_coverage;
     push(@param, '--fail-under-lines', $lcovutil::fail_under_lines)
         if defined($lcovutil::fail_under_lines);
-    push(@param, '--tempdir', $lcovutil::tempdirname)
-        if (defined($lcovutil::tempdirname));
+    # Only pass it on if it is not where the child would go anyway:  an rc-file
+    #   'lcov_tmp_dir' reaches the child through the rc file it reads itself,
+    #   so this is really about a '--tempdir' on our command line.
+    push(@param, '--tempdir', $lcovutil::tmp_dir)
+        if ($lcovutil::tmp_dir ne $lcovutil::default_tmp_dir);
     foreach my $listOpt (['--comment', \@lcovutil::comments],
                          ['--config-file', \@lcovutil::opt_config_files],
                          ['--rc', \@lcovutil::opt_rc],

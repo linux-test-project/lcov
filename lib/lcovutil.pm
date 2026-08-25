@@ -30,7 +30,8 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      @temp_dirs set_tool_name
      info warn_once set_info_callback init_verbose_flag $verbose
      debug $debug
-     append_tempdir create_temp_dir temp_cleanup $tmp_dir $preserve_intermediates
+     append_tempdir create_temp_dir temp_cleanup $tmp_dir $default_tmp_dir
+     $preserve_intermediates
      summarize_messages define_errors
      parse_ignore_errors ignorable_error ignorable_warning
      is_ignored message_count explain_once
@@ -143,8 +144,16 @@ chomp($VERSION);
 our $lcov_version = 'LCOV version ' . $VERSION;
 our $lcov_url     = "https://github.com/linux-test-project/lcov";
 our @temp_dirs;
-our $tmp_dir = '/tmp';          # where to put temporary/intermediate files
-our $preserve_intermediates;    # this is useful only for debugging
+# The parent directory that temporary/intermediate data is written under:
+#   every consumer creates a uniquely named subdirectory of it rather than
+#   writing here directly.  Set by the rc option 'lcov_tmp_dir' or by
+#   '--tempdir'.  Default is whatever the platform says:  $TMPDIR, $TEMP or
+#   $TMP if one of them names a writeable directory, else '/tmp' on Unix or
+#   'C:\temp' on Windows.
+our $tmp_dir         = File::Spec->tmpdir();
+our $default_tmp_dir = $tmp_dir;    # so 'lcov' knows whether to pass it on
+our $created_tmp_dir;               # set if we created '$tmp_dir'
+our $preserve_intermediates;        # this is useful only for debugging
 our $sort_inputs;    # sort input file lists - to reduce unpredictability
 our $devnull      = File::Spec->devnull();    # portable way to do it
 our $dirseparator = ($^O =~ /Win/) ? '\\' : '/';
@@ -717,6 +726,10 @@ sub debug
 
 sub temp_cleanup()
 {
+    # '--preserve' means the user wants to look at the intermediate data, so
+    #   leave everything where it is.  'create_temp_dir' already told
+    #   'File::Temp' not to clean up; this is the second half of that.
+    return if $lcovutil::preserve_intermediates;
     if (@temp_dirs) {
         # Ensure temp directory is not in use by current process
         my $cwd = Cwd::getcwd();
@@ -727,6 +740,59 @@ sub temp_cleanup()
         }
         @temp_dirs = ();
         chdir($cwd);
+    }
+    if (defined($created_tmp_dir)) {
+        # We made the parent, so delete it if it is empty.
+        #   'rmdir' rather than 'rmtree' so that anything we did not put there
+        #   survives.
+        rmdir($created_tmp_dir);
+        $created_tmp_dir = undef;
+    }
+}
+
+END {
+    # Get here on fatal error which doesn't get to 'temp_cleanup()'
+    # if we created '$tmp_dir' and it is empty: delete.
+    #   'rmdir' rather than 'rmtree', so this fails harmlessly if
+    #   anything is still there - which is what happens on the
+    #   normal path, where 'temp_cleanup' has already done the job.
+    rmdir($created_tmp_dir)
+        if (defined($created_tmp_dir) &&
+            !$preserve_intermediates &&
+            !$in_child_process);
+}
+
+#
+# create_tmp_dir()
+#
+# Make sure '$tmp_dir' - the parent that all the generated temp directories
+#   are created under - exists.  Called once, from 'parseOptions', so that
+#   every tool behaves the same way whether the directory came from
+#   '--tempdir' or from the rc option 'lcov_tmp_dir'.
+#
+
+sub create_tmp_dir()
+{
+    my $err;
+    if (!-d $tmp_dir) {
+        # remember that it was ours, so 'temp_cleanup' can remove it again
+        $created_tmp_dir = $tmp_dir;
+        # 'error' makes 'make_path' collect the reason instead of dying, so that
+        #   an unwriteable parent is one usage error rather than an unhandled
+        #   'mkdir' failure
+        File::Path::make_path($tmp_dir, {error => \$err});
+    }
+    if (!-d $tmp_dir) {
+        my $why = $!;
+        if ($err && @$err) {
+            my (undef, $msg) = %{$err->[0]};
+            $why = $msg if $msg;
+        }
+        ignorable_error($ERROR_USAGE,
+                       "unable to create temporary directory '$tmp_dir': $why");
+    } elsif (!-w $tmp_dir) {
+        ignorable_error($ERROR_USAGE,
+                        "temporary directory '$tmp_dir' is not writeable");
     }
 }
 
@@ -1317,7 +1383,6 @@ my (@rc_filter, @rc_ignore,
     $rc_no_func_coverage, $rc_no_checksum,
     $version);
 my $quiet = 0;
-our $tempdirname;
 
 # these options used only by lcov - but moved here so that we can
 #   share arg parsing
@@ -1476,7 +1541,7 @@ our %geninfo_rc_opts = (
                   'geninfo_interval_update'       => \$defaultInterval,
                   'geninfo_capture_all'           => \$geninfo_captureAll);
 
-our %argCommon = ("tempdir=s"         => \$tempdirname,
+our %argCommon = ("tempdir=s"         => \$lcovutil::tmp_dir,
                   "version-script=s"  => \@lcovutil::extractVersionScript,
                   "criteria-script=s" =>
                       \@CoverageCriteria::coverageCriteriaScript,
@@ -1840,6 +1905,11 @@ sub parseOptions
 
     # Determine which errors the user wants us to ignore
     parse_ignore_errors(@opt_ignore_errors);
+
+    # Make sure the parent directory that intermediate data goes under exists.
+    #   Do this before the 'lcov --capture' early return below:  'lcov' calls
+    #   'create_temp_dir' itself during capture (see 'copy_gcov_dir').
+    create_tmp_dir();
 
     # if lcov --capture:  no further initialization required - is handled
     #   in geninfo call
@@ -12333,10 +12403,7 @@ sub _parallel_parse($$$$$)
         unless exists($lcovutil::profileData{config});
     $lcovutil::profileData{config}{chunks} = $nChunks;
 
-    # kind of a hack...write to the named directory that the user gave
-    #   us rather than to a funny generated name
-    my $tempDir = defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
-        lcovutil::create_temp_dir();
+    my $tempDir = lcovutil::create_temp_dir();
 
     # The children filter, so they are the ones which count what the filters
     #   did.  Those counts do not ride home in 'lcovutil::compute_update' (the
@@ -12840,10 +12907,7 @@ sub merge
             unless exists($lcovutil::profileData{config});
         $lcovutil::profileData{config}{segments} = scalar(@segments);
 
-        # kind of a hack...write to the named directory that the user gave
-        #   us rather than to a funny generated name
-        my $tempDir = defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
-            lcovutil::create_temp_dir();
+        my $tempDir = lcovutil::create_temp_dir();
         my $segment_trace;
         lcovutil::ForkManager->new(
          operation => 'aggregate',
@@ -12964,11 +13028,6 @@ sub merge
     } else {
         # sequential
         @effective = _process_segment($total_trace, $readSourceFile, $filelist);
-    }
-    if (defined($lcovutil::tempdirname) &&
-        !$lcovutil::preserve_intermediates) {
-        # won't remove if directory not empty...probably what I want, for debugging
-        rmdir($lcovutil::tempdirname);
     }
     # Every input has now been read and merged, so this is the first point at
     #   which the per-testcase tables can be judged:  a coverage type missing a

@@ -284,13 +284,6 @@ if ($lcovutil::geninfo_captureAll && $initial) {
     $lcovutil::geninfo_captureAll = undef;
 }
 
-if (defined($lcovutil::tempdirname)) {
-    $lcovutil::tmp_dir = $lcovutil::tempdirname;
-    File::Path::make_path($lcovutil::tmp_dir) or
-        die("unable to mkdir $lcovutil::tmp_dir: $!")
-        unless (-d $lcovutil::tmp_dir);
-}
-
 # Merge options
 if (defined($opt_no_compat_libtool)) {
     $lcovutil::opt_compat_libtool = ($opt_no_compat_libtool ? 0 : 1);
@@ -527,7 +520,6 @@ lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
 
 # where to write parallel child data
 my $tempFileDir =
-    defined($lcovutil::tempdirname) ? $lcovutil::tempdirname :
     File::Temp->newdir("geninfo_datXXXX",
                        DIR     => $lcovutil::tmp_dir,
                        CLEANUP => !defined($lcovutil::preserve_intermediates));
@@ -612,6 +604,11 @@ $exit_code = 1
     if (0 == $exit_code &&
         (!(defined($trace_data) && $single_file) ||
          lcovutil::saw_error()));
+# Drop our reference to the child data directory first:  'File::Temp' removes
+#   it from its destructor, and 'temp_cleanup' can only take the parent away
+#   once the parent is empty.
+$tempFileDir = undef;
+lcovutil::temp_cleanup();
 exit($exit_code);
 
 #
@@ -643,7 +640,7 @@ COMMON OPTIONS
       --ignore-errors ERRORS        Continue after ERRORS (see man page for full
                                     list of errors and their meaning)
       --keep-going                  Do not stop if an error occurs
-      --tempdir DIRNAME             Write temporary and intermediate data here
+      --tempdir DIRNAME             Parent dir for temporary/intermediate data
       --preserve                    Keep intermediate files for debugging
 
 OPTIONS

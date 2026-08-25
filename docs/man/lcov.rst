@@ -1513,7 +1513,13 @@ specified at a time.
 
 ``--tempdir`` *dirname*
 
-   Write temporary and intermediate data to indicated directory.  Default is "/tmp".
+   Write temporary and intermediate data under the indicated directory.  Default is the platform temporary directory: $TMPDIR, $TEMP or $TMP if one of them names a writeable directory, otherwise "/tmp" on Unix or "C:\\temp" on Windows.
+
+   A uniquely named subdirectory of *dirname* is created for the run, and the data is written there - so several runs can share one *dirname* without colliding.  *dirname* itself is created if it does not exist.
+
+   Unless *--preserve* is specified, the generated subdirectory and its contents are removed when ``lcov`` exits.
+
+   This option can also be configured permanently using the configuration file option *lcov_tmp_dir*.
 
 FILES
 -----

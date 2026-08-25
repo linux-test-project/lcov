@@ -23,6 +23,7 @@ set +x
 source ../../common.tst
 
 rm -f test *.gcno *.gcda
+rm -rf gcovdir
 
 clean_cover
 

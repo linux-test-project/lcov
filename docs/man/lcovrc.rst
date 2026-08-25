@@ -1324,9 +1324,13 @@ Default is auto-detection.
 ``lcov_tmp_dir`` = *temp*
 --------------------------
 
-Specify the location of a directory used for temporary files.
+Specify the parent directory that temporary and intermediate data is written under.  A uniquely named subdirectory of *temp* is created for each run, so several tools or several runs can share the same *temp* without colliding.  *temp* is created if it does not exist.
 
-Default is '/tmp'.
+Unless \-\-preserve is specified, the generated subdirectory and its contents are removed when the tool exits.
+
+This option corresponds to the \-\-tempdir option of ``lcov``, ``geninfo``, ``genhtml`` and ``html2lcov``.
+
+Default is the platform temporary directory: $TMPDIR, $TEMP or $TMP if one of them names a writeable directory, otherwise '/tmp' on Unix or 'C:\\temp' on Windows.
 
 ``lcov_list_full_path`` = *0 | 1*
 ---------------------------------
