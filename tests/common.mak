@@ -138,6 +138,7 @@ endif
 export LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/lcov
 export GENHTML_TOOL := $(EXEC_COVER) $(BINDIR)/genhtml
 export GENINFO_TOOL := $(EXEC_COVER) $(BINDIR)/geninfo
+export GENPNG_TOOL := $(EXEC_COVER) $(BINDIR)/genpng
 export PERL2LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/perl2lcov
 export LLVM2LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/llvm2lcov
 export PY2LCOV_TOOL := $(PYCOVER) $(BINDIR)/py2lcov

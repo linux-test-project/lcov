@@ -105,6 +105,26 @@ For example:
 EOF
 }
 
+sub arrayField
+{
+    # Return the named field of a JSON object as an array ref.  Nothing
+    #   validates llvm-cov's schema, so a truncated or wrong-schema export used
+    #   to produce a raw "Can't use an undefined value as an ARRAY reference"
+    #   from the first dereference, rather than the 'format' error every other
+    #   malformed input in this suite raises.  If the user chose to ignore that
+    #   error, an empty list is the only sane thing to carry on with.
+    my ($obj, $field, $what) = @_;
+    my $val = exists($obj->{$field}) ? $obj->{$field} : undef;
+    return $val if 'ARRAY' eq ref($val);
+    my $found =
+        !defined($val) ? 'nothing' :
+        ref($val) ? ref($val) . ' reference' :
+        "'$val'";
+    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                             "expected array '$field' in $what - found $found");
+    return [];
+}
+
 sub parse
 {
     my $testname = shift;
@@ -128,9 +148,16 @@ sub parse
 
         lcovutil::info("read $jsonFile\n");
 
+        my $dataIdx = 0;
         foreach my $k (@{$json->{data}}) {
             #lcovutil::info("starting data entry..\n");
-            foreach my $f (@{$k->{files}}) {
+            my $where = "$jsonFile data[" . $dataIdx++ . ']';
+            foreach my $f (@{arrayField($k, 'files', $where)}) {
+                unless (defined($f->{filename})) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                       "no 'filename' in $where 'files' entry");
+                    next;
+                }
                 lcovutil::info('parsing ' . $f->{filename} . " ..\n");
                 my $filename =
                     ReadCurrentSource::resolve_path($f->{filename}, 1);
@@ -152,10 +179,11 @@ sub parse
                 my $lineData = $fileInfo->test($testname);
 
                 my $summary    = $f->{summary};
-                my $branches   = $f->{branches};
-                my $segments   = $f->{segments};
+                my $branches   = arrayField($f, 'branches', "$filename data");
+                my $segments   = arrayField($f, 'segments', "$filename data");
                 my $expansions = $f->{expansions};
-                my $mcdc       = $f->{mcdc_records}
+                my $mcdc;
+                $mcdc = $f->{mcdc_records}
                     if $lcovutil::mcdc_coverage && exists($f->{mcdc_records});
 
                 my $index       = 0;
@@ -239,7 +267,8 @@ sub parse
                         my ($line, $startCol, $endline,
                             $endcol, $trueCount, $falseCount,
                             $fileId, $expandedId, $kind) = @$branch;
-                        my $expr =
+                        my $expr;
+                        $expr =
                             $srcReader->getExpr($line, $startCol, $endline,
                                                 $endcol)
                             if $srcReader->notEmpty();
@@ -254,7 +283,8 @@ sub parse
                             unless 'ARRAY' eq ref($cov);
 
                         # read the source line and extract the expression...
-                        my $expr =
+                        my $expr;
+                        $expr =
                             $srcReader->getExpr($line, $startCol, $endLine,
                                                 $endCol)
                             if ($srcReader->notEmpty());
@@ -278,7 +308,8 @@ sub parse
                         my $groupSize = scalar(@$cov);
                         my $idx       = 0;
                         foreach my $c (@$cov) {
-                            my $branchExpr = $brExprs[$idx]->[2]
+                            my $branchExpr;
+                            $branchExpr = $brExprs[$idx]->[2]
                                 if $groupSize == scalar(@brExprs);
                             my $fullExpr =
                                 defined($branchExpr) &&
@@ -296,9 +327,20 @@ sub parse
                 lcovutil::info(2, "finished parsing $filename\n");
             }
 
-            foreach my $f (@{$k->{functions}}) {
-                my $name      = $f->{name};
-                my $filenames = $f->{filenames};    # array
+            foreach my $f (@{arrayField($k, 'functions', $where)}) {
+                my $name = $f->{name};
+                unless (defined($name)) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                       "no 'name' in $where 'functions' entry");
+                    next;
+                }
+                my $filenames =
+                    arrayField($f, 'filenames', "$where function '$name'");
+                unless (@$filenames) {
+                    lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                              "empty 'filenames' in $where");
+                    next;
+                }
                 my $filename =
                     ReadCurrentSource::resolve_path($filenames->[0], 1);
                 next if (TraceFile::skipCurrentFile($filename));
@@ -306,13 +348,19 @@ sub parse
                     unless $top->file_exists($filename);
                 $srcReader->open($filename);
 
-                my $info     = $top->data($filename);
-                my $count    = $f->{count};
-                my $regions  = $f->{regions};    # startline/col, endline/col/
-                my $branches = $f->{branches};
+                my $info  = $top->data($filename);
+                my $count = $f->{count};
+                # startline/col, endline/col, count, fileId, expandedFileId, kind
+                my $regions =
+                    arrayField($f, 'regions', "$where function '$name'");
+                my $branches =
+                    arrayField($f, 'branches', "$where function '$name'");
+                # there is nowhere to place the function
+                next unless @$regions;
                 # The version "3.0.1" adds fileId to mcdc.
                 # This allows using MC/DC branches from expansions for placing MC/DC entries defined in expansions to expansions call sites.
-                my $mcdc = $f->{mcdc_records}
+                my $mcdc;
+                $mcdc = $f->{mcdc_records}
                     if ($lcovutil::mcdc_coverage &&
                         $json_version >= version->parse("3.0.1") &&
                         exists($f->{mcdc_records}));
@@ -320,15 +368,34 @@ sub parse
                 my $functionMap = $info->testfnc($testname);
                 # use branch data to derive MC/DC expression - so need
                 # it, even if user didn't ask
-                my $branchData = $info->testbr($testname)
+                my $branchData;
+                $branchData = $info->testbr($testname)
                     if $lcovutil::br_coverage || $mcdc;
-                my $mcdcData = $info->testcase_mcdc($testname)
+                my $mcdcData;
+                $mcdcData = $info->testcase_mcdc($testname)
                     if ($json_version >= version->parse("3.0.1") &&
                         $lcovutil::mcdc_coverage);
-                my $startLine = $regions->[0]->[0];  # startline of first region
-                my $endline   = $regions->[0]->[2];  # endline of last region
+                # The function's extent:  start line of its first region, end
+                #   line of its last.  This handles the case of a function which llvm
+                #   reports as more than one region.
+                # Only regions in the function's own file count:  an expansion
+                #   region ('fileId' non-zero) carries line numbers in whatever
+                #   header the macro came from.
+                my ($startLine, $endline);
+                foreach my $r (@$regions) {
+                    next if $r->[5];
+                    $startLine = $r->[0]
+                        if !defined($startLine) || $r->[0] < $startLine;
+                    $endline = $r->[2]
+                        if !defined($endline) || $r->[2] > $endline;
+                }
+                # no region in this file at all - fall back to the first region,
+                #   which is what this always used to use
+                $startLine = $regions->[0]->[0] unless defined($startLine);
+                $endline   = $regions->[0]->[2] unless defined($endline);
                 if ($lcovutil::func_coverage) {
-                    my $func =
+                    my $func;
+                    $func =
                         $functionMap->define_function($name, $startLine,
                                                       $endline)
                         unless defined($functionMap->findName($name));
@@ -423,18 +490,14 @@ sub parse
                             }
                             $expr = "($expr) == "
                                 if defined($expr);
-                            $branchBlock->appendElement(BranchElement->new(
-                                            $branchExprIndex++,
-                                            $trueCount,
-                                            !defined($expr) ? $branchExprIndex :
-                                                $expr . 'True'
-                            ));
-                            $branchBlock->appendElement(BranchElement->new(
-                                            $branchExprIndex++,
-                                            $falseCount,
-                                            !defined($expr) ? $branchExprIndex :
-                                                $expr . 'False'
-                            ));
+                            my $id   = $branchExprIndex++;
+                            my $tExp = defined($expr) ? $expr . 'True' : $id;
+                            $branchBlock->appendElement(
+                                    BranchElement->new($id, $trueCount, $tExp));
+                            $id = $branchExprIndex++;
+                            my $fExp = defined($expr) ? $expr . 'False' : $id;
+                            $branchBlock->appendElement(
+                                   BranchElement->new($id, $falseCount, $fExp));
                         }
                     }
                     if ($lcovutil::br_coverage) {
@@ -499,7 +562,8 @@ sub parse
                         my $groupSize = scalar(@$cov);
                         my $idx       = 0;
                         foreach my $c (@$cov) {
-                            my $brExpr = $brExprs[$idx]->[2]
+                            my $brExpr;
+                            $brExpr = $brExprs[$idx]->[2]
                                 if ($fileId == $expandedId &&
                                     $idx < scalar(@brExprs));
                             my $fullExpr = defined($brExpr) &&
@@ -534,7 +598,10 @@ sub parse
 
         foreach my $d (@work) {
             my ($sum, $pertest) = @$d;
-            $sum->union($pertest->value($testname));
+            # a file need not have data of every enabled type - e.g. no MC/DC
+            #   expression anywhere in it - and 'value' then has nothing to give
+            my $data = $pertest->value($testname);
+            $sum->union($data) if defined($data);
         }
     }
     return $top;

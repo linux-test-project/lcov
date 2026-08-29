@@ -71,7 +71,7 @@ usage: $exe
        [--re regexp]*
        [--separator separator_char]
 
-Regexps are applied in order of specificication.
+Regexps are applied in order of specification.
 EOF
 
         exit($help && 0 == scalar(@_) ? 0 : 1) if $standalone;
@@ -93,7 +93,11 @@ EOF
 
     # verify that the patterns are valid...
     lcovutil::verify_regexp_patterns($script, \@patterns);
-    # pre-compile the regexps (to the extent that we can)
+    # pre-compile the regexps (to the extent that we can):  each substitution
+    #   becomes a closure.  Splitting the pattern and interpolating the pieces
+    #   into 's/$re/$replacement/g' would insert the replacement text
+    #   literally - so '${1}' and friends would not work - which is why
+    #   'lcovutil::subst_file_name' uses a string eval as well
     my @munged;
     foreach my $p (@patterns) {
         my $sep = substr($p, 1, 1);
@@ -103,7 +107,13 @@ EOF
                     $#s == 3 &&
                     $s[3] eq 'g');
 
-        push(@munged, [qr/$s[1]/, $s[2], $p, 0]);
+        # '@_' aliases its caller's argument, so the substitution edits the
+        #   string we are passed
+        my $code = eval("sub { \$_[0] =~ $p; }");
+        die("invalid 'simplify' regexp '$p': $@")
+            unless $code;
+
+        push(@munged, [$code, $p, 0]);
     }
 
     return bless \@munged, $class;
@@ -115,7 +125,7 @@ sub simplify
 
     foreach my $p (@$self) {
         my $orig = $name;
-        eval { $name =~ s/$p->[0]/$p->[1]/g; };
+        eval { $p->[0]->($name); };
         # $@ should never match:  we already checked pattern validity during
         #   initialization - above.  Still: belt and braces.
         die("invalid 'simplify' regexp '$p->[-2]': $@")

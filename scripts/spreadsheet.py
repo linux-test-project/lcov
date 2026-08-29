@@ -1310,7 +1310,8 @@ class GenerateSpreadsheet(object):
                 #       filter their own piece, so there is nothing left for the
                 #       parent to divide into segments.
                 #   Both record the same keys under the same top-level numeric
-                #   job ids, and both key their peak memory memory{aggregate_N},
+                #   job ids, and both key their peak memory under
+                #   memory{aggregate_N},
                 #   so one table describes either;  only its name and where the
                 #   job count comes from differ.
                 #   Memory is absent from an older profile, or on a platform
@@ -1787,7 +1788,7 @@ class GenerateSpreadsheet(object):
                 # child: time from start to end of child process
                 # annotate: annotate callback time (if called)
                 # load:  load source file (if no annotation)
-                # synth:  generate file content (no annotation and no no file found)
+                # synth:  generate file content (no annotation and no file found)
                 # categorize: compute owner/date bins, differential categories
                 # process:  time to generate data and write HTML for file
                 # synth:  generate file content (no file found)

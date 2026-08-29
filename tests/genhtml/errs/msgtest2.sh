@@ -136,7 +136,7 @@ for i in `find mycache -type f` ; do
     echo $i
     echo xyz > $i
 done
-# have to ignore version mismatch becaure p4annotate also computes version
+# have to ignore version mismatch because p4annotate also computes version
 echo genhtml $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --ignore version $IGNORE_ANNOTATE
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o cacheFail --select-script ./select.sh --annotate $ANNOTATE_SCRIPT,--cache,mycache --baseline-file initial.info --title 'selectExample' --header-title 'this is the header' --date-bins 1,5,22 --baseline-date "$NOW" --prefix x --no-prefix --ignore version $IGNORE_ANNOTATE 2>&1 | tee cacheFail.log
 cacheFail_status=${PIPESTATUS[0]}
@@ -188,7 +188,7 @@ touch diff.txt
 echo genhtml $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info 2>&1 | tee empty_diff.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
-    echo "ERROR: genhtml did not fail empty diff eheck"
+    echo "ERROR: genhtml did not fail empty diff check"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi

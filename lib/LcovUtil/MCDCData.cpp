@@ -137,7 +137,7 @@ LCOV_INLINE int MCDC_Expression::merge_sense(int sense, const MCDC_Expression& o
     int64_t cnt = other.count_[s];
     if (cnt == 0 && !other_excluded)
         return 0;
-    return set(s, count_[s] + cnt, new_excluded);
+    return set(s, lcov::add_sat(count_[s], cnt), new_excluded);
 }
 
 // ---- differential coverage support ------------------------------------------

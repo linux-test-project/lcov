@@ -9,7 +9,8 @@ include ../common.mak
 TESTS := \
   simple errs insensitive synthesize \
   relative lambda exception filter function \
-  full.sh zero.sh demangle.sh counts
+  full.sh zero.sh demangle.sh counts xplatform criteria \
+  scriptargs shellquote selectscript diffread lcovrc htmlgen
 
 DISABLED := part1.sh part2.sh target.sh
 

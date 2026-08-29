@@ -485,7 +485,7 @@ fi
 if [ "${VER[0]}" -lt 9 ] ; then
     # explicitly remove the '..static_initialization_and_destruction...'
     #   function which appears with old compilers -
-    # otherwise, the "function coveage enabled but no corresponding..."
+    # otherwise, the "function coverage enabled but no corresponding..."
     #   fails because that function appears in the data
     IGNORE_STATIC="--erase-function .*static.*"
 fi
@@ -605,7 +605,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
     fi
 fi
 
-grep "error in 'find" err.log
+grep "error in \"find" err.log
 if [ 0 != $? ] ; then
     echo "expected error not found"
     if [ $KEEP_GOING == 0 ] ; then
@@ -620,7 +620,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep "error in 'find" warn.log
+grep "error in \"find" warn.log
 if [ 0 != $? ] ; then
     echo "expected warning not found"
     if [ $KEEP_GOING == 0 ] ; then

@@ -128,10 +128,14 @@ sub extract_version
     -d $dir or die("no such directory '$dir'");
 
     my $version;
-    if (0 == system("git -C '$dir' rev-parse --show-toplevel >$null 2>&1")) {
+    # every name handed to the shell is quoted, and '--' keeps a file name
+    #   which looks like an option from being read as one
+    my $gitDir     = 'git -C ' . annotateutil::shell_quote($dir);
+    my $quotedFile = annotateutil::shell_quote($file);
+    if (0 == system("$gitDir rev-parse --show-toplevel >$null 2>&1")) {
         # in a git repo - use full SHA.
         my $log =
-            qx(git -C \Q$dir\E log --no-abbrev --oneline -1 \Q$file\E 2>$null);
+            qx($gitDir log --no-abbrev --oneline -1 -- $quotedFile 2>$null);
         if (0 == $? &&
             $log =~ /^(\S+) /) {
             $version = $1;
@@ -161,7 +165,7 @@ sub extract_version
                 $version = "SHA $version";
             }
             if ($self->[CHECK_LOCAL_CHANGE]) {
-                my $diff = `cd $dir ; git diff $file 2>$null`;
+                my $diff = qx($gitDir diff -- $quotedFile 2>$null);
                 if ('' ne $diff) {
                     $version .= ' edited ' . get_modify_time($pathname);
                     $version .= ' md5:' . compute_md5($pathname)

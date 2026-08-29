@@ -16,6 +16,11 @@
 #   P4U_PRINT      - path to file with "p4 print -q" output
 #   P4U_OPENED     - path to file with "p4 opened" output
 #   P4U_FSTAT_EXIT - exit code for "p4 fstat" (default 1)
+#   P4U_FSTAT_OUT  - path to file with "p4 fstat" output.  Printed only if
+#                    fstat was passed exactly one argument.
+#   P4U_DEPOT      - depot path "p4 where" maps the sandbox to (default: the
+#                    sandbox path itself, i.e. no rewriting)
+#   P4U_ARGLOG     - if set, every fake-p4 call appends "<subcmd> <args>" to it
 #
 # Tests:
 #   1.  --help exits 1 and prints usage
@@ -33,13 +38,18 @@
 #  13.  Exclude wins over include when both match same file
 #  14.  Comma-separated --exclude filters multiple patterns
 #  15.  Comma-separated --include limits to multiple patterns
-#  16.  -b accepted without error (parsed but not forwarded to p4 diff)
+#  16.  -b is forwarded to "p4 diff" as "-dub" (and "-du" without it)
 #  17.  curr_changelist="sandbox": p4 opened overlays curr file list
 #  18.  Binary type file skipped (not text/symlink)
 #  19.  Base file with "delete" action, not in curr: skipped silently
 #  20.  Duplicate depot path in p4 files output: warning, second ignored
 #  21.  Timestamp on "---" line stripped before path extraction
 #  22.  File in diff but excluded: skip=1, no --- / +++ / hunk output
+#  23.  A depot path containing regexp metacharacters is mapped to the sandbox
+#  24.  A '%' in a pathname survives the report unchanged
+#  25.  A label (not a number) as base/current changelist appears in "index"
+#  26.  A failing "p4 diff" is reported as such, and names that command
+#  27.  A sandbox directory whose name contains a space
 
 set +x
 
@@ -83,11 +93,15 @@ cat > "$MOCKDIR/p4" << 'FAKEP4'
 #!/usr/bin/env bash
 # Fake p4 for p4udiff testing.
 SUBCMD="$1"; shift
+if [ -n "${P4U_ARGLOG:-}" ] ; then
+    echo "$SUBCMD $*" >> "$P4U_ARGLOG"
+fi
 case "$SUBCMD" in
     where)
         # Return depot/workspace/sandbox triple with /... suffix so the script
-        # strips them and gets: depot_path=$P4U_TOPDIR sandbox_path=$P4U_TOPDIR
-        echo "${P4U_TOPDIR}/... /workspace/test ${P4U_TOPDIR}/..."
+        # strips them and gets: depot_path=$P4U_DEPOT sandbox_path=$P4U_TOPDIR.
+        # The depot path defaults to the sandbox path - i.e. no rewriting.
+        echo "${P4U_DEPOT:-$P4U_TOPDIR}/... /workspace/test ${P4U_TOPDIR}/..."
         ;;
     files)
         # $1 is the path arg (e.g. /tmp/dir/...@100 or /tmp/dir/...)
@@ -100,6 +114,10 @@ case "$SUBCMD" in
         fi
         ;;
     fstat)
+        # only answer if the pathname arrived as a single argument
+        if [ $# -eq 1 ] && [ -n "${P4U_FSTAT_OUT:-}" ] ; then
+            cat "${P4U_FSTAT_OUT}"
+        fi
         exit "${P4U_FSTAT_EXIT:-1}"
         ;;
     opened)
@@ -660,7 +678,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 16: -b accepted without error (parsed but not forwarded to p4 diff)
+# Test 16: -b is forwarded to "p4 diff"
+#   '-b' means 'ignore whitespace changes', which only p4 can do:  the flag was
+#   parsed and then never used, so the option did nothing at all.
 # ---------------------------------------------------------------------------
 FB16=$(mk_tmpfile << EOF
 $TOPDIR/foo.c#1 - edit change 100 (text)
@@ -683,15 +703,25 @@ export P4U_FILES_CURR="$FC16"
 export P4U_DIFF="$FD16"
 unset P4U_PRINT P4U_OPENED
 
+export P4U_ARGLOG=$(mktemp)
 run_p4udiff -b "$TOPDIR" 100 200
-rm -f "$FB16" "$FC16" "$FD16"
+DIFFARGS_B=$(grep '^diff ' "$P4U_ARGLOG")
+: > "$P4U_ARGLOG"
+run_p4udiff "$TOPDIR" 100 200
+DIFFARGS=$(grep '^diff ' "$P4U_ARGLOG")
+rm -f "$FB16" "$FC16" "$FD16" "$P4U_ARGLOG"
+unset P4U_ARGLOG
 
 if [ $RC -ne 0 ] ; then
     fail "Test 16 -b: expected exit 0, got $RC; output: $OUTPUT"
 elif ! echo "$OUTPUT" | grep -qF -- "--- $TOPDIR/foo.c" ; then
     fail "Test 16 -b: expected diff output; got: $OUTPUT"
+elif [ "$DIFFARGS_B" != "diff -dub $TOPDIR/...@100 $TOPDIR/...@200" ] ; then
+    fail "Test 16 -b: '-b' not forwarded to p4 diff: '$DIFFARGS_B'"
+elif [ "$DIFFARGS" != "diff -du $TOPDIR/...@100 $TOPDIR/...@200" ] ; then
+    fail "Test 16 -b: unexpected default p4 diff arguments: '$DIFFARGS'"
 else
-    pass "Test 16: -b flag accepted without error"
+    pass "Test 16: -b is forwarded to 'p4 diff' as '-dub'"
 fi
 
 # ---------------------------------------------------------------------------
@@ -935,6 +965,205 @@ elif ! echo "$OUTPUT" | grep -q 'foo.c' ; then
     fail "Test 22 delete-then-edit: expected foo.c in output (delete+curr-edit); output: $OUTPUT"
 else
     pass "Test 22: base-delete + curr-edit: file not skipped, appears in diff output"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 23: a depot path which contains regexp metacharacters
+#   The depot->sandbox rewrite is a pathname substitution, so the depot path
+#   has to be matched literally:  unescaped, the '+' in '//depot/a+b' asks for
+#   a repeated 'a', which matches nothing - and every reported pathname stayed
+#   in depot syntax, naming a file which is nowhere on disk.
+# ---------------------------------------------------------------------------
+export P4U_DEPOT='//depot/a+b'
+FB23=$(mk_tmpfile << EOF
+//depot/a+b/foo.c#1 - edit change 100 (text)
+EOF
+)
+FC23=$(mk_tmpfile << EOF
+//depot/a+b/foo.c#1 - edit change 200 (text)
+EOF
+)
+FD23=$(mktemp)      # empty:  foo.c is at the same rev, so it is 'unchanged'
+
+export P4U_FILES_BASE="$FB23"
+export P4U_FILES_CURR="$FC23"
+export P4U_DIFF="$FD23"
+unset P4U_PRINT P4U_OPENED
+
+run_p4udiff "$TOPDIR" 100 200
+rm -f "$FB23" "$FC23" "$FD23"
+unset P4U_DEPOT
+
+if [ $RC -ne 0 ] ; then
+    fail "Test 23 depot-metachar: expected exit 0, got $RC; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -qF "=== $TOPDIR/foo.c" ; then
+    fail "Test 23 depot-metachar: depot path not mapped to the sandbox; got:
+$OUTPUT"
+else
+    pass "Test 23: a depot path containing '+' is mapped to the sandbox path"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 24: a '%' in a pathname
+#   The pathnames used to be interpolated into the 'printf' format string, so a
+#   '%' in one of them was read as a conversion specifier:  '%d' consumed the
+#   argument meant for a later field, and the name printed was not the name of
+#   the file.
+# ---------------------------------------------------------------------------
+FB24=$(mk_tmpfile << EOF
+$TOPDIR/od%dd.c#7 - edit change 100 (text)
+EOF
+)
+FC24=$(mk_tmpfile << EOF
+$TOPDIR/od%dd.c#7 - edit change 200 (text)
+EOF
+)
+FD24=$(mktemp)      # empty:  unchanged, so the '===' entry is what is checked
+
+export P4U_FILES_BASE="$FB24"
+export P4U_FILES_CURR="$FC24"
+export P4U_DIFF="$FD24"
+unset P4U_PRINT P4U_OPENED
+
+run_p4udiff "$TOPDIR" 100 200
+rm -f "$FB24" "$FC24" "$FD24"
+
+if [ $RC -ne 0 ] ; then
+    fail "Test 24 percent-in-name: expected exit 0, got $RC; output: $OUTPUT"
+elif ! echo "$OUTPUT" |
+    grep -qF "p4 diff $TOPDIR/od%dd.c#7 $TOPDIR/od%dd.c" ; then
+    fail "Test 24 percent-in-name: pathname mangled by printf; got:
+$OUTPUT"
+elif ! echo "$OUTPUT" | grep -qF "=== $TOPDIR/od%dd.c" ; then
+    fail "Test 24 percent-in-name: unexpected '===' entry; got:
+$OUTPUT"
+else
+    pass "Test 24: a '%' in a pathname survives the report unchanged"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 25: a label as the changelist argument
+#   Both changelist arguments are documented to accept a label, and 'index'
+#   printed them with '%d' - which is 0 for anything not starting with a digit.
+#   A file only in the baseline (deleted) and one only in the current list
+#   (added) between them print both 'index' lines.
+# ---------------------------------------------------------------------------
+FB25=$(mk_tmpfile << EOF
+$TOPDIR/gone.c#3 - edit change 100 (text)
+EOF
+)
+FC25=$(mk_tmpfile << EOF
+$TOPDIR/fresh.c#1 - add change 200 (text)
+EOF
+)
+FD25=$(mktemp)
+FP25=$(mk_tmpfile << EOF
+content line
+EOF
+)
+
+export P4U_FILES_BASE="$FB25"
+export P4U_FILES_CURR="$FC25"
+export P4U_DIFF="$FD25"
+export P4U_PRINT="$FP25"
+export P4U_BASE_CL=baseLabel
+export P4U_CURR_CL=currLabel
+unset P4U_OPENED
+
+run_p4udiff "$TOPDIR" baseLabel currLabel
+rm -f "$FB25" "$FC25" "$FD25" "$FP25"
+export P4U_BASE_CL=100
+export P4U_CURR_CL=200
+
+if [ $RC -ne 0 ] ; then
+    fail "Test 25 label-changelist: expected exit 0, got $RC; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -qF 'index baseLabel..0' ; then
+    fail "Test 25 label-changelist: expected 'index baseLabel..0'; got:
+$OUTPUT"
+elif ! echo "$OUTPUT" | grep -qF 'index 0..currLabel' ; then
+    fail "Test 25 label-changelist: expected 'index 0..currLabel'; got:
+$OUTPUT"
+else
+    pass "Test 25: a label changelist is reported in the 'index' lines"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 26: "p4 diff" exits non-zero
+#   'close' on a pipe is false both for an I/O error and for a child which
+#   exited non-zero, and '$!' describes only the first:  the message used to be
+#   whatever errno was left over, attributed to 'p4 files (current)' - a
+#   command which had run, and succeeded, some time earlier.
+# ---------------------------------------------------------------------------
+FB26=$(mk_tmpfile << EOF
+$TOPDIR/foo.c#1 - edit change 100 (text)
+EOF
+)
+FC26=$(mk_tmpfile << EOF
+$TOPDIR/foo.c#2 - edit change 200 (text)
+EOF
+)
+FD26=$(mktemp)
+
+export P4U_FILES_BASE="$FB26"
+export P4U_FILES_CURR="$FC26"
+export P4U_DIFF="$FD26"
+export P4U_DIFF_EXIT=3
+unset P4U_PRINT P4U_OPENED
+
+run_p4udiff "$TOPDIR" 100 200
+rm -f "$FB26" "$FC26" "$FD26"
+unset P4U_DIFF_EXIT
+
+if [ $RC -eq 0 ] ; then
+    fail "Test 26 diff-fails: expected non-zero exit; output: $OUTPUT"
+elif ! echo "$OUTPUT" |
+    grep -q "'p4 diff -du .*' pipe exited with error 3" ; then
+    fail "Test 26 diff-fails: expected the p4 diff exit status; got:
+$OUTPUT"
+else
+    pass "Test 26: a failing 'p4 diff' is reported with its exit status"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 27: a sandbox directory whose name contains a space
+#   A name which is not on disk is asked about with 'p4 fstat', and only a name
+#   p4 cannot describe as a file gets the '/...' directory recursion appended.
+#   That used to go through a shell (and through 'grep'), so a pathname with a
+#   space in it reached p4 as two arguments and was always taken for a
+#   directory.  The fake p4 answers only a single-argument fstat.
+# ---------------------------------------------------------------------------
+SPACEDIR="$TOPDIR/has space"        # deliberately not created
+FS27=$(mk_tmpfile << EOF
+... depotFile //depot/has space
+EOF
+)
+FB27=$(mktemp)
+FC27=$(mktemp)
+FD27=$(mktemp)
+
+export P4U_FSTAT_OUT="$FS27"
+export P4U_FSTAT_EXIT=0
+export P4U_FILES_BASE="$FB27"
+export P4U_FILES_CURR="$FC27"
+export P4U_DIFF="$FD27"
+export P4U_ARGLOG=$(mktemp)
+unset P4U_PRINT P4U_OPENED
+
+run_p4udiff "$SPACEDIR" 100 200
+FSTATARGS=$(grep '^fstat ' "$P4U_ARGLOG")
+WHEREARGS=$(grep '^where ' "$P4U_ARGLOG")
+rm -f "$FS27" "$FB27" "$FC27" "$FD27" "$P4U_ARGLOG"
+unset P4U_FSTAT_OUT P4U_ARGLOG
+export P4U_FSTAT_EXIT=1
+
+if [ $RC -ne 0 ] ; then
+    fail "Test 27 space-in-dir: expected exit 0, got $RC; output: $OUTPUT"
+elif [ "$FSTATARGS" != "fstat $SPACEDIR" ] ; then
+    fail "Test 27 space-in-dir: pathname split by the shell: '$FSTATARGS'"
+elif [ "$WHEREARGS" != "where $SPACEDIR" ] ; then
+    fail "Test 27 space-in-dir: expected no '/...' recursion: '$WHEREARGS'"
+else
+    pass "Test 27: a sandbox pathname containing a space is passed intact"
 fi
 
 # ===========================================================================

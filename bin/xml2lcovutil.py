@@ -147,8 +147,12 @@ This is a problem in at least 2 ways:
         source_paths = []
 
         try:
-            if(root[0].tag == 'sources'):
-                for source in root[0]:
+            # find the elements by name rather than by position:  the schema does
+            #  not fix their order, and indexing position 0 reported a report
+            #  whose elements are in the other order as having no 'sources' at all
+            sources = root.find('sources')
+            if sources is not None:
+                for source in sources:
                     # keep track of number of times we use each source_path to find
                     #  some file.  Unused source paths are likely a problem.
                     if self._args.verbose:
@@ -160,22 +164,28 @@ This is a problem in at least 2 ways:
                         continue
                     source_paths.append([source.text, 0])
             else:
+                # a missing source path list leaves the search path empty -
+                #  which is the same as a report whose only entries are the
+                #  empty ones skipped above, and every filename in the data
+                #  is still usable as is.
                 print("Error: parse xml fail: no 'sources' in %s" %(xml_file))
-                sys.exit(1)
-            if len(root) < 2 or root[1].tag != 'packages':
+                if not self._args.keepGoing:
+                    sys.exit(1)
+            packages = root.find('packages')
+            if packages is None:
                 print("Error: parse xml fail: no 'packages' in %s" %(xml_file))
                 if not self._args.keepGoing:
                     sys.exit(1)
                 return
             if self._args.verbose:
-                print("packages: " + str(root[1].attrib))
+                print("packages: " + str(packages.attrib))
         except Exception as err:
             print("Error: parse xml fail in %s: %s" % (xml_file, str(err)))
             if not self._args.keepGoing:
                 sys.exit(1)
             return
 
-        for package in root[1]:
+        for package in packages:
             # name="." means current directory
             # name=".folder1.folder2" means external module or directory
             # name="abc" means internal module or directory
@@ -226,6 +236,18 @@ This is a problem in at least 2 ways:
                 print("Warning: XML file '%s': source_path '%s' is unused" %(xml_file, s[0]))
 
 
+    def _formatError(self, filename, message):
+        # report a malformed input.
+        # All the messages are about the input XML - not about implementation
+        #  invariants.  the format is Cobertura - Coverage.py is just one of
+        #  the tools which write it, and a different tool might report
+        #  diffeerently.
+        # An AssertionError doesn't name an input file, element, or line -
+        #  so can't be waived via --keep-going.
+        print("Error: \"%s\": %s" % (filename, message))
+        if not self._args.keepGoing:
+            sys.exit(1)
+
     def process_file(self, fileNode, filename):
 
         sourceCode = None
@@ -235,7 +257,7 @@ This is a problem in at least 2 ways:
                 with open(filename, 'r') as f:
                     sourceCode = f.read().split('\n')
             except (IOError, OSError) as e:
-                feature = ' compute line checksum' if self._args.checksum else ''
+                feature = 'compute line checksum' if self._args.checksum else ''
                 if self._isPython and self._args.deriveFunctions:
                    if feature != '':
                       feature += ' or'
@@ -246,13 +268,18 @@ This is a problem in at least 2 ways:
                     sys.exit(1)
 
         def count(indent):
+            # the column the first non-whitespace character.
+            # A tab advances to the next tab stop - it does not add a whole tab
+            #  width wherever it happens to be, which measured a line indented
+            #  'space tab' as wider than one indented 'tab', and made the deeper
+            #  of two equally indented lines the parent of the other
             count = 0
             for c in indent:
-                if c == ' ':
-                    count += 1
+                if c == '\t':
+                    count += self._args.tabWidth - (count % self._args.tabWidth)
                 else:
-                    assert(c == '\t') # shouldn't be anything but space or tab
-                    count += self._args.tabWidth
+                    # a space, or one of the rarer characters '\s' also matches
+                    count += 1
             return count
 
         def buildFunction(functions, objStack, currentObj, lastLine):
@@ -273,12 +300,26 @@ This is a problem in at least 2 ways:
                                       'hit'   : hit})
 
         # just collect the function/class name - ignore the params
-        parseLine = re.compile(r'(\s*)((def|class)\s*([^\( \t]+))?')
-        #parseLine = re.compile(r'(\s*)((def|class)\s*([^:]+)(:|$))?')
+        parseLine = re.compile(r'(\s*)((def|class)\s+([^\(: \t]+))?')
 
         # no information about actual branch expressions/branch
         #  coverage - only the percentage and number hit/not hit
         parseCondition = re.compile(r'\d+\% \((\d+)/(\d+)\)')
+
+        def branchCounts(attrib, where):
+            # (taken, total) out of the 'condition-coverage' attribute of a
+            #   '<line branch="true">' element, or None if it cannot be read
+            if 'condition-coverage' not in attrib:
+                self._formatError(filename,
+                                  "%s: branch has no 'condition-coverage' attribute" %(where))
+                return None
+            m = parseCondition.search(attrib['condition-coverage'])
+            if not m:
+                self._formatError(filename,
+                                  "%s: unable to parse condition-coverage '%s'" %(
+                                      where, attrib['condition-coverage']))
+                return None
+            return (int(m.group(1)), int(m.group(2)))
 
         functions = [] # list of [functionName startLine endLine hitcount]
         for node in fileNode:
@@ -290,33 +331,42 @@ This is a problem in at least 2 ways:
 
                     # does this method contain any lines?
                     for lines in method:
-                        assert(lines.tag == 'lines')
+                        if lines.tag != 'lines':
+                            self._formatError(filename,
+                                              "method '%s': expected a 'lines' element, found '%s'" %(
+                                                  func, lines.tag))
+                            continue
                         first = None
                         last = None
                         hit = 0
-                        if lines.tag == 'lines':
-                            # might want to hang onto the method lines - and
-                            #   check that the 'lines' tag we find in the parent
-                            #   node contains all of the method lines we found
-                            functionLines = {}
-                            branches = {}
-                            for l in lines:
-                                lineNum = int(l.attrib['number'])
-                                lineHit = int(l.attrib['hits'])
-                                functionLines[lineNum] = lineHit
-                                if first == None:
-                                    first = lineNum
-                                    last = lineNum
-                                    hit = lineHit
-                                else:
-                                    assert(lineNum > last)
-                                    last = lineNum;
-                                if 'branch' in l.attrib and 'true' == l.attrib['branch']:
-                                    assert('condition-coverage' in l.attrib)
-                                    m = parseCondition.search(l.attrib['condition-coverage'])
-                                    assert(m)
+                        # might want to hang onto the method lines - and
+                        #   check that the 'lines' tag we find in the parent
+                        #   node contains all of the method lines we found
+                        functionLines = {}
+                        branches = {}
+                        for l in lines:
+                            lineNum = int(l.attrib['number'])
+                            lineHit = int(l.attrib['hits'])
+                            functionLines[lineNum] = lineHit
+                            if first == None:
+                                first = lineNum
+                                last = lineNum
+                                hit = lineHit
+                            elif lineNum > last:
+                                last = lineNum
+                            else:
+                                # the elements are expected in increasing line
+                                #  order:  keep the larger number, so that the
+                                #  function's end line is still its last line
+                                self._formatError(filename,
+                                                  "method '%s': line %d is not after line %d" %(
+                                                      func, lineNum, last))
+                            if 'branch' in l.attrib and 'true' == l.attrib['branch']:
+                                counts = branchCounts(l.attrib,
+                                                      "method '%s' line %d" %(func, lineNum))
+                                if counts != None:
                                     # [taken total]
-                                    branches[lineNum] = [m.group(1), m.group(2)]
+                                    branches[lineNum] = [counts[0], counts[1]]
 
                         if first != None:
                             functions.append({'name'  : func,
@@ -430,11 +480,10 @@ This is a problem in at least 2 ways:
                 if "branch" in line.attrib and line.attrib["branch"] == 'true':
                     # attrib is always true from xmlreport.py - but may not
                     #   be true cobertura report
-                    assert('condition-coverage' in line.attrib)
-                    m = parseCondition.search(line.attrib['condition-coverage'])
-                    assert(m)
-                    taken = int(m.group(1))
-                    total = int(m.group(2))
+                    counts = branchCounts(line.attrib, "line %d" %(lineNo))
+                    if counts == None:
+                        continue
+                    (taken, total) = counts
                     # no information of which clause is taken or not
                     # set taken conditions start from 0 and followed by
                     #  non-taken conditions
@@ -475,13 +524,14 @@ This is a problem in at least 2 ways:
             # print the LCOV line data.
             for lineNo in sorted(lineData.keys()):
                 checksum = ''
-                if self._args.checksum:
+                # 'sourceCode' is None if the file could not be read
+                if self._args.checksum and sourceCode != None:
                     try:
                         checksum = ',' + line_hash(sourceCode[lineNo-1])
-                    except IndexError as err:
+                    except IndexError:
                         print('"%s":%d: unable to compute checksum for missing line' % (filename, lineNo))
                         if not self._args.keepGoing:
-                            raise(err)
+                            sys.exit(1)
 
                 self._outf.write("DA:%d,%d%s\n" % (lineNo, lineData[lineNo], checksum));
 

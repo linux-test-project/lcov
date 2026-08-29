@@ -41,7 +41,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      $memoryPercentage $max_fork_fails $fork_fail_timeout
      save_profile merge_child_profile save_cmd_line record_profile_memory
 
-     @opt_rc apply_rc_params $split_char parseOptions
+     @opt_rc apply_rc_params $split_char $split_pattern parseOptions
      strip_directories
      @file_subst_patterns subst_file_name
      @comments
@@ -63,6 +63,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      $UNREACHABLE_START $UNREACHABLE_STOP $UNREACHABLE_LINE
      @exclude_file_patterns @include_file_patterns %excluded_files
      @omit_line_patterns @exclude_function_patterns $case_insensitive
+     $cross_platform_read $path_style check_path_separator
      munge_file_patterns warn_file_patterns transform_pattern
      warn_pattern_list
      parse_cov_filters summarize_cov_filters
@@ -97,7 +98,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      is_external @internal_dirs $opt_no_external @build_directory
      $default_precision check_precision
 
-     system_no_output $devnull $dirseparator
+     system_no_output $devnull $dirseparator $dirseparator_re
 
      %tlaColor %tlaTextColor use_vanilla_color %pngChar %pngMap
      %dark_palette %normal_palette parse_w3cdtf
@@ -155,14 +156,48 @@ our $default_tmp_dir = $tmp_dir;    # so 'lcov' knows whether to pass it on
 our $created_tmp_dir;               # set if we created '$tmp_dir'
 our $preserve_intermediates;        # this is useful only for debugging
 our $sort_inputs;    # sort input file lists - to reduce unpredictability
-our $devnull      = File::Spec->devnull();    # portable way to do it
+our $devnull      = File::Spec->devnull();         # portable way to do it
 our $dirseparator = ($^O =~ /Win/) ? '\\' : '/';
-our $interp       = ($^O =~ /Win/) ? $^X : undef;
+# need a regexp of the dir separator.
+# The windows separator is the regex escape character - so the pattern cannot
+# simply interpolate it: "s/^$dirseparator//" is 's/^\//' - not a legal pattern.
+#   Use '$dirseparator_re' in match expressions, substitutions and 'split' -
+#     it is also correct inside a character class.
+#   Use  '$dirseparator' itself to build a path, and on the
+#     replacement side of a substitution.
+# 'set_path_style' keeps the two in sync.
+our $dirseparator_re = quotemeta($dirseparator);
+# Whether this platform accepts the other platform's separator as well as its
+#   own.  Windows treats '/' and '\' alike;  so do Cygwin and MSYS, whose
+#   canonical separator is the POSIX one but whose path layer takes a Windows
+#   name as it stands - Perl's own 'File::Spec::Cygwin' turns every backslash
+#   into '/' in 'canonpath' and calls 'C:\dir\file.c' absolute.  There are three
+#   cases here rather than two, and this is the one which is not decided by
+#   '$dirseparator':  where this is false a backslash is an ordinary character
+#   in a file name, and a Windows name reaches nothing.
+# '$path_platform' is what to call this platform in the message which says that
+#   a foreign name was accepted.  'set_path_style' sets all four of these.
+our ($accepts_both_separators, $path_platform) =
+    ($^O =~ /Win/) ? (1, 'Windows') :
+    ($^O eq 'cygwin') ? (1, 'Cygwin') :
+    ($^O eq 'msys') ? (1, 'MSYS') :
+    (0, 'POSIX');
+our $interp = ($^O =~ /Win/) ? $^X : undef;
 
 our $debug   = 0;    # if set, emit debug messages
 our $verbose = 0;    # default level - higher to enable additional logging
 
 our $split_char = ',';    # by default: split on comma
+# The same delimiter as a pattern, for 'split'.  The two are not
+#   interchangeable:  'split_char' is documented as "the character (or
+#   regexp)", and the character a user reaches for when the list elements
+#   contain a comma - '|' above all - is a regexp metacharacter.  As a pattern
+#   '|' matches the empty string, so 'split' would return one element per
+#   character of the list.  So a single character is taken literally and
+#   anything longer is taken as a regexp;  'set_split_char' keeps this in sync
+#   with '$split_char'.
+# Use this one with 'split', and '$split_char' itself with 'join'.
+our $split_pattern = qr/,/;
 
 # share common definition for all error types.
 # Note that geninfo cannot produce some types produced by genhtml, and vice
@@ -240,6 +275,14 @@ our $stop_on_error;                # attempt to keep going
 our $treat_warning_as_error = 0;
 our $warn_once_per_file     = 1;
 our $excessive_count_threshold;    # default not set: don't check
+
+# The widest execution count we store, and thus the widest one we write to a
+# '.info' file.  Matches lcov::MAX_COUNT in lib/LcovUtil/CountArith.hpp, which
+# is the same limit the XS implementation is bounded by (a signed 64-bit
+# integer):  see normalize_count.
+# Spelled in decimal:  Perl warns 'Hexadecimal number > 0xffffffff non-portable'
+# for a hex literal wider than 32 bits
+our $MAX_COUNT = 9223372036854775807;    # 0x7fffffffffffffff
 
 our $br_coverage   = 0;    # If set, generate branch coverage statistics
 our $mcdc_coverage = 0;    # MC/DC
@@ -499,6 +542,29 @@ our $derive_function_end_line           = 1;
 our $derive_function_end_line_all_files = 0;    # by default, C only
 our $trivial_function_threshold         = 5;
 
+# Translate a source file name which uses a different platform's directory
+#   separator to format on this platform - e.g. a windows path read on a linux
+#   box or a linux path read on a windows box - so that a '.info' or udiff file
+#   captured on one can be read on the other.
+# Translation enabled by default: untranslated, the name will not match
+#   anything on this machine (whereas the translated path should).
+# Disable via '--rc cross_platform_read=0' or your lcovrc file if your
+#   project actually does contain paths which use the other platform's
+#   separator - for example, '\' (backslash) in a POSIX file name.
+#   If disabled: names are not modified and you will see a 'usage' error
+#   (which you will need to ignore) if a path contains both characters.
+# The setting has no effect on a platform such as windows, cygwin, or msys
+#   which supports both separators.  There, the names are always normalized -
+#   see 'check_path_separator'.
+our $cross_platform_read = 1;
+# Which platform's path convention this run works in:  'auto' - whatever we are
+#   running on - or 'posix', 'windows' or 'cygwin'.  Only 'auto' makes sense in
+#   production:  the separator has to be the one the file system here really
+#   uses.  The other three are how a test drives every direction of the
+#   translation above from whichever platform it happens to run on;  see
+#   'set_path_style'.
+our $path_style = 'auto';
+
 # list of regexps applied to line text - if exclude if matched
 our @omit_line_patterns;
 # HGC: does not really make sense to support command-line '--unreachable-line
@@ -620,9 +686,16 @@ our %pngMap = ('=' => ['CBC', 'LBC']
                '-' => ['GBC', 'UBC'],
                '<' => ['ECB', 'EUB'],
                '>' => ['GIC', 'UIC'],
-               '+' => ['GNC', 'UNC'],);
+               '+' => ['GNC', 'UNC'],
+               # no tag at all:  there is no baseline to compare against, so the
+               #   line is simply hit or not hit - which is what 'GNC'/'UNC' mean
+               #   in a report with no differential data (see the legacy labels in
+               #   genhtml).  A count with no tag in front of it is what a '.gcov'
+               #   file gives 'genpng' directly, and also what genhtml's
+               #   'unexpected TLA' path produces once that error is ignored
+               '' => ['GNC', 'UNC'],);
 
-our @opt_rc;        # list of command line RC overrides
+our @opt_rc;    # list of command line RC overrides
 
 our %profileData;
 our $profile;    # the 'enable' flag/name of output file
@@ -677,6 +750,24 @@ sub system_no_output($@)
         print(STDERR $stderr) unless $mode & 0x2;
     }
     return ($stdout, $stderr, $code);
+}
+
+#
+# shell_quote($string)
+#
+# Return $string wrapped so that a POSIX shell passes it through as one word,
+#   whatever it contains.  Use this on every path or user-supplied string
+#   which is interpolated into a command handed to a shell - i.e. into
+#   'system' or 'open' with one argument rather than a list.
+# Single quotes protect everything except a single quote, which has to be
+#   closed, escaped, and reopened.
+#
+sub shell_quote($)
+{
+    my $str = shift;
+    $str = '' unless defined($str);
+    $str =~ s/'/'\\''/g;
+    return "'$str'";
 }
 
 #
@@ -824,7 +915,8 @@ sub _msg_handler
 {
     my ($msg, $error) = @_;
 
-    my $details = $ENV{LCOV_SHOW_LOCATION}
+    my $details;
+    $details = $ENV{LCOV_SHOW_LOCATION}
         if exists($ENV{LCOV_SHOW_LOCATION});
 
     $msg =~ s/ at \S+ line \d+\.$//
@@ -1008,7 +1100,10 @@ sub init_parallel_params()
         0 != $lcovutil::maxMemory
     ) {
         if (!$use_MemoryProcess) {
-            lcovutil::info(
+            # apparent Devel::Cover attribution bug:  this statement is reported
+            #   uncovered despite that 'read_proc_vmsize' in the same
+            #   block is hit
+            lcovutil::info(    # LCOV_TESTED_LINE
                      "Attempting to retrieve memory size from /proc instead\n");
             # check if we can get this from /proc (i.e., are we on linux?)
             if (0 == read_proc_vmsize()) {
@@ -1182,11 +1277,15 @@ sub save_profile($@)
             $lcovutil::profileData{config}{$var} = $ENV{$var}
                 if exists($ENV{$var});
         }
-        foreach my $t ('date', 'uname -a', 'hostname') {
-            my $v = `$t`;
-            chomp($v);
-            $lcovutil::profileData{config}{(split(' ', $t))[0]} = $v;
-        }
+        # Platform-independent configuration
+        # POSIX::uname returns (sysname, nodename, release, version, machine) -
+        #   the same fields, in the same order, that 'uname -a' prints, and its
+        #   nodename is what 'hostname' says.
+        my @uname = POSIX::uname();
+        $lcovutil::profileData{config}{date} =
+            POSIX::strftime('%a %b %d %H:%M:%S %Y', localtime());
+        $lcovutil::profileData{config}{uname}    = join(' ', @uname);
+        $lcovutil::profileData{config}{hostname} = $uname[1];
         my $save = $maxParallelism;
         count_cores();
         $lcovutil::profileData{config}{cores} = $maxParallelism;
@@ -1257,11 +1356,62 @@ sub save_profile($@)
     }
 }
 
+sub set_split_char
+{
+    # turn whatever the user asked for into the pattern the 'split' calls use.
+    #   Called from 'apply_rc_params' before anything which splits a list, so
+    #   an invalid value is deferred rather than fatal (the suppression list
+    #   has not been looked at yet) and the default stays in place meanwhile
+    my $c = defined($split_char) ? $split_char : '';
+    my $err;
+    if ('' eq $c) {
+        $err = 'is empty';
+    } elsif (1 == length($c)) {
+        # the documented case:  the character itself, whether or not it happens
+        #   to mean something to the regexp engine
+        $split_pattern = qr/\Q$c\E/;
+    } else {
+        # 'local $SIG{__DIE__}':  we want the regexp compiler's complaint, not
+        #   the decorated one our own handler would put in '$@'
+        my $pat = eval { local $SIG{__DIE__}; qr/$c/ };
+        if (!defined($pat)) {
+            my $msg = $@;
+            $msg =~ s/ at \S+ line \d+\.?\s*$//;
+            $msg =~ s/\s+$//;
+            $err = "is not a valid regexp: $msg";
+        } elsif ('' =~ /$pat/) {
+            # 'split' returns one element per character of the list for such a
+            #   pattern - silently, so every list option turns into nonsense
+            $err = 'matches the empty string';
+        } else {
+            $split_pattern = $pat;
+        }
+    }
+    return unless defined($err);
+    $split_char    = ',';
+    $split_pattern = qr/,/;
+    push(@deferred_rc_errors,
+         [1, $lcovutil::ERROR_USAGE,
+          "'split_char' value '$c' $err - using the default ',' instead"
+         ]);
+}
+
 sub set_extensions
 {
     my ($type, $str) = @_;
     die("unknown language '$type'") unless exists($languageExtensions{$type});
-    $languageExtensions{$type} = join('|', split($split_char, $str));
+    # the extension list is used as a regexp alternation:  the
+    #   default RTL list is 'v|vh|sv|vhdl?' - so check that what the user gave
+    #   us can be compiled here, rather than dying inside 'is_language' at the
+    #   first file whose name we look at
+    my $alternation = join('|', split($split_pattern, $str));
+    unless (defined(eval { local $SIG{__DIE__}; qr/^\.($alternation)$/ })) {
+        my $msg = $@;
+        $msg =~ s/ at \S+ line \d+\.?\s*$//;
+        $msg =~ s/\s+$//;
+        die("invalid ${type}_file_extensions '$str': $msg\n");
+    }
+    $languageExtensions{$type} = $alternation;
 }
 
 sub do_mangle_check
@@ -1295,7 +1445,7 @@ sub configure_callback
     my $cb = shift;
     my @args =
         1 == scalar(@_) ?
-        split($lcovutil::split_char, join($lcovutil::split_char, @_)) :
+        split($lcovutil::split_pattern, join($lcovutil::split_char, @_)) :
         @_;
     my $script = $args[0];
     if ($script =~ /\.pm$/) {
@@ -1334,10 +1484,9 @@ sub configure_callback
         };
         if ($@ ||
             !defined($$cb)) {
-            lcovutil::ignorable_error(
-                             $lcovutil::ERROR_PACKAGE,
-                             "unable to create callback from module '$script'" .
-                                 (defined($@) ? ": $@" : ''));
+            my $err = $@ ? ': ' . lcovutil::unreported_error($@) : '';
+            lcovutil::ignorable_error($lcovutil::ERROR_PACKAGE,
+                         "unable to create callback from module '$script'$err");
         }
         shift(@INC);
     } else {
@@ -1493,6 +1642,8 @@ my %rc_common = (
     "case_insensitive"      => \$lcovutil::case_insensitive,
     "forget_testcase_names" => \$TraceFile::ignore_testcase_name,
     "split_char"            => \$lcovutil::split_char,
+    'cross_platform_read'   => \$lcovutil::cross_platform_read,
+    'path_style'            => \$lcovutil::path_style,
 
     'check_existence_before_callback' => \$check_file_existence_before_callback,
 
@@ -1801,6 +1952,8 @@ sub apply_rc_params($)
         _set_config(\%rcHash, $key, $value);
         $set_value = 1;
     }
+    # before the extension lists below, and before anything else splits a list
+    set_split_char();
     foreach my $d (['rtl', $rtlExtensions],
                    ['c', $cExtensions],
                    ['perl', $perlExtensions],
@@ -1902,6 +2055,10 @@ sub parseOptions
 
     # Determine which errors the user wants us to ignore
     parse_ignore_errors(@opt_ignore_errors);
+
+    # ...and which platform's paths we are working in - after the line above,
+    #   because an invalid value is an ignorable error.
+    set_path_style();
 
     # Make sure the parent directory that intermediate data goes under exists.
     #   Do this before the 'lcov --capture' early return below:  'lcov' calls
@@ -2148,13 +2305,18 @@ sub warn_file_patterns
 }
 
 #
-# subst_file_name($path)
+# subst_file_name($path[, $noCount])
 #
 # apply @file_subst_patterns to $path and return
 #
-sub subst_file_name($)
+# '$noCount' is for a caller which is asking what a name would become rather
+#   than using the answer as the name of something - see
+#   'AggregateTraces::_partition_sections'.
+#  The pattern application counts are what the 'unused pattern' report is
+#   computed from, so a speculative application should not be counted.
+sub subst_file_name($;$)
 {
-    my $name = shift;
+    my ($name, $noCount) = @_;
     foreach my $p (@file_subst_patterns) {
         my $old = $name;
         # sadly, no support for pre-compiled patterns
@@ -2164,9 +2326,326 @@ sub subst_file_name($)
         die("invalid 'subst' regexp '" . $p->[0] . "': $@")
             if ($@);
         $p->[-1] += 1
-            if $old ne $name;
+            if (!$noCount && $old ne $name);
     }
     return $name;
+}
+
+#
+# set_path_style()
+#
+# Configure which platform path convention this run uses:
+#   'auto'   : (default) the platform we are running on - which '$dirseparator'
+#              and '$accepts_both_separators' are set to.
+#   'posix'  : force the setting so we can regression test in both directions
+#              regardless of the platform the tests are actually running on
+#   'windows': same
+#   'cygwin' : same, for the third case:  the POSIX separator, with the Windows
+#              one accepted as well.  Neither of the other two reaches it -
+#              'posix' accepts only '/' and 'windows' writes '\'
+# Nothing else about the run changes when we set the style - only the names
+# we read and write - not to access the filesystem.
+
+sub set_path_style()
+{
+    # style => [separator, accepts the other separator too, name for messages]
+    my %styles = ('posix'   => ['/', 0, 'POSIX'],
+                  'windows' => ['\\', 1, 'Windows'],
+                  'cygwin'  => ['/', 1, 'Cygwin']);
+    my $style = lc($path_style);
+    return if 'auto' eq $style;
+    if (!exists($styles{$style})) {
+        my @expected = map({ "'$_'" } ('auto', sort(keys(%styles))));
+        ignorable_error($lcovutil::ERROR_USAGE,
+                        "invalid 'path_style' value '$path_style' - expected " .
+                            join(', ', @expected) . '.');
+        return;
+    }
+    ($dirseparator, $accepts_both_separators, $path_platform) =
+        @{$styles{$style}};
+    $dirseparator_re = quotemeta($dirseparator);
+}
+
+# Report error once per input file name.
+# A child which reads a chunk of an input reports for its own chunk (it has
+#   inherited an empty hash when it was forked). 'update_state' adds its
+#   message counts back into the master
+our %reported_foreign_separator;
+
+# returns the type of the pathname we are looking at
+#   - a '.info' file record is a source file name.
+#   - a diff file entry may be a source file or the git root
+sub _separator_subject($)
+{
+    my $fileTypeName = shift;
+    return defined($fileTypeName) ? "'$fileTypeName' file entry" :
+        'source file name';
+}
+
+# At most one message per input file which contains paths that got munged.
+# This isn't a problem, but does explain why the output looks different
+# than the suer might expect.
+sub _note_separator_normalized($$$$$$)
+{
+    my ($name, $tracefile, $line, $fileTypeName, $key, $why) = @_;
+    return if exists($reported_foreign_separator{"$tracefile:$key"});
+    $reported_foreign_separator{"$tracefile:$key"} = 1;
+    my $foreign = $dirseparator eq '/' ? '\\' : '/';
+    info(1,
+         "\"$tracefile\":$line: " .
+             _separator_subject($fileTypeName) .
+             " '$name' uses the " .
+             ($foreign eq '/' ? 'POSIX' : 'Windows') .
+             " directory separator '$foreign', which $why:  normalizing " .
+             "these names to '$dirseparator'.\n");
+}
+
+#
+# check_path_separator($name, $tracefile, $line[, $fileTypeName])
+#
+# '$name' is a source file name read from '$tracefile' at line '$line'.
+#   Return the path name to use for it on this platform.
+#  '$fileTypeName' is the type of '$tracefile' (undef for a '.info' file,
+#   'diff' for a udiff) and selects the message wording.
+#   The error message is different depending on the path type
+#
+# windows -> linux is not the same as linux -> windows because windows
+#   can handle either '\' or '/' as a directory separator.  A POSIX name is not
+#   an error there - it opens - so there is nothing to report;  it is normalized
+#   to '\' anyway, for the reason below.
+# On linux: '\' is an ordinary character in a posix filename, so a name which
+#   uses it names nothing which can be found here.  It is munged - which is what
+#   'cross_platform_read' asks for, and what it asks for by default - unless the
+#   user has turned that off to say that the character really is part of the
+#   name, in which case the name is left alone and reported as an error.
+# Cygwin and MSYS are the third case, and the reason the question this asks is
+#   '$accepts_both_separators' rather than 'is the separator here '\''.  They
+#   write POSIX names, so a name of ours is not munged on the way out - but they
+#   accept a Windows name on the way in, drive letter and all, so a name which
+#   uses '\' is not an error there:  the file it names opens.  Reporting one
+#   would be reporting a name which works.
+# Where both separators are accepted the name is normalized to this platform's
+#   separator no matter what 'cross_platform_read' says.  Only the filesystem
+#   takes both;  we do not.  Every path operation of ours splits on
+#   '$dirseparator_re', which is one character - and the modules we build paths
+#   with disagree with each other about the other one:  'File::Spec' on Cygwin
+#   and MSYS turns '\' into '/' in 'canonpath', and on Windows turns '/' into
+#   '\', while 'File::Basename' takes '\' for a separator only where '$^O' is
+#   one of its DOS flavours - which 'cygwin' and 'msys' are not.  A name left in
+#   the foreign spelling is therefore decomposed one way by one of them and
+#   another way by the other:  on Cygwin/MSYS the directory of a page and its
+#   file name would come from the two different splits, and on Windows a '/'
+#   name defeats the '$prefix$dirseparator' strip behind '--prefix' and
+#   '--list'.  Normalizing on the way in is what keeps the two views the same;
+#   it is lossless, since either spelling names the same file on these
+#   platforms.
+# A name which uses both separators is ambiguous.
+#   - If linux, there is no way to tell which of the separators divides
+#     directories - so error.
+#   - Where both are accepted: they are both treated as separators (no error),
+#     and normalizing gives a name which uses only this platform's.
+
+# The name 'check_path_separator' will return for '$name', with none of its
+#   messages and none of its state:  the separator normalization on its own.
+# Used by callers which need to know what a source file name will be
+#   before the reader gets to it - see 'AggregateTraces::_partition_sections' -
+sub translate_path_separator($)
+{
+    my $name    = shift;
+    my $foreign = $dirseparator eq '/' ? '\\' : '/';
+    return $name if index($name, $foreign) < 0;
+
+    my $translated = $name;
+    $translated =~ s/\Q$foreign\E/$dirseparator/g;
+    return $translated if $accepts_both_separators;
+    # a name which uses both separators is ambiguous, and is left alone
+    return $translated
+        if ($cross_platform_read && index($name, $dirseparator) < 0);
+    return $name;
+}
+
+# The name to decompose when deciding where '$name' divides into directories -
+#   which is not always the name itself.
+#
+# 'C:\proj\src\foo.c' is absolute on Windows, so the name to decompose for it
+#   here is '/C:/proj/src/foo.c' and not 'C:/proj/src/foo.c':  the latter is a
+#   relative name, which would leave the report layout at the mercy of the
+#   directory genhtml was started in.  The drive letter becomes an ordinary
+#   leading path element - it is not a volume we have.  Nothing is prepended
+#   where the platform's own path module already calls a drive-lettered name
+#   absolute, which Windows, Cygwin and MSYS all do.
+# The other direction needs no special case:  '/a/b/c' translates to '\a\b\c' -
+#   an absolute path on the current volume in Windows.
+# A name which uses both separators is ambiguous - there is no way to tell which
+#   of them divides its directories - so its separators are left alone;
+#   'check_path_separator' has already warned.
+sub native_path($)
+{
+    my $name    = shift;
+    my $foreign = $dirseparator eq '/' ? '\\' : '/';
+    $name =~ s/\Q$foreign\E/$dirseparator/g
+        if (index($name, $foreign) >= 0 && index($name, $dirseparator) < 0);
+    $name = $dirseparator . $name
+        if ($name =~ /^[A-Za-z]:$dirseparator_re/ &&
+            !File::Spec->file_name_is_absolute($name));
+    return $name;
+}
+
+sub check_path_separator($$$;$)
+{
+    my ($name, $tracefile, $line, $fileTypeName) = @_;
+    my $foreign = $dirseparator eq '/' ? '\\' : '/';
+    # Nothing to do for a name which is already in this platform's terms.  A
+    #   Windows name whose drive letter is followed by '/' - 'C:/proj/foo.c' -
+    #   is one of those:  that is what the translation below produces, so a file
+    #   we translated can be read back.
+    return $name if index($name, $foreign) < 0;
+
+    my $translated = $name;
+    $translated =~ s/\Q$foreign\E/$dirseparator/g;
+    # Where the foreign separator is a separator too, the name names a file
+    #   which opens, mixed or not:  no error - but we normalize it to the
+    #   separator this platform writes, so that our own path handling and the
+    #   path modules we use agree about where its directories divide.
+    if ($accepts_both_separators) {
+        _note_separator_normalized($name, $tracefile, $line, $fileTypeName,
+                                   'accepted', "$path_platform accepts");
+        return $translated;
+    }
+
+    my $mixed = index($name, $dirseparator) >= 0;
+    # ..and where it is not a separator here
+    #  the name is munged or not - depending on 'cross_platform_read'
+    #   tell the user that the unexpected character really is part of the name
+    if ($cross_platform_read && !$mixed) {
+        _note_separator_normalized($name, $tracefile, $line, $fileTypeName,
+                                   'translated', 'is not a separator here');
+        return $translated;
+    }
+
+    # one message per input file for each of the two problems
+    my $key = $tracefile . ($mixed ? ':mixed' : ':foreign');
+    if (!exists($reported_foreign_separator{$key})) {
+        $reported_foreign_separator{$key} = 1;
+        if ($mixed) {
+            _report_mixed_separator($name, $tracefile, $line, $fileTypeName);
+        } else {
+            _report_foreign_separator($name, $translated, $tracefile, $line,
+                                      $fileTypeName);
+        }
+    }
+    return $name;
+}
+
+# the name uses both separators and we are on a POSIX machine:  we cannot tell
+#   which of them divides its directories - print message and use the name
+#    unchanged if the error is ignored.
+sub _report_mixed_separator($$$;$)
+{
+    my ($name, $tracefile, $line, $fileTypeName) = @_;
+    # one line of the explanation per element - see the 'join' below
+    my @detail = (
+         'Translating the separators cannot help:  that turns one of them into',
+         '  the other, which needs the name to use only one of them.  A',
+         '  backslash is a legal character in a POSIX file name, so we will',
+         '  not guess that these ones are separators.',
+         'If you know what the name should be, then rewrite it yourself with',
+         "  '--substitute' - e.g. 's#\\\\#/#g' to treat every backslash as a",
+         '  separator.  Substitutions are applied after this check, so add',
+         "  '--ignore-errors usage' as well;  that is also the option to use",
+         '  if the name is right exactly as it is.');
+    my $explain =
+        explain_once('mixed_path_separator', "\n\t" . join("\n\t", @detail));
+    ignorable_error($lcovutil::ERROR_USAGE,
+                    "\"$tracefile\":$line: " .
+                        _separator_subject($fileTypeName) .
+                        " '$name' uses " .
+                        "both the POSIX directory separator '/' and the " .
+                        "Windows one '\\', so there is no way to tell which " .
+                        'of them divides its directories.' .
+                        $explain);
+}
+
+# Explain the damage caused by an untranslated windows name in an '.info' file.
+# One line of the explanation per element - see the 'join' in
+# '_report_foreign_separator'
+sub _foreign_info_detail($$)
+{
+    my ($name, $translated) = @_;
+    return (
+       'Nothing here can be found under that name:  the source file cannot be',
+       '  read (so no source-based filter, no checksum, no annotation), and',
+       "  '--exclude'/'--include' patterns written for this platform do not",
+       '  match it.',
+       'The report genhtml writes is not affected:  the name is decomposed as',
+       '  though it had been written',
+       "    '" . native_path($name) . "'",
+       '  so the directory hierarchy, the names of the pages and the links',
+       '  between them are the ones the same name spelled our way would have',
+       '  produced - and it is that spelling the pages display.  The name as',
+       '  read is the one the coverage data keeps.',
+       "'cross_platform_read' is disabled, which is what asks for a name to be",
+       '  used exactly as it was read.  Enable it - drop that setting from the',
+       "  configuration file, or pass '--rc cross_platform_read=1' - to",
+       "  translate the names read from the '.info' file to this platform's",
+       '  separator:',
+       "    '$name' -> '$translated'",
+       "  Add '--source-directory' (or '--resolve-script') to say where the",
+       '  sources are here.  A leading Windows drive letter is kept as an',
+       "  ordinary path element:  use '--substitute' to remove it - e.g.",
+       "  's#^[A-Za-z]:/##' - no local directory can be guessed for it.");
+}
+
+# ..the damage in a udiff file:  a diff entry is matched against the names
+# in the coverage data rather than to find files on the filesystem - so an
+# unmatchable name is simply dropped if the message is ignored.
+# Tool will think that file is unmodified.
+sub _foreign_diff_detail($$$)
+{
+    my ($name, $translated, $fileTypeName) = @_;
+    return (
+       'No name from this file will match a source file name in the coverage',
+       '  data, so its differences are dropped and every file is categorized',
+       '  as though the code had not changed at all.',
+       '  Nothing else warns about it:  the path-mismatch check compares the',
+       '  last element of each name, and a backslash is not a separator here,',
+       '  so the whole name looks like one element and matches nothing.',
+       "  '--exclude'/'--include' patterns written for this platform do not",
+       '  match it either.',
+       "'cross_platform_read' is disabled, which is what asks for a name to be",
+       '  used exactly as it was read.  Enable it - drop that setting from the',
+       "  configuration file, or pass '--rc cross_platform_read=1' - to",
+       "  translate the names read from the '$fileTypeName' file to this",
+       "  platform's separator:",
+       "    '$name' -> '$translated'",
+       '  A leading Windows drive letter is kept as an ordinary path element:',
+       "  use '--substitute' to remove it - e.g. 's#^[A-Za-z]:/##'.  Those",
+       '  patterns are applied to the coverage data names as well, so both',
+       '  sides of the comparison are rewritten the same way.');
+}
+
+# the name is a Windows name and we are on a POSIX machine, where a backslash
+#   is not a separator:  nothing here can be found under it
+sub _report_foreign_separator($$$$;$)
+{
+    my ($name, $translated, $tracefile, $line, $fileTypeName) = @_;
+    # 'diff' is the only kind of input other than a '.info' file whose names we
+    #   read.  Each kind is explained once:  what breaks is not the same, so the
+    #   '.info' explanation is not an answer for a udiff, or the other way round
+    my $isDiff = defined($fileTypeName);
+    my @detail =
+        $isDiff ? _foreign_diff_detail($name, $translated, $fileTypeName) :
+        _foreign_info_detail($name, $translated);
+    my $explain =
+        explain_once('cross_platform_read' . ($isDiff ? "_$fileTypeName" : ''),
+                     "\n\t" . join("\n\t", @detail));
+    ignorable_error($lcovutil::ERROR_USAGE,
+                    "\"$tracefile\":$line: " .
+                        _separator_subject($fileTypeName) .
+                        " '$name' uses " .
+                        "the Windows directory separator '\\', but this run " .
+                        "works in POSIX paths, whose separator is '/'." .
+                        $explain);
 }
 
 #
@@ -2184,7 +2663,7 @@ sub strip_directories($$)
     if (!defined($depth) || ($depth < 1)) {
         return $filename;
     }
-    my $d = $lcovutil::dirseparator;
+    my $d = $lcovutil::dirseparator_re;
     for ($i = 0; $i < $depth; $i++) {
         if ($lcovutil::case_insensitive) {
             $filename =~ s/^[^$d]*$d+(.*)$/$1/i;
@@ -2272,7 +2751,7 @@ sub summarize_messages
 
 sub parse_ignore_errors(@)
 {
-    my @ignore_errors = split($split_char, join($split_char, @_));
+    my @ignore_errors = split($split_pattern, join($split_char, @_));
 
     # first, mark that all known errors are not ignored
     foreach my $item (keys(%ERROR_ID)) {
@@ -2293,7 +2772,7 @@ sub parse_ignore_errors(@)
 
 sub parse_expected_message_counts(@)
 {
-    my @constraints = split($split_char, join($split_char, @_));
+    my @constraints = split($split_pattern, join($split_char, @_));
     # parse the list and look for errors..
     foreach my $c (@constraints) {
         if ($c =~ /^\s*(\S+?)\s*:\s*((\d+)|(.+?))\s*$/) {
@@ -2556,6 +3035,15 @@ sub initial_state
     #  for other things later
     $lcovutil::in_child_process = 1;
 
+    # Deferred (warn-once) messages are parked in '%warnOnlyOnce' and handed
+    #   back to the parent by 'merge_deferred_warnings', so only a child may
+    #   defer:  a message the PARENT parks has no-one to unpark it, and would be
+    #   dropped - including the ERROR_RANGE reports, which would then neither be
+    #   printed nor counted, so the run would pass.  Set here rather than in
+    #   'ForkManager::fork_one' for exactly that reason:  this sub runs only in a
+    #   child, whereas the parent is the process which executes 'fork_one'.
+    $lcovutil::deferWarnings = 1;
+
     # This job's label, and the prefix for the id of anything WE fork - see
     #  $jobIdPrefix.  Our caller already qualified $jobId, so use it as-is.
     $lcovutil::jobLabel    = $phase . '_' . $jobId;
@@ -2767,6 +3255,10 @@ sub saw_error
     return exists($message_types{error});
 }
 
+# the text of the most recent message which 'ignorable_error' both reported and
+#   turned into a die - see 'unreported_error' below
+our $reported_error;
+
 sub ignorable_error($$;$)
 {
     my ($code, $msg, $quiet) = @_;
@@ -2803,7 +3295,10 @@ sub ignorable_error($$;$)
             return;
         }
         _count_message('error', $errName);
-        die_handler("($errName) $msg\n$ignoreOpt");
+        # remember what was reported, so that a caller which catches the die
+        #   this is about to become can tell that it has been reported already
+        $reported_error = "($errName) $msg\n$ignoreOpt";
+        die_handler($reported_error);
     }
     # only tell the user how to suppress this on the first occurrence
     my $ignoreOpt =
@@ -2818,6 +3313,26 @@ sub ignorable_error($$;$)
         _count_message('warning', $errName);
         warn_handler("($errName) $msg\n$ignoreOpt", 0);
     }
+}
+
+sub unreported_error($)
+{
+    # What is left to report:  a caller which wrapped something in an 'eval'
+    #   calls this on '$@' before it builds a message from it.
+    # If the die is one which 'ignorable_error' above already reported - it
+    #   reports the error and then dies, when the error is not one which is
+    #   being ignored - then there is nothing left to report, and it is let out
+    #   again rather than wrapped inside a second copy of a message the user has
+    #   already been shown.
+    # Otherwise the message comes back with the prefix which 'die_handler' put
+    #   on it removed.  '$SIG{__DIE__}' is 'die_handler', so every die is
+    #   prefixed with the tool name, including one caught by an 'eval' - and the
+    #   message the caller is about to build will be prefixed in its turn.
+    my $msg = shift;
+    die($reported_error)
+        if defined($reported_error) && -1 != index($msg, $reported_error);
+    $msg =~ s/^\Q$tool_name\E: (?:ERROR|WARNING): //;
+    return $msg;
 }
 
 sub ignorable_warning($$;$)
@@ -2997,7 +3512,7 @@ sub report_exit_status
 {
     my ($errType, $message, $exitstatus, $prefix, $suffix) = @_;
     my $status = $exitstatus >> 8;
-    my $signal = $exitstatus & 0xFF;
+    my $signal = $exitstatus & 0x7F;
     my $explain =
         "$prefix " .
         ($exitstatus ? "returned non-zero exit status $status" : 'failed') .
@@ -3034,7 +3549,7 @@ sub report_child_output
         = @_;
 
     my $childstatus = $rawStatus >> 8;
-    my $signal      = $rawStatus & 0xFF;
+    my $signal      = $rawStatus & 0x7F;
     my @text;
     foreach my $suffix ('log', 'err') {
         my $f = File::Spec->catfile($tempDir, "${prefix}_$child.$suffix");
@@ -3095,6 +3610,54 @@ sub report_parallel_error
     report_exit_status($errno, "$operation: '$msg'",
                        $childstatus, "child $pid",
                        " (try removing the '--parallel' option)");
+}
+
+sub normalize_count($)
+{
+    # Canonicalize one execution count as it is read from a '.info' file, and
+    # record what (if anything) is wrong with it.  Returns
+    # ($count, $errno):  $count is what to store, $errno is the
+    # $lcovutil::ERROR_* id to report or undef when the value was acceptable.
+    # The caller reports the error itself, because the location string and the
+    # count type ('hit', 'taken', a function name) differ at every call site,
+    # and because some sites suppress the message.
+    #
+    # Normalization exists so that a particular '.info' file produces identical
+    # numbers whether or not XSLoader::load succeeded.
+    # The XS implementation stores counts in a signed 64-bit integer - so it
+    # must truncate fractions (...which make no sense, in any case) and
+    # saturate numbers that get too large.
+    # Pure perl doesn't have either of these restrictions natively - so
+    # is coerced to follow XS (rather than trying to have XS follow pure perl).
+    #
+    #   - truncate toward zero, so '1.5' is stored as 1
+    #   - saturate to $MAX_COUNT, so '1.0e+19' is stored as 9223372036854775807
+    #     ((1 << 63) - 1)
+    #   - '-0' is not negative;  it normalizes to 0 without a diagnostic
+    #
+    # 'nan' and 'inf' generate ERROR_FORMAT, on both sides.
+    my $count = shift;
+    return (0, $lcovutil::ERROR_FORMAT)
+        unless defined($count) && Scalar::Util::looks_like_number($count);
+    my $value = 0 + $count;
+    return (0, $lcovutil::ERROR_FORMAT)
+        if ($value != $value || POSIX::isinf($value));
+    return (0, $lcovutil::ERROR_NEGATIVE) if $value < 0;
+    # the threshold is compared against the value as it was read, before the
+    # clamp, so that raising it above $MAX_COUNT still has the intended effect
+    my $excessive = defined($lcovutil::excessive_count_threshold) &&
+        $value > $lcovutil::excessive_count_threshold;
+    return (($value >= $MAX_COUNT ? $MAX_COUNT : int($value)),
+            $excessive ? $lcovutil::ERROR_EXCESSIVE_COUNT : undef);
+}
+
+sub add_count($$)
+{
+    # Saturating add for two counts which normalize_count has already accepted.
+    # Mirrors lcov::add_sat in lib/LcovUtil/CountArith.hpp.
+    my ($a, $b) = @_;
+    my $sum = $a + $b;
+    return $sum >= $MAX_COUNT ? $MAX_COUNT : $sum;
 }
 
 sub report_format_error($$$$)
@@ -3177,6 +3740,30 @@ sub check_parent_process
     # A client which cannot use 'run' - genhtml, whose queue is dependency
     #   ordered and which reaps from three places - drives 'fork_one',
     #   'reap_one' and 'throttle' itself.
+    #
+    # Two of these callbacks are not covered in regression tests because
+    #   reaching them from a tool means arranging a state which the
+    #   tool's own timing decides:
+    #     - 'remaining' has exactly one caller:  the line 'throttle' prints when
+    #       it decides to wait for memory ('$tooBig' there).  That wants MORE
+    #       THAN ONE child of that client already running, and the estimate for
+    #       the next unit over 'max_memory', at the instant the unit is
+    #       dispatched.  A tiny 'max_memory' does force the wait (see
+    #       tests/lcov/fork_throttle) - but it drives this manager directly
+    #       and registers no 'remaining' of its own;  going through a tool
+    #       instead means holding a second child of the SAME phase alive across
+    #       the dispatch, and how long a child lives is not something a test
+    #       controls.
+    #     - 'childFailMessage' needs a child which returned non-zero AND left a
+    #       dump the parent could read - one whose work threw where the child
+    #       could still hand back what it had (see genhtml's '_process_child').
+    #       A child which was killed, died, or left no dump is retried instead
+    #       ('report_retry' above), and that is the path every injected failure
+    #       in tests/lcov/parallel_fail takes:  even the case whose data the
+    #       parent cannot read is a child which exited 0.
+    #   Both callbacks only interpolate this client's name for a unit of work
+    #   into a string, so what is untested is the wording of a message rather
+    #   than a decision.
 
     package lcovutil::ForkManager;
 
@@ -3326,7 +3913,6 @@ sub check_parent_process
         #   is what escalates to a hard error once one unit has failed too often.
         my ($self, $unit, $id) = @_;
 
-        $lcovutil::deferWarnings = 1;
         my $forkAt = Time::HiRes::gettimeofday();
         # 'LCOV_FORCE_STORE_FAIL=N':  the next N children cannot write the data
         #   they computed - which is what a full or read-only filesystem looks
@@ -3516,7 +4102,8 @@ sub check_parent_process
                             $self->{tempDir}, $self->{prefix}, $child,
                             $rawStatus, $self->{operation}, $self->{showStdout},
                             $self->{retryOnOOM}, @{$ctx->{siblings}});
-        my $data = Storable::retrieve($dumpfile)
+        my $data;
+        $data = Storable::retrieve($dumpfile)
             if (-f $dumpfile && 0 == $childstatus);
         if (defined($data)) {
             eval {
@@ -3723,7 +4310,7 @@ sub init_filters
 
 sub parse_cov_filters(@)
 {
-    my @filters = split($split_char, join($split_char, @_));
+    my @filters = split($split_pattern, join($split_char, @_));
 
     goto final if (!@filters);
 
@@ -4035,9 +4622,10 @@ sub extractFileVersion
     my $version;
     eval { $version = $versionCallback->extract_version($filename); };
     if ($@) {
+        my $err     = lcovutil::unreported_error($@);
         my $context = MessageContext::context();
         lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                               "extract_version($filename) failed$context: $@");
+                             "extract_version($filename) failed$context: $err");
     }
     my $end = Time::HiRes::gettimeofday();
     if (exists($lcovutil::profileData{version}) &&
@@ -4064,9 +4652,10 @@ sub checkVersionMatch
             $status = $versionCallback->compare_version($you, $me, $filename);
         };
         if ($@) {
+            my $err     = lcovutil::unreported_error($@);
             my $context = MessageContext::context();
             lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                    "compare_version($you, $me, $filename) failed$context: $@");
+                  "compare_version($you, $me, $filename) failed$context: $err");
             $status = 1;
         }
         lcovutil::info(1, "compare_version: $status\n");
@@ -4395,6 +4984,21 @@ sub hrefs
 
 package ValidateHTML;
 
+sub _resolve
+{
+    # The path with '.', '..' and any symbolic link resolved away, so that two
+    #   spellings of the same file are the same key.  Every page below the top of
+    #   the report links to '../index.html', and 'catfile' does not normalize -
+    #   so without this a link through '..' cannot be looked up.
+    # 'realpath' returns undef for a path which does not exist - which is
+    #   precisely what this package is looking for - so hand back the
+    #   unresolvable path itself:  it will not be in the file table either, and
+    #   the caller reports it.
+    my $path = shift;
+    my $real = Cwd::realpath($path);
+    return defined($real) ? $real : $path;
+}
+
 sub new
 {
     my ($class, $topDir, $htmlExt) = @_;
@@ -4404,6 +5008,10 @@ sub new
 
     my @dirstack = ($topDir);
     my %visited;
+    # the file table is keyed on the resolved path - see '_resolve'.  The name
+    #   the walk used is kept beside it for the diagnostics:  that is the one the
+    #   user asked for and can find on disk
+    my %spelled;
     while (@dirstack) {
         my $top = pop(@dirstack);
         die("unexpected link $top") if -l $top;
@@ -4418,27 +5026,28 @@ sub new
                 push(@dirstack, $p);
             } elsif (-f $p &&
                      $p =~ /.+$htmlExt$/) {
-                die("duplicate file $p??") if exists($self->{$p});
+                my $key = _resolve($p);
+                die("duplicate file $p??") if exists($self->{$key});
                 lcovutil::info(1, "schedule $p\n");
-                $self->{$p} = HTML_fileData->new($top, $e);
+                $spelled{$key} = $p;
+                $self->{$key} = HTML_fileData->new($top, $e);
             }
         }
         closedir($dh);
     }
     my %fileReferred;
     while (my ($filename, $data) = each(%$self)) {
-        my $dir = File::Basename::dirname($filename);
-        lcovutil::info(1, "verify $filename:\n");
+        my $name = $spelled{$filename};
+        my $dir  = File::Basename::dirname($name);
+        lcovutil::info(1, "verify $name:\n");
         foreach my $href (@{$data->hrefs()}) {
             my ($lineNo, $link, $anchor) = @$href;
-            my $path = File::Spec->catfile($dir, $link);
-            $path = File::Spec->abs2rel(Cwd::realpath($path), $main::cwd)
-                unless exists($self->{$path});
+            my $path = _resolve(File::Spec->catfile($dir, $link));
             lcovutil::info(1,
                        "  $lineNo: $link" . ($anchor ? "#$anchor" : '') . "\n");
             unless (exists($self->{$path})) {
                 lcovutil::ignorable_error($lcovutil::ERROR_PATH,
-                           "\"$filename\":$lineNo: non-existent file '$link'.");
+                               "\"$name\":$lineNo: non-existent file '$link'.");
                 next;
             }
             if (exists($fileReferred{$path})) {
@@ -4453,18 +5062,22 @@ sub new
                 my $a = $self->{$path};
                 unless ($a->verifyAnchor($anchor)) {
                     lcovutil::ignorable_error($lcovutil::ERROR_PATH,
-                        "\"$filename\":$lineNo: \"$link#$anchor\" doesn't point to valid anchor."
+                        "\"$name\":$lineNo: \"$link#$anchor\" doesn't point to valid anchor."
                     );
                 }
             }
         }
     }
 
+    # the top level index is the entry point, so nothing refers to it:  both
+    #   sides of that comparison have to be resolved, or the exemption depends on
+    #   how the output directory was spelled
+    my $topReal = _resolve($topDir);
     while (my ($filename, $data) = each(%$self)) {
         lcovutil::ignorable_error($lcovutil::ERROR_UNUSED,
-                                  "HTML file \"$filename\" is not referenced.")
+                         "HTML file \"$spelled{$filename}\" is not referenced.")
             unless (exists($fileReferred{$filename}) ||
-                    ($topDir eq File::Basename::dirname($filename) &&
+                    ($topReal eq File::Basename::dirname($filename) &&
                      "index$htmlExt" eq File::Basename::basename($filename)));
     }
     return bless $self, $class;
@@ -4493,7 +5106,9 @@ sub executeCallback
         lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
                                   "check_criteria failed$context: $@");
         $status = 2;
-        $msgs   = [$@];
+        # apparent Devel::Cover attribution bug:  statement is reported not hit
+        #   despite that the next statement in the block is hit
+        $msgs = [$@];    # LCOV_TESTED_LINE
     }
 
     $coverageCriteria{$name} = [$type, $status, $msgs]
@@ -4591,6 +5206,16 @@ sub DESTROY
 
 package PipeHelper;
 
+# How many arguments each callback is passed, not counting the command itself.
+#   Used only by the backward-compatibility check in 'new' below, which has to
+#   guess whether the command was handed over as one string:  it was, if the
+#   number of arguments is exactly one more than the callback's own count.
+#   Anything not named here is passed one argument (usually a file name).
+our %callbackArgCount = ('context'         => 0,
+                         'criteria'        => 3,
+                         'select'          => 4,
+                         'compare_version' => 4);
+
 sub new
 {
     my $class  = shift;
@@ -4598,8 +5223,10 @@ sub new
 
     # backward compatibility:  see if the arguments were passed in a
     #  one long string
-    my $args   = \@_;
-    my $arglen = 'criteria' eq $reason ? 4 : 2;
+    my $args = \@_;
+    my $arglen =
+        1 +
+        (exists($callbackArgCount{$reason}) ? $callbackArgCount{$reason} : 1);
     if ($arglen == scalar(@_) && !-e $_[0]) {
         # two arguments:  a string (which seems not to be executable) and the
         #  file we are acting on
@@ -4629,20 +5256,31 @@ sub next
     return scalar <$hdl>;
 }
 
+sub cmd
+{
+    # the command line, for messages
+    return $_[0]->[1];
+}
+
 sub close
 {
     # close pipe and return exit status
     my ($self, $checkError) = @_;
     close($self->[2]);
-    if (0 != $? && $checkError) {
-        # $reason: $cmd returned non-zero exit...
-        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                                  $self->[0] . ' \'' .
-                                      $self->[1] .
-                                      "\' returned non-zero exit code: '$!'");
+    my $status = $?;    # 'ignorable_error' below may change it
+    if (0 != $status && $checkError) {
+        # $reason callback failed: '$cmd' returned non-zero exit status...
+        # Note that '$!' says nothing about a process which ran and exited -
+        #   it holds whatever the last failing syscall left there - so the
+        #   status (or the signal) is what has to be reported.
+        lcovutil::report_exit_status($lcovutil::ERROR_CALLBACK,
+                                     $self->[0] . ' callback failed',
+                                     $status,
+                                     "'" . $self->[1] . "'",
+                                     '');
     }
     pop(@$self);
-    return $?;
+    return $status;
 }
 
 sub DESTROY
@@ -4665,11 +5303,41 @@ sub new
 
 sub call
 {
+    # Run the callback and return its exit status - for the one callback whose
+    #   answer *is* the exit status:  'compare_version', which is documented as
+    #   returning non-zero when the two version IDs do not match.  Every other
+    #   callback answers on stdout;  see 'pipe' and 'PipeHelper' above.
+    # The arguments go through 'PipeHelper' as a list, so no shell is involved.
+    #   This used to build one string with join(' ') and hand it to backticks,
+    #   which meant that the shell re-parsed the result:  a file name or a
+    #   version ID containing a space became several arguments, and one
+    #   containing a metacharacter was interpreted (a '>' created a file).
+    # An exit status is an answer only if the callback actually ran and exited.
+    #   A callback which could not be executed, or which died from a signal, is
+    #   reported here - otherwise 'non-zero' is indistinguishable from a
+    #   legitimate 'no', and the user is told that the file versions do not
+    #   match when in truth we do not know.
+    # The callback is not expected to write anything, and what it writes is not
+    #   the answer - but if it wrote something and then failed, that text is
+    #   the most useful thing we have to show.  It used to be captured and
+    #   discarded.
     my ($self, $reason, @args) = @_;
-    my $cmd = join(' ', @$self) . ' ' . join(' ', @args);
-    lcovutil::info(1, "$reason: \"$cmd\"\n");
-    my $rtn = `$cmd`;
-    return $?;
+    lcovutil::info(1, "$reason: \"" . join(' ', @$self, @args) . "\"\n");
+    my $iter = $self->pipe($reason, @args);
+    return -1 unless defined($iter);    # 'new' reported the failure
+    my $text = '';
+    while (defined(my $line = $iter->next())) {
+        $text .= $line;
+    }
+    my $status = $iter->close();
+    if ($status & 0x7F) {
+        $text =~ s/\s+$//;
+        my $message = "$reason callback failed";
+        $message .= " (it wrote: $text)" if '' ne $text;
+        lcovutil::report_exit_status($lcovutil::ERROR_CALLBACK, $message,
+                                     $status, "'" . $iter->cmd() . "'", '');
+    }
+    return $status;
 }
 
 sub pipe
@@ -4705,38 +5373,49 @@ sub context
 sub extract_version
 {
     my ($self, $filename) = @_;
-    my $version;
     my $pipe = $self->pipe('extract_version', $filename);
-    if (defined $pipe &&
-        ($version = $pipe->next())) {
-        chomp($version);
-        $version =~ s/\r//;
-        lcovutil::info(1, "  version: $version\n");
-    }
+    return undef unless defined($pipe);
+    my $version = $pipe->next();
+    # read to EOF, so that a callback which says more than it was asked to does
+    #   not die from SIGPIPE and get reported as broken for that reason
+    1 while defined($pipe->next());
+    # '1':  check the exit status.
+    return undef if 0 != $pipe->close(1);
+    # an empty version string, or the literal '0', still needs chomp
+    return undef unless defined($version);
+    chomp($version);
+    $version =~ s/\r//;
+    lcovutil::info(1, "  version: $version\n");
     return $version;
 }
 
 sub resolve
 {
     my ($self, $filename) = @_;
-    my $path;
     my $pipe = $self->pipe('resolve_filename', $filename);
-    if ($pipe &&
-        ($path = $pipe->next())) {
-        chomp($path);
-        $path =~ s/\r//;
-        lcovutil::info(1, "  resolve: $path\n");
-    }
+    return undef unless defined($pipe);
+    my $path = $pipe->next();
+    # read to EOF - see 'extract_version' above
+    1 while defined($pipe->next());
+    return undef if 0 != $pipe->close(1);    # check the exit status
+    return undef unless defined($path);
+    chomp($path);
+    $path =~ s/\r//;
+    lcovutil::info(1, "  resolve: $path\n");
     return $path;
 }
 
 sub compare_version
 {
     my ($self, $yours, $mine, $file) = @_;
+    # the arguments are passed as a list, so they must not be quoted here.
+    #   Either version ID can be undef - see 'lcovutil::checkVersionMatch' -
+    #   and an argument list has no place to put that, so it becomes the empty
+    #   string, which is what the shell used to make of it
     return
         $self->call('compare_version', '--compare',
-                    "'$yours'", "'$mine'",
-                    "'$file'");
+                    defined($yours) ? $yours : '',
+                    defined($mine) ? $mine : '', $file);
 }
 
 # annotate callback is passed filename (as munged) -
@@ -4788,17 +5467,44 @@ sub check_criteria
     return ($iter->close(), \@messages);
 }
 
+# The select callback is asked whether one coverpoint should appear in the
+#   report.  The module form returns a Perl true/false;  the script form writes
+#   '1' (selected) or '0' (not selected) to stdout - as lcovrc(5) documents it,
+#   and as every other script callback answers - and exits zero.
+
 sub select
 {
     my ($self, $lineData, $annotateData, $filename, $lineNo) = @_;
-    my @params = ('select',
-                  defined($lineData) ?
-                      JsonSupport::encode($lineData->to_list()) : '',
-                  defined($annotateData) ?
-                      JsonSupport::encode($annotateData->to_list()) : '',
-                  $filename,
-                  $lineNo);
-    return $self->call(@params);
+    my $iter = $self->pipe('select',
+                           defined($lineData) ?
+                               JsonSupport::encode($lineData->to_list()) : '',
+                           defined($annotateData) ?
+                               JsonSupport::encode($annotateData->to_list()) :
+                               '',
+                           $filename,
+                           $lineNo);
+    return 1 unless defined($iter);    # 'new' reported the failure
+    my $answer = $iter->next();
+    # read to EOF, so that a callback which says more than it was asked to does
+    #   not die from SIGPIPE and get reported as broken for that reason
+    1 while defined($iter->next());
+    my $selected;
+    $selected = $1
+        if defined($answer) && $answer =~ /^\s*([01])\s*$/;
+    my $status = $iter->close(1);    # check the exit status
+    return 1 if 0 != $status;        # 'close' reported it
+    unless (defined($selected)) {
+        my $said = defined($answer) ? $answer : '';
+        $said =~ s/\s+$//;
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
+                                  "select callback '" .
+                                      $iter->cmd() .
+                                      "' answered " .
+                                      ('' eq $said ? 'nothing' : "'$said'") .
+                                      " - expected '0' or '1'");
+        return 1;
+    }
+    return $selected;
 }
 
 sub simplify
@@ -4806,9 +5512,20 @@ sub simplify
     my ($self, $func) = @_;
     my $name;
     my $pipe = $self->pipe('simplify', $func);
-    die("broken 'simplify' callback")
-        unless ($pipe &&
-                ($name = $pipe->next()));
+    if (defined($pipe)) {
+        $name = $pipe->next();
+        # read to EOF - see 'extract_version' above
+        1 while defined($pipe->next());
+        $pipe->close(1);    # check the exit status
+    }
+    # 'broken' used to be all the user was told, whether the callback could not
+    #   be executed, died from a signal, exited non-zero, or simply said
+    #   nothing:  the pipe was never closed, so '$?' was never examined.
+    unless (defined($name)) {
+        my $detail =
+            defined($pipe) ? " '" . $pipe->cmd() . "':  it said nothing" : '';
+        die("broken 'simplify' callback$detail");
+    }
     chomp($name);
     $name =~ s/\r//;
     lcovutil::info(1, "  simplify: $name\n");
@@ -4821,9 +5538,17 @@ sub history
 
     my $time;
     my $pipe = $self->pipe('history', $item);
-    die("broken 'history' callback")
-        unless ($pipe &&
-                ($time = $pipe->next()));
+    if (defined($pipe)) {
+        $time = $pipe->next();
+        # read to EOF - see 'extract_version' above
+        1 while defined($pipe->next());
+        $pipe->close(1);    # check the exit status
+    }
+    unless (defined($time)) {
+        my $detail =
+            defined($pipe) ? " '" . $pipe->cmd() . "':  it said nothing" : '';
+        die("broken 'history' callback$detail");
+    }
     chomp($time);
     $time =~ s/\r//;
     lcovutil::info(1, "  history: $item = $time\n");
@@ -4950,12 +5675,12 @@ sub out
                 unless defined($checkedGzipAvail);
             $cmd .= '| ' if $cmd;
             # Open compressed file
-            $cmd .= "gzip -c $m'$f'";
+            $cmd .= "gzip -c $m" . lcovutil::shell_quote($f);
             open(HANDLE, "|-", $cmd) or
                 die("cannot start gzip to compress to file $f: $!\n");
         } else {
             if ($demangle) {
-                $cmd .= "$m '$f'";
+                $cmd .= "$m " . lcovutil::shell_quote($f);
             } else {
                 $cmd .= $f;
             }
@@ -4993,7 +5718,7 @@ sub in
                 die("integrity check failed for compressed file $f!\n");
 
             # Open compressed file
-            my $cmd = "gzip -cd '$f'";
+            my $cmd = "gzip -cd " . lcovutil::shell_quote($f);
             $cmd .= " | " . $lcovutil::demangle_cpp_cmd
                 if ($demangle);
             open(HANDLE, "-|", $cmd) or
@@ -5001,7 +5726,10 @@ sub in
 
         } elsif ($demangle &&
                  defined($lcovutil::demangle_cpp_cmd)) {
-            open(HANDLE, "-|", "cat '$f' | $lcovutil::demangle_cpp_cmd") or
+            # no 'cat':  the demangler reads the file itself
+            open(HANDLE, "-|",
+                 "$lcovutil::demangle_cpp_cmd < " . lcovutil::shell_quote($f))
+                or
                 die("cannot start demangler for file $f: $!\n");
         } else {
             # Open decompressed file
@@ -5279,26 +6007,12 @@ sub append
     my ($self, $key, $count, $suppressErrMsg) = @_;
     my $changed = 0;    # hit something new or not
 
-    if (!Scalar::Util::looks_like_number($count)) {
-        lcovutil::report_format_error($lcovutil::ERROR_FORMAT, 'hit', $count,
-                                      'line "' . $self->filename() . ":$key\"")
-            unless $suppressErrMsg;
-        $count = 0;
-    } elsif ($count < 0) {
-        lcovutil::report_format_error($lcovutil::ERROR_NEGATIVE,
-                                      'hit',
-                                      $count,
-                                      'line ' . $self->filename() . ":$key\""
-        ) unless $suppressErrMsg;
-        $count = 0;
-    } elsif (defined($lcovutil::excessive_count_threshold) &&
-             $count > $lcovutil::excessive_count_threshold) {
-        lcovutil::report_format_error($lcovutil::ERROR_EXCESSIVE_COUNT,
-                                      'hit',
-                                      $count,
-                                      'line ' . $self->filename() . ":$key\""
-        ) unless $suppressErrMsg;
+    my ($normalized, $errno) = lcovutil::normalize_count($count);
+    if (defined($errno) && !$suppressErrMsg) {
+        my $where = 'line "' . $self->filename() . ":$key\"";
+        lcovutil::report_format_error($errno, 'hit', $count, $where);
     }
+    $count = $normalized;
     my $data = $self->[HASH];
     if (!exists($data->{$key})) {
         $changed = 1;             # something new - whether we hit it or not
@@ -5312,7 +6026,7 @@ sub append
             ++$self->[HIT];
             $changed = 1;
         }
-        $data->{$key} = $count + $current;
+        $data->{$key} = lcovutil::add_count($count, $current);
     }
     return $changed;
 }
@@ -5493,20 +6207,11 @@ sub new
     ];
     bless $self, $class;
     my $c = $self->count();
-    if (!Scalar::Util::looks_like_number($c)) {
-        lcovutil::report_format_error($lcovutil::ERROR_FORMAT,
-                                      'taken', $c, 'branch ' . $self->id());
-        $self->[TAKEN] = 0;
-
-    } elsif ($c < 0) {
-        lcovutil::report_format_error($lcovutil::ERROR_NEGATIVE,
-                                      'taken', $c, 'branch ' . $self->id());
-        $self->[TAKEN] = 0;
-    } elsif (defined($lcovutil::excessive_count_threshold) &&
-             $c > $lcovutil::excessive_count_threshold) {
-        lcovutil::report_format_error($lcovutil::ERROR_EXCESSIVE_COUNT,
-                                      'taken', $c, 'branch ' . $self->id());
-    }
+    my ($normalized, $errno) = lcovutil::normalize_count($c);
+    lcovutil::report_format_error($errno, 'taken', $c, 'branch ' . $self->id())
+        if defined($errno);
+    # leave the '-' marker (branch present but not evaluated)
+    $self->[TAKEN] = $normalized if $self->[TAKEN] ne '-';
     return $self;
 }
 
@@ -5740,7 +6445,7 @@ sub merge
     my $count = $self->[TAKEN];
     if ($count ne '-') {
         $changed = 1 if $count == 0 && $t != 0;
-        $count += $t;
+        $count   = lcovutil::add_count($count, $t);
     } else {
         $count   = $t;
         $changed = 1 if $t != 0;
@@ -6135,7 +6840,10 @@ sub totals
     my ($self, $countExcluded) = @_;
     my $found = 0;
     my $hit   = 0;
-    while (my ($size, $group) = each(%{$self->groups()})) {
+    # groups() materializes a fresh hash on each call, so hold it in a lexical:
+    #   each() over a new hash restarts from the beginning every iteration.
+    my $groups = $self->groups();
+    while (my ($size, $group) = each(%$groups)) {
         foreach my $expr (@$group) {
             foreach my $sense (0, 1) {
                 next
@@ -6274,18 +6982,27 @@ sub set
         $self->[$sense ? EXCLUDED_true : EXCLUDED_false] = 1;
     }
     # An undefined count means "no count supplied" - only the 'excluded' flag
-    #   above was being set.  Check defined() first:  falling through to the
-    #   numeric comparison behaves the same but warns about an uninitialized
-    #   value (the XS implementation is silent here).
-    return $changed if !defined($count) || 0 == $count;
+    #   above was being set.  Check defined() explicitly:  falling through
+    #   to the numeric comparison below behaves the same but warns about an
+    #   uninitialized value (the XS implementation is silent here).
+    return $changed if !defined($count);
 
     if ('ARRAY' eq ref($count)) {
         # recording a differential result
         $self->[$sense ? TRUE : FALSE] = $count;
         return 1;    # assumed changed
     }
-    $changed = 1 if $count && $self->count($sense) == 0;
-    $self->[$sense ? TRUE : FALSE] += $count;
+    # saturate the count the way the XS implementation does -
+    #   XS count is a 64-bit signed integers - so that a malformed MCDC
+    #   count field cannot make the two backends disagree.
+    #  Silent as there is no location to report a diagnostic here, and the
+    #   '.info' reader is where a bad field is caught.
+    ($count) = lcovutil::normalize_count($count);
+    return $changed if 0 == $count;
+
+    $changed = 1 if $self->count($sense) == 0;
+    $self->[$sense ? TRUE : FALSE] =
+        lcovutil::add_count($self->[$sense ? TRUE : FALSE], $count);
     return $changed;
 }
 
@@ -6330,6 +7047,22 @@ sub count
 {
     my ($self, $sense) = @_;
     return $_[0]->[$sense ? TRUE : FALSE];
+}
+
+sub set_tla
+{
+    my ($self, $sense, $tla) = @_;
+    # The counterpart of BranchElement::set_tla, for the same caller:  the TLA
+    #   remap loop in genhtml.  Note that it cannot write the TLA through
+    #   count() - which happens to hand back the stored array here, but builds
+    #   a fresh one in the XS backend, where the assignment would be lost.
+    # Same precondition as BranchElement::set_tla:  a non-differential
+    #   expression has no TLA to set, and making it differential here would
+    #   make the two backends disagree about which expressions have one.
+    my $idx = $sense ? TRUE : FALSE;
+    die("unexpected set_tla() call with non-differential data")
+        unless 'ARRAY' eq ref($self->[$idx]);
+    $self->[$idx]->[0] = $tla;
 }
 
 sub write_data
@@ -6519,23 +7252,19 @@ sub addAlias
 {
     my ($self, $name, $count) = @_;
 
-    if (!Scalar::Util::looks_like_number($count)) {
-        $self->_format_error($lcovutil::ERROR_FORMAT, $name, $count);
-        $count = 0;
-    } elsif ($count < 0) {
-        $self->_format_error($lcovutil::ERROR_NEGATIVE, $name, $count);
-        $count = 0;
-    } elsif (defined($lcovutil::excessive_count_threshold) &&
-             $count > $lcovutil::excessive_count_threshold) {
-        $self->_format_error($lcovutil::ERROR_EXCESSIVE_COUNT, $name, $count)
-            unless grep({ $name =~ $_ || $self->name() =~ $_ }
-                        @lcovutil::suppress_function_patterns);
+    my ($normalized, $errno) = lcovutil::normalize_count($count);
+    if (defined($errno)) {
+        $self->_format_error($errno, $name, $count)
+            unless ($errno == $lcovutil::ERROR_EXCESSIVE_COUNT &&
+                    grep({ $name =~ $_ || $self->name() =~ $_ }
+                         @lcovutil::suppress_function_patterns));
     }
+    $count = $normalized;
     my $changed;
     my $aliases = $self->[ALIASES];
     if (exists($aliases->{$name})) {
         $changed = 0 == $aliases->{$name} && 0 != $count;
-        $aliases->{$name} += $count;
+        $aliases->{$name} = lcovutil::add_count($aliases->{$name}, $count);
     } else {
         $aliases->{$name} = $count;
         $changed = 1;
@@ -6551,7 +7280,7 @@ sub addAlias
                 ($len == $curlen &&   # alias is same length but lexically first
                  $name lt $self->[NAME]));
     }
-    $self->[COUNT] += $count;
+    $self->[COUNT] = lcovutil::add_count($self->[COUNT], $count);
     # perhaps should remove lambda aliases, if they exist -
     #   - Issue is that jacoco will show normal function and lambda on the
     #     same line - which lcov takes to mean that they are aliases
@@ -7159,7 +7888,8 @@ sub union
         # check if self has corresponding line:
         #  no: just copy all the data for this line, from 'info'
         #  yes: check for matching blocks
-        my $myLocation = $mydata->{$line}
+        my $myLocation;
+        $myLocation = $mydata->{$line}
             if exists($mydata->{$line});
         if (!defined($myLocation)) {
             $mydata->{$line} = Storable::dclone($yourLocation);
@@ -8194,8 +8924,8 @@ sub _merge_checksums
             $mine->value($line) ne $yours->value($line)) {
             lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                                       "checksum mismatch at $filename:$line: " .
-                                          $mine->value($line),
-                                      ' -> ' . $yours->value($line));
+                                          $mine->value($line) . ' -> ' .
+                                          $yours->value($line));
         }
         $mine->replace($line, $yours->value($line));
     }
@@ -8238,9 +8968,25 @@ sub merge
     #   source here, and none of the set operations mutate their source.)
     $self->materializeAggregates();
 
-    foreach my $name ($info->test()->keylist()) {
-        if (&$countOp($self->test($name), $info->test($name))) {
-            $changed = 1;
+    # Which of the per-testcase maps to operate, and what to operate them
+    #   against is different for 'union' vs 'intersect' or 'difference'
+    #
+    # For 'union': you drive:  a test only I hold needs no work, and a
+    #   test only you hold has to be created and unioned here.
+    #
+    # For 'intersect' and 'difference':  I drive and operate against your
+    #   summary rather than against a map of the same name.
+    if ($op == UNION) {
+        foreach my $name ($info->test()->keylist()) {
+            if (&$countOp($self->test($name), $info->test($name))) {
+                $changed = 1;
+            }
+        }
+    } else {
+        foreach my $name ($self->test()->keylist()) {
+            if (&$countOp($self->test($name), $info->sum())) {
+                $changed = 1;
+            }
         }
     }
     # if intersect and I contain some test that you don't, need to remove my data
@@ -8253,26 +8999,50 @@ sub merge
     }
     $self->_merge_checksums($info, $filename);
 
-    foreach my $name ($info->testfnc()->keylist()) {
-        if (&$funcOp($self->testfnc($name), $info->testfnc($name))) {
-            $changed = 1;
+    if ($op == UNION) {
+        foreach my $name ($info->testfnc()->keylist()) {
+            if (&$funcOp($self->testfnc($name), $info->testfnc($name))) {
+                $changed = 1;
+            }
+        }
+    } else {
+        foreach my $name ($self->testfnc()->keylist()) {
+            if (&$funcOp($self->testfnc($name), $info->func())) {
+                $changed = 1;
+            }
         }
     }
 
-    foreach my $name ($info->testbr()->keylist()) {
-        if (&$brOp($self->testbr($name), $info->testbr($name), $filename)) {
-            $changed = 1;
+    if ($op == UNION) {
+        foreach my $name ($info->testbr()->keylist()) {
+            if (&$brOp($self->testbr($name), $info->testbr($name), $filename)) {
+                $changed = 1;
+            }
+        }
+    } else {
+        foreach my $name ($self->testbr()->keylist()) {
+            if (&$brOp($self->testbr($name), $info->sumbr(), $filename)) {
+                $changed = 1;
+            }
         }
     }
     if (&$brOp($self->sumbr(), $info->sumbr(), $filename)) {
         $changed = 1;
     }
 
-    foreach my $name ($info->testcase_mcdc()->keylist()) {
-        if (&$mcdcOp($self->testcase_mcdc($name), $info->testcase_mcdc($name),
-                     $filename)
-        ) {
-            $changed = 1;
+    if ($op == UNION) {
+        foreach my $name ($info->testcase_mcdc()->keylist()) {
+            my $mcdc = $self->testcase_mcdc($name);
+            if (&$mcdcOp($mcdc, $info->testcase_mcdc($name), $filename)) {
+                $changed = 1;
+            }
+        }
+    } else {
+        foreach my $name ($self->testcase_mcdc()->keylist()) {
+            my $mcdc = $self->testcase_mcdc($name);
+            if (&$mcdcOp($mcdc, $info->mcdc(), $filename)) {
+                $changed = 1;
+            }
         }
     }
     if (&$mcdcOp($self->mcdc(), $info->mcdc(), $filename)) {
@@ -8420,7 +9190,8 @@ sub parseLines
     # @todo:  if we had annotated data here, then we could whine at the
     #   author of the unmatched start, extra end, etc.
 
-    my $exclude_directives =
+    my $exclude_directives;
+    $exclude_directives =
         qr/^\s*#\s*((else|endif)|((ifdef|ifndef|if|elif|include|define|undef)\s+))/
         if (TraceFile::is_language('c', $filename) &&
             defined($lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]));
@@ -8621,13 +9392,17 @@ sub getExpr
         $line = $self->getLine($endLine);
         $expr .= substr($line, 0, $endCol);
     }
-    $expr =~ /^\s*(.+?)\s*$/;
-    return $1;
+    $expr =~ s/^\s+//;
+    $expr =~ s/\s+$//;
+    return $expr;
 }
 
 sub isOutOfRange
 {
     my ($self, $lineNo, $context) = @_;
+    # (optional) '$context' is the noun the messages below are built around:
+    #   'getLine' does not pass one.
+    $context = 'line' unless defined($context);
     my $data = $self->[0];
     if (defined($data->[EXCLUDE]) &&
         scalar(@{$data->[EXCLUDE]}) < $lineNo) {
@@ -9134,9 +9909,15 @@ sub directories
 {
     my $self = shift;
     # return hash of directories which contain source files
+    # This answers a layout question - genhtml asks it to find out whether a
+    #   '--prefix' names a directory which holds sources rather than one which
+    #   holds directories - so the directory is the one the report will build,
+    #   which is not the leading part of a name spelled for the other platform.
+    #   See 'lcovutil::native_path';  the file names in the lists are the names
+    #   as read, which is what the data is keyed by
     my %dirs;
     foreach my $f ($self->files()) {
-        my $d = File::Basename::dirname($f);
+        my $d = File::Basename::dirname(lcovutil::native_path($f));
         $dirs{$d} = [] unless exists($dirs{$d});
         push(@{$dirs{$d}}, $f);
     }
@@ -9796,7 +10577,8 @@ sub _checkConsistency
     my @functions = sort { $a->line() <=> $b->line() }
         grep({ defined($_->end_line()) } $traceInfo->func()->valuelist());
     my $lineData = $traceInfo->sum();
-    my @lines    = sort { $a <=> $b } $lineData->keylist()
+    my @lines;
+    @lines = sort { $a <=> $b } $lineData->keylist()
         if @functions;
     my $currentLine = @lines ? shift(@lines) : 0;
     FUNC: while (@functions) {
@@ -9997,22 +10779,27 @@ sub _filterFile
             return [$traceInfo, $modified];
         }
     }
-    my $region           = $cov_filter[$FILTER_EXCLUDE_REGION];
-    my $branch_region    = $cov_filter[$FILTER_EXCLUDE_BRANCH];
-    my $range            = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
-    my $branch_histogram = $cov_filter[$FILTER_BRANCH_NO_COND]
+    my $region        = $cov_filter[$FILTER_EXCLUDE_REGION];
+    my $branch_region = $cov_filter[$FILTER_EXCLUDE_BRANCH];
+    my $range         = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
+    my $branch_histogram;
+    $branch_histogram = $cov_filter[$FILTER_BRANCH_NO_COND]
         if (is_language('c', $source_file));
-    my $brace_histogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
+    my $brace_histogram;
+    $brace_histogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
         if (is_language('c', $source_file));
     my $blank_histogram          = $cov_filter[$FILTER_BLANK_LINE];
     my $function_alias_histogram = $cov_filter[$FILTER_FUNCTION_ALIAS];
     my $trivial_histogram        = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
-    my $filter_initializer_list  = $cov_filter[$FILTER_INITIALIZER_LIST]
+    my $filter_initializer_list;
+    $filter_initializer_list = $cov_filter[$FILTER_INITIALIZER_LIST]
         if (is_language('c', $source_file));
     my $directive = $cov_filter[$FILTER_DIRECTIVE];
-    my $omit      = $cov_filter[$FILTER_OMIT_PATTERNS]
+    my $omit;
+    $omit = $cov_filter[$FILTER_OMIT_PATTERNS]
         if defined($FILTER_OMIT_PATTERNS);
-    my $mcdc_single = $cov_filter[$FILTER_MCDC_SINGLE]
+    my $mcdc_single;
+    $mcdc_single = $cov_filter[$FILTER_MCDC_SINGLE]
         if defined($FILTER_MCDC_SINGLE) && $lcovutil::mcdc_coverage;
 
     my $context = MessageContext->new("filtering $source_file");
@@ -10033,7 +10820,8 @@ sub _filterFile
     # If the file _has_ changed between 'baseline' and current, then we
     #   don't have a way to independently verify that what we see in
     #   'ReadBaselineSource' is really the previous version of the file.
-    my $fileVersion = lcovutil::extractFileVersion($path)
+    my $fileVersion;
+    $fileVersion = lcovutil::extractFileVersion($path)
         if $srcReader->notEmpty();
     if (defined($fileVersion) &&
         !$srcReader->isRecoveredBaselineFile($path) &&
@@ -10440,13 +11228,15 @@ sub _filterFile
                 }
             }
 
-            my $outOfRange = $srcReader->isOutOfRange($line, 'line')
+            my $outOfRange;
+            $outOfRange = $srcReader->isOutOfRange($line, 'line')
                 unless $is_filtered;
             $is_filtered = $lcovutil::cov_filter[$lcovutil::FILTER_LINE_RANGE]
                 if !defined($is_filtered) &&
                 defined($outOfRange) &&
                 $outOfRange;
-            my $excluded = $srcReader->isExcluded($line)
+            my $excluded;
+            $excluded = $srcReader->isExcluded($line)
                 unless $is_filtered;
             if (defined($excluded) && $excluded) {
                 my $reason = $srcReader->excludeReason($line);
@@ -10462,7 +11252,8 @@ sub _filterFile
                     }
                 }
             }
-            my $isCloseBrace =
+            my $isCloseBrace;
+            $isCloseBrace =
                 ($brace_histogram &&
                  $srcReader->suppressCloseBrace($line, $l_hit, $testcount))
                 unless $is_filtered;
@@ -10470,7 +11261,8 @@ sub _filterFile
                 if !defined($is_filtered) &&
                 defined($isCloseBrace) &&
                 $isCloseBrace;
-            my $isBlank =
+            my $isBlank;
+            $isBlank =
                 ($blank_histogram &&
                  ($lcovutil::filter_blank_aggressive || $l_hit == 0) &&
                  $srcReader->isBlank($line))
@@ -10546,11 +11338,8 @@ sub _generate_end_line_message
 
 sub _updateModifiedFile
 {
-    my ($self, $name, $traceFile, $state) = @_;
+    my ($self, $name, $traceFile) = @_;
     $self->[FILES]->{$name} = $traceFile;
-
-    _generate_end_line_message()
-        if $state->[0]->[1] != 0;
 }
 
 sub _processParallelChunk
@@ -10689,6 +11478,8 @@ sub _processFilterWorklist
     }
 
     my @state = (['saw_unsupported_end_line', 0],);
+    # did ANY file in this run held a function with no end line
+    my $sawNoEndLine = 0;
     # keep track of patterns application counts before we fork children
     my @pats = grep { @$_ }
         (\@lcovutil::exclude_function_patterns, \@lcovutil::omit_line_patterns);
@@ -10737,7 +11528,8 @@ sub _processFilterWorklist
                              # serial processing...
                              my ($data, $modified) =
                                  _filterFile(@$d, $srcReader, \@state);
-                             $self->_updateModifiedFile($d->[1], $data, \@state)
+                             $sawNoEndLine = 1 if $state[0]->[1];
+                             $self->_updateModifiedFile($d->[1], $data)
                                  if $modified;
                              next;
                          }
@@ -10779,8 +11571,11 @@ sub _processFilterWorklist
                          $save[1]->[$i]->[-2] += $counts->[1]->[$i]->[0];
                          $save[1]->[$i]->[-1] += $counts->[1]->[$i]->[1];
                      }
+                     # the child's flag, not this update's:  a chunk which
+                     #   modified nothing has no updates at all
+                     $sawNoEndLine = 1 if $state->[0]->[1];
                      foreach my $u (@$updates) {
-                         $self->_updateModifiedFile(@$u, $state);
+                         $self->_updateModifiedFile(@$u);
                      }
 
                      my $final = Time::HiRes::gettimeofday();
@@ -10820,6 +11615,9 @@ sub _processFilterWorklist
                  childFailMessage => sub {
                      return 'unable to filter segment ' . $_[0]->{id};
                  },)->run();
+    # 'warn_once' inside makes one call the right shape even when several files
+    #   were affected
+    _generate_end_line_message() if $sawNoEndLine;
     # ..but not if I am one of the chunks the input set was split into - see
     #   'AggregateTraces::_parallel_parse':  the user's stdout would carry one
     #   copy of this per chunk.
@@ -10926,7 +11724,9 @@ sub is_language
         die("unknown language '$l'")
             unless exists($lcovutil::languageExtensions{$l});
         my $extensions = $lcovutil::languageExtensions{$l};
-        return 1 if ($ext =~ /\.($extensions)$/);
+        return 1
+            if ($lcovutil::case_insensitive ? $ext =~ /\.($extensions)$/i :
+                $ext =~ /\.($extensions)$/);
     }
     return 0;
 }
@@ -11007,9 +11807,17 @@ sub _scan_section_names($)
     my $nFiles = () = $section =~ /^[SK]F:/mg;
     return (undef, undef) if (1 != $nFiles);
     $section =~ /^[SK]F:(.*)$/m;
-    my $sf   = $1;
+    my $sf = $1;
+    # '.' matches a CR, and '_read_info' strips trailing whitespace from the
+    #   record before it looks at it (which is how a CRLF '.info' file is read at
+    #   all), so strip it here too:  'SF:foo.c' and "SF:foo.c\r" are one source
+    #   file to the reader and must be one name here.  Same test as there.
+    $sf =~ s/\s+$//
+        if (length($sf) && substr($sf, -1) lt '!');
     my $head = substr($section, 0, $-[0]);
     my ($tn) = $head =~ /^TN:(.*)$/m;
+    $tn =~ s/\s+$//
+        if (defined($tn) && length($tn) && substr($tn, -1) lt '!');
     return ($sf, $tn);
 }
 
@@ -11256,7 +12064,10 @@ sub _read_info
             defined($payload) ? $payload =~ /^([^,]*)(,diff)?/ : ('', undef);
         $name = '' unless defined($name);
         my $orig = $name;
-        $changed_testname = $orig if ($name =~ s/\W/_/g && $isRecord);
+        # remember both halves of the message here, where we still know the
+        #   name which changed
+        $changed_testname = "'$orig'->'$name'"
+            if ($name =~ s/\W/_/g && $isRecord);
         $name .= $diff if defined($diff);
         if (defined($ignore_testcase_name) &&
             $ignore_testcase_name) {
@@ -11434,6 +12245,12 @@ sub _read_info
             # '$sourceName' rather than '$1':  the error paths above match
             #   further regular expressions, so '$1' no longer holds this
             #   record's file name by the time we get here.
+            # A name written on the other platform is put into this platform's
+            #   terms first, before '--substitute' and before we go looking for
+            #   the file:  the user writes those patterns - and everything else
+            #   which takes a path - for the platform they are running on.
+            $sourceName =
+                lcovutil::check_path_separator($sourceName, $tracefile, $.);
             $filename = ReadCurrentSource::resolve_path($sourceName, 1);
             # should this one be skipped?
             $skipCurrentFile = skipCurrentFile($filename);
@@ -11570,7 +12387,7 @@ sub _read_info
                                 if ($chk ne $checksum) {
                                     lcovutil::ignorable_error(
                                         $lcovutil::ERROR_VERSION,
-                                        "checksum mismatch at between source $filename:$line and $tracefile: $checksum -> $chk"
+                                        "checksum mismatch between source $filename:$line and $tracefile: $checksum -> $chk"
                                     );
                                 }
                             } else {
@@ -11888,9 +12705,9 @@ sub _read_info
     }
     if (defined($changed_testname)) {
         lcovutil::ignorable_warning(
-                    $lcovutil::ERROR_FORMAT,
-                    "invalid characters removed from testname in " .
-                        "tracefile $tracefile: '$changed_testname'->'$testname'\n"
+                                $lcovutil::ERROR_FORMAT,
+                                "invalid characters removed from testname in " .
+                                    "tracefile $tracefile: $changed_testname\n"
         );
     }
 }
@@ -11923,7 +12740,8 @@ sub write_info($$$)
     my $br_found;
     my $br_hit;
 
-    my $srcReader = ReadCurrentSource->new()
+    my $srcReader;
+    $srcReader = ReadCurrentSource->new()
         if ($verify_checksum);
     foreach my $comment ($self->comments()) {
         print(INFO_HANDLE '#', $comment, "\n");
@@ -12164,8 +12982,16 @@ sub find_from_glob
         for (my $i = 0; $i <= $#files; ++$i) {
             my $f = $files[$i];
             if (-d $f) {
+                # 'shell_quote', not a bare pair of single quotes:  a directory
+                #   name may itself contain a single quote (and the pattern
+                #   comes from lcovrc), which would otherwise end the quoting
+                #   and let the shell interpret the rest
                 my $cmd =
-                    "find '$f' -name '$lcovutil::info_file_pattern' -type f";
+                    'find ' .
+                    lcovutil::shell_quote($f) .
+                    ' -name ' .
+                    lcovutil::shell_quote($lcovutil::info_file_pattern) .
+                    ' -type f';
                 my ($stdout, $stderr, $code) = Capture::Tiny::capture {
                     system($cmd);
                 };
@@ -12174,7 +13000,9 @@ sub find_from_glob
                 lcovutil::ignorable_error($lcovutil::ERROR_UTILITY,
                                           "error in \"$cmd\": $stderr")
                     if $code;
-                my @found = split(' ', $stdout);
+                # split on newline, not whitespace:  'find' writes one path per
+                #   line, and a path is allowed to contain a space
+                my @found = grep({ '' ne $_ } split(/\n/, $stdout));
                 lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
                     "no files matching '$lcovutil::info_file_pattern' found in $f"
                 ) unless (@found);
@@ -12234,6 +13062,24 @@ sub _partition_sections($$$)
     # Sections which the pre-scan could not attribute to exactly one source file
     #   cannot be grouped, so decline the whole set rather than guess - see
     #   'TraceFile::_scan_section_names'.
+    # The group key has to be the source file's identity as the READER will see
+    #   it, not the text of the 'SF:' record:  '_read_info' normalizes the
+    #   separator and then applies '--substitute' to it, and two 'SF:' payloads
+    #   which differ as text and name one source file afterwards are one atom of
+    #   work.  ('--substitute' is the option for aggregating captures made in
+    #   different build directories, so this is its normal use, not a corner.)
+    # 'ReadCurrentSource::resolve_path' is the third thing the reader applies,
+    #   and it is not applied here:  it searches the filesystem, and doing that
+    #   in the parent would both cost a stat per section and consume the state
+    #   the reader's own diagnostics are built from (which directory of
+    #   '--source-directory' was used, what the resolve callback answered).  So
+    #   decline to split when either of those could rename a file instead - a
+    #   parallel read is an optimization, and this is the one case where we
+    #   cannot cheaply tell whether it is sound.
+    return undef
+        if ($lcovutil::resolveCallback ||
+            ($ReadCurrentSource::searchPath &&
+             scalar(@$ReadCurrentSource::searchPath)));
     # The unit of weight is the number of records in the group, summed over the
     #   inputs which carry it:  what a group costs to read, to hold and to filter
     #   all scale with how many records it has, and a '.info' file is one record
@@ -12244,6 +13090,9 @@ sub _partition_sections($$$)
     foreach my $section (@$sections) {
         my $name = $section->[TraceFile::SEC_FILE];
         return undef unless defined($name);
+        $name =
+            lcovutil::subst_file_name(lcovutil::translate_path_separator($name),
+                                      1);
         my $nLines = $section->[TraceFile::SEC_NLINES];
         $totalLines += $nLines;
         my $group = $groups{$name};

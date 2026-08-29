@@ -446,6 +446,8 @@ In general, (almost) all ``geninfo`` options can also be specified in your perso
     ``format``
         Unexpected syntax or value found in .info file - for example, negative number or zero line number encountered.
 
+        A count field which is not a legal integer (for example 'nan' or 'inf') is likewise treated as zero if this message is ignored;  a count which is a number but not an integer is truncated toward zero, and one too large to store is clamped at 9223372036854775807.
+
     ``gcov``
         the gcov tool returned with a non-zero return code.
 
@@ -466,6 +468,8 @@ In general, (almost) all ``geninfo`` options can also be specified in your perso
 
     ``negative``
         negative 'hit' count found.
+
+        A negative count is not a legal value for any cover type, so if this message is ignored, the count is treated as zero.
 
         Note that negative counts may be caused by a known GCC bug - see
 

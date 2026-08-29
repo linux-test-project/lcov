@@ -249,14 +249,14 @@ fi
 
 $COVER $LCOV_TOOL $LCOV_OPTS -o filtExcept.info -a example.data --filter exception 2>&1 | tee exceptFilter.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
-    echo "Error:  unexpected error code from except filering"
+    echo "Error:  unexpected error code from except filtering"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
 fi
 $COVER $LCOV_TOOL $LCOV_OPTS -o filtOrphan.info -a example.data --filter orphan 2>&1 | tee orphanFilter.log
 if [ 0 != ${PIPESTATUS[0]} ] ; then
-    echo "Error:  unexpected error code from orphan filering"
+    echo "Error:  unexpected error code from orphan filtering"
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi

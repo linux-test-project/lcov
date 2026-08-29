@@ -115,17 +115,20 @@ fi
 
 COUNTS=()
 COUNTS[0]='branches.+13 of 26 branches'
+# the legacy categories, in the legacy order:  'hit' and then 'not hit'.  A
+#   report with no baseline narrows the category list to those two, and the
+#   presentation order of that narrowed list is what these counts are printed in
 PATS=()
-PATS[0]='branch: UNC:13 GNC:13'
+PATS[0]='branch: GNC:13 UNC:13'
 
 if [ "$ENABLE_MCDC" == 1 ] ; then
     COUNTS[1]='MC/DCs.+11 of 16 MC/DCs'
-    PATS[1]='mcdc: UNC:5 GNC:11'
+    PATS[1]='mcdc: GNC:11 UNC:5'
 fi
 
 if [ "${VER[0]}" -lt 5 ] ; then
     COUNTS[0]='branches.+11 of 16 branches'
-    PATS[0]='branch: UNC:5 GNC:11'
+    PATS[0]='branch: GNC:11 UNC:5'
 fi
 
 for log in no_nav.log nav.log annotate.log diff.log ; do

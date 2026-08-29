@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 #
-# Test the 'xs' entry in the profile 'config' section.
+# Test the 'xs' entry in the profile 'config' section, and the platform entries
+# beside it.
 #
 # lcovutil loads the C++ XS extension when it is present and silently uses the
 # pure-Perl implementation when it is not, so a run which is several times
 # slower than expected looks no different from a fast one.  Record which
 # implementation actually ran, so a profile can be interpreted:  1 for XS, 0 for
 # pure Perl.
+#
+# The 'date', 'uname' and 'hostname' entries used to be the output of three
+# forked commands of those names.  They now come from POSIX::uname and
+# POSIX::strftime, which every platform perl runs on has:  the fields are the
+# same ones 'uname' prints, and the date is in a fixed format rather than
+# whatever the locale gives.
 
 source ../../common.tst
 
@@ -111,6 +118,39 @@ check_xs "$EXPECT" prof_default.json
 # regardless of whether the extension is available.
 PURE_PERL=1
 check_xs 0 prof_pure.json
+
+# ----------------------------------------------------------------------
+# the platform entries in the same section, from the profile the first case
+# wrote.  'uname' is the five fields POSIX::uname returns - which is what
+# 'uname -s -n -r -v -m' prints, and not what 'uname -a' prints (that has the
+# processor, hardware platform and operating system after them);  'hostname' is
+# the second of those fields;  and 'date' is in a fixed format, so a reader can
+# parse it without knowing the locale of the machine which wrote it.
+# ----------------------------------------------------------------------
+EXPECT_UNAME=`uname -s -n -r -v -m`
+EXPECT_HOST=`uname -n`
+got=$(python3 -c '
+import json, re, sys
+c = json.load(open(sys.argv[1])).get("config", {})
+for k in ("date", "uname", "hostname"):
+    if k not in c:
+        print("NO-%s-ENTRY" % (k.upper(),))
+        sys.exit(0)
+if c["uname"] != sys.argv[2]:
+    print("uname is %r, expected %r" % (c["uname"], sys.argv[2]))
+elif c["hostname"] != sys.argv[3]:
+    print("hostname is %r, expected %r" % (c["hostname"], sys.argv[3]))
+elif not re.match(r"^[A-Za-z]{3} [A-Za-z]{3} \d\d \d\d:\d\d:\d\d \d{4}$",
+                  c["date"]):
+    print("date %r is not in the fixed format" % (c["date"],))
+else:
+    print("ok")
+' prof_default.json "$EXPECT_UNAME" "$EXPECT_HOST")
+if [[ "$got" != ok ]] ; then
+        echo "Error: prof_default.json: $got"
+        exit 1
+fi
+echo "prof_default.json: date, uname and hostname as expected"
 
 echo "Tests passed"
 

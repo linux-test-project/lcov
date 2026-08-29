@@ -87,16 +87,24 @@ my $pathname = abs_path($filename);
 my $null     = File::Spec->devnull();    # more portable way to do it
 
 my $version;
-if (0 ==
-    system("p4 files $pathname 2>$null|grep -qv -- '- no such file' >$null")) {
-    my $have = `p4 have $pathname`;
+# p4 commands go through a shell, so the path needs quoting, lest it contain a
+#   space or a shell metacharacter
+my $quotedPath = annotateutil::shell_quote($pathname);
+# Filter the 'p4 files' output in process, rather than piping it to 'grep -qv':
+#   there is no 'grep' on a native Windows Perl.  Same test 'p4annotate.pm'
+#   makes - the file is in p4 iff some output line does not carry the
+#   'no such file' marker.
+my $in_p4 = grep({ !/- no such file/ }
+                 split(/\n/, `p4 files $quotedPath 2>$null`));
+if ($in_p4) {
+    my $have = `p4 have $quotedPath`;
     if ($have =~ /#([0-9]+) - /) {
         $version = "#$1";
     } else {
-        $version = '\@head';
+        $version = '@head';
     }
 
-    my $opened = `p4 opened $pathname 2>$null`;
+    my $opened = `p4 opened $quotedPath 2>$null`;
     if ($opened =~ /edit (default change|change (\S+)) /) {
         # file is locally edited...append modify time to the version ID
         $version .= ' edited ' . get_modify_time($pathname);

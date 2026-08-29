@@ -120,6 +120,19 @@ sub new
         # else leave domain in place
     }
 
+    # Compile each '--abbrev' substitution exactly once, rather than
+    # string-eval'ing it again for every distinct author name in every file:
+    my @abbrevSubs;
+    foreach my $re (@abbrev) {
+        my $body =
+            'sub { my $owner = shift; $owner =~ ' . $re . '; return $owner; }';
+        my $sub = eval $body;
+        die("invalid domain pattern '$re': " .
+            ($@ ? $@ : "not an expression\n"))
+            unless !$@ && 'CODE' eq ref($sub);
+        push(@abbrevSubs, $sub);
+    }
+
     my $self = $class->SUPER::new($exe, $cache_dir, $logfile, $verify,
                                   $ignoreWhitespace);
     # The commit->changelist map is keyed by git commit SHA, which is content-
@@ -127,7 +140,7 @@ sub new
     # matter which file references it.  Keep it on $self so the (forking)
     # 'git show -s <commit>' lookup runs at most once per commit across the
     # whole annotation run instead of once per (commit, file) pair.
-    push(@$self, $mapP4, \@abbrev, $prefix, {});
+    push(@$self, $mapP4, \@abbrevSubs, $prefix, {});
     return $self;
 }
 
@@ -135,7 +148,14 @@ sub annotate_callback
 {
     my ($self, $file, $version) = @_;
 
-    my $pathname = File::Spec->catfile(@{$self->[PREFIX]}, $file);
+    # '--prefix' is a single string, not a list.
+    # Prepend it the same way 'gitversion.pm' does - only to a relative name.
+    my $pathname = $file;
+    if (defined($pathname) &&
+        defined($self->[PREFIX]) &&
+        !File::Spec->file_name_is_absolute($pathname)) {
+        $pathname = File::Spec->catfile($self->[PREFIX], $pathname);
+    }
     # if running as module, then context might be available
     my $context = '';
     eval { $context = MessageContext::context(); };
@@ -154,13 +174,13 @@ sub annotate_callback
     my $basename = basename($pathname);
     -d $dir or die("no such directory '$dir'$context");
 
-    my $null = File::Spec->devnull();
-    unless (
-          0 == system("cd $dir ; git rev-parse --show-toplevel >$null 2>&1") &&
+    my $null     = File::Spec->devnull();
+    my $gitDir   = 'git -C ' . annotateutil::shell_quote($dir);
+    my $quotedBn = annotateutil::shell_quote($basename);
+    unless (0 == system("$gitDir rev-parse --show-toplevel >$null 2>&1") &&
           0 ==
-          system("cd $dir ; git ls-files --error-unmatch $basename >$null 2>&1")
-          &&
-          open(HANDLE, "-|", "cd $dir ; git blame -e $basename 2> /dev/null")) {
+          system("$gitDir ls-files --error-unmatch -- $quotedBn >$null 2>&1") &&
+          open(HANDLE, "-|", "$gitDir blame -e -- $quotedBn 2>$null")) {
 
         # fallthrough from error conditions
         return undef;    # get from filesystem
@@ -190,7 +210,10 @@ sub annotate_callback
             if ($self->[P4]) {
                 if (!exists($changelists->{$commit})) {
                     my $sha = $commit;
-                    open(GITLOG, '-|', "cd $dir ; git show -s $commit") or
+                    open(GITLOG,
+                         '-|',
+                         "$gitDir show -s " . annotateutil::shell_quote($commit)
+                        ) or
                         die(
                          "unable to execute 'git show -s $commit'$context: $!");
                     while (my $l = <GITLOG>) {
@@ -201,7 +224,10 @@ sub annotate_callback
                             last;
                         }
                     }
-                    close(GITLOG) or die("unable to close$context");
+                    # say which command failed, and why
+                    close(GITLOG) or
+                        die("'git show -s $sha' failed$context: " .
+                            (0 == $? ? $! : 'exit status ' . ($? >> 8)) . "\n");
                     # Remember the resolved CL (or the SHA itself if no git-p4
                     # marker was found) so repeat commits skip the fork.
                     $changelists->{$sha} = $commit;
@@ -218,11 +244,10 @@ sub annotate_callback
                 $owner = $abbrev{$fullname};
             } else {
                 # compute only once...
-                foreach my $re (@{$self->[ABBREV]}) {
+                foreach my $abbrev (@{$self->[ABBREV]}) {
                     ## strip domain part for internal users...
-                    eval '$owner =~ ' . $re . ';';
-                    die("invalid domain pattern '$re'$context: $@")
-                        if $@;
+                    #  (pattern compiled once, in 'new')
+                    $owner = $abbrev->($owner);
                 }
                 $abbrev{$fullname} = $owner;
             }
@@ -250,14 +275,16 @@ sub annotate_callback
             $matched = 0;
         }
     }
-    close(HANDLE) or
-        die("unable to close git blame pipe$context: $!\n");
+    # 'close' on a pipe returns false both for an I/O error - which '$!'
+    #   describes - and for a child which exited non-zero, which it does not:
+    #   the wait status is in '$?'.  Only the first case is a reason to die
+    #   here; a failed 'git blame' is reported by returning its non-zero
+    #   status, which keeps the (possibly partial) result out of the annotate
+    #   cache and is passed on to the caller.
+    my $closed = close(HANDLE);
     my $status = $?;
-    #if (0 != $?) {
-    #    $? & 0x7F &
-    #        die("git blame died from signal ", ($? & 0x7F), "\n");
-    #    die("git blame exited with error ", ($? >> 8), "\n");
-    #}
+    die("unable to close git blame pipe$context: $!\n")
+        if !$closed && 0 == $status;
     return [$status, \@lines, $version];
 }
 

@@ -24,9 +24,13 @@
 #   md5sum is not secure - so could use sha512sum or some other program, if we
 #   really wanted to
 
+use strict;
+use warnings;
+
 use POSIX qw(strftime);
 use Getopt::Long;
 use Cwd qw(abs_path);
+use Digest::MD5;
 
 sub usage
 {
@@ -64,11 +68,14 @@ unless (-e $filename) {
     );
 }
 my $pathname = abs_path($filename);
+die("unable to resolve '$filename': $!") unless defined($pathname);
 
-#my $sum = `sha512sum $pathname`;
-my $sum = `md5sum $pathname`;
-my $rtn = $?;
-$sum =~ /^(\S+)/;
-print($1 . "\n");
-exit $rtn;
+# Hash in-process, rather than forking 'md5sum':
+# 'hexdigest' produces the same lowercase hex string that md5sum prints.
+open(my $fh, '<', $pathname) or die("unable to open '$pathname': $!");
+binmode($fh);
+my $sum = Digest::MD5->new()->addfile($fh)->hexdigest();
+close($fh);
+print($sum . "\n");
+exit 0;
 

@@ -9,7 +9,8 @@ fi
 
 source ../common.tst
 
-rm -rf *.xml* *.dat *.info *.json __pycache__ help.txt *.pyc my_cache rpt1 rpt2
+rm -rf *.xml* *.dat *.info *.json __pycache__ help.txt *.pyc my_cache rpt1 rpt2 \
+   derive
 
 clean_cover
 
@@ -231,6 +232,151 @@ if [ 0 == $? ] ; then
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi
+fi
+
+# ===========================================================================
+# Deriving function names from the indentation of the Python source
+#
+# Coverage.py reports line numbers, not functions;  py2lcov works the function
+# coverpoints out by reading the source and tracking 'def' and 'class'.  The
+# fixture below is written here rather than captured because the interesting
+# cases are all in the source text:
+#
+#   - a statement which merely starts with the letters of a keyword.
+#     'defer = 1' is not a definition of a function named 'er', and
+#     'classify = 3' is not a class named 'ify' - but both matched, because the
+#     keyword was not required to be followed by whitespace.  The first invented
+#     a function of its own and ended the enclosing one early;  the second
+#     opened a scope in the place where the function's first executable line
+#     would otherwise have been counted, which left the function reported as not
+#     hit even though its body ran.
+#   - a name which ends at ':' rather than at '('.  A class with no base list is
+#     written 'class Widget:', and the colon was taken as part of the name - so
+#     every method of it was reported as 'Widget:::method' and matched nothing.
+#   - indentation which is not made of spaces and tabs.  A form feed is legal in
+#     Python indentation (emacs writes them as page breaks) and is legal
+#     whitespace to the regexp which measures the indent, but measuring it was
+#     an 'assert' that it was a tab.
+#
+# The indentation is tabs throughout, which is also the case which used to raise
+# AttributeError before a tab was ever measured:  --tabwidth stored itself under
+# a different name from the one the translator reads.
+# ===========================================================================
+
+mkdir -p derive
+
+printf 'class Widget:\n'                        >  derive/derivefn.py
+printf '\tdef method_a(self):\n'                >> derive/derivefn.py
+printf '\t\tdefer = 1\n'                        >> derive/derivefn.py
+printf '\t\tclassification = 2\n'               >> derive/derivefn.py
+printf '\t\treturn defer + classification\n'    >> derive/derivefn.py
+printf '\n'                                     >> derive/derivefn.py
+printf '\tdef method_c(self):\n'                >> derive/derivefn.py
+printf '\t\tclassify = 3\n'                     >> derive/derivefn.py
+printf '\n'                                     >> derive/derivefn.py
+printf '\tdef method_b(self):\n'                >> derive/derivefn.py
+printf '\t\treturn 2\n'                         >> derive/derivefn.py
+printf '\n'                                     >> derive/derivefn.py
+printf 'def standalone():\n'                    >> derive/derivefn.py
+printf '\treturn 3\n'                           >> derive/derivefn.py
+printf '\n'                                     >> derive/derivefn.py
+printf 'def formfeed():\n'                      >> derive/derivefn.py
+printf '\f\treturn 4\n'                         >> derive/derivefn.py
+
+# it is only a useful fixture if it is a legal Python source
+python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' \
+    derive/derivefn.py
+if [ 0 != $? ] ; then
+    echo "the function derivation fixture is not legal Python"
+    exit 1
+fi
+
+# the data:  every line above which Coverage.py would report, with the bodies of
+#  'method_b' and 'standalone' not hit so that the two 'def' lines are expected
+#  to be turned back into 'not hit'
+cat > derive/derive.xml << 'EOF'
+<?xml version="1.0" ?>
+<coverage branch-rate="0" complexity="0" line-rate="1" version="4.4.1">
+	<sources>
+		<source>derive</source>
+	</sources>
+	<packages>
+		<package branch-rate="0" complexity="0" line-rate="1" name=".">
+			<classes>
+				<class branch-rate="0" complexity="0" filename="derivefn.py" line-rate="1" name="derivefn.py">
+					<methods/>
+					<lines>
+						<line hits="1" number="1"/>
+						<line hits="1" number="2"/>
+						<line hits="1" number="3"/>
+						<line hits="1" number="4"/>
+						<line hits="1" number="5"/>
+						<line hits="1" number="7"/>
+						<line hits="1" number="8"/>
+						<line hits="1" number="10"/>
+						<line hits="0" number="11"/>
+						<line hits="1" number="13"/>
+						<line hits="0" number="14"/>
+						<line hits="1" number="16"/>
+						<line hits="1" number="17"/>
+					</lines>
+				</class>
+			</classes>
+		</package>
+	</packages>
+</coverage>
+EOF
+
+DERIVE_RC=0
+
+# derive_failed <what> -- one of the expectations below did not hold
+derive_failed()
+{
+    echo "function derivation: $1"
+    DERIVE_RC=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+}
+
+# derive_check <info file> -- the function data the fixture has to produce
+derive_check()
+{
+    local f=$1
+    for d in \
+        'FNL:0,2,5'   'FNA:0,1,Widget::method_a' \
+        'FNL:1,7,8'   'FNA:1,1,Widget::method_c' \
+        'FNL:2,10,11' 'FNA:2,0,Widget::method_b' \
+        'FNL:3,13,14' 'FNA:3,0,standalone'       \
+        'FNL:4,16,17' 'FNA:4,1,formfeed'         \
+        'FNF:5' 'FNH:3' ; do
+        if ! grep -q "^$d\$" $f ; then
+            grep -E '^(FNL|FNA|FNF|FNH):' $f
+            derive_failed "$f: expected '$d'"
+        fi
+    done
+    # 'class Widget:' names the class 'Widget', not 'Widget:'
+    if grep -q ':::' $f ; then
+        grep ':::' $f
+        derive_failed "$f: the ':' was taken as part of a name"
+    fi
+}
+
+# the whole point of --tabwidth is that it can be set;  every indent in the
+#  fixture is whole tabs, so the width cannot change which 'def' encloses which
+for tabwidth in '' '--tabwidth 4' '--tabwidth 16' ; do
+    eval ${PYCOVER} ${PY2LCOV_TOOL} derive/derive.xml -o derive/derive.info \
+        $tabwidth
+    if [ 0 != $? ] ; then
+        derive_failed "py2lcov failed with '$tabwidth'"
+    else
+        derive_check derive/derive.info
+    fi
+done
+
+if [ 0 != $DERIVE_RC ] ; then
+    echo "function derivation tests failed"
+    exit 1
 fi
 
 

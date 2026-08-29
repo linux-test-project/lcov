@@ -10,6 +10,8 @@
 #   P4V_HAVE_OUT   - output for "p4 have <file>" (getp4version tests)
 #   P4V_OPENED_OUT - output for "p4 opened <file>" (getp4version tests)
 #   P4V_NO_SUCH    - if non-empty, "p4 files" returns "- no such file" line
+#                    ("p4 files" answers the same way if the pathname did not
+#                     arrive as a single argument)
 #
 # For P4version.pm tests the fake p4 responds to have/where/opened using
 # env vars P4V_HAVE_LINES, P4V_WHERE_LINE, P4V_OPENED_LINES.
@@ -23,7 +25,7 @@
 #   5.  File not found, no --allow-missing: dies with message
 #   6.  File not found, --allow-missing: prints empty line, exits 0
 #   7.  File in P4, p4 have gives #N: version = "#N"
-#   8.  File in P4, p4 have gives no #N match: version = "\@head"
+#   8.  File in P4, p4 have gives no #N match: version = "@head"
 #   9.  File in P4, p4 opened shows edit: version has " edited " + mtime
 #  10.  File in P4, p4 opened + --md5: version has " edited " + mtime + md5
 #  11.  File in P4, --md5 no edit: version = "#N md5:HASH"
@@ -56,6 +58,8 @@
 #  37.  compare_version: same strings -> 0 (false)
 #  38.  compare_version: differ strings -> 1 (true)
 #  39.  new() p4 have fails, empty hash -> goto done, obj defined, extract returns mtime
+#   --- getp4version, continued ---
+#  40.  A pathname containing a space is passed to p4 as one argument
 
 set +x
 
@@ -80,6 +84,11 @@ fi
 
 LCOV_LIB="$LCOV_HOME/lib"
 
+# When coverage is active, $COVER is "perl -MDevel::Cover=... ":  use it as the
+#   interpreter for the direct P4version.pm invocations, or those tests run
+#   uninstrumented and contribute no coverage at all.
+PERL="${COVER:-perl}"
+
 PASS=0
 FAIL=0
 
@@ -101,8 +110,10 @@ cat > "$MOCKDIR/p4" << 'FAKEP4'
 SUBCMD="$1"; shift
 case "$SUBCMD" in
     files)
-        if [ -n "${P4V_NO_SUCH:-}" ]; then
-            echo "$1 - no such file(s)."
+        # the pathname has to arrive as a single argument - which an unquoted
+        # path containing a space does not
+        if [ -n "${P4V_NO_SUCH:-}" ] || [ $# -ne 1 ]; then
+            echo "$* - no such file(s)."
         else
             echo "//depot/foo.c#3 - edit change 100 (text)"
         fi
@@ -159,7 +170,7 @@ run_getp4version() {
 # ---------------------------------------------------------------------------
 run_p4version_pl() {
     local pl_file="$1"; shift
-    OUTPUT=$(perl -I"$SCRIPT_DIR" -I"$LCOV_LIB" "$pl_file" "$@" 2>&1)
+    OUTPUT=$($PERL -I"$SCRIPT_DIR" -I"$LCOV_LIB" "$pl_file" "$@" 2>&1)
     RC=$?
 }
 
@@ -243,15 +254,15 @@ else
     pass "Test 7: file in P4, p4 have gives #N -> version '#N'"
 fi
 
-# Test 8: File in P4, p4 have gives no #N: version = "\@head"
+# Test 8: File in P4, p4 have gives no #N: version = "@head"
 export P4V_HAVE_OUT="//depot/foo.c - no revision info"
 run_getp4version "$TF1"
 if [ $RC -ne 0 ] ; then
     fail "Test 8 in-p4-head: expected exit 0, got $RC"
-elif [ "$OUTPUT" != '\@head' ] ; then
-    fail "Test 8 in-p4-head: expected '\@head', got: '$OUTPUT'"
+elif [ "$OUTPUT" != '@head' ] ; then
+    fail "Test 8 in-p4-head: expected '@head', got: '$OUTPUT'"
 else
-    pass "Test 8: file in P4, no #N in have output -> version '\@head'"
+    pass "Test 8: file in P4, no #N in have output -> version '@head'"
 fi
 
 # Test 9: File in P4, p4 opened shows edit: version has " edited " + mtime
@@ -867,6 +878,73 @@ else
     fail "Test 39 delete-in-hash: got: '$OUTPUT'"
 fi
 rm -f "$PL"
+
+# ===========================================================================
+# Test 40: a pathname containing a space
+#   'p4 files' runs through a shell, so an unquoted pathname with a space in it
+#   reached p4 as two arguments;  p4 answered 'no such file' and the file was
+#   reported by modification time as if it were not in perforce at all.
+# ===========================================================================
+TF40="$WORKSPACE/has space.c"
+echo "int spaced(){}" > "$TF40"
+unset P4V_NO_SUCH P4V_OPENED_OUT P4V_SUBCOMMAND_EXIT
+export P4V_HAVE_OUT="//depot/has space.c#3 - $TF40"
+run_getp4version "$TF40"
+rm -f "$TF40"
+if [ $RC -ne 0 ] ; then
+    fail "Test 40 space-in-path: expected exit 0, got $RC; got: '$OUTPUT'"
+elif [ "$OUTPUT" != "#3" ] ; then
+    fail "Test 40 space-in-path: expected '#3', got: '$OUTPUT'"
+else
+    pass "Test 40: a pathname containing a space is quoted for p4"
+fi
+
+# ===========================================================================
+# Test 41: a 'p4 have' line which does not parse
+#   Not every line p4 prints is a file:  an unexpected one has to be reported
+#   rather than silently skipped, or the version of that file is wrong.
+# ===========================================================================
+unset P4V_NO_SUCH P4V_OPENED_OUT P4V_HAVE_OUT P4V_SUBCOMMAND_EXIT
+export P4V_HAVE_LINES="//depot/foo.c - no revision here"
+export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
+export P4V_OPENED_LINES=""
+
+PL=$(mktemp --suffix=.pl)
+cat > "$PL" << 'PLEOF'
+use P4version;
+my ($depot) = @ARGV;
+eval { P4version->new($0, $depot); };
+print("died: $@") if $@;
+PLEOF
+run_p4version_pl "$PL" "$WORKSPACE"
+if echo "$OUTPUT" | grep -q "unexpected p4 have line" ; then
+    pass "Test 41: an unparsable 'p4 have' line is reported"
+else
+    fail "Test 41 bad-have-line: expected the 'p4 have' error, got: '$OUTPUT'"
+fi
+rm -f "$PL"
+
+# ===========================================================================
+# Test 42: a 'p4 opened' line which does not parse
+# ===========================================================================
+export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
+export P4V_OPENED_LINES="//depot/foo.c - opened somehow"
+
+PL=$(mktemp --suffix=.pl)
+cat > "$PL" << 'PLEOF'
+use P4version;
+my ($depot) = @ARGV;
+eval { P4version->new($0, $depot); };
+print("died: $@") if $@;
+PLEOF
+run_p4version_pl "$PL" "$WORKSPACE"
+if echo "$OUTPUT" | grep -q "unexpected 'p4 opened' line" ; then
+    pass "Test 42: an unparsable 'p4 opened' line is reported"
+else
+    fail "Test 42 bad-opened-line: expected the 'p4 opened' error, got: '$OUTPUT'"
+fi
+rm -f "$PL"
+unset P4V_HAVE_LINES P4V_OPENED_LINES
 
 # ===========================================================================
 # Summary

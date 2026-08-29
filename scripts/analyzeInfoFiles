@@ -135,7 +135,8 @@ sub new
     # Data:  filename, [TraceInfo, # info for this file
     #        list of [traceInfo, infoFileIndex] for each .info file containing this file
     #        list of regions in order: [first, last, [in], [out]]
-    my $self = [$filename, [], []];
+    #        whether the .info files disagree about this file's version
+    my $self = [$filename, [], [], 0];
     bless $self, $class;
 
     return $self;
@@ -162,6 +163,16 @@ sub regions
     return $self->[2];
 }
 
+sub versionMismatch
+{
+    # the .info files do not agree about the version of this source file, so
+    #   there is nothing to be learned by comparing their line data.  Call with
+    #   an argument to set it
+    my $self = shift;
+    $self->[3] = 1 if @_;
+    return $self->[3];
+}
+
 sub regionsBySize
 {
     my $self = shift;
@@ -178,34 +189,6 @@ sub totalRegionSize
         $size += $r->size();
     }
     return $size;
-}
-
-sub printCodeGroups
-{
-    my ($code, $nonCode, $dest) = @_;
-    if ($main::compact) {
-        print($dest '  ', buildCodeKey($code, $nonCode, $main::numInfoFiles),
-              "\n");
-    } else {
-        print($dest "\n");
-        if (%$code) {
-            if ($main::verbose) {
-                print($dest "\tcode:\n\t\t" .
-                      join("\n\t\t", hashToNames($code)) . "\n");
-            } else {
-                print($dest "\tcode:  " . join(' ', sort keys(%$code)) . "\n");
-            }
-        }
-        if (%$nonCode) {
-            if ($main::verbose) {
-                print($dest "\tnot code:\n\t\t" .
-                      join("\n\t\t", hashToNames($nonCode)) . "\n");
-            } else {
-                print($dest "\tnot code:  " .
-                      join(' ', sort keys(%$nonCode)) . "\n");
-            }
-        }
-    }
 }
 
 sub print
@@ -246,13 +229,26 @@ sub checkLineCoverageConsistency
     my $consistent = 1;
 
     my $numLines;
-    if (-f $srcfile) {
-        ($numLines) = split(' ', `wc -l $srcfile`);
+    if (-f $srcfile && open(SOURCE, '<', $srcfile)) {
+        # count the lines here rather than in a subprocess:  the name is an 'SF:'
+        #   string out of a '.info' file, so interpolating it into a shell
+        #   command both counts the wrong file when the path contains a space and
+        #   runs whatever follows a ';' or a backtick in it.  The file has to be
+        #   opened to be read at all, and counting in Perl also counts a last
+        #   line with no newline on the end of it
+        $numLines = 0;
+        ++$numLines while <SOURCE>;
+        close(SOURCE) or die("unable to close $srcfile: $!");
     } else {
         # hard way:  look through all the data to find the highest line number
+        # numeric sort, and only if there is something to sort:  a string sort
+        #   puts "9" after "100", so a file with a line number over 99 in it
+        #   would report a smaller line count than the same file without one -
+        #   and every line past that point would go unexamined
         $numLines = 0;
         foreach my $lineData (@lineCovData) {
-            my @lines   = sort $lineData->[0]->keylist();
+            my @lines = sort({ $a <=> $b } $lineData->[0]->keylist());
+            next unless @lines;
             my $largest = $lines[-1];
             $numLines = $largest
                 if $largest > $numLines;
@@ -262,7 +258,7 @@ sub checkLineCoverageConsistency
     my %currentCodeGroup;
     my %currentNonCodeGroup;
 
-    for (my $lineNo = 1; $lineNo < $numLines; ++$lineNo) {
+    for (my $lineNo = 1; $lineNo <= $numLines; ++$lineNo) {
         my %codeGroup;
         my %nonCodeGroup;
         foreach my $lineData (@lineCovData) {
@@ -442,10 +438,10 @@ foreach my $infoFile (@ARGV) {
             chomp($_);
             next
                 if ($_ eq '' ||
-                    $_ =~ /\s*#/);    # comment character
+                    $_ =~ /^\s*#/);    # comment character
             push(@infoFileArray, $_);
         }
-        close(INPUT);
+        close(INPUT) or die("Error: unable to close $infoFile: $!\n");
     }
 }
 
@@ -490,14 +486,15 @@ foreach my $f (@infoFileArray) {
                 (defined($fv) && defined($v) && $fv ne $v)) {
                 # versions don't match - so don't bother to check for matching
                 #  line coverage data
+                # name the .info file rather than its index
                 print("Error: version mismatch for $src between:\n\t" .
-                      $traces->[0]->[1] . ": " .
-                      ($v ? $v : 'undef') . "\n\t" .
+                      $infoFileArray[$traces->[0]->[1]] . ": " .
+                      (defined($v) ? $v : 'undef') . "\n\t" .
                       $f . ": " .
-                      ($fv ? $fv : 'undef') . "\n");
+                      (defined($fv) ? $fv : 'undef') . "\n");
                 $status = 1;
-                # version mismatch - so don't bother checking data for this file
-                next;
+                # record the trace anyway, and skip only the data comparison:
+                $sourceFileData->versionMismatch(1);
             }
         }
         push(@$traces, [$fInfo, $idx]);
@@ -553,6 +550,8 @@ exit($status) unless defined($keep_going) || $status == 0;
 foreach my $srcfile (sort keys %sourceFiles) {
 
     my $srcData = $sourceFiles{$srcfile};
+    # the version mismatch was reported when the data was read
+    next if $srcData->versionMismatch();
     if (!$srcData->checkLineCoverageConsistency()) {
         $status = 1;
     }

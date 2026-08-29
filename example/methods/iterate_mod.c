@@ -1,7 +1,7 @@
 /*
  *  methods/iterate_mod.c
  *  
- *  identical to 'iterate.c', but with some trivial code changs to create
+ *  identical to 'iterate.c', but with some trivial code changes to create
  *  differences - for differential coverage report.
  *
  */

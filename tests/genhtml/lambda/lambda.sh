@@ -28,6 +28,18 @@ elif [ "${VER[0]}" == 5 ] ; then
     IGNORE="--ignore format"
 fi
 
+# The capture below turns function end line derivation off - deriving the end
+#   line of a lambda is exactly what cannot be done reliably, which is what this
+#   test is about.  gcov older than 9 does not report end lines either, so no
+#   function in the data has one at all, and the 'region' filter which geninfo
+#   applies by default needs them to exclude a function body.  lcov reports that
+#   combination as an error rather than a warning precisely because derivation
+#   was disabled - see 'derive_function_end_line' in the lcovrc man page - so on
+#   those compilers the error is the expected answer and not a failure.
+if [ "${VER[0]}" -lt 9 ] ; then
+    IGNORE="$IGNORE --ignore unsupported"
+fi
+
 if ! type ${CXX} >/dev/null 2>&1 ; then
         echo "Missing tool: ${CXX}" >&2
         exit 2

@@ -141,6 +141,7 @@ if [ 'x' == "x$GENHTML_TOOL" ] ; then
     GENHTML_TOOL=${LCOV_HOME}/bin/genhtml
     LCOV_TOOL=${LCOV_HOME}/bin/lcov
     GENINFO_TOOL=${LCOV_HOME}/bin/geninfo
+    GENPNG_TOOL=${LCOV_HOME}/bin/genpng
     SPREADSHEET_TOOL=${SCRIPT_DIR}/spreadsheet.py
     LLVM2LCOV_TOOL=${LCOV_HOME}/bin/llvm2lcov
     PERL2LCOV_TOOL=${LCOV_HOME}/bin/perl2lcov
@@ -245,6 +246,37 @@ fi
 CRITERIA=${SCRIPT_DIR}/criteria
 SELECT=${SCRIPT_DIR}/select.pm
 
+function check_tla_css()
+{
+    # $1 = a genhtml report directory.  Zero if every differential-category class
+    #   which any page in the report uses has a rule in that report's stylesheet.
+    # A class with no rule is a silent failure:  the cell renders as ordinary
+    #   text, in a column whose whole purpose is the color, and nothing warns.
+    #   The list of categories which can appear in the data is not the list which
+    #   is presented - an unreachable coverpoint is categorized 'ECC'/'EUC'
+    #   whether or not there is a baseline to compare against - so this is worth
+    #   asserting of any report rather than of one option combination
+    local dir=$1
+    local css=$dir/gcov.css
+    if [ ! -f "$css" ] ; then
+        echo "check_tla_css: no stylesheet in '$dir'"
+        return 1
+    fi
+    local rc=0
+    local class
+    for class in `find $dir -name '*.html' -print0 |
+                  xargs -0 --no-run-if-empty grep -h -o -E 'class="[^"]+"' |
+                  sed -e 's/class="//' -e 's/"$//' | tr ' ' '\n' |
+                  grep -E '^tla(Bg)?[A-Z]' | sort -u` ; do
+        if ! grep -E -q "(^|[[:space:]])(td|span|a)\.$class([^A-Za-z0-9]|\$)" \
+            $css ; then
+            echo "check_tla_css: no rule for '$class' in '$css'"
+            rc=1
+        fi
+    done
+    return $rc
+}
+
 function clean_cover()
 {
     if [ "x$COVER" != 'x' ] && [ 0 != $LOCAL_COVERAGE ] ; then
@@ -266,7 +298,7 @@ function generate_coverage()
     echo "Generating coverage report for $TESTNAME"
     if [ "$PYCOV_COVERAGE" == 1 ] ; then
 	echo ${LCOV_HOME}/bin/py2lcov -o pycov.info --test-name $TESTNAME --version-script $GET_VERSION $PYCOV_DB
-	${LCOV_HOME}/bin/py2lcov -o pycov.info --test-name TESTNAME --version-script $GET_VERSION $PYCOV_DB
+	${LCOV_HOME}/bin/py2lcov -o pycov.info --test-name $TESTNAME --version-script $GET_VERSION $PYCOV_DB
 	INFO_FILES="$INFO_FILES pycov.info"
     fi
     if [ 0 != "$LOCAL_COVERAGE" ] ; then

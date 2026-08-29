@@ -122,10 +122,12 @@ $repo = Cwd::realpath($repo);
 
 die("unexpected '/' at end of '$repo'") if substr($repo, -1) eq '/';
 
-my $cmd = "cd $repo ; git diff $ignore_whitespace $base_sha $current_sha";
+my @cmd = ('git', '-C', $repo, 'diff');
+push(@cmd, $ignore_whitespace) if $ignore_whitespace;
+push(@cmd, $base_sha, $current_sha);
 
-open(HANDLE, "-|", $cmd) or
-    die("failed to exec git diff: $!");
+open(HANDLE, "-|", @cmd) or
+    die("failed to exec '" . join(' ', @cmd) . "': $!");
 
 my $includeCurrentFile;
 my %allFiles;
@@ -162,17 +164,22 @@ while (<HANDLE>) {
             # key by the short (git-relative) path so the ls-tree pass can
             # recognise this file as already-changed
             $allFiles{$shortB} = $shortA;
-            $line =~ s/($fileA|$fileB)/$1/g;
         }
     }
 
     printf("%s\n", $line)
         if $includeCurrentFile;
 }
-close(HANDLE) or die("failed to close git diff pipe: $!");
-if (0 != $?) {
-    $? & 0x7F && die("git diff died from signal ", ($? & 0x7F), "\n");
-    die("git diff exited with error ", ($? >> 8), "\n");
+# 'close' on a pipe returns false for a child which exited non-zero as well as
+#   for an I/O error, and '$!' describes only the latter - the wait status is in
+#   '$?'.  The '0 != $?' block which used to follow was unreachable, because the
+#   'die' above it always fired first and blamed a stale errno.
+unless (close(HANDLE)) {
+    my $status = $?;
+    die("failed to close git diff pipe: $!\n") if 0 == $status;
+    die("git diff died from signal " . ($status & 0x7F) . "\n")
+        if $status & 0x7F;
+    die("git diff exited with error " . ($status >> 8) . "\n");
 }
 
 exit 0 if defined($suppress_unchanged);
@@ -180,9 +187,8 @@ exit 0 if defined($suppress_unchanged);
 # now find the list of files in the current SHA - we can process that
 #  to find the list of all current files which were unchanged since the
 #  baseline SHA
-die("failed to exec git ls-tree")
-    unless (
-      open(HANDLE, "-|", "cd $repo ; git ls-tree -r --name-only $current_sha"));
+my @lsCmd = ('git', '-C', $repo, 'ls-tree', '-r', '--name-only', $current_sha);
+open(HANDLE, '-|', @lsCmd) or die("failed to exec git ls-tree: $!");
 
 while (<HANDLE>) {
     chomp($_);
@@ -194,13 +200,16 @@ while (<HANDLE>) {
         # above; skip it here so changed files are not re-emitted as unchanged.
     if (!exists($allFiles{$_}) &&
         include_me($path, \@include_patterns, \@exclude_patterns)) {
-        printf("diff --git $path $path\n");
-        printf("=== $path\n");
+        print("diff --git $path $path\n");
+        print("=== $path\n");
     }
 }
-close(HANDLE) or die("failed to close git ls-tree pipe: $!");
-if (0 != $?) {
-    $? & 0x7F && die("git ls-tree died from signal ", ($? & 0x7F), "\n");
-    die("git ls-tree exited with error ", ($? >> 8), "\n");
+# see the 'git diff' close above
+unless (close(HANDLE)) {
+    my $status = $?;
+    die("failed to close git ls-tree pipe: $!\n") if 0 == $status;
+    die("git ls-tree died from signal " . ($status & 0x7F) . "\n")
+        if $status & 0x7F;
+    die("git ls-tree exited with error " . ($status >> 8) . "\n");
 }
 exit 0;

@@ -168,7 +168,7 @@ LCOV_INLINE int BranchElement::merge(const BranchElement& that, const std::strin
     } else {
         if (taken_ == 0 && that.taken_ != 0)
             changed = 1;
-        taken_ += that.taken_;
+        taken_ = lcov::add_sat(taken_, that.taken_);
     }
     if (that.excluded_)
         excluded_ = true;

@@ -137,15 +137,18 @@ sub annotate_callback
     my $null = File::Spec->devnull();    # more portable
     my @lines;
     my $status;
+    # p4 commands called through shell - so path needs to be quoted, lest it
+    #   contain spaces or weird characters
+    my $quotedPath = annotateutil::shell_quote($pathname);
     # Existence check.
     # the file is considered present iff 'p4 files' emitted at least one line
     # that does not contain the "- no such file" marker.
     my $in_p4 = grep { !/- no such file/ }
-        split(/\n/, `p4 files $pathname 2>$null`);
+        split(/\n/, `p4 files $quotedPath 2>$null`);
     if ($in_p4) {
         # this file is in p4..
         my $version;
-        my $have = `p4 have $pathname`;
+        my $have = `p4 have $quotedPath`;
         if ($have =~ /#([0-9]+) - /) {
             $version = "#$1";
         } else {
@@ -155,7 +158,7 @@ sub annotate_callback
 
         # check if this file is open in the current sandbox...
         #  redirect stderr because p4 print "$path not opened on this client" if file not opened
-        my $opened = `p4 opened $pathname 2>$null`;
+        my $opened = `p4 opened $quotedPath 2>$null`;
         my %localAdd;
         my %localDelete;
         my ($localChangeList, $owner, $now);
@@ -169,7 +172,7 @@ sub annotate_callback
                 ;    # assume changes happened when file was last modified
 
             # what is different in the local file vs the one we started with
-            if (open(PIPE, "-|", "p4 diff $pathname")) {
+            if (open(PIPE, "-|", "p4 diff $quotedPath")) {
                 my $line = <PIPE>;    # eat first line
                 die("unexpected content '$line'")
                     unless $line =~ m/^==== /;
@@ -195,11 +198,21 @@ sub annotate_callback
                             unless $line =~ m/^---$/;
                     }
                 }
-                close(PIPE) or die("unable to close p4 diff pipe: $!\n");
-                if (0 != $?) {
-                    ($? & 0x7F) &&
-                        die("p4 pipe died from signal ", ($? & 0x7F), "\n");
-                    die("p4 pipe exited with error ", ($? >> 8), "\n");
+                # 'close' on a pipe returns false for a child which exited
+                #   non-zero as well as for an I/O error, and '$!' describes
+                #   only the latter - the wait status is in '$?'.  The
+                #   '0 != $?' block which used to follow was unreachable,
+                #   because the 'die' above it always fired first and reported
+                #   whatever irrelevant errno happened to be left in '$!'.
+                unless (close(PIPE)) {
+                    my $diffStatus = $?;
+                    die("unable to close p4 diff pipe: $!\n")
+                        if 0 == $diffStatus;
+                    die("'p4 diff $pathname' died from signal " .
+                        ($diffStatus & 0x7F) . "\n")
+                        if $diffStatus & 0x7F;
+                    die("'p4 diff $pathname' exited with error " .
+                        ($diffStatus >> 8) . "\n");
                 }
             } else {
                 die("unable to open pipe to p4 diff $pathname");
@@ -213,7 +226,11 @@ sub annotate_callback
         # -q: quiet - suppress the 1-line header for each line
         my $annotateLineNo = 1;
         my $emitLineNo     = 1;
-        if (open(HANDLE, "-|", "p4 annotate -Iucq $pathname$version")) {
+        if (open(HANDLE,
+                 "-|",
+                 "p4 annotate -Iucq " .
+                     annotateutil::shell_quote($pathname . $version)
+        )) {
             while (my $line = <HANDLE>) {
 
                 if (exists $localDelete{$annotateLineNo++}) {
@@ -260,8 +277,15 @@ sub annotate_callback
                     unless (!%localAdd ||
                             exists($localAdd{$emitLineNo}));
             }
-            close(HANDLE) or die("unable to close p4 annotate pipe: $!\n");
+            # see the 'p4 diff' close above:  '$!' does not describe a child
+            #   which exited non-zero.  Here a non-zero status is not fatal -
+            #   it is returned to the caller, which keeps the result out of the
+            #   annotate cache - so only a genuine close error dies.  The '$?'
+            #   read used to be unreachable whenever it was interesting.
+            my $closed = close(HANDLE);
             $status = $?;
+            die("unable to close p4 annotate pipe: $!\n")
+                if !$closed && 0 == $status;
 
             return [$status, \@lines, $version];
         }

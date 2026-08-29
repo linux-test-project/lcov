@@ -19,6 +19,8 @@ rm -rf *.gcda *.gcno a.out out.info out2.info *.txt* *.json dumper* testRC *.gco
     tn_inside.info nested_sf.info no_eor.info comments*.info \
     junk_in_section.info no_tag.info bad_payload.info ignored.info crlf.info \
     skip_brda.info skip_mcdc.info skip_fn.info skip_place.info \
+    canon.info sat.info notacount.info \
+    tn.info chk.info chksrc.c \
     *_out.info
 
 clean_cover
@@ -745,6 +747,365 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+#
+# Count canonicalization, and the XS/pure-Perl agreement that depends on it.
+#
+# A count field is an integer of a bounded width - the XS implementation stores
+# it in an int64 - but the reader used to accept anything
+# Scalar::Util::looks_like_number would take and, in pure Perl, store it
+# verbatim.  So the same tracefile produced different numbers depending on
+# whether XSLoader::load had succeeded:
+#
+#   - '1.5' was stored as 1 by XS and as 1.5 by pure Perl
+#   - '1.67e+20' was clamped by XS and written back out by pure Perl AS
+#     '1.67e+20', a count field the format does not have
+#   - '-0' was normalized to 0 by XS and kept as '-0' by pure Perl
+#   - 'nan' and 'inf' pass looks_like_number and fail no test below it: in XS the
+#     narrowing conversion turned either into INT64_MIN, which for a branch was
+#     the '-' (not evaluated) marker
+#   - merging two counts near the top of the range overflowed in XS (undefined
+#     behaviour) and promoted to a float in pure Perl
+#
+# Each case below is checked two ways.  Against the value it must produce, which
+# is what the reader owes its caller;  and against the other backend, byte for
+# byte in both the tracefile and the diagnostics, because "which numbers are
+# right" is not a question a user can be asked to answer by rebuilding.
+#
+# The comparison legs are skipped when XS is not built (both legs would be pure
+# Perl and would trivially agree), but the value assertions run either way.
+#
+
+CANON_OPTS="$PARALLEL $PROFILE --branch-coverage --mcdc-coverage"
+
+XS_BUILT=`perl -I$LCOV_HOME/lib -e 'use lcovutil; print $lcovutil::XS_LOADED ? 1 : 0;' 2>/dev/null`
+
+# run one input under both backends; on return $can_out holds the XS (or, when
+# XS is not built, the only) tracefile and $can_log its diagnostics
+run_both()
+{
+    local name="$1" ; shift
+
+    can_out=${name}_out.info
+    can_log=${name}.log
+    rm -f $can_out ${name}_pp_out.info
+
+    $COVER $LCOV_TOOL $CANON_OPTS -o $can_out "$@" 2>&1 | tee $can_log
+    can_rc=${PIPESTATUS[0]}
+
+    if [ "$XS_BUILT" == "1" ] ; then
+        LCOV_PURE_PERL=1 $COVER $LCOV_TOOL $CANON_OPTS -o ${name}_pp_out.info \
+            "$@" 2>&1 | tee ${name}_pp.log
+        if [ "${PIPESTATUS[0]}" != "$can_rc" ] ; then
+            echo "Error:  '$name' exit status differs between backends:" \
+                 "XS=$can_rc pure-Perl=${PIPESTATUS[0]}"
+            if [ $KEEP_GOING == 0 ] ; then
+                exit 1
+            fi
+        fi
+        diff $can_out ${name}_pp_out.info
+        if [ 0 != $? ] ; then
+            echo "Error:  '$name' tracefile differs between XS and pure Perl"
+            if [ $KEEP_GOING == 0 ] ; then
+                exit 1
+            fi
+        fi
+        # the diagnostics are compared as well as the data:  a file which one
+        #  backend complains about and the other accepts is the same defect.
+        #  The only licensed difference is the name of the file being written,
+        #  which the two legs cannot share.
+        sed -e "s/${name}_pp_out\.info/${name}_out.info/" ${name}_pp.log \
+            > ${name}_pp_cmp.log
+        diff $can_log ${name}_pp_cmp.log
+        if [ 0 != $? ] ; then
+            echo "Error:  '$name' diagnostics differ between XS and pure Perl"
+            if [ $KEEP_GOING == 0 ] ; then
+                exit 1
+            fi
+        fi
+    fi
+}
+
+# every one of these records is 'a number' by looks_like_number, and none of
+#  them is a count the .info format can carry
+cat > canon.info <<'EOF'
+TN:test_a
+SF:test.c
+DA:2,1.5
+DA:3,1.67e+20
+DA:4,-0
+BRDA:2,0,0,1.5
+BRDA:2,0,1,9223372036854775808
+BRDA:2,0,2,-0
+MCDC:3,2,t,99999999999999999999999,0,a
+MCDC:3,2,f,1,1,b
+end_of_record
+EOF
+
+# 'empty' is ignored throughout this section: these inputs carry no function
+#  data, which is a cover type that is on by default
+run_both canon -a canon.info --ignore empty,empty
+if [ 0 != $can_rc ] ; then
+    echo "Error:  unexpected error reading canon.info"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# truncated toward zero, clamped at 9223372036854775807, and '-0' is 0 - with no
+#  diagnostic, because none of these is out of range for the format, only for
+#  the field width
+for EXPECT in 'DA:2,1' 'DA:3,9223372036854775807' 'DA:4,0' \
+              'BRDA:2,0,0,1' 'BRDA:2,0,1,9223372036854775807' 'BRDA:2,0,2,0' \
+              'MCDC:3,2,t,9223372036854775807,0,a' ; do
+    grep -qxF "$EXPECT" $can_out
+    if [ 0 != $? ] ; then
+        echo "Error:  canon.info output is missing '$EXPECT':"
+        cat $can_out
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+# and nothing was written that is not an integer
+grep -E '^(DA|BRDA|MCDC):.*[.eE+]' $can_out
+if [ 0 == $? ] ; then
+    echo "Error:  canon.info output has a non-integer count:"
+    cat $can_out
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# merging two counts at the top of the range.  Reading either file on its own
+#  needs no arithmetic;  it is the merge which used to overflow.
+cat > sat.info <<'EOF'
+TN:test_a
+SF:test.c
+DA:2,9223372036854775807
+DA:3,9223372036854775807
+BRDA:2,0,0,9223372036854775807
+BRDA:2,0,1,9223372036854775807
+MCDC:3,2,t,9223372036854775807,0,a
+MCDC:3,2,f,9223372036854775807,1,b
+end_of_record
+EOF
+
+run_both sat -a sat.info -a sat.info --ignore empty,empty
+if [ 0 != $can_rc ] ; then
+    echo "Error:  unexpected error merging sat.info with itself"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# held at the top of the range rather than wrapping negative (XS) or turning
+#  into 1.8446744073709552e+19 (pure Perl)
+for EXPECT in 'DA:2,9223372036854775807' 'DA:3,9223372036854775807' \
+              'BRDA:2,0,0,9223372036854775807' \
+              'BRDA:2,0,1,9223372036854775807' \
+              'MCDC:3,2,t,9223372036854775807,0,a' \
+              'MCDC:3,2,f,9223372036854775807,1,b' ; do
+    grep -qxF "$EXPECT" $can_out
+    if [ 0 != $? ] ; then
+        echo "Error:  saturating merge produced the wrong count, expected '$EXPECT':"
+        cat $can_out
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+
+# 'nan' and 'inf' - numbers by looks_like_number, not counts
+cat > notacount.info <<'EOF'
+TN:test_a
+SF:test.c
+DA:2,nan
+DA:3,inf
+BRDA:2,0,0,nan
+BRDA:2,0,1,inf
+end_of_record
+EOF
+
+# reported, and reported as a format error rather than as anything to do with
+#  the value's sign or size
+$COVER $LCOV_TOOL $CANON_OPTS --summary notacount.info 2>&1 | tee notacount.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected a format error for a 'nan' count"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -qF "non-integer hit count 'nan'" notacount.log
+if [ 0 != $? ] ; then
+    echo "Error:  missing 'non-integer hit count' message:"
+    cat notacount.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# ...and when the user chooses to accept the file anyway, the count is zero in
+#  both backends - not INT64_MIN, and for a branch not the '-' marker
+#  'format' is named only once, so the warnings are printed rather than merely
+#  counted
+run_both notacount_ignore -a notacount.info --ignore empty,empty,format
+if [ 0 != $can_rc ] ; then
+    echo "Error:  unexpected error reading notacount.info with 'format' ignored"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# the first error above aborts the read, so the remaining records are only
+#  visible on this leg.  All four are reported, and all four as 'format'.
+for MSG in "non-integer hit count 'nan'" "non-integer hit count 'inf'" \
+           "non-integer taken count 'nan'" "non-integer taken count 'inf'" ; do
+    grep -qF "$MSG" $can_log
+    if [ 0 != $? ] ; then
+        echo "Error:  missing message \"$MSG\":"
+        cat $can_log
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+for EXPECT in 'DA:2,0' 'DA:3,0' 'BRDA:2,0,0,0' 'BRDA:2,0,1,0' ; do
+    grep -qxF "$EXPECT" $can_out
+    if [ 0 != $? ] ; then
+        echo "Error:  a rejected count should be 0, expected '$EXPECT':"
+        cat $can_out
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+
+#
+# What the diagnostics say.
+#
+# Each of the three below is a message a user reads in order to find out which of
+# two versions of a file they are looking at, or what the name of their testcase
+# has become.  The message is the whole of the fix, so the message is what is
+# asserted - none of these changes any data.
+#
+# 1. '--checksum' against a line the source file does not have.  The range
+#    message is built around a noun for the kind of coverpoint whose line number
+#    is out of range, and that noun is optional - the caller which hashes a 'DA:'
+#    record does not pass one.  With no default it produced two 'uninitialized
+#    value' warnings out of the library and then a message with a hole where the
+#    noun belongs.
+# 2. the checksum mismatch itself, which read 'mismatch at between source' - the
+#    words of two versions of the message, run together.
+# 3. the 'TN:' record whose testcase name contains a character which cannot
+#    appear in one.  The character is replaced and the replacement reported,
+#    because the name in the report is then not the name the user wrote.  The
+#    report was built at end of file out of the name in force there, which is
+#    whatever the LAST 'TN:' record set:  in a tracefile with more than one
+#    section it named a substitution which had never been made.
+#
+
+printf 'line one\nline two\nline three\n' > chksrc.c
+
+# line 1's checksum is simply wrong, and line 99 is not a line of the file - the
+#  reader hashes 'no such line' as 0 - so one input reaches both messages
+cat > chk.info <<'EOF'
+TN:test_a
+SF:chksrc.c
+DA:1,1,AAAAAAAAAAAAAAAAAAAAAA
+DA:99,1,BBBBBBBBBBBBBBBBBBBBBB
+LF:2
+LH:2
+end_of_record
+EOF
+
+# 'version' and 'range' are each named once, so both messages are printed rather
+#  than merely counted
+$COVER $LCOV_TOOL $BASE_OPTS --summary chk.info --checksum \
+    --ignore version,range,empty,empty 2>&1 | tee chk.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error reading chk.info"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+for MSG in \
+    "checksum mismatch between source chksrc.c:1 and chk.info: AAAAAAAAAAAAAAAAAAAAAA -> " \
+    "unknown line '99' in chksrc.c: there are only 3 lines in the file." ; do
+    grep -qF "$MSG" chk.log
+    if [ 0 != $? ] ; then
+        echo "Error:  wrong or missing '--checksum' message; expected:"
+        echo "  $MSG"
+        cat chk.log
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+# the noun is 'line', not nothing, and getting there does not warn on the way
+for NOT in 'mismatch at between' 'unknown  at line' 'uninitialized value' ; do
+    grep -qF "$NOT" chk.log
+    if [ 0 == $? ] ; then
+        echo "Error:  chk.log contains '$NOT':"
+        cat chk.log
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+
+# two sections, and only the first one's 'TN:' record has a character in it which
+#  has to be replaced
+cat > tn.info <<'EOF'
+TN:bad name
+SF:test.c
+DA:2,7
+LF:1
+LH:1
+end_of_record
+TN:goodname
+SF:other.c
+DA:1,9
+LF:1
+LH:1
+end_of_record
+EOF
+
+$COVER $LCOV_TOOL $BASE_OPTS -o tn_out.info -a tn.info \
+    --ignore empty,empty 2>&1 | tee tn.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error reading tn.info"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+MSG="invalid characters removed from testname in tracefile tn.info: 'bad name'->'bad_name'"
+grep -qF "$MSG" tn.log
+if [ 0 != $? ] ; then
+    echo "Error:  wrong or missing testname message; expected:"
+    echo "  $MSG"
+    cat tn.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# the name of the OTHER section is not what 'bad name' was replaced by
+grep -qF "goodname'" tn.log
+if [ 0 == $? ] ; then
+    echo "Error:  the testname message names a section it is not about:"
+    cat tn.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# ..and the name the message reports is the name the data is written under
+for EXPECT in 'TN:bad_name' 'TN:goodname' ; do
+    grep -qxF "$EXPECT" tn_out.info
+    if [ 0 != $? ] ; then
+        echo "Error:  tn.info output is missing '$EXPECT':"
+        cat tn_out.info
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
 
 echo "Tests passed"
 

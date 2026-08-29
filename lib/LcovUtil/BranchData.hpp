@@ -31,6 +31,8 @@
 #include <stdexcept>
 #include <functional>
 
+#include "CountArith.hpp"
+
 // ---------------------------------------------------------------------------
 // Error reporting callback
 // ---------------------------------------------------------------------------
@@ -48,7 +50,16 @@ class BranchElement {
 public:
     enum Type { VANILLA = 0, EXCEPT = 1, FALLTHROUGH = 2 };
 
-    static const int64_t DASH = INT64_MIN;
+    // The '-' (branch not evaluated) marker of the '.info' BRDA record, held in
+    // the same field as a real count.  Deliberately NOT INT64_MIN: that is the
+    // value a narrowing conversion produces for a double which is out of range,
+    // NaN, or infinite, so a count field which is not a count at all used to
+    // arrive here indistinguishable from '-'.  The readers now reject those
+    // (see validate_taken), and lcov::add_sat keeps every merge result in
+    // [0, MAX_COUNT], so no arithmetic and no conversion can land on this
+    // value -- which is the property the field depends on, not the particular
+    // number chosen.
+    static const int64_t DASH = INT64_MIN + 1;
 
     BranchElement() = default;
     BranchElement(int32_t id, int64_t taken, std::string expr, Type type,

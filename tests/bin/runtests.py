@@ -344,11 +344,11 @@ class TestRunner:
             return
         
         fieldWidth = 35
-        name = result.name + ' '
-        if len(name) >= fieldWidth:
-            name = '...' + name[-(fieldWidth-2):-1]
-        
-        name_field = f"{name}{'.' * (fieldWidth - len(name))}"
+        name = result.name
+        if len(name) > fieldWidth:
+            name = '...' + name[-(fieldWidth-3):]
+        else:
+            name += '.' * (fieldWidth - len(name))
         
         if result.result == 'pass':
             color = GREEN
@@ -367,7 +367,7 @@ class TestRunner:
             timing += ")"
         
         with self.print_lock:
-            print(f"{name_field} [{color}{result.result}{RESET}]{timing}")
+            print(f"{name} [{color}{result.result}{RESET}]{timing}")
     
     def merge_logs(self):
         """Merge all per-test logs into single test.log."""

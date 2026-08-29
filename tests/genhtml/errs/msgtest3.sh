@@ -183,6 +183,23 @@ for ignore in '' '--ignore package' ; do
             exit 1
 	fi
     fi
+    # the error is reported exactly once:  'configure_callback' catches the die
+    #   which the report above raised, and used to report it a second time
+    #   wrapped inside a 'unable to create callback' message of its own
+    COUNT=`grep -c "implements 'save' but not 'restore'" missingRestore.log`
+    if [ 1 != "$COUNT" ] ; then
+	echo "ERROR: missingRestore message appears $COUNT times"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
+    grep "unable to create callback" missingRestore.log
+    if [ 0 == $? ] ; then
+	echo "ERROR: missingRestore message wrapped in a second message"
+	if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+	fi
+    fi
 done
 
 
@@ -274,7 +291,7 @@ fi
 echo genhtml $DIFFCOV_OPTS initial.info -o highlight --highlight
 $COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info --annotate $ANNOTATE_SCRIPT --highlight -o highlight 2>&1 | tee highlight.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
-    echo "ERROR: missed decprecated error"
+    echo "ERROR: missed deprecated error"
     if [ 0 == $KEEP_GOING ] ; then
         exit 1
     fi

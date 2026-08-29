@@ -37,6 +37,8 @@
 #  23.  --local-change (via .pm), file clean -> no "edited" in output
 #  24.  new() via .pm returns undef for bad option (not standalone)
 #  25.  git log returns no output for file -> falls to not-in-git mtime path
+#  26.  Repo path containing a space (via .pm): SHA when clean, and
+#       "SHA ... edited" when the file has an uncommitted change
 #
 
 set +x
@@ -423,11 +425,14 @@ fi
 
 # Inline Perl helper that calls extract_version, printing the result.
 # Usage:  perl_extract SCRIPT_DIR flags... -- filepath
+# When coverage is active, $COVER is "perl -MDevel::Cover=... ", so use it in
+#   place of 'perl':  the code these tests reach is only reachable through the
+#   module, and would otherwise not be counted.
 perl_gitversion_extract() {
     local sdir="$1" ; shift
     local file="${@: -1}"   # last argument
     local flags=("${@:1:$#-1}")
-    perl -I"$sdir" -e "
+    ${COVER:-perl} -I"$sdir" -e "
 use gitversion;
 my \$obj = gitversion->new(\"$sdir/gitversion\", $(printf '"%s",' "${flags[@]}") \"$file\");
 if (defined \$obj) {
@@ -509,7 +514,7 @@ fi
 # Test 24: gitversion.pm new() returns undef for bad option when not standalone
 #   (When called as a module, not as $0, it returns undef rather than exiting)
 # ---------------------------------------------------------------------------
-OUTPUT=$(perl -I"$SCRIPT_DIR" -e '
+OUTPUT=$(${COVER:-perl} -I"$SCRIPT_DIR" -e '
 use gitversion;
 my $obj = gitversion->new("some_other_script", "--bad-flag", "/tmp/x");
 print defined($obj) ? "defined" : "undef";
@@ -550,6 +555,54 @@ elif ! echo "$OUTPUT" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' ; then
 else
     pass "Test 25: untracked file in git repo -> falls through to mtime timestamp"
 fi
+
+# ---------------------------------------------------------------------------
+# Test 26: a repo whose path contains a space, with --local-change
+#   Each git command is a string handed to a shell, so an unquoted path with a
+#   space in it is several arguments.  The failure is silent in both
+#   directions: 'git log' with a bad path prints nothing, which looks exactly
+#   like a file that is not in git, so the version becomes an mtime; and the
+#   local-change check runs 'git diff' with the same bad path and finds no
+#   difference, so an edited file reports as clean - the merge check the
+#   version string exists for then passes when it should not.
+#   Both halves are asserted:  the clean file has to report its SHA, and the
+#   dirty one has to report the SHA plus 'edited'.
+#   --local-change is not in the wrapper's option list (see the note at the
+#   top of this file), so this goes through the module.
+# ---------------------------------------------------------------------------
+BASE26=$(mktemp -d)
+REPO26="$BASE26/my repo"
+mkdir "$REPO26"
+git -C "$REPO26" init --quiet
+git -C "$REPO26" config user.email "alice@example.com"
+git -C "$REPO26" config user.name  "Alice"
+printf 'int main(void) { return 0; }\n' > "$REPO26/f.c"
+git -C "$REPO26" add f.c
+GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" \
+GIT_COMMITTER_DATE="2024-01-01T00:00:00+00:00" \
+    git -C "$REPO26" commit --quiet -m "path with a space"
+SHA26=$(git -C "$REPO26" rev-parse HEAD)
+
+OUTPUT=$(perl_gitversion_extract "$SCRIPT_DIR" "--local-change" "$REPO26/f.c")
+RC=$?
+if [ $RC -ne 0 ] ; then
+    fail "Test 26 space-clean: perl error; got: $OUTPUT"
+elif [ "SHA $SHA26" != "$OUTPUT" ] ; then
+    fail "Test 26 space-clean: expected 'SHA $SHA26', got: $OUTPUT"
+else
+    # ..and now the same file, modified but not committed
+    printf 'int main(void) { return 1; }\n' > "$REPO26/f.c"
+    OUTPUT=$(perl_gitversion_extract "$SCRIPT_DIR" "--local-change" "$REPO26/f.c")
+    RC=$?
+    if [ $RC -ne 0 ] ; then
+        fail "Test 26 space-dirty: perl error; got: $OUTPUT"
+    elif ! echo "$OUTPUT" | grep -q "^SHA $SHA26 edited " ; then
+        fail "Test 26 space-dirty: expected 'SHA $SHA26 edited <mtime>', got: $OUTPUT"
+    else
+        pass "Test 26: a repo path containing a space reports SHA and local change"
+    fi
+fi
+rm -rf "$BASE26"
 
 # ===========================================================================
 # Summary

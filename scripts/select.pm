@@ -17,7 +17,7 @@
 #   <http://www.gnu.org/licenses/>.
 #
 #
-# select.pm [--tla tla[,tla]*]* [--range min_days:mex_days] \
+# select.pm [--tla tla[,tla]*]* [--range min_days:max_days] \
 #    [--owner regexp]* [--(sha|cl) id]* line_data annotate_data
 #
 #   This is a sample 'genhtml --select-script' callback - used to decide
@@ -131,8 +131,11 @@ EOF
         return undef;
     }
     my @plaintext = ([], [], []);
+    # '--separator' is a character - so needs to quoted -
+    #   otherwise '--separator |' splits between every character
+    my $delimPattern = quotemeta($delim);
     # precompile:
-    @sha = split($delim, join($delim, @sha));
+    @sha = split($delimPattern, join($delim, @sha));
     foreach my $d (['owner', OWNER, \@owner], ['sha', SHA, \@sha]) {
 
         my ($name, $idx, $list) = @$d;
@@ -146,11 +149,14 @@ EOF
             }
         }
     }
-    @tla   = split($delim, join($delim, @tla));
-    @range = split($delim, join($delim, @range));
+    @tla   = split($delimPattern, join($delim, @tla));
+    @range = split($delimPattern, join($delim, @range));
     foreach my $tla (@tla) {
+        # an exact match:  'select' compares with 'eq', so a name which is
+        #   merely a substring of a TLA would pass validation and then never
+        #   match anything
         die("invalid tla '$tla' in \"$exe " . join(' ', @args) . '"')
-            unless grep(/$tla/, keys(%lcovutil::tlaColor));
+            unless exists($lcovutil::tlaColor{$tla});
     }
     foreach my $range (@range) {
         my ($min, $max) = split(':', $range, 2);
@@ -175,15 +181,17 @@ EOF
         lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
                     "cannot select date/owner/SHA without '--annotate-script'");
     }
-    my @intersect = intersect(['UBC', 'GBC', 'LBC', 'CBC', 'ECB', 'EUB',
-                               'GIC', 'UIC', 'DCB', 'DUB'
-                              ],
-                              \@tla) unless @main::base_filenames;
+    my @intersect;
+    @intersect = intersect(['UBC', 'GBC', 'LBC', 'CBC', 'ECB', 'EUB',
+                            'GIC', 'UIC', 'DCB', 'DUB'
+                           ],
+                           \@tla) unless @main::base_filenames;
     lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
         "Will never see TLA other than 'UNC', 'GNC' without 'baseline' coverage data"
     ) if (@intersect);
 
-    my @intersect2 = intersect(['GNC', 'UNC', 'DCB', 'DUB'], \@tla)
+    my @intersect2;
+    @intersect2 = intersect(['GNC', 'UNC', 'DCB', 'DUB'], \@tla)
         unless $main::diff_filename;
     lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
                               "Will never see '" .

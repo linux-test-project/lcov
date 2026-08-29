@@ -315,21 +315,34 @@ our @tlaPriorityOrder = ("UNC",
                          "DUB",
                          "DCB",);
 
-# this list doesn't contain the non-displaying elements
-our @tlaOrderNoExclude = ("UNC",
-                          "LBC",
-                          "UIC",
-                          "UBC",
+# 'noBaseline' rewrites @tlaPriorityOrder down to the two legacy categories, so
+#   that array answers "in what order should these be presented" and not "what
+#   TLAs can the data still contain".  An excluded coverpoint is categorized ECC
+#   or EUC whether there is a baseline or not - the 'U' flag is carried in the
+#   '.info' file - so anything which has to be able to style or name every TLA
+#   iterates this copy instead.
+our @allTla = @tlaPriorityOrder;
 
-                          "GBC",
-                          "GIC",
-                          "GNC",
-                          "CBC",
+# Membership tables - for asking "is this TLA one of ...", not for iterating.
+#   A hash lookup is exact, and considerably cheaper.
+our %excludedCoverpointTla = ('ECC' => 1, 'EUC' => 1);
+our %excludedTla           = ('EUB' => 1, 'ECB' => 1, %excludedCoverpointTla);
+# not in the current version, so no line in the source listing
+our %deletedTla = ('DUB' => 1, 'DCB' => 1);
+# neither of those has an entry to keep in a date or owner bin
+our %unbinnedTla = (%deletedTla, %excludedCoverpointTla);
+# the TLAs which count as 'hit'
+our %hitTla = ('GBC' => 1, 'GIC' => 1, 'GNC' => 1, 'CBC' => 1);
 
-                          "EUB",
-                          "ECB",
-                          "DUB",
-                          "DCB",);
+# The same order, without the non-displaying elements - derived rather than
+#   written out again, so the two lists cannot drift apart.
+our @tlaOrderNoExclude =
+    grep({ !exists($excludedCoverpointTla{$_}) } @tlaPriorityOrder);
+our %displayedTla = map({ ($_ => 1) } @tlaOrderNoExclude);
+# The categories a count cell is colorized for:  code which is not covered now
+#   and was not already uncovered in the baseline.  Called the "concerning"
+#   categories by the summary table code.
+our %concerningTla = ('UNC' => 1, 'LBC' => 1, 'UIC' => 1);
 
 our %tlaLocation = ("UNC" => 1,
                     "LBC" => 3,
@@ -427,11 +440,9 @@ sub type2str
 
 sub _initCounts
 {
+    # the same key set the TLA list describes, rather than a third copy of it
     my %hash;
-    foreach my $key ('found', 'hit', 'GNC', 'UNC', 'CBC', 'GBC',
-                     'LBC', 'UBC', 'ECB', 'EUB', 'GIC', 'UIC',
-                     'DCB', 'DUB'
-    ) {
+    foreach my $key ('found', 'hit', @tlaOrderNoExclude) {
         $hash{$key} = 0;
     }
     return \%hash;
@@ -442,8 +453,18 @@ sub noBaseline
     # no baseline - so we will have only 'UIC' and 'GIC' code
     #   legacy display order is 'hit' followed by 'not hit'
     @tlaPriorityOrder = ('GNC', 'UNC');
-    %tlaToTitle = ('UNC' => 'Not Hit',
-                   'GNC' => 'Hit',);
+    # ..but the titles are not narrowed along with it.  This hash is keyed by
+    #   category and nothing iterates it, while the stylesheet is written for
+    #   every category the data can contain - an unreachable coverpoint is
+    #   categorized ECC or EUC whether there is a baseline or not - so overwrite
+    #   the two labels which change rather than dropping the ones still needed
+    $tlaToTitle{'UNC'} = 'Not Hit';
+    $tlaToTitle{'GNC'} = 'Hit';
+    # the two derived structures are computed once at load time, so recompute
+    #   them here rather than leaving them describing the wider list
+    @tlaOrderNoExclude =
+        grep({ !exists($excludedCoverpointTla{$_}) } @tlaPriorityOrder);
+    %displayedTla = map({ ($_ => 1) } @tlaOrderNoExclude);
 }
 
 sub setAgeGroups
@@ -452,7 +473,7 @@ sub setAgeGroups
     @cutpoints = sort({ $a <=> $b } @_);
     if (@ageGroupHeader) {
         # labels were specified by user
-        @ageGroupHeader = split($lcovutil::split_char,
+        @ageGroupHeader = split($lcovutil::split_pattern,
                                 join($lcovutil::split_char, @ageGroupHeader));
         goto done
             if (scalar(@ageGroupHeader) == scalar(@cutpoints) + 1);
@@ -840,7 +861,7 @@ sub owner_tlaCount
         foreach my $k (keys(%$hash)) {
             # count only code that can be hit (ie., not excluded)
             $total += $hash->{$k}
-                unless grep(/$k/, ('EUB', 'ECB', 'ECC', 'EUC'));
+                unless exists($excludedTla{$k});
         }
         return $total;
     } elsif ($tla eq "hit") {
@@ -1271,9 +1292,10 @@ sub selected
     my $rtn;
     eval { $rtn = $selectCallback->select(@_); };
     if ($@) {
+        my $err = lcovutil::unreported_error($@);
         $rtn = 1;    # return everything
         lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                                  "select(..) failed: $@");
+                                  "select(..) failed: $err");
     }
     return $rtn;
 }
@@ -1292,16 +1314,39 @@ sub tlaSummary
         die("unknown type $t") unless 'branch' eq $t;
         $type = BRANCH_DATA;
     }
-    my $str = '';
-    my $sep = '';
-    my $d   = $self->[$type]->[DATA];
-    foreach my $tla (@tlaOrderNoExclude) {
-        my $count = $d->{$tla};
-        next if $count == 0;
-        $str .= $sep . $tla . ':' . $count;
-        $sep = ' ';
+    my $d = $self->[$type]->[DATA];
+    return
+        join(' ',
+             map({ $_ . ':' . $d->{$_} } _nonZeroKeys($d, @tlaOrderNoExclude)));
+}
+
+sub _nonZeroKeys
+{
+    # Those of @keys which $counts has a non-zero count for, in @keys order.
+    #   A key can be missing rather than zero:  a date or owner bin holds only
+    #   the TLAs 'lineCovCount' knows about - not 'ECC' or 'EUC' - and the
+    #   whole-file counts hold whatever '_initCounts' put there.
+    my ($counts, @keys) = @_;
+    return grep({ exists($counts->{$_}) && 0 != $counts->{$_} } @keys);
+}
+
+sub _nonZeroCounts
+{
+    # Those of @keys with a non-zero count, as a hashref - or undef when there
+    #   are none, so a caller can tell 'nothing to report' from 'reported zero'.
+    my ($counts, @keys) = @_;
+    my $nonZero;
+    foreach my $k (_nonZeroKeys($counts, @keys)) {
+        $nonZero->{$k} = $counts->{$k};
     }
-    return $str;
+    return $nonZero;
+}
+
+sub _binCounts
+{
+    # The non-zero counts of one age or owner bin, or undef if it has none.
+    my $bin = shift;
+    return _nonZeroCounts($bin, @tlaPriorityOrder, 'found', 'hit');
 }
 
 sub checkCoverageCriteria
@@ -1321,18 +1366,10 @@ sub checkCoverageCriteria
     my $start = Time::HiRes::gettimeofday();
     my %data;
     foreach my $t (LINE_DATA, FUNCTION_DATA, BRANCH_DATA, MCDC_DATA) {
-        my $key = type2str($t);
-        my $d   = $self->[$t]->[DATA];
-        foreach my $k (keys %$d) {
-            # $k will be 'hit', 'found' or one of the TLAs
-            my $count = $d->{$k};
-            next if $count == 0;
-            if (exists $data{$key}) {
-                $data{$key}->{$k} = $count;
-            } else {
-                $data{$key} = {$k => $count};
-            }
-        }
+        # the keys are 'hit', 'found' and the TLAs
+        my $d      = $self->[$t]->[DATA];
+        my $counts = _nonZeroCounts($d, keys(%$d));
+        $data{type2str($t)} = $counts if $counts;
     }
     if (grep(/^date$/, @CoverageCriteria::criteriaCallbackTypes)) {
         foreach my $t (LINE_DATA, FUNCTION_DATA, BRANCH_DATA, MCDC_DATA) {
@@ -1341,23 +1378,9 @@ sub checkCoverageCriteria
             next unless exists($self->[$t]->[AGE]);
             my $ageBins = $self->[$t]->[AGE];
             foreach my $i (0 .. $#cutpoints + 1) {
-                my $bin = $ageBins->[$i];
-                foreach my $k (@tlaPriorityOrder, 'found', 'hit') {
-                    my $count = $bin->{$k};
-                    next if $count == 0;
-                    my $b;
-                    if (exists($data{$key})) {
-                        $b = $data{$key};
-                    } else {
-                        $b = {};
-                        $data{$key} = $b;
-                    }
-                    if (exists($b->{$i})) {
-                        $b->{$i}->{$k} = $count;
-                    } else {
-                        $b->{$i} = {$k => $count};
-                    }
-                }
+                my $counts = _binCounts($ageBins->[$i]);
+                next unless $counts;
+                $data{$key}->{$i} = $counts;
             }
         }
     }
@@ -1367,21 +1390,8 @@ sub checkCoverageCriteria
             next unless exists($self->[$t]->[OWNERS]);
             my $ownerBins = $self->[$t]->[OWNERS];
             while (my ($owner, $bin) = each(%$ownerBins)) {
-                my $b;
-                if (exists($data{$key})) {
-                    $b = $data{$key};
-                } else {
-                    $b = {};
-                    $data{$key} = $b;
-                }
-                my $d = {};
-                $b->{$owner} = $d;
-                foreach my $k (@tlaPriorityOrder, 'found', 'hit') {
-                    next unless exists($bin->{$k});
-                    my $count = $bin->{$k};
-                    next if $count == 0;
-                    $d->{$k} = $count;
-                }
+                # every owner appears, even with nothing to say - as before
+                $data{$key}->{$owner} = _binCounts($bin) || {};
             }
         }
     }
@@ -1566,7 +1576,7 @@ sub page_link
         $page_link .= ".frameset"
             if ($main::frames);
     } else {
-        $page_link =~ s/^$lcovutil::dirseparator//;
+        $page_link =~ s/^$lcovutil::dirseparator_re//;
         $page_link .= $lcovutil::dirseparator . "index";
     }
     $page_link .= '.' . $main::html_ext;
@@ -1587,8 +1597,9 @@ sub data
         my $hash = $summary->[$type]->[SummaryInfo::DATA];
         push(@rtn, $hash->{found}, $hash->{hit});
     }
-    my $link       = $self->page_link();
-    my $sourceFile = $summary->fileDetails()
+    my $link = $self->page_link();
+    my $sourceFile;
+    $sourceFile = $summary->fileDetails()
         if 'file' eq $summary->type();
     push(@rtn, $link, $summary, $sourceFile);
     return @rtn;
@@ -1597,8 +1608,9 @@ sub data
 sub secondaryElementFileData
 {
     my ($self, $name) = @_;
-    my $summary    = $self->summary();
-    my $sourceFile = $summary->fileDetails()
+    my $summary = $self->summary();
+    my $sourceFile;
+    $sourceFile = $summary->fileDetails()
         if 'file' eq $summary->type();
     return [$summary->name(), $summary, $sourceFile, $self->page_link()];
 }
@@ -1805,7 +1817,8 @@ sub secondaryElementFileData
     }
     $page_link = lc($page_link) if $lcovutil::case_insensitive;
     # pass owner in callback data
-    my $sourceFile = $sourceSummary->fileDetails()
+    my $sourceFile;
+    $sourceFile = $sourceSummary->fileDetails()
         if 'file' eq $sourceSummary->type();
     return [$name, $sourceSummary, $sourceFile, $page_link, $self->[0]];
 }
@@ -1941,7 +1954,8 @@ sub secondaryElementFileData
     }
     $page_link = lc($page_link) if $lcovutil::case_insensitive;
     # pass bin index in callback data
-    my $sourceFile = $sourceSummary->fileDetails()
+    my $sourceFile;
+    $sourceFile = $sourceSummary->fileDetails()
         if 'file' eq $sourceSummary->type();
     return [$name, $sourceSummary, $sourceFile, $page_link, $self->[0]];
 }
@@ -2147,18 +2161,25 @@ sub isRecoveredBaselineFile
     my ($self, $filename) = @_;
 
     my $diffmap = $self->[1];
-    return (defined($diffmap) && $diffmap->containsFile($filename));
+    return 0 unless defined($diffmap);
+    my @diff = $diffmap->baselineSource($filename);
+    return scalar(@diff);
 }
 
 sub open
 {
     my ($self, $filename) = @_;
-    if ($self->isRecoveredBaselineFile($filename)) {
+    my $diffmap = $self->[1];
+    my @diff    = defined($diffmap) ? $diffmap->baselineSource($filename) : ();
+    if (@diff) {
         # if there are any diffs, then need to load the current source, then
-        #   walk the diff to insert and remove changed lines
-        my $diffmap    = $self->[1];
-        my $currentSrc = $self->_load($filename, 'baseline');
-        my $src        = $diffmap->recreateBaseline($filename, $currentSrc);
+        #   walk the diff to insert and remove changed lines.
+        # '$current' is the name the current text lives under and '$key' the
+        #   name the diff data is filed under:  neither is necessarily the
+        #   baseline's own name - see 'baselineSource'
+        my ($key, $current) = @diff;
+        my $currentSrc = $self->_load($current, 'baseline');
+        my $src = $diffmap->recreateBaseline($filename, $currentSrc, $key);
         return $self->parseLines($filename, $src);
     }
     # else no diff data here - just read the file
@@ -2611,14 +2632,20 @@ sub recategorizeTlaAsBaseline
         if ($lcovutil::mcdc_coverage && defined($data->differential_mcdc())) {
             my $mcdc = $data->differential_mcdc();
 
-            while (my ($groupSize, $group) = each(%{$mcdc->groups()})) {
+            # groups() materializes a fresh hash on each call, so hold it in a
+            #   lexical: each() over a new hash restarts every iteration.
+            my $mcdcGroups = $mcdc->groups();
+            while (my ($groupSize, $group) = each(%$mcdcGroups)) {
                 foreach my $cond (@$group) {
                     # remap both the true and false sense..
                     foreach my $sense (0, 1) {
-                        my $c   = $cond->count($sense);
-                        my $tla = $c->[0];
+                        my $tla = $cond->count($sense)->[0];
                         if (exists($remap{$tla})) {
-                            $c->[0] = $remap{$tla};
+                            # write it through the mutator, as the branch loop
+                            #   above does:  count() hands back a copy of the
+                            #   differential triple in the XS backend, so
+                            #   assigning to its TLA slot changes nothing there
+                            $cond->set_tla($sense, $remap{$tla});
                         }
                     }
                 }
@@ -2722,7 +2749,8 @@ sub _categorizeLineCov
         if ($verbose);
 
     # $lineCovBase, $lineCovCurrent are CountData objects
-    my $lineCovBase    = $base_data->sum() if defined($base_data);
+    my $lineCovBase;
+    $lineCovBase = $base_data->sum() if defined($base_data);
     my $lineCovCurrent = $current_data->sum();
 
     if ($lcovutil::check_data_consistency) {
@@ -2892,8 +2920,9 @@ sub _categorizeBranchCov
     my ($self, $filename, $base_data, $current_data, $diffMap, $verbose) = @_;
     my $lineDataMap = $self->lineMap();
 
-    my $branchBaseline = $base_data->sumbr() if defined($base_data);
-    my $branchCurrent  = $current_data->sumbr();
+    my $branchBaseline;
+    $branchBaseline = $base_data->sumbr() if defined($base_data);
+    my $branchCurrent = $current_data->sumbr();
 
     my %branchCovLines;
     # look through the 'current' data, to find all the branch data
@@ -2995,11 +3024,13 @@ sub _categorizeBranchCov
                 if $type != DiffMap::EQUAL;
             # go through all the codes baseline - handle whether in
             #   current or not
-            my $numCurr = $curr->numBlocks()
+            my $numCurr;
+            $numCurr = $curr->numBlocks()
                 if defined($curr);
             # sort the set of codes - so blocks get created in an easily
             #  explained order
-            my @baselineCodes = $base->codes(1)
+            my @baselineCodes;
+            @baselineCodes = $base->codes(1)
                 if defined($base);
 
             foreach my $code (@baselineCodes) {
@@ -3066,7 +3097,10 @@ sub _categorizeBranchCov
 sub _cloneMcdcEntry
 {
     my ($cloneInto, $cloneFrom, $missTla, $hitTla, $categorizeExcluded) = @_;
-    while (my ($groupSize, $group) = each(%{$cloneFrom->groups()})) {
+    # see the comment at the first each(%$...Groups) loop: groups() is not
+    #   cached, so it has to be hoisted out of the each().
+    my $fromGroups = $cloneFrom->groups();
+    while (my ($groupSize, $group) = each(%$fromGroups)) {
         foreach my $expr (@$group) {
             foreach my $sense (0, 1) {
                 my $count = $expr->count($sense);
@@ -3090,8 +3124,9 @@ sub _categorizeMcdcCov
     my ($self, $filename, $base_data, $current_data, $diffMap, $verbose) = @_;
     my $lineDataMap = $self->lineMap();
 
-    my $mcdcBaseline = $base_data->mcdc() if defined($base_data);
-    my $mcdcCurrent  = $current_data->mcdc();
+    my $mcdcBaseline;
+    $mcdcBaseline = $base_data->mcdc() if defined($base_data);
+    my $mcdcCurrent = $current_data->mcdc();
 
     my %mcdcCovLines;
     # look through the 'current' data, to find all the MC/DC data
@@ -3213,6 +3248,34 @@ sub _categorizeMcdcCov
                     }
                 }
             }    #foreach group in base
+
+            # ..and now the groups which are in 'current' but not in the
+            #   baseline - which is every group of a file that is not in the
+            #   baseline at all.  Without this, the coverpoints are dropped:
+            #   the 'MCF/MCH' totals count them but no TLA bin does, and the
+            #   source view shows no MC/DC data for the line.
+            #   See the corresponding loop in '_categorizeBranchCov'.
+            if (defined($currGroups)) {
+                while (my ($groupSize, $cgroup) = each(%$currGroups)) {
+                    next
+                        if (defined($baseGroups) &&
+                            exists($baseGroups->{$groupSize}));
+                    foreach my $c (@$cgroup) {
+                        foreach my $sense (0, 1) {
+                            my $c_count  = $c->count($sense);
+                            my $excluded = $c->is_excluded($sense);
+                            my $tla =
+                                _categorizeIfExcluded($c_count,
+                                                      $excluded, 'UIC', 'GIC');
+                            $categorized->insertExpr(
+                                                'unknownFile', $groupSize,
+                                                $sense, [$tla, undef, $c_count],
+                                                $c->index(), $c->expression(),
+                                                $excluded);
+                        }
+                    }
+                }
+            }
         }    # endif deleted line
     }    # foreach line
 }
@@ -3240,13 +3303,15 @@ sub _categorizeFunctionCov
     push(@$self, $differentialMap);
     my $lineDataMap = $self->lineMap();
 
-    my $funcBase    = $base_data->func() if defined($base_data);
+    my $funcBase;
+    $funcBase = $base_data->func() if defined($base_data);
     my $funcCurrent = $current_data->func();
     # use merged line coverage to categorize function by checking for
     #   edits in function range
     # $lineCovBase and $lineCovCurrent are 'CountData' objects
     #  - of lineNo->hit count
-    my $lineCovBase    = $base_data->sum() if defined($base_data);
+    my $lineCovBase;
+    $lineCovBase = $base_data->sum() if defined($base_data);
     my $lineCovCurrent = $current_data->sum();
 
     my %funcCovLines;
@@ -3283,6 +3348,25 @@ sub _categorizeFunctionCov
             $differentialMap->{$name} = $categorized;
             $data->differential_function($categorized);
             _cloneFunctionEntry($categorized, $func, 'UNC', 'GNC');
+            if ('UNK' eq $data->tla()) {
+                # There is a function here but no line coverage data for the
+                #   line it starts on, so '_categorizeLineCov' (which ran
+                #   before this) left the line's category at its initial 'UNK'
+                #   - and 'UNK' is not a key of '%SummaryInfo::tlaLocation', so
+                #   counting the line later is an ERROR_UNKNOWN_CATEGORY.  Take
+                #   the category from the function, exactly as the baseline path
+                #   does at the end of this function.  Reachable input:  a gcov
+                #   which does not emit function end lines leaves lcov to derive
+                #   them, and an inline or template function then arrives as an
+                #   'FN:' record on a line with no 'DA:' record.
+                # The count is left alone:  'in_curr' is false for a line with
+                #   no line coverage data, which is the only case this arm can
+                #   see, and the baseline path likewise sets a count only when
+                #   the line is in 'current'.
+                my ($hit, $funcTla) = @{$categorized->hit()};
+                $data->tla($funcTla);
+                $data->curr_count($hit) if $data->in_curr();
+            }
         }
     }    # foreach function in current data
 
@@ -3496,6 +3580,12 @@ use constant {
               UNCHANGED     => 5,
               ALIASES       => 6,
               DIFF_ROOT     => 7,
+              # old_filename->new_filename, for the files the diff renames
+              RENAMED => 8,
+              # the names used by the 'current' coverage data, and the diff
+              #   entries indexed by basename - see 'baselineSource'
+              CURRENT   => 9,
+              BASENAMES => 10,
 
               OLD  => 0,
               NEW  => 1,
@@ -3508,6 +3598,9 @@ use constant {
 sub new
 {
     my $class = shift;
+    # every slot has to be initialized here:  'findName' is called for every
+    #   file in the report, whether a diff was read or not, and 'lc(undef)' -
+    #   unlike the '.=' the case-sensitive arm uses - warns
     my $self = [{},          # linemap
                 {},          # filemap: new_filename->old_filename
                 {},          # baseline: filename -> baseline lineno -> text
@@ -3516,7 +3609,15 @@ sub new
                              # element 0: old filename -> line number where this
                              #             entry starts
                              # element 1: new filename -> line number
-                {}           # unchanged
+                {},          # unchanged
+                {},          # aliases
+                Cwd::cwd(),  # diff root: default, overridden by the diff's
+                             #   'Git Root:' comment - and not '$main::cwd',
+                             #   which is not set until after this constructor
+                             #   has run
+                {},          # renamed: old_filename->new_filename
+                {},          # current: the names the 'current' data uses
+                {}           # basenames: basename->[diff entry, ..]
     ];
     bless $self, $class;
     return $self;
@@ -3526,6 +3627,22 @@ sub load
 {
     my ($self, $path, $info, $buildDirs) = @_;
     $self->_read_udiff($path);
+
+    # the names the 'current' coverage data uses, and the diff entries indexed
+    #   by basename:  'baselineSource' needs both, to decide whether a baseline
+    #   file whose name is not in the diff is nevertheless described by it.
+    #   'check_path_consistency' makes the same decision for the categorization
+    #   - but not until after the baseline source has been read.
+    $self->[CURRENT]   = {};
+    $self->[BASENAMES] = {};
+    if (defined($info)) {
+        foreach my $f ($info->files()) {
+            $self->[CURRENT]->{$lcovutil::case_insensitive ? lc($f) : $f} = 1;
+        }
+    }
+    foreach my $d (keys(%{$self->[LINEMAP]})) {
+        push(@{$self->[BASENAMES]->{File::Basename::basename($d)}}, $d);
+    }
 
     # find list of soft links in [buildDirs] which may point to files in $info
     #  we need to keep all the aliases as there may be files in baseline
@@ -3602,14 +3719,74 @@ sub containsFile
     return exists($self->[LINEMAP]->{$file});
 }
 
+sub baselineSource
+{
+    # The baseline text of $filename has to be recreated out of the patch when
+    #   the diff describes the file.  Return the name the diff data is filed
+    #   under, together with the name to read the current source from - or the
+    #   empty list, when the diff says nothing about this file.
+    # The two names are not always the baseline's own:  a rename files the
+    #   chunks under the new name, and '--elide-path-mismatch' says that a diff
+    #   entry whose basename matches IS this file.  Recreating the baseline out
+    #   of the wrong entry - or, worse, silently handing back the CURRENT text
+    #   as the baseline's - makes every filter and every exclusion marker see
+    #   the wrong source.
+    my ($self, $filename) = @_;
+
+    my $f   = $lcovutil::case_insensitive ? lc($filename) : $filename;
+    my $key = $self->findName($filename);
+    return () if exists($self->[UNCHANGED]->{$key});
+    if (!exists($self->[LINEMAP]->{$key})) {
+        if (exists($self->[RENAMED]->{$key})) {
+            # the diff renames the file:  the baseline knows it by the old name
+            $key = $self->[RENAMED]->{$key};
+        } else {
+            # 'check_path_consistency' additionally requires the file to be
+            #   missing from both .info files, which it cannot know here:  the
+            #   baseline is what is being read.  It does not need to be that
+            #   strict - a diff entry which no 'current' file claims is the
+            #   only candidate either way.
+            return () unless $main::elide_path_mismatch;
+            my $candidates =
+                $self->[BASENAMES]->{File::Basename::basename($key)};
+            return () unless defined($candidates);
+            my @unused = grep(!exists($self->[CURRENT]->{$_}), @$candidates);
+            return () unless 1 == scalar(@unused);
+            $key = $unused[0];
+        }
+    }
+    # read the current text under the name the 'current' coverage data uses:
+    #   the name in hand is the baseline's, which need not exist any more, and
+    #   the diff's spelling of an elided path need not exist at all
+    return ($key, exists($self->[CURRENT]->{$f}) ? $filename : $key);
+}
+
 sub recreateBaseline
 {
-    my ($self, $filename, $currentSrcLines) = @_;
+    my ($self, $filename, $currentSrcLines, $key) = @_;
 
-    my $diffs = $self->[LINEMAP]->{$self->findName($filename)};
-    die("no diff data for $filename") unless defined $diffs;
+    # $key is the name the diff data is filed under, which is not necessarily
+    #   the baseline's own name - see 'baselineSource'
+    $key = $self->findName($filename) unless defined($key);
+    my $diffs  = $self->[LINEMAP]->{$key};
+    my $lineNo = $self->[LOCATION]->[NEW]->{$key};
+    my $location =
+        $self->[DIFF_FILENAME] . (defined($lineNo) ? ":$lineNo" : '');
+    my $also = $key eq $filename ? '' : " (as '$key')";
+    unless (defined($diffs)) {
+        lcovutil::ignorable_error(
+                       $lcovutil::ERROR_PATH,
+                       "no 'diff' data for baseline file '$filename'$also in " .
+                           $self->[DIFF_FILENAME] .
+                           ": treating the file as unchanged");
+        # message ignored:  the best we can do is use the current text
+        return $currentSrcLines;
+    }
 
-    my $deleted = $self->[BASELINE]->{$self->findName($filename)};
+    # the deleted text is filed under the name the diff's '---' line used, which
+    #   is not the name the chunks are filed under when the file was renamed
+    my $baseName = $self->baseline_file_name($key);
+    my $deleted  = $self->[BASELINE]->{$baseName};
     my @lines;
     my $didWarn = 0;
     # the last line of the current file which some chunk accounted for:  a
@@ -3641,8 +3818,19 @@ sub recreateBaseline
         } elsif ($chunk->[TYPE] == DiffMap::DELETE) {
             my $r = $chunk->[OLD];
             for (my $i = $r->[_START]; $i <= $r->[_END]; ++$i) {
-                die("missing baseline line $filename:$i")
-                    unless defined($deleted) && exists($deleted->{$i});
+                unless (defined($deleted) && exists($deleted->{$i})) {
+                    lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        "$location: no baseline text for line $i of '$baseName'"
+                            .
+                            ($baseName eq $filename ? '' :
+                                 " (baseline of '$filename')") .
+                            ": do the diff's '---' and '+++' names differ?");
+                    # message ignored:  keep the line numbering intact - every
+                    #   line after this one would otherwise shift
+                    push(@lines, '');
+                    next;
+                }
                 my $d = $deleted->{$i};
                 die("undef deleted line $filename:$i") unless defined($d);
                 push(@lines, $d);
@@ -4183,7 +4371,13 @@ sub _read_udiff
         }
         foreach ($line) {
             /^Git Root: (.+)$/ && do {
-                $self->[DIFF_ROOT] = ReadCurrentSource::resolve_path($1, 1);
+                # save match:  'check_path_separator' matches further
+                #   regexps and overwrites $1
+                my $root = $1;
+                $root =
+                    lcovutil::check_path_separator($root, $diff_file, $.,
+                                                   'diff');
+                $self->[DIFF_ROOT] = ReadCurrentSource::resolve_path($root, 1);
                 last;
             };
 
@@ -4199,6 +4393,13 @@ sub _read_udiff
                     undef $filename;
                 }
                 my $file = $1;
+                # a name written on the other platform is put into this
+                #   platform's terms first:  everything below - the directory
+                #   stripping, '--substitute', and the comparison against the
+                #   names in the coverage data - works in host-style paths
+                $file =
+                    lcovutil::check_path_separator($file, $diff_file, $.,
+                                                   'diff');
                 $file = lcovutil::strip_directories($file, $main::strip);
                 my $key = ReadCurrentSource::resolve_path($file, 1);
                 # skip diff data for excluded files - but skip quietly
@@ -4246,6 +4447,9 @@ sub _read_udiff
                 }
                 $file_old = $1;
                 $file_old =
+                    lcovutil::check_path_separator($file_old, $diff_file, $.,
+                                                   'diff');
+                $file_old =
                     lcovutil::strip_directories($file_old, $main::strip);
                 $file_old = ReadCurrentSource::resolve_path($file_old, 1);
                 $file_old = lc($file_old) if $lcovutil::case_insensitive;
@@ -4257,6 +4461,9 @@ sub _read_udiff
             /^\+\+\+ (.+)$/ && do {
                 # Add last file to resulting hash
                 $file_new = $1;
+                $file_new =
+                    lcovutil::check_path_separator($file_new, $diff_file, $.,
+                                                   'diff');
                 $file_new =
                     lcovutil::strip_directories($file_new, $main::strip);
                 my $key = ReadCurrentSource::resolve_path($file_new, 1);
@@ -4285,6 +4492,14 @@ sub _read_udiff
                 print("file $key\n") if $verbose;
                 if ($notNull) {
                     $self->[FILEMAP]->{$key} = $file_old;
+                    # ..and the reverse, for a file the diff renames:  the
+                    #   baseline coverage data knows it by its old name, while
+                    #   the chunks are filed under the new one - see
+                    #   'baselineSource'
+                    $self->[RENAMED]->{$file_old} = $key
+                        if (defined($file_old) &&
+                            $file_old ne $key &&
+                            $file_old ne $lcovutil::devnull);
                     # keep track of location where this file was found
                     $self->[LOCATION]->[NEW]->{$key} =
                         $.;    # record original name too.. $file_new
@@ -4294,8 +4509,10 @@ sub _read_udiff
                 last;
             };
             # Start of diff block:
-            # @@ -old_start,old_num, +new_start,new_num @@
-            /^\@\@\s+-(\d+),(\d+)\s+\+(\d+),(\d+)\s+\@\@.*$/ && do {
+            # @@ -old_start[,old_num] +new_start[,new_num] @@
+            #   both counts are optional:  a range whose length is 1 is written
+            #   as the start line alone ('@@ -4 +4 @@')
+            /^\@\@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+\@\@.*$/ && do {
                 if ($1 > ($chunk->[OLD]->[_END])) {
                     # old start skips "equal" lines
                     if ($chunk->[TYPE] != EQUAL) {
@@ -4312,9 +4529,21 @@ sub _read_udiff
                 # "END" will be incremented on content lines
                 $chunk->[OLD]->[_END] = $1 - 1;
                 $chunk->[NEW]->[_END] = $3 - 1;
-                $old_block            = $2;
-                $new_block            = $4;
+                # an omitted count means 1 - and 0 is a legal count ('@@ -0,0
+                #   +1,3 @@' for a created file), so the default has to be
+                #   applied on 'defined', not on truth
+                $old_block = defined($2) ? $2 : 1;
+                $new_block = defined($4) ? $4 : 1;
                 #printf "equal [%d:%d] [%d:%d]\n", $l[0], $l[1], $l[2], $l[3];
+                last;
+            };
+            # ..and a '@@' line this reader does not understand is a malformed
+            #   patch:  falling through to the content arms below would leave
+            #   the hunk's lines attributed to whatever the previous header said
+            /^\@\@/ && do {
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                    "$diff_file:$.: unexpected 'diff' hunk header '$line': expected '\@\@ -<start>[,<count>] +<start>[,<count>] \@\@'"
+                );
                 last;
             };
             # Unchanged line
@@ -4415,8 +4644,8 @@ sub _read_udiff
         _printChunk($chunk) if ($verbose);
     }
 
-    # default root
-    $self->[DIFF_ROOT] = $main::cwd unless defined($self->[DIFF_ROOT]);
+    # (the default root is applied by the constructor:  it is needed whether a
+    #   diff was read or not)
 
     if ($self->empty()) {
         # this is probably OK - there are no differences between 'baseline' and current.
@@ -4473,7 +4702,8 @@ sub _computeContextBefore
     # find contiguous source region which matches the select criteria.
     #   That might include non-code lined (e.g., comments)
     for (my $l = $self->[NEXT] - 1; $l > $prev; --$l) {
-        my $lineData     = $data->{$l} if exists($data->{$l});
+        my $lineData;
+        $lineData = $data->{$l} if exists($data->{$l});
         my $annotateData = $annotate->line($l);
         last
             unless SummaryInfo::selected($lineData, $annotateData,
@@ -4501,7 +4731,8 @@ sub interesting
             my $data     = $self->[LINECOV_HASH];
             my $annotate = $self->[ANNOTATE_OBJ];
             for (my $l = $self->[PREV] + 1; $l < $max; ++$l) {
-                my $lineData     = $data->{$l} if exists($data->{$l});
+                my $lineData;
+                $lineData = $data->{$l} if exists($data->{$l});
                 my $annotateData = $annotate->line($l);
                 last
                     if !SummaryInfo::selected($lineData, $annotateData,
@@ -4733,17 +4964,28 @@ sub new
         #   approach configurable.  Let's see if there is user demand.
         while (my ($line, $lne) = each(%$lineCovData)) {
             # ignore deleted lines as they don't appear in source listing
-            my $tla = $lne->tla();
+            my $tla     = $lne->tla();
+            my $deleted = exists($SummaryInfo::deletedTla{$tla});
             # no annotations for deleted line
-            my $annotateData = $self->line($line)
-                unless grep(/$tla/, ('DUB', 'DCB'));
+            my $annotateData;
+            $annotateData = $self->line($line) unless $deleted;
             # callback arguments are (LineData, SourceLine)
             if (SummaryInfo::selected($lne, $annotateData,
                                       $self->path(), $line)) {
-                push(@lineArray, $line);
+                # A deleted line is keyed '<<<N' by its baseline line number
+                #   and is displayed next to the current line the loop below
+                #   maps it to - so record that line.  Everything which reads
+                #   this list is arithmetic ('interesting', the sort here);
+                #   a '<<<N' key numified to 0, which made every line from
+                #   there on 'interesting'.
+                push(@lineArray, $deleted ? -$lne->lineNo('current') : $line);
             }
         }
-        @lineArray                 = sort({ $a <=> $b } @lineArray);
+        # unique as well as ascending:  'interesting' advances its stack only on
+        #   an exact match, so a repeated entry would stick there
+        my %seenLine;
+        @lineArray = sort({ $a <=> $b }
+                          grep({ !$seenLine{$_}++ } @lineArray));
         $self->[INTERESTING_LINES] = \@lineArray;
         $inRegion = InInterestingRegion->new($self, $lineCovData);
     }
@@ -4763,7 +5005,8 @@ sub new
         # deleted line associated with first 'current' line above -
         # or line below, if there is no current line above
         my $lineNum =
-            grep(/$tla/, ('DUB', 'DCB')) ? -$lne->lineNo('current') : $line;
+            exists($SummaryInfo::deletedTla{$tla}) ? -$lne->lineNo('current') :
+            $line;
 
         if (defined($inRegion) &&
             !$inRegion->interesting($lineNum)) {
@@ -4808,20 +5051,20 @@ sub simplify
     for (my $bin = 0; $bin <= $#ageGroupHeader; ++$bin) {
         foreach my $tla (keys %{$self->[LINE_CATEGORIES]}) {
             # at least for the moment, skip deleted lines
-            next if grep(/$tla/, ('DUB', 'DCB'));
+            next if exists($SummaryInfo::deletedTla{$tla});
             my $line = $self->nextInDateBin($bin, $tla);
             $keep{$line} = 1 if defined($line);
         }
         if ($lcovutil::br_coverage) {
             foreach my $tla (keys %{$self->[BRANCH_CATEGORIES]}) {
-                next if grep(/$tla/, ('DUB', 'DCB', 'EUC', 'ECC'));
+                next if exists($SummaryInfo::unbinnedTla{$tla});
                 my $line = $self->nextBranchInDateBin($bin, $tla);
                 $keep{$line} = 1 if defined($line);
             }
         }
         if ($lcovutil::mcdc_coverage) {
             foreach my $tla (keys %{$self->[MCDC_CATEGORIES]}) {
-                next if grep(/$tla/, ('DUB', 'DCB', 'EUC', 'ECC'));
+                next if exists($SummaryInfo::unbinnedTla{$tla});
                 my $line = $self->nextMcdcInDateBin($bin, $tla);
                 $keep{$line} = 1 if defined($line);
             }
@@ -4835,14 +5078,14 @@ sub simplify
     ) {
         while (my ($key, $list) = each(%{$self->[$bin]})) {
             if ('ARRAY' eq ref($list)) {
-                next if grep(/$key/, ('DUB', 'DCB', 'EUC', 'ECC'));
+                next if exists($SummaryInfo::unbinnedTla{$key});
                 # retain the first entry and any interesting entries
                 $keep{$list->[0]} = 1;
                 @$list = grep(exists($keep{$_}), @$list);
             } else {
                 die("unexpected type") unless 'HASH' eq ref($list);
                 while (my ($tla, $l) = each(%$list)) {
-                    next if grep(/$tla/, ('DUB', 'DCB', 'EUC', 'ECC'));
+                    next if exists($SummaryInfo::unbinnedTla{$tla});
                     # retain the first entry
                     $keep{$l->[0]} = 1;
                     @$l = grep(exists($keep{$_}), @$l);
@@ -4917,7 +5160,7 @@ sub _countBranchTlaData
                 next;
                 # LCOV_UNREACHABLE_STOP
             }
-            next if grep(/$tla/, ('EUC', 'ECC'));
+            next if exists($SummaryInfo::excludedCoverpointTla{$tla});
             $fileSummary->[SummaryInfo::BRANCH_DATA]->[SummaryInfo::DATA]
                 ->{$tla} += 1;
             # keep track of all the branch TLAs found on this line...
@@ -4948,7 +5191,7 @@ sub _countBranchTlaData
             # HGC:  could clean this up...no need to keep track
             #   of 'hit' as we can just compute from CBC + GNC + ...
             # found another line...
-            my $hit = grep(/$tla/, ('GBC', 'GIC', 'GNC', 'CBC'));
+            my $hit = exists($SummaryInfo::hitTla{$tla});
             $fileSummary->branchCovCount("found", "age", $src_age, 1);
             $fileSummary->branchCovCount("hit", "age", $src_age, 1)
                 if $hit;
@@ -5026,13 +5269,14 @@ sub _countMcdcTlaData
         }
     }
 
-    while (my ($groupSize, $group) = each(%{$differentialData->groups()})) {
+    my $mcdcGroups = $differentialData->groups();
+    while (my ($groupSize, $group) = each(%$mcdcGroups)) {
         foreach my $expr (@$group) {
             foreach my $sense (0, 1) {
                 my $count = $expr->count($sense);
                 my $tla   = $count->[0];
                 # don't count excluded coverpoints
-                next if grep(/$tla/, ('EUC', 'ECC'));
+                next if exists($SummaryInfo::excludedCoverpointTla{$tla});
                 unless (defined($tla)) {
                     # LCOV_UNREACHABLE_START
                     lcovutil::ignorable_error(
@@ -5074,7 +5318,7 @@ sub _countMcdcTlaData
                 # increment count of branches of this age we found for this TLA
                 $fileSummary->mcdcCovCount($tla, "age", $src_age, 1);
 
-                my $hit = grep(/$tla/, ('GBC', 'GIC', 'GNC', 'CBC'));
+                my $hit = exists($SummaryInfo::hitTla{$tla});
                 $fileSummary->mcdcCovCount("found", "age", $src_age, 1);
                 $fileSummary->mcdcCovCount("hit", "age", $src_age, 1)
                     if $hit;
@@ -5232,7 +5476,7 @@ sub _accountFunction
     if (defined($src_age)) {
         $fileSummary->functionCovCount($tla, 'age', $src_age, 1);
 
-        my $hit = grep(/$tla/, ('GBC', 'GIC', 'GNC', 'CBC'));
+        my $hit = exists($SummaryInfo::hitTla{$tla});
         $fileSummary->functionCovCount("found", "age", $src_age, 1);
         $fileSummary->functionCovCount("hit", "age", $src_age, 1)
             if $hit;
@@ -5334,20 +5578,23 @@ sub line
 }
 
 # how old is the oldest (or youngest) line in this file?
+#   returns undef if this file has no annotation data at all.
+#   Note that we cannot use 'isProjectFile' as the guard here:  the owner
+#   bins which it looks at are not filled in until '_countLineTlaData' has
+#   visited every line - which happens after the constructor's
+#   'recategorizeTlaAsBaseline' check calls us.  Look at the per-line
+#   annotation data which '_load' has already stored, instead.
 sub age
 {
     my ($self, $youngest) = @_;
-    return undef unless $self->isProjectFile();
 
-    my $age = $self->line(1)->age();
+    my $age;
     foreach my $line (@{$self->lines()}) {
         my $a = $line->age();
-        if (defined($youngest)) {
-            $age = $a
-                if ($a < $age);
-        } else {
-            $age = $a
-                if ($a > $age);
+        next unless defined($a);
+        if (!defined($age) ||
+            (defined($youngest) ? $a < $age : $a > $age)) {
+            $age = $a;
         }
     }
     return $age;
@@ -5916,7 +6163,7 @@ sub _synthesize
         {
             my $tla = $funcEntry->hit()->[1];
             # deleted function doesn't count
-            next if grep(/^$tla$/, ('DUB', 'DCB'));
+            next if exists($SummaryInfo::deletedTla{$tla});
             my $line = $funcEntry->line();
             my $end  = $funcEntry->end_line();
             $last_line = $line if $line > $last_line;
@@ -5965,7 +6212,7 @@ sub _synthesize
                                     $suffix);
         $why = 'not long enough';
     }
-    # Simulate gcov behavior
+    # Simulate gcov behaviour
     my $notFound = "/* " . $self->path() . " $why */";
     my $synth    = "/* (content generated from coverage data) */";
     my $idx      = 1;
@@ -6072,9 +6319,9 @@ sub new
             foreach my $line ($testcaseCounts->keylist()) {
                 my $lineData =
                     $fileDetails->line($line);    # "SourceLine" structure
-                my $mcdcEntry = $lineData->mcdcElem();
-                while (my ($groupSize, $group) = each(%{$mcdcEntry->groups()}))
-                {
+                my $mcdcEntry  = $lineData->mcdcElem();
+                my $mcdcGroups = $mcdcEntry->groups();
+                while (my ($groupSize, $group) = each(%$mcdcGroups)) {
                     foreach my $expr (@$group) {
                         foreach my $sense (0, 1) {
                             # use 'current' count...
@@ -6210,7 +6457,14 @@ sub new
     my $weights = $self->[WEIGHTS];
     foreach my $f ($current_data->files()) {
         my $traceInfo = $current_data->data($f);
-        my $filename  = ReadCurrentSource::resolve_path($traceInfo->filename());
+        # This is the name every output path below is derived from - the
+        #   directory hierarchy, the page names, the links between them - so it
+        #   is the name in this platform's spelling, whatever spelling the input
+        #   used.  See 'lcovutil::native_path';  '$f' is still the name as read,
+        #   and is what the data is keyed by
+        my $filename =
+            lcovutil::native_path(
+                       ReadCurrentSource::resolve_path($traceInfo->filename()));
 
         # What a child which is given this file has to hold:  its records, which
         #   the memory throttle turns into bytes with a rate it measures - see
@@ -6307,7 +6561,7 @@ sub new
             $main::no_prefix ? $filename :
             main::apply_prefix($filename, @main::dir_prefix);
         my $is_absolute = File::Spec->file_name_is_absolute($short_name);
-        $short_name =~ s|^$lcovutil::dirseparator||;
+        $short_name =~ s|^$lcovutil::dirseparator_re||;
         my @short_path = File::Spec->splitdir($short_name);
         my @path       = File::Spec->splitdir($parentDir);
 
@@ -6323,7 +6577,7 @@ sub new
             $pendingParent =
                 $pending->{""};    # this is the top-level object dependency
             my @sp;
-            my @p = split($lcovutil::dirseparator, substr($base, 0, -1))
+            my @p = split(/$lcovutil::dirseparator_re/, substr($base, 0, -1))
                 ;                  # remove trailing '/'
             while (scalar(@rel_dir_stack)) {
                 my $element = shift(@rel_dir_stack);
@@ -6482,7 +6736,12 @@ sub merge_one
         = @_;
     my $type = $summary->type();
     if ('file' eq $type) {
-        my $base_name = File::Basename::basename($fullname);
+        # the key the file table looks this up under - so the same last element
+        #   'process_file' wrote the pages under.  '$fullname' is the name as
+        #   read (it is what the dependency bookkeeping below is keyed by), so
+        #   it has to be spelled for this platform first
+        my $base_name =
+            File::Basename::basename(lcovutil::native_path($fullname));
         for (my $i = 0; $i < scalar(@$perTest); $i++) {
             $parentPerTestData->[$i]->{$base_name} = $perTest->[$i];
         }
@@ -6625,7 +6884,8 @@ sub _process_child
                     if $selfSummary->type() ne 'file';
                 my $objname =
                     $selfSummary->type() eq 'top' ? "" : $selfSummary->name();
-                my $criteria = $CoverageCriteria::coverageCriteria{$objname}
+                my $criteria;
+                $criteria = $CoverageCriteria::coverageCriteria{$objname}
                     if exists($CoverageCriteria::coverageCriteria{$objname});
 
                 push(@taskData,
@@ -6770,10 +7030,15 @@ sub compute
                      }
                      return $weight;
                  },
-                 remaining =>
-                     sub { return scalar(@$worklist) + scalar(keys(%$pending)); },
-                 # 'next' is the framework's dispatch loop, which this scheduler does not
-                 #   use:  see above.  The job list is built by '_segment_worklist' and
+                 remaining => sub {
+                     # not covered:  the memory throttle's wait message is the
+                     #   only caller - see the note on 'remaining' and
+                     #   'childFailMessage' in lcovutil::ForkManager
+                     return scalar(@$worklist) + scalar(keys(%$pending));
+                 },
+                 # 'next' is the framework's dispatch loop, which this
+                 #   scheduler does not use:  see above.
+                 # The job list is built by '_segment_worklist' and
                  #   dispatched below.
                  next  => undef,
                  child => sub {
@@ -6824,6 +7089,9 @@ sub compute
                          "unable to deserialize $ctx->{dumpfile}: $ctx->{error}";
                  },
                  childFailMessage => sub {
+                     # also not covered:  a segment child which returns
+                     #   non-zero and still leaves a readable dump - see note
+                     #   in lcovutil::ForkManager
                      my $ctx = shift;
                      my $msg = 'compute job ' . $ctx->{id};
                      $msg .= ": unable to deserialize $ctx->{dumpfile}"
@@ -7040,8 +7308,12 @@ sub merge_child
             my $v = $criteria->[1];
             die('unexpected criteria data \'' . join(' ', @$criteria) . '\'')
                 unless (Scalar::Util::looks_like_number($v));
-            $CoverageCriteria::coverageCriteriaStatus =
-                ($v != 0 || 0 != scalar(@{$criteria->[2]})) ? $v : 0;
+            # criteria failure is sticky.
+            #   The criteria of the merged jobs is independent.
+            #   We want the parent to fail if any child fails (so don't
+            #   change the parent flag unless it is to mark a fail.
+            $CoverageCriteria::coverageCriteriaStatus = $v
+                if $v != 0;
         }
     }    # foreach job
 }
@@ -7309,6 +7581,33 @@ $br_med_limit   = $med_limit if (!defined($br_med_limit));
 $mcdc_hi_limit  = $hi_limit if (!defined($mcdc_hi_limit));
 $mcdc_med_limit = $med_limit if (!defined($mcdc_med_limit));
 $frames         = undef unless (defined($frames) && $frames);
+# ..and the same for the other flag which lcovrc can set to zero:  most of the
+#   places which consult it ask whether it is true, but a few ask whether it is
+#   defined - so a zero from the config file would turn the navigation columns
+#   half on
+$show_tla = undef unless (defined($show_tla) && $show_tla);
+if (defined($show_ownerBins)) {
+    # the command line spelling is an optional-value string, so it can only be
+    #   undef, '' or the value the user typed - but the config file spells the
+    #   same option as a boolean.  Every test of whether the tables were asked
+    #   for at all asks whether this is defined, so a '0' from the config file
+    #   would turn them on:  normalize the boolean forms to the two the rest of
+    #   the code understands, and reject anything else here rather than letting
+    #   it reach a string compare which quietly reads it as 'not all'
+    if ($show_ownerBins eq '0') {
+        $show_ownerBins = undef;
+    } else {
+        # lcovrc(5) documents '1' as equivalent to the flag with no value
+        $show_ownerBins = '' if $show_ownerBins eq '1';
+        unless ($show_ownerBins eq '' || $show_ownerBins eq 'all') {
+            lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+                "Unsupported '--show-owners' value '$show_ownerBins': expected 'all', or no value ('0' or '1' from a configuration file)."
+            );
+            # message ignored:  treat it as the flag with no value
+            $show_ownerBins = '';
+        }
+    }
+}
 
 foreach my $rc ([\@datebins, \@rc_date_bins],
                 [\@SummaryInfo::ageGroupHeader, \@rc_date_labels],
@@ -7370,7 +7669,7 @@ if (@SourceFile::annotateScript) {
     } else {
         my %uniqify =
             map { $_, 1 }
-            split($lcovutil::split_char,
+            split($lcovutil::split_pattern,
                   join($lcovutil::split_char, @datebins));
         @datebins = sort(keys %uniqify);
     }
@@ -7378,7 +7677,7 @@ if (@SourceFile::annotateScript) {
 
     if (defined($show_ownerBins)) {
         @truncateOwnerTableLevels =
-            split($lcovutil::split_char,
+            split($lcovutil::split_pattern,
                   join($lcovutil::split_char, @truncateOwnerTableLevels));
         foreach my $l (@truncateOwnerTableLevels) {
             lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
@@ -7444,7 +7743,10 @@ if ($dark_mode) {
         $reverse{lc($value)} = $key;
     }
 
-    foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
+    # every TLA whose color can reach the stylesheet, not just the ones in the
+    #   current presentation order:  'noBaseline' has already run at this point,
+    #   so @tlaPriorityOrder is down to two entries in legacy-label mode
+    foreach my $tla (@SummaryInfo::allTla) {
         # swap
         my $bg = $lcovutil::tlaColor{$tla};
 
@@ -7478,7 +7780,8 @@ $test_title = compute_title(\@ARGV, \@info_filenames)
     unless $test_title;
 
 if (@base_filenames) {
-    my @base_patterns = @base_filenames unless $baseline_title;
+    my @base_patterns;
+    @base_patterns  = @base_filenames unless $baseline_title;
     @base_filenames = AggregateTraces::find_from_glob(@base_filenames);
 
     $baseline_title = compute_title(\@base_patterns, \@base_filenames)
@@ -7565,6 +7868,23 @@ if ($frames) {
 
 # Make sure precision is within valid range
 check_precision();
+
+# ..and the same for the source view field widths:  none of the five has a
+#   command line form, so nothing has type checked them, and they are used as
+#   arithmetic - a zero divides by zero when the data has to be distributed
+#   over several lines, and a value perl does not read as a number formats to
+#   nothing at all, one warning per source line
+foreach my $width (['genhtml_line_field_width', \$line_field_width],
+                   ['genhtml_branch_field_width', \$br_field_width],
+                   ['genhtml_mcdc_field_width', \$mcdc_field_width],
+                   ['genhtml_owner_field_width', \$owner_field_width],
+                   ['genhtml_age_field_width', \$age_field_width]
+) {
+    my $value = ${$width->[1]};
+    # string match, so the message can quote what was actually written
+    die("'$width->[0] = $value' is not a positive integer\n")
+        unless $value =~ /^\d+$/ && $value > 0;
+}
 
 # Make sure output_directory exists, create it if necessary
 $output_directory = '.'
@@ -7686,7 +8006,7 @@ OPERATION
       --criteria-script SCRIPT      Use SCRIPT to check for acceptance criteria
       --version-script SCRIPT       Use SCRIPT to check for compatibility of
                                     source code and coverage data
-      --resolve-script SCRIPT       Call script to find source file frpm path
+      --resolve-script SCRIPT       Call script to find source file from path
       --(no-)checksum               Compare (ignore) source line checksum
       --diff-file UDIFF             Unified diff file UDIFF describes source
                                     code changes between baseline and current
@@ -7907,7 +8227,7 @@ sub gen_html()
         while ($i <= $#dir_prefix) {
             my $p = $dir_prefix[$i];
             # remove redundant /'s
-            $p =~ s/$lcovutil::dirseparator+$//;
+            $p =~ s/$lcovutil::dirseparator_re+$//;
             $p = substr($p, 0, -1)
                 if $lcovutil::dirseparator eq substr($p, -1);
             while (exists($dirs->{$p}) && $p) {
@@ -7995,12 +8315,19 @@ sub gen_html()
 
 sub html_create($$)
 {
-    my $handle   = $_[0];
-    my $filename = File::Spec->catfile($output_directory, $_[1]);
-    $filename = lc($filename) if $lcovutil::case_insensitive;
+    my $handle = $_[0];
+    # only the report-relative part is lower-cased:  'case_insensitive' is about
+    #   matching the names which came out of the coverage data, not about
+    #   renaming the directory the user asked for - and the sites which create
+    #   those directories, and 'write_css_file'/'write_htaccess_file', do not
+    #   lower-case it either, so lower-casing the joined path here names a file
+    #   in a directory nothing ever creates
+    my $rel      = $lcovutil::case_insensitive ? lc($_[1]) : $_[1];
+    my $filename = File::Spec->catfile($output_directory, $rel);
 
     if ($html_gzip) {
-        open($handle, "|-", "gzip -c > $filename") or
+        # quote the name: may be spaces in the user's '--output-directory'
+        open($handle, "|-", "gzip -c > " . lcovutil::shell_quote($filename)) or
             die("cannot open $filename for writing (gzip): $!\n");
     } else {
         open($handle, ">", $filename) or
@@ -8081,7 +8408,8 @@ sub write_summary_pages($$$$$$$$)
                        $lcovutil::mcdc_coverage ? 'mcdc' : undef,
                        $lcovutil::func_coverage ? 'function' : undef
         ) {
-            my $s = $summary->tlaSummary($t) if defined($t);
+            my $s;
+            $s = $summary->tlaSummary($t) if defined($t);
             next unless $s;
             info("  $t: $s\n");
         }
@@ -8245,7 +8573,11 @@ sub process_file($$$$$)
                   ' (source code changed)' :
                   ''));
 
-    my $base_name = basename($filename);
+    # the name of every page written for this file starts with this, so it is
+    #   the last element of the name in this platform's spelling - not of the
+    #   name as read, which may hold the other platform's separator and would
+    #   then be one long element.  See 'lcovutil::native_path'
+    my $base_name = basename(lcovutil::native_path($filename));
     my $base_dir  = get_relative_base_path($rel_dir);
     my @source;
     my $pagetitle;
@@ -8276,7 +8608,8 @@ sub process_file($$$$$)
     my $baseline_filename = $diff_data->baseline_file_name($filename);
     # when looking up the baseline file, handle the case that the
     #  pathname does not match exactly - see comment in TraceFile::data
-    my $fileBase = $base_data->data($baseline_filename, 1)
+    my $fileBase;
+    $fileBase = $base_data->data($baseline_filename, 1)
         if defined($base_data);
     my $fileCurrent = $current_data->data($filename);
     # build coverage differential categories
@@ -8471,11 +8804,18 @@ sub process_file($$$$$)
 
         # Additional files are needed in case of frame output
         if ($frames) {
+            # The frameset, the overview page and the overview image refer to
+            #   each other and to the source page by name, and 'html_create'
+            #   lower-cases the report-relative name it writes under
+            #   'case_insensitive' - so fold the base name once and spell
+            #   all four of them from the result.
+            my $page_base =
+                $lcovutil::case_insensitive ? lc($base_name) : $base_name;
+
             # Create overview png file
             my $simplified = defined($main::show_simplifiedColors) &&
                 $main::show_simplifiedColors;
-            my $png = File::Spec->catfile($rel_dir, "$base_name.gcov.png");
-            $png = lc($png) if $lcovutil::case_insensitive;
+            my $png = File::Spec->catfile($rel_dir, "$page_base.gcov.png");
             gen_png(File::Spec->catfile($output_directory, $png),
                     $main::show_tla && !$simplified,
                     $main::dark_mode,
@@ -8486,17 +8826,17 @@ sub process_file($$$$$)
             # Create frameset page
             html_create(*HTML_HANDLE,
                         File::Spec->catfile(
-                                  $rel_dir, "$base_name.gcov.frameset.$html_ext"
+                                  $rel_dir, "$page_base.gcov.frameset.$html_ext"
                         ));
-            write_frameset(*HTML_HANDLE, $base_dir, $base_name, $pagetitle);
+            write_frameset(*HTML_HANDLE, $base_dir, $page_base, $pagetitle);
             close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
 
             # Write overview frame
             html_create(*HTML_HANDLE,
                         File::Spec->catfile(
-                                  $rel_dir, "$base_name.gcov.overview.$html_ext"
+                                  $rel_dir, "$page_base.gcov.overview.$html_ext"
                         ));
-            write_overview(*HTML_HANDLE, $base_dir, $base_name,
+            write_overview(*HTML_HANDLE, $base_dir, $page_base,
                            $pagetitle, scalar(@source));
             close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
         }
@@ -8550,7 +8890,10 @@ sub get_prefix($@)
     foreach (@filename_list) {
         # Need explicit assignment to get a copy of $_ so that
         # shortening the contained prefix does not affect the list
-        my $current = ReadCurrentSource::resolve_path($_);
+        # the prefix is a directory to remove from an output path, so this is
+        #   the same name 'MergeManager::new' derives the layout from
+        my $current =
+            lcovutil::native_path(ReadCurrentSource::resolve_path($_));
         my ($vol, $parentDir, $file) = File::Spec->splitpath($current);
         if (!File::Spec->file_name_is_absolute($current)) {
             if ($parentDir) {
@@ -8635,11 +8978,15 @@ sub shorten_prefix($)
 
 sub get_relative_base_path($)
 {
-    # Make an empty directory path a special case
-    if (!$_[0]) { return (""); }
+    # Make an empty directory path a special case.  A length test, not a truth
+    #   test:  a directory named '0' is a false string, and returning '' for it
+    #   leaves every relative reference on the pages below it - the stylesheet,
+    #   the icons, the top level index - pointing into the wrong directory
+    return '' unless defined($_[0]) && length($_[0]);
 
     # Count number of /s in path
-    my $index = ($_[0] =~ s/$lcovutil::dirseparator/$lcovutil::dirseparator/g);
+    my $index =
+        ($_[0] =~ s/$lcovutil::dirseparator_re/$lcovutil::dirseparator/g);
 
     # Add a ../ to $result for each / in the directory path + 1
     my $result = "";
@@ -8696,8 +9043,11 @@ sub read_testfile($)
                 );
                 next;
             }
-            # Check for empty line
-            if ($1) {
+            # Check for empty line - by length, not by truth:  'TD: 0' is a
+            #   description whose text happens to be a false string, and reading
+            #   it as blank both loses the text and splits the description it is
+            #   in the middle of into two paragraphs
+            if (length($1)) {
                 # Add description to hash
                 $result{$test_name} .= " $1";
             } else {
@@ -8736,7 +9086,10 @@ sub escape_html($)
 {
     my $string = $_[0];
 
-    if (!$string) { return ""; }
+    # ..and the same here:  callers do pass undef, which is why the guard exists,
+    #   but the string '0' is a source line, a path component or an owner name
+    #   which has to survive - it is false, not empty
+    return '' unless defined($string) && length($string);
 
     # Escape all four HTML special characters in a single pass.  Using a
     # character-class match with a lookup table both avoids re-scanning the
@@ -9051,8 +9404,11 @@ sub write_css_file()
     # Check for a specified external style sheet file
     if ($css_filename) {
         # Simply copy that file
-        system("cp", $css_filename, $f) and
-            die("cannot copy file $css_filename: $!\n");
+        # 'File::Copy::copy' rather than 'system("cp", ...)':
+        #   'copy' sets '$!', and this also takes a 'cp' out of the
+        #   Windows/Cygwin path
+        copy($css_filename, $f) or
+            die("cannot copy file $css_filename to $f: $!\n");
         return;
     }
 
@@ -9760,7 +10116,11 @@ sub write_css_file()
 END_OF_CSS
         ;
 
-    foreach my $tla (@SummaryInfo::tlaPriorityOrder) {
+    # the full list, not the presentation order:  a source page emits
+    #   'class="tlaECC"'/'class="tlaEUC"' for an excluded coverpoint even in
+    #   legacy-label mode, and a class with no rule renders as ordinary text in a
+    #   column whose whole purpose is the color
+    foreach my $tla (@SummaryInfo::allTla) {
         my $title = $SummaryInfo::tlaToTitle{$tla};
         my $color = $lcovutil::tlaColor{$tla};
         foreach my $elem ("td", "span") {
@@ -9987,8 +10347,9 @@ sub write_header_line(*@)
     # label order has to match data that is passed
     my @labels = qw/width class colspan title/;
     foreach my $entry (@content) {
-        my @d    = @$entry;
-        my $text = splice(@d, 2, 1) if (scalar(@d) > 1);
+        my @d = @$entry;
+        my $text;
+        $text = splice(@d, 2, 1) if (scalar(@d) > 1);
         # entry may not contain some data - e.g., does not have colspan or title
         die("unexpected entry format") unless scalar(@labels) >= scalar(@d);
         my $str = "            <td";
@@ -10507,7 +10868,7 @@ END_OF_HTML
                 push(@keys, @{$activeTlaCols->{$covType}});
             }
             foreach my $key (@keys) {
-                next if grep(/$key/, ('EUC', 'ECC'));
+                next if exists($SummaryInfo::excludedCoverpointTla{$key});
                 my $count = $summary->get($key);
                 #print("$name: $key " . $summary->get($key));
                 $class = $page_type ne "owner" ? "coverNumDflt" : "ownerTla";
@@ -10518,14 +10879,14 @@ END_OF_HTML
                     # want to colorize the UNC, LBC, UIC rows if not zero
                     $class = "tla$key"
                         if (!$main::use_legacyLabels &&
-                            grep(/^$key$/, ("UNC", "LBC", "UIC")));
+                            exists($SummaryInfo::concerningTla{$key}));
 
                     my $column = '';
                     # look in file details to build link to first line
                     # '$tableHref is undef unless the data we need is available
                     if (defined($tableHref) &&
-                        !grep(/^$key$/, ('DUB', 'DCB')) &&
-                        grep(/^$key$/, @SummaryInfo::tlaOrderNoExclude)) {
+                        !exists($SummaryInfo::deletedTla{$key}) &&
+                        exists($SummaryInfo::displayedTla{$key})) {
                         my $line;
                         my $label =
                             $main::use_legacyLabels ?
@@ -10877,8 +11238,10 @@ sub get_block_list($)
     } else {
         die('unexpected ' . ref($data)) unless 'MCDC_Block' eq ref($data);
         # Group MC/DC groups
-        foreach my $groupSize (sort keys %{$data->groups()}) {
-            my $exprs = $data->groups()->{$groupSize};
+        # one groups() call, not one per group:  it materializes a fresh hash
+        my $groups = $data->groups();
+        foreach my $groupSize (sort keys %$groups) {
+            my $exprs = $groups->{$groupSize};
             my $block = [];
             push(@blocks, $block);
             foreach my $expr (@$exprs) {
@@ -10961,6 +11324,28 @@ sub distribute_blocks($$)
 }
 
 #
+# tla_class_and_prefix(tla)
+#
+# The CSS class and the tooltip prefix which a differential coverpoint of this
+# TLA is drawn with.  Shared by the branch and the MC/DC renderers below - see
+# the '@todo' on 'get_mcdc_html'.
+#
+# An excluded coverpoint has no legacy label ('noBaseline' keeps 'GNC' and 'UNC'
+# only) and needs none:  the '$excluded' arm of both renderers replaces the class
+# and writes its own title.  Asking for one is what left the MC/DC tooltip
+# opening with a bare ': ', and skipping the whole element to avoid asking is
+# what dropped a branch, its closing bracket and its share of the column width.
+#
+sub tla_class_and_prefix($)
+{
+    my $tla = shift;
+    return ("tla$tla", '')
+        if exists($SummaryInfo::excludedCoverpointTla{$tla});
+    return ("tla$tla", "$tla: ") unless $main::use_legacyLabels;
+    return ("tla$tla", $SummaryInfo::tlaToLegacySrcLabel{$tla} . ': ');
+}
+
+#
 # get_branch_html(brdata, printCallbackStruct)
 #
 # Return a list of HTML lines which represent the specified branch coverage
@@ -11011,10 +11396,6 @@ sub get_branch_html($$)
             # non-differential data.
             my ($taken, $count, $excluded, $type_name, $expr, $tla, $base_count)
                 = $br->render_data();
-            # TLA might be 'ECC' or 'EUC'
-            next
-                if ($main::use_legacyLabels &&
-                    !exists($SummaryInfo::tlaToLegacySrcLabel{$tla}));
             unless (defined($differentialBranch)) {
                 # vanilla case - no differential coverage info:  ignore any
                 # differential fields the element happens to carry
@@ -11026,12 +11407,7 @@ sub get_branch_html($$)
                 }
                 $prefix = '';
             } else {
-                $class = "tla$tla";
-                my $label =
-                    $main::use_legacyLabels ?
-                    $SummaryInfo::tlaToLegacySrcLabel{$tla} :
-                    $tla;
-                $prefix = $label . ": ";
+                ($class, $prefix) = tla_class_and_prefix($tla);
             }
             my ($char, $title);
 
@@ -11079,9 +11455,15 @@ sub get_branch_html($$)
                     $href =
                         "<a href=\"#" .
                         (defined($next) ? "L$next" : 'top') .
-                        "\" title=\"TITLE\" class=\"branchTla\">$char</a>";
+                        "\" title=\"TITLE\" class=\"branchTla\">CHAR</a>";
                     $tlaLinks{$tla} = $href;
                 }
+                # the cache is per TLA, but the marker character is per branch:
+                #   '#' (never executed) and '-' (reached, not taken) are both
+                #   uncovered, so two branches on one line can share a TLA and
+                #   still need different glyphs.  Same placeholder treatment the
+                #   MC/DC loop below gives its sense character
+                $href =~ s/CHAR/$char/;
                 $href =~ s#TITLE#$title#;
                 $current .= "<span class=\"$class\"> $href </span>";
             } else {
@@ -11169,12 +11551,7 @@ sub get_mcdc_html($$)
                     unless defined($differentialMcdc);
                 ($tla, $base_count, $taken) = @$count;
 
-                $class = "tla$tla";
-                my $label =
-                    $main::use_legacyLabels ?
-                    $SummaryInfo::tlaToLegacySrcLabel{$tla} :
-                    $tla;
-                $prefix = $label . ": ";
+                ($class, $prefix) = tla_class_and_prefix($tla);
             }
             my ($char, $title);
 
@@ -11322,9 +11699,11 @@ sub write_source_line(*$$$$$$$)
                     $cbdata->current('age'));
 
     # Get branch HTML data for this line
-    my @br_html = get_branch_html($brdata, $cbdata) if ($showBranches);
+    my @br_html;
+    @br_html = get_branch_html($brdata, $cbdata) if ($showBranches);
 
-    my @mcdc_html = get_mcdc_html($mcdc, $cbdata) if ($showMcdc);
+    my @mcdc_html;
+    @mcdc_html = get_mcdc_html($mcdc, $cbdata) if ($showMcdc);
 
     my $thisline = $fileCovInfo->lineMap()->{$line};
     my $tlaIsHref;
@@ -11433,7 +11812,15 @@ sub write_source_line(*$$$$$$$)
                            ['%C', $commitId],
                            ['%l', $line],
             ) {
-                $tooltip =~ s/$p->[0]/$p->[1]/g;
+                # escape the substituted value, not the assembled tooltip:  the
+                #   template is the user's own and may legitimately contain
+                #   markup, but the annotation fields come from an external
+                #   script - and a '"' in an author's full name terminates the
+                #   attribute this ends up inside, while a bare '&' is an
+                #   undefined entity reference.  The owner column, a hundred
+                #   lines below, escapes the same value already
+                my $value = escape_html($p->[1]);
+                $tooltip =~ s/$p->[0]/$value/g;
             }
             $tooltip = " title=\"$tooltip\"";
         } else {
@@ -11464,7 +11851,7 @@ sub write_source_line(*$$$$$$$)
                 (!defined($main::show_nonCodeOwners) ||
                     0 == $main::show_nonCodeOwners) &&
                 (!defined($bucket) ||
-                    !grep(/$bucket/, ('EUB', 'ECB', 'ECC', 'EUC')))
+                    !exists($SummaryInfo::excludedTla{$bucket}))
             ) {
                 # suppress date- and owner entry on non-code lines
                 $html .= $html_continuation_leader;
@@ -11480,7 +11867,7 @@ sub write_source_line(*$$$$$$$)
                 # right now, picking based on TLA.
                 $bgclass = " class=\"tlaBg$bucket\""
                     if (defined($bucket) &&
-                        !grep(/$bucket/, ('EUB', 'ECB', 'ECC', 'EUC')));
+                        !exists($SummaryInfo::excludedTla{$bucket}));
 
                 #$html .= "<span class=\"missBins\">";
                 if ("" ne $source_format) {
@@ -11494,7 +11881,10 @@ sub write_source_line(*$$$$$$$)
                             last OWNER;
                         }
                         # add a 'title="tooltip"' popup - to give owner, date, etc
-                        my $title = "span title=\"$src_owner $src_age days ago";
+                        #   (the owner name is escaped:  see the per-line tooltip)
+                        my $who = escape_html($src_owner);
+                        my $title =
+                            'span title="' . $who . " $src_age days ago";
                         if (defined($main::show_dateBins)) {
                             my $bin = SummaryInfo::findAgeBin($src_age);
                             $title .=
@@ -11612,7 +12002,9 @@ sub write_source_line(*$$$$$$$)
                 }
                 $html .= $space;
             } else {
-                $html .= sprintf("%-${ownerLen}s", $owner);
+                # pad first, then escape:  the padding is a column width in
+                #   characters, and escaping makes the string longer
+                $html .= escape_html(sprintf("%-${ownerLen}s", $owner));
             }
             $html .= $endspan . ' ';    # add trailing space
         }
@@ -11773,6 +12165,7 @@ END_OF_HTML
 #
 # write_frameset(filehandle, basedir, basename, pagetitle)
 #
+# 'basename' names the two pages this one frames - need the same name everywhere
 #
 
 sub write_frameset(*$$$)
@@ -11829,6 +12222,8 @@ END_OF_HTML
 #
 # write_overview(filehandle, basedir, basename, pagetitle, lines)
 #
+# 'basename' names the source page and the overview image this one links to -
+#   see 'write_frameset'
 #
 
 sub write_overview(*$$$$)
@@ -11871,13 +12266,12 @@ END_OF_HTML
     }
 
     # *************************************************************
-    my $f = $lcovutil::case_insensitive ? lc($_[2]) : $_[2];
     write_html($_[0], <<END_OF_HTML);
           </map>
 
           <center>
-          <a href="$f.gcov.$html_ext" target="source">Top</a><br><br>
-          <img src="$f.gcov.png" width=$overview_width height=$max_line alt="Overview" border=0 usemap="#overview">
+          <a href="$_[2].gcov.$html_ext" target="source">Top</a><br><br>
+          <img src="$_[2].gcov.png" width=$overview_width height=$max_line alt="Overview" border=0 usemap="#overview">
           </center>
         </body>
         </html>
@@ -11963,7 +12357,7 @@ sub buildDateSummaryTable($$$$$$$$$)
                 my $class =
                     !$main::use_legacyLabels &&
                     0 != $value &&
-                    grep(/^$tla$/, ("UNC", "LBC", "UIC")) ? "tla$tla" :
+                    exists($SummaryInfo::concerningTla{$tla}) ? "tla$tla" :
                     "headerCovTableEntry";
                 # suppress zeros - make table less busy/easier to read
                 if ("0" eq $value) {
@@ -11971,7 +12365,7 @@ sub buildDateSummaryTable($$$$$$$$$)
                 } elsif (!$main::no_sourceview &&
                          defined($fileDetail)           &&
                          defined($nextLocationCallback) &&
-                         !grep(/^$tla$/, ('DUB', 'DCB'))) {
+                         !exists($SummaryInfo::deletedTla{$tla})) {
                     # no link for deleted lines (DUB, DCB) because there
                     # is no TLA for those categories at the location in
                     # the 'current' sourceview.  That location is just a
@@ -12113,7 +12507,7 @@ sub buildOwnerSummaryTable($$$$$$$$$$)
                 my $class =
                     !$main::use_legacyLabels &&
                     0 != $value &&
-                    grep(/^$tla$/, ("UNC", "LBC", "UIC")) ? "tla$tla" :
+                    exists($SummaryInfo::concerningTla{$tla}) ? "tla$tla" :
                     "ownerTla";
                 if ("0" eq $value) {
                     $value = "";
@@ -12169,14 +12563,14 @@ sub buildHeaderSummaryTableRow
             $showConcerningTla       &&
             !$main::use_legacyLabels &&
             0 != $value              &&
-            grep(/^$tla$/, ("UNC", "LBC", "UIC")) ? "tla$tla" :
+            exists($SummaryInfo::concerningTla{$tla}) ? "tla$tla" :
             "headerCovTableEntry";
         if ("0" eq $value) {
             # suppress zeros - make table less busy/easier to read
             $value = "";
         } elsif (!$main::no_sourceview &&
                  defined($fileDetail) &&
-                 !($tla eq "DCB" || $tla eq "DUB")) {
+                 !exists($SummaryInfo::deletedTla{$tla})) {
             # deleted lines don't appear..
             my $firstAppearance = &$nextLocationCallback($fileDetail, $tla);
             defined($firstAppearance) or
@@ -12544,7 +12938,7 @@ END_OF_HTML
         }
         foreach my $tla (@SummaryInfo::tlaOrderNoExclude) {
             # check to see that there are non-zero entries
-            next if grep(/$tla/, ('EUC', 'ECC'));
+            next if exists($SummaryInfo::excludedCoverpointTla{$tla});
             foreach my $covtype (@visit) {
                 if (grep({ $tla eq $_ } @{$activeTlaColsForType{$covtype}})) {
                     push(@nonZeroTlas, $tla);
@@ -12559,7 +12953,7 @@ END_OF_HTML
     # Otherwise, only show non-zero categories in both places
     my $showAllTlasInSummary = 0;    # turn off for now
     my $tlaSummaryTypes =
-        $showAllTlasInSummary ? \@$SummaryInfo::tlaOrderNoExclude :
+        $showAllTlasInSummary ? \@SummaryInfo::tlaOrderNoExclude :
         \@nonZeroTlas;
 
     if ($type == $HDR_TESTDESC) {
@@ -12713,7 +13107,8 @@ END_OF_HTML
     # Aged coverage
     if ($show_dateBins) {
         # make a space in the table between before date bins
-        my $dateBinDetailPage = "index-date.$html_ext"
+        my $dateBinDetailPage;
+        $dateBinDetailPage = "index-date.$html_ext"
             if ($type != $HDR_SOURCE &&
                 $type != $HDR_FUNC);
         my $table =
@@ -12785,7 +13180,8 @@ END_OF_HTML
             $summary->findOwnerList($callback_type, 1,
                        $main::show_ownerBins && $main::show_ownerBins eq 'all');
         if (defined($ownerList)) {
-            my $ownerBinDetailPage = "index-owner.$html_ext"
+            my $ownerBinDetailPage;
+            $ownerBinDetailPage = "index-owner.$html_ext"
                 if ($type != $HDR_SOURCE &&
                     $type != $HDR_FUNC);
             my $table =
@@ -12911,9 +13307,10 @@ sub get_line_code($$$$$$$)
 {
     my ($type, $sort_type, $text, $sort_button, $bin_type, $primary_key, $base)
         = @_;
-    my $result    = $text;
-    my $key       = ('name' eq $primary_key) ? '' : "-bin_$primary_key";
-    my $sort_link = "index" . $key . $bin_type . "-sort-l.$html_ext"
+    my $result = $text;
+    my $key    = ('name' eq $primary_key) ? '' : "-bin_$primary_key";
+    my $sort_link;
+    $sort_link = "index" . $key . $bin_type . "-sort-l.$html_ext"
         if $sort_button;
 
     if ($type == $HEAD_NO_DETAIL) {
@@ -13062,9 +13459,17 @@ sub write_file_table(*$$$$$$)
         $lcovutil::br_coverage && 0 != $dirSummary->branch_found();
     my $hasMcdcData =
         $lcovutil::mcdc_coverage && 0 != $dirSummary->mcdc_found();
-    my $includeFunctionColumns = $lcovutil::func_coverage &&
-        0 != $dirSummary->function_found() &&
-        'owner' ne $primary_key;
+    # ..and the same shape for functions - except that one of the two reasons the
+    #   columns can be missing has a footnote explaining it, so write the reason
+    #   down here rather than re-deriving it from '!$includeFunctionColumns'
+    #   further down (where "no function data at all" was being reported as
+    #   "owner not identified", in reports with no owner data anywhere in them)
+    my $hasFunctionData =
+        $lcovutil::func_coverage && 0 != $dirSummary->function_found();
+    my $elidedFunctionColumnsForOwner =
+        $hasFunctionData && 'owner' eq $primary_key;
+    my $includeFunctionColumns =
+        $hasFunctionData && !$elidedFunctionColumnsForOwner;
 
     # Determine HTML code for column headings
     my $hide = $HEAD_NO_DETAIL;
@@ -13660,7 +14065,7 @@ sub write_file_table(*$$$$$$)
         [   $suppressedSecondaryHeader,
             '<sup>&lowast;&lowast;</sup> Bin \'Total\' header elided when bin contains only one entry.'
         ],
-        [   $lcovutil::func_coverage && !$includeFunctionColumns,
+        [   $elidedFunctionColumnsForOwner,
             "Note:  'Function Coverage' columns elided as function owner is not identified."
         ]
     ) {
@@ -14012,8 +14417,8 @@ END_OF_HTML
 
         my $funcEntry = $differentialMap->{$func};
         my ($count, $tla) = @{$funcEntry->hit()};
-        next
-            if grep(/^$tla$/, ('DUB', 'DCB')); # don't display deleted functions
+        # don't display deleted functions
+        next if exists($SummaryInfo::deletedTla{$tla});
         my $startline = $funcEntry->line() - $func_offset;
         my $name      = simplify_function_name($func);
         my $countstyle;
@@ -14121,7 +14526,7 @@ END_OF_HTML
             foreach my $alias (@aliasList) {
                 my ($hit, $tla) = @{$aliases->{$alias}};
                 # don't display deleted functions
-                next if grep(/^$tla$/, ('DUB', 'DCB'));    #
+                next if exists($SummaryInfo::deletedTla{$tla});
                 my $style = "coverFnAlias" . ($hit == 0 ? "Lo" : "Hi");
                 $tlaRow = "";
                 if ($showTlas) {
@@ -14301,13 +14706,20 @@ sub parse_dir_prefix(@)
 
     return if (!@opt_dir_prefix);
 
+    # A prefix is a leading part of an output path, and it is matched against the
+    #   name this platform's path modules decompose - so it is spelled the same
+    #   way.  That lets '--prefix C:\proj' work on a POSIX machine reading a
+    #   Windows '.info' file, which is the spelling that file suggests.
+    #   See 'lcovutil::native_path'
     foreach my $item (@opt_dir_prefix) {
-        if ($item =~ /$lcovutil::split_char/) {
+        if ($item =~ $lcovutil::split_pattern) {
             # Split and add comma-separated parameters
-            push(@dir_prefix, split($lcovutil::split_char, $item));
+            push(@dir_prefix,
+                 map { lcovutil::native_path($_) }
+                     split($lcovutil::split_pattern, $item));
         } else {
             # Add single parameter
-            push(@dir_prefix, $item);
+            push(@dir_prefix, lcovutil::native_path($item));
         }
     }
 }
