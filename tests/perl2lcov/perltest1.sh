@@ -8,7 +8,12 @@ if [[ "x" == ${LCOV_HOME}x ]] ; then
 fi
 source ../common.tst
 
-rm -rf *.xml *.dat *.info *.json cover_one perl2lcov_report cover_genhtml *.log
+# the .info and .log files are named rather than globbed:  'declforms.sh' runs
+#   in this same directory and the harness runs the two concurrently, so a glob
+#   here deletes that test's output while it is running
+rm -rf *.xml *.dat *.json cover_one perl2lcov_report cover_genhtml \
+    err.info err.log one.info region.info br_region.info checksum.info \
+    x.info genhtml.info
 
 clean_cover
 

@@ -23,6 +23,7 @@
 #   Test  17    : --initial capture (process_graphfile - lines 3149-3268)
 #   Test  18    : text '.gcov' capture without branch coverage
 #                  (process_dafile/read_gcov_file)
+#   Test  19    : a directory whose name contains a single quote  (find_files)
 #
 
 set +x
@@ -43,8 +44,8 @@ rm -f help.log version.log nodir.log nosuchdir.log badtool.log \
       tempdir_preserve.info tempdir_mk.info tempdir_rc.info \
       tempdir_rconly.info \
       intermediate1.info compat_libtool.info compat_hammer.info \
-      initial.info
-rm -rf srcdir
+      initial.info quotedir.log quotedir.info
+rm -rf srcdir "q'dir"
 
 clean_cover
 
@@ -381,15 +382,26 @@ fi
 
 # -----------------------------------------------------------------------
 # Test 10: --rc geninfo_adjust_testname=1  (exercises lines 438-441)
+#
+# The name is the given one plus the five fields of POSIX::uname, in that
+# order, with everything which is not a word character turned into '_'.  It
+# used to be a forked 'uname -a', which on this system prints those five fields
+# and then repeats parts of them - and which does not exist at all on a native
+# Windows perl.
 # -----------------------------------------------------------------------
 echo "=== Test 10: geninfo_adjust_testname=1 ==="
 $COVER $GENINFO_TOOL $GI_PRE --rc geninfo_adjust_testname=1 -t mytest \
     -o adjusttest.info $GI_POST srcdir >adjusttest.log 2>&1
 RC=$?
+EXPECT_TN=`echo "mytest__$(uname -s) $(uname -n) $(uname -r) $(uname -v) $(uname -m)" |
+    sed -e 's/[^A-Za-z0-9_]/_/g'`
 if [[ $RC -ne 0 ]]; then
     die "geninfo --rc geninfo_adjust_testname=1 failed (rc=$RC)"
 elif [[ ! -s adjusttest.info ]]; then
     die "geninfo_adjust_testname produced empty .info"
+elif ! grep -q -x -F "TN:$EXPECT_TN" adjusttest.info; then
+    grep '^TN:' adjusttest.info
+    die "expected test name 'TN:$EXPECT_TN'"
 else
     pass
 fi
@@ -568,6 +580,44 @@ sys.exit(0 if gcda else 1)' ; then
         die "profile 'exec' is not one time per '.gcda'"
     else
         pass
+    fi
+fi
+
+# -----------------------------------------------------------------------
+# Test 19: a directory whose name contains a single quote.
+#
+# The scan for data files is a forked 'find', and the directory used to be
+# passed to it inside a pair of single quotes written into the command line.  A
+# single quote in the name closes that quoting, and the shell then reads the
+# rest of the name - and the rest of the command - as something else entirely.
+# -----------------------------------------------------------------------
+echo "=== Test 19: a directory name containing a single quote ==="
+QDIR="q'dir"
+if [[ $HAVE_CC -eq 0 ]]; then
+    echo "SKIP: no instrumented program to capture"
+    pass
+else
+    mkdir -p "$QDIR"
+    cp srcdir/hello.c "$QDIR/"
+    (cd "$QDIR" && ${CC} --coverage -o hello hello.c && ./hello) >/dev/null 2>&1
+    if [[ $? -ne 0 ]]; then
+        echo "SKIP: cannot build under a directory named \"$QDIR\""
+        pass
+    else
+        $COVER $GENINFO_TOOL $GI_PRE -o quotedir.info $GI_POST "$QDIR" \
+            >quotedir.log 2>&1
+        RC=$?
+        if [[ $RC -ne 0 ]]; then
+            cat quotedir.log
+            die "capture from a directory named \"$QDIR\" failed (rc=$RC)"
+        elif grep -q "error in .*find" quotedir.log; then
+            cat quotedir.log
+            die "the quote in \"$QDIR\" reached the shell"
+        elif ! grep -q "^DA:" quotedir.info; then
+            die "capture from \"$QDIR\" produced no DA: records"
+        else
+            pass
+        fi
     fi
 fi
 

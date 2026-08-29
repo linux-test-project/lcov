@@ -46,6 +46,9 @@ set +x
 #       children we are still waiting for, and the run still produces
 #       everything
 #
+#   ..and, at the end, the decoding of the wait status which every one of those
+#   messages is built from:  a child which was signalled and dumped core.
+#
 #   The escalation case is what genhtml could not do:  it passed the retry count
 #   to 'report_fork_failure' in the wrong argument slot, so the count it tested
 #   was always the literal 0 and a job which failed every time was rescheduled
@@ -53,7 +56,7 @@ set +x
 
 source ../../common.tst
 
-rm -rf *.info *.log *.json *.txt *.c *.o *.gcda *.gcno a.out rpt_* \
+rm -rf *.info *.log *.json *.txt *.c *.o *.gcda *.gcno a.out rpt_* status.pl \
     cover_db.dat html_report perlcov.info pycov.info __pycache__
 
 clean_cover
@@ -499,6 +502,56 @@ LCOV_FORCE_CHILD_KILL=20 $COVER $GENHTML_TOOL cap_base.info $REPORT $LOW \
 expect_nonzero rpt_esc $?
 expect_msg rpt_esc rpt_esc.log \
     'ERROR: \(parallel\) [0-9]+ consecutive fork\(\) failures'
+
+#-----------------------------------------------------------------------
+# the wait status itself:  a child which was killed by a signal AND dumped
+#   core.  The signal number is the low 7 bits of the status and 0x80 is the
+#   'dumped core' flag, so a mask of 0xFF turns SIGSEGV into "signal 139", for
+#   which $Config{sig_name} has no entry at all - the name comes out empty and
+#   lcov's own library complains about an uninitialized value while building
+#   its message.
+# This one is a direct call rather than an injected failure:  whether a core is
+#   actually written depends on the process's core size limit, which the
+#   testsuite does not control, so a child which really dumped core cannot be
+#   arranged here.  Both decoders are called, because both had the mask.
+#-----------------------------------------------------------------------
+cat > status.pl <<'EOF'
+use strict;
+use warnings;
+use lcovutil;
+
+# ERROR_PARALLEL ignored, so that the message is reported and the probe lives
+#   long enough to call the second decoder
+my ($signum) = @ARGV;
+$lcovutil::tool_name = 'lcov';
+$lcovutil::ignore[$lcovutil::ERROR_PARALLEL] = 1;
+my $status = $signum | 0x80;    # killed by $signum, and dumped core
+lcovutil::report_exit_status($lcovutil::ERROR_PARALLEL, 'aggregate segment 0',
+                             $status, 'child 12345', '');
+# ..and the signal this one returns is what the caller retries on:  there is no
+#   output to print, so name a prefix which has no log or err file
+print('report_child_output returned ' .
+          lcovutil::report_child_output('.', 'nosuchprefix', 12345, $status,
+                                        'aggregate segment 0', 0, 0) .
+          "\n");
+EOF
+
+for sig in 11:SIGSEGV 6:SIGABRT ; do
+    signum=${sig%:*}
+    signame=${sig#*:}
+    perl $PERL_COVER_ARGS -I$LCOV_HOME/lib status.pl $signum \
+        > status_$signum.log 2>&1
+    expect_status status_$signum $? 0
+    expect_msg status_$signum status_$signum.log \
+        "died due to signal $signum \($signame\)"
+    expect_msg status_$signum status_$signum.log \
+        "report_child_output returned $signum"
+    # the core flag is not part of the signal number, and a signal number which
+    #   does not exist has no name to print
+    reject_msg status_$signum status_$signum.log "signal $(($signum | 0x80))"
+    reject_msg status_$signum status_$signum.log '\(SIG\)'
+    reject_msg status_$signum status_$signum.log 'uninitialized value'
+done
 
 echo "*** done"
 

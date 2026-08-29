@@ -666,6 +666,11 @@ specified at a time.
 
    This will change all "/tmp/build" strings in the path to "/usr/src".
 
+   Patterns are applied after the directory separator in a name has been translated to this platform's, so a pattern which is to match input captured on the other platform is written with the separator used here - *e.g.,* \-\-substitute 's#^C:/##' to remove a Windows drive letter.  See
+   ``cross_platform_read``
+   in man
+   :manpage:`lcovrc(5)`.
+
 ``--omit-lines`` *regexp*
 
    Exclude coverage data from lines whose content matches
@@ -1048,6 +1053,11 @@ specified at a time.
       Unexpected syntax or value found in .info file - for example, negative number or
       zero line number encountered.
 
+      A count field which is not a legal integer (for example 'nan' or 'inf') is
+      likewise treated as zero if this message is ignored;  a count which is a number
+      but not an integer is truncated toward zero, and one too large to store is
+      saturated to 9223372036854775807 (0x7ffffffffffffff).
+
    ``gcov``
 
       the gcov tool returned with a non-zero return code.
@@ -1095,6 +1105,9 @@ specified at a time.
    ``negative``
 
       negative 'hit' count found.
+
+      A negative count is not a legal value for any cover type, so if this message is
+      ignored, the count is treated as zero.
 
       Note that negative counts may be caused by a known GCC bug - see
 

@@ -96,13 +96,13 @@ def main():
     # Clean log directory
     log_dir = topdir / 'test.log.d'
     if log_dir.exists():
-        shutil.rmtree(log_dir)
-    
+        subprocess.run(['rm', '-rf', str(log_dir)], check=False)
+
     # Clean coverage directories
     for cov_dir in ['cover_db', 'cover_db.d', 'lcov_coverage']:
         d = topdir / cov_dir
         if d.exists():
-            shutil.rmtree(d)
+            subprocess.run(['rm', '-rf', str(d)], check=False)
     
     # Clean info files in topdir
     for pattern in ['*.info', '*.counts']:

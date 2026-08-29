@@ -14,7 +14,8 @@ all: check report
 
 include common.mak
 
-TESTS := genhtml scripts lcov llvm2lcov py2lcov perl2lcov xml2lcov html2lcov
+TESTS := genhtml genpng scripts lcov html2lcov llvm2lcov py2lcov perl2lcov \
+	 xml2lcov
 
 # there may or may not be some .info files generated for exported
 #  tools - py2lcov, perl2lcov, etc.  We want them included in the
@@ -27,7 +28,10 @@ EXCLUDES =                                            \
 	filter.pl reader.pl writer.pl writer_modeb.pl \
 	'*/tmp*' 'tests/*' scheduling
 EXCL_OPTS = $(foreach e, $(EXCLUDES), --exclude $(e))
-OMIT_OPTS = --omit-lines 'ERROR_INTERNAL' --omit-lines '\bdie\b'
+OMIT_OPTS = \
+	--omit-lines 'ERROR_INTERNAL' \
+	--omit-lines '\bdie\b'        \
+	--omit-lines 'LCOV_TESTED_LINE'
 IGNORE_OPTS = --ignore unsupported,unused,inconsistent
 
 # The coverage recipes below are each one long shell command, joined with ';' -

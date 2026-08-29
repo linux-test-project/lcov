@@ -4,7 +4,7 @@ set +x
 source ../../common.tst
 
 rm -f *.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt *.log *.err *.json dumper* *.annotated *.log TEST.cpp TeSt.cpp
-rm -rf ./baseline ./current ./differential* ./cover_db
+rm -rf ./baseline ./current ./differential* ./nodiff ./cover_db ./MixedCase ./mixedcase ./frames
 
 clean_cover
 
@@ -128,7 +128,7 @@ fi
 ln -s ../simple/simple2.cpp.annotated TEst.cpp.annotated
 
 # check that this works with test names
-#  need to not do the exiistence callback because the 'insensitive' name
+#  need to not do the existence callback because the 'insensitive' name
 #  won't be found but the version-check in the .info file already contains
 #  a value - so we would get a version check error
 echo genhtml $DIFFCOV_OPTS  --baseline-file ./baseline.info --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode -o differential ./current.info --rc case_insensitive=1 --ignore-annotate,source $IGNORE --rc check_existence_before_callback=0 --ignore inconsistent
@@ -139,6 +139,99 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
+
+# ..and the same report with no diff at all:  the diff map is consulted for
+#   every file in every report, differential or not, and the case-insensitive
+#   path takes 'lc' of its root directory - which used to be set only as the
+#   last step of reading a diff file.  Six warnings per source file, and none
+#   of them anywhere near the option which caused them
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode -o nodiff ./current.info --rc case_insensitive=1 --ignore annotate,source $IGNORE --rc check_existence_before_callback=0 --ignore inconsistent
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode -o nodiff ./current.info --rc case_insensitive=1 $GENHTML_PORT --ignore annotate,source $IGNORE --rc check_existence_before_callback=0 --ignore inconsistent 2>&1 | tee nodiff.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: case-insensitive genhtml without a diff file failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if grep -q 'uninitialized' nodiff.log ; then
+    echo "ERROR: case-insensitive genhtml without a diff file used an uninitialized value"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# ..and the same report written into a directory whose name has capitals in it.
+#   'case_insensitive' is about matching the names which came out of the coverage
+#   data - it is not a request to rename the directory the user asked for, and
+#   the sites which create the directories, and which write the stylesheet and
+#   the '.htaccess', do not rename it either.  So folding the case of the whole
+#   path when writing a page names a file in a directory nothing ever created
+echo genhtml $DIFFCOV_OPTS -o MixedCase ./current.info --rc case_insensitive=1
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode -o MixedCase ./current.info --rc case_insensitive=1 $GENHTML_PORT --ignore annotate,source $IGNORE --rc check_existence_before_callback=0 --ignore inconsistent 2>&1 | tee mixedcase.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: case-insensitive genhtml into a mixed-case directory failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+if [ ! -f MixedCase/index.html ] ; then
+    echo "ERROR: no index page in the directory which was asked for"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# the pages, the stylesheet and the icons all have to land in the same place
+for f in MixedCase/gcov.css MixedCase/updown.png ; do
+    if [ ! -f $f ] ; then
+        echo "ERROR: '$f' was not written"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+if [ -e mixedcase ] ; then
+    echo "ERROR: genhtml wrote into a lower-cased copy of the output directory"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# ..and the frames flavour, whose extra pages refer to each other by name.  The
+#   frameset frames the overview page and the source page, the overview page
+#   links back to the source page and embeds the overview image, and the name all
+#   four of those are written under is lower-cased by 'case_insensitive'
+echo genhtml $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-noncode -o frames ./current.info --rc case_insensitive=1 --validate
+$COVER $GENHTML_TOOL $DIFFCOV_OPTS --annotate-script `pwd`/annotate.pl --show-noncode -o frames ./current.info --rc case_insensitive=1 $GENHTML_PORT --validate --ignore annotate,source $IGNORE --rc check_existence_before_callback=0 --ignore inconsistent 2>&1 | tee frames.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: case-insensitive genhtml --frames failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# '--validate' walks the '<a href>' and '<frame src>' links and reports one which
+#   does not resolve as a 'path' error, so a clean run above is most of the check.
+#   It does not parse the '<area href>' entries of the image map, the '<img src>'
+#   of the image itself or the '<link>' to the stylesheet, so check every local
+#   target named by either page directly
+FRAMEDIR=frames/insensitive
+for f in $FRAMEDIR/test.cpp.gcov.frameset.html $FRAMEDIR/test.cpp.gcov.overview.html ; do
+    if [ ! -f $f ] ; then
+        echo "ERROR: '$f' was not written"
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+        continue
+    fi
+    for t in `grep -o -E '(href|src)="[^"#]*"' $f | sed -e 's/^[a-z]*="//' -e 's/"$//' | sort -u` ; do
+        case $t in http*) continue ;; esac
+        if [ ! -f $FRAMEDIR/$t ] ; then
+            echo "ERROR: '$f' names '$t', which was not written"
+            if [ 0 == $KEEP_GOING ] ; then
+                exit 1
+            fi
+        fi
+    done
+done
 
 # check warning
 echo lcov $LCOV_OPTS --capture --directory . --output-file current.info --substitute 's/test/TEST/g' $IGNORE
@@ -212,5 +305,9 @@ fi
 echo "Tests passed"
 
 if [ "x$COVER" != "x" ] && [ 0 != $LOCAL_COVERAGE ]; then
-    cover
+    # 'cover' with no argument reads 'cover_db', and '--coverage' with no
+    #   database of its own names 'cover_db.dat' - so this used to end with
+    #   "Can't open database", exit 2 and no 'perlcov.info' at all.  Every other
+    #   test uses the helper, which knows the name and writes the .info file
+    generate_coverage 'insensitive.sh' $LOCAL_COVERAGE
 fi

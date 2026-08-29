@@ -9,6 +9,9 @@ include ../common.mak
 
 # separate lines - so new tests can be added without conflict
 TESTS := \
+  analyzeInfoFiles_test.sh \
+  annotateutil_test.sh \
+  get_signature_test.sh \
   gitblame_test.sh \
   gitdiff_test.sh \
   gitversion_test.sh \

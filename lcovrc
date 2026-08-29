@@ -79,7 +79,7 @@ max_message_count = 100
 # Default is 0
 #treat_warning_as_error = 1
 
-# If set to non-zero, only issue particluar warning once per file
+# If set to non-zero, only issue particular warning once per file
 # Default is 1
 #warn_once_per_file = 1
 
@@ -122,7 +122,7 @@ genhtml_line_field_width = 12
 genhtml_branch_field_width = 16
 
 # Width of MC/DC coverage field in source code view
-genhtml_mcdc_field_width = 16
+genhtml_mcdc_field_width = 14
 
 # width of 'owner' field in source code view - default is 20
 #genhtml_owner_field_width = 20
@@ -213,7 +213,7 @@ genhtml_desc_html=0
 #genhtml_missed=1
 
 # group function aliases in report - see '--merge' section in man(1) genhtml
-#merge_function_aliasess = 1
+#merge_function_aliases = 1
 
 # If set, suppress list of aliases in function detail table
 #suppress_function_aliases = 1
@@ -367,7 +367,7 @@ mcdc_coverage = 0
 # num_context_lines = 5
 
 # specify age cutpoints for genhtml date bins
-# can call option multiple times or use comma-separted list (or both)
+# can call option multiple times or use comma-separated list (or both)
 #genhtml_date_bins = 7
 #genhtml_date_bins = 30,180
 
@@ -435,7 +435,7 @@ mcdc_coverage = 0
 #version_script = path_to_my_executable
 
 # tell the tool to generate missing file version information when
-# readind coverage DB file
+# reading coverage DB file
 # compute_file_version = 0 | 1
 
 # specify path to file pathname resolution script
@@ -480,6 +480,33 @@ lcov_json_module = auto
 # use case insensitive compare to find matching files, for include/exclude
 #  directives, etc
 #case_insensitive = 0
+
+# read '.info' and genhtml udiff files ('--diff-file') - whose file
+#  names use the other platform's directory separator - e.g. a trace captured
+#  on Windows, read on a POSIX machine - translating those names to this
+#  platform's separator as they are read.
+#  Enabled by default:   untranslated, the name will not match
+#   anything on this machine (whereas the translated path should).
+# Set to 0 if your project actually does contain paths which use the other
+#   platform's separator - for example, '\' (backslash) in a POSIX file name.
+#   If disabled: names are not modified and you will see a 'usage' error
+#   (which you will need to ignore) if a path contains both characters.
+#  A leading Windows drive letter is kept as an ordinary leading path element
+#  ('C:/proj/src/f.c'):  the tool does not guess which local directory a drive
+#  letter corresponds to, so use a substitute pattern - e.g.
+#  substitute = s#^C:/## - to remove it.  In the report layout a name which
+#  begins with a drive letter is decomposed as an absolute name, so use
+#  --prefix to drop the letter from the directory hierarchy.
+#  Windows input usually wants
+#  case_insensitive = 1 as well.
+#cross_platform_read = 1
+
+# which platform's path convention this run works in:  'auto' (the one we are
+#  running on), 'posix', 'windows' or 'cygwin'.  Only 'auto' makes sense in
+#  production - the separator has to be the one the file system really uses;
+#  the other values exist so that the regression tests can drive every
+#  direction of the cross_platform_read translation from any platform.
+#path_style = auto
 
 # sort file names before capture and/or aggregation - to reduce certain
 #  types of processing order dependencies which can affect coverage results.

@@ -75,7 +75,7 @@ sub new
     ) {
         print(STDERR "Error: unexpected option:\n  " .
                 join(' ', @_) .
-                "\nusage: name type json-string [--signoff] [--line l_threshold] [--branch b_threshold] [--function f_threshold] [--mcdc -m_threshold]\n"
+                "\nusage: name type json-string [--signoff] [--line l_threshold] [--branch b_threshold] [--function f_threshold] [--mcdc m_threshold]\n"
         );
         exit(1) if $standalone;
         return undef;
@@ -84,7 +84,9 @@ sub new
     $thresh{line}     = $line if defined($line);
     $thresh{branch}   = $branch if defined($branch);
     $thresh{function} = $function if defined($function);
-    $thresh{mcdc}     = $mcdc if defined($mcdc);
+    # note the key:  this is the name genhtml uses in the JSON it passes us -
+    #   see 'type2str' in bin/genhtml - and not the name of the option
+    $thresh{'MC/DC'} = $mcdc if defined($mcdc);
     die("$script:  must specify at least one of --line, --branch, --function, --mcdc"
     ) unless (%thresh);
     foreach my $key (keys %thresh) {

@@ -27,6 +27,10 @@
 #  18.  --verify -b tolerates the same whitespace-only mismatch
 #  19.  --verify --ignore-whitespace still reports a non-whitespace mismatch
 #  20.  -b without --verify is a usage error (both spellings)
+#  21.  A repo whose path contains a space is annotated by git, rather than
+#       falling through to filesystem annotation
+#  22.  --prefix is prepended to a relative pathname
+#  23.  An invalid --abbrev pattern is rejected when the tool starts
 #
 
 set +x
@@ -595,6 +599,97 @@ if [ -n "$BAD" ] ; then
     fail "Test 20 orphan-b:$BAD; last output: $OUTPUT"
 else
     pass "Test 20: -b without --verify reports a 'usage' error"
+fi
+
+# -----------------------------------------------------------------------
+# Test 21: a repo whose path contains a space
+#   Every git command here goes through a shell, so an unquoted path is split
+#   into words:  'git rev-parse' then runs somewhere else entirely (or not at
+#   all) and the callback quietly returns undef, which sends the caller to the
+#   filesystem annotation of test 5 - same exit status, no message, and every
+#   line attributed to whoever owns the file rather than whoever wrote it.
+#   So the assertion is not just that the run succeeds:  it is that the output
+#   is git's and not the fallback's.
+# -----------------------------------------------------------------------
+BASE21=$(mktemp -d)
+REPO21="$BASE21/my repo"
+mkdir "$REPO21"
+git -C "$REPO21" init --quiet
+git -C "$REPO21" config user.email "alice@mediatek.com"
+git -C "$REPO21" config user.name  "Alice"
+printf 'space line 1\nspace line 2\n' > "$REPO21/space.c"
+git -C "$REPO21" add space.c
+fixed_commit "$REPO21" "path with a space" "2024-04-01 08:00:00 +0000"
+
+OUTPUT=$($GITBLAME "$REPO21/space.c" 2>&1)
+RC=$?
+rm -rf "$BASE21"
+if [ $RC -ne 0 ] ; then
+    fail "Test 21 space-in-path: expected exit 0, got $RC; output: $OUTPUT"
+elif echo "$OUTPUT" | grep -q '^NONE|' ; then
+    fail "Test 21 space-in-path: fell back to filesystem annotation:
+$OUTPUT"
+else
+    # the commit's author and date, i.e. data only git could have supplied
+    MATCH=$(echo "$OUTPUT" |
+            grep -c '|alice@mediatek\.com;alice@mediatek\.com|2024-04-01T08:00:00+00:00|space line ')
+    if [ "$MATCH" -ne 2 ] ; then
+        fail "Test 21 space-in-path: expected 2 annotated lines, got $MATCH:
+$OUTPUT"
+    else
+        pass "Test 21: a repo path containing a space is annotated by git"
+    fi
+fi
+
+# -----------------------------------------------------------------------
+# Test 22: '--prefix' is prepended to a relative pathname
+#   The prefix is a single string;  it used to be dereferenced as a list, so
+#   any use of the flag died with 'Not an ARRAY reference'.  The name below is
+#   relative and does not exist in the current directory, so it can only be
+#   found via the prefix.
+# -----------------------------------------------------------------------
+REPO22=$(make_git_repo)
+printf 'prefix line 1\nprefix line 2\n' > "$REPO22/prefixed.c"
+git -C "$REPO22" add prefixed.c
+fixed_commit "$REPO22" "prefix test" "2024-05-01 08:00:00 +0000"
+
+OUTPUT=$($GITBLAME --prefix "$REPO22" prefixed.c 2>&1)
+RC=$?
+rm -rf "$REPO22"
+if [ $RC -ne 0 ] ; then
+    fail "Test 22 prefix: expected exit 0, got $RC; output: $OUTPUT"
+elif echo "$OUTPUT" | grep -q '^NONE|' ; then
+    fail "Test 22 prefix: fell back to filesystem annotation:
+$OUTPUT"
+else
+    MATCH=$(echo "$OUTPUT" |
+            grep -c '|2024-05-01T08:00:00+00:00|prefix line ')
+    if [ "$MATCH" -ne 2 ] ; then
+        fail "Test 22 prefix: expected 2 annotated lines, got $MATCH:
+$OUTPUT"
+    else
+        pass "Test 22: --prefix is prepended to a relative pathname"
+    fi
+fi
+
+# -----------------------------------------------------------------------
+# Test 23: an invalid '--abbrev' pattern
+#   The patterns are compiled once, when the tool starts, so a broken one is
+#   reported whether or not any author name is ever abbreviated with it.  This
+#   file is not in a git repo at all - so it is annotated from the filesystem,
+#   and the pattern would never have been reached.
+# -----------------------------------------------------------------------
+TMP23=$(mktemp --suffix=.c)
+printf 'no repo here\n' > "$TMP23"
+OUTPUT=$($GITBLAME --abbrev 's/[/' "$TMP23" 2>&1)
+RC=$?
+rm -f "$TMP23"
+if [ $RC -eq 0 ] ; then
+    fail "Test 23 bad-abbrev: expected non-zero exit; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q "invalid domain pattern 's/\[/'" ; then
+    fail "Test 23 bad-abbrev: expected the pattern error; got: $OUTPUT"
+else
+    pass "Test 23: an invalid --abbrev pattern is rejected at startup"
 fi
 
 # -----------------------------------------------------------------------

@@ -5,7 +5,7 @@ set +x
 
 source ../../common.tst
 
-rm -f *.txt* *.json dumper* intersect*.info gen.info func.info inconsistent.info diff* *.log setop*.info
+rm -f *.txt* *.json dumper* intersect*.info gen.info func.info inconsistent.info diff* *.log setop*.info chksum*.info
 rm -rf cover_db
 
 clean_cover
@@ -494,6 +494,265 @@ checkSetop 'sparse union' setopS.info \
 checkSetop 'sparse union summary' setopS.log \
     '  branches....: 57.1% (8 of 14 branches)' \
     '  conditions..: 57.1% (8 of 14 conditions)'
+
+#
+# Set operations across differing testcase names.
+#
+# 'lcov --intersect'/'--subtract' are defined over the coverpoints of the two
+# operands - see the man page - so a 'TN:' is not part of the operation.  The
+# merge used to apply the operation only to the per-testcase maps named in the
+# OTHER operand, so a coverpoint held under a name that operand did not have was
+# carried through untouched.  That is not a summary-only inaccuracy:
+# 'TraceFile::write_info' emits the per-testcase records and never the summary,
+# so with two testcase names both operations were no-ops on the written data -
+# one run reported "1 of 1" and wrote all three lines - and every cover type
+# behaved the same way.  Each case below therefore asserts the written record as
+# well as the summary, and asserts what must NOT be in it: the surviving
+# coverpoints are the point, and 'the input verbatim' contains them too.
+#
+cat > setopTa.info <<'EOF'
+TN:tcA
+SF:setops.c
+FN:10,12,fnA
+FN:20,22,fnB
+FNDA:5,fnA
+FNDA:3,fnB
+FNF:2
+FNH:2
+DA:10,5
+DA:20,3
+BRDA:10,0,0,5
+BRDA:10,0,1,0
+BRDA:20,0,0,3
+BRDA:20,0,1,0
+BRF:4
+BRH:2
+MCDC:20,2,t,3,0,c||d
+MCDC:20,2,f,0,0,c||d
+MCDC:20,2,t,3,1,c||d
+MCDC:20,2,f,0,1,c||d
+LF:2
+LH:2
+end_of_record
+EOF
+
+cat > setopTb.info <<'EOF'
+TN:tcB
+SF:setops.c
+FN:20,22,fnB
+FN:40,42,fnD
+FNDA:1,fnB
+FNDA:7,fnD
+FNF:2
+FNH:2
+DA:20,1
+DA:40,7
+BRDA:20,0,0,1
+BRDA:20,0,1,2
+BRDA:40,0,0,7
+BRDA:40,0,1,0
+BRF:4
+BRH:3
+MCDC:20,2,t,1,0,c||d
+MCDC:20,2,f,0,0,c||d
+MCDC:20,2,t,0,1,c||d
+MCDC:20,2,f,2,1,c||d
+MCDC:40,2,t,7,0,g&&h
+MCDC:40,2,f,0,0,g&&h
+MCDC:40,2,t,7,1,g&&h
+MCDC:40,2,f,0,1,g&&h
+LF:2
+LH:2
+end_of_record
+EOF
+
+# the same data as 'setopTa.info' under a third name:  the correct difference is
+#  empty and the correct intersection is the whole of it, with the counts summed
+sed -e 's/^TN:tcA$/TN:tcZ/' setopTa.info > setopTz.info
+
+function checkNotSetop
+{
+    # checkNotSetop opDescription file unexpectedLine...
+    local WHAT=$1
+    local OUT=$2
+    shift 2
+    for UNEXPECTED in "$@" ; do
+        grep -qxF "$UNEXPECTED" $OUT
+        if [ 0 == $? ] ; then
+            echo "Error:  $WHAT should not contain '$UNEXPECTED':"
+            cat $OUT
+            status=1
+            if [ $KEEP_GOING == 0 ] ; then
+                exit 1
+            fi
+        fi
+    done
+}
+
+# Only line 20 is in both operands, so only line 20 survives - in every cover
+#  type - with its counts summed (3+1 lines, 3+1 and 0+2 branches, 3+1 and 0+2
+#  MC/DC senses, 3+1 for 'fnB').  Line 10 is mine alone and line 40 is yours.
+$COVER $LCOV_TOOL --branch --mcdc -o setopTi.info setopTa.info \
+    --intersect setopTb.info $SETOP_IGNORE 2>&1 | tee setopTi.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error code from cross-testname intersect"
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+checkSetop 'cross-testname intersect' setopTi.info \
+    'DA:20,4' 'FNA:0,4,fnB' 'BRDA:20,0,0,4' 'BRDA:20,0,1,2' \
+    'MCDC:20,2,t,4,0,c||d' 'LF:1' 'LH:1' 'BRF:2' 'BRH:2'
+checkNotSetop 'cross-testname intersect' setopTi.info \
+    'DA:10,5' 'DA:40,7' 'FNA:0,5,fnA' 'FNA:1,7,fnD' \
+    'BRDA:10,0,0,5' 'BRDA:40,0,0,7' 'TN:tcB'
+checkSetop 'cross-testname intersect summary' setopTi.log \
+    '  lines.......: 100.0% (1 of 1 line)' \
+    '  functions...: 100.0% (1 of 1 function)' \
+    '  branches....: 100.0% (2 of 2 branches)' \
+    '  conditions..: 75.0% (3 of 4 conditions)'
+
+# ..and the complement:  line 10 is mine alone, so it is what is left
+$COVER $LCOV_TOOL --branch --mcdc -o setopTd.info setopTa.info \
+    --subtract setopTb.info $SETOP_IGNORE 2>&1 | tee setopTd.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error code from cross-testname subtract"
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+checkSetop 'cross-testname subtract' setopTd.info \
+    'DA:10,5' 'FNA:0,5,fnA' 'BRDA:10,0,0,5' 'LF:1' 'LH:1' 'BRF:2' 'BRH:1'
+checkNotSetop 'cross-testname subtract' setopTd.info \
+    'DA:20,3' 'DA:40,7' 'FNA:1,3,fnB' 'BRDA:20,0,0,3' 'TN:tcB'
+checkSetop 'cross-testname subtract summary' setopTd.log \
+    '  lines.......: 100.0% (1 of 1 line)' \
+    '  functions...: 100.0% (1 of 1 function)' \
+    '  branches....: 50.0% (1 of 2 branches)' \
+    '  conditions..: no data found'
+
+# The sharpest form:  two operands which differ ONLY in their 'TN:', so the
+#  correct difference is empty for every cover type - which is the case that
+#  used to write the base input back out verbatim beside a "no data found"
+#  summary
+$COVER $LCOV_TOOL --branch --mcdc -o setopTn.info setopTz.info \
+    --subtract setopTa.info $SETOP_IGNORE 2>&1 | tee setopTn.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error code from identical-data subtract"
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+checkSetop 'identical-data subtract' setopTn.info 'LF:0' 'LH:0' 'FNF:0' 'FNH:0'
+checkNotSetop 'identical-data subtract' setopTn.info \
+    'DA:10,5' 'DA:20,3' 'FNA:0,5,fnA' 'FNA:1,3,fnB' \
+    'BRDA:10,0,0,5' 'BRDA:20,0,0,3' 'MCDC:20,2,t,3,0,c||d'
+checkSetop 'identical-data subtract summary' setopTn.log \
+    '  lines.......: no data found' \
+    '  functions...: no data found' \
+    '  branches....: no data found' \
+    '  conditions..: no data found'
+
+# ..and its intersection is the whole of it, with every count doubled
+$COVER $LCOV_TOOL --branch --mcdc -o setopTx.info setopTz.info \
+    --intersect setopTa.info $SETOP_IGNORE 2>&1 | tee setopTx.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error code from identical-data intersect"
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+checkSetop 'identical-data intersect' setopTx.info \
+    'DA:10,10' 'DA:20,6' 'FNA:0,10,fnA' 'FNA:1,6,fnB' \
+    'BRDA:10,0,0,10' 'BRDA:20,0,0,6' 'MCDC:20,2,t,6,0,c||d' 'LF:2' 'LH:2'
+checkSetop 'identical-data intersect summary' setopTx.log \
+    '  lines.......: 100.0% (2 of 2 lines)' \
+    '  functions...: 100.0% (2 of 2 functions)' \
+    '  branches....: 50.0% (2 of 4 branches)' \
+    '  conditions..: 50.0% (2 of 4 conditions)'
+
+# Merging the per-line checksums of two tracefiles which disagree about one.
+#
+# Counts are added together;  checksums are not addable at all - two different
+#  checksums for one line of one file mean the two tracefiles were built from two
+#  different versions of that file, which is the only thing a checksum is carried
+#  in order to detect.  The report of it was passed to 'ignorable_error' as two
+#  arguments, and that subroutine's second parameter is a suppression flag rather
+#  than more message:  so the message lost the pair of values it exists to show,
+#  and the non-empty string which landed in the flag turned the whole thing into
+#  a silent 'ignore' - the one ERROR_MISMATCH in the library which printed
+#  nothing at all when the user chose to accept it.
+#
+# The source file the data names is deliberately not there:  reading a checksum
+#  against a source which IS readable is a different check (and a different
+#  message), and this one is about what the two tracefiles say to each other.
+cat > chksum_a.info <<'EOF'
+TN:tcA
+SF:gone.c
+DA:1,1,AAAAAAAAAAAAAAAAAAAAAA
+LF:1
+LH:1
+end_of_record
+EOF
+cat > chksum_b.info <<'EOF'
+TN:tcA
+SF:gone.c
+DA:1,1,BBBBBBBBBBBBBBBBBBBBBB
+LF:1
+LH:1
+end_of_record
+EOF
+
+# 'mismatch' is named once, so the message is printed rather than merely counted
+$COVER $LCOV_TOOL $PARALLEL $PROFILE --checksum -o chksum.info \
+    -a chksum_a.info -a chksum_b.info \
+    --ignore mismatch,source,source,empty,empty 2>&1 | tee chksum.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error code from checksum merge"
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -qF 'WARNING: (mismatch)' chksum.log
+if [ 0 != $? ] ; then
+    echo "Error:  the checksum merge did not warn:"
+    cat chksum.log
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# Both checksums are named, which is the whole of the fix.  Which one is the
+#  'from' and which the 'to' is not asserted:  the two inputs are merged in
+#  whichever order the segments of a parallel aggregate come back in, so either
+#  direction is a correct report of the same disagreement.
+grep -E -q \
+    'checksum mismatch at gone\.c:1: (AAAAAAAAAAAAAAAAAAAAAA -> BBBBBBBBBBBBBBBBBBBBBB|BBBBBBBBBBBBBBBBBBBBBB -> AAAAAAAAAAAAAAAAAAAAAA)' \
+    chksum.log
+if [ 0 != $? ] ; then
+    echo "Error:  the checksum merge warning does not name both checksums:"
+    cat chksum.log
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# ..and the counts are still merged, under whichever of the two checksums the
+#  merge arrived at last
+grep -E -q -x 'DA:1,2,(AAAAAAAAAAAAAAAAAAAAAA|BBBBBBBBBBBBBBBBBBBBBB)' chksum.info
+if [ 0 != $? ] ; then
+    echo "Error:  checksum merge did not merge the counts:"
+    cat chksum.info
+    status=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
 
 if [ 0 == $status ] ; then
     echo "Tests passed"

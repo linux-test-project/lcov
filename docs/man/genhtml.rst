@@ -577,7 +577,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    Note that missed coverpoints are not shown in the per-testcase table entry data.
 
-   The corresponding summary table is found on the 'directory' page of the default 3-level genthm report, or on the top-level page of the 'flat' report (see *genhtml --flat ...* ), or on the parent directory page of the 'hierarchical' report (see *genhtml --hierarchical ...* ).
+   The corresponding summary table is found on the 'directory' page of the default 3-level genhtml report, or on the top-level page of the 'flat' report (see *genhtml --flat ...* ), or on the parent directory page of the 'hierarchical' report (see *genhtml --hierarchical ...* ).
 
    Note that this option may significantly increase memory consumption.
 
@@ -633,7 +633,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    in the p4diff/gitdiff output as this knowledge will help to suppress spurious 'path mismatch' warnings. See the ``--elide-path-mismatch`` and ``--build-directory`` entries, below.
 
-   In general, you will specify ``--baseline-file`` when you specify ``--diff-file``. The *baseline_files* are used to compute coverage differences (*e.g.* gains and losses) between the baseline and current, where the *diff_file* is used to compute code changes: source text is identical between 'baseline' and 'current'. If you specify *baseline_files* but no *diff_file*, the tool will assume that there are no code changes between baseline and current. If you specify a *diff_file* but no *baseline_files*, the tool will assume that there is no baseline coverage data (no baseline code was covered); as result unchanged code (*i.e.*, which does not appear in the *diff_file* will be categorized as eiher GIC (covered) or UIC (not covered) while new or changed code will be categorized as either GNC or UNC.
+   In general, you will specify ``--baseline-file`` when you specify ``--diff-file``. The *baseline_files* are used to compute coverage differences (*e.g.* gains and losses) between the baseline and current, where the *diff_file* is used to compute code changes: source text is identical between 'baseline' and 'current'. If you specify *baseline_files* but no *diff_file*, the tool will assume that there are no code changes between baseline and current. If you specify a *diff_file* but no *baseline_files*, the tool will assume that there is no baseline coverage data (no baseline code was covered); as result unchanged code (*i.e.*, which does not appear in the *diff_file* will be categorized as either GIC (covered) or UIC (not covered) while new or changed code will be categorized as either GNC or UNC.
 
 ``--annotate-script`` *script*
    Use *script* to get source code annotation data.
@@ -853,20 +853,26 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    2. Compare source file version IDs
 
-      ``script --compare`` *source_file_name* *source_file_id* *info_file_id*
+      ``script --compare`` *version_id_1* *version_id_2* *source_file_name*
 
       where
+
+         "version_id_1 "
+            is one of the two version IDs to compare
+
+         "version_id_2 "
+            is the other
 
          "source_file_name"
             is the source code file name
 
-         "source_file_id "
-            is the version ID returned by calling "script source_file_name"
-
-         "info_file_id "
-            is the version ID found in the corresponding .info file
+      One ID is the version ID found in the corresponding .info file and the other is the ID returned by calling "script source_file_name" - but which of the two is passed first depends on the caller, so the comparison should not depend on the order.  Note that either ID can be the empty string, when only one of the two is known.  The sample scripts provided with this package show the expected argument handling.
 
       It should return non-zero if the IDs do not match.
+
+      The arguments are passed to the script as separate arguments, without an intervening shell.  A version ID or file name containing a space or a shell metacharacter therefore arrives as it was written.
+
+      Note that here - unlike every other callback, whose answer is what it writes to stdout - the exit status is the answer:  a non-zero status means "the IDs do not match", and nothing else.  A script which exits non-zero to report a problem of its own, such as a usage error or an unreachable server, is reporting a version mismatch.  ``genhtml`` can tell that the script could not be executed at all, or that it was killed by a signal - both are reported as an ignorable *callback* error - but it cannot tell a non-zero exit status apart from an answer.
 
 ``--resolve-script`` *script*
    Use *script* to find the file path for some source file which which appears in an input data file if the file is not found after applying *--substitute* patterns and searching the *--source-directory* list. This option is equivalent to the *resolve_script* config file option. See :manpage:`lcovrc(5)` for details.
@@ -1022,6 +1028,8 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    Note that the substitution patterns are applied to the *--diff-file* entries as well as the baseline and current .info files.
 
+   Patterns are applied after the directory separator in a name has been translated to this platform's, so a pattern which is to match input captured on the other platform is written with the separator used here - *e.g.,* \-\-substitute 's#^C:/##' to remove a Windows drive letter. See ``cross_platform_read`` in :manpage:`lcovrc(5)`.
+
 ``--omit-lines`` *regexp_pattern*
    Exclude coverage data from lines whose content matches *regexp*.
 
@@ -1167,7 +1175,7 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
    This option can also be configured permanently using the configuration file option *genhtml_css_file*.
 
 ``--build-directory`` *dirname*
-   To support 'linked build directory' structures, add 'dirname' to the list of places to search for soft links to source files - *e.g.*, to handle the case that the links point to source files which are held in your revision control system, and appear in the *--diff-file* data. In this use case, paths in the coverage data very likely refer to the structure seen by the compiler during the build - so resolving them back to the corresponding revsion-controlled source structure is likely to be successful.
+   To support 'linked build directory' structures, add 'dirname' to the list of places to search for soft links to source files - *e.g.*, to handle the case that the links point to source files which are held in your revision control system, and appear in the *--diff-file* data. In this use case, paths in the coverage data very likely refer to the structure seen by the compiler during the build - so resolving them back to the corresponding revision-controlled source structure is likely to be successful.
 
    Look in *dirname* for file paths which appear in *tracefile* - possibly after substitutions have been applied - which are soft links. Both the original file path and the path to the linked file will resolve to the same *--diff-file* entry.
 
@@ -1186,6 +1194,8 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
    Because lists containing long filenames are difficult to read, there is a mechanism implemented that will automatically try to shorten all directory names on the overview page beginning with a common prefix. By default, this is done using an algorithm that tries to find the prefix which, when applied, will minimize the resulting sum of characters of all directory names.
 
    Use this option to specify the prefix to be removed by yourself.
+
+   *prefix* may be written with either platform's directory separator.  It is the leading part of a path, and is compared to the name as that name is decomposed - so *--prefix C:\\proj* removes the same directories from Windows-captured names as *--prefix /C:/proj* does.  See ``cross_platform_read`` in :manpage:`lcovrc(5)`.
 
 ``--no-prefix``
    Do not remove prefix from directory names.
@@ -1417,6 +1427,8 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
    format:
       Unexpected syntax or value found in .info file - for example, negative number or zero line number encountered.
 
+      A count field which is not a legal integer (for example 'nan' or 'inf') is likewise treated as zero if this message is ignored;  a count which is a number but not an integer is truncated toward zero, and one too large to store is clamped at 9223372036854775807.
+
    inconsistent:
       This error indicates that your coverage data is internally inconsistent: it makes two or more mutually exclusive claims. For example:
 
@@ -1459,6 +1471,8 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    negative:
       negative 'hit' count found.
+
+      A negative count is not a legal value for any cover type, so if this message is ignored, the count is treated as zero.
 
       Note that negative counts may be caused by a known GCC bug - see
 

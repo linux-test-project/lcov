@@ -192,6 +192,7 @@ These perl packages include:
 - Scalar::Util
 - Time::HiRes
 - TimeDate
+- POSIX
 
 If your system is missing any of these, then you may be able to install them
 via::

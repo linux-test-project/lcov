@@ -9,7 +9,13 @@ fi
 
 source ../common.tst
 
-rm -rf test *.profraw *.profdata *.json *.info report
+# name what this test owns rather than globbing:  'malformed.sh' runs in this
+#   same directory, the harness runs the two concurrently, and its fixtures are
+#   .json/.info files too.  '*.profraw' stays a glob because the runtime picks
+#   that name;  'test' is the executable and must not become 'test*', which
+#   would take 'test.h' with it
+rm -rf test test.json test.info test.excl.info test.profdata *.profraw \
+    exclude.log report
 
 clean_cover
 

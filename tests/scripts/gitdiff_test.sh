@@ -35,6 +35,9 @@
 #  20.  Deleted file (only in base SHA): no ls-tree entry, not in unchanged
 #  21.  Renamed file: old name excluded, new name included in diff
 #  22.  --repo with --no-unchanged: ls-tree block is skipped entirely
+#  23.  A repo directory whose name contains a space
+#  24.  A '%' in a pathname survives the unchanged-file entry
+#  25.  A "git diff" which exits non-zero is reported by its exit status
 
 set +x
 
@@ -569,6 +572,99 @@ elif ! echo "$OUTPUT" | grep -q '^diff --git' ; then
     fail "Test 22 repo+no-unchanged: no diff output; output: $OUTPUT"
 else
     pass "Test 22: --repo with --no-unchanged skips ls-tree block"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 23: a repo directory whose name contains a space
+#   Both git commands used to be handed to a shell as 'cd $repo ; git ...', so
+#   a repo path containing a space (or any shell metacharacter) was reparsed:
+#   the 'cd' failed and git ran in the wrong directory.
+# ---------------------------------------------------------------------------
+REPO23="$(mktemp -d)/has space"
+mkdir -p "$REPO23"
+git -C "$REPO23" init --quiet
+git -C "$REPO23" config user.email "alice@example.com"
+git -C "$REPO23" config user.name  "Alice"
+printf 'int foo(void) { return 1; }\n' > "$REPO23/foo.c"
+printf 'int bar(void) { return 2; }\n' > "$REPO23/bar.c"
+git -C "$REPO23" add .
+GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" \
+GIT_COMMITTER_DATE="2024-01-01T00:00:00+00:00" \
+    git -C "$REPO23" commit --quiet -m "base"
+SHA1_23=$(git -C "$REPO23" rev-parse HEAD)
+printf 'int foo(void) { return 42; }\n' > "$REPO23/foo.c"
+git -C "$REPO23" add .
+GIT_AUTHOR_DATE="2024-01-02T00:00:00+00:00" \
+GIT_COMMITTER_DATE="2024-01-02T00:00:00+00:00" \
+    git -C "$REPO23" commit --quiet -m "modify foo"
+SHA2_23=$(git -C "$REPO23" rev-parse HEAD)
+
+OUTPUT=$($GITDIFF --repo "$REPO23" "$SHA1_23" "$SHA2_23" 2>&1)
+RC=$?
+rm -rf "$(dirname "$REPO23")"
+if [ $RC -ne 0 ] ; then
+    fail "Test 23 space-in-repo: expected exit 0, got $RC; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -qF "+++ $REPO23/foo.c" ; then
+    fail "Test 23 space-in-repo: expected the changed file; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -qF "=== $REPO23/bar.c" ; then
+    fail "Test 23 space-in-repo: expected the unchanged file; output: $OUTPUT"
+else
+    pass "Test 23: a repo directory containing a space is handled"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 24: a '%' in a pathname
+#   The unchanged-file entries were printed with the pathname interpolated into
+#   the 'printf' format string, where a '%' is a conversion specifier:  '%d'
+#   with no argument printed 0, so the name reported was not the file's name.
+# ---------------------------------------------------------------------------
+REPO24=$(mktemp -d)
+git -C "$REPO24" init --quiet
+git -C "$REPO24" config user.email "alice@example.com"
+git -C "$REPO24" config user.name  "Alice"
+printf 'int foo(void) { return 1; }\n' > "$REPO24/foo.c"
+printf 'int odd(void) { return 2; }\n' > "$REPO24/od%dd.c"
+git -C "$REPO24" add .
+GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" \
+GIT_COMMITTER_DATE="2024-01-01T00:00:00+00:00" \
+    git -C "$REPO24" commit --quiet -m "base"
+SHA1_24=$(git -C "$REPO24" rev-parse HEAD)
+printf 'int foo(void) { return 42; }\n' > "$REPO24/foo.c"
+git -C "$REPO24" add .
+GIT_AUTHOR_DATE="2024-01-02T00:00:00+00:00" \
+GIT_COMMITTER_DATE="2024-01-02T00:00:00+00:00" \
+    git -C "$REPO24" commit --quiet -m "modify foo"
+SHA2_24=$(git -C "$REPO24" rev-parse HEAD)
+
+OUTPUT=$($GITDIFF --repo "$REPO24" "$SHA1_24" "$SHA2_24" 2>&1)
+RC=$?
+rm -rf "$REPO24"
+if [ $RC -ne 0 ] ; then
+    fail "Test 24 percent-in-name: expected exit 0, got $RC; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -qF "=== $REPO24/od%dd.c" ; then
+    fail "Test 24 percent-in-name: pathname mangled by printf; output: $OUTPUT"
+else
+    pass "Test 24: a '%' in a pathname survives the unchanged-file entry"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 25: a 'git diff' which exits non-zero says so
+#   'close' on a pipe is false both for an I/O error and for a child which
+#   exited non-zero, and '$!' describes only the first:  the message used to be
+#   "failed to close git diff pipe: " with nothing after the colon, and the
+#   block below it which would have reported the real status was unreachable.
+# ---------------------------------------------------------------------------
+read REPO25 SHA1_25 SHA2_25 <<< "$(make_two_commit_repo)"
+OUTPUT=$($GITDIFF --repo "$REPO25" "$SHA1_25" \
+    deadbeefdeadbeefdeadbeefdeadbeefdeadbeef 2>&1)
+RC=$?
+rm -rf "$REPO25"
+if [ $RC -eq 0 ] ; then
+    fail "Test 25 failing git diff: expected a non-zero exit; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -qF 'git diff exited with error' ; then
+    fail "Test 25 failing git diff: the exit status was not reported; output: $OUTPUT"
+else
+    pass "Test 25: a failing 'git diff' is reported by its exit status"
 fi
 
 # ===========================================================================

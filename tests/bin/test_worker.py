@@ -70,6 +70,7 @@ def run_test_worker(test_name, test_path, log_dir, topdir, coverage_dir,
     env['LCOV_TOOL'] = bindir + '/lcov'
     env['GENHTML_TOOL'] = bindir + '/genhtml'
     env['GENINFO_TOOL'] = bindir + '/geninfo'
+    env['GENPNG_TOOL'] = bindir + '/genpng'
     env['PERL2LCOV_TOOL'] = bindir + '/perl2lcov'
     env['LLVM2LCOV_TOOL'] = bindir + '/llvm2lcov'
     env['PY2LCOV_TOOL'] = bindir + '/py2lcov'

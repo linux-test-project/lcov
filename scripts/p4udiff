@@ -30,6 +30,22 @@ use Getopt::Long;
 
 my $verbose = 0;
 
+sub check_close
+{
+    # Report the failure of a command run through a pipe.
+    #   'close' on a pipe returns false both for an I/O error - which '$!'
+    #   describes - and for a child which exited non-zero, which it does not:
+    #   the wait status is in '$?'.  Every caller used to die with '$!' and then
+    #   test '$?' in a block the die had made unreachable, so a failing 'p4'
+    #   was reported as whatever errno some earlier syscall had left behind.
+    my ($closed, $status, $what) = @_;
+    return if $closed;
+    die("unable to close $what: $!\n") if 0 == $status;
+    die("$what died from signal " . ($status & 0x7F) . "\n")
+        if $status & 0x7F;
+    die("$what exited with error " . ($status >> 8) . "\n");
+}
+
 package P4File;
 
 use constant {
@@ -49,7 +65,9 @@ sub new
 
         my $self = [$1, undef, $2, $3, $4, $5];
         my $name = $1;
-        $name =~ s/$main::depot_path/$main::sandbox_path/;
+        # '\Q...\E':  the depot path is a pathname, not a pattern - an
+        #   unescaped '+' or '.' in it matched the wrong thing (or nothing)
+        $name =~ s/\Q$main::depot_path\E/$main::sandbox_path/;
         $self->[NAME] = $name;
 
         return bless $self, $class;
@@ -104,8 +122,10 @@ use constant {
 sub new
 {
     my ($class, $p4tag) = @_;
+    # list form:  no shell is involved, so a path containing a space or a shell
+    #   metacharacter is passed to p4 as one argument rather than reparsed
     my $cmd = "p4 files $p4tag";
-    open(HANDLE, "-|", $cmd) or
+    open(HANDLE, "-|", 'p4', 'files', $p4tag) or
         die("unable to execute '$cmd': $!");
 
     my $self = [{}, \@main::include_patterns, \@main::exclude_patterns];
@@ -117,12 +137,8 @@ sub new
 
         $self->append(P4File->new($line));
     }
-    close(HANDLE) or die("unable to close 'p4 files $p4tag' pipe: $!\n");
-    if (0 != $?) {
-        ($? & 0x7F) &&
-            die("p4 files $p4tag died from signal ", ($? & 0x7F), "\n");
-        die("p4 files $p4tag exited with error ", ($? >> 8), "\n");
-    }
+    my $closed = close(HANDLE);
+    main::check_close($closed, $?, "'$cmd' pipe");
     return $self;
 }
 
@@ -207,15 +223,15 @@ Usage:
     sandbox_directory base_changelist current_changelist
 
  sandbox_directory:
-          the top level directory in your your perforce
+          the top level directory in your perforce
           checkout area.
  base_changelist:
           changelist number or label corresponding to your 'baseline'
           coverage data.
  current_changelist:
-          may be a changelist number, label, or or the literal string "sandbox".
+          may be a changelist number, label, or the literal string "sandbox".
           "sandbox" indicates that there may be changes in 'sandbox_directory'
-          which have not ben committed to perforce yet.
+          which have not been committed to perforce yet.
 
  -b|--blank:
           ignore whitespace changes.
@@ -257,15 +273,29 @@ if (-e $p4_path) {
     $p4_path .= "/..."
         if (-d $p4_path);
 } else {
-    system("p4 fstat $top_directory|grep depotFile >/dev/null 2>&1");
-    if (($? >> 8) != 0) {
-        $p4_path .= "/...";
+    # 'p4 fstat' read directly and filtered in process, rather than piped to
+    #   'grep':  there is no shell (so the path needs no quoting) and no 'grep'
+    #   (which a native Windows Perl does not have).  As before, a path p4
+    #   cannot describe as a file is assumed to be a directory.
+    my $isFile = 0;
+    if (open(FSTAT, '-|', 'p4', 'fstat', $top_directory)) {
+        my @out = <FSTAT>;
+        close(FSTAT);    # status unused:  'no depotFile' is the answer we want
+        $isFile = grep({ /depotFile/ } @out);
     }
+    $p4_path .= "/..." unless $isFile;
 }
 
 #my $workspace = `p4 -F \%clientRoot\% -ztag info`;
-my $where =
-    `p4 where $p4_path`;    # need the "..." in the path or p4 gets confused
+# list form:  see 'P4FileList::new'
+open(HANDLE, '-|', 'p4', 'where', $p4_path) or
+    die("unable to execute 'p4 where $p4_path': $!");
+my $where = <HANDLE>;    # need the "..." in the path or p4 gets confused
+$where = '' unless defined($where);
+# read to EOF, so p4 is not killed by SIGPIPE if it has more info
+1 while defined(<HANDLE>);
+my $whereClosed = close(HANDLE);
+check_close($whereClosed, $?, "'p4 where $p4_path' pipe");
 $where =~ s/\/\.\.\.//g;
 our ($depot_path, $workspace_path, $sandbox_path) = split(' ', $where);
 
@@ -296,7 +326,7 @@ if ($curr_changelist eq 'sandbox') {
     # now query the sandbox to see what is here...
     my $cmd = "p4 opened $top_directory/...";
 
-    open(HANDLE, "-|", $cmd) or
+    open(HANDLE, "-|", 'p4', 'opened', "$top_directory/...") or
         die("unable to execute '$cmd': $!");
 
     while (my $line = <HANDLE>) {
@@ -304,11 +334,8 @@ if ($curr_changelist eq 'sandbox') {
         $line =~ s/\015$//;
         $curr_files->append(P4File->new($line), 1);    # overwrite
     }
-    close(HANDLE) or die("unable to close 'p4 opened' pipe: $!\n");
-    if (0 != $?) {
-        ($? & 0x7F) && die("p4 opened died from signal ", ($? & 0x7F), "\n");
-        die("'p4 opened' exited with error ", ($? >> 8), "\n");
-    }
+    my $closed = close(HANDLE);
+    check_close($closed, $?, "'$cmd' pipe");
 }
 
 my %union;
@@ -332,12 +359,14 @@ foreach my $f ($curr_files->files()) {
     $union{$f} = 2;
 }
 
-my $diff_cmd = "p4 diff -du ${top_directory}/...\@$base_changelist";
-if ($curr_changelist ne 'sandbox') {
-    $diff_cmd .= " ${top_directory}/...\@$curr_changelist";
-}
-open(HANDLE, "-|", $diff_cmd) or
-    die("unable to execute $diff_cmd: $!");
+my @diff_cmd = ('p4', 'diff',
+                $ignore_whitespace ? '-dub' : '-du',
+                "$top_directory/...\@$base_changelist");
+push(@diff_cmd, "$top_directory/...\@$curr_changelist")
+    if ($curr_changelist ne 'sandbox');
+my $diff_cmd = join(' ', @diff_cmd);
+open(HANDLE, "-|", @diff_cmd) or
+    die("unable to execute '$diff_cmd': $!");
 
 my $time =
     '[1-9]{1}[0-9]{3}\-[0-9]{2}\-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]*)?( .[0-9]+)?';
@@ -361,7 +390,8 @@ while (my $line = <HANDLE>) {
         die("unexpected entry $p4entry") unless exists($union{$p4entry});
         delete $union{$p4entry};
         $prev_filename = $1;
-        $prev_filename =~ s/$depot_path/$sandbox_path/;
+        # '\Q...\E' - see 'P4File::new'
+        $prev_filename =~ s/\Q$depot_path\E/$sandbox_path/;
         if ($curr_files->include_me($p4entry)) {
             print("--- $prev_filename\n");
             $skip = 0;
@@ -380,12 +410,9 @@ while (my $line = <HANDLE>) {
             unless $skip;
     }
 }
-close(HANDLE) or die("unable to close p4 files (current) pipe: $!\n");
-if (0 != $?) {
-    ($? & 0x7F) &&
-        die("p4 files (current) died from signal ", ($? & 0x7F), "\n");
-    die("p4 files (current) exited with error ", ($? >> 8), "\n");
-}
+my $diffClosed = close(HANDLE);
+# name the command which actually ran:  this used to blame 'p4 files (current)'
+check_close($diffClosed, $?, "'$diff_cmd' pipe");
 
 foreach my $f (sort keys %union) {
     # excluded file have already been deleted from the file lists - no need to
@@ -396,52 +423,55 @@ foreach my $f (sort keys %union) {
         my $c = $curr_files->get($f);
         die("oops") unless defined($c);
         my $name = $c->name();
-        printf("p4 diff $f#%d $name\n", $c->rev());
+        # '%s', not the pathnames interpolated into the format string:  a '%'
+        #   in a pathname is a conversion specifier to printf
+        printf("p4 diff %s#%d %s\n", $f, $c->rev(), $name);
         printf("=== %s\n", $name);
     } elsif ($union{$f} == 0) {
         # present in baseline, absent in current: deleted
         my $b    = $base_files->get($f);
         my $name = $b->name();
-        printf("p4 diff $f#%d $name\n", $b->rev());
-        printf("index %d..0\n", $base_changelist);
+        printf("p4 diff %s#%d %s\n", $f, $b->rev(), $name);
+        # argument may be a label or the literal 'sandbox' as well as a number
+        printf("index %s..0\n", $base_changelist);
         printf("--- %s\n", $b->name());
         printf("+++ /dev/null\n");
         # p4 print -q $b->path() . '#' . $b->rev() |sed -e 's/^/-/'
         my @lines;
+        my $print_cmd = 'p4 print -q ' . $b->path() . '#' . $b->rev();
         open(HANDLE, "-|", "p4", "print", "-q", $b->path() . '#' . $b->rev())
             or
-            die("p4 print failed: $!\n");
+            die("unable to execute '$print_cmd': $!\n");
         while (my $line = <HANDLE>) {
             chomp $line;
             $line =~ s/^/-/;
             push @lines, $line;
         }
-        close(HANDLE) or die("unable to close p4 print pipe: $!\n");
-        if (0 != $?) {
-            ($? & 0x7F) && die("p4 print died from signal ", ($? & 0x7F), "\n");
-            die("p4 print exited with error ", ($? >> 8), "\n");
-        }
+        my $closed = close(HANDLE);
+        check_close($closed, $?, "'$print_cmd' pipe");
         printf("@@ 1,%d 0,0 @@\n", scalar(@lines));
         printf("%s\n", join("\n", @lines));
     } elsif ($union{$f} == 2) {
         # added
         my $c    = $curr_files->get($f);
         my $name = $c->name();
-        printf("p4 diff $f#%d $name\n", $c->rev());
-        printf("new file mode\n");
-        printf("index 0..%d\n", $curr_changelist);
-        printf("--- /dev/null\n");
+        printf("p4 diff %s#%d %s\n", $f, $c->rev(), $name);
+        print("new file mode\n");
+        printf("index 0..%s\n", $curr_changelist);
+        print("--- /dev/null\n");
         printf("+++ %s\n", $c->name());
         my $err;
+        my $isPipe;
 
         if (-f $name) {
             $err = "'$name'";
-            open(HANDLE, '<', $name) or die("unable open $err: $!");
+            open(HANDLE, '<', $name) or die("unable to open $err: $!");
         } else {
-            $err = "'p4 print -q " . $c->path() . '#' . $c->rev() . "' pipe";
+            $isPipe = 1;
+            $err    = "'p4 print -q " . $c->path() . '#' . $c->rev() . "' pipe";
             open(HANDLE, '-|', "p4", "print", "-q",
                  $c->path() . '#' . $c->rev()) or
-                die("open $err failed: $!");
+                die("unable to execute $err: $!");
         }
         my @lines;
 
@@ -450,11 +480,14 @@ foreach my $f (sort keys %union) {
             $line =~ s/^/+/;
             push @lines, $line;
         }
-        close(HANDLE) or die("unable to close $err: $!\n");
-        if (0 != $?) {
-            ($? & 0x7F) &&
-                die("close $err died from signal ", ($? & 0x7F), "\n");
-            die("close $err exited with error ", ($? >> 8), "\n");
+        my $closed = close(HANDLE);
+        if ($isPipe) {
+            check_close($closed, $?, $err);
+        } else {
+            # a plain file, not a child:  '$?' still holds the wait status of
+            #   the last command this script ran, so the '0 != $?' test which
+            #   used to be here could fail for a local file which read fine
+            die("unable to close $err: $!\n") unless $closed;
         }
         printf("@@ 0,0 1,%d @@\n", scalar(@lines));
         printf("%s\n", join("\n", @lines));

@@ -29,7 +29,7 @@ print("checking conditional in expr1.c with lookahead " .
       $lcovutil::source_filter_lookahead .
       " and bitwise " .
       $lcovutil::source_filter_bitwise_are_conditional . "\n");
-die("source_filter_lookahad had no effect")
+die("source_filter_lookahead had no effect")
     unless $length->containsConditional(1);
 
 $lcovutil::source_filter_lookahead               = 10;
@@ -38,7 +38,7 @@ print("checking conditional in expr1.c with lookahead " .
       $lcovutil::source_filter_lookahead .
       " and bitwise " .
       $lcovutil::source_filter_bitwise_are_conditional . "\n");
-die("source_filter_lookahad had no effect")
+die("source_filter_lookahead had no effect")
     unless $length->containsConditional(1);
 
 # try some trivial functions

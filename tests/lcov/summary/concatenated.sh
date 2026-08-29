@@ -38,7 +38,7 @@ STDERR=summary_concatenated_stderr.log
 INFO=concatenated.info
 
 cat "${TARGETINFO}" "${TARGETINFO}" >"${INFO}"
-# generated data is not consistent -ingore for now
+# generated data is not consistent -ignore for now
 $LCOV --summary "${INFO}" --ignore inconsistent,inconsistent 2> >(grep -v Devel::Cover: > ${STDERR}) >${STDOUT}
 RC=$?
 cat "${STDOUT}" "${STDERR}"

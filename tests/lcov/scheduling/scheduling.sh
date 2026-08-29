@@ -16,6 +16,8 @@ set +x
 #   6. genhtml "shared" interleave path: a file predicted to run but BELOW the
 #      dedicate threshold is interleaved across segments, not dedicated
 #   7. feature disabled (threshold/size == 0) => no dedicated segments
+#  11. a script-form '--history' callback which fails is reported, rather than
+#      believed (see the block itself for why)
 # The observable signal in every case is the info message
 #   "N file(s) assigned a dedicated segment."
 
@@ -23,7 +25,7 @@ source ../../common.tst
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json *.log rpt* prof* ghist* \
     agg* geninfo_prof.json *.xlsx nomem* untooled* bad* cover_db.dat \
-    html_report __pycache__
+    html_report __pycache__ *.cb
 
 clean_cover
 
@@ -1197,6 +1199,65 @@ EOF
         fi
     fi
 fi
+
+#-----------------------------------------------------------------------
+# 11. a script-form '--history' callback which fails.  'ScriptCaller::history'
+#     reads the predicted time off a pipe which it never used to close, so the
+#     callback's exit status was never looked at:  a callback which printed a
+#     number and then exited non-zero, or which died from a signal, was
+#     believed and the run reported success.  A callback which said nothing at
+#     all did die - but only as "broken 'history' callback", naming neither the
+#     command nor what was wrong with it.
+#-----------------------------------------------------------------------
+fail_history() {
+    echo "ERROR (history $1): $2"
+    STATUS=1
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+}
+
+cat > hist_answer_then_fail.cb <<'EOF'
+#!/bin/bash
+# a plausible prediction, and then failure
+echo 1.5
+exit 3
+EOF
+cat > hist_say_nothing.cb <<'EOF'
+#!/bin/bash
+# exit successfully without predicting anything
+exit 0
+EOF
+chmod +x hist_answer_then_fail.cb hist_say_nothing.cb
+
+$COVER $GENHTML_TOOL cov.info -o rpt_histfail --parallel 4 \
+    --history ./hist_answer_then_fail.cb \
+    --rc dedicate_segment_threshold=0.0000001 \
+    --ignore empty,inconsistent 2>&1 | tee genhtml_histfail.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    fail_history exit "expected genhtml to fail when the history callback did"
+fi
+for pattern in 'ERROR: (callback)' 'history callback failed' \
+    'hist_answer_then_fail.cb' 'non-zero exit status 3' ; do
+    if ! grep -F -q -e "$pattern" genhtml_histfail.log ; then
+        fail_history exit "message does not mention: $pattern"
+    fi
+done
+
+$COVER $GENHTML_TOOL cov.info -o rpt_histsilent --parallel 4 \
+    --history ./hist_say_nothing.cb \
+    --rc dedicate_segment_threshold=0.0000001 \
+    --ignore empty,inconsistent 2>&1 | tee genhtml_histsilent.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    fail_history silent \
+        "expected genhtml to fail when the history callback said nothing"
+fi
+for pattern in "broken 'history' callback" 'hist_say_nothing.cb' \
+    'it said nothing' ; do
+    if ! grep -F -q -e "$pattern" genhtml_histsilent.log ; then
+        fail_history silent "message does not mention: $pattern"
+    fi
+done
 
 if [ 0 == $STATUS ] ; then
     echo "Tests passed"

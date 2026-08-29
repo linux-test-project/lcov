@@ -395,7 +395,7 @@ else
 	@echo "Checking changes in source files for coding style issues (MODE=diff):"
 endif
 	@RC=0 ;                                                  \
-	CHECKFILES=`find bin lib scripts tests -path ./.git -prune -o \( \( -type f -exec grep -q '^#!.*perl' {} \; \) -o -name '*.pm' -type f \) -not \( -name '*.tdy' -o -name '*.orig' -o -name '*~' \) -print `; \
+	CHECKFILES=`find bin lib scripts tests -path ./.git -prune -o \( \( -type f -exec grep -q '^#!.*perl' {} \; \) -o -name '*.pm' -type f \) -not \( -name '*.tdy' -o -name '*.orig' -o -name '*~' -o -name '*.sh' \) -print `; \
 	for FILE in $$CHECKFILES ; do                            \
 	  $(CHECKSTYLE) "$$FILE";                                \
 	  if [ 0 != $$? ] ; then                                 \

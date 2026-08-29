@@ -381,6 +381,91 @@ if [ 2 != $COUNT ] ; then
     fi
 fi
 
+# ..and the same '--validate' check with the output directory named absolutely.
+#   The checker used to key its file table on the directory as spelled and then
+#   resolve links relative to the current directory, so a link through '..' -
+#   which every page below the top of the report has, in the 'top level' cell of
+#   its header - was looked up in a different namespace than it was recorded in.
+#   '(path)' is not ignored by default, so the run died on the first of those
+#   before reaching any link that might really be broken
+echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source current.info -o `pwd`/validate_abs $IGNORE --validate
+$COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source current.info -o `pwd`/validate_abs $IGNORE --validate 2>&1 | tee validateAbs.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "ERROR: genhtml --validate with an absolute output directory failed"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+grep -E 'non-existent file|valid anchor|is not referenced' validateAbs.log
+if [ 0 == $? ] ; then
+    echo "ERROR: --validate complained about the report it just wrote"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+# the check has to have had something to check:  the link which used to be
+#   reported is the one on every page below the top of the report
+if [ ! -e validate_abs/simple/index.html ] ; then
+    echo "ERROR: --validate report has no subdirectory page"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+# ..and the other half of the same check:  a link which really is broken.  No
+#   report genhtml writes contains one, so the only way to reach the checker's
+#   failure path is to hand it a tree directly.  'realpath' returns undef for a
+#   path which does not exist - exactly the case being looked for - so the
+#   resolver has to fall back to the unresolved path rather than use undef as a
+#   hash key.  The fixture pairs the broken link with a legitimate one through
+#   '..', so that both halves are asserted from both spellings of the directory
+rm -rf dangle
+mkdir -p dangle/sub
+cat > dangle/index.html <<'EOF'
+<a href="sub/index.html">x</a>
+<a href="nosuch.html">y</a>
+EOF
+cat > dangle/sub/index.html <<'EOF'
+<a href="../index.html">up</a>
+EOF
+# '(path)' is ignored so that the check does not stop at the first complaint:
+#   the walk order is a hash order, so a run which died would sometimes reach the
+#   real defect first and never look at the link it used to get wrong
+for spelling in dangle `pwd`/dangle ; do
+    echo "ValidateHTML->new('$spelling', '.html')"
+    perl $PERL_COVER_ARGS -I ${LCOV_HOME}/lib \
+        -e 'use lcovutil; our $cwd = Cwd::cwd(); $lcovutil::ignore[$lcovutil::ERROR_PATH] = 1; ValidateHTML->new($ARGV[0], ".html");' \
+        $spelling 2>&1 | tee dangle.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        echo "ERROR: ValidateHTML '$spelling' failed"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    # exactly one broken link in the fixture, and it is the one which does not
+    #   exist - not the one which is spelled through '..'
+    COUNT=`grep -c 'non-existent file' dangle.log`
+    if [ 1 != "$COUNT" ] ; then
+        echo "ERROR: ValidateHTML '$spelling' found $COUNT broken links, expected 1"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+    grep "non-existent file 'nosuch.html'" dangle.log
+    if [ 0 != $? ] ; then
+        echo "ERROR: ValidateHTML '$spelling' did not find the broken link"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit 1
+        fi
+    fi
+done
+
 # check select script
 echo ${LCOV_HOME}/bin/genhtml $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --validate
 $COVER ${GENHTML_TOOL} $DIFFCOV_OPTS --baseline-file ./baseline.info.gz --diff-file diff.txt --annotate-script `pwd`/annotate.pl --show-owners all --ignore-errors source --select "$SELECT" --select --owner --select not.there current.info -o select2 $IGNORE --validate 2>&1 | tee selectNone.log

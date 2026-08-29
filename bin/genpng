@@ -180,17 +180,28 @@ sub genpng_process_file($$$$$)
 
     # Check for .gcov filename extension
     if ($filename =~ /^(.*).gcov$/) {
-        # Assume gcov text format
+        # gcov text format, as gcc has written it since 3.3:
+        #   '<count>:<line number>:<source text>'.  The patterns are the ones
+        #   'geninfo' reads (see 'read_gcov_file' there) - a count of '-' is an
+        #   uninstrumented line, '#####' or '=====' a line which was never
+        #   executed, a trailing '*' marks a line containing an unexecuted block,
+        #   and line number 0 carries the file's metadata rather than source.
         while (<HANDLE>) {
-            if (/^\t\t(.*)$/) {
+            chomp($_);
+            s/\015$//;            # remove CR from line end
+            next unless /^\s*([^:]+):\s*(\d+):(.*)$/;
+            my ($count, $lineNo, $text) = ($1, $2, $3);
+            next if 0 == $lineNo;
+            $count =~ s/\*$//;    # strip unexecuted basic block marker
+            if ($count eq '-') {
                 # Uninstrumented line
-                push(@source, ":$1");
-            } elsif (/^      ######    (.*)$/) {
+                push(@source, ":$text");
+            } elsif ($count =~ /^[#=]/) {
                 # Line with zero execution count
-                push(@source, "0:$1");
-            } elsif (/^( *)(\d*)    (.*)$/) {
+                push(@source, "0:$text");
+            } else {
                 # Line with positive execution count
-                push(@source, "$2:$3");
+                push(@source, "$count:$text");
             }
         }
     } else {
@@ -322,18 +333,23 @@ sub gen_png($$$$$@)
     }
     # Visualize each line
     foreach $line (@source) {
-        # Replace tabs with spaces to keep consistent with source
-        # code view
-        while ($line =~ /^([^\t]*)(\t)/) {
-            $replacement = " " x ($tab_size - ((length($1) - 1) % $tab_size));
-            $line =~ s/^([^\t]*)(\t)/$1$replacement/;
-        }
         # Skip lines which do not follow the <count>:<line>
         # specification, otherwise $1 = count, $2 = source code
         if (!($line =~ /([-+<>=]?)(\d*):(.*)$/)) { next; }
         $tag    = $1;
         $count  = $2;
         $source = $3;
+
+        # Replace tabs with spaces to keep consistent with source code view.
+        #   Expand them in the source text, once the '<count>:' prefix has been
+        #   split off it:  a tab stop is a column of the source line, so
+        #   measuring from the start of the prefix moves a line's indentation by
+        #   the width of that line's own hit count - and two lines at the same
+        #   indentation are then drawn at different indentations
+        while ($source =~ /^([^\t]*)(\t)/) {
+            $replacement = " " x ($tab_size - (length($1) % $tab_size));
+            $source =~ s/^([^\t]*)(\t)/$1$replacement/;
+        }
 
         # Decide which color pair to use
         my $tla = undef;
@@ -383,8 +399,12 @@ sub gen_png($$$$$@)
             $overview->setPixel($column++, $row, $color_back);
         }
 
-        $last_tag   = $1;
-        $last_count = $2;
+        # the values this row was drawn with, not the capture buffers:  for an
+        #   uninstrumented row those are empty, so carrying them forward reset
+        #   the colour after a single row instead of widening the area - and they
+        #   have in any case been through a 'split' and a loop by this point
+        $last_tag   = $tag;
+        $last_count = $count;
 
         $row++;
     }

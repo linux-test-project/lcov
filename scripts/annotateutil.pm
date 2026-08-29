@@ -28,8 +28,26 @@ use POSIX qw(strftime);
 use Digest::MD5;
 
 our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw(get_modify_time compute_md5
+our @EXPORT_OK = qw(get_modify_time compute_md5 shell_quote
                     call_annotate call_get_version);
+
+# shell_quote($string)
+#
+#   Return $string wrapped so that a POSIX shell passes it through as one
+#   word, whatever it contains:  use this on every path interpolated into a
+#   command handed to a shell.  Single quotes protect everything except a
+#   single quote, which has to be closed, escaped, and reopened.
+#
+#   Duplicate of 'lcovutil::shell_quote':  the callbacks are runnable standalone
+#   e.g., for testing
+#
+sub shell_quote($)
+{
+    my $str = shift;
+    $str = '' unless defined($str);
+    $str =~ s/'/'\\''/g;
+    return "'$str'";
+}
 
 sub get_modify_time($)
 {
@@ -50,7 +68,10 @@ sub not_in_repo
         # who does the filesystem think owns it?
     my $owner = getpwuid((stat($pathname))[4]);
 
-    open(HANDLE, $pathname) or die("unable to open '$pathname'$context: $!");
+    # 3-arg open:  a filename which begins with '>', '<' or '|' is a filename,
+    #   not a mode - and 2-arg open would have obeyed it
+    open(HANDLE, '<', $pathname) or
+        die("unable to open '$pathname'$context: $!");
     while (my $line = <HANDLE>) {
         chomp $line;
         # Also remove CR from line-end
@@ -58,7 +79,7 @@ sub not_in_repo
 
         push(@$lines, [$line, $owner, undef, $mtime, "NONE"]);
     }
-    close(HANDLE) or die("unable to close '$pathname'$context");
+    close(HANDLE) or die("unable to close '$pathname'$context: $!");
 }
 
 sub compute_md5
@@ -88,7 +109,12 @@ sub call_annotate
         my ($text, $abbrev, $full, $when, $cl) = @$line;
         print("$cl|$abbrev", $full ? ";$full" : '', "|$when|$text\n");
     }
-    exit $status;
+    # '$status' is the wait status of the tool the callback ran, not an exit
+    #   code:  'exit' keeps only the low 8 bits, so a child which exited 1
+    #   (wait status 256) used to leave this script exiting 0 - i.e. reporting
+    #   success for a failed annotation.  A child killed by a signal has a zero
+    #   exit field, so report 1 for those rather than 0.
+    exit($status ? (($status >> 8) || 1) : 0);
 }
 
 sub call_get_version
@@ -99,7 +125,9 @@ sub call_get_version
     eval { $class = $cb->new(@_); };
     die("$cb construction error: $@") if $@;
     my $v = $class->extract_version($filename);
-    print($v, "\n");
+    # a file need not have a version - print the empty line the consumer
+    #   expects, rather than warning about an uninitialized value
+    print(defined($v) ? $v : '', "\n");
     exit 0;
 }
 
@@ -163,7 +191,7 @@ sub resolve_cache_dir
             'It is unwise to use an --annotate-script callback with --cache-dir without a --version-script to verify version match.'
         ) unless $lcovutil::versionCallback;
         if (-e $cache_dir) {
-            die("cache '$cache_dir' not writable directory")
+            die("cache '$cache_dir' not writeable directory")
                 unless -d $cache_dir && -w $cache_dir;
         } else {
             File::Path::make_path($cache_dir) or
@@ -202,16 +230,24 @@ sub find_in_cache
         }
         if (defined($lines)) {
             # pass 'silent' to version check so we don't get error on mismatch
+            # 'both undefined', not 'both the same definedness':  when both are
+            #   defined there is nothing to short-circuit - that is exactly the
+            #   case 'checkVersionMatch' exists to decide.  The old test took
+            #   any cache entry which recorded a version, whatever version it
+            #   was, so a stale annotation was reused for an edited file.
+            my $noVersion = !defined($version) && !defined($cache_version);
             return (0, $version, $lines)
-                if (!$lcovutil::versionCallback ||
+                if (!$lcovutil::versionCallback                    ||
                     lcovutil::is_ignored($lcovutil::ERROR_VERSION) ||
-                    !(defined($version) != defined($cache_version))
-                    ||
+                    $noVersion                                     ||
                     lcovutil::checkVersionMatch(
                         $filename, $version, $cache_version, "annotate-cache", 1
                     ));
             lcovutil::info(1, "annotate: cache version check failed\n");
-            $self->printlog("  version mismatch: $version\n");
+            # the mismatch may be 'the file has no version now' - the log
+            #   message must not itself warn about the undef which said so
+            $self->printlog(
+                         '  version mismatch: ' . ($version // 'undef') . "\n");
         }
     }
     return ($cachepath, $version);

@@ -306,7 +306,7 @@ sub diff_bu
 #   rather than parsing the coverage.
 # A missing file causes 'die'.
 # An empty file raises ignorable ERROR_EMPTY.
-# A a non-empty file without 'SF:' records is not an LCOV file and dies
+# A non-empty file without 'SF:' records is not an LCOV file and dies
 sub read_current_sf
 {
     my ($filename) = @_;
@@ -356,7 +356,8 @@ if (!lcovutil::parseOptions({}, \%options)) {
 #   ignored.  '%currentSF' is keyed by the path as written (both absolute and
 #   relative forms are matched later - see the classification loop).
 @current_files =
-    split($lcovutil::split_char, join($lcovutil::split_char, @current_files));
+    split($lcovutil::split_pattern,
+          join($lcovutil::split_char, @current_files));
 my %currentSF;
 my $have_current = scalar(@current_files);
 foreach my $f (@current_files) {
@@ -531,7 +532,7 @@ sub process_report_files
             defined($root) ? File::Spec->abs2rel($srcPath, $root) : $srcPath;
         my $rec = {srcPath => $srcPath, rel => $rel};
         push(@records, $rec);
-        # honor --exclude/--include/--substitute selection
+        # honour --exclude/--include/--substitute selection
         next if TraceFile::skipCurrentFile(lcovutil::subst_file_name($srcPath));
 
         # --current-file whitelist gate:  a report file that is not named in any
@@ -860,7 +861,7 @@ if ($have_current) {
 # --current-file path-mismatch diagnostics:  a report file absent from the
 #   current set whose basename (or a longer path tail) matches a current file
 #   absent from the report is likely a path mismatch, not a genuine delete+add.
-#   We report it as an ignorable warning;  behavior is unchanged (still a
+#   We report it as an ignorable warning;  behaviour is unchanged (still a
 #   separate 'removed' + 'added').
 # ----------------------------------------------------------------------
 if ($have_current) {

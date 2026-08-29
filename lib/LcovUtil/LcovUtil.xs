@@ -48,6 +48,7 @@ extern "C" {
 #include <algorithm>
 #include <stdexcept>
 #include <climits>
+#include <cfloat>
 #include <optional>
 #include <utility>
 #include "BranchData.hpp"
@@ -329,7 +330,7 @@ static CountData_impl* countdata_deserialize_binary(const uint8_t* data, size_t 
  *           [NUM_ELEM:4] uint32
  *             per element:
  *               [ID:4]    int32
- *               [TAKEN:8] int64   (DASH == INT64_MIN sentinel preserved)
+ *               [TAKEN:8] int64   (BranchElement::DASH sentinel preserved)
  *               [EXPR:str]
  *               [TYPE:1]  uint8
  *               [EXCL:1]  uint8
@@ -784,6 +785,26 @@ static const char* branch_id_text(SV* id, char* buf, size_t bufsz, STRLEN& len)
     return SvPV(id, len);
 }
 
+/* count_is_not_finite: is 'nv' something other than a finite number?
+ *
+ * A count field which reads back as NaN or an infinity is not a count at all:
+ * those are what the numeric conversion hands back for the literals 'nan' and
+ * 'inf', both of which grok_number() and looks_like_number() accept as
+ * "numeric", so neither the format check nor the '< 0' check rejects them.
+ * Narrowing one to an integer is undefined behaviour and in practice yields
+ * INT64_MIN, which is how a 'nan' in a BRDA record used to be stored as the
+ * '-' (not evaluated) sentinel.  lcovutil::normalize_count rejects the same two
+ * on the pure-Perl side, so either backend diagnoses such a file identically.
+ *
+ * Written as comparisons rather than with std::isnan/std::isinf because perl.h
+ * takes over parts of the C math headers:  a NaN compares false with
+ * everything, itself included, and an infinity is the only value that can
+ * exceed DBL_MAX. */
+static inline bool count_is_not_finite(double nv)
+{
+    return nv != nv || nv > DBL_MAX || nv < -DBL_MAX;
+}
+
 /* report_taken_error: hand one bad TAKEN value to lcovutil::report_format_error,
  * exactly as pure-Perl BranchElement::new does. */
 static void report_taken_error(const char* err_name, SV* taken_sv,
@@ -861,6 +882,11 @@ static long long validate_taken(const char* id_text, STRLEN id_len,
     }
 
     double cnt_nv = SvNV(taken_sv);
+    if (count_is_not_finite(cnt_nv)) {
+        report_taken_error("lcovutil::ERROR_FORMAT", taken_sv,
+                           id_text, id_len);
+        return 0;
+    }
     if (cnt_nv < 0.0) {
         report_taken_error("lcovutil::ERROR_NEGATIVE", taken_sv,
                            id_text, id_len);
@@ -962,9 +988,6 @@ static SV* borrow_branchblock(BranchBlock* blk, const char* klass) {
  * Perl) are represented per-sense as is_differential[s]=true + diff[s].
  * ========================================================================= */
 
-/* Forward declaration -- MCDC_Block_wrapper::_destroy_groups_sv needs this. */
-struct MCDC_Expression_wrapper;
-
 /* MCDC_Block_wrapper -- Perl glue around a single C++ MCDC_Block.
  *
  * The wrapper holds NO coverage data of its own; all expression/group data
@@ -980,42 +1003,29 @@ struct MCDC_Expression_wrapper;
  *
  * parent_sv: borrowed (not ref-counted) SV* of this block's Perl wrapper;
  *   set by make_mcdcblock_sv / STORABLE_thaw; used by MCDC_Expression::parent().
- * groups_sv: cached blessed-HV returned by groups(); built lazily, valid
- *   until any mutation (insertExpr, merge absorb).  We own refcnt=1 on it.
  *
- * Reference-cycle handling:
- *   Expression wrappers in groups_sv hold strong refs to parent_sv
- *   (owns_parent=true) so any wrapper that escapes groups_sv (e.g. copied
- *   into a Perl @blocks array by genhtml) keeps the parent alive.  The
- *   resulting cycle (wrapper -> groups_sv -> expr -> parent_sv -> SV wrapping
- *   wrapper) is broken explicitly in the destructor: before calling
- *   SvREFCNT_dec on groups_sv we walk every expr wrapper in it, release its
- *   parent_sv refcount, and zero parent_sv so any surviving wrapper returns
- *   undef instead of a dangling pointer. */
+ * groups() materializes a fresh Perl hash of expression wrappers on every call
+ * and hands ownership to the caller -- the wrapper keeps no reference to it, so
+ * it is freed as soon as the caller drops it.  (An earlier version cached it for
+ * the life of the block, which retained ~580 bytes per block for the whole run.)
+ * The expression wrappers in it hold a strong reference to parent_sv, so a
+ * wrapper that outlives the returned hash -- e.g. copied into a Perl array by
+ * genhtml -- keeps this block alive, and there is no cycle to break because the
+ * block does not point back at the hash. */
 struct MCDC_Block_wrapper {
     MCDC_Block* block;      /* the single C++ data object */
     bool        owned;      /* true -> delete block in destructor */
     SV*         parent_sv;  /* borrowed backref to blessed RV; for expr parent() */
-    SV*         groups_sv;  /* cached groups HV (refcnt owned by wrapper) */
 
     MCDC_Block_wrapper(MCDC_Block* b, bool own)
-        : block(b), owned(own), parent_sv(nullptr), groups_sv(nullptr) {}
+        : block(b), owned(own), parent_sv(nullptr) {}
 
     ~MCDC_Block_wrapper() {
-        _destroy_groups_sv();  /* zeros parent_sv in all wrappers before freeing */
         if (owned)
             delete block;
     }
 
     IV   line() const { return (IV)block->line(); }
-
-    void invalidate_groups_cache() {
-        _drop_groups_sv();     /* just frees groups_sv; block still alive, parent_sv valid */
-    }
-
-    /* Defined out-of-line after MCDC_Expression_wrapper (forward-declared above) */
-    void _destroy_groups_sv();   /* called from destructor: zeros parent_sv then frees */
-    void _drop_groups_sv();      /* called from mutation: frees without zeroing */
 };
 
 static MCDC_Block_wrapper* sv_to_mcdcblock(SV* sv) {
@@ -1042,8 +1052,7 @@ static SV* make_mcdcblock_sv(MCDC_Block_wrapper* w, const char* klass) {
 
 struct MCDC_Expression_wrapper {
     MCDC_Expression* expr;
-    SV*  parent_sv;   /* ref-counted back to MCDC_Block, or nullptr if weak */
-    bool owns_parent; /* true -> holds a refcount on parent_sv */
+    SV*  parent_sv;   /* ref-counted back to the MCDC_Block that owns expr */
 };
 
 static MCDC_Expression_wrapper* sv_to_mcdcexpr_wrapper(SV* sv) {
@@ -1056,76 +1065,18 @@ static MCDC_Expression_wrapper* sv_to_mcdcexpr_wrapper(SV* sv) {
 }
 
 /* Create a Perl MCDC_Expression SV that borrows its data from a block slot.
- * owns_parent=true  -> holds a refcount on parent_sv (normal case).
- * owns_parent=false -> does not increment parent_sv refcount (used when the
- *   expression is stored inside the block's groups_sv cache, to avoid a
- *   reference cycle that would make the block immortal). */
+ * The wrapper holds a refcount on parent_sv, so the expression can outlive
+ * every other reference to the block without dangling. */
 static SV* make_mcdcexpr_sv(MCDC_Expression* e, SV* parent_sv,
-                              const char* klass, bool owns_parent = true) {
+                              const char* klass) {
     MCDC_Expression_wrapper* w = new MCDC_Expression_wrapper();
     w->expr         = e;
     w->parent_sv    = parent_sv;
-    w->owns_parent  = owns_parent;
-    if (owns_parent)
-        SvREFCNT_inc(parent_sv);
+    SvREFCNT_inc(parent_sv);
     SV* inner = newSViv((IV)(intptr_t)w);
     SV* rv    = newRV_noinc(inner);
     sv_bless(rv, gv_stashpv(klass, GV_ADD));
     return rv;
-}
-
-/* _destroy_groups_sv -- called from ~MCDC_Block_wrapper only.
- * The block is being freed.  Walk every expression wrapper still inside
- * groups_sv: release its parent_sv refcount and zero parent_sv so any
- * surviving wrapper (escaped into a Perl @blocks array etc.) returns undef
- * from parent() rather than a dangling pointer.  Then drop groups_sv. */
-void MCDC_Block_wrapper::_destroy_groups_sv() {
-    if (!groups_sv)
-        return;
-    if (SvROK(groups_sv)) {
-        HV* ghv = (HV*)SvRV(groups_sv);
-        if (SvTYPE((SV*)ghv) == SVt_PVHV) {
-            hv_iterinit(ghv);
-            HE* he;
-            while ((he = hv_iternext(ghv)) != nullptr) {
-                SV* earrv = HeVAL(he);
-                if (!earrv || !SvROK(earrv))
-                    continue;
-                AV* earr = (AV*)SvRV(earrv);
-                if (SvTYPE((SV*)earr) != SVt_PVAV)
-                    continue;
-                IV n = av_len(earr) + 1;
-                for (IV i = 0; i < n; ++i) {
-                    SV** ep = av_fetch(earr, (SSize_t)i, 0);
-                    if (!ep || !*ep || !SvROK(*ep))
-                        continue;
-                    SV* inner = SvRV(*ep);
-                    if (!SvIOK(inner))
-                        continue;
-                    MCDC_Expression_wrapper* w =
-                        (MCDC_Expression_wrapper*)(intptr_t)SvIV(inner);
-                    if (!w)
-                        continue;
-                    if (w->owns_parent && w->parent_sv)
-                        SvREFCNT_dec(w->parent_sv);
-                    w->parent_sv   = nullptr;
-                    w->owns_parent = false;
-                }
-            }
-        }
-    }
-    SvREFCNT_dec(groups_sv);
-    groups_sv = nullptr;
-}
-
-/* _drop_groups_sv -- called from invalidate_groups_cache (mutation, block alive).
- * The block is still live; parent_sv remains valid in all escaped wrappers.
- * Just drop the refcount on the old groups_sv -- do NOT zero parent_sv. */
-void MCDC_Block_wrapper::_drop_groups_sv() {
-    if (!groups_sv)
-        return;
-    SvREFCNT_dec(groups_sv);
-    groups_sv = nullptr;
 }
 
 /* set() logic for MCDC_Expression -- mirrors pure-Perl MCDC_Expression::set().
@@ -1174,13 +1125,32 @@ static int mcdcexpr_set(MCDC_Expression* e, int sense, SV* count_sv,
         return 1;
     }
 
-    /* Simple count */
-    long long cnt = SvIV(count_sv);
+    /* Simple count.
+     *
+     * Read as an NV and clamped, the way CountData::append does, rather than
+     * with SvIV:  SvIV of a value too large for an IV ("1.0e+19"), or of a NaN,
+     * is undefined and in practice comes back negative, which then merges into
+     * the running total and is rendered as a sensitization count.
+     *
+     * No diagnostic is raised for a rejected value because there is no location
+     * to report one against - this is reached from the MCDC accessors, which
+     * pure Perl does not validate either, and a malformed MCDC: field is caught
+     * by the reader in lcovutil.pm.  All this has to do is not corrupt the
+     * total. */
+    double    cnt_nv = SvNV(count_sv);
+    long long cnt;
+    if (count_is_not_finite(cnt_nv) || cnt_nv < 0.0)
+        cnt = 0;
+    else if (cnt_nv >= (double)lcov::MAX_COUNT)
+        cnt = lcov::MAX_COUNT;
+    else
+        cnt = (long long)cnt_nv;
+
     long long old_count = e->count(s);
     if (cnt == 0 && !excluded_flag)
         return changed;
 
-    long long new_count = old_count + cnt;
+    long long new_count = lcov::add_sat(old_count, cnt);
     changed = e->set(s, new_count, new_excluded);
     return changed;
 }
@@ -1591,10 +1561,12 @@ append(self, key, count, ...)
 
     long long cnt;
     /* Call lcovutil::report_format_error with exactly the same arguments as
-     * the pure-Perl CountData::append, so error messages are identical.
-     * Location strings intentionally replicate the pure-Perl quoting quirks:
-     *   FORMAT:          'line "' . filename . ":$key\""
-     *   NEGATIVE/EXCESS: 'line '  . filename . ":$key\""  (no leading quote)
+     * the pure-Perl CountData::append, so error messages are identical:
+     *   'line "' . filename . ":$key\"" , for every one of the three errors.
+     * This used to differ between them - the FORMAT arm opened the quote and
+     * the other two did not, leaving an unbalanced one at the end - and the
+     * pure-Perl side has since been unified on the quoted spelling.  Keep the
+     * two in step:  'xs1.sh'/'xs2.sh' compare the two backends' output.
      */
     /* Replicate Scalar::Util::looks_like_number by calling it via Perl */
     bool looks_like_num = false;
@@ -1611,7 +1583,11 @@ append(self, key, count, ...)
         FREETMPS; LEAVE;
     }
 
-    if (!SvOK(count) || !looks_like_num) {
+    /* 'nan' and 'inf' satisfy looks_like_number, so they have to be screened
+     * out here rather than by the sign and threshold tests below - neither of
+     * which a NaN fails - or the narrowing conversion stores INT64_MIN as the
+     * hit count.  Reported as a format error, which is what they are. */
+    if (!SvOK(count) || !looks_like_num || count_is_not_finite(SvNV(count))) {
         if (!suppress) {
             dSP;
             SV* errType = get_sv("lcovutil::ERROR_FORMAT", 0);
@@ -1642,7 +1618,7 @@ append(self, key, count, ...)
             if (!suppress) {
                 dSP;
                 SV* errType = get_sv("lcovutil::ERROR_NEGATIVE", 0);
-                std::string loc = std::string("line ") + impl->filename + ":" + std::to_string(k) + "\"";
+                std::string loc = std::string("line \"") + impl->filename + ":" + std::to_string(k) + "\"";
                 ENTER; SAVETMPS; PUSHMARK(SP);
                 XPUSHs(errType ? errType : &PL_sv_undef);
                 XPUSHs(sv_2mortal(newSVpvs("hit")));
@@ -1658,7 +1634,7 @@ append(self, key, count, ...)
             if (!suppress && thresh && SvOK(thresh) && cnt_nv > (double)SvIV(thresh)) {
                 dSP;
                 SV* errType = get_sv("lcovutil::ERROR_EXCESSIVE_COUNT", 0);
-                std::string loc = std::string("line ") + impl->filename + ":" + std::to_string(k) + "\"";
+                std::string loc = std::string("line \"") + impl->filename + ":" + std::to_string(k) + "\"";
                 ENTER; SAVETMPS; PUSHMARK(SP);
                 XPUSHs(errType ? errType : &PL_sv_undef);
                 XPUSHs(sv_2mortal(newSVpvs("hit")));
@@ -1685,7 +1661,7 @@ append(self, key, count, ...)
             impl->hit++;
             changed = 1;
         }
-        it->second = current + cnt;
+        it->second = lcov::add_sat(current, cnt);
     }
     RETVAL = changed;
   OUTPUT:
@@ -1834,7 +1810,8 @@ union(self, other, ...)
                 s->hit++;
                 changed = 1;
             }
-            merged.push_back(std::make_pair(si->first, cur + oi->second));
+            merged.push_back(std::make_pair(si->first,
+                                           lcov::add_sat(cur, oi->second)));
             ++si;
             ++oi;
         }
@@ -1869,7 +1846,7 @@ intersect(self, other, ...)
                 s->hit++;
                 changed = 1;
             }
-            *out = std::make_pair(si->first, cur + add);
+            *out = std::make_pair(si->first, lcov::add_sat(cur, add));
             ++out;
         } else {
             /* only in self -- drop it, adjusting the cached totals */
@@ -2877,16 +2854,19 @@ SV*
 groups(self)
     SV* self
   CODE:
-    /* Return a cached HV so that callers using while(each(%{$block->groups}))
-     * always get the same hash -- if we built a new one on each call, 'each'
-     * would restart from the beginning every iteration (infinite loop).
-     * Cache is invalidated by insertExpr, merge, and STORABLE_thaw.
+    /* There is no Perl hash inside the block to hand back -- the groups live in
+     * C++ containers -- so build a fresh HV of expression wrappers and give the
+     * caller sole ownership of it.  It is freed as soon as the caller drops it;
+     * the block keeps no reference.
      *
-     * Expression wrappers hold strong refs (owns_parent=true) to parent_sv so
-     * that any wrapper that escapes groups_sv (e.g. into a Perl @blocks array)
-     * keeps the block wrapper alive.  The reference cycle this creates is
-     * broken explicitly in MCDC_Block_wrapper::_destroy_groups_sv() which zeros
-     * each wrapper's parent_sv before dropping groups_sv's refcount. */
+     * Consequence for callers: two calls return two different hashes, so
+     * while (each(%{$block->groups()})) never terminates -- 'each' would restart
+     * on the new hash every iteration.  Perl callers must hold the result in a
+     * lexical and iterate that, which they must do under pure Perl anyway.
+     *
+     * Expression wrappers hold a strong reference to self, so one that escapes
+     * the returned hash (e.g. into a Perl array in genhtml) keeps the block
+     * alive.  This is not a cycle: the block does not point back at the hash. */
 
     /* Validate self before dereferencing */
     if (!self || !SvROK(self))
@@ -2899,17 +2879,9 @@ groups(self)
     if (!w)
         croak("groups: NULL wrapper");
 
-    /* CRITICAL: groups_sv may contain uninitialized garbage. The constructor
-       initializes it to nullptr, but other creation paths (STORABLE_thaw) may not.
-       Never access groups_sv unless it's non-null - checking its value when it's
-       garbage causes heap corruption. */
-    bool need_rebuild = (w->groups_sv == nullptr);
-
-    if (need_rebuild) {
-        /* Use self (the current method receiver) as canon_parent.
-         * self is alive for the duration of this call, and owns_parent=true
-         * keeps it alive as long as any expression wrapper survives. */
-        SV* canon_parent = self;
+    {
+        /* Use self (the current method receiver) as the expressions' parent;
+         * each wrapper takes its own refcount on it. */
         HV* ghv = newHV();
         w->block->for_each_group([&](int32_t gs,
                                      std::vector<MCDC_Expression>& exprs) {
@@ -2917,15 +2889,12 @@ groups(self)
             AV* earr = newAV();
             for (size_t i = 0; i < exprs.size(); ++i) {
                 MCDC_Expression* ep = &exprs[i];
-                SV* esv = make_mcdcexpr_sv(ep, canon_parent, "MCDC_Expression",
-                                            true);  /* owns_parent=true */
-                av_push(earr, esv);
+                av_push(earr, make_mcdcexpr_sv(ep, self, "MCDC_Expression"));
             }
             hv_store(ghv, ks.c_str(), ks.size(), newRV_noinc((SV*)earr), 0);
         });
-        w->groups_sv = newRV_noinc((SV*)ghv);
+        RETVAL = newRV_noinc((SV*)ghv);
     }
-    RETVAL = SvREFCNT_inc(w->groups_sv);
   OUTPUT:
     RETVAL
 
@@ -3041,9 +3010,10 @@ insertExpr(self, filename, groupSize, sense, count, idx, expr_str, ...)
         }
         vec.push_back(MCDC_Expression((int32_t)groupSize, (int32_t)idx, estr));
     }
-    /* Structural change -- any escaped expr wrappers point into 'vec', which may
-       have reallocated; drop the cached groups HV so it is rebuilt on next use. */
-    w->invalidate_groups_cache();
+    /* Structural change -- expression wrappers handed out by an earlier groups()
+       call point into 'vec', which may just have reallocated, so a caller must
+       not keep using a groups() result across an insertExpr.  Nothing in lcov
+       does; the next groups() call builds wrappers over the new storage. */
     if ((size_t)idx < vec.size())
         mcdcexpr_set(&vec[(size_t)idx], (int)sense, count, excluded_flag);
 
@@ -3080,8 +3050,6 @@ merge(self, you, filename)
             fn = std::string(s, len);
         }
         RETVAL = w->block->merge(*sv_to_mcdcblock(you)->block, fn);
-        if (RETVAL)
-            w->invalidate_groups_cache();
     }
   OUTPUT:
     RETVAL
@@ -3136,7 +3104,7 @@ DESTROY(self)
         MCDC_Expression_wrapper* w =
             (MCDC_Expression_wrapper*)(intptr_t)SvIV(SvRV(self));
         if (w) {
-            if (w->owns_parent && w->parent_sv)
+            if (w->parent_sv)
                 SvREFCNT_dec(w->parent_sv);
             delete w;
             SvIV_set(SvRV(self), 0);
@@ -3243,6 +3211,24 @@ set(self, sense, count, ...)
                           (int)sense, count, excl);
   OUTPUT:
     RETVAL
+
+void
+set_tla(self, sense, tla)
+    SV* self
+    IV  sense
+    SV* tla
+  CODE:
+    /* The counterpart of BranchElement::set_tla, for the same caller:  the TLA
+     * remap loop in genhtml.  It cannot write the TLA through count(), which
+     * hands back a freshly built array here rather than the stored one.
+     * Same precondition as tla() -- see the note on pure-Perl
+     * MCDC_Expression::set_tla. */
+    MCDC_Expression* e = sv_to_mcdcexpr_wrapper(self)->expr;
+    int s = sense ? 1 : 0;
+    if (!e->isDifferential(s))
+        croak("unexpected set_tla() call with non-differential data");
+    STRLEN len; const char* str = SvPV(tla, len);
+    e->set_tla(s, std::string(str, len));
 
 void
 write_data(self)

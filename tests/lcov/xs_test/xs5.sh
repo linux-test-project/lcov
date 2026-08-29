@@ -659,24 +659,24 @@ foreach my $i (0, 1) {
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
 # ------------------------------------------------------------------------------
-# MCDC_Block groups() cache lifetime
+# MCDC_Block groups() lifetime
 #
-# groups() hands back the block's OWN groups container -- the cached hashref
-# under XS, the live hash under pure Perl -- so Perl code can reach in and
-# rewrite it.  Nothing in lcov does, but because the XS destructor has to walk
-# that structure to break the block <-> expression reference cycle (zeroing each
-# expression wrapper's parent_sv before dropping the cache), a caller-corrupted
-# cache must not be able to turn into a bad dereference during teardown.  Each
-# case below replaces part of the returned structure with something of the wrong
-# shape and then drops the block; surviving with the same output in both
-# backends is the whole assertion.
+# The two backends return different things and must: pure Perl hands back the
+# block's OWN live hash, while XS has no Perl hash to hand back and materializes
+# a fresh one (of blessed expression wrappers) on every call.  Either way the
+# caller can reach in and rewrite what it got, so a caller-mangled structure
+# must not turn into a bad dereference when it is freed -- the expression
+# wrappers in it hold a strong reference to the parent block, so freeing them
+# runs real XS teardown.  Each case below replaces part of the returned
+# structure with something of the wrong shape and then drops both it and the
+# block; surviving with the same output in both backends is the whole assertion.
 #
-# The final case is the other direction: a mutation that invalidates the cache
-# while the block is still alive, so the cache is dropped WITHOUT zeroing
-# parent_sv (the block, and hence every wrapper parent, is still valid) and then
-# rebuilt on the next groups() call.
+# The two tests after that pin the XS side's obligation: the materialized hash
+# is the caller's, not the block's, so it must be released when the caller drops
+# it.  Retaining it for the life of the block costs ~580 bytes per block, which
+# on a large MC/DC report is tens of MB of pure waste.
 # ------------------------------------------------------------------------------
-run_test "MCDC_Block groups() cache survives caller corruption" '
+run_test "MCDC_Block groups() survives caller corruption" '
 use lcovutil;
 my @cases = (
     ["value not a ref",      sub { $_[0]->{2} = "notaref"; }],
@@ -695,24 +695,82 @@ foreach my $case (@cases) {
         $mb->insertExpr("f.c", 2, 1, 3, 0, "a", 0);
         $mb->insertExpr("f.c", 2, 0, 4, 1, "b", 0);
         $mutate->($mb->groups());
-        # $mb leaves scope here -- teardown walks the corrupted structure
+        # both the corrupted structure and $mb leave scope here
     }
     print "survived: $name\n";
 }
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
-run_test "MCDC_Block groups() cache dropped and rebuilt on mutation" '
+run_test "MCDC_Block groups() reflects later mutations" '
 use lcovutil;
 my $mb = MCDC_Block->new(20);
 $mb->insertExpr("f.c", 2, 1, 1, 0, "x", 0);
 my $g1 = $mb->groups();
 print "before n=", scalar(@{$g1->{2}}), "\n";
-$mb->insertExpr("f.c", 2, 1, 2, 1, "y", 0);   # structural change -> cache dropped
-my $g2 = $mb->groups();                        # rebuilt
+$mb->insertExpr("f.c", 2, 1, 2, 1, "y", 0);   # structural change
+my $g2 = $mb->groups();
 print "after n=", scalar(@{$g2->{2}}),
       " counts=", $g2->{2}[0]->count(1), ",", $g2->{2}[1]->count(1), "\n";
-$mb->merge(MCDC_Block->new(20), "f.c");        # merge also invalidates
+$mb->merge(MCDC_Block->new(20), "f.c");
 print "after merge n=", scalar(@{$mb->groups()->{2}}), "\n";
+' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
+
+# The hash groups() returns must not outlive the caller reference to it, in the
+# one backend where it is not the block own storage.  weaken() gives a
+# deterministic answer: after the last counted reference goes away, a live
+# referent means somebody else is still holding it -- under XS that somebody
+# could only be the block, i.e. the leak.  Pure Perl necessarily reports the
+# hash as still alive: it IS the block groups container, and freeing it would
+# destroy the block data, so the expectation is per-backend.  Both backends
+# print the same line, and the block stays fully usable either way.
+run_test "MCDC_Block groups() hash does not outlive its caller" '
+use lcovutil;
+use Scalar::Util qw(weaken);
+my $mb = MCDC_Block->new(10);
+$mb->insertExpr("f.c", 2, 1, 3, 0, "a", 0);
+$mb->insertExpr("f.c", 2, 0, 4, 1, "b", 0);
+my $g     = $mb->groups();
+my $probe = $g;
+weaken($probe);
+undef $g;
+my $alive  = defined($probe) ? "retained" : "released";
+my $expect = $lcovutil::XS_LOADED ? "released" : "retained";
+die("groups() hash $alive after caller dropped it, expected $expect\n")
+    if $alive ne $expect;
+print "groups() hash lifetime correct for this backend\n";
+my ($f, $h) = $mb->totals();
+print "still usable: totals=$f/$h n=", scalar(@{$mb->groups()->{2}}), "\n";
+' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
+
+# The same property in the aggregate, which is what actually costs memory: call
+# groups() once on each of many live blocks, discarding each result, and require
+# that the discarded hashes not accumulate.  Pure Perl passes trivially (it
+# allocates nothing); XS pays about 580 bytes per block if it holds the
+# materialized hash.  The threshold is deliberately loose -- it is looking for
+# per-block retention, not a few pages of allocator slack.
+run_test "MCDC_Block groups() results do not accumulate across blocks" '
+use lcovutil;
+sub rss {
+    open(my $f, "<", "/proc/self/statm") or return 0;
+    my @w = split(" ", <$f>);
+    close($f);
+    return $w[1] * 4096;
+}
+my $nblocks = 20000;
+my @blocks;
+foreach my $i (1 .. $nblocks) {
+    my $mb = MCDC_Block->new($i);
+    $mb->insertExpr("f.c", 2, 1, 3, 0, "a", 0);
+    $mb->insertExpr("f.c", 2, 0, 4, 1, "b", 0);
+    push(@blocks, $mb);
+}
+my $before = rss();
+foreach my $mb (@blocks) {
+    my $g = $mb->groups();
+    die("bad group\n") unless 2 == scalar(@{$g->{2}});
+}
+my $perBlock = (rss() - $before) / $nblocks;
+printf("retained %s bytes/block\n", $perBlock < 100 ? "<100" : ">=100");
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
 

@@ -143,7 +143,7 @@ Example:
     parser.add_argument("--no-functions", dest='deriveFunctions',
                         default=True, action='store_false',
                         help="do not derive function coverpoints")
-    parser.add_argument("--tabwidth", dest='tabwidth', default=8, type=int,
+    parser.add_argument("--tabwidth", dest='tabWidth', default=8, type=int,
                         help='tabsize when computing indent')
     parser.add_argument('-k', "--keep-going", dest='keepGoing', default=False, action='store_true',
                         help="ignore errors")

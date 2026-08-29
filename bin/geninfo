@@ -306,7 +306,8 @@ if (0 == scalar(@gcov_tool)) {
     push(@gcov_tool, 'gcov');
 } else {
     @gcov_tool =
-        split($lcovutil::split_char, join($lcovutil::split_char, @gcov_tool));
+        split($lcovutil::split_pattern,
+              join($lcovutil::split_char, @gcov_tool));
     my $tool = $gcov_tool[0];
     my (undef, $dir, $file) = splitpath($tool);
 
@@ -433,7 +434,9 @@ if ($test_name =~ s/\W/_/g) {
 
 # Adjust test name to include uname output if requested
 if ($lcovutil::geninfo_adjust_testname) {
-    $test_name .= "__" . `uname -a`;
+    # POSIX::uname, not a forked 'uname -a':  there is no 'uname' on a native
+    #   Windows Perl, and it returns the same fields in the same order
+    $test_name .= '__' . join(' ', POSIX::uname());
     $test_name =~ s/\W/_/g;
 }
 
@@ -462,8 +465,7 @@ if (!@data_directory) {
     my @dirs;
     foreach my $pattern (@data_directory) {
         if (-d $pattern) {
-            $pattern =~
-                s#$lcovutil::dirseparator$##;   # remove trailing slash - if any
+            $pattern =~ s#$lcovutil::dirseparator_re$##;    # trailing slash
             push(@dirs, $pattern);
             next;
         }
@@ -940,13 +942,19 @@ sub find_files
 
             my $now    = Time::HiRes::gettimeofday();
             my $follow = $lcovutil::opt_follow ? '-follow' : '';
+            # 'shell_quote', not a bare pair of single quotes:  a directory name
+            #   is allowed to contain a single quote, which ends the quoting and
+            #   lets the shell interpret whatever follows
+            my $cmd =
+                'find ' .
+                lcovutil::shell_quote($directory) .
+                " $maxdepth $follow -name \\*$ext -type f" .
+                " -o -name \\*$ext -type l";
             my ($stdout, $stderr, $code) = Capture::Tiny::capture {
-                system(
-                    "find '$directory' $maxdepth $follow -name \\*$ext -type f -o -name \\*$ext -type l"
-                );
+                system($cmd);
             };
             lcovutil::ignorable_error($lcovutil::ERROR_UTILITY,
-                                  "error in 'find \"$directory\" ...': $stderr")
+                                      "error in \"$cmd\": $stderr")
                 if ($code);
 
             my $time = Time::HiRes::gettimeofday() - $now;
@@ -1059,7 +1067,8 @@ sub _process_one_chunk($$$$)
         #  This is necessary to preserve intermediates, and if we are running
         #  in parallel; we don't want to overwrite and don't want multiple children to
         #  conflict.
-        my $tmp = File::Temp->newdir(
+        my $tmp;
+        $tmp = File::Temp->newdir(
                           "geninfo_XXXXX",
                           DIR     => $tempFileDir,
                           CLEANUP => !defined($lcovutil::preserve_intermediates)
@@ -1378,8 +1387,8 @@ sub gen_info(@)
                  #   set my output file to temp location so my dump won't collide
                  #   with another child - then merge at the end...
                  # would be better if the various gcov data readers would build a
-                 #   datastructure that we could dump - rather than printing a .info
-                 #   file that we have to parse....but so be it.
+                 #   data structure that we could dump - rather than printing a
+                 #   .info file that we have to parse....but so be it.
                  my $childStart = Time::HiRes::gettimeofday();
                  $buildDirSearchPath->reset();
                  $output_filename =
@@ -1856,7 +1865,7 @@ sub compute_internal_directories(@)
 
     # Function is_external() requires all internal_dirs to end with a slash
     foreach my $dir (@lcovutil::internal_dirs) {
-        $dir =~ s#$lcovutil::dirseparator*$#$lcovutil::dirseparator#;
+        $dir =~ s#$lcovutil::dirseparator_re*$#$lcovutil::dirseparator#;
     }
 }
 
@@ -1910,24 +1919,27 @@ sub solve_relative_path($$)
     # return Cwd::abs_path($result);
 
     # Remove // in favor of /
-    my $d = $lcovutil::dirseparator;
-    $result =~ s#$d$d#$d#g;
+    # '$sep_re' is the separator to match with, '$sep' the one to write:  a
+    #   Windows separator cannot be interpolated into a pattern as it stands
+    my $sep    = $lcovutil::dirseparator;
+    my $sep_re = $lcovutil::dirseparator_re;
+    $result =~ s#$sep_re$sep_re#$sep#g;
 
     # Remove . in middle or at end of path
-    while ($result =~ s#$d\.($d|$)#$d#) {
+    while ($result =~ s#$sep_re\.($sep_re|$)#$sep#) {
     }
 
     # Remove trailing /
-    $result =~ s#$d$##g if ($result ne $d);
+    $result =~ s#$sep_re$##g if ($result ne $sep);
 
     # change "X/dirname/../Y" into "X/Y"
-    while ($result =~ s#$d[^$d]+$d\.\.($d|$)#$d#) {
+    while ($result =~ s#$sep_re[^$sep_re]+$sep_re\.\.($sep_re|$)#$sep#) {
     }
     # change "dirname/../Y" into "./Y" (i.e., at head of path)
-    $result =~ s#^[^$d]+\/\.\.$d#.$d#;
+    $result =~ s#^[^$sep_re]+$sep_re\.\.$sep_re#.$sep#;
 
     # Remove preceding ..
-    $result =~ s#^$d\.\.$d#$d#g;
+    $result =~ s#^$sep_re\.\.$sep_re#$sep#g;
 
     return $result;
 }
@@ -2112,10 +2124,12 @@ sub read_gcov_file($$$$$)
 {
     my ($fileData, $gcovFilename, $da_filename, $source_filename, $test_name) =
         @_;
-    my $lineMap   = $fileData->test($test_name);
-    my $branchMap = $fileData->testbr($test_name)
+    my $lineMap = $fileData->test($test_name);
+    my $branchMap;
+    $branchMap = $fileData->testbr($test_name)
         if $lcovutil::br_coverage;
-    my $functionMap = $fileData->testfnc($test_name)
+    my $functionMap;
+    $functionMap = $fileData->testfnc($test_name)
         if $lcovutil::func_coverage;
 
     my $f     = InOutFile->in($gcovFilename, $lcovutil::demangle_cpp_cmd);
@@ -2534,13 +2548,16 @@ sub intermediate_json_to_info($)
             $lcovutil::excluded_files{$filename} = 1;
             next;
         }
-        my $fileData    = $traceFile->data($filename);
-        my $lineMap     = $fileData->test($test_name);
-        my $functionMap = $fileData->testfnc($test_name)
+        my $fileData = $traceFile->data($filename);
+        my $lineMap  = $fileData->test($test_name);
+        my $functionMap;
+        $functionMap = $fileData->testfnc($test_name)
             if $lcovutil::func_coverage;
-        my $branchMap = $fileData->testbr($test_name)
+        my $branchMap;
+        $branchMap = $fileData->testbr($test_name)
             if $lcovutil::br_coverage;
-        my $mcdcMap = $fileData->testcase_mcdc($test_name)
+        my $mcdcMap;
+        $mcdcMap = $fileData->testcase_mcdc($test_name)
             if $lcovutil::mcdc_coverage;
         my $branchExprMap = ExprMap->new($filename);
 
@@ -2554,7 +2571,8 @@ sub intermediate_json_to_info($)
         if ($lcovutil::func_coverage) {
             for my $d (@{$file_data->{"functions"}}) {
                 my $start_line = $d->{"start_line"};
-                my $end_line   = $d->{"end_line"}
+                my $end_line;
+                $end_line = $d->{"end_line"}
                     if exists($d->{end_line});
                 my $count = $d->{"execution_count"};
                 my $name  = $lcovutil::demangle_cpp_cmd ? $d->{demangled_name} :
@@ -2569,9 +2587,10 @@ sub intermediate_json_to_info($)
             my $line  = $d->{"line_number"};
             my $count = $d->{"count"};
 
-            my $branches   = $d->{"branches"};
-            my $unexec     = $d->{"unexecuted_block"};
-            my $conditions = $d->{'conditions'}
+            my $branches = $d->{"branches"};
+            my $unexec   = $d->{"unexecuted_block"};
+            my $conditions;
+            $conditions = $d->{'conditions'}
                 if $lcovutil::mcdc_coverage && exists($d->{'conditions'});
 
             next
@@ -2638,13 +2657,16 @@ sub intermediate_json_to_info($)
                         } else {
                             $type = BranchElement::VANILLA;
                         }
-                        my $from = $b->{'source_block_id'}
+                        my $from;
+                        $from = $b->{'source_block_id'}
                             if exists($b->{'source_block_id'});
-                        my $to = $b->{'destination_block_id'}
+                        my $to;
+                        $to = $b->{'destination_block_id'}
                             if exists($b->{'destination_block_id'});
                         # could record the from/to block address as the
                         #  expression?
-                        my $expr = "$from -> $to"
+                        my $expr;
+                        $expr = "$from -> $to"
                             if defined($from) && defined($to);
                         $block->appendElement(BranchElement->new(
                                            $branch_num++, $brcount, $expr, $type
@@ -3019,11 +3041,23 @@ sub get_gcov_version()
         lcovutil::info("gcov is '$which'\n");
     }
 
-    open(GCOV_PIPE, "-|", "\"$gcov_tool[0]\" --version") or
-        die("cannot retrieve gcov version: $!\n");
+    open(GCOV_PIPE, "-|", $gcov_tool[0], '--version') or
+        die("cannot execute '$gcov_tool[0] --version': $!\n");
     local $/;
     my $version_string = <GCOV_PIPE>;
-    close(GCOV_PIPE) or die("unable to close gcov pipe: $!\n");
+    close(GCOV_PIPE);
+    if ($?) {
+        # Report the exit status - or the signal, if the tool was killed.
+        lcovutil::report_exit_status($lcovutil::ERROR_UTILITY,
+                                     'unable to determine gcov version',
+                                     $?,
+                                     "'$gcov_tool[0] --version'",
+                                     '');
+    }
+    # note that a gcov which printed nothing leaves '$version_string' the empty
+    #   string, not undef:  a slurp-mode read of an empty stream is defined.
+    #   That case is answered by the 'cannot determine gcov version' warning
+    #   below
 
     # Remove all bracketed information
     $version_string =~ s/\([^\)]*\)//g;
@@ -3205,7 +3239,14 @@ sub filter_fn_name_list($$)
                 push(@out, $line);
             }
             close($fh);
-            die("unable to demangle: $!") if ($?);
+            if ($?) {
+                # '$?', not '$!':  the fork and exec succeeded, so '$!' holds
+                #   whatever the last failing syscall left there
+                my $cmd = $lcovutil::cpp_demangle[0];
+                ($? & 0x7F) &&
+                    die("'$cmd' died from signal ", ($? & 0x7F), "\n");
+                die("'$cmd' exited with error ", ($? >> 8), "\n");
+            }
         }
         die('demangler returned ' .
             scalar(@out) .
@@ -3976,8 +4017,13 @@ sub get_gcov_capabilities()
 {
     my $help = join(' ', @gcov_tool) . ' --help';
     $help = `$help`;
-    die("return code from '\"$gcov_tool[0]\" --help': $!")
-        if ($?);
+    if ($?) {
+        # '$?', not '$!':  the fork and exec succeeded, so '$!' holds whatever
+        #   the last failing syscall left there
+        ($? & 0x7F) &&
+            die("'$gcov_tool[0] --help' died from signal ", ($? & 0x7F), "\n");
+        die("'$gcov_tool[0] --help' exited with error ", ($? >> 8), "\n");
+    }
     my %capabilities;
     my %short_option_translations = ('a' => 'all-blocks',
                                      'b' => 'branch-probabilities',

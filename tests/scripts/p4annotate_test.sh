@@ -19,6 +19,9 @@
 # Tests 14-17: Symlink / path normalisation       (symlink_check.sh)
 # Tests 18-35: End-to-end annotation output       (annotate_check.sh)
 # Tests 36-39: -b / --ignore-whitespace
+# Test  40:    path containing a space reaches p4 as one argument
+# Test  41:    a failing 'p4 diff' is reported as such, and names that command
+# Test  42:    a failing 'p4 annotate' is reported through the exit status
 #
 
 set +x
@@ -69,9 +72,19 @@ cat > "$FAKEP4" << 'FAKE_P4_SCRIPT'
 #   P4MOCK_OPENED   text of "p4 opened" output (empty -> not opened)
 #   P4MOCK_DIFF     path to file with mock "p4 diff" output
 #   P4MOCK_ANNOTATE path to file with mock "p4 annotate -Iucq" output
+#   P4MOCK_DIFF_EXIT     exit code for "p4 diff"     (default 0)
+#   P4MOCK_ANNOTATE_EXIT exit code for "p4 annotate" (default 0)
+#   P4MOCK_ARGV     path to a file to append "<subcommand>|<argument>" to, one
+#                   line per argument - so a test can check what p4 was
+#                   actually handed, and not only what it answered
 #
 SUBCMD="$1"
 shift
+if [ -n "${P4MOCK_ARGV:-}" ] ; then
+    for arg in "$@" ; do
+        printf '%s|%s\n' "$SUBCMD" "$arg" >> "$P4MOCK_ARGV"
+    done
+fi
 case "$SUBCMD" in
     files)
         if [ "${P4MOCK_FILES:-}" = "in_p4" ] ; then
@@ -92,7 +105,7 @@ case "$SUBCMD" in
         ;;
     annotate)
         [ -n "${P4MOCK_ANNOTATE:-}" ] && cat "$P4MOCK_ANNOTATE"
-        exit 0
+        exit "${P4MOCK_ANNOTATE_EXIT:-0}"
         ;;
     *)  exit 1 ;;
 esac
@@ -1119,6 +1132,7 @@ fi
 
 # ===========================================================================
 # Tests 36-39: -b / --ignore-whitespace
+# Test  40:    path containing a space reaches p4 as one argument
 #   The annotated text comes from the depot version of the file, and the local
 #   file may have been reindented or had trailing blanks stripped since; -b
 #   says that such a line is not a mismatch, whereas one which differs by
@@ -1254,6 +1268,141 @@ if [ -n "$BAD" ] ; then
     fail "Test 39 orphan-b:$BAD; last output: $OUTPUT"
 else
     pass "Test 39: -b without --verify reports a 'usage' error"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 40: a path containing a space reaches p4 as one argument
+#   Every p4 command here is a string handed to a shell, so an unquoted path
+#   with a space in it becomes several file arguments.  What that costs is not
+#   an error message:  'p4 files a b' reports on both names, so the existence
+#   check can still succeed while 'p4 annotate' is asked about the wrong file -
+#   or the check fails and the file is reported as not in the depot at all,
+#   which is the silent fall-through to filesystem annotation.
+#   The fake p4 answers the same way whatever it is handed, so the assertion
+#   is on the argument list it recorded:  one file argument per command, and
+#   the whole path.  Opened-for-edit so that 'p4 diff' is run too - that makes
+#   this the one case which exercises all five commands.
+# ---------------------------------------------------------------------------
+export P4MOCK_FILES="in_p4"
+unset P4MOCK_HAVE
+export P4MOCK_OPENED="//depot/test/sample.c#3 - edit default change (text)"
+
+DMOCK=$(mk_diff << 'EOF'
+==== //depot/test/sample.c#3 - /workspace/sample.c ====
+EOF
+)
+export P4MOCK_DIFF="$DMOCK"
+
+AMOCK=$(mk_annotate << 'EOF'
+12345: alice 2024/01/15 spaced line one
+12346: bob 2024/02/20 spaced line two
+EOF
+)
+export P4MOCK_ANNOTATE="$AMOCK"
+
+SPACEDIR=$(mktemp -d)/"my dir"
+mkdir -p "$SPACEDIR"
+TGT="$SPACEDIR/sample.c"
+printf 'spaced line one\nspaced line two\n' > "$TGT"
+
+ARGVLOG=$(mktemp)
+export P4MOCK_ARGV="$ARGVLOG"
+run_p4annotate "$TGT"
+unset P4MOCK_ARGV P4MOCK_ANNOTATE P4MOCK_DIFF P4MOCK_OPENED P4MOCK_FILES
+rm -rf "$SPACEDIR" "$AMOCK" "$DMOCK"
+
+if [ $RC -ne 0 ] ; then
+    fail "Test 40 space-in-path: expected exit 0, got $RC; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q '^12345|alice|.*|spaced line one$' ; then
+    fail "Test 40 space-in-path: expected depot annotation, got:
+$OUTPUT"
+else
+    # '@head' because 'p4 have' said nothing, and '-Iucq' is annotate's own
+    #   option:  it is an argument of the command but not a file name
+    if ! diff - "$ARGVLOG" <<EOF ; then
+files|$TGT
+have|$TGT
+opened|$TGT
+diff|$TGT
+annotate|-Iucq
+annotate|$TGT@head
+EOF
+        fail "Test 40 space-in-path: p4 was handed the wrong argument list"
+    else
+        pass "Test 40: a path containing a space reaches p4 as a single argument"
+    fi
+fi
+rm -f "$ARGVLOG"
+
+# ---------------------------------------------------------------------------
+# Test 41: 'p4 diff' exits non-zero
+#   'close' on a pipe is false both for an I/O error and for a child which
+#   exited non-zero, and '$!' describes only the first:  the report used to be
+#   whatever errno was left over from an unrelated syscall, and the '$?' test
+#   which would have said what really happened sat below a 'die' which had
+#   already fired.
+# ---------------------------------------------------------------------------
+export P4MOCK_FILES="in_p4"
+unset P4MOCK_HAVE
+export P4MOCK_OPENED="//depot/test/sample.c#3 - edit default change (text)"
+DMOCK=$(mk_diff << 'EOF'
+==== //depot/test/sample.c#3 - /workspace/sample.c ====
+EOF
+)
+export P4MOCK_DIFF="$DMOCK"
+export P4MOCK_DIFF_EXIT=4
+AMOCK=$(mk_annotate << 'EOF'
+12345: alice 2024/01/15 line one
+EOF
+)
+export P4MOCK_ANNOTATE="$AMOCK"
+TGT=$(mk_target 'line one\n')
+
+run_p4annotate "$TGT"
+rm -f "$TGT" "$AMOCK" "$DMOCK"
+unset P4MOCK_DIFF_EXIT P4MOCK_DIFF P4MOCK_ANNOTATE P4MOCK_OPENED P4MOCK_FILES
+
+if [ $RC -eq 0 ] ; then
+    fail "Test 41 diff-fails: expected non-zero exit; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q "'p4 diff .*' exited with error 4" ; then
+    fail "Test 41 diff-fails: expected the p4 diff exit status; got:
+$OUTPUT"
+else
+    pass "Test 41: a failing 'p4 diff' is reported with its exit status"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 42: 'p4 annotate' exits non-zero
+#   A failed annotation is not fatal here - the status is handed back to the
+#   caller, which keeps the (possibly partial) result out of the annotate cache
+#   - so the close must not die about a stale '$!'.  What the caller does with
+#   it is exit with it:  that is a wait status, not an exit code, so a child
+#   which exited 1 (status 256) used to leave this script exiting 0 and
+#   reporting success for a failed annotation.
+# ---------------------------------------------------------------------------
+export P4MOCK_FILES="in_p4"
+unset P4MOCK_HAVE P4MOCK_OPENED P4MOCK_DIFF
+AMOCK=$(mk_annotate << 'EOF'
+12345: alice 2024/01/15 line one
+EOF
+)
+export P4MOCK_ANNOTATE="$AMOCK"
+export P4MOCK_ANNOTATE_EXIT=1
+TGT=$(mk_target 'line one\n')
+
+run_p4annotate "$TGT"
+rm -f "$TGT" "$AMOCK"
+unset P4MOCK_ANNOTATE_EXIT P4MOCK_ANNOTATE P4MOCK_FILES
+
+if [ $RC -ne 1 ] ; then
+    fail "Test 42 annotate-fails: expected exit 1, got $RC; output: $OUTPUT"
+elif echo "$OUTPUT" | grep -q 'unable to close' ; then
+    fail "Test 42 annotate-fails: died about the close instead: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q '^12345|alice|.*|line one$' ; then
+    fail "Test 42 annotate-fails: expected the annotation anyway; got:
+$OUTPUT"
+else
+    pass "Test 42: a failing 'p4 annotate' is reported through the exit status"
 fi
 
 # ===========================================================================

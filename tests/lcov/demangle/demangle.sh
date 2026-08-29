@@ -5,7 +5,7 @@ source ../../common.tst
 
 LCOV_OPTS="--branch-coverage --no-external $PARALLEL $PROFILE"
 
-rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log simplify
+rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log failfilt.sh simplify
 
 clean_cover
 
@@ -96,6 +96,42 @@ if [ "${VER[0]}" -lt 9 ] ; then
     COUNT=`grep -E '^FNA:' initial.info | grep -c ::`
     if [ $COUNT -lt 4 ] ; then
         echo "expected demangled (::) function names in initial.info - found $COUNT"
+        exit 1
+    fi
+
+    # ..and the same capture with a demangler which fails.  This is the only
+    # place a demangler is run with the names as its arguments rather than on
+    # its stdin, so it is the only place where the child's exit status is all
+    # there is to go on:  the fork and the exec both worked, so errno holds
+    # whatever some earlier syscall left there - which is usually nothing at
+    # all, and the message used to say just that.
+    # The stub succeeds on empty input, because that is the check lcovutil
+    # makes when it registers the tool, and fails as soon as it is handed a
+    # name.
+    cat > failfilt.sh <<'EOF'
+#!/bin/bash
+
+# skip the options lcovutil appends to the command
+while [[ $1 =~ ^- ]] ; do
+    shift
+done
+# no names:  this is the 'echo "" | tool' check, which has to pass
+[ -z "$*" ] && exec cat
+exit 3
+EOF
+    chmod +x failfilt.sh
+
+    $COVER $CAPTURE . --no-external $PARALLEL $PROFILE --initial \
+        --demangle-cpp `pwd`/failfilt.sh -o failfilt.info \
+        --rc geninfo_intermediate=0 \
+        --ignore empty,unsupported,deprecated 2>&1 | tee failfilt.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+        echo "expected the capture to fail when the demangler does"
+        exit 1
+    fi
+    grep -F -e "failfilt.sh' exited with error 3" failfilt.log
+    if [ 0 != $? ] ; then
+        echo "expected the demangler's exit status to be reported"
         exit 1
     fi
 fi

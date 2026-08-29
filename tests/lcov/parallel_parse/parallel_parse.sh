@@ -43,11 +43,17 @@ set +x
 #      input packed together with many small ones, an input which cannot be
 #      split, a bad record in the second input, '--prune-tests', and a set from
 #      which every source file is excluded
+#  17. two spellings of one source file name:  the group key has to be the name
+#      the reader will use, not the text of the 'SF:' record
+#  18. a message which the separate filter pass produces in the parent is
+#      printed and counted, not deferred to a child which does not exist
+#  19. a run in which the filters changed nothing still reports a function
+#      whose end line is unknown
 
 source ../../common.tst
 
-rm -rf *.info *.info.gz *.log *.json *.txt *.c *.xlsx cover_db.dat \
-    html_report perlcov.info pycov.info __pycache__
+rm -rf *.info *.info.gz *.log *.json *.txt *.c *.py *.xlsx cover_db.dat \
+    html_report perlcov.info pycov.info __pycache__ srcdir
 
 clean_cover
 
@@ -99,9 +105,15 @@ norm_log()
     #   the read children and never gets there.  With '--parallel 1' that pass
     #   normally says nothing, but 'LCOV_FORCE_PARALLEL' makes it chunk and
     #   announce anyway, so the line has to be dropped rather than compared.
+    # 'Devel::Cover: ..' is the coverage harness talking about itself, not lcov:
+    #   under '--coverage' it writes to the same stderr, and it says things which
+    #   depend on the state of its database rather than on the run - "Deleting
+    #   old coverage for changed file .." on the first run after a source file
+    #   changed, and nothing on the next.  Whichever of the two runs happens to
+    #   be first would then differ from the other.
     grep -v -E 'in [0-9]+ chunk|^Removing temporary directories' $1 |
         grep -v -E '^	\(use "|^Merging .* remaining|^Using [0-9]+ segment' |
-        grep -v -E '^Filter: chunkSize' |
+        grep -v -E '^Filter: chunkSize|^Devel::Cover: ' |
         sort
 }
 
@@ -810,6 +822,252 @@ for f in cross_a.info cross_b.info ; do
         fail excl "the split read does not report $f as empty"
     fi
 done
+
+#-----------------------------------------------------------------------
+# 17. two spellings of one source file name.  The partitioner groups sections
+#     by source file, and what it groups by has to be the name the READER ends
+#     up using:  the reader strips trailing whitespace from the record, then
+#     normalizes the directory separator, then applies '--substitute'.  A name
+#     which two of the sections spell differently and which is one source file
+#     after that is one atom of work, and a chunk which holds part of a source
+#     file breaks all three of the things the grouping buys - the parent's merge
+#     is no longer free, '--map-functions' lists the input once per child which
+#     saw the function, '--prune-tests' calls two copies of the same data
+#     'effective', and the fused filters each see a partial file
+#-----------------------------------------------------------------------
+# (a) '--substitute':  aggregating captures made in different build
+#     directories, which is what the option is for.  Every section appears
+#     twice, under two directory names which the substitution removes
+sed -e "s#^SF:$PWD/#SF:$PWD/b1/#" multi.info  > subst.info
+sed -e "s#^SF:$PWD/#SF:$PWD/b2/#" multi.info >> subst.info
+SUBST="-a subst.info --substitute s#/b[12]/#/#"
+$COVER $LCOV_TOOL $SUBST -o subst_serial.txt $SERIAL --map-functions \
+    > subst_serial.log 2>&1
+if [ 0 != $? ] ; then
+    cat subst_serial.log
+    fail subst "serial read of the substituted names failed"
+fi
+$COVER $LCOV_TOOL $SUBST -o subst_split.txt $SPLIT --map-functions \
+    > subst_split.log 2>&1
+if [ 0 != $? ] ; then
+    cat subst_split.log
+    fail subst "split read of the substituted names failed"
+fi
+if [ 0 == `chunk_count subst_split.log` ] ; then
+    fail subst "the input was not split"
+fi
+if ! diff <(sort subst_serial.txt) <(sort subst_split.txt) ; then
+    fail subst "split read produced a different function table"
+fi
+# each function is in the one input, so it must be listed against it once:  the
+#   indented lines of the table are its input names
+count=`grep -c '^  ' subst_split.txt`
+functions=`grep -c '^[^ ]' subst_split.txt`
+if [ "$count" != "$functions" ] ; then
+    cat subst_split.txt
+    fail subst "$count input names for $functions functions - expected one each"
+fi
+
+# (b) a CRLF input beside the same data written with LF.  No option is needed
+#     for this one:  "SF:foo.c\r" and 'SF:foo.c' are one source file to the
+#     reader.  '--prune-tests' is the assertion, because it is exactly the
+#     question "did any other input already have this data?"
+sed -e 's/$/\r/' multi.info > crlf.info
+CRLF="-a crlf.info -a multi.info"
+$COVER $LCOV_TOOL $CRLF -o crlf_serial.txt $SERIAL --prune-tests \
+    > crlf_serial.log 2>&1
+if [ 0 != $? ] ; then
+    cat crlf_serial.log
+    fail crlf "serial read of the CRLF input failed"
+fi
+$COVER $LCOV_TOOL $CRLF -o crlf_split.txt $SPLIT --prune-tests \
+    > crlf_split.log 2>&1
+if [ 0 != $? ] ; then
+    cat crlf_split.log
+    fail crlf "split read of the CRLF input failed"
+fi
+if [ 0 == `chunk_count crlf_split.log` ] ; then
+    fail crlf "the set was not split"
+fi
+for f in crlf_serial crlf_split ; do
+    if ! grep -x 'Pruned result: retained 1 of 2 files' ${f}.log >/dev/null ; then
+        cat ${f}.log
+        fail crlf "$f does not report one of the two inputs as redundant"
+    fi
+done
+if ! diff crlf_serial.txt crlf_split.txt ; then
+    fail crlf "split read retained a different set of inputs"
+fi
+
+# (c) '--source-directory' is the third transformation the reader applies, and
+#     the partitioner does not apply it:  finding the file would cost a stat per
+#     section and would consume the state the reader's own 'unused source
+#     directory' report is built from.  So the set is not split at all when a
+#     source directory search could rename a file - including under
+#     LCOV_FORCE_PARALLEL, which overrides the size threshold and not this
+mkdir -p srcdir
+$COVER $LCOV_TOOL -a multi.info -o srcdir.info $SPLIT \
+    --source-directory srcdir --ignore-errors unused > srcdir.log 2>&1
+if [ 0 != $? ] ; then
+    cat srcdir.log
+    fail srcdir "read with '--source-directory' failed"
+fi
+if [ 0 != `chunk_count srcdir.log` ] ; then
+    cat srcdir.log
+    fail srcdir "the input was split despite '--source-directory'"
+fi
+if ! diff identity_xs_serial.info srcdir.info ; then
+    fail srcdir "unsplit read produced different data"
+fi
+
+#-----------------------------------------------------------------------
+# 18. a message which the SEPARATE filter pass produces.  That pass runs after
+#     the read, in the parent, and reports what the filters find in the data -
+#     here an out-of-range line, which needs the source file to be recognized
+#     at all.
+#     Deferred (warn-once) messages are parked and handed back to the parent by
+#     whoever forked the process which parked them, so only a child may defer:
+#     a message the parent parks has no-one to unpark it.  The parent used to
+#     start deferring as soon as it forked anything - which the read above just
+#     did - so this message was neither printed nor counted, and the run
+#     reported success.
+#     Two inputs, so that the read forks a segment for each of them, and no
+#     LCOV_FORCE_PARALLEL, because that makes the filter pass chunk:  the
+#     message would then come back from a child, which is the arm that always
+#     worked.
+#-----------------------------------------------------------------------
+perl ./gen_info.pl range.info 2 20
+perl ./gen_info.pl range2.info 2 20
+awk 'BEGIN { done = 0 }
+     /^SF:/ && !done { print ; print "DA:100000,1" ; done = 1 ; next }
+     { print }' range.info > range_bad.info
+RANGE="-a range_bad.info -a range2.info --parallel 2 --filter line"
+env -u LCOV_FORCE_PARALLEL $COVER $LCOV_TOOL $RANGE -o range_err.info \
+    > range_err.log 2>&1
+if [ 0 == $? ] ; then
+    cat range_err.log
+    fail range "out-of-range line in the parent's own data did not fail the run"
+fi
+if ! grep -E "ERROR: \(range\) unknown line '100000' in .*range_f0.c" \
+    range_err.log > /dev/null ; then
+    cat range_err.log
+    fail range "the out-of-range line was not reported"
+fi
+# ..and when it is ignored it is still counted:  "no messages were reported" is
+#   what a dropped message looks like
+env -u LCOV_FORCE_PARALLEL $COVER $LCOV_TOOL $RANGE -o range_ign.info \
+    --ignore-errors range > range_ign.log 2>&1
+if [ 0 != $? ] ; then
+    cat range_ign.log
+    fail range_ign "run with '--ignore-errors range' failed"
+fi
+if ! grep -E "WARNING: \(range\) unknown line '100000'" range_ign.log \
+    > /dev/null ; then
+    cat range_ign.log
+    fail range_ign "the ignored out-of-range line was not reported"
+fi
+if ! grep -x '    range: 1' range_ign.log > /dev/null ; then
+    cat range_ign.log
+    fail range_ign "the message summary does not count the ignored message"
+fi
+# the same data with the filter pass chunked:  the child's message is deferred,
+#   handed back, and reported exactly once
+LCOV_FORCE_PARALLEL=1 $COVER $LCOV_TOOL $RANGE -o range_par.info \
+    --ignore-errors range > range_par.log 2>&1
+if [ 0 != $? ] ; then
+    cat range_par.log
+    fail range_par "forced-parallel run with '--ignore-errors range' failed"
+fi
+count=`grep -c "WARNING: (range) unknown line '100000'" range_par.log`
+if [ "$count" != 1 ] ; then
+    cat range_par.log
+    fail range_par "reported the out-of-range line $count times, expected once"
+fi
+
+#-----------------------------------------------------------------------
+# 19. a function whose end line is unknown, in a run where the filters changed
+#     nothing.  Whether the tracefile holds such a function is a property of
+#     the run, not of a file the filters happened to rewrite - and the case in
+#     which the user most needs to be told is exactly the one where nothing was
+#     excluded, so nothing was modified, and there is no file update to hang
+#     the message on.  It used to be reported from the update, so an
+#     '--erase-functions' pattern which matched nothing silenced it.
+#     The sources are python:  end lines are derived for c/java/perl, and a
+#     derived end line is reported by the deriving code instead.
+#-----------------------------------------------------------------------
+for f in a b ; do
+    cat > noend_$f.py <<'EOF'
+def alpha():
+    return 1
+
+def beta():
+    return 2
+EOF
+done
+rm -f noend.info
+for f in a b ; do
+    cat >> noend.info <<EOF
+TN:tpy
+SF:$PWD/noend_$f.py
+FN:1,alpha
+FNDA:3,alpha
+FN:4,beta
+FNDA:1,beta
+FNF:2
+FNH:2
+DA:1,3
+DA:2,3
+DA:4,1
+DA:5,1
+LF:4
+LH:4
+end_of_record
+EOF
+done
+NOEND="-a noend.info --erase-functions nomatch --ignore-errors unused"
+NOEND_MSG='Function begin/end line exclusions not supported'
+# the pattern matches nothing, so no file is modified..
+env -u LCOV_FORCE_PARALLEL $COVER $LCOV_TOOL $NOEND -o noend_serial.info \
+    > noend_serial.log 2>&1
+if [ 0 != $? ] ; then
+    cat noend_serial.log
+    fail noend "run over data with no function end lines failed"
+fi
+if ! grep -F 'Omitted 0 total functions matching' noend_serial.log \
+    > /dev/null ; then
+    cat noend_serial.log
+    fail noend "the '--erase-functions' pattern removed something"
+fi
+# ..and the message is reported once, and counted
+count=`grep -c "$NOEND_MSG" noend_serial.log`
+if [ "$count" != 1 ] ; then
+    cat noend_serial.log
+    fail noend "reported the unknown end line $count times, expected once"
+fi
+if ! grep -x '    unsupported: 1' noend_serial.log > /dev/null ; then
+    cat noend_serial.log
+    fail noend "the message summary does not count the unsupported message"
+fi
+# the same, with the filter pass chunked:  the flag comes back inside each
+#   child's payload, and the parent reports it once for the whole run
+LCOV_FORCE_PARALLEL=1 $COVER $LCOV_TOOL $NOEND -o noend_par.info \
+    --parallel 4 --rc parallel_parse_min_lines=0 > noend_par.log 2>&1
+if [ 0 != $? ] ; then
+    cat noend_par.log
+    fail noend_par "chunked filter run over data with no end lines failed"
+fi
+if ! grep '^Filter: chunkSize' noend_par.log > /dev/null ; then
+    cat noend_par.log
+    fail noend_par "the filter pass did not chunk"
+fi
+count=`grep -c "$NOEND_MSG" noend_par.log`
+if [ "$count" != 1 ] ; then
+    cat noend_par.log
+    fail noend_par "reported the unknown end line $count times, expected once"
+fi
+if ! diff noend_serial.info noend_par.info ; then
+    fail noend_par "chunked filter pass produced different data"
+fi
 
 if [ 0 == $STATUS ] ; then
     echo "Tests passed"

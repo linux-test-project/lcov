@@ -26,6 +26,8 @@
 #include <optional>
 #include <memory>
 
+#include "CountArith.hpp"
+
 // ============================================================================
 // MCDC_Expression
 //

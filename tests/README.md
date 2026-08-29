@@ -23,7 +23,7 @@ This directory contains a number of regression tests for LCOV. To start it:
           - the Devel::Cover result is written to the terminal and stored in
             'test.log'
 
-	  - if `PER_TEST_COVERGE` is set, then coverage data for each
+	  - if `PER_TEST_COVERAGE` is set, then coverage data for each
 	    testcase is written to the indicated directory.
 
        - Results:

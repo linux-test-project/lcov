@@ -138,7 +138,7 @@ See the OPTIONS section below for details.
 
   # list of file extensions which should be treated as C/C++ code
   # (comma-separated list)
-  #c_file_extensions = h,c,cpp,hpp
+  #c_file_extensions = h,c,i,C,H,I,cpp,hpp,icc,cc,hh,cxx,hxx
 
   # list of file extensions which should be treated as RTL code
   # (*e.g.*, Verilog) (comma-separated list)
@@ -337,7 +337,7 @@ See the OPTIONS section below for details.
 
   # Ask lcov/genhtml/geninfo to return non-zero exit code if branch coverage is
   # below specified threshold percentage.
-  fail_under_branches = 75.0
+  #fail_under_branches = 75.0
 
   # Ask lcov/genhtml/geninfo to return non-zero exit code if line coverage is
   # below specified threshold percentage.
@@ -364,7 +364,7 @@ See the OPTIONS section below for details.
   # fork_fail_timeout = 10
 
   # Throttling control:  specify a percentage of system memory to use as
-  maximum during parallel processing.
+  # maximum during parallel processing.
   # Do not fork if estimated memory consumption exceeds the maximum.
   # this value is used only if the maximum memory is not set.
   # default: not set
@@ -378,6 +378,14 @@ See the OPTIONS section below for details.
   # use case insensitive compare to find matching files, for include/exclude
   #  directives, etc
   #case_insensitive = 0
+
+  # read '.info' files - and genhtml udiff files - whose file names use the
+  #  other platform's directory separator, translating them as they are read
+  #cross_platform_read = 1
+
+  # which platform's path convention this run works in:  auto, posix, windows,
+  #  cygwin
+  #path_style = auto
 
   # override line default line exclusion regexp
   #lcov_excl_line = LCOV_EXCL_LINE
@@ -1803,9 +1811,15 @@ to determine selection, where
 
 - *annotateDataJson* is the json-encoded data returned by your *annotate\-script* (see the *\-\-annotate\-script* parameter in :manpage:`genhtml(1)`.), or the empty string if there are no annotations for this file.
 
+The four values are passed to the script as four separate arguments, without an intervening shell - so the JSON quoting arrives as it was written, and *annotateDataJson* is an empty argument rather than a missing one when there are no annotations.
+
 The module callback is similar except that is passed objects rather than JSON encodings of the objects.
 
-The script should return "1" or "0".
+The module callback should return a true value if the line is to be included in the report and a false value if it is not.
+
+The script should write "1" (include this line) or "0" (do not) to stdout and exit with a zero status.  Note that the answer is what the script writes, not the status it exits with.
+
+If the script cannot be executed, exits with a non-zero status, is killed by a signal, or writes anything other than "1" or "0", then an ignorable *callback* error is reported (see the *\-\-ignore\-errors* option) and the line is included in the report - a callback which cannot be believed must not be able to silently empty the report.
 
 See example implementation ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/select.pm``.
 
@@ -1911,6 +1925,58 @@ Specify whether string comparison is case insensitive when finding matching file
 Note that mixed-case or lower-case pathnames may be passed to your \-\-version\-script and \-\-annotate\-script callbacks when case-insensitive matching is used. Your callbacks must handle potential differences in case.
 
 Default is '0': case sensitive matching.
+
+``cross_platform_read`` = *[0|1]*
+------------------------------------
+
+Specify whether to read coverage data ('.info') files whose source file names use the directory separator of the other platform - *e.g.,* a file captured on Windows, whose names look like *SF:C:\\proj\\src\\file.c,* being read on a POSIX machine. The separator in each such name is translated to this platform's as the name is read - before \-\-substitute patterns are applied and before the source file is looked for, so that every option which takes a path, and every callback which is passed one, sees names in the local convention. Run with \-\-verbose to be told, once per input file, that names of that kind were found and normalized.
+
+This applies to every '.info' file a run reads, including the one genhtml is given for \-\-baseline\-file, and to the names in the udiff which genhtml reads for \-\-diff\-file: the 'Git Root:' record, the '===' unchanged-file entries, and the '---' and '+++' entries of each diff section.
+
+Note that the coverage data itself is portable; only the names are not.
+
+Set this to '0' if the other platform's separator is a legal character in a file name here and your names really do contain it - a backslash in a POSIX file name. Then such a name is used exactly as it was read, and is an error of type *"usage"* which says so. Ignore that error (\-\-ignore\-errors usage) if the name is right exactly as it stands.
+
+What a name left in the other platform's spelling costs is not the same for the two kinds of input, so the *"usage"* error explains them separately. A '.info' name is used to reach the file system, and cannot: the source file is not found, and patterns written for this platform do not match. The report is not part of that cost: genhtml decomposes a name into directories as though it were spelled the way this platform spells it - 'C:\\proj\\src\\file.c' as '/C:/proj/src/file.c', which is absolute on both platforms - so the hierarchy it builds, the page names, the relative links between them and what \-\-prefix matches do not depend on this setting, and \-\-prefix may be written in either spelling. It is that decomposed spelling which the pages display; the name as it was read is what the coverage data keeps, and what is written back out. A udiff name is instead matched against the source file names in the coverage data, and does not match: that entry's differences are dropped, and every line of every file is categorized as though the code had not changed at all - a report which cannot be seen to be wrong. Nor does the path consistency check notice, since it compares the last element of each name and a Windows name whose separators are not separators here has only one element.
+
+The other direction needs no setting at all: Windows accepts '/' as a directory separator as well as '\\', so a POSIX name read there opens the file it names - no error, no warning. Such a name is normalized to '\\' whether or not this is enabled: only the file system takes both spellings, and the tool has to work in one so that its own path handling and the path modules it uses agree about where the name's directories divide. Run with \-\-verbose if you want to be told, once per input file, that names of that kind were found and normalized.
+
+Nor does a Windows name read on Cygwin or MSYS. Those platforms write POSIX names, so nothing of theirs is translated on the way out, but their path layer accepts a Windows name on the way in - drive letter and all - so the file such a name refers to opens, and reporting it would be reporting a name which works. They are treated the same way Windows treats a POSIX name: no error, noted at \-\-verbose, and normalized to '/' whether or not this setting asks for it.
+
+A name which uses *both* separators - *e.g.,* 'C:\\proj/src\\file.c' - is an error of type *"usage"* when it is read on a POSIX machine, whether or not this is enabled: a backslash is a legal character in a file name there, so there is no way to tell which of the two characters divides the name's directories, and the translation cannot help - it turns one separator into the other, which needs the name to use only one of them. If you know what the name should be, then rewrite it yourself with a ``substitute`` pattern - *e.g.,* ``substitute`` = s#\\\\#/#g to treat every backslash as a separator. Substitutions are applied after this check, so the *"usage"* error has to be ignored as well; ignoring it is also the right answer if the name is correct exactly as it stands. Read on Windows the same name is unremarkable, since every one of the separators in it is a separator there.
+
+A name which is already in this platform's terms is unaffected by the setting, so input of either kind - or a mix of both in the same run - is read the same way.
+
+A leading Windows drive letter is kept as an ordinary leading path element - *SF:C:\\proj\\src\\file.c* becomes *C:/proj/src/file.c.* No attempt is made to guess which directory on this machine a drive letter corresponds to, so removing it is the user's job: use a ``substitute`` pattern (or the \-\-substitute command line option)
+
+::
+
+   substitute = s#^C:/##
+
+or, for whatever drive letter the input happens to use
+
+::
+
+   substitute = s#^[A-Za-z]:/##
+
+together with ``source_directory`` or ``resolve_script`` to say where the source files are here. The substitution is applied after the separator translation, so the pattern is written with '/' rather than with the backslashes in the input file. In genhtml it is applied to the \-\-diff\-file entries as well as to the coverage data, so both sides of that comparison are rewritten the same way.
+
+Until the drive letter is removed, the name is not much use for finding a file on a POSIX machine: 'C:/proj/src/file.c' does not begin with '/', so the source lookup takes it relative to the current directory. The report layout does not: a name which begins with a drive letter is decomposed as an absolute name, so the hierarchy genhtml builds from it is the same wherever the tool is run - use \-\-prefix to drop the letter from that hierarchy.
+
+The letter is kept rather than removed automatically so that the translation is reversible and lossless: the result can be written out, read back, and matched against the Windows original, and a run which reads both a translated and an untranslated copy of the same data sees the same names.
+
+There is no command line option for this setting: put it in a configuration file, or write \-\-rc cross_platform_read=0 to change it for a single run. Windows input usually wants ``case_insensitive`` = 1 as well.
+
+Default is '1': the names are translated.
+
+``path_style`` = *[auto|posix|windows|cygwin]*
+-----------------------------------------------
+
+Specify which platform's path convention this run works in: 'auto' - the platform we are running on - or 'posix', 'windows' or 'cygwin'.
+
+Only 'auto' makes sense in production, because the directory separator has to be the one the file system really uses. The other three values force it, so that the regression tests can drive every direction of the ``cross_platform_read`` translation above from whichever platform they happen to run on. There are three conventions rather than two: 'cygwin' is the POSIX separator with the Windows one accepted as well, which is neither of the others - see above. Nothing else about the run changes.
+
+Default is 'auto'.
 
 ``sort_input`` = *[0|1]*
 --------------------------
