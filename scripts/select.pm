@@ -189,8 +189,7 @@ EOF
                               "Will never see '" .
                                   join("', '", @intersect2) . "' " .
                                   ($#intersect2 ? 'categories' : 'category') .
-                                  ' without --diff-file data')
-        if (@intersect2);
+                                  ' without --diff-file data') if (@intersect2);
 
     my $self = [\@range,
                 \@owner,
@@ -292,7 +291,8 @@ sub finalize
     my $self = shift;
     lcovutil::info(-1,
                    "select.pm criteria match counts:\n  saw " .
-                       $self->[TOTAL] . ' coverpoint' .
+                       $self->[TOTAL] .
+                       ' coverpoint' .
                        (1 == $self->[TOTAL] ? '' : 's') . "\n");
     foreach my $d (['tla', TLA, $self->[TLA]],
                    ['range', AGE, $self->[PLAINTEXT]->[AGE]],

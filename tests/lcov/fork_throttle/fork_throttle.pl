@@ -179,7 +179,8 @@ check('no memory constraint was reported',
 rmtree($tempdir);
 
 if (@failures) {
-    die(scalar(@failures) . " check(s) failed:\n\t" .
+    die(scalar(@failures) .
+            " check(s) failed:\n\t" .
             join("\n\t", @failures) . "\n");
 }
 print("fork_throttle: all checks passed\n");

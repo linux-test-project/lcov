@@ -136,8 +136,7 @@ sub extract_version
             $log =~ /^(\S+) /) {
             $version = $1;
             if ($self->[P4]) {
-                if (
-                    open(GITLOG, '-|', 'git', '-C',
+                if (open(GITLOG, '-|', 'git', '-C',
                          $dir, 'show', '-s', $version)
                 ) {
                     while (my $l = <GITLOG>) {

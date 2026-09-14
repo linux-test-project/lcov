@@ -148,7 +148,8 @@ sub restore
 {
     my ($self, $data) = @_;
     die("unexpected restore: (" .
-        join(' ', @$self) . ") <- [" .
+        join(' ', @$self) .
+        ") <- [" .
         join(' ', @$data) . "]\n")
         unless $#$self == $#$data;
     for (my $i = 0; $i <= $#$self; ++$i) {
