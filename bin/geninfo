@@ -68,7 +68,9 @@ use FindBin;
 use Storable;
 use POSIX;
 
-use lib "$FindBin::RealBin/../lib";
+# Windows path handling - see comment in jacoco2lcov
+use lib "$FindBin::RealBin/../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../lib' };
 use lcovutil qw (define_errors parse_ignore_errors
                  $tool_name $tool_dir $lcov_version $lcov_url
                  ignorable_error ignorable_warning is_ignored
@@ -96,10 +98,6 @@ use lcovutil qw (define_errors parse_ignore_errors
                  @comments
                  $maxParallelism init_parallel_params $maxMemory
                 );
-
-if ($^O eq "msys") {
-    require File::Spec::Win32;
-}
 
 our @gcov_tool;
 
@@ -229,7 +227,7 @@ our $callFromLcov;
 our $cwd = getcwd();
 chomp($cwd);
 
-lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
+lcovutil::save_cmd_line(\@ARGV, $lcovutil::tool_dir);
 
 #
 # Code entry point
@@ -268,9 +266,12 @@ if (!lcovutil::parseOptions(\%lcovutil::geninfo_rc_opts, \%geninfo_opts,
     exit(1);
 }
 
+@gcov_tool = @lcovutil::rc_gcov_tool unless @gcov_tool;
+# translate windows paths, if necessary
+lcovutil::posix_paths(\$base_directory, \@gcov_tool);
+
 $buildDirSearchPath =
     SearchPath->new('build directory', @lcovutil::build_directory);
-@gcov_tool = @lcovutil::rc_gcov_tool unless @gcov_tool;
 
 eval {
     map { qr($_) } @large_files;
@@ -463,7 +464,9 @@ if (!@data_directory) {
         "Use $tool_name --help to get usage information\n");
 } else {
     my @dirs;
-    foreach my $pattern (@data_directory) {
+    foreach my $arg (@data_directory) {
+        # handle windows path...
+        my $pattern = lcovutil::posix_path($arg);
         if (-d $pattern) {
             $pattern =~ s#$lcovutil::dirseparator_re$##;    # trailing slash
             push(@dirs, $pattern);
@@ -1879,33 +1882,8 @@ sub solve_relative_path($$)
 {
     my ($path, $dir) = @_;
 
-    # Convert from Windows path to msys path
-    if ($^O eq "msys") {
-        # search for a windows drive letter at the beginning
-        my ($volume, $directories, $filename) =
-            File::Spec::Win32->splitpath($dir);
-        if ($volume ne '') {
-            my $uppercase_volume;
-            # transform c/d\../e/f\g to Windows style c\d\..\e\f\g
-            $dir = File::Spec::Win32->canonpath($dir);
-            # use Win32 module to retrieve path components
-            # $uppercase_volume is not used any further
-            ($uppercase_volume, $directories, $filename) =
-                File::Spec::Win32->splitpath($dir);
-            my @dirs = File::Spec::Win32->splitdir($directories);
-
-            # prepend volume, since in msys C: is always mounted to /c
-            $volume =~ s|^([a-zA-Z]+):|/\L$1\E|;
-            unshift(@dirs, $volume);
-
-            # transform to Unix style '/' path
-            $directories = File::Spec->catdir(@dirs);
-            $dir         = File::Spec->catpath('', $directories, $filename);
-        } else {
-            # eliminate '\' path separators
-            $dir = File::Spec->canonpath($dir);
-        }
-    }
+    # handle possible windows path
+    $dir = lcovutil::posix_path($dir);
 
     my $result = $dir;
     # Prepend path if not absolute

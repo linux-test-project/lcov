@@ -49,7 +49,9 @@ require Exporter;
 use FindBin;
 use Time::HiRes;    # for profiling
 
-use lib "$FindBin::RealBin/../lib";
+# Windows path handling - see comment in jacoco2lcov
+use lib "$FindBin::RealBin/../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../lib' };
 use lcovutil;
 
 sub print_usage(*)
@@ -616,6 +618,9 @@ if (!lcovutil::parseOptions(\%rc_opts, \%opts, \$output_filename)) {
     print(STDERR "argparse failed\n");
     exit(1);
 }
+
+# translate windows path names, if necessary
+lcovutil::posix_paths(\@ARGV);
 
 my $info = parse($testname, @ARGV);
 $info->applyFilters(ReadCurrentSource->new());

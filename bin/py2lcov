@@ -41,8 +41,25 @@
 import os
 import os.path
 import sys
+import re
 import argparse
 import subprocess
+
+# The directory this script is installed, in a style that this Python can open.
+# See comments in xml2lcovutil.py for the reasoning
+# This repeats 'posix_path' from xml2lcovutil.py - see the comment there - but
+#   we can't just import it ... that is what this code is trying to enable.
+_dir = os.path.dirname(sys.argv[0].replace('\\', '/'))
+if re.match(r'^[A-Za-z]:/', _dir):
+    _mounts = ['', '/cygdrive']
+    if 'LCOV_DRIVE_MOUNT' in os.environ:
+        _mounts.insert(0, os.environ['LCOV_DRIVE_MOUNT'])
+    _drive = _dir[0].lower()
+    _dir = next((m + '/' + _drive + _dir[2:] for m in _mounts
+                 if os.path.isdir(m + '/' + _drive)), _dir)
+if _dir and _dir not in sys.path:
+    sys.path.insert(0, _dir)
+
 from xml2lcovutil import ProcessFile
 
 def main():

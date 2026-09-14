@@ -14,7 +14,7 @@
 #   - release:   finalize release and create git tag for specified VERSION
 #   - test:      run regression tests.
 #                additional Make variables:
-#                  COVERGAGE=1
+#                  COVERAGE=1
 #                     - enable perl coverage data collection
 #                  TESTCASE_ARGS=string
 #                     - pass these arguments to testcase script
@@ -73,7 +73,7 @@ DIST_CONTENT := CONTRIBUTING COPYING README.rst Makefile lcovrc \
 
 EXES = \
 	lcov genhtml geninfo genpng gendesc \
-	perl2lcov py2lcov xml2lcov xml2lcovutil.py \
+	perl2lcov py2lcov xml2lcov xml2lcovutil.py jacoco2lcov \
 	llvm2lcov html2lcov
 # there may be both public and non-public user scripts - so lets not show
 #   any of their names
@@ -226,6 +226,9 @@ endif
 	done
 	@chmod -R ugo+x $(SHARE_INST_DIR)/tests/bin
 	@find $(SHARE_INST_DIR)/tests \( -name '*.sh' -o -name '*.pl' \) -exec chmod ugo+x {} \;
+#   the loop above installs everything mode 644:  the example has a driver
+#   script in it too, and an installed copy which cannot be run is no use
+	@find $(SHARE_INST_DIR)/example -name '*.sh' -exec chmod ugo+x {} \;
 	$(INSTALL) -d -m 755 $(CFG_INST_DIR)
 	$(call echocmd,"  INSTALL $(CFG_INST_DIR)/lcovrc")
 	$(INSTALL) -m 644 lcovrc $(CFG_INST_DIR)/lcovrc

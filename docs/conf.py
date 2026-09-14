@@ -306,6 +306,64 @@ Getting Started
 
   #. Read the man pages and/or the HTML documentation to discover other capabilities and options.
 
+Windows path names
+==================
+
+A path can be written in Windows style - with a drive letter, and with either
+forward or backslash separator, or a mixture of the two - even when the tool is
+run by a Perl or a Python (*e.g.*, on Cygwin, MSYS, or git-bash) which only
+understands Unix-style paths (forward slash, no drive).  Such a perl cannot open
+``D:\\my\\local\\tools\\lcov\\bin\\genhtml`` at all - but such a path may be
+written on the command line by a Windows caller, or come from an environment
+variable - so {ToolName} has to handle them all.
+
+The drives are mounted in such an installation, so the same file has a name
+that perl does understand, and the tools translate Windows names to that format:
+forward slashes throughout, and the mount point of the drive in front.
+``D:`` is ``/d`` under MSYS and git-bash and ``/cygdrive/d`` under Cygwin, each
+configurable in the installation's own ``fstab``.  So, with {ToolName} installed in
+``D:\\my\\local\\tools\\lcov`` and JaCoCo on the ``Z:`` drive -
+
+========================================  ========================================
+Written as                                Used as
+========================================  ========================================
+``D:\\my\\local\\tools\\lcov\\bin\\genhtml``    ``/d/my/local/tools/lcov/bin/genhtml``
+``D:/my/local/tools/lcov/bin/genhtml``    the same
+``D:\\my\\local/tools\\lcov/bin\\genhtml``    the same
+``Z:\\jacoco\\lib\\jacococli.jar``           ``/z/jacoco/lib/jacococli.jar``
+``lib\\jacococli.jar``                     ``lib/jacococli.jar``
+``\\\\build01\\share\\jacoco\\jacococli.jar``  ``//build01/share/jacoco/jacococli.jar``
+``Q:\\jacoco\\lib\\jacococli.jar``           ``Q:/jacoco/lib/jacococli.jar``
+========================================  ========================================
+
+The last three rows are the paths which name no mounted drive.  A backslash is
+the Windows separator wherever it appears, so turning the separators around is
+all a relative path needs, and it is what makes a UNC name usable as well -
+that is ``//host/share/...`` on these perls.  ``Q:`` in the last row is a drive
+which this installation has not mounted: there is no name to translate it to,
+so it is left as it stands and the drive you named is what the complaint about
+it names.
+
+Note that only the two usual mount points are checked, so a drive which your
+installation's ``fstab`` mounts somewhere else - ``/mnt/d``, say - has to be
+named the way that perl names it.  And a drive-relative name,
+``D:jacococli.jar``, is left alone: there is no per-drive current directory to
+resolve it against.
+
+A native Windows perl - one whose ``$^O`` is ``MSWin32`` - understands a
+Windows path itself: it opens one, it makes one absolute, and it splits one
+into a directory and a file name.  Nothing is translated for such a perl, in
+either direction, and a Windows path is what it is handed and what it hands on.
+Nothing is translated on a Unix host either, where a drive letter names
+nothing: what you write there is what is used.
+
+``py2lcov`` and ``xml2lcov`` are Python rather than Perl, and do the same
+thing, for the same reason: the ``os.path`` of a Cygwin or MSYS python is
+``posixpath``, which does not know a drive letter either.  The same table above
+describes what they do with a name, and a native Windows python - one whose
+``sys.platform`` is ``win32`` - is left alone in the same way as a native
+Windows perl.
+
 Example
 =======
 

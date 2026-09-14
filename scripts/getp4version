@@ -33,7 +33,9 @@ use File::Spec;
 use Cwd qw(abs_path);
 use FindBin;
 
-use lib "$FindBin::RealBin";
+# Windows path handling:  see comment in jacoco2lcov
+use lib "$FindBin::RealBin",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '.' };
 use annotateutil qw(get_modify_time compute_md5);
 
 sub usage

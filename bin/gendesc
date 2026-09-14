@@ -42,7 +42,8 @@ use Getopt::Long;
 use Cwd qw/abs_path/;
 use FindBin;
 
-use lib "$FindBin::RealBin/../lib";
+use lib "$FindBin::RealBin/../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../lib' };
 use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  die_handler warn_handler);
 
@@ -75,7 +76,9 @@ if (!GetOptions("output-filename=s" => \$output_filename,
     exit(1);
 }
 
-$input_filename = $ARGV[0];
+# translate windows path, if necessary
+lcovutil::posix_paths(\$output_filename);
+$input_filename = lcovutil::posix_path($ARGV[0]);
 
 # Check for help option
 if ($help) {

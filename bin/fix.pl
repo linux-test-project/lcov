@@ -104,6 +104,20 @@ sub update_perl($)
             unless $source =~ m@^#!/usr/bin/env perl$@;
     }
 
+    # Each tool names the directory it loads its modules from twice:  once
+    #   through FindBin and once worked out from $0 without it, because neither
+    #   way copes with every platform - see 'posix_path' in lib/lcovutil.pm.
+    #   The substitutions below tell an installed copy that directory outright,
+    #   so the second name has nothing left to add:  drop it, rather than leave
+    #   an @INC entry which resolves to something else entirely - and drop the
+    #   comment which explained it, as the installed copy no longer has either
+    #   name it talks about.
+    if ($opt_fixlibdir || $opt_fixscriptdir) {
+        $source =~ s/^(use lib "[^"\n]*"),\n\s*do \{[^\n]*\};$/$1;/mg;
+        $source =~
+            s/^# Two names for the lib directory:[^\n]*\n(?:#[^\n]*\n)*//mg;
+    }
+
     if ($opt_fixlibdir) {
         die("$0: Missing option --libdir\n") if (!defined($opt_libdir));
 

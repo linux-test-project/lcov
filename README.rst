@@ -2,7 +2,7 @@
 README file for the LTP GCOV extension (LCOV)
 =================================================
 
-Last changes: 2026-07-23
+Last changes: 2026-09-05
 
 Description
 ===========
@@ -74,8 +74,12 @@ bin/genhtml        Tool to generate HTML report from LCOV data
 bin/perl2lcov      Tool to translate Perl ``Devel::Cover`` data to lcov format
 bin/llvm2lcov      Tool to translate LLVM ``llvm-cov`` JSON data to LCOV format
 bin/py2lcov        Tool to translate Python ``Coverage.py`` to lcov format
-bin/xml2lcov       Tool to translate Cobertura-like XML coverage data
-                   to lcov format
+bin/xml2lcov       Tool to translate Cobertura-like or JaCoCo XML coverage
+                   data to lcov format
+bin/jacoco2lcov    Tool to translate JaCoCo execution data to lcov format -
+                   a wrapper which runs the JaCoCo command line interface and
+                   ``xml2lcov`` in turn, and then ``lcov`` when there is an
+                   ``lcov`` option for it to apply
 bin/html2lcov      Tool to extract coverage data and source code diffs from
                    LCOV-generated HTML report - as input to new differential
                    coverage report, after code change.
@@ -373,6 +377,32 @@ a) Capture current coverage state to a file:
       See ``xml2lcov --help`` and the Cobertura documentation for more
       information.
 
+   v) Java code, using JaCoCo:
+
+      - execute your testcase with the JaCoCo agent attached, to produce a
+        ``jacoco.exec`` execution data file
+
+      - turn the execution data into an XML report::
+
+            $ java -jar jacococli.jar report jacoco.exec \
+                --classfiles build/classes --xml jacoco.xml
+
+      - translate the XML report to LCOV format.  Unlike Cobertura data, JaCoCo
+        data does not say where the source files are, so you have to::
+
+            $ xml2lcov --output myData.info --source-directory src jacoco.xml
+
+      Or let ``jacoco2lcov`` run both of those steps for you - and, if you name
+      an ``lcov`` option such as ``--exclude`` or ``--filter`` (or ``--lcov``
+      itself), the ``lcov`` command which applies it::
+
+            $ jacoco2lcov --output myData.info --source-directory src \
+                --classpath build/classes jacoco.exec
+
+      See ``jacoco2lcov --help``, ``xml2lcov --help``, the ``xml2lcov``
+      and ``jacoco2lcov`` man pages, and the JaCoCo
+      documentation for more information.
+
 b) Generate an HTML coverage report:
 
    Generate an HTML report, combining all of your LCOV data files::
@@ -622,7 +652,8 @@ f) Performance
 
 g) Language/tool support
 
-   Added ``llvm2lcov``, ``py2lcov``, ``perl2lcov``, ``xml2lcov``, and ``html2lcov``  scripts.
+   Added ``llvm2lcov``, ``py2lcov``, ``perl2lcov``, ``xml2lcov``,
+   ``jacoco2lcov``, and ``html2lcov``  scripts.
 
    - **llvm2lcov**:
 
@@ -656,12 +687,31 @@ g) Language/tool support
    - **xml2lcov**:
 
      translates XML coverage data to lcov format.
-     The XML data may come from Cobertura or similar tools.
+     The XML data may come from Cobertura or similar tools, or from
+     JaCoCo - the schema is deduced from the root element of the
+     input file, and ``--format`` overrides the deduction.
+     JaCoCo data does not say where the source files are, so
+     ``--source-directory`` has to.
 
-     See ``xml2lcov --help`` for brief instructions on how to use
+     See ``xml2lcov --help`` and the ``xml2lcov`` man page for brief
+     instructions on how to use
      the translator.
-     See the Cobertura documentation for directions on how to
-     generate XML data.
+     See the Cobertura or JaCoCo documentation for directions on how
+     to generate XML data.
+
+   - **jacoco2lcov**:
+
+     translates JaCoCo execution data to lcov format.
+     This is a wrapper rather than a translator: it runs
+     ``java -jar jacococli.jar report`` to produce a JaCoCo XML report,
+     ``xml2lcov`` to translate it, and - when you have named an option for it
+     to apply, or asked for it with ``--lcov`` - ``lcov -a`` to apply
+     filtering, exclusions and the rest of the options which ``xml2lcov`` does
+     not implement itself.  Each of the three steps remains available on its
+     own.
+
+     See ``jacoco2lcov --help`` and the ``jacoco2lcov`` man page
+     for brief instructions on how to use it.
 
    - **html2lcov**:
 

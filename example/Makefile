@@ -2,9 +2,11 @@
 # Makefile for the LCOV example program.
 #
 # Make targets:
-#   - example: compile the example program
-#   - output:  run test cases on example program and create HTML output
-#   - clean:   clean up directory
+#   - output:       run test cases on example program and create HTML output
+#   - example:      compile the example program
+#   - example_java: Java coverage example - needs a JDK and JaCoCo, and does
+#                   nothing if not available.
+#   - clean:        clean up directory
 #
 
 CC      := gcc
@@ -36,9 +38,16 @@ LCOV_HOME := $(shell if [ -d ../bin ] ; then echo `realpath ..` ; else echo `rea
 endif
 
 EG_SRCDIR = $(shell if [ -d $(LCOV_HOME)/example ] ; then echo $(LCOV_HOME)/example ; else echo $(LCOV_HOME)/share/lcov/example ; fi)
-# override this variable to write the differential testcase data someplace
-#  else
+# The example GIT repo:  one repo holding the sources of all testcases.
+# One multi-language project is more realistic than using multiple repos
+# for different tests.
+# Repo is built once, by whichever test runs first (see  $(REPO_STAMP) below).
+# Reop removed by 'clean'
+# Override 'REPO' variable if you want the data to be written somewhere else.
 REPO = exampleRepo
+# Use a file for timestamp marker: directory's timestamp is not useful, and
+#   the presence of '.git' would not tell us whether sources had been added
+REPO_STAMP = $(REPO)/.initialized
 HTML_example_dir = htmlDir
 BINDIR = $(LCOV_HOME)/bin
 SCRIPTS = $(LCOV_HOME)/scripts
@@ -75,6 +84,48 @@ SCRIPTDIR = $(shell if [ -d ../scripts ] ; then echo $(SCRIPTS) ; else echo $(LC
 
 GITDIFF  := $(EXEC_COVER) $(SCRIPTDIR)/gitdiff
 
+# ---------------------------------------------------------------------------
+# The Java/JaCoCo example.  Coverage for the Java program comes from the JaCoCo
+#   agent - so this part of the example needs a JDK and a JaCoCo installation.
+# script 'java_avail.sh' checks for availability and complains if something
+# is missing.
+JACOCO2LCOV := $(EXEC_COVER) $(BINDIR)/jacoco2lcov
+# JaCoCo records line, branch and method coverage and nothing else:  there is no
+#   MC/DC data in a JaCoCo report, so this asks genhtml for what there is rather
+#   than using $(LCOV_FLAGS), which adds --mcdc-coverage when the C compiler can
+#   produce it.
+JAVA_GENHTML := $(EXEC_COVER) $(BINDIR)/genhtml --branch-coverage
+
+# The JDK from JAVA_HOME if that variable is set, else whatever is on PATH:  an
+#   environment which sets JAVA_HOME means that JDK to be used, even when an
+#   older java is on PATH in front of it.  './java_avail.sh' decides whether
+#   these exist, by the same rule.
+JAVA  := $(if $(JAVA_HOME),$(JAVA_HOME)/bin/java,java)
+JAVAC := $(if $(JAVA_HOME),$(JAVA_HOME)/bin/javac,javac)
+
+# The agent jar - the one the JVM loads to collect the data.  jacoco2lcov finds
+#   jacococli.jar for itself, and looks in the same two places this does;  see
+#   man jacoco2lcov(1).  './java_avail.sh' looks in the same two places as well.
+JACOCO_AGENT := $(shell                                       \
+	if [ -n "$(JACOCO_HOME)" ] ; then                     \
+	  for f in lib/jacocoagent.jar jacocoagent.jar ; do   \
+	    if [ -f "$(JACOCO_HOME)/$$f" ] ; then             \
+	      echo "$(JACOCO_HOME)/$$f" ;                     \
+	      break ;                                         \
+	    fi ;                                              \
+	  done ;                                              \
+	fi )
+
+# Whether the Java example can run at all.  './java_avail.sh' is silent and
+#   succeeds when java, javac and JaCoCo are all where they have to be, and says
+#   what is missing and fails when they are not - so when this is not 'yes', the
+#   recipe below runs the script for the explanation and does nothing else.  A
+#   release built on a machine which has no Java on it still runs the rest of
+#   the examples to completion.
+JAVA_AVAIL_SCRIPT := $(EG_SRCDIR)/java_avail.sh
+JAVA_AVAIL := $(shell $(JAVA_AVAIL_SCRIPT) > /dev/null 2>&1 && echo yes)
+# ---------------------------------------------------------------------------
+
 # Depending on the presence of the GD.pm perl module, we can use the
 # special option '--frames' for genhtml
 USE_GENPNG := $(shell $(GENPNG) --help >/dev/null 2>/dev/null; echo $$?)
@@ -110,7 +161,7 @@ C99 = $(shell VER=`$(CC) -dumpversion | perl -pe 's/^(\d+)\..+$$/$$1/'` ; if [ $
 COMPILER_STAMP := .compiler
 
 .PHONY: clean output example_noargs example_2_to_2000 example_overflow \
-	example_differential example_html2lcov FORCE
+	example_differential example_html2lcov example_java FORCE
 
 all: output
 
@@ -137,7 +188,7 @@ iterate.o: methods/iterate.c iterate.h $(COMPILER_STAMP)
 gauss.o: methods/gauss.c gauss.h $(COMPILER_STAMP)
 	$(CC) $(CFLAGS) -c methods/gauss.c -o gauss.o
 
-output: example descriptions example_noargs example_2_to_2000 example_overflow example_differential example_html2lcov
+output: example descriptions example_noargs example_2_to_2000 example_overflow example_differential example_html2lcov example_java
 	@echo
 	@echo '*'
 	@echo '* Generating HTML output from data captured from tests'
@@ -166,7 +217,7 @@ output: example descriptions example_noargs example_2_to_2000 example_overflow e
 descriptions: descriptions.txt
 	$(GENDESC) descriptions.txt -o descriptions
 
-all_tests: example example_noargs example_2_to_2000 example_overflow example_differential example_html2lcov
+all_tests: example example_noargs example_2_to_2000 example_overflow example_differential example_html2lcov example_java
 
 example_noargs:
 	@echo
@@ -198,6 +249,29 @@ example_overflow:
 	./example 0 100000 || true
 	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "example_overflow" --no-external $(EXTRA_IGNORE)
 
+# The example repo, shared by the testcases below which need revision control.
+#   Every source any of them wants is checked in when the repo is made, so that
+#   whichever of them runs first finds what it needs and the second one finds the
+#   repo already there.
+$(REPO_STAMP):
+	@echo
+	@echo "Initialize the example GIT repo with the source of every testcase"
+	@echo "  which needs one (C and Java - one repo, as a project with more"
+	@echo "  than one language in it has)"
+	@$(RM) -rf $(REPO)
+	@git init $(REPO)
+	@(cd $(REPO) ;                                            \
+	cp -f $(EG_SRCDIR)/*.h $(EG_SRCDIR)/example.c . ;         \
+	mkdir methods ;                                           \
+	cp -f $(EG_SRCDIR)/methods/gauss.c methods ;              \
+	cp -f $(EG_SRCDIR)/methods/iterate.c methods ;            \
+	mkdir -p src/hello ;                                      \
+	cp -f $(EG_SRCDIR)/HelloWorld.java src/hello ;            \
+	find . \( -name '*.h' -o -name '*.c' -o -name '*.java' \) \
+	  -exec git add {} \; ;                                   \
+	git commit -m baseline ; git tag baseline )
+	@touch $@
+
 # This test pretends to write some code, run some tests, then modify
 #   code and rerun some tests.
 # The differential coverage report is categorizes the code based on
@@ -207,22 +281,23 @@ example_overflow:
 # Could use --verbose and --quiet flags to make the execution less noisy -
 #   but verbosity can help to debug configuration issues.
 # See the lcov README and man pages for more details.
-example_differential:
+example_differential: $(REPO_STAMP)
 	@echo
 	@echo '*'
 	@echo '* Test case 4: differential coverage example'
 	@echo '*'
 	@echo
-	@echo "Step 1: Initialize GIT repo with example source"
-	@$(RM) -rf $(REPO)
-	@git init $(REPO) ;
-	@(cd $(REPO) ; \
-	cp -f $(EG_SRCDIR)/*.h $(EG_SRCDIR)/example.c . ; \
-	mkdir methods ; \
-	cp -f $(EG_SRCDIR)/methods/gauss.c methods ; \
-	cp -f $(EG_SRCDIR)/methods/iterate.c methods ; \
-	find . \( -name '*.h' -o -name '*.c' \) -exec git add {} \; ; \
-	git commit -m baseline ; git tag baseline )
+	@echo "Step 1: Put the example repo back at its baseline revision"
+	@echo "  (this testcase modifies the sources below and commits them as"
+	@echo "  'current', and the repo is built once and shared - so start by"
+	@echo "  undoing that.  There is nothing to undo the first time.)"
+# 'git restore' unconditionally, rather than asking what state the repo is in:
+#   it does nothing when there is nothing to do, which is the usual case.
+	@(cd $(REPO) ;                                            \
+	git restore --source=baseline --staged --worktree -- . ;  \
+	git tag -d current > /dev/null 2>&1 ;                     \
+	git reset -q --soft baseline ;                            \
+	find . \( -name '*.gcda' -o -name '*.gcno' \) -delete )
 	@echo "Build example and run some tests"
 	(cd $(REPO) ; \
 	$(CC) -o example $(CFLAGS) $(C99) -I. example.c methods/gauss.c methods/iterate.c ; \
@@ -408,6 +483,91 @@ example_html2lcov:
           -- current.info )
 
 	@echo "point your browser to `realpath $(HTML_example_dir)`/review2/index.html"
+
+
+# The same 'compile, run the tests, capture, report' flow as the examples above,
+#   for a Java program:  the coverage data is collected by the JaCoCo agent in
+#   the JVM rather than written by instrumented code, and 'jacoco2lcov'
+#   translates what JaCoCo collected into an LCOV .info file which is no
+#   different from the ones captured from gcov data above.
+#
+# The report uses the same annotate and version callbacks as the
+#   'example_differential' example - so the source is checked into a repo.
+#   There is no second revision and no diff, so this is not a differential
+#   report - just a vanilla, annotated report with version checking.
+#
+# See man jacoco2lcov(1) details, and the 'JaCoCo conversion notes'
+#   section of man xml2lcov(1) for what JaCoCo data does and does not tell us.
+#
+# The repo is a prerequisite only when there is something to run:  a machine with
+#   no Java on it has no reason to build a repo for a testcase which is about to
+#   say that it is skipping itself.
+ifeq ($(JAVA_AVAIL),yes)
+example_java: $(REPO_STAMP)
+endif
+example_java:
+	@echo
+	@echo '*'
+	@echo '* Test case 6: Java coverage example (JaCoCo)'
+	@echo '*'
+	@echo
+ifneq ($(JAVA_AVAIL),yes)
+	@echo "Skipping the Java example:"
+	@echo
+	@$(JAVA_AVAIL_SCRIPT) || true
+	@echo
+	@echo "  This example needs a JDK and a JaCoCo installation.  Put them where"
+	@echo "  '$(JAVA_AVAIL_SCRIPT)' can find them"
+	@echo "  and run 'make example_java' again;  running that script by itself"
+	@echo "  says whether they are there yet."
+else
+	@echo "Step 1: Compile and run the test"
+	@echo "  (the source is already in the example repo, which is built once"
+	@echo "  for whichever testcase needs it first)"
+	@echo "  ('javac -g': JaCoCo reads the line number table which that"
+	@echo "  writes - without it, there are no line numbers to report)"
+# 'git restore' unconditionally - it does nothing when there is nothing to do -
+#   because the report step below verifies the annotations and the version
+#   against the file on disk, and would report a local edit left behind by
+#   something else as an error rather than quietly using it.
+# The old .exec file has to go:  the JaCoCo agent appends to the file it is
+#   given, so a second run in a directory which was not cleaned would otherwise
+#   report the counts of both runs.  The class files go with it, so that 'bin'
+#   holds what this source compiled to and nothing else.
+	(cd $(REPO) ;                                             \
+	git restore -- src/hello/HelloWorld.java ;                \
+	$(RM) -rf bin hello.exec ;                                \
+	$(JAVAC) -g -d bin src/hello/HelloWorld.java ;            \
+	$(JAVA) -javaagent:$(JACOCO_AGENT)=destfile=hello.exec    \
+	  -cp bin hello.HelloWorld )
+
+	@echo "Step 2: Capture coverage"
+	@echo "  (jacoco2lcov runs 'jacococli report' to turn the .exec file into"
+	@echo "  JaCoCo XML, then xml2lcov to translate that into an .info file)"
+# '--version-script' is what puts VER: records in the .info file, and the report
+#   step below needs them:  it computes a version for the source it reads, and
+#   stops with a 'version' error when the data it is shown has nothing to compare
+#   against.  A JaCoCo report does not say which version of the source it
+#   describes - unlike a gcov capture, there is no version in the data to carry
+#   through - so jacoco2lcov computes it from the source with this callback.
+	(cd $(REPO) ;                                             \
+	$(JACOCO2LCOV) -o hello.info -s src -c bin                \
+	  --test-name helloworld                                  \
+	  --version-script $(SCRIPTDIR)/gitversion.pm hello.exec )
+
+	@echo "Step 3: Generate the coverage report"
+	@echo "      - annotate the source with author and date data from git"
+	@echo "      - verify the revision control data against local edits"
+	@echo "      - check the source against the version it was captured from"
+	(cd $(REPO) ;                                                     \
+	$(JAVA_GENHTML) -o jacoco_report --show-owners                    \
+	  --title "Java coverage example (JaCoCo)"                        \
+	  --annotate $(SCRIPTDIR)/gitblame.pm,--cache,./my_cache,--verify \
+	  --version-script $(SCRIPTDIR)/gitversion.pm --profile           \
+	  -- hello.info )
+
+	@echo "point your browser to `realpath $(REPO)`/jacoco_report/index.html"
+endif
 
 
 clean:

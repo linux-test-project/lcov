@@ -44,6 +44,15 @@ You will need to make a few changes if you want to use LLVM instead.
     building an executable and then updating a few source files, rebuilding,
     and running some tests.
 
+    There is one repo, ``exampleRepo``, and both this example and the
+    **Java coverage with JaCoCo** example below use it - the way a project
+    written in more than one language keeps one repo rather than one per
+    language.  It is built by whichever of those examples runs first, with the
+    sources of both of them checked in as its ``baseline`` revision, and is
+    removed by ``make clean``.  This example modifies some of those sources and
+    commits them as a second revision, so it starts by putting the repo back at
+    ``baseline`` - which does nothing at all the first time it is run.
+
 - Code review:
 
   - point your browser to ``exampleRepo/review/index.html``
@@ -82,6 +91,44 @@ You will need to make a few changes if you want to use LLVM instead.
   - see ``make example_html2lcov`` and/or point your browser to
     ``repo2/differential2/index.html`` and ``repo2/review/index.html``
     to see reports generated using this data.
+
+- Java coverage with JaCoCo:
+
+  - point your browser to ``exampleRepo/jacoco_report/index.html``
+
+  - ``make example_java`` compiles ``HelloWorld.java`` with debug information,
+    runs it with the JaCoCo agent attached, translates the data JaCoCo
+    collected with the ``jacoco2lcov`` tool, and generates a report using the
+    same author/date and version callbacks as the **Differential coverage**
+    example above.  The source is checked in for the same reason: that is where
+    the callbacks read the annotations and versions from.  It is checked into
+    the same ``exampleRepo`` as the C sources of that example - see there.
+
+  - JaCoCo reports line, branch and function (method) coverage.  There is no
+    MC/DC data in a JaCoCo report.
+
+  - This example needs a JDK and a JaCoCo installation.
+    The ``./java_avail.sh`` script tries to find them - and complains if it
+    can't.
+
+    - ``java`` and ``javac`` have to be on ``PATH`` - or ``JAVA_HOME`` has to
+      name the JDK, and they are then used from ``$JAVA_HOME/bin``.
+      ``JAVA_HOME`` wins when both are true.  It has to be a JDK rather than a
+      JRE, because the example compiles its own source.
+
+    - ``JACOCO_HOME`` has to be set, and to name a directory with
+      ``jacocoagent.jar`` in it (either at the top level or under ``lib``, which
+      is where a JaCoCo release puts it).
+
+    The Makefile runs ``java_avail.sh`` before running the java example -
+    and skips the example if something is missing.
+    ``make`` still runs to completion on a machine which has no Java.
+
+    How java and JaCoCo come to be in your environment is up to you - they
+    may be installed on the system, unpacked anywhere and named with
+    ``JAVA_HOME`` and ``JACOCO_HOME``, or provided by whatever environment or
+    package manager your site uses.  The example only checks whether
+    they exist - then uses them if they do.
 
 Feel free to edit the Makefile or to run the lcov utilities directly,
 to see the effect of other options that you find in the lcov man pages.

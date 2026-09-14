@@ -8,14 +8,14 @@ endif
 PER_TEST_COVERAGE =
 endif
 
-.PHONY: excel info report
+.PHONY: excel info report html
 
 all: check report
 
 include common.mak
 
 TESTS := genhtml genpng scripts lcov html2lcov llvm2lcov py2lcov perl2lcov \
-	 xml2lcov
+	 xml2lcov jacoco2lcov winpath
 
 # there may or may not be some .info files generated for exported
 #  tools - py2lcov, perl2lcov, etc.  We want them included in the
@@ -141,7 +141,7 @@ info:
 	fi ;                                                         \
 	exit $$rc
 
-report: excel info
+html:
 	$(CHECK_RC)                                                  \
 	if [ "x$(COVERAGE)" != 'x' ] ; then                          \
 	  INFO="perlcov.info pycov.info" ;                           \
@@ -164,6 +164,8 @@ report: excel info
 	  echo "Wrote HTML report to ${HTML_RPT}" ;                  \
 	fi ;                                                         \
 	exit $$rc
+
+report: excel info html
 
 clean: clean_echo clean_subdirs
 	rm -f *.info *.log *.counts *.gcov test.log test.time report.xlsx \
