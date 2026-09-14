@@ -47,8 +47,37 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Enforce "make checkstyle"
+        id: check
         run: |-
           set -x
           perltidy --version | grep -o 'v2.*'
 
           MODE=full make checkstyle
+
+      # the check above only reports:  on failure, let perltidy rewrite the
+      #   offending files and hand back the corrected files (plus a patch)
+      - name: Apply checkstyle fixes
+        id: fix
+        if: ${{ failure() && steps.check.outcome == 'failure' }}
+        run: |-
+          set -x -o pipefail
+          # exit status is nonzero whenever a file was updated
+          MODE=full make checkstyle UPDATE=1 || true
+          # the updated files are moved in from *.tdy:  ignore mode changes
+          git config core.fileMode false
+          if git diff --quiet ; then
+            exit 0
+          fi
+          mkdir "${RUNNER_TEMP}/checkstyle-fixes"
+          git diff > "${RUNNER_TEMP}/checkstyle-fixes/checkstyle.patch"
+          git diff --name-only -z \
+            | xargs -0 cp --parents -t "${RUNNER_TEMP}/checkstyle-fixes"
+          echo 'changed=true' >> "${GITHUB_OUTPUT}"
+
+      - name: Upload checkstyle fixes as an artifact
+        if: ${{ failure() && steps.fix.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: "lcov-${{ github.sha }}-checkstyle-fixes"  # .zip
+          path: ${{ runner.temp }}/checkstyle-fixes
+          if-no-files-found: error

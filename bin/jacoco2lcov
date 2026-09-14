@@ -1,0 +1,722 @@
+#!/usr/bin/env perl
+
+#   Copyright (c) MediaTek USA Inc., 2026
+#
+#   This program is free software;  you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or (at
+#   your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY;  without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, see
+#   <http://www.gnu.org/licenses/>.
+#
+#
+# jacoco2lcov [--output mydata.info] [options] execfile+
+#
+#   This script translates the execution data which JaCoCo collected while
+#   your Java tests ran into LCOV .info format.  It does not translate the
+#   data itself:  it runs the two commands you would otherwise run by hand -
+#
+#     java -jar jacococli.jar report ... --xml tmp.xml
+#         to turn the .exec files into a JaCoCo XML report, and
+#
+#     xml2lcov ... tmp.xml
+#         to translate that report to LCOV .info format
+#
+#   - and then reads what xml2lcov wrote back in, so that the common LCOV
+#   options which xml2lcov does not implement itself - filtering, exclusions,
+#   source lookup and the rest - are applied to it here before it is written
+#   out again.
+#
+#   Both of the steps remain available on their own:  use them directly if you
+#   need something this wrapper does not pass along.
+#
+# See 'jacoco2lcov --help' for more usage information.
+#
+# See https://www.jacoco.org/jacoco/trunk/doc for directions on how to use
+# JaCoCo to collect Java coverage data.
+
+use strict;
+use warnings;
+use Cwd qw(getcwd);
+use File::Find qw(find);
+use File::Spec;
+use FindBin;
+
+# Two names for the lib directory:  FindBin cannot make sense of the Windows
+#   path name a git-bash, MSYS or Cygwin perl is handed in $0, and the name
+#   which such a perl can open does not survive FindBin - so offer both, and
+#   let 'require' use whichever one is there.  See 'posix_path' in lcovutil.pm.
+use lib "$FindBin::RealBin/../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../lib' };
+# 'posix_path' is the translation of a Windows path name into one this perl
+#   handles, and '$tool_dir' is the directory this script was found, resolved
+#   the same way.  This is where tools that jacoco2lcov executes (e.g.,
+#   'xml2lcv') are found.  (We want to use tools from the same release as me
+#   as we think those are tested together, and likely work properly.)
+use lcovutil qw($tool_name $tool_dir posix_path posix_paths);
+
+$SIG{__WARN__} = \&lcovutil::warn_handler;
+$SIG{__DIE__}  = \&lcovutil::die_handler;
+
+# The subdirectories of an Eclipse/Maven plugin directory which hold its
+#   sources and its class files.  These are the locations which the Java
+#   jacoco2lcov tool looks in for its own '-p' argument, and for the same
+#   reason:  they are where the Maven and Eclipse conventions put them.
+#   A plugin which keeps them somewhere else has to be named with '-s'/'-c'.
+our @plugin_source_subdirs =
+    ('src', 'src/java', 'src/main/java', 'src/test/java');
+our @plugin_class_subdirs = ('bin', 'classes', 'target/classes');
+
+# '-x' doesn't work on windows: windows determines executable or not
+# from the file extension, and extension-less 'jacoco2lcov' always fails -
+# see perlport,
+#   The environment variable is a test hook, unused in production.
+our $exec_test_works = exists($ENV{LCOV_ASSUME_WINDOWS}) ? 0 : $^O !~ /Win/;
+
+sub print_usage
+{
+    local *HANDLE = $_[0];
+
+    print(HANDLE <<END_OF_USAGE);
+Usage: $tool_name [OPTIONS] EXECFILE(S)
+
+Translate the Java coverage data which JaCoCo wrote to one or more .exec
+execution data files into LCOV .info format.
+
+EXECFILE is a Java execution data file, or a directory which is
+searched for '.exec' files below it.
+
+$tool_name does not translate the data itself.  It runs, in order:
+
+  - 'java -jar jacococli.jar report' to produce a JaCoCo XML report, and
+  - 'xml2lcov' to translate that report to LCOV .info format,
+
+and then reads what xml2lcov wrote back in, applies the common options
+described below to it, and writes the result to the output file.
+
+The intermediate files are temporary and are removed when $tool_name
+finishes;  use '--xml' to retain the XML report.
+
+Tool options:
+
+Each of these options is marked optional or required below, and the default of
+each is given.  Only the .exec files is required unconditionally:  the
+rest of what $tool_name has to know it can get from the environment or from
+the layout of the directory where it runs.
+
+  -o, --output FILENAME
+      Optional.  The lcov data will be written to the specified file.
+      Default: 'jacoco2lcov.info' in the current directory.
+
+  -t, --test-name NAME
+      Optional.  Coverage info will be associated with the testcase name
+      provided.  Default: no name - the 'TN:' entry of the result is empty.
+
+  -d, --root-directory DIRECTORY
+      Optional.  The work directory.  Every relative path on the command
+      line is taken relative to it, and so are the file names written to the
+      result:  an absolute path below it is recorded relative to it, and one
+      outside it is left as it is.
+      Default: the directory $tool_name was run in.
+
+  -c, --classpath PATH
+      A directory or .jar file containing the class files whose coverage
+      JaCoCo recorded.  JaCoCo reads the coverage counts out of the class
+      files, so it cannot write a report without them.
+      Required, unless '-p' names them or the default search below finds them.
+      May be specified multiple times.
+      Default: none.
+
+  -s, --source-directory DIRECTORY
+      A root directory of your Java sources - that is, one of the directories
+      you would pass to javac, such that the name of a package, used as a
+      directory path, names the directory holding that package\'s sources.
+      Required, unless '-p' names them or the default search below finds them.
+      May be specified multiple times.
+      Default: none.
+
+  -p, --plugin-directory DIRECTORY
+      Optional.  The root of an Eclipse/Maven plugin, or the parent directory
+      of several of them, to be searched for source and class directories in
+      the usual places (src, src/java, src/main/java, src/test/java and bin,
+      classes, target/classes).  This is a shorthand for the '-s' and '-c'
+      options which such a directory implies.
+      May be specified multiple times.
+
+      Default: with none of '-s', '-c' and '-p' given, the current directory
+      is searched as '-p .' would search it, which finds the source and class
+      directories of a project laid out either of those ways - and of a
+      directory holding several such projects.
+      $tool_name notifies in this case, and stops if nothing is found:
+      a layout it does not recognize, or classes in some nonstandard location.
+      In those cases: you will have to tell the tool where to look.
+
+      --jar JACOCOCLI
+      Optional if the environment names the jar, required if it does not.
+      Path to the JaCoCo command line jar, jacococli.jar.
+      Default: the jar named by the JACOCOCLI_JAR environment variable, else
+      the one found under the directory named by the JACOCO_HOME environment
+      variable.
+
+      --java JAVA
+      Optional.  The java executable used to run the JaCoCo command line jar.
+      Default: \$JAVA_HOME/bin/java if that is an executable, else 'java',
+      found on your PATH.
+
+      --xml FILENAME
+      Optional.  Write the intermediate JaCoCo XML report to the named file
+      and keep it.  Default: a temporary file, removed when $tool_name exits.
+
+      --xml2lcov PATH
+      Optional.  The xml2lcov executable to use.  Default: the one installed
+      next to $tool_name.  On Windows, a wrapper which Windows can run - an
+      xml2lcov.bat, say - is preferred to the extensionless script beside it.
+
+  -v, --verbose
+      Optional.  Print each command before it is run.  Default: off - only
+      warnings, errors and notices are printed.
+
+  -k, --keep-going
+      Optional.  Ignore errors and continue processing.  Default: off - stop
+      at the first error.
+
+  -h, --help
+      Print this message and exit.
+
+Common options:
+
+$tool_name supports the options which the rest of the LCOV suite supports -
+'--exclude', '--include', '--filter', '--substitute', '--omit-lines',
+'--erase-functions', '--ignore-errors', '--comment', '--version-script' and
+the others - and applies them to the translated data itself.  See man lcov(1)
+for what each of them does.  For example:
+
+  \$ $tool_name -o mydata.info -s src -c bin --exclude='*/test/*' \\
+        --filter branch mytest.exec
+
+Every argument which is not an option is taken to name a .exec file.
+
+Note that branch and function coverage are enabled by default.
+Use the standard command line and config file options to change this.
+
+Note also that JaCoCo counts instructions rather than executions - so
+LCOV might think that the translated data is inconsistent.
+See the 'JaCoCo conversion notes' section of man xml2lcov(1).  If the run
+fails due to inconsistency, either exclude the offending code or add
+'--ignore-errors inconsistent' to your command line.
+
+For example:
+
+    # run your tests with the JaCoCo agent attached, to collect coverage
+  \$ java -javaagent:jacocoagent.jar=destfile=test1.exec -cp bin MyTest1
+  \$ java -javaagent:jacocoagent.jar=destfile=test2.exec -cp bin MyTest2
+    # translate all of the execution data in one step.  Hand all of your
+    #   .exec files to one $tool_name run rather than translating each of
+    #   them and merging the results - see 'Merging JaCoCo data' in
+    #   man xml2lcov(1)
+  \$ $tool_name -o mydata.info -s src -c bin test1.exec test2.exec
+    # and generate a genhtml-format coverage report
+  \$ genhtml -o html_report mydata.info
+
+END_OF_USAGE
+}
+
+sub info
+{
+    # Print $message when the run asked for at least verbosity $level.
+    #   'lcovutil::info' does this too, but it hands the message to printf, and
+    #   a command line or a path name is not a format string.
+    my ($level, $message) = @_;
+    print(STDOUT $message) if $lcovutil::verbose >= $level;
+}
+
+sub warning
+{
+    print(STDERR "Warning: " . $_[0] . "\n");
+}
+
+sub fatal
+{
+    print(STDERR "Error: " . $_[0] . "\n");
+    exit(1);
+}
+
+sub usage_error
+{
+    print(STDERR "Error: " . $_[0] . "\n");
+    print(STDERR "Use '$tool_name --help' to get usage information.\n");
+    exit(1);
+}
+
+sub existing_subdirs
+{
+    # Those of @$subdirs which name a directory below $dir.
+    my ($dir, $subdirs) = @_;
+    return grep({ -d $_ } map({ "$dir/$_" } @$subdirs));
+}
+
+sub plugin_source_dirs
+{
+    # The source roots of the plugin directory $_[0].  'src' is a source root
+    #   in the Eclipse layout, but in the Maven layout it is the parent of one
+    #   and holds no packages itself, so it counts only when there is nothing
+    #   deeper below it:  naming both would leave the search path with an entry
+    #   which cannot match any source file.  It is the first of the candidates
+    #   and the only one which can contain another.
+    my @dirs = existing_subdirs($_[0], \@plugin_source_subdirs);
+    shift(@dirs) if scalar(@dirs) > 1;
+    return @dirs;
+}
+
+sub is_plugin_dir
+{
+    # A plugin directory is one which has sources in it:  a directory whose
+    #   children are plugins has none of its own.  This is how the Java
+    #   jacoco2lcov tool tells the two apart, so that '-p' can name either.
+    return 0 != scalar(plugin_source_dirs($_[0]));
+}
+
+sub plugin_dirs
+{
+    # The source and class directories of the plugin(s) rooted at $root, as
+    #   (\@sourceDirs, \@classDirs).  $root is either one plugin directory or
+    #   the parent of several.
+    my $root = shift;
+    my @plugins;
+    if (is_plugin_dir($root)) {
+        @plugins = ($root);
+    } else {
+        my @entries;
+        if (opendir(my $dh, $root)) {
+            @entries = sort(readdir($dh));
+            closedir($dh);
+        }
+        foreach my $entry (@entries) {
+            next if $entry eq '.' || $entry eq '..';
+            my $dir = "$root/$entry";
+            push(@plugins, $dir) if -d $dir && is_plugin_dir($dir);
+        }
+        if (!@plugins) {
+            warning(
+                "no Eclipse/Maven plugin with sources found in '$root': " .
+                    "name the source and class directories with '-s' and '-c'");
+            return ([], []);
+        }
+    }
+    my (@sources, @classes);
+    foreach my $plugin (@plugins) {
+        info(1, "plugin directory '$plugin'\n");
+        push(@sources, plugin_source_dirs($plugin));
+        my @c = existing_subdirs($plugin, \@plugin_class_subdirs);
+        warning("no class directory found in plugin directory '$plugin': " .
+                "name it with '-c'")
+            unless @c;
+        push(@classes, @c);
+    }
+    return (\@sources, \@classes);
+}
+
+sub root_relative
+{
+    # $path as it is to be recorded when $root is the root directory:  a
+    #   relative path is already relative to it. Absolute path below here
+    #   is rewritten as a relative path.
+    my ($path, $root) = @_;
+    return $path unless File::Spec->file_name_is_absolute($path);
+    my $relative = File::Spec->abs2rel($path, $root);
+    return $relative =~ m{^\.\.(?:/|$)} ? $path : $relative;
+}
+
+sub jacoco_data_files
+{
+    # The execution data files named by @_.
+    # An exec file or a directory containing exec files.
+    #   Sorted, so that what gets merged does not depend on the order
+    #   the file system lists the directory.
+    my @files;
+    foreach my $arg (@_) {
+        if (!-d $arg) {
+            push(@files, $arg);
+            next;
+        }
+        my @found;
+        find({
+              no_chdir => 1,
+              wanted   => sub { push(@found, $_) if -f $_ && /\.exec$/; }
+             },
+             $arg);
+        warning("no '.exec' file found under the JaCoCo data directory '$arg'")
+            unless @found;
+        push(@files, sort(@found));
+    }
+    return @files;
+}
+
+sub runnable_path
+{
+    # The path to run in order to run $path, or undef when there is nothing
+    #   here to run.  Ordinarily that is $path itself, if it is a file which -x
+    #   likes.
+    #
+    #   The rest of this is a hack because -x cannot answer the
+    #   question on Windows - see '$exec_test_works' above.  Refusing to run
+    #   what -x rejects would mean refusing to run at all there, so:
+    #
+    #   Look first for a sibling with one of the extensions which Windows does
+    #   consider runnable.  An installation which wrapped the script in an
+    #   'xml2lcov.bat' is the case which works properly, and the wrapper is
+    #   what wants running - so prefer it, and only when -x likes it, which on
+    #   Windows means only when the extension is one of those.
+    #
+    #   Failing that, take the file itself if it exists at all, on the grounds
+    #   that a file where the tool belongs, under the name the tool has, is the
+    #   tool.  If it turns out not to be runnable after all then running it
+    #   fails, and that failure says what happened - which is more than
+    #   refusing to start says, and it is the right error either way:  the
+    #   alternative here is to refuse every correctly installed LCOV tree.
+    my $path = shift;
+    return $path if -f $path && -x $path;
+    return undef if $exec_test_works;
+
+    # The extensions which make a file runnable on Windows: the usual
+    #   contents of PATHEXT - where the windows shell gets the same list.
+    # A wrapper written for Windows is a '.bat' or a '.cmd' - and we prefer
+    #   to run that rather than the extensionless script that it wraps.
+    my @windows_exec_extensions = ('.exe', '.bat', '.cmd', '.com');
+
+    foreach my $ext (@windows_exec_extensions) {
+        return "$path$ext" if -f "$path$ext" && -x "$path$ext";
+    }
+    return -f $path ? $path : undef;
+}
+
+sub find_tool
+{
+    # The executable to use for $name:  the user's choice, else the one
+    #   installed beside this script.  The tools which jacoco2lcov runs have to
+    #   be the ones which belong together, and the LCOV installation puts them
+    #   in one directory, so a sibling is a better default than whatever the
+    #   PATH happens to find first.  $option is the option which names the
+    #   executable.
+    my ($name, $explicit, $option) = @_;
+    my $path     = defined($explicit) ? $explicit : "$tool_dir/$name";
+    my $runnable = runnable_path($path);
+    fatal("'$path' is not an executable file: " .
+          "use '$option' to say where the $name executable is")
+        unless defined($runnable);
+    return $runnable;
+}
+
+sub find_jacococli
+{
+    # The jacococli.jar to run:  the user's choice, else the one the
+    #   environment names.  JACOCO_HOME is the variable which the JaCoCo
+    #   distribution and the MediaTek jacoco module both set.
+    my $explicit = shift;
+    if (defined($explicit)) {
+        fatal("'$explicit' is not a readable file")
+            unless -f $explicit && -r $explicit;
+        return $explicit;
+    }
+    if (defined($ENV{JACOCOCLI_JAR})) {
+        my $named = posix_path($ENV{JACOCOCLI_JAR});
+        fatal("JACOCOCLI_JAR names '$ENV{JACOCOCLI_JAR}', " .
+              "which is not a readable file")
+            unless -f $named && -r $named;
+        return $named;
+    }
+    if (defined($ENV{JACOCO_HOME})) {
+        my $home = posix_path($ENV{JACOCO_HOME});
+        foreach my $rel ('lib/jacococli.jar', 'jacococli.jar') {
+            my $jar = "$home/$rel";
+            return $jar if -f $jar && -r $jar;
+        }
+        fatal("no jacococli.jar found under the JACOCO_HOME directory " .
+              "'$ENV{JACOCO_HOME}': use '--jar' to say where it is");
+    }
+    usage_error("unable to find jacococli.jar: use '--jar' to say where it " .
+                "is, or set the JACOCO_HOME environment variable");
+}
+
+sub run_command
+{
+    # Run @cmd, without a shell, and say whether it worked.  $what names the
+    #   step for the error message, because a failing subcommand has usually
+    #   printed its own explanation and this only has to say who failed.
+    my ($what, @cmd) = @_;
+    info(1, join(' ', @cmd) . "\n");
+    my $rc = system(@cmd);
+    return 1 if $rc == 0;
+    my $why =
+        $rc == -1 ? "unable to execute '$cmd[0]': $!" :
+        ($rc & 127) ? sprintf("terminated by signal %d", $rc & 127) :
+        sprintf("returned exit status %d", $rc >> 8);
+    print(STDERR "Error: the $what step $why\n");
+    return 0;
+}
+
+# ----------------------------------------------------------------------------
+#   main
+# ----------------------------------------------------------------------------
+
+my $output_file = 'jacoco2lcov.info';
+my $testname;
+my (@classfiles, @plugindirs);
+my ($jacococli, $java, $xml_file, $xml2lcov, $root_directory);
+my $keep_going;
+
+# where this run was started, which is what the paths on the command line are
+#   relative to until '-d' says otherwise
+my $starting_directory = getcwd();
+
+sub set_root_directory
+{
+    # '-d': move to the root directory, now, while the options are still being
+    #   parsed.  It is done here rather than afterwards because 'parseOptions'
+    #   builds the source search path out of the source directories before it
+    #   returns, and a relative source directory has to name what it names from
+    #   the root directory by the time that happens - so the move has to have
+    #   happened first.  Nothing else in this script depends on when it happens:
+    #   the options are collected here and acted on below, whichever order they
+    #   were written in, and the paths which are not relative to the root
+    #   directory are made absolute against '$starting_directory' below.
+    my (undef, $value) = @_;
+    $root_directory = posix_path($value);
+    usage_error("root directory '$root_directory' is not a directory")
+        unless -d $root_directory;
+    #  named from where this run started, so that a second '-d' means the same
+    #   thing the only one would have
+    $root_directory = File::Spec->rel2abs($root_directory, $starting_directory);
+    chdir($root_directory) or
+        fatal("unable to work in root directory '$root_directory': $!");
+}
+
+# '-s' names the same directories the common '--source-directory' option names,
+#   so let both write the one list:  they hold the Java sources, which is both
+#   what JaCoCo has to read to quote them in its report and what this script has
+#   to read to filter on their contents.  The alias is what keeps the two
+#   spellings from being two options - the common one is in '%lcovutil::argCommon'
+#   and is not repeated here.
+our @sourcedirs;
+*sourcedirs = \@ReadCurrentSource::source_directories;
+
+our %options = ('output|o=s'             => \$output_file,
+                'test-name|testname|t=s' => \$testname,
+                'root-directory|d=s'     => \&set_root_directory,
+                'classpath|classfiles|class-directory|c=s' => \@classfiles,
+                'source-dir|sourcefiles|s=s'               => \@sourcedirs,
+                'plugin-directory|plugin-dir|p=s'          => \@plugindirs,
+                'jar=s'                                    => \$jacococli,
+                'java=s'                                   => \$java,
+                'xml=s'                                    => \$xml_file,
+                'xml2lcov=s'                               => \$xml2lcov,
+                # the short form of the common '--keep-going', which that
+                #   option does not have:  'lcov -k' is '--kernel-directory'
+                'k' => \$keep_going,);
+
+# JaCoCo data always holds branch and function coverage
+$lcovutil::br_coverage   = 1;
+$lcovutil::func_coverage = 1;
+lcovutil::save_cmd_line(\@ARGV, $tool_dir);
+
+if (!lcovutil::parseOptions({}, \%options, \$output_file)) {
+    print(STDERR "Use '$tool_name --help' to get usage information.\n");
+    exit(1);
+}
+$lcovutil::stop_on_error = 0 if $keep_going;
+# and the other way about, so that the common '--keep-going' - or an lcovrc
+#   which turns 'stop_on_error' off - reaches the xml2lcov step as well
+$keep_going =
+    defined($lcovutil::stop_on_error) && 0 == $lcovutil::stop_on_error;
+
+# '--version-script' has to mean "compute the version" here.  A JaCoCo report
+#   does not say which version of the source it describes - unlike a gcov
+#   capture, there is no version in the data to carry through - so the only
+#   version there can be is the one the callback computes from the source as the
+#   translated data is read back in below, and 'compute_file_version' is what
+#   asks for that.  Requiring the caller to name both would make the flag do
+#   nothing by itself:  it would silently write no VER: records, and the report
+#   step would then stop with a 'version' error, having computed a version for
+#   the source it read and having nothing in the data to compare it against.
+#   Only an unset value is defaulted, so '--rc compute_file_version=0' still
+#   turns it off.  This is after 'parseOptions' because that is where the
+#   version script arrives, and because setting it before would trip the usage
+#   warning about the option having no effect without one.
+$lcovutil::compute_file_version = 1
+    if @lcovutil::extractVersionScript &&
+    !defined($lcovutil::compute_file_version);
+
+# Every path this script uses arrived above, and any of them can be written the
+#   Windows way when the caller is a Windows one - see 'posix_path' in
+#   lcovutil.pm.  Translate them all in one place, before anything looks at a
+#   file:  what is passed to the commands this script runs is the translated
+#   name too, which is the name they can use for the same reason this script
+#   can.  Every argument which is not an option names execution data.
+my @exec_files = @ARGV;
+posix_paths(\$output_file, \$jacococli, \$java,
+            \$xml_file, \$xml2lcov, \@exec_files,
+            \@sourcedirs, \@classfiles, \@plugindirs);
+
+# and the rest of what '-d' means, once every name has been translated:  a
+#   relative path names something below the root directory, because that is
+#   where this process now is - but a tool named by a relative path with a
+#   directory in it was named from where the run started, so pin those down
+#   here.  A tool named without a directory is a PATH lookup, which means the
+#   same thing from either place and is left alone
+if (defined($root_directory)) {
+    info(1, "working in root directory '$root_directory'\n");
+    foreach my $tool (\$jacococli, \$java, \$xml2lcov) {
+        $$tool = File::Spec->rel2abs($$tool, $starting_directory)
+            if defined($$tool) && $$tool =~ m|/|;
+    }
+    foreach my $list (\@exec_files, \@sourcedirs, \@classfiles, \@plugindirs) {
+        @$list = map({ root_relative($_, $root_directory) } @$list);
+    }
+}
+
+my @data_files = jacoco_data_files(@exec_files);
+
+if (!@data_files) {
+    print(STDERR "Error: no JaCoCo execution data file named.\n\n");
+    print_usage(*STDERR);
+    exit(1);
+}
+
+foreach my $exec (@data_files) {
+    usage_error("'$exec' is not a readable file")
+        unless -f $exec && -r $exec;
+}
+
+foreach my $root (@plugindirs) {
+    usage_error("'$root' is not a directory") unless -d $root;
+    my ($sources, $classes) = plugin_dirs($root);
+    push(@sourcedirs, @$sources);
+    push(@classfiles, @$classes);
+}
+
+# With none of '-c', '-s' and '-p' named, the current directory is the thing to
+#   have meant:  a JaCoCo run is usually made from the root of the tree it
+#   covers, and that root is where the conventional directories are.  So look at
+#   it the way '-p .' would, which finds the source and class directories of a
+#   project laid out the Eclipse or the Maven way, and of a directory holding
+#   several such projects.  Say what was found, because it decides what gets
+#   measured and nothing on the command line records the decision.  The './'
+#   prefix comes off the names, which would otherwise be in front of every
+#   source file name in the result.
+if (!@classfiles && !@sourcedirs && !@plugindirs) {
+    info(0,
+         "no '-s', '-c' or '-p' option: looking for source and class " .
+             "directories in the current directory, as '-p .' would\n");
+    my ($sources, $classes) = plugin_dirs('.');
+    foreach my $dir (@$sources) {
+        $dir =~ s|^\./||;
+        push(@sourcedirs, $dir);
+    }
+    foreach my $dir (@$classes) {
+        $dir =~ s|^\./||;
+        push(@classfiles, $dir);
+    }
+}
+
+usage_error("no class files named: use '-c' (or '-p') to say where the " .
+            "class files whose coverage JaCoCo recorded are")
+    unless @classfiles;
+usage_error("no source directory named: use '-s' (or '-p') to say where " .
+            "your Java sources are")
+    unless @sourcedirs;
+
+# A class location which is not there is a warning:  a build tree can
+#   legitimately be missing one of several, and JaCoCo says nothing about the
+#   ones it was handed and did not find.  There is no such loop for the source
+#   directories:  they are the common '--source-directory' option, and a name
+#   which is not a directory is that option's own 'path' error - raised by the
+#   search path built below, and by the one 'parseOptions' has built already.
+foreach my $path (@classfiles) {
+    warning("class location '$path' does not exist") unless -e $path;
+}
+
+# The source directories are where a source file is looked for when the
+#   translated data is read back in, and they are not what they were when
+#   'parseOptions' built the search path out of them:  '-p' has added to them,
+#   '-d' has made them relative to the root directory, and the Windows names
+#   among them have been translated.  So build it again from what they are now.
+$ReadCurrentSource::searchPath =
+    SearchPath->new('source directory', @sourcedirs);
+
+$jacococli = find_jacococli($jacococli);
+if (!defined($java)) {
+    $java = 'java';
+    if (defined($ENV{JAVA_HOME})) {
+        my $j = posix_path("$ENV{JAVA_HOME}/bin/java");
+        $java = $j if -f $j && -x $j;
+    }
+}
+$xml2lcov = find_tool('xml2lcov', $xml2lcov, '--xml2lcov');
+
+# Both intermediate files live here, unless the XML report is being kept.  This
+#   is the same temporary directory the rest of the LCOV suite uses, so
+#   '--tempdir' says where it goes and '--preserve' keeps it and everything in
+#   it;  otherwise it goes away when this process does.
+my $tempdir = lcovutil::create_temp_dir();
+$xml_file = "$tempdir/jacoco.xml" unless defined($xml_file);
+my $info_file = "$tempdir/jacoco2lcov.info";
+
+my @report_cmd = ($java, '-jar', $jacococli, 'report', @data_files);
+push(@report_cmd, '--classfiles', $_)  foreach (@classfiles);
+push(@report_cmd, '--sourcefiles', $_) foreach (@sourcedirs);
+push(@report_cmd, '--xml', $xml_file);
+exit(1) unless run_command('JaCoCo XML report', @report_cmd);
+
+my @translate_cmd = ($xml2lcov, '--format', 'jacoco', '-o', $info_file);
+push(@translate_cmd, '--test-name', $testname) if defined($testname);
+push(@translate_cmd, '-s', $_) foreach (@sourcedirs);
+push(@translate_cmd, '-v') foreach (1 .. $lcovutil::verbose);
+push(@translate_cmd, '--keep-going') if $keep_going;
+push(@translate_cmd, $xml_file);
+exit(1) unless run_command('xml2lcov translation', @translate_cmd);
+
+# What xml2lcov wrote is the translation, and reading it back in here is what
+#   applies the rest to it:  the filters, the exclusions, the substitutions, the
+#   version and criteria callbacks - everything the common options ask for,
+#   applied by the same code which applies them to a .info file from any other
+#   source.
+my $info = eval {
+    TraceFile->load($info_file, ReadCurrentSource->new(),
+                    $lcovutil::verify_checksum);
+};
+if (!defined($info)) {
+    #  the message is the load's own - the only way out of the eval above
+    #   without a result is a die, so it is there to print - and this only has
+    #   to add the reason a JaCoCo translation is the data most likely to
+    #   produce it
+    print(STDERR $@);
+    print(STDERR
+          "Error: if the failure above is an 'inconsistent' error, then " .
+          "see the\n" .
+          "  'JaCoCo conversion notes' section of man xml2lcov(1) for " .
+          "why the derived\n" .
+          "  data looks that way, and use '--ignore-errors=inconsistent' " .
+          "to accept it.\n");
+    exit(1);
+}
+
+$info->add_comments(@lcovutil::comments);
+$info->write_info_file($output_file, $lcovutil::verify_checksum);
+info(1, "Wrote LCOV data to '$output_file'\n");
+
+$info->checkCoverageCriteria();
+CoverageCriteria::summarize();
+my $exit_code = 0 != $CoverageCriteria::coverageCriteriaStatus;
+
+lcovutil::warn_file_patterns();
+lcovutil::summarize_cov_filters();
+lcovutil::summarize_messages(1);    # silent if no messages
+
+exit($exit_code);

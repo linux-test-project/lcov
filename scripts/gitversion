@@ -37,7 +37,9 @@
 use strict;
 use Getopt::Long;
 use FindBin;
-use lib "$FindBin::RealBin";
+# see comment in jacoco2lcov
+use lib "$FindBin::RealBin",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '.' };
 use gitversion qw(new usage);
 
 my $class = gitversion->new($0, @ARGV);

@@ -147,6 +147,7 @@ if [ 'x' == "x$GENHTML_TOOL" ] ; then
     PERL2LCOV_TOOL=${LCOV_HOME}/bin/perl2lcov
     PY2LCOV_TOOL=${LCOV_HOME}/bin/py2lcov
     XML2LCOV_TOOL=${LCOV_HOME}/bin/xml2lcov
+    JACOCO2LCOV_TOOL=${LCOV_HOME}/bin/jacoco2lcov
     HTML2LCOV_TOOL=${LCOV_HOME}/bin/html2lcov
 fi
 

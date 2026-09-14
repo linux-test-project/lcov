@@ -73,7 +73,9 @@ use FindBin;
 use Storable;
 use Time::HiRes;    # for profiling
 
-use lib "$FindBin::RealBin/../lib";
+# Windows path handling: see comment in jacoco2lcov
+use lib "$FindBin::RealBin/../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../lib' };
 use lcovutil qw ($tool_name $tool_dir $lcov_version $lcov_url
                  define_errors parse_ignore_errors ignorable_error
                  info set_info_callback init_verbose_flag $verbose
@@ -184,7 +186,7 @@ $SIG{__DIE__}  = \&lcovutil::die_handler;
 $SIG{'INT'}    = \&lcovutil::abort_handler;
 $SIG{'QUIT'}   = \&lcovutil::abort_handler;
 
-lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
+lcovutil::save_cmd_line(\@ARGV, $lcovutil::tool_dir);
 
 our @cmdArgs = @ARGV;
 
@@ -238,6 +240,11 @@ if (!lcovutil::parseOptions(\%mergedRcOpts, \%lcov_options, \$output_filename))
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
+
+# translate windows paths, if necessary
+lcovutil::posix_paths(\$base_directory, \@gcov_tool, \$to_package,
+                      \$from_package, \$lcovutil::lcov_extract,
+                      \$lcovutil::lcov_remove);
 
 if (defined($no_compat_libtool)) {
     $compat_libtool    = $no_compat_libtool ? 0 : 1;
@@ -623,7 +630,9 @@ sub userspace_reset()
 {
     my @file_list;
 
-    foreach my $pattern (@ARGV) {
+    foreach my $arg (@ARGV) {
+        # translate windows paths
+        my $pattern = lcovutil::posix_path($arg);
         my @dirs;
         if (-d $pattern) {
             push(@dirs, $pattern);
@@ -688,7 +697,8 @@ sub userspace_capture()
     }
     die("exactly one directory argument required with --to-package\n")
         if (scalar(@ARGV) != 1);
-    $dir = $ARGV[0];
+    # windows path.
+    $dir = lcovutil::posix_path($ARGV[0]);
     if (defined($base_directory)) {
         $build = $base_directory;
     } else {

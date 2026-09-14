@@ -40,11 +40,16 @@
 use strict;
 use FindBin;
 use Getopt::Long;
-use lib "$FindBin::RealBin";
+# Windows path handling - see comment in jacoco2lcov
+use lib "$FindBin::RealBin",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '.' };
 use criteria qw(new);
 
-use lib "$FindBin::RealBin/../lib";
-use lib "$FindBin::RealBin/../../../lib";    # path from 'support-scripts'
+use lib "$FindBin::RealBin/../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../lib' };
+# path from 'support-scripts'
+use lib "$FindBin::RealBin/../../../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../../../lib' };
 
 use lcovutil;
 

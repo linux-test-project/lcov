@@ -45,14 +45,12 @@ my $cxx = $ENV{LCOV_CXX} || $ENV{CXX} || 'g++';
 {
     my $lib_dir = File::Spec->catdir($FindBin::Bin, File::Spec->updir());
     local @INC = ($lib_dir, @INC);
-    # lcovutil.pm computes $VERSION by running "$tool_dir"/get_version.sh, where
-    # $tool_dir is $FindBin::RealBin -- which is this directory when it is loaded
-    # from here rather than from a tool in bin/.  Point it at the real bin/ so
-    # the backtick finds the script instead of printing a spurious
-    # 'get_version.sh: No such file or directory' on every Makefile.PL run.  We
-    # only want the error ids, but a bare require is enough to trigger it.
-    local $FindBin::RealBin = File::Spec->catdir($FindBin::Bin, File::Spec->updir(),
-                                                File::Spec->updir(), 'bin');
+    # We only want the error ids, but loading lcovutil.pm also computes its
+    # $VERSION by running get_version.sh, which it looks for beside the tool
+    # that loaded it -- this directory, not bin/, when the loader is this
+    # Makefile.PL.  lcovutil.pm falls back to looking beside its own source
+    # file for exactly that case, so the require below no longer needs to
+    # arrange for the script to be found.
     my %error_id;
     my $ok = eval {
         require lcovutil;

@@ -36,7 +36,9 @@ use Getopt::Long;
 use Cwd qw/abs_path/;
 use FindBin;
 
-use lib "$FindBin::RealBin/../lib";
+# Windows path handling - see comment in jacoco2lcov
+use lib "$FindBin::RealBin/../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../lib' };
 use lcovutil qw (%tlaColor %tlaTextColor
                  $tool_name $tool_dir $lcov_version $lcov_url
                  die_handler warn_handler);
@@ -90,7 +92,9 @@ if (!caller) {
         exit(1);
     }
 
-    $filename = $ARGV[0];
+    # translate windows paths, if necessary
+    lcovutil::posix_paths(\$out_filename);
+    $filename = lcovutil::posix_path($ARGV[0]);
 
     # Check for help flag
     if ($help) {

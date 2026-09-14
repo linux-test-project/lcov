@@ -16,7 +16,6 @@ use Storable qw(dclone);
 use Capture::Tiny;
 use Module::Load::Conditional qw(check_install);
 use Digest::MD5 qw(md5_base64);
-use FindBin;
 use Getopt::Long;
 use DateTime;
 use Config;
@@ -99,6 +98,7 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      $default_precision check_precision
 
      system_no_output $devnull $dirseparator $dirseparator_re
+     posix_path posix_paths @drive_mounts $translate_windows_names
 
      %tlaColor %tlaTextColor use_vanilla_color %pngChar %pngMap
      %dark_palette %normal_palette parse_w3cdtf
@@ -113,27 +113,143 @@ our $message_filename;
 our $suppressAfter = 100;    # stop warning after this number of messages
 our %ERROR_ID;
 our %ERROR_NAME;
-our $tool_dir  = "$FindBin::RealBin";
-our $tool_name = basename($0);          # import from lcovutil module
+# Windows path names, handed to a perl whose path syntax is Unix's:  a
+#   git-bash, MSYS or Cygwin perl reports $^O as 'msys' or 'cygwin' and
+#   doesn't handle drive letters - so thinks 'Z:\dir\file' is not a path name.
+#   File::Spec does not see it as absolute, and everything built on that -
+#   abs_path(), FindBin, rel2abs() - puts the current directory in front of it
+#   and names something which does not exist, while basename() and dirname()
+#   split on '/' only and hand back the whole string.
+#   The name does arrive via $0 from a windows caller, or from an option or
+#   env var set to a windows-style path
+# The drives are mounted in those installations, so there is a name for the
+#   same file which this perl does understand:  Z: is /z under MSYS and
+#   git-bash and /cygdrive/z under Cygwin, each of them configurable in the
+#   installation's own fstab - so look for the mount point and rewrite the name.
+# The environment variable is a test hook:  it names one more directory to look
+#   for the drives in, and turns the translation on, so that every line below
+#   can be exercised from any platform.  It is not used in production.
+our @drive_mounts = ('', '/cygdrive');
+unshift(@drive_mounts, $ENV{LCOV_DRIVE_MOUNT})
+    if exists($ENV{LCOV_DRIVE_MOUNT});
+our $translate_windows_names =
+    exists($ENV{LCOV_DRIVE_MOUNT}) ? 1 : $^O =~ /^(?:msys|cygwin)$/;
+
+sub posix_path
+{
+    # The name this perl can use for the file the argument names:  the argument
+    #   itself, unless it is a Windows path name and we are a perl which cannot
+    #   read one.
+    my $path = shift;
+    return $path unless defined($path) && $translate_windows_names;
+    # the separator first, and everywhere:  a backslash is the Windows
+    #   separator, whether the path is absolute, relative or a UNC name, and
+    #   whether or not it is written consistently - 'Z:\dir/other\file' is a
+    #   path a Windows tool might pass us.  The result of this
+    #   alone is usable for a relative name, and for a UNC name, which is
+    #   '//host/share/...' here
+    $path =~ s{\\}{/}g;
+    return $path unless $path =~ m{^([A-Za-z]):/(.*)$};
+    my ($drive, $rest) = (lc($1), $2);
+    foreach my $mount (@drive_mounts) {
+        return "$mount/$drive/$rest" if -d "$mount/$drive";
+    }
+    # a drive this installation has not mounted:  there is no name for it to be
+    #   translated to, so leave it as is and let whatever needs the file
+    #   report the drive the user named
+    return $path;
+}
+
+sub posix_paths
+{
+    # 'posix_path' applied in place to whatever each of @_ refers to:  a
+    #   reference to a scalar holding one path, or to an array holding several.
+    #   This is how a tool translates everything it was handed in one place,
+    #   before any of it is looked at.
+    foreach my $ref (@_) {
+        if ('ARRAY' eq ref($ref)) {
+            @$ref = map({ posix_path($_) } @$ref);
+        } else {
+            $$ref = posix_path($$ref);
+        }
+    }
+}
+
+sub warn_mangled_path
+{
+    # A PATH entry which is a single letter is a drive letter which lost its
+    #   colon:  something put 'S:/tools/lcov/bin' into a PATH whose separator
+    #   is ':' here, and the shell split it into 'S' and '/tools/lcov/bin'.
+    #   Neither of those is a directory, so the directory that was meant is not
+    #   searched at all - while 'echo $PATH' still shows its name.  This looks
+    #   like a broken install rather than a bad variable.
+    #   Typical tools which aren't found are usually 'java', 'gcov' or
+    #   'coverage'
+    # This function attempts to report the actual issue on platforms
+    # whose 'perl' thinks the drive letter is meaningful.
+    # On Unix, a single letter directory is fine - or is somebody else's problem
+    return unless $translate_windows_names && defined($ENV{PATH});
+    my @entries = split(/:/, $ENV{PATH}, -1);
+    for (my $i = 0; $i < scalar(@entries); ++$i) {
+        next unless $entries[$i] =~ /^[A-Za-z]$/;
+        # the rest of the split name is the next entry, if there is one:
+        my $whole = $entries[$i] . ':' .
+            ($i + 1 < scalar(@entries) ? $entries[$i + 1] : '');
+        my $posix = posix_path($whole);
+        # there is nothing to suggest when the drive is not mounted, or when the
+        #   letter was the last thing on the PATH and has no remainder to rejoin
+        my $instead =
+            $posix eq $whole ? 'the name this perl understands' : "'$posix'";
+        # write directly to STDERR rather than 'warn': this runs while the
+        #  module is being loaded, so the message infrastructure (the
+        #  'warn_handler') isn't initialized yet
+        my $msg = "Warning: PATH entry '$entries[$i]' is a single letter: ";
+        $msg .= "'$whole' was split on the ':' of its drive letter, which is ";
+        $msg .= "the PATH separator here, so that directory is not being ";
+        $msg .= "searched.  Use $instead in PATH instead.\n";
+        print(STDERR $msg);
+    }
+}
+
+# The script we were loaded by:  the directory it is installed in - which is
+#   where it finds the other tools of the same installation - and the name it
+#   is to call itself in its messages.
+#   FindBin doesn't work because it doesn't handle $0 on windows - see above.
+sub _tool_paths
+{
+    my $path = posix_path($0);
+    return (getcwd(), $path) unless -f $path;
+    my $abs = abs_path($path);
+    # abs_path() answers undef if the script was moved out from under us:  the
+    #   name we have is then the best one left
+    $abs = $path unless defined($abs);
+    return (dirname($abs), basename($abs));
+}
+our ($tool_dir, $tool_name) = _tool_paths();
 
 # get_version.sh lives beside the tools in bin/, so $tool_dir finds it whenever
 # we are loaded by one of them.  When we are loaded some other way - a
 # diagnostic one-liner, or lib/LcovUtil/Makefile.PL deriving the error ids -
-# $FindBin::RealBin is the caller's directory instead, and running the script
+# $tool_dir is that caller's directory instead, and running the script
 # from there would print a bare 'No such file or directory' to stderr and leave
 # $VERSION empty.  Look beside this file as well before giving up, so the
 # version is right and nothing is logged in either case.
+# __FILE__ is translated for the same reason $0 is:  when the @INC entry which
+# found this file named the lib directory the Windows way, rel2abs() would
+# otherwise put the current directory in front of the drive letter and the
+# fallback would name nothing.  See 'posix_path' above.
 #
 # Keep the '$VERSION =' assignment on one line:  'make install' runs bin/fix.pl,
 # which replaces the remainder of that line with a literal version string.
 sub _find_version
 {
     foreach my $dir ($tool_dir,
-                     File::Spec->catdir(File::Basename::dirname(
-                                                   File::Spec->rel2abs(__FILE__)
-                                        ),
-                                        File::Spec->updir(),
-                                        'bin')
+                     File::Spec->catdir(
+                                   File::Basename::dirname(
+                                       File::Spec->rel2abs(posix_path(__FILE__))
+                                   ),
+                                   File::Spec->updir(),
+                                   'bin')
     ) {
         my $script = File::Spec->catfile($dir, 'get_version.sh');
         return `"$script" --full` if -x $script;
@@ -1245,7 +1361,7 @@ sub save_cmd_line($$)
 {
     my ($argv, $bin) = @_;
     my $cmd = $lcovutil::tool_name;
-    $lcovutil::profileData{config}{bin} = "$FindBin::RealBin";
+    $lcovutil::profileData{config}{bin} = $bin;
     foreach my $arg (@$argv) {
         $cmd .= ' ';
         if ($arg =~ /\s/) {
@@ -1447,6 +1563,8 @@ sub configure_callback
         1 == scalar(@_) ?
         split($lcovutil::split_pattern, join($lcovutil::split_char, @_)) :
         @_;
+    # The first element names the script or module;  the rest are its callback arguments
+    $args[0] = posix_path($args[0]);
     my $script = $args[0];
     if ($script =~ /\.pm$/) {
         my $dir     = File::Basename::dirname($script);
@@ -1900,6 +2018,8 @@ sub apply_rc_params($)
 
     my $set_value = 0;
 
+    # the config file may have windows style pathname
+    posix_paths(\@opt_config_files);
     if (0 != scalar(@opt_config_files)) {
         foreach my $f (@opt_config_files) {
             $set_value |= read_config($f, \%rcHash);
@@ -1907,7 +2027,8 @@ sub apply_rc_params($)
     } else {
         foreach my $v (['HOME', '.lcovrc'], ['LCOV_HOME', 'etc', 'lcovrc']) {
             next unless exists($ENV{$v->[0]});
-            my $f = File::Spec->catfile($ENV{$v->[0]}, splice(@$v, 1));
+            my $f =
+                File::Spec->catfile(posix_path($ENV{$v->[0]}), splice(@$v, 1));
             if (-r $f) {
                 $set_value |= read_config($f, \%rcHash);
                 last;
@@ -1989,6 +2110,8 @@ sub parseOptions
         print("$tool_name: $lcov_version\n");
         exit(0);
     }
+    posix_paths(\$message_log);
+    posix_paths($output_arg) if defined($output_arg);
     if (defined($message_log)) {
         if (!$message_log) {
             # base log file name on output arg (if specified) or tool name otherwise
@@ -2032,9 +2155,10 @@ sub parseOptions
         @{$rc->[0]} = @{$rc->[1]} unless (@{$rc->[0]});
     }
 
-    $ReadCurrentSource::searchPath =
-        SearchPath->new('source directory',
-                        @ReadCurrentSource::source_directories);
+    # canonicalize windows paths
+    posix_paths(\@ReadCurrentSource::source_directories,
+                \@lcovutil::build_directory, \$lcovutil::tmp_dir,
+                \$lcovutil::profile);
 
     $lcovutil::stop_on_error = 0
         if (defined $keepGoing);
@@ -2059,6 +2183,13 @@ sub parseOptions
     # ...and which platform's paths we are working in - after the line above,
     #   because an invalid value is an ignorable error.
     set_path_style();
+
+    # Now that we know what to ignore:  a source directory which is not a
+    #   directory is an ignorable 'path' error, so this cannot be built until
+    #   'parse_ignore_errors' above has decided the error is fatal.
+    $ReadCurrentSource::searchPath =
+        SearchPath->new('source directory',
+                        @ReadCurrentSource::source_directories);
 
     # Make sure the parent directory that intermediate data goes under exists.
     #   Do this before the 'lcov --capture' early return below:  'lcov' calls
@@ -12964,7 +13095,9 @@ sub find_from_glob
 {
     my @merge;
     die("no files specified") unless (@_);
-    foreach my $pattern (@_) {
+    foreach my $arg (@_) {
+        # may be a windows path name
+        my $pattern = lcovutil::posix_path($arg);
 
         if (-f $pattern) {
             # this is a glob match...
@@ -14011,7 +14144,7 @@ sub merge
 }
 
 # call the common initialization functions
-
+lcovutil::warn_mangled_path();    # warn about unrecognizable windows paths
 lcovutil::define_errors();
 lcovutil::init_filters();
 
@@ -14030,11 +14163,6 @@ lcovutil::init_filters();
     # to confirm that each of its legs really ran the backend it intended to.
     our $XS_LOAD_ERROR = '';
     unless ($ENV{LCOV_PURE_PERL}) {
-        my $xs_lib = $lcovutil::tool_dir;
-        # tool_dir may not be set yet at module load time; fall back to FindBin
-        if (!defined $xs_lib || !-d $xs_lib) {
-            $xs_lib = $FindBin::Bin;
-        }
         # Try lib/LcovUtil relative to the lcovutil.pm file itself
         my $self_dir = File::Basename::dirname(__FILE__);
         my $xs_blib  = File::Spec->catdir($self_dir, 'LcovUtil', 'blib', 'lib');

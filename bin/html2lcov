@@ -57,7 +57,9 @@ use File::Basename qw(basename dirname);
 use File::Temp qw(tempfile);    # ..and 'newdir', for the scrape children
 use Time::HiRes;                # for profiling
 
-use lib "$FindBin::RealBin/../lib";
+# Windows path handling - see comment in jacoco2lcov
+use lib "$FindBin::RealBin/../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../lib' };
 use lcovutil qw($tool_name);
 
 sub print_usage
@@ -335,7 +337,7 @@ sub read_current_sf
 my $startTime = Time::HiRes::gettimeofday();
 $lcovutil::br_coverage   = 1;
 $lcovutil::func_coverage = 1;
-lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
+lcovutil::save_cmd_line(\@ARGV, $lcovutil::tool_dir);
 
 my $output_file = '';
 my $diff_report = '';
@@ -349,6 +351,9 @@ if (!lcovutil::parseOptions({}, \%options)) {
     exit(1);
 }
 
+# translate windows paths, if necessary
+lcovutil::posix_paths(\$output_file, \$diff_report, \@ARGV);
+
 # --current-file:  each value may itself be a separator-joined list, so expand
 #   using the standard lcovutil idiom.  When any --current-file is given, the
 #   union of their 'SF:' paths becomes the whitelist of current source files:
@@ -358,6 +363,7 @@ if (!lcovutil::parseOptions({}, \%options)) {
 @current_files =
     split($lcovutil::split_pattern,
           join($lcovutil::split_char, @current_files));
+lcovutil::posix_paths(\@current_files);    # possible windows path
 my %currentSF;
 my $have_current = scalar(@current_files);
 foreach my $f (@current_files) {

@@ -96,7 +96,9 @@ use Time::HiRes;    # for profiling
 use POSIX;
 use Data::Dumper;
 
-use lib "$FindBin::RealBin/../lib";
+# Windows path issues - see comment in jacoco2lcov
+use lib "$FindBin::RealBin/../lib",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '../lib' };
 use lcovutil qw (set_tool_name define_errors parse_ignore_errors
                  $tool_name $tool_dir $lcov_version $lcov_url
                  ignorable_error
@@ -119,7 +121,11 @@ use lcovutil qw (set_tool_name define_errors parse_ignore_errors
 
 # Global constants
 our $title = "LCOV - differential code coverage report";
-lcovutil::set_tool_name(basename($0));
+# the name we were invoked with - which might not be the one worked out by
+#   lcovutil:  that one is resolved, so a link is reported as the tool it points
+#   at.  'posix_path' makes basename() work on the Windows $0 so
+#   git-bash, MSYS or Cygwin perl can be handled - see lcovutil.pm.
+lcovutil::set_tool_name(basename(lcovutil::posix_path($0)));
 
 our $debugScheduler = 0;
 
@@ -7322,7 +7328,7 @@ package main;
 
 # Global variables & initialization
 
-lcovutil::save_cmd_line(\@ARGV, "$FindBin::RealBin");
+lcovutil::save_cmd_line(\@ARGV, $lcovutil::tool_dir);
 
 # TraceFile Instance containing all data from the 'current' .info file
 #  - constructed at start of GenHtml
@@ -7563,6 +7569,11 @@ if (!lcovutil::parseOptions(\%genhtml_rc_opts, \%genhtml_options,
     print(STDERR "Use $tool_name --help to get usage information\n");
     exit(1);
 }
+
+# Translate windows paths, if necessary
+lcovutil::posix_paths(\$desc_filename, \$css_filename,
+                      \$diff_filename, \$serialize,
+                      \$html_prolog_file, \$html_epilog_file);
 
 $merge_function_aliases = 1
     if ($suppress_function_aliases ||

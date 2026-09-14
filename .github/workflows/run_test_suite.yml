@@ -139,6 +139,18 @@ jobs:
           path: tests/test.log
           if-no-files-found: error
 
+      # upload-artifact rejects the whole upload if any path contains one of
+      #   " : < > | * ? CR LF - which some tests (Windows path emulation, glob
+      #   handling) create on purpose.  A failing test may not have cleaned up.
+      #   Also restore permissions on anything a test made unreadable.
+      - name: Remove file names upload-artifact cannot handle
+        if: ${{ always() }}
+        run: |-
+          set -x
+          chmod -R u+rwX tests || true
+          find tests -depth -name '*[":<>|*?]*' -print -exec rm -rf {} +
+          find tests -depth -name $'*[\r\n]*' -print -exec rm -rf {} +
+
       - name: Upload test directory shrapnel  as an artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@v7

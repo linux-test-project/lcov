@@ -1734,6 +1734,8 @@ Note that this option has no effect without a version\-script callback - defined
 
 The default is 0: do not generate missing information.
 
+:manpage:`jacoco2lcov(1)` is the exception: it turns this option on for itself when a version script is named, because a JaCoCo report says nothing about which version of the source it describes - so there the option is the only thing which *\-\-version\-script* can mean. Set it to 0 explicitly if you want the callback used for nothing but comparisons.
+
 ``version_script`` = *path_to_executable | parameter*
 -----------------------------------------------------
 

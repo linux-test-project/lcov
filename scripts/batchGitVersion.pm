@@ -37,7 +37,9 @@ use File::Basename qw(dirname basename);
 use Cwd qw/getcwd/;
 
 use FindBin;
-use lib "$FindBin::RealBin";
+# Windows path handling - see comment in jacoco2lcov
+use lib "$FindBin::RealBin",
+    do { (my $d = $0) =~ s{\\}{/}g; $d =~ s{[^/]*$}{}; $d . '.' };
 use annotateutil qw(get_modify_time compute_md5 call_get_version);
 
 our @ISA       = qw(Exporter);
