@@ -28,7 +28,7 @@ fi
 
 status=0
 
-for f in badFncLine badFncEndLine fncMismatch badBranchLine badLine ; do
+for f in badFncLine badFncEndLine badBranchLine badLine ; do
     echo lcov $LCOV_OPTS --summary $f.info
     $COVER $LCOV_TOOL $LCOV_OPTS --summary $f.info 2>&1 | tee $f.log
     if [ 0 == ${PIPESTATUS[0]} ] ; then
@@ -41,6 +41,47 @@ for f in badFncLine badFncEndLine fncMismatch badBranchLine badLine ; do
     grep -E '(unexpected|mismatched) .*line' $f.log
     if [ 0 != $? ] ; then
         echo "missing error message"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit $status
+        fi
+    fi
+
+    echo lcov $LCOV_OPTS --summary $f.info --ignore inconsistent,format
+    $COVER $LCOV_TOOL $LCOV_OPTS --summary $f.info --ignore format,inconsistent 2>&1 | tee ${f}2.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        echo "failed to ignore message ${f}2.log"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit $status
+        fi
+    fi
+    # and print the data out again..
+    echo lcov $LCOV_OPTS -o $f.out -a $f.info --ignore format,inconsistent
+    $COVER $LCOV_TOOL $LCOV_OPTS -o $f.out -a $f.info --ignore format,inconsistent --msg-log ${f}3.log
+    if [ 0 != $? ] ; then
+        echo "failed to ignore message ${f}3.log"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit $status
+        fi
+    fi
+
+done
+
+for f in fncMismatch ; do
+    echo lcov $LCOV_OPTS --summary $f.info
+    $COVER $LCOV_TOOL $LCOV_OPTS --summary $f.info 2>&1 | tee $f.log
+    if [ 1 == ${PIPESTATUS[0]} ] ; then
+        echo "failed to notice incorrect decl in $f"
+        status=1
+        if [ 0 == $KEEP_GOING ] ; then
+            exit $status
+        fi
+    fi
+    grep -E '\(multiple\) another block' $f.log
+    if [ 0 != $? ] ; then
+        echo "missing warning message"
         status=1
         if [ 0 == $KEEP_GOING ] ; then
             exit $status
